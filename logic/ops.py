@@ -77,6 +77,7 @@ NOTIFY_EVENT_NAMES = (
     "swarm_agent_restart_success",
     "swarm_agent_restart_failure",
     "swarm_agent_unhealthy",
+    "swarm_agent_recovered",
     "prune_success",
     "prune_failure",
     "user_login",
@@ -240,6 +241,13 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
         # regardless of severity, vs ``{error}`` which is only set on
         # severity=="error". Warnings (this event's typical severity)
         # would render an empty body otherwise.
+        "body":  "{message}",
+    },
+    "swarm_agent_recovered": {
+        "title": "✅ Swarm agent recovered: {name}",
+        # Recovered events use {message} for the same reason as the
+        # paired unhealthy event — severity is "success" so {error}
+        # would resolve to empty.
         "body":  "{message}",
     },
     "prune_success": {

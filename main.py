@@ -1115,21 +1115,23 @@ async def api_stats(force: bool = False):
         # Truly cold: no data to serve, must block on the gather. Same
         # contract as the cold path in /api/items.
         await _gather_stats()
-    elif cache_stale:
-        # Cache is older than the TTL: serve the prior data + kick
-        # refresh in the background so the next poll lands fresh.
-        # `stats_refreshing=True` keeps the topbar refresh spinner
-        # pulsing until that next response carries fresh data.
-        stats_refreshing = _kick_background_stats_gather()
-    elif force:
-        # Force-bypass with a fresh cache. SPA's auto-refresh path
-        # always sends `force=true` to bypass its own cadence cache,
-        # so this branch fires on every poll. Kick a background
-        # refresh for next-time but DON'T flag `stats_refreshing` —
-        # otherwise the topbar spinner would spin forever (every
-        # auto-refresh would reset the flag back to true). Spinner
-        # now only fires on genuinely-stale-cache paths.
+    elif cache_stale or force:
+        # Stale cache OR force-bypass — kick a refresh in the
+        # background. Single-flight: no-op when one is already in
+        # flight.
         _kick_background_stats_gather()
+    # `stats_refreshing` reflects whether a BACKGROUND gather is
+    # actually in flight RIGHT NOW (regardless of why it was
+    # kicked). Pre-fix the flag tracked the cache-stale predicate,
+    # which evaluated True on every poll when `_gather_stats` takes
+    # longer than the TTL (busy fleets routinely take 30-60s for
+    # the per-container `/stats` fan-out, vs the default TTL of 30s)
+    # — so the spinner span stuck "on" indefinitely. Now the flag
+    # only fires while there's a running task; once the task
+    # completes the next poll's response carries
+    # `stats_refreshing: false` and the spinner clears.
+    if _background_stats_task is not None and not _background_stats_task.done():
+        stats_refreshing = True
     # Swarm agent unhealthy detection — surfaces every node where
     # the per-node `_agent_health` consecutive-failure counter has
     # crossed the operator-tunable threshold. SPA renders a banner
@@ -1208,23 +1210,21 @@ async def api_items(force: bool = False):
     if not has_cached_data:
         # Truly cold: no data to serve, must block on the gather.
         await _gather()
-    elif cache_stale:
-        # Have data but it's older than the TTL: serve it instantly +
-        # kick refresh in the background. `cache_refreshing=True`
-        # signals the SPA to keep the topbar refresh spinner pulsing
-        # until the next poll lands fresh data.
-        cache_refreshing = _kick_background_gather()
-    elif force:
-        # Caller asked for a force refresh but the cache is still
-        # fresh — kick a background refresh for next-time but DON'T
-        # flag `cache_refreshing`. Without this gate the SPA's
-        # auto-refresh path (which always sends `force=true` to bypass
-        # the TTL gate on the SPA side) would receive
-        # `cache_refreshing=True` on every poll and the topbar
-        # spinner would spin forever — even when the cache is being
-        # served straight from a just-completed gather. Spinner now
-        # only fires on genuinely-stale-cache paths.
+    elif cache_stale or force:
+        # Stale cache OR force-bypass — kick a refresh in the
+        # background. Single-flight: no-op when one is already in
+        # flight.
         _kick_background_gather()
+    # `cache_refreshing` reflects whether a BACKGROUND gather is
+    # actually in flight RIGHT NOW. Pre-fix the flag tracked the
+    # cache-stale predicate, which evaluated True on every poll when
+    # `_gather` takes longer than the TTL — so the spinner span
+    # stuck "on" indefinitely. Now the flag only fires while there's
+    # a running task; once the task completes the next poll's
+    # response carries `cache_refreshing: false` and the spinner
+    # clears.
+    if _background_gather_task is not None and not _background_gather_task.done():
+        cache_refreshing = True
 
     return {
         "items": _cache["items"],
@@ -1656,8 +1656,17 @@ def _history_query(
         where.append("actor = ?")
         params.append(actor)
     if q:
-        like = f"%{q}%"
-        where.append("(target_name LIKE ? OR target_id LIKE ? OR error LIKE ?)")
+        # Escape SQLite LIKE meta-chars (%, _) so a search query
+        # containing those characters doesn't get treated as wildcards.
+        # Pairs with `LIKE ? ESCAPE '\\'`. Same security drift class
+        # as the host-id sites earlier — any `LIKE` against operator-
+        # influenced input goes through the helper.
+        like = "%" + _sqlite_like_escape(q) + "%"
+        where.append(
+            "(target_name LIKE ? ESCAPE '\\' "
+            "OR target_id LIKE ? ESCAPE '\\' "
+            "OR error LIKE ? ESCAPE '\\')"
+        )
         params.extend([like, like, like])
     if since is not None:
         where.append("ts >= ?")
@@ -2206,6 +2215,7 @@ class SettingsIn(BaseModel):
     notify_event_swarm_agent_restart_success: Optional[str] = None
     notify_event_swarm_agent_restart_failure: Optional[str] = None
     notify_event_swarm_agent_unhealthy: Optional[str] = None
+    notify_event_swarm_agent_recovered: Optional[str] = None
     notify_event_prune_success: Optional[str] = None
     notify_event_prune_failure: Optional[str] = None
     # Security event — defaults to OFF (login traffic is noisy).
@@ -2292,6 +2302,7 @@ async def api_get_settings(request: Request):
         "notify_event_swarm_agent_restart_success": get_setting_bool("notify_event_swarm_agent_restart_success", True),
         "notify_event_swarm_agent_restart_failure": get_setting_bool("notify_event_swarm_agent_restart_failure", True),
         "notify_event_swarm_agent_unhealthy":     get_setting_bool("notify_event_swarm_agent_unhealthy", True),
+        "notify_event_swarm_agent_recovered":     get_setting_bool("notify_event_swarm_agent_recovered", True),
         "notify_event_prune_success":             get_setting_bool("notify_event_prune_success", True),
         "notify_event_prune_failure":             get_setting_bool("notify_event_prune_failure", True),
         # Security event — default OFF (login spam is noisy; opt-in).
@@ -6532,15 +6543,20 @@ async def api_hosts_list(force: bool = False):
     cached_state = _peek_cached_host_provider_state()
     if cached_state is not None:
         state = cached_state
-        hub_probing = False
         # Force-bypass with a fresh cached state — kick a background
-        # refresh so the next call hits a re-probed cache, but don't
-        # signal hub_probing (we just served fresh data).
+        # refresh so the next call hits a re-probed cache.
         if force:
             try:
                 asyncio.create_task(_get_host_provider_state(force=force))
             except RuntimeError:
                 pass
+        # `hub_probing` reflects whether a hub probe is actually in
+        # flight via the single-flight lock. Pre-fix the flag was
+        # always set to True on the force-bypass branch, regardless
+        # of whether a probe was actually running — every auto-poll
+        # would re-set it and the topbar spinner would spin forever.
+        # Now the flag tracks live state only.
+        hub_probing = _host_provider_lock.locked()
     else:
         # Cheap subset: configured providers from settings (no probe).
         # Empty errors / batch maps — the snapshot fallback below fills
@@ -8514,11 +8530,15 @@ async def api_hosts_debug(
             else:
                 # Try short-hostname fallback (mirrors the snapshot
                 # lookup tolerance in apply_host_snapshot_fallback).
+                # LIKE pattern needs ESCAPE so a hostname containing
+                # `_` (e.g. `web_01`) doesn't match unrelated hosts via
+                # the underscore-wildcard. Same security drift class
+                # as the bulk-resume + timeline sites.
                 short = (id or "").split(".", 1)[0]
                 row5b = c.execute(
                     "SELECT host, ts, length(data) FROM host_snapshots "
-                    "WHERE host=? OR host LIKE ?",
-                    (short, short + ".%"),
+                    "WHERE host=? OR host LIKE ? ESCAPE '\\'",
+                    (short, _sqlite_like_escape(short) + ".%"),
                 ).fetchone()
                 if row5b:
                     counters["snapshot"] = {
