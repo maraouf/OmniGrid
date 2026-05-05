@@ -162,7 +162,7 @@
          this wrapper is `display: contents` so its children flow into
          the <header> flex above. -->
     <div class="topbar-row1 contents sm:flex sm:items-center sm:gap-4 sm:px-5 sm:py-2.5 sm:max-w-full sm:mx-auto sm:flex-wrap">
-      <div class="flex items-center gap-2 sm:pr-4 sm:mr-1 sm:border-r sm:border-[var(--border)] min-w-0">
+      <div class="flex items-center gap-2 sm:pe-4 sm:me-1 sm:border-e sm:border-[var(--border)] min-w-0">
         <div class="app-logo">
           <!-- OmniGrid hub-and-spokes mark. Mirrors the favicon + omnigrid.png
                (see static/img/logo/omnigrid.svg). Centre node emphasised,
@@ -237,12 +237,12 @@
         <input type="search" id="topbar-search" x-model="search" x-ref="searchBox"
                :placeholder="t('topbar.search_placeholder')"
                class="w-full">
-        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]">
+        <span class="absolute start-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
         </span>
         <button type="button" x-show="search" @click="search=''"
                 :aria-label="t('actions.clear_search') || 'Clear search'"
-                class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] hover:text-[var(--text)] cursor-pointer text-xs bg-transparent border-0 p-0">✕</button>
+                class="absolute end-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] hover:text-[var(--text)] cursor-pointer text-xs bg-transparent border-0 p-0">✕</button>
       </div>
 
       <!-- Row-1 right cluster — only navigation-critical actions ride
@@ -421,7 +421,7 @@
             <span x-text="t('app.signed_in_as')"></span> <span class="text-[var(--text-dim)] font-semibold normal-case" x-text="me && me.username"></span>
           </div>
           <button @click="userMenuOpen=false; view='settings'; settingsSection='profile'" class="user-menu-item">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             <span x-text="t('user_menu.profile')"></span>
           </button>
           <!-- In-app notifications. Same row treatment as the
@@ -430,17 +430,17 @@
                dropdown. The chip is hidden at 0 so a clean state
                doesn't look like dead UI. -->
           <button @click="userMenuOpen=false; openNotificationsPopup()" class="user-menu-item user-menu-item-with-badge">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             <span x-text="t('nav.notifications')"></span>
             <span class="user-menu-item-badge" x-show="(notificationsUnread || 0) > 0"
                   x-text="(notificationsUnread > 99) ? '99+' : notificationsUnread"></span>
           </button>
           <button @click="userMenuOpen=false; view='settings'" class="user-menu-item">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             <span x-text="t('user_menu.settings')"></span>
           </button>
           <button x-show="isAdmin()" @click="userMenuOpen=false; view='admin'" class="user-menu-item">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             <span x-text="t('user_menu.admin')"></span>
           </button>
           <button @click="userMenuOpen=false; showHotkeys=true" class="user-menu-item">
@@ -449,7 +449,7 @@
           </button>
           <div class="border-t border-[var(--border)]"></div>
           <button @click="userMenuOpen=false; logout()" class="user-menu-item user-menu-item-danger">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             <span x-text="t('user_menu.sign_out')"></span>
           </button>
         </div>
@@ -2815,7 +2815,7 @@
                   <td class="mono text-[12px] truncate" :title="h.target_name || ''" x-text="h.target_name || '—'"></td>
                   <td class="hidden md:table-cell text-[11.5px] text-dim truncate" x-text="h.target_stack || '—'"></td>
                   <td><span class="pill" :class="h.status==='success' ? 'pill-healthy' : 'pill-error'" x-text="h.status"></span></td>
-                  <td class="hidden md:table-cell mono text-[11.5px] text-dim" x-text="(h.duration||0).toFixed(1) + 's'"></td>
+                  <td class="hidden md:table-cell mono text-[11.5px] text-dim" x-text="t('common.seconds_short', { value: (h.duration||0).toFixed(1) })"></td>
                   <td class="hidden lg:table-cell text-[11.5px] text-dim" x-text="h.actor || 'ui'"></td>
                 </tr>
               </template>
@@ -2975,7 +2975,7 @@
 
   <!-- ================== ACTIVE OPS FLOATING PANEL ================== -->
   <div x-show="activeOps.length>0"
-       class="fixed bottom-4 right-4 bg-[var(--surface)] border border-[var(--primary)]/40 rounded-md w-[380px] max-w-[calc(100vw-32px)] z-40 glow fade-in">
+       class="fixed bottom-4 end-4 bg-[var(--surface)] border border-[var(--primary)]/40 rounded-md w-[380px] max-w-[calc(100vw-32px)] z-40 glow fade-in">
     <div class="px-3 py-2 bg-[var(--surface-2)] border-b border-[var(--border)] flex items-center gap-2 cursor-pointer rounded-t-md"
          @click="opsExpanded=!opsExpanded">
       <span class="dot dot-primary dot-pulse"></span>
@@ -2988,13 +2988,13 @@
         <div class="p-2.5 border-b border-[var(--border)] last:border-0"
              :class="op.status === 'success' ? 'bg-[var(--success)]/10' : op.status === 'error' ? 'bg-[var(--danger)]/10' : ''">
           <div class="flex items-center gap-2">
-            <span class="chip text-[10px]" x-text="t('op_types.' + op.op_type) !== 'op_types.' + op.op_type ? t('op_types.' + op.op_type) : op.op_type.replace('_',' ')"></span>
+            <span class="chip text-[10px]" x-text="opTypeLabel(op.op_type)"></span>
             <span class="font-medium text-[12px] mono flex-1 truncate" x-text="op.target_name"></span>
             <span x-show="op.status !== 'running'"
                   class="text-[10px] font-semibold"
                   :class="op.status === 'success' ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
-                  x-text="t('op_status.' + op.status) !== 'op_status.' + op.status ? t('op_status.' + op.status) : op.status"></span>
-            <span class="text-[10px] text-[var(--text-faint)]" x-text="(op.duration || 0).toFixed(1) + 's'"></span>
+                  x-text="opStatusLabel(op.status)"></span>
+            <span class="text-[10px] text-[var(--text-faint)]" x-text="t('common.seconds_short', { value: (op.duration || 0).toFixed(1) })"></span>
           </div>
           <div class="mt-1.5 bg-[var(--bg)] rounded p-2 mono text-[10.5px] space-y-0.5 max-h-24 overflow-y-auto scrollbar border border-[var(--border)]">
             <template x-for="(ev,i) in op.events" :key="i">
@@ -3356,12 +3356,12 @@
                   <div class="flex items-center gap-2 mb-3 text-[11px]">
                     <span class="text-[var(--text-faint)]"
                           x-text="t('host_drawer.timeline.range_label')"></span>
-                    <template x-for="opt in [[24, '24h'], [168, '7d'], [720, '30d']]" :key="opt[0]">
+                    <template x-for="opt in [[24, 'range_24h'], [168, 'range_7d'], [720, 'range_30d']]" :key="opt[0]">
                       <button type="button"
                               @click="setHostTimelineRange(h.id, opt[0])"
                               class="btn btn-ghost text-[11px] px-2 py-0.5"
                               :class="((hostTimelineRange[h.id] || 168) === opt[0]) ? 'btn-soft' : ''"
-                              x-text="opt[1]"></button>
+                              x-text="t('host_drawer.timeline.' + opt[1])"></button>
                     </template>
                     <span class="flex-1"></span>
                     <button type="button"
@@ -7691,7 +7691,11 @@
                  @keydown.enter.prevent="commandPaletteActivate()"
                  :placeholder="t('command_palette.placeholder')"
                  class="flex-1 bg-transparent border-0 outline-none text-[14px] text-[var(--text)] placeholder:text-[var(--text-faint)]"
-                 autocomplete="off" spellcheck="false">
+                 autocomplete="off" spellcheck="false"
+                 role="combobox"
+                 aria-controls="cmdpal-results"
+                 aria-expanded="true"
+                 :aria-activedescendant="commandPaletteResults().length ? 'cmdpal-row-' + commandPaletteSelectedIdx : null">
           <kbd class="text-[10.5px] text-[var(--text-faint)] border border-[var(--border)] rounded px-1.5 py-0.5">Esc</kbd>
         </div>
         <div class="overflow-y-auto scrollbar flex-1">
@@ -7700,12 +7704,17 @@
                  x-text="commandPaletteQuery ? t('command_palette.empty_state') : t('command_palette.start_typing')"></div>
           </template>
           <template x-if="commandPaletteResults().length > 0">
-            <div>
+            <div id="cmdpal-results" role="listbox" :aria-label="t('command_palette.results_label')">
               <template x-for="(r, i) in commandPaletteResults()" :key="r.kind + ':' + (r.payload && (r.payload.id || r.payload) || r.label) + ':' + i">
-                <div :data-cmdpal-idx="i"
+                <button type="button"
+                     :id="'cmdpal-row-' + i"
+                     :data-cmdpal-idx="i"
+                     role="option"
+                     :aria-selected="commandPaletteSelectedIdx === i ? 'true' : 'false'"
+                     tabindex="-1"
                      @click="commandPaletteSelectedIdx = i; commandPaletteActivate()"
                      @mouseenter="commandPaletteSelectedIdx = i"
-                     class="cmdpal-row px-3 py-2 cursor-pointer flex items-center gap-3 border-b border-[var(--border)] last:border-0"
+                     class="cmdpal-row w-full text-start px-3 py-2 cursor-pointer flex items-center gap-3 border-b border-[var(--border)] last:border-0"
                      :class="commandPaletteSelectedIdx === i ? 'cmdpal-row-active' : ''">
                   <span class="cmdpal-kind-pill text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
                         :class="'cmdpal-kind-' + r.group"
@@ -7714,16 +7723,16 @@
                     <span class="block text-[12.5px] text-[var(--text)] truncate" x-text="r.label"></span>
                     <span x-show="r.sub" class="block text-[10.5px] text-[var(--text-faint)] truncate mono" x-text="r.sub"></span>
                   </span>
-                  <span x-show="commandPaletteSelectedIdx === i" class="text-[10.5px] text-[var(--text-faint)]">↵</span>
-                </div>
+                  <span x-show="commandPaletteSelectedIdx === i" class="text-[10.5px] text-[var(--text-faint)]" aria-hidden="true">↵</span>
+                </button>
               </template>
             </div>
           </template>
         </div>
         <div class="px-3 py-2 border-t border-[var(--border)] text-[10.5px] text-[var(--text-faint)] flex items-center gap-3 flex-wrap">
-          <span><kbd class="border border-[var(--border)] rounded px-1">↑</kbd> <kbd class="border border-[var(--border)] rounded px-1">↓</kbd> navigate</span>
-          <span><kbd class="border border-[var(--border)] rounded px-1">↵</kbd> select</span>
-          <span><kbd class="border border-[var(--border)] rounded px-1">Esc</kbd> close</span>
+          <span><kbd class="border border-[var(--border)] rounded px-1">↑</kbd> <kbd class="border border-[var(--border)] rounded px-1">↓</kbd> <span x-text="t('command_palette.footer_navigate')"></span></span>
+          <span><kbd class="border border-[var(--border)] rounded px-1">↵</kbd> <span x-text="t('command_palette.footer_select')"></span></span>
+          <span><kbd class="border border-[var(--border)] rounded px-1">Esc</kbd> <span x-text="t('command_palette.footer_close')"></span></span>
         </div>
       </div>
     </div>
@@ -7752,7 +7761,7 @@
                   <li class="flex items-center justify-between gap-3 text-[12.5px]">
                     <span class="text-[var(--text-dim)]">
                       <span x-text="entry.label"></span>
-                      <span x-show="entry.note" class="text-[10.5px] text-[var(--text-faint)] ml-1" x-text="'· ' + (entry.note || '')"></span>
+                      <span x-show="entry.note" class="text-[10.5px] text-[var(--text-faint)] ms-1" x-text="'· ' + (entry.note || '')"></span>
                     </span>
                     <span class="flex items-center gap-1 flex-shrink-0">
                       <template x-for="(k, i) in entry.keys" :key="i">

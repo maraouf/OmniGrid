@@ -9480,6 +9480,28 @@ function app() {
       if (translated && translated !== key) return translated;
       return s.charAt(0).toUpperCase() + s.slice(1);
     },
+    // Active-Ops chip / history label for the canonical op_type enum
+    // (update_stack / update_container / restart_service / restart_container
+    // / remove_container). Same i18n-first-then-fallback pattern as the
+    // dell* / ups* helpers. Fallback splits underscores AND capitalises
+    // each word so a brand-new op_type ("update_in_place") renders
+    // "Update In Place" instead of the brittle bare-replace shape.
+    opTypeLabel(op_type) {
+      const s = String(op_type || '').toLowerCase();
+      if (!s) return '';
+      const key = `op_types.${s}`;
+      const translated = this.t(key);
+      if (translated && translated !== key) return translated;
+      return s.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    },
+    opStatusLabel(status) {
+      const s = String(status || '').toLowerCase();
+      if (!s) return '';
+      const key = `op_status.${s}`;
+      const translated = this.t(key);
+      if (translated && translated !== key) return translated;
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    },
     // Physical-disk state pill — Dell OMSA arrayDiskState labels.
     // Visual encoding:
     // green  (pill-ok)     — `online` (active in a RAID array, healthy)

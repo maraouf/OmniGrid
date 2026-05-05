@@ -1587,10 +1587,24 @@ details summary::-webkit-details-marker {
    `kind` (e.g. "action") needs ONE new `.cmdpal-kind-action` rule.
    --------------------------------------------------------------------------- */
 .cmdpal-row {
+    /* Reset native <button> chrome — the rows are <button role="option">
+     * (not clickable <div>s) so keyboard / screen-reader semantics work.
+     * Background / border / rounded corners / text-align all reset to
+     * the chrome the row had as a <div>. */
+    appearance: none;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    color: inherit;
+    font: inherit;
     transition: background 0.08s linear;
 }
 .cmdpal-row-active {
     background: var(--row-hover);
+}
+.cmdpal-row:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
 }
 .cmdpal-kind-pill {
     flex-shrink: 0;
