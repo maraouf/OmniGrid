@@ -1,0 +1,320 @@
+      <section x-show="settingsSection === 'security'" class="page-grid space-y-5">
+        <!-- Security card — change password (local users only) -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <div class="flex items-center gap-2 mb-4">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-lock"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.security')"></h3>
+          </div>
+          <template x-if="me && me.source === 'local'">
+            <form @submit.prevent="changePassword()" class="space-y-3">
+              <h4 class="font-semibold text-[12px]" x-text="t('settings.profile.change_password')"></h4>
+              <p class="text-[11.5px] text-[var(--text-faint)]" x-text="t('settings.profile.password_hint')"></p>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.current_password')"></label>
+                  <input x-model="passwordForm.current" type="password" required autocomplete="current-password" class="w-full text-[12.5px]">
+                </div>
+                <div>
+                  <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.new_password')"></label>
+                  <input x-model="passwordForm.next" type="password" required minlength="8" autocomplete="new-password" class="w-full text-[12.5px]">
+                </div>
+                <div>
+                  <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.confirm_new_password')"></label>
+                  <input x-model="passwordForm.confirm" type="password" required minlength="8" autocomplete="new-password" class="w-full text-[12.5px]">
+                </div>
+              </div>
+              <div x-show="passwordForm.next" class="pw-strength">
+                <div class="pw-meter">
+                  <div class="pw-bar" :class="'pw-bar-' + passwordStrength.color">
+                    <div :style="'width:' + (passwordStrength.score * 25) + '%'"></div>
+                  </div>
+                  <div class="pw-label" :class="'pw-label-' + passwordStrength.color"
+                       x-text="passwordStrength.label"></div>
+                </div>
+                <ul class="pw-requirements">
+                  <li :class="passwordStrength.criteria.length8 ? 'met' : ''">
+                    <span aria-hidden="true" x-text="passwordStrength.criteria.length8 ? '✓' : '○'"></span>
+                    <span x-text="t('password.requirements.length8')"></span>
+                  </li>
+                  <li :class="passwordStrength.criteria.length12 ? 'met' : ''">
+                    <span aria-hidden="true" x-text="passwordStrength.criteria.length12 ? '✓' : '○'"></span>
+                    <span x-text="t('password.requirements.length12')"></span>
+                  </li>
+                  <li :class="(passwordStrength.criteria.lower && passwordStrength.criteria.upper) ? 'met' : ''">
+                    <span aria-hidden="true" x-text="(passwordStrength.criteria.lower && passwordStrength.criteria.upper) ? '✓' : '○'"></span>
+                    <span x-text="t('password.requirements.mixed_case')"></span>
+                  </li>
+                  <li :class="passwordStrength.criteria.digit ? 'met' : ''">
+                    <span aria-hidden="true" x-text="passwordStrength.criteria.digit ? '✓' : '○'"></span>
+                    <span x-text="t('password.requirements.digit')"></span>
+                  </li>
+                  <li :class="passwordStrength.criteria.symbol ? 'met' : ''">
+                    <span aria-hidden="true" x-text="passwordStrength.criteria.symbol ? '✓' : '○'"></span>
+                    <span x-text="t('password.requirements.symbol')"></span>
+                  </li>
+                  <li x-show="passwordForm.confirm"
+                      :class="(passwordForm.next === passwordForm.confirm) ? 'met' : 'mismatch'">
+                    <span aria-hidden="true" x-text="(passwordForm.next === passwordForm.confirm) ? '✓' : '✗'"></span>
+                    <span x-text="t('password.requirements.match')"></span>
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <button type="submit" :disabled="passwordBusy || !passwordStrength.criteria.length8" class="btn btn-primary text-[12px]"
+                        x-text="passwordBusy ? t('actions.saving') : t('settings.profile.change_password')"></button>
+              </div>
+            </form>
+          </template>
+          <template x-if="me && me.source === 'authentik'">
+            <div class="text-[12.5px] text-[var(--text-dim)] leading-relaxed" x-text="t('settings.profile.authentik_hint')"></div>
+          </template>
+          <template x-if="me && me.source !== 'local' && me.source !== 'authentik'">
+            <div class="text-[12.5px] text-[var(--text-dim)]" x-text="t('settings.profile.api_token_hint')"></div>
+          </template>
+        </section>
+
+        <!-- Two-factor authentication card. Local users only —
+             Authentik users see an i18n hint pointing at their IdP. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
+                 x-show="me && me.source === 'local'">
+          <div class="flex items-center gap-2 mb-4">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.totp.title')"></h3>
+            <span x-show="totp.required" class="totp-required-pill" x-text="t('settings.profile.totp.required_pill')"></span>
+          </div>
+
+          <p class="text-[11.5px] text-[var(--text-faint)] leading-relaxed mb-3"
+             x-text="t('settings.profile.totp.intro')"></p>
+
+          <template x-if="totp.loaded && !totp.allowed">
+            <div class="text-[12.5px] text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
+                 x-text="t('settings.profile.totp.disabled_by_admin')"></div>
+          </template>
+
+          <template x-if="totp.loaded && totp.allowed && !totp.enabled && totpEnrolStage === 'idle'">
+            <div class="space-y-3">
+              <div class="text-[12.5px] text-[var(--text-dim)]"
+                   x-text="t('settings.profile.totp.not_enabled_status')"></div>
+              <button @click="startTotpEnrol()" class="btn btn-primary text-[12px]"
+                      :disabled="totpEnrolBusy"
+                      x-text="totpEnrolBusy ? t('actions.saving') : t('settings.profile.totp.enable_button')"></button>
+            </div>
+          </template>
+
+          <template x-if="totp.loaded && totp.allowed && totpEnrolStage === 'qr'">
+            <div class="space-y-3">
+              <p class="text-[12px] text-[var(--text-dim)]"
+                 x-text="t('settings.profile.totp.qr_hint')"></p>
+              <div id="totp-enrol-qr" class="totp-qr"></div>
+              <div class="totp-secret-row">
+                <span x-text="t('settings.profile.totp.secret_label')"></span>
+                <code class="mono" x-text="totpEnrol.secret"></code>
+              </div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1"
+                     x-text="t('settings.profile.totp.verify_label')"></label>
+              <input x-model="totpEnrol.code" type="text" inputmode="numeric"
+                     autocomplete="one-time-code" maxlength="6"
+                     class="w-40 mono text-[13px]"
+                     :placeholder="t('settings.profile.totp.verify_placeholder')">
+              <div class="flex items-center gap-2">
+                <button @click="confirmTotpEnrol()" class="btn btn-primary text-[12px]"
+                        :disabled="totpEnrolBusy"
+                        x-text="totpEnrolBusy ? t('actions.saving') : t('settings.profile.totp.confirm_button')"></button>
+                <button @click="cancelTotpEnrol()" class="btn btn-ghost text-[12px]"
+                        :disabled="totpEnrolBusy"
+                        x-text="t('actions.cancel')"></button>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="totpEnrolStage === 'reveal'">
+            <div class="space-y-3">
+              <h4 class="font-semibold text-[12.5px]"
+                  x-text="t('settings.profile.totp.reveal_title')"></h4>
+              <p class="text-[11.5px] text-[var(--warning)]"
+                 x-text="t('settings.profile.totp.reveal_warning')"></p>
+              <div class="totp-codes-grid">
+                <template x-for="code in totpRevealCodes" :key="code">
+                  <div class="totp-codes-grid__item" x-text="code"></div>
+                </template>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <button @click="downloadBackupCodes()" class="btn btn-soft text-[12px]"
+                        x-text="t('settings.profile.totp.download_codes')"></button>
+                <button @click="closeTotpReveal()" class="btn btn-primary text-[12px]"
+                        x-text="t('settings.profile.totp.reveal_done')"></button>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="totp.loaded && totp.allowed && totp.enabled && totpEnrolStage === 'idle'">
+            <div class="space-y-4">
+              <div class="text-[12.5px] flex items-center gap-2">
+                <span class="pill pill-success"
+                      x-text="t('settings.profile.totp.enabled_pill')"></span>
+                <span class="text-[var(--text-dim)]"
+                      x-text="t('settings.profile.totp.enabled_status')"></span>
+              </div>
+
+              <div>
+                <div class="flex items-center justify-between gap-2 mb-2">
+                  <h4 class="font-semibold text-[12.5px]"
+                      x-text="t('settings.profile.totp.backup_codes_title')"></h4>
+                  <button type="button" class="btn btn-ghost text-[11px]"
+                          @click="totpCodesRevealed = !totpCodesRevealed"
+                          x-text="totpCodesRevealed ? t('settings.profile.totp.hide') : t('settings.profile.totp.show')"></button>
+                </div>
+                <p class="text-[11px] text-[var(--text-faint)] mb-2"
+                   x-text="t('settings.profile.totp.backup_codes_hint')"></p>
+                <div class="totp-codes-grid">
+                  <template x-for="(c, i) in (totp.backup_codes || [])" :key="i">
+                    <div :class="['totp-codes-grid__item',
+                                  c.used_at ? 'totp-codes-grid__item--used' : '',
+                                  totpCodesRevealed ? '' : 'totp-codes-grid__item--masked']"
+                         x-text="totpDisplayCode(c)"></div>
+                  </template>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--border)]">
+                <button @click="regenerateTotpCodes()" class="btn btn-soft text-[12px]"
+                        x-text="t('settings.profile.totp.regenerate_button')"></button>
+                <button @click="disableTotpSelf()"
+                        :disabled="totp.required || totpDisableBusy"
+                        :title="totp.required ? t('settings.profile.totp.disable_blocked_title') : ''"
+                        class="btn btn-ghost text-[12px] text-danger"
+                        x-text="t('settings.profile.totp.disable_button')"></button>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="!totp.loaded">
+            <div class="loading-state">
+              <span class="spin-lg" aria-hidden="true"></span>
+              <span x-text="t('loading.section')"></span>
+            </div>
+          </template>
+        </section>
+
+        <!-- Passkeys card. Local users only. WebAuthn / FIDO2
+             credentials sit ALONGSIDE TOTP — either method satisfies
+             the 2FA gate. Both stay in the Security section so the
+             operator has one place to manage second factors. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
+                 x-show="me && me.source === 'local'">
+          <div class="flex items-center gap-2 mb-3">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-key"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.passkeys.title')"></h3>
+          </div>
+          <p class="text-[11.5px] text-[var(--text-faint)] leading-relaxed mb-3"
+             x-text="t('settings.profile.passkeys.subtitle')"></p>
+
+          <template x-if="passkeys.loaded && !passkeys.supported">
+            <div class="text-[12.5px] text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
+                 x-text="t('settings.profile.passkeys.server_unsupported')"></div>
+          </template>
+
+          <template x-if="passkeys.loaded && passkeys.supported && !passkeyBrowserSupported()">
+            <div class="text-[12.5px] text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
+                 x-text="t('settings.profile.passkeys.browser_unsupported')"></div>
+          </template>
+
+          <template x-if="passkeys.loaded && passkeys.supported">
+            <div class="space-y-3">
+              <template x-if="!passkeys.list.length">
+                <div class="text-[12.5px] text-[var(--text-dim)]"
+                     x-text="t('settings.profile.passkeys.list_empty')"></div>
+              </template>
+              <template x-if="passkeys.list.length">
+                <ul class="passkey-list">
+                  <template x-for="pk in passkeys.list" :key="pk.id">
+                    <li class="passkey-item">
+                      <div class="passkey-item__main">
+                        <div class="passkey-item__name" x-text="pk.friendly_name || t('settings.profile.passkeys.name_default')"></div>
+                        <div class="passkey-item__meta text-[var(--text-faint)]">
+                          <span x-text="t('settings.profile.passkeys.added_at', { when: relativeWhen(pk.created_at) })"></span>
+                          <span class="passkey-meta-sep">·</span>
+                          <span x-text="pk.last_used_at ? t('settings.profile.passkeys.last_used_at', { when: relativeWhen(pk.last_used_at) }) : t('settings.profile.passkeys.last_used_never')"></span>
+                          <template x-if="pk.transports && pk.transports.length">
+                            <span class="passkey-transports inline-flex items-center gap-1 ms-1">
+                              <template x-for="t in pk.transports" :key="t">
+                                <span class="chip pill-info text-[9.5px] px-1 py-0 mono uppercase" x-text="t"></span>
+                              </template>
+                            </span>
+                          </template>
+                          <!-- orphaned-credential badge. When the
+                               credential's stored rp_id doesn't match the
+                               page's current hostname, the operator
+                               can't use this passkey to sign in (browser
+                               correctly refuses cross-domain credentials)
+                               and should remove + re-enrol it. Empty
+                               rp_id (legacy creds) hides the badge. -->
+                          <template x-if="pk.rp_id && pk.rp_id !== (passkeys.current_rp_id || (location && location.hostname || '').toLowerCase())">
+                            <span class="chip pill-error text-[9.5px] px-1.5 py-0 ms-1"
+                                  :title="t('settings.profile.passkeys.orphaned_title', { rp_id: pk.rp_id })"
+                                  x-text="t('settings.profile.passkeys.orphaned_badge', { rp_id: pk.rp_id })"></span>
+                          </template>
+                        </div>
+                      </div>
+                      <button type="button" class="btn btn-ghost text-[11.5px] text-danger"
+                              :disabled="passkeys.busy"
+                              @click="revokePasskey(pk)"
+                              x-text="t('settings.profile.passkeys.revoke_button')"></button>
+                    </li>
+                  </template>
+                </ul>
+              </template>
+              <!-- Top margin gives breathing room above the action row
+                   so the "Add a passkey" button doesn't sit flush
+                   against the bottom of the passkey-list card. -->
+              <div class="flex items-center gap-2 flex-wrap mt-3">
+                <!-- Admin can disable passkey enrolment globally via
+                     the Authentication tab. Existing enrolments
+                     stay listed + revocable; only the Add button hides
+                     so the operator-side "I want to register a new
+                     key" path is the one blocked. -->
+                <button type="button" class="btn btn-primary text-[12px]"
+                        x-show="(me && me.passkeys && me.passkeys.allowed !== false)"
+                        :disabled="passkeys.busy || !passkeyBrowserSupported()"
+                        @click="addPasskey()"
+                        x-text="passkeys.busy ? t('settings.profile.passkeys.adding') : t('settings.profile.passkeys.add_button')"></button>
+                <span x-show="me && me.passkeys && me.passkeys.allowed === false"
+                      class="text-[11px] text-[var(--text-faint)] italic"
+                      x-text="t('settings.profile.passkeys.disabled_by_admin')"></span>
+                <span x-show="passkeys.busy" class="text-[11px] text-[var(--text-faint)]"
+                      x-text="t('settings.profile.passkeys.registering_hint')"></span>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="!passkeys.loaded">
+            <div class="loading-state">
+              <span class="spin-lg" aria-hidden="true"></span>
+              <span x-text="t('loading.section')"></span>
+            </div>
+          </template>
+        </section>
+
+        <!-- Authentik users get a passive note in lieu of the TOTP card. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
+                 x-show="me && me.source === 'authentik'">
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.totp.title')"></h3>
+          </div>
+          <p class="text-[12.5px] text-[var(--text-dim)]"
+             x-text="t('settings.profile.totp.authentik_hint')"></p>
+        </section>
+      </section>
+
+      <!-- ===== NOTIFICATIONS section — settings-sidebar peer of
+           Profile / Ignore list / Language. Per-user opt-in/out grid
+           with PER-MEDIUM granularity: each event row carries one
+           checkbox per delivery medium (Apprise / In-app / future
+           channels), so the user can route success events to one
+           channel and failures to another, or any combination. The
+           layer is layered ON TOP of the admin-side global gates;
+           toggles for admin-disabled events grey out with a "disabled
+           by admin" tooltip, and the backend refuses an opt-in attempt
+           for those events with a 400. Saves alongside the Profile
+           fields via the same Save button → single dirty indicator. -->

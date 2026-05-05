@@ -1,0 +1,151 @@
+      <section x-show="settingsSection === 'ignores'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-trash"/></svg>
+          <h3 class="font-semibold text-[13px]" x-text="t('settings.ignores.title')"></h3>
+        </div>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
+          <span x-text="t('settings.ignores.intro_prefix')"></span> <span class="pill pill-ignored" x-text="t('states.ignored')"></span> <span x-text="t('settings.ignores.intro_suffix')"></span>
+        </p>
+        <div class="flex gap-2 flex-wrap" x-show="isAdmin()">
+          <select x-model="newIgnore.kind" class="min-w-[100px]">
+            <option value="image" x-text="t('settings.ignores.kind_image')"></option>
+            <option value="stack" x-text="t('settings.ignores.kind_stack')"></option>
+          </select>
+          <input x-model="newIgnore.pattern" type="text" :placeholder="t('settings.ignores.pattern_placeholder')" class="flex-1 min-w-[200px]">
+          <button @click="addIgnore()" class="btn btn-primary text-[12px]" x-text="t('actions.add')"></button>
+        </div>
+        <div class="mt-3 space-y-1">
+          <template x-for="ig in ignores" :key="ig.pattern">
+            <div class="flex items-center justify-between bg-[var(--surface-2)] rounded-md px-3 py-2 text-[12.5px]">
+              <div class="flex items-center gap-2">
+                <span class="chip" x-text="ig.kind"></span>
+                <span class="mono" x-text="ig.pattern"></span>
+              </div>
+              <button x-show="isAdmin()" @click="delIgnore(ig.pattern)" class="text-[var(--danger)] hover:underline text-[11px]" x-text="t('actions.remove_link')"></button>
+            </div>
+          </template>
+          <div x-show="ignores.length===0" class="text-[11px] text-[var(--text-faint)] italic" x-text="t('empty.no_ignores')"></div>
+        </div>
+      </section>
+
+      <!-- Authentik OIDC moved to Admin. Stub stays below so the old
+           markup doesn't diff-explode; x-show="false" keeps it dormant. -->
+      <section x-show="false" style="display:none">
+        <div class="flex items-start justify-between">
+          <div>
+            <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.oidc.title')"></h3>
+            <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.oidc.description')"></p>
+          </div>
+          <span x-show="oidcStatus"
+                class="chip"
+                :class="oidcStatus && oidcStatus.enabled ? 'pill-success' : 'pill-muted'"
+                x-text="oidcStatus ? (oidcStatus.enabled ? t('settings.oidc.enabled') : t('settings.oidc.disabled')) : ''"></span>
+        </div>
+
+        <div x-show="oidcStatus" class="space-y-3">
+          <label class="flex items-center gap-2 text-[12.5px] cursor-pointer">
+            <input type="checkbox" :checked="oidcForm.enabled"
+                   @change="oidcForm.enabled = $event.target.checked"
+                   :disabled="isReadonly()">
+            <span x-text="t('settings.oidc.enable_toggle')"></span>
+          </label>
+
+          <div>
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.issuer_url')"></label>
+            <input x-model="oidcForm.issuer_url" type="url" :disabled="isReadonly()"
+                   :placeholder="t('settings.oidc.issuer_placeholder')"
+                   class="w-full mono text-[12px]">
+            <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.issuer_hint')"></p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.client_id')"></label>
+              <input x-model="oidcForm.client_id" type="text" :disabled="isReadonly()"
+                     :placeholder="t('settings.oidc.client_id_placeholder')"
+                     class="w-full mono text-[12px]">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+                <span x-text="t('settings.oidc.client_secret')"></span>
+              </label>
+              <span x-show="oidcStatus && oidcStatus.client_secret_set"
+                    class="block text-[11px] text-[var(--success)] mb-1"
+                    x-text="t('settings.secret_input.saved_hint')"></span>
+              <input x-model="oidcForm.client_secret" type="password" :disabled="isReadonly()"
+                     :placeholder="(oidcStatus && oidcStatus.client_secret_set) ? t('settings.secret_input.placeholder_keep') : t('settings.oidc.client_secret_placeholder')"
+                     autocomplete="new-password"
+                     class="w-full mono text-[12px]">
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+              <span x-text="t('settings.oidc.redirect_uri')"></span> <span class="text-[var(--text-faint)]" x-text="t('settings.oidc.redirect_uri_note')"></span>
+            </label>
+            <div class="flex items-stretch gap-2">
+              <input :value="oidcStatus && oidcStatus.redirect_uri_default || ''" readonly
+                     class="w-full mono text-[12px] flex-1 bg-[var(--surface-2)]">
+              <button @click="copyRedirectUri()" type="button"
+                      class="btn btn-soft text-[12px] whitespace-nowrap"
+                      :title="t('settings.oidc.copy_title')" x-text="t('settings.oidc.copy')"></button>
+            </div>
+            <p class="text-[11px] text-[var(--text-faint)] mt-1" x-text="t('settings.oidc.redirect_uri_hint')"></p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.scopes')"></label>
+              <input x-model="oidcForm.scopes" type="text" :disabled="isReadonly()"
+                     :placeholder="t('settings.oidc.scopes_placeholder')"
+                     class="w-full mono text-[12px]">
+              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.scopes_hint')"></p>
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.admin_group')"></label>
+              <input x-model="oidcForm.admin_group" type="text" :disabled="isReadonly()"
+                     :placeholder="t('settings.oidc.admin_group_placeholder')"
+                     class="w-full mono text-[12.5px]">
+              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.admin_group_hint')"></p>
+            </div>
+          </div>
+
+          <label class="flex items-start gap-2 text-[12.5px] cursor-pointer">
+            <input type="checkbox" :checked="oidcForm.verify_tls"
+                   @change="oidcForm.verify_tls = $event.target.checked"
+                   :disabled="isReadonly()" class="mt-0.5">
+            <span>
+              <span class="font-medium" x-text="t('settings.oidc.verify_tls_title')"></span>
+              <span class="block text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.verify_tls_hint')"></span>
+            </span>
+          </label>
+
+          <div x-show="isAdmin()" class="flex gap-2 pt-1 flex-wrap">
+            <button @click="saveOidcSettings()"
+                    :disabled="oidcSaving"
+                    class="btn btn-primary text-[12px]">
+              <span x-show="!oidcSaving" x-text="t('actions.save')"></span>
+              <span x-show="oidcSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+            </button>
+            <button @click="testOidcConnection()" class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>
+          </div>
+
+          <div x-show="oidcTestResult" class="text-[12px] rounded-md px-3 py-2"
+               :class="oidcTestResult && oidcTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
+            <template x-if="oidcTestResult && oidcTestResult.pending">
+              <span x-text="t('loading.testing')"></span>
+            </template>
+            <template x-if="oidcTestResult && !oidcTestResult.pending">
+              <span>
+                <span x-text="oidcTestResult.ok ? '✓' : '✗'"></span>
+                <span class="ml-1" x-text="oidcTestResult.detail"></span>
+              </span>
+            </template>
+          </div>
+        </div>
+      </section>
+
+      <!-- Language section — lets operators pick the UI language. The
+           same picker also lives in the topbar for quick access. Dropping
+           a new file into static/i18n/ + listing it in index.json makes it
+           appear here automatically on next reload. -->
