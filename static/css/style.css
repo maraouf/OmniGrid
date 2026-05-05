@@ -496,6 +496,17 @@ body {
        targets. */
     overflow-x: clip;
     max-width: 100vw;
+    /* Reserve space for the page's vertical scrollbar permanently so
+       content width stays constant whether the scrollbar is visible
+       (tall content like Admin → Notifications, Admin → Providers /
+       host stats) or hidden (short content like Admin → Sessions).
+       Pre-fix the page width visibly jumped by ~15px when switching
+       tabs because the body scrollbar appeared / disappeared with
+       content height, narrowing every "tall" tab. `scrollbar-gutter:
+       stable` reserves the gutter even when the scrollbar isn't
+       drawn, so width is stable across every admin tab. Supported in
+       Chrome 94+, Firefox 97+, Safari 16+. */
+    scrollbar-gutter: stable;
     /* Disable pinch-zoom + double-tap-zoom on touch devices. iOS Safari
        deliberately ignores the viewport `user-scalable=no` hint since
        iOS 10 (accessibility), so the meta tag alone isn't enough.
@@ -2664,6 +2675,23 @@ details summary::-webkit-details-marker {
     text-decoration: line-through;
     opacity: 0.6;
     cursor: not-allowed;
+}
+/* Dirty marker — operator clicked the chip but Save hasn't committed.
+   Pairs with the page-Save's amber dirty ring so the unsaved state is
+   visible at BOTH the chip level (per-medium granularity) and the
+   page level (overall dirty). */
+.notify-cat-chip--dirty {
+    position: relative;
+}
+.notify-cat-chip-dirty-dot {
+    position: absolute;
+    top: 2px;
+    inset-inline-end: 2px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warning);
+    box-shadow: 0 0 0 2px var(--surface);
 }
 .notify-category-body {
     padding: var(--s-3) var(--s-4) var(--s-3) var(--s-4);

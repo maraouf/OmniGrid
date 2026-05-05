@@ -136,6 +136,7 @@
       "collapse_all": "Collapse all",
       "cat_count_title": "Events with at least one channel routing them",
       "cat_chip_title": "Click to toggle {medium} for every event in this category",
+      "cat_chip_dirty": "Unsaved change — click Save to commit",
       "cat_operations": "Operations",
       "cat_operations_desc": "Stack / container / service updates, restarts, removes, prunes, and Swarm-agent restart events.",
       "cat_health": "System health",
@@ -1660,6 +1661,7 @@
       "pause_title": "Pause sampling on selected hosts (sampler skips them until resumed)",
       "pause_confirm_title": "Pause sampling?",
       "pause_confirm_body": "Pause sampling on {count} host(s)? The lifespan-managed sampler will skip every selected host until you Resume.",
+      "pause_confirm_more": "… and {more} more",
       "pause_confirm_ok": "Pause",
       "pause_success": "Sampling paused on {applied} host(s)",
       "resume": "Resume",
@@ -1690,7 +1692,8 @@
       "partial": "{applied} applied, {errors} errors",
       "error": "Bulk action failed: {error}",
       "progress_badge": "✓ {applied} / {total} applied",
-      "row_applied": "Bulk action applied to this host"
+      "row_applied": "Bulk action applied to this host",
+      "affects_count": "This will apply to {count} selected host(s)."
     },
     "permanent_fail": {
       "badge_title": "Sampling paused — host has been unreachable for {minutes}m",
