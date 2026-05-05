@@ -1,0 +1,93 @@
+      <div x-show="adminTab==='config'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-settings"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('admin.config.title')"></h3>
+          </div>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3 max-w-[720px]"
+             x-text="t('admin.config.subtitle', { count: tuningKeys.length })"></p>
+
+          <!-- Initial-load placeholder. The tunable keys come from
+               `/api/admin/tuning` which fans across DB / env / default
+               resolution per knob; on first open the form would
+               otherwise render empty for ~100ms+ and look broken.
+               Unified `.loading-state` + `.spin-lg` pattern matches
+               every other admin tab. -->
+          <div x-show="!tuningLoaded" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+
+          <div class="space-y-4" x-show="tuningLoaded">
+            <template x-for="key in sortedTuningKeys()" :key="key">
+              <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
+                <label class="block text-[12.5px] font-medium mb-1"
+                       x-text="t('admin.config.fields.' + key + '.label')"></label>
+                <p class="text-[11px] text-[var(--text-faint)] mb-2 leading-snug"
+                   x-text="t('admin.config.fields.' + key + '.help')"></p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="number"
+                         x-model="tuningForm[key]"
+                         :placeholder="tuningPlaceholder(key)"
+                         :min="(tuningEffective[key] || {}).min"
+                         :max="(tuningEffective[key] || {}).max"
+                         :disabled="!isAdmin() || tuningSaving"
+                         class="w-44 mono text-[12.5px]">
+                  <div class="bounds-chips" role="group"
+                       :aria-label="t('admin.config.bounds.group_label')">
+                    <span class="bounds-chip bounds-chip--min"
+                          :title="t('admin.config.bounds.min_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
+                      <span x-text="(tuningEffective[key] || {}).min"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--max"
+                          :title="t('admin.config.bounds.max_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
+                      <span x-text="(tuningEffective[key] || {}).max"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--default"
+                          :title="t('admin.config.bounds.default_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
+                      <span x-text="(tuningEffective[key] || {}).default"></span>
+                    </span>
+                  </div>
+                  <span class="text-[11px] text-[var(--text-dim)] ms-auto"
+                        x-text="t('admin.config.effective_label', { value: (tuningEffective[key] || {}).effective })"></span>
+                </div>
+                <!-- env-var hint removed. Operator manages tunables
+                     via Admin → Config; the env-var fallback still exists
+                     in `logic/tuning.py:tuning_int` (DB > env > default)
+                     for back-compat with first-boot bootstrap and any
+                     legacy deployment that still sets values via .env,
+                     but the label was UI noise (operators were never
+                     going to edit .env to tune these). -->
+              </div>
+            </template>
+
+            <div class="flex items-center gap-3 pt-1 flex-wrap" x-show="isAdmin()">
+              <button @click="saveTuning()"
+                      :disabled="tuningSaving"
+                      :class="tuningDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                      class="btn btn-primary text-[12px]">
+                <span x-show="!tuningSaving" x-text="t('actions.save')"></span>
+                <span x-show="tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+              </button>
+              <span x-show="tuningDirty()"
+                    class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+                <span class="unsaved-flash" x-text="t('admin.config.unsaved')"></span>
+              </span>
+            </div>
+          </div>
+        </section>
+
+
+      </div>
+
+      <!-- AUTHENTICATION TAB — TOTP / 2FA policy lives here (moved out
+           of Admin → Config). Master toggle gates the dependent inputs
+           (Apprise / OIDC / Portainer / SSH master-toggle pattern per
+           CLAUDE.md). Saves via the existing settings POST + dirty
+           marker. Future home for any other auth-related admin
+           settings (forced-OIDC-only mode, session-cookie tunables,
+           bearer-token rotation policy). -->

@@ -1,0 +1,338 @@
+      <section x-show="adminTab==='notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <!-- Title row + Enabled/Disabled pill — same shape as Admin →
+             Portainer for visual consistency across master-toggled
+             admin tabs. Pill state mirrors the master switch below. -->
+        <div class="flex items-start justify-between">
+          <div>
+            <div class="flex items-center gap-2 mb-2">
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-bell"/></svg>
+              <h3 class="font-semibold text-[13px]" x-text="t('settings.notifications.title')"></h3>
+            </div>
+            <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
+              <span x-text="t('settings.notifications.url_format_prefix')"></span> <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
+              <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> <span x-html="t('settings.notifications.url_format_suffix')"></span>
+            </p>
+          </div>
+          <span class="chip"
+                :class="settings.apprise_enabled ? 'pill-ok' : 'pill-muted'"
+                x-text="settings.apprise_enabled ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
+        </div>
+        <!-- Master switch. Disables `notify()` in the backend
+             without erasing the URL/tag — flip back on to resume.
+             Saves alongside the URL/tag when the operator clicks
+             Save below (no auto-save on change). -->
+        <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mb-3 select-none">
+          <input type="checkbox" x-model="settings.apprise_enabled"
+                 @change="markAppriseDirty()"
+                 :disabled="isReadonly()">
+          <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
+          <span class="text-[11px] text-[var(--text-faint)]"
+                x-text="settings.apprise_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
+        </label>
+        <input x-model="settings.apprise_url" type="url"
+               @input="markAppriseDirty()"
+               :disabled="isReadonly() || !settings.apprise_enabled"
+               :placeholder="t('settings.notifications.url_placeholder')" class="w-full">
+        <input x-model="settings.apprise_tag" type="text"
+               @input="markAppriseDirty()"
+               :disabled="isReadonly() || !settings.apprise_enabled"
+               :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
+
+        <!-- Per-medium master switches. Independent of the
+             top-level Apprise enable toggle — flipping `notify_medium_app`
+             off silences in-app notifications without disabling the
+             event entirely; flipping `notify_medium_apprise` off does
+             the inverse for the Apprise channel. Both default ON for
+             back-compat. Adding a third medium adds one row here +
+             one entry on `NOTIFY_MEDIUM_NAMES` server-side. -->
+        <div class="mt-6 pt-4 border-t border-[var(--border)]">
+          <h4 class="font-semibold text-[12.5px] mb-1" x-text="t('admin.notifications.mediums_title')"></h4>
+          <p class="text-[11px] text-[var(--text-faint)] mb-3" x-text="t('admin.notifications.medium_help')"></p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+            <label class="flex items-center gap-2 text-[12.5px] cursor-pointer select-none">
+              <input type="checkbox" x-model="settings.notify_medium_app"
+                     :disabled="isReadonly()">
+              <span class="font-medium" x-text="t('admin.notifications.medium_app')"></span>
+            </label>
+            <label class="flex items-center gap-2 text-[12.5px] cursor-pointer select-none">
+              <input type="checkbox" x-model="settings.notify_medium_apprise"
+                     :disabled="isReadonly()">
+              <span class="font-medium" x-text="t('admin.notifications.medium_apprise')"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Per-event toggles. Same Save button as the Apprise
+             panel above — every event toggle joins the Apprise dirty
+             snapshot so a single Save POST covers everything in this
+             tab. The /api/notify-test endpoint always sends, so a
+             test fires regardless of these checkboxes. -->
+        <div class="mt-6 pt-4 border-t border-[var(--border)]">
+          <h4 class="font-semibold text-[12.5px] mb-1" x-text="t('admin.notifications.events.title')"></h4>
+          <p class="text-[11px] text-[var(--text-faint)] mb-3" x-text="t('admin.notifications.events.subtitle')"></p>
+
+          <!-- Categorised event toggles — same `notifyCategories()`
+               source the Profile → Notifications page uses, so both
+               surfaces stay aligned and adding a new event in one
+               place auto-appears in the other. Admin keeps single-
+               toggle-per-event semantics (global enable / disable per
+               event); per-medium routing lives on the Profile page.
+               Each category renders as a collapsible card; events
+               under that category show as a flat per-row toggle list.
+               Operations rows expand to two checkboxes (success /
+               failure) since they pair via `notifyEventGroups`; Health
+               + Security rows show a single Enabled toggle. -->
+          <div class="flex flex-col gap-2 mb-3">
+            <template x-for="cat in notifyCategories()" :key="'admin-cat-' + cat.id">
+              <section class="notify-category">
+                <button type="button"
+                        class="notify-category-header"
+                        @click="toggleNotifyCategoryExpanded('admin:' + cat.id)"
+                        :aria-expanded="isNotifyCategoryExpanded('admin:' + cat.id) ? 'true' : 'false'">
+                  <div class="flex flex-col min-w-0 flex-1">
+                    <span class="text-[12.5px] font-semibold text-[var(--text)]"
+                          x-text="t(cat.label_key)"></span>
+                    <span class="text-[10.5px] text-[var(--text-faint)] truncate"
+                          x-text="t(cat.desc_key)"></span>
+                  </div>
+                  <span class="notify-cat-count"
+                        :title="t('admin.notifications.events.cat_count_title') || 'Events globally enabled in this category'">
+                    <span x-text="cat.rows.filter(r => settings[r.key]).length"></span>
+                    <span class="text-[var(--text-faint)]" x-text="' / ' + cat.rows.length"></span>
+                  </span>
+                  <svg width="11" height="11"
+                       class="text-[var(--text-faint)] flex-shrink-0 transition-transform"
+                       :class="isNotifyCategoryExpanded('admin:' + cat.id) ? 'rotate-180' : ''"
+                       aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
+                </button>
+                <div x-show="isNotifyCategoryExpanded('admin:' + cat.id)" x-cloak class="notify-category-body">
+                  <!-- Operations renders as paired groups (one
+                       operation header + indented success / failure
+                       sub-rows). Health + Security categories render
+                       flat (single toggle per event). Same shape +
+                       data source as the Profile-side grouping so a
+                       new operation added in `notifyEventGroups` lands
+                       on BOTH pages automatically. -->
+                  <template x-if="cat.groups">
+                    <template x-for="grp in notifyCategoryFilteredGroups(cat)" :key="'admin-grp-' + grp.label">
+                      <div>
+                        <div class="text-[11.5px] font-semibold text-[var(--text)] uppercase tracking-wider pt-2 pb-1 mt-1"
+                             style="border-top: 1px solid var(--border);"
+                             x-text="t('admin.notifications.events.' + grp.label)"></div>
+                        <template x-for="kind in ['success', 'failure']" :key="'admin-grp-' + grp.label + '-' + kind">
+                          <div class="flex items-center justify-between gap-3 py-1 ps-3">
+                            <!-- Label group is clickable — opens the
+                                 template editor modal. The checkbox sits
+                                 in its own label so a click on it doesn't
+                                 propagate. Operator-stressed "stellar UI,
+                                 no clutter" — the row stays a single
+                                 visual unit; only the textual label
+                                 carries the open-modal affordance. -->
+                            <button type="button"
+                                    class="flex items-center gap-1.5 min-w-0 flex-1 text-start cursor-pointer notify-event-row-btn"
+                                    @click="openNotifyTemplateEditor(kind === 'success' ? grp.success_key.replace(/^notify_event_/, '') : grp.failure_key.replace(/^notify_event_/, ''))"
+                                    :title="t('admin.notify_templates.edit_button_title')">
+                              <span class="text-[var(--text-faint)]" aria-hidden="true">↳</span>
+                              <span class="text-[11.5px] font-medium"
+                                    :class="kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
+                                    x-text="t('admin.notifications.events.' + kind)"></span>
+                              <svg width="11" height="11" class="text-[var(--text-faint)] flex-shrink-0 flip-rtl"
+                                   aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
+                            </button>
+                            <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none flex-shrink-0">
+                              <input type="checkbox"
+                                     :checked="settings[kind === 'success' ? grp.success_key : grp.failure_key]"
+                                     @change="settings[kind === 'success' ? grp.success_key : grp.failure_key] = $event.target.checked"
+                                     :disabled="isReadonly() || !settings.apprise_enabled">
+                              <span class="text-[var(--text-dim)]"
+                                    x-text="t('admin.notifications.events.enabled')"></span>
+                            </label>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </template>
+                  <template x-if="!cat.groups">
+                    <template x-for="row in cat.rows" :key="'admin-row-' + row.key">
+                      <div class="flex items-center justify-between gap-3 py-1">
+                        <button type="button"
+                                class="flex items-center gap-2 min-w-0 flex-1 text-start cursor-pointer notify-event-row-btn"
+                                @click="openNotifyTemplateEditor(row.key.replace(/^notify_event_/, ''))"
+                                :title="t('admin.notify_templates.edit_button_title')">
+                          <span class="text-[12px] text-[var(--text)] truncate"
+                                x-text="t('admin.notifications.events.' + row.label)"></span>
+                          <svg width="11" height="11" class="text-[var(--text-faint)] flex-shrink-0 flip-rtl"
+                               aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
+                        </button>
+                        <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none flex-shrink-0">
+                          <input type="checkbox"
+                                 :checked="settings[row.key]"
+                                 @change="settings[row.key] = $event.target.checked"
+                                 :disabled="isReadonly() || !settings.apprise_enabled">
+                          <span class="text-[var(--text-dim)]"
+                                x-text="t('admin.notifications.events.enabled')"></span>
+                        </label>
+                      </div>
+                    </template>
+                  </template>
+                </div>
+              </section>
+            </template>
+          </div>
+
+          <!-- Visual separator between the per-event grid (events +
+               security row) and the bulk-action buttons (Enable all /
+               Disable all / Errors only). -->
+          <hr class="border-0 border-t border-[var(--border)] my-3">
+
+          <div class="flex items-center gap-2 flex-wrap" x-show="isAdmin()">
+            <button @click="setAllNotifyEvents(true)"
+                    :disabled="isReadonly() || !settings.apprise_enabled"
+                    class="btn btn-soft text-[11.5px]"
+                    x-text="t('admin.notifications.events.enable_all')"></button>
+            <button @click="setAllNotifyEvents(false)"
+                    :disabled="isReadonly() || !settings.apprise_enabled"
+                    class="btn btn-soft text-[11.5px]"
+                    x-text="t('admin.notifications.events.disable_all')"></button>
+            <button @click="setNotifyEventsErrorsOnly()"
+                    :disabled="isReadonly() || !settings.apprise_enabled"
+                    class="btn btn-soft text-[11.5px]"
+                    x-text="t('admin.notifications.events.errors_only')"></button>
+          </div>
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-2" x-text="t('admin.notifications.events.test_always_sends')"></p>
+        </div>
+
+        <!-- Save action moved BELOW the tunable cards so the page
+             flows top-to-bottom: per-medium → per-event → tunables →
+             Save. Pre-fix Save sat between the per-event grid and the
+             tunable cards, which made the operator scroll past the
+             Save button to find the retention / page-size dials —
+             counter-intuitive when the natural mental model is
+             "configure everything, then commit". -->
+
+        <!-- Notifications retention — relocated from Admin → Process
+             tunables so the dial sits next to the per-medium / per-
+             event toggles where operators editing notifications
+             actually look for it. Same `tuningForm` / `tuningEffective` /
+             `saveTuning` Alpine state as the Process tunables form. -->
+        <hr class="my-4 border-[var(--border)]" x-show="tuningLoaded">
+        <div x-show="tuningLoaded" class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-4">
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+            <h4 class="font-semibold text-[12.5px]"
+                x-text="t('admin.config.fields.tuning_notification_retention_days.label')"></h4>
+          </div>
+          <p class="text-[11px] text-[var(--text-faint)] mb-2 leading-snug"
+             x-text="t('admin.config.fields.tuning_notification_retention_days.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_notification_retention_days']"
+                   :placeholder="tuningPlaceholder('tuning_notification_retention_days')"
+                   :min="(tuningEffective['tuning_notification_retention_days'] || {}).min"
+                   :max="(tuningEffective['tuning_notification_retention_days'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving"
+                   class="w-44 mono text-[12.5px]">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
+              <span class="bounds-chip bounds-chip--min"
+                    :title="t('admin.config.bounds.min_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_notification_retention_days'] || {}).min"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_notification_retention_days'] || {}).max"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
+                <span x-text="(tuningEffective['tuning_notification_retention_days'] || {}).default"></span>
+              </span>
+            </div>
+            <span class="text-[11px] text-[var(--text-dim)] ms-auto"
+                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_notification_retention_days'] || {}).effective })"></span>
+          </div>
+          <!-- Save handled by the page-level Save button above (which
+               flushes apprise + tuning together) — the standalone
+               Save was operator-flagged as redundant. Dirty marker
+               appears in the page-level Save's amber ring. -->
+        </div>
+        <!-- Notifications panel page size — sister tunable to the
+             retention dial, surfaced HERE in Admin → Notifications
+             rather than only in Admin → Config (operators editing
+             notification config wanted both knobs side-by-side).
+             Also still auto-rendered in Admin → Config via the
+             tuningKeys array; this is an additional in-context editor,
+             not a relocation. -->
+        <div x-show="tuningLoaded" class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-4 mt-3">
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-layers"/></svg>
+            <h4 class="font-semibold text-[12.5px]"
+                x-text="t('admin.config.fields.tuning_notification_page_size.label')"></h4>
+          </div>
+          <p class="text-[11px] text-[var(--text-faint)] mb-2 leading-snug"
+             x-text="t('admin.config.fields.tuning_notification_page_size.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_notification_page_size']"
+                   :placeholder="tuningPlaceholder('tuning_notification_page_size')"
+                   :min="(tuningEffective['tuning_notification_page_size'] || {}).min"
+                   :max="(tuningEffective['tuning_notification_page_size'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving"
+                   class="w-44 mono text-[12.5px]">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
+              <span class="bounds-chip bounds-chip--min"
+                    :title="t('admin.config.bounds.min_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_notification_page_size'] || {}).min"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_notification_page_size'] || {}).max"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
+                <span x-text="(tuningEffective['tuning_notification_page_size'] || {}).default"></span>
+              </span>
+            </div>
+            <span class="text-[11px] text-[var(--text-dim)] ms-auto"
+                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_notification_page_size'] || {}).effective })"></span>
+          </div>
+        </div>
+
+        <!-- Page-level Save — flushes the apprise / events form AND
+             the notification-retention + page-size tunables in one
+             click. Sits AFTER the tunable cards so the natural top-
+             to-bottom config flow ends here. Dirty marker fires when
+             EITHER `appriseDirty()` (per-event toggles + per-medium
+             switches + the tunable inputs via `_appriseSnapshot`'s
+             new `notifTunables` slot) OR `tuningDirty()` (Process-
+             tunables form) is true. The two getters' coverage
+             overlaps for retention + page-size; both flipping the
+             same input is fine — the dirty cue still fires once. -->
+        <div class="flex items-center gap-3 mt-4 pt-4 border-t border-[var(--border)] flex-wrap" x-show="isAdmin()">
+          <button @click="saveSettings(); if (tuningDirty()) saveTuning();"
+                  :disabled="settingsSaving || tuningSaving"
+                  :class="(appriseDirty() || tuningDirty()) ? 'ring-2 ring-[var(--warning)]' : ''"
+                  class="btn btn-primary text-[12px]">
+            <span x-show="!(settingsSaving || tuningSaving)" x-text="t('actions.save')"></span>
+            <span x-show="settingsSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+          </button>
+          <button @click="testNotify()"
+                  :disabled="!settings.apprise_enabled"
+                  class="btn btn-soft text-[12px]" x-text="t('actions.send_test')"></button>
+          <span x-show="appriseDirty() || tuningDirty()"
+                class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+            <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
+          </span>
+        </div>
+      </section>
+
+      <!-- GENERAL TAB — Open-Meteo (weather widget) lives here.
+           Future home for any other ambient/UI service settings that
+           don't belong under auth, hosts, scheduling, or notifications. -->

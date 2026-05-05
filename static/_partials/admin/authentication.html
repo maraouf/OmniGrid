@@ -1,0 +1,112 @@
+      <div x-show="adminTab==='authentication'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <!-- Title row + Enabled/Disabled pill — matches Portainer /
+               Notifications / SSH / OIDC pattern. Pill is "Enabled"
+               when AT LEAST ONE 2FA method is allowed (TOTP OR
+               passkeys); both off → "Disabled". -->
+          <div class="flex items-start justify-between">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
+                <h3 class="font-semibold text-[13px]"
+                    x-text="t('admin.config.totp.title')"></h3>
+              </div>
+              <p class="text-[11.5px] text-[var(--text-faint)] mb-3"
+                 x-text="t('admin.config.totp.subtitle')"></p>
+            </div>
+            <span class="chip"
+                  :class="(settings.totp_allowed || settings.passkeys_allowed) ? 'pill-ok' : 'pill-muted'"
+                  x-text="(settings.totp_allowed || settings.passkeys_allowed) ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
+          </div>
+
+          <div class="space-y-3" x-show="settings">
+            <label class="flex items-center gap-2 text-[12.5px]">
+              <input type="checkbox" x-model="settings.totp_allowed"
+                     :disabled="!isAdmin()">
+              <span x-text="t('admin.config.totp.allowed_label')"></span>
+            </label>
+            <p class="text-[11px] text-[var(--text-faint)] -mt-1 ms-6"
+               x-text="t('admin.config.totp.allowed_hint')"></p>
+
+            <!-- Passkey master toggle. Mirrors `totp_allowed`
+                 in shape and semantics: when off, register-start
+                 returns 403 + login flow drops 'webauthn' from the
+                 methods list, but existing enrolments stay listed
+                 + revocable from Profile so users aren't locked out
+                 of cleanup. -->
+            <label class="flex items-center gap-2 text-[12.5px] pt-2 border-t border-[var(--border)] mt-2">
+              <input type="checkbox" x-model="settings.passkeys_allowed"
+                     :disabled="!isAdmin()">
+              <span x-text="t('admin.config.totp.passkeys_allowed_label')"></span>
+            </label>
+            <p class="text-[11px] text-[var(--text-faint)] -mt-1 ms-6"
+               x-text="t('admin.config.totp.passkeys_allowed_hint')"></p>
+
+            <label class="flex items-center gap-2 text-[12.5px]">
+              <input type="checkbox" x-model="settings.totp_required_for_admins"
+                     :disabled="!isAdmin() || !settings.totp_allowed">
+              <span x-text="t('admin.config.totp.required_admins_label')"></span>
+            </label>
+            <label class="flex items-center gap-2 text-[12.5px]">
+              <input type="checkbox" x-model="settings.totp_required_for_users"
+                     :disabled="!isAdmin() || !settings.totp_allowed">
+              <span x-text="t('admin.config.totp.required_users_label')"></span>
+            </label>
+            <p class="text-[11px] text-[var(--text-faint)] -mt-1 ms-6"
+               x-text="t('admin.config.totp.required_hint')"></p>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <label class="block">
+                <span class="block text-[11px] text-[var(--text-dim)] mb-1"
+                      x-text="t('admin.config.totp.max_failures_label')"></span>
+                <input type="number" min="3" max="20" step="1"
+                       x-model.number="settings.totp_lockout_max_failures"
+                       :disabled="!isAdmin() || !settings.totp_allowed"
+                       class="w-32 mono text-[12.5px]">
+                <span class="block text-[10.5px] text-[var(--text-faint)] mt-1"
+                      x-text="t('admin.config.totp.max_failures_hint')"></span>
+              </label>
+              <label class="block">
+                <span class="block text-[11px] text-[var(--text-dim)] mb-1"
+                      x-text="t('admin.config.totp.lockout_minutes_label')"></span>
+                <input type="number" min="1" max="1440" step="1"
+                       x-model.number="settings.totp_lockout_minutes"
+                       :disabled="!isAdmin() || !settings.totp_allowed"
+                       class="w-32 mono text-[12.5px]">
+                <span class="block text-[10.5px] text-[var(--text-faint)] mt-1"
+                      x-text="t('admin.config.totp.lockout_minutes_hint')"></span>
+              </label>
+            </div>
+
+            <div class="flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
+              <button x-show="isAdmin()" @click="saveTotpPolicy()"
+                      :disabled="totpPolicySaving"
+                      :class="totpPolicyDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                      class="btn btn-primary text-[12px]">
+                <span x-show="!totpPolicySaving" x-text="t('actions.save')"></span>
+                <span x-show="totpPolicySaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+              </button>
+              <span x-show="totpPolicyDirty()"
+                    class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
+                    :title="t('common.unsaved_title')">
+                <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+                <span class="unsaved-flash" x-text="t('common.unsaved')"></span>
+              </span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- (Admin → Version page removed 2026-04-30 alongside            deploy migration to image-build. The page wrote to
+           /app/VERSION.txt via a per-file bind that no longer exists;
+           writes would have landed in the container's ephemeral
+           overlay layer and disappeared on the next service update.
+           Operators now seed MAJOR/MINOR by editing repo-root
+           VERSION.txt, committing, and pushing — deploy.yml's source-B
+           resolver picks it up.) -->
+
+      <!-- DEBUG TAB — admin-wide debug / diagnostic preferences. One
+           home for every "show me internals" toggle so they're easy
+           to find + easy to turn off. First item is the host-drawer
+           debug panel (raw provider JSON + merged shape); future
+           toggles land below it. Each flips on change, no Save. -->

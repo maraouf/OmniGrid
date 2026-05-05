@@ -1,0 +1,85 @@
+      <div x-show="adminTab==='sessions'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+          <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-monitor"/></svg>
+                <h3 class="font-semibold text-[13px]"><span x-text="t('admin.sessions.active_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + sessions.length + ')'"></span></h3>
+              </div>
+              <p class="text-[11.5px] text-[var(--text-faint)]" x-text="t('admin.sessions.hint')"></p>
+            </div>
+            <button @click="loadSessions()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
+          </div>
+          <!-- Initial-load placeholder. /api/sessions does a non-trivial
+               JOIN across users + sessions and on a busy backend can take
+               several seconds; without this the operator sees an empty
+               table and assumes "no sessions". Unified loader. -->
+          <div x-show="!sessionsLoaded" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+          <div class="overflow-x-auto scrollbar" x-show="sessionsLoaded">
+            <table class="w-full text-[12.5px]">
+              <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
+                <tr>
+                  <th class="text-start px-4 py-2" x-text="t('columns.user')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.sessions.method_label')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.ip')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.user_agent')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.sessions.login_at_label')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.last_seen')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.expires')"></th>
+                  <th class="text-end px-4 py-2" x-text="t('columns.action')"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="s in sessions" :key="s.token_id">
+                  <tr class="border-t border-[var(--border)]">
+                    <td class="px-4 py-2 font-medium" x-text="s.username || t('admin.sessions.deleted_user')"></td>
+                    <!-- Auth method pill. Colour family follows
+                         the project's pill-* tokens: passkey / totp /
+                         oidc are "secured" → pill-success / pill-info;
+                         password / bootstrap are "single-factor" →
+                         pill-muted. Unknown methods (legacy rows or
+                         a future kind not in the map) fall through to
+                         pill-muted with the raw value. -->
+                    <td class="px-4 py-2">
+                      <span class="pill inline-flex items-center gap-1"
+                            :class="(s.auth_method === 'passkey' ? 'pill-success'
+                                   : s.auth_method === 'totp' ? 'pill-success'
+                                   : s.auth_method === 'oidc' ? 'pill-info'
+                                   : 'pill-muted')">
+                        <!-- small Authentik logo
+                             prefix on OIDC rows so operators recognise
+                             SSO sessions vs local at a glance. -->
+                        <template x-if="s.auth_method === 'oidc'">
+                          <img :src="iconUrlFor('authentik')"
+                               class="w-3 h-3" alt="" aria-hidden="true">
+                        </template>
+                        <span x-text="t('admin.sessions.method_' + (s.auth_method || 'password'))"></span>
+                      </span>
+                    </td>
+                    <td class="px-4 py-2 mono text-[11px]" x-text="s.ip || '—'"></td>
+                    <td class="px-4 py-2 text-[11.5px] text-[var(--text-dim)] truncate max-w-[280px]" x-text="s.user_agent || '—'" :title="s.user_agent || ''"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                        :title="s.issued_at ? fmtDate(s.issued_at) : ''"
+                        x-text="s.issued_at ? fmtDate(s.issued_at) : '—'"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                        x-text="fmtDate(s.last_seen_at)"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                        x-text="fmtDate(s.expires_at)"></td>
+                    <td class="px-4 py-2 text-end">
+                      <button @click="revokeSession(s)" class="btn btn-ghost text-[11px] text-danger" x-text="t('admin.sessions.revoke')"></button>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="sessions.length===0">
+                  <td colspan="8" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_sessions')"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- API TOKENS TAB -->
