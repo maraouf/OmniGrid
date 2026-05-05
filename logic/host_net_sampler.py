@@ -110,7 +110,8 @@ def _is_paused(host_id: str) -> bool:
     try:
         with db_conn() as c:
             r = c.execute(
-                "SELECT paused FROM host_failure_state WHERE host_id = ?",
+                "SELECT paused FROM host_failure_state "
+                "WHERE host_id = ? AND provider = ''",
                 (host_id,),
             ).fetchone()
     except Exception:

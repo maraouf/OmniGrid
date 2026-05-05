@@ -394,6 +394,10 @@
     "title": "Settings",
     "readonly_banner": "You're signed in as readonly — settings are viewable but can't be changed. Ask an admin if you need edits.",
     "readonly_role": "readonly",
+    "secret_input": {
+      "saved_hint": "✓ Saved — leave blank to keep, or paste a new value to replace",
+      "placeholder_keep": "Paste new value or leave blank to keep"
+    },
     "sections": {
       "profile": "Profile",
       "notifications": "Notifications",
@@ -2572,6 +2576,7 @@
     "clear_passphrase_title": "Erase the stored passphrase. The private key stays; the runner will try to parse it unprotected.",
     "clear_password_title": "Erase the stored default password. Per-host password overrides still apply.",
     "password_label": "Default password",
+    "password_placeholder": "Alternative to private key",
     "clear_label": "Clear",
     "user_label": "Default user",
     "user_placeholder": "e.g. root · omnigrid · ubuntu",

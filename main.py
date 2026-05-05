@@ -550,15 +550,24 @@ def init_db():
         # BUG-011 in the code review.
         c.executescript("""
         BEGIN;
+        -- target_kind taxonomy column added in migration #3 (separate
+        -- from op_type which names the action). Values used today:
+        -- 'op' (container / stack / service write op), 'schedule'
+        -- (scheduler-fired runs), 'ssh' (admin SSH console), 'hosts'
+        -- (curated-config bulk actions), 'auth' (password / token
+        -- changes), 'system' (catch-all). Index supports the Admin →
+        -- History bucket-by-kind filter.
         CREATE TABLE IF NOT EXISTS history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ts REAL NOT NULL, op_type TEXT NOT NULL,
+            target_kind TEXT,
             target_name TEXT, target_id TEXT,
             status TEXT NOT NULL, duration REAL,
             events TEXT, error TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_history_ts ON history(ts DESC);
         CREATE INDEX IF NOT EXISTS idx_history_op_type ON history(op_type);
+        CREATE INDEX IF NOT EXISTS idx_history_target_kind ON history(target_kind);
         CREATE INDEX IF NOT EXISTS idx_history_target_name ON history(target_name);
         CREATE INDEX IF NOT EXISTS idx_history_status ON history(status);
 
@@ -807,35 +816,50 @@ def init_db():
             ts REAL NOT NULL,
             data TEXT NOT NULL
         );
-        -- Permanent-fail tracking. One row per host whose
-        -- host_metrics_sampler has hit consecutive probe failures. When
-        -- ``paused`` flips to 1, the sampler short-circuits subsequent
-        -- ticks (no probe attempt, no log spam) until the operator
-        -- explicitly resumes via POST /api/hosts/{id}/resume-sampling.
-        -- ``first_failure_ts`` is the wall-clock of the FIRST failure
-        -- in the current streak; the auto-pause fires when
-        -- ``now - first_failure_ts`` exceeds the configured window.
+        -- Permanent-fail tracking. One row per (host, provider) whose
+        -- sampler has hit consecutive probe failures. When ``paused`` flips
+        -- to 1, the sampler short-circuits subsequent ticks (no probe
+        -- attempt, no log spam) until the operator explicitly resumes via
+        -- POST /api/hosts/{id}/resume-sampling.
+        --
+        -- Schema after migration #2 (split_provider_host_pk):
+        --   host_id  — bare host identifier (operator-visible).
+        --   provider — '' for whole-host pauses (legacy bare-id rows
+        --              from /api/hosts/{id}/pause-sampling); '<name>' for
+        --              per-(provider, host) pauses driven by
+        --              record_provider_outcome.
+        -- Composite PK (host_id, provider) replaces the legacy prefixed
+        -- "<provider>:<host_id>" key. Reads now use direct equality lookups
+        -- instead of full-table-scan WHERE host_id LIKE '%:hid'.
         CREATE TABLE IF NOT EXISTS host_failure_state (
-            host_id TEXT PRIMARY KEY,
-            first_failure_ts REAL NOT NULL,
+            host_id              TEXT NOT NULL,
+            provider             TEXT NOT NULL DEFAULT '',
+            first_failure_ts     REAL NOT NULL,
             consecutive_failures INTEGER NOT NULL DEFAULT 0,
-            paused INTEGER NOT NULL DEFAULT 0,
-            paused_at REAL,
-            last_error TEXT
+            paused               INTEGER NOT NULL DEFAULT 0,
+            paused_at            REAL,
+            last_error           TEXT,
+            last_failure_ts      REAL,
+            PRIMARY KEY (host_id, provider)
         );
+        CREATE INDEX IF NOT EXISTS idx_host_failure_state_provider
+            ON host_failure_state(provider);
 
         -- Per-(provider, host) last-successful-probe timestamp.
         -- Distinct from host_failure_state which only exists during a
-        -- failure streak. last_ok lives ALWAYS — every record_provider_outcome
-        -- with ok=True UPSERTs here. host_id uses the same `<provider>:<host_id>`
-        -- keying convention as host_failure_state so the parallel SELECTs in
-        -- _provider_pause_state_for_host can join cheaply by prefix-match.
-        -- Drives the "Updated Xm ago" subtitle on each provider chip in the
-        -- host drawer's Enabled-agents card.
+        -- failure streak. last_ok lives ALWAYS — every
+        -- record_provider_outcome with ok=True UPSERTs here. After
+        -- migration #2, host_id and provider are separate columns with
+        -- composite PK. Drives the "Updated Xm ago" subtitle on each
+        -- provider chip in the host drawer's Enabled-agents card.
         CREATE TABLE IF NOT EXISTS host_provider_last_ok (
-            host_id    TEXT PRIMARY KEY,
-            last_ok_ts INTEGER NOT NULL
+            host_id    TEXT NOT NULL,
+            provider   TEXT NOT NULL,
+            last_ok_ts INTEGER NOT NULL,
+            PRIMARY KEY (host_id, provider)
         );
+        CREATE INDEX IF NOT EXISTS idx_host_provider_last_ok_provider
+            ON host_provider_last_ok(provider);
 
         -- Ping reachability time-series. Populated by
         -- logic/ping_sampler.py at tuning_ping_interval_seconds
@@ -1658,6 +1682,7 @@ def _history_query(
     offset: int = 0,
     *,
     with_total: bool = False,
+    target_kind: Optional[str] = None,
 ):
     """Shared builder for filterable history queries. All filters are
     optional; missing ones degrade gracefully to an unfiltered scan.
@@ -1677,6 +1702,9 @@ def _history_query(
     if op_type:
         where.append("op_type = ?")
         params.append(op_type)
+    if target_kind:
+        where.append("target_kind = ?")
+        params.append(target_kind)
     if status:
         where.append("status = ?")
         params.append(status)
@@ -1730,10 +1758,12 @@ async def api_history(
     q: Optional[str] = None,
     since: Optional[float] = None,
     until: Optional[float] = None,
+    target_kind: Optional[str] = None,
 ):
     rows, total = _history_query(
         stack, op_type, status, actor, q, since, until,
         limit, offset=offset, with_total=True,
+        target_kind=target_kind,
     )
     return {
         "history": rows,
@@ -1780,7 +1810,7 @@ async def api_history_csv_export(
     # Fixed column order — stable for spreadsheet pivots. `events` is
     # omitted from CSV (multi-line JSON doesn't round-trip cleanly); users
     # needing full event logs should export JSON.
-    cols = ["ts", "op_type", "status", "actor", "target_stack",
+    cols = ["ts", "op_type", "target_kind", "status", "actor", "target_stack",
             "target_name", "target_id", "duration", "error"]
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
@@ -6309,7 +6339,7 @@ def _failure_state_for_host(host_id: str) -> dict:
             cur = c.execute(
                 "SELECT first_failure_ts, consecutive_failures, paused, "
                 "last_error, last_failure_ts, paused_at "
-                "FROM host_failure_state WHERE host_id = ?",
+                "FROM host_failure_state WHERE host_id = ? AND provider = ''",
                 (host_id,),
             )
             row = cur.fetchone()
@@ -6387,45 +6417,40 @@ def _build_provider_state_index() -> dict:
     by_host: dict = {}
     try:
         with db_conn() as c:
+            # Per-(provider, host) failure rows only — the whole-host
+            # rows (provider='') are surfaced via _failure_state_for_host.
             fail_rows = c.execute(
-                "SELECT host_id, first_failure_ts, consecutive_failures, "
+                "SELECT host_id, provider, first_failure_ts, consecutive_failures, "
                 "paused, last_error, last_failure_ts, paused_at "
-                "FROM host_failure_state"
+                "FROM host_failure_state WHERE provider != ''"
             ).fetchall()
             ok_rows = c.execute(
-                "SELECT host_id, last_ok_ts FROM host_provider_last_ok"
+                "SELECT host_id, provider, last_ok_ts FROM host_provider_last_ok"
             ).fetchall()
     except Exception:
         return by_host
-    # Pre-bucket by (provider, host_id). Bare host_id rows (whole-host
-    # #383 pauses) are skipped — they're surfaced via the separate
-    # `_failure_state_for_host` helper, not the per-provider map.
     for row in fail_rows:
-        key = row[0] or ""
-        if ":" not in key:
-            continue
-        provider, _, hid = key.partition(":")
+        hid = row[0] or ""
+        provider = row[1] or ""
         if not hid or provider not in _PROVIDER_AUTO_PAUSE_NAMES:
             continue
-        last_ts = row[5] if (len(row) > 5 and row[5] is not None) else row[1]
-        paused_at = row[6] if (len(row) > 6 and row[6] is not None) else 0
+        last_ts = row[6] if row[6] is not None else row[2]
+        paused_at = row[7] if row[7] is not None else 0
         by_host.setdefault(hid, {})[provider] = {
-            "paused":                bool(row[3]),
-            "consecutive_failures":  int(row[2] or 0),
-            "last_error":            row[4] or "",
-            "first_failure_ts":      int(row[1] or 0),
+            "paused":                bool(row[4]),
+            "consecutive_failures":  int(row[3] or 0),
+            "last_error":            row[5] or "",
+            "first_failure_ts":      int(row[2] or 0),
             "last_failure_ts":       int(last_ts or 0),
             "paused_at":             int(paused_at or 0),
             "last_ok_ts":            0,
         }
     for r in ok_rows:
-        key = r[0] or ""
-        if ":" not in key:
-            continue
-        provider, _, hid = key.partition(":")
+        hid = r[0] or ""
+        provider = r[1] or ""
         if not hid or provider not in _PROVIDER_AUTO_PAUSE_NAMES:
             continue
-        ts = int(r[1] or 0)
+        ts = int(r[2] or 0)
         existing = by_host.setdefault(hid, {}).get(provider)
         if existing is not None:
             existing["last_ok_ts"] = ts
@@ -6524,12 +6549,12 @@ def _is_provider_paused(host_id: str, provider: str) -> bool:
     naturally and re-pause on the next round."""
     if not host_id or not provider:
         return False
-    key = f"{provider}:{host_id}"
     try:
         with db_conn() as c:
             row = c.execute(
-                "SELECT paused FROM host_failure_state WHERE host_id = ?",
-                (key,),
+                "SELECT paused FROM host_failure_state "
+                "WHERE host_id = ? AND provider = ?",
+                (host_id, provider),
             ).fetchone()
     except Exception:
         return False
@@ -7323,33 +7348,34 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
     try:
         with db_conn() as c:
             for table in ("host_failure_state", "host_provider_last_ok"):
-                rows = c.execute(f"SELECT host_id FROM {table}").fetchall()
-                doomed = []
+                rows = c.execute(f"SELECT host_id, provider FROM {table}").fetchall()
+                doomed: list[tuple[str, str]] = []
                 for r in rows:
-                    key = r[0] or ""
-                    bare = key
-                    provider = ""
-                    if ":" in key:
-                        head, _, tail = key.partition(":")
-                        if head in _PROVIDER_AUTO_PAUSE_NAMES:
-                            bare = tail
-                            provider = head
-                    if bare and bare not in live_ids:
-                        doomed.append(key)
+                    bare = r[0] or ""
+                    provider = r[1] or ""
+                    if not bare:
                         continue
-                    # Per-provider orphan check : provider-prefixed
-                    # row but the host's curated config no longer (or
-                    # never) had that provider enabled. Most common path
-                    # for these is the pre-#832 fall-through that probed
-                    # Pulse/Beszel against `host.id` for hosts without
-                    # the corresponding alias set.
-                    if provider and bare in host_providers:
-                        if provider not in host_providers[bare]:
-                            doomed.append(key)
+                    # Whole-host row whose host_id is gone from the curated list.
+                    if bare not in live_ids:
+                        doomed.append((bare, provider))
+                        continue
+                    # Per-provider orphan: host still curated but the
+                    # provider isn't actually configured on its row.
+                    # Most common path is the pre-#832 fall-through that
+                    # probed Pulse/Beszel against `host.id` for hosts
+                    # without the corresponding alias set. Skip whole-
+                    # host rows (provider='') and unknown providers.
+                    if (
+                        provider
+                        and provider in _PROVIDER_AUTO_PAUSE_NAMES
+                        and bare in host_providers
+                        and provider not in host_providers[bare]
+                    ):
+                        doomed.append((bare, provider))
                 if doomed:
                     c.executemany(
-                        f"DELETE FROM {table} WHERE host_id = ?",
-                        [(k,) for k in doomed],
+                        f"DELETE FROM {table} WHERE host_id = ? AND provider = ?",
+                        doomed,
                     )
                     total += len(doomed)
                     print(f"[hosts] orphan sweep: removed {len(doomed)} row(s) from {table}")
@@ -7382,8 +7408,12 @@ async def api_hosts_resume_sampling(
         raise HTTPException(404, f"Host not found: {host_id}")
     try:
         with db_conn() as c:
+            # Whole-host pause lives in the bare-id row (provider='').
+            # Per-provider rows (provider='<name>') stay so individual
+            # provider chips keep their state — operator clears those via
+            # /api/hosts/{id}/provider/{name}/resume.
             cur = c.execute(
-                "DELETE FROM host_failure_state WHERE host_id = ?",
+                "DELETE FROM host_failure_state WHERE host_id = ? AND provider = ''",
                 (host_id,),
             )
             cleared = cur.rowcount or 0
@@ -7484,12 +7514,12 @@ async def api_hosts_provider_resume(
     h = next((x for x in curated if x.get("id") == host_id), None)
     if h is None:
         raise HTTPException(404, f"Host not found: {host_id}")
-    pause_key = f"{provider}:{host_id}"
     try:
         with db_conn() as c:
             cur = c.execute(
-                "DELETE FROM host_failure_state WHERE host_id = ?",
-                (pause_key,),
+                "DELETE FROM host_failure_state "
+                "WHERE host_id = ? AND provider = ?",
+                (host_id, provider),
             )
             cleared = cur.rowcount or 0
     except Exception as e:
@@ -8712,9 +8742,9 @@ def _ssh_write_audit_row(
         with db_conn() as c:
             c.execute(
                 "INSERT INTO history "
-                "(ts, op_type, target_name, target_id, target_stack, "
-                " status, duration, events, error, actor) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, ?, 'ssh', ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     started, "ssh_run",
                     _ssh.sanitize_command_for_audit(command) or "(empty)",
@@ -8865,9 +8895,9 @@ def _ssh_terminal_audit_open(
         with db_conn() as c:
             cur = c.execute(
                 "INSERT INTO history "
-                "(ts, op_type, target_name, target_id, target_stack, "
-                " status, duration, events, error, actor) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, ?, 'ssh', ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     time.time(),
                     "ssh_terminal",
@@ -9827,19 +9857,16 @@ async def api_hosts_timeline(
                 # timeline functional during rollout; once the new table
                 # has events the fallback never fires.
                 try:
-                    like_hid = _sqlite_like_escape(hid)
                     fail_rows = c.execute(
-                        "SELECT host_id, paused, paused_at, last_failure_ts, last_error, "
-                        "consecutive_failures "
-                        "FROM host_failure_state "
-                        "WHERE host_id = ? OR host_id LIKE ? ESCAPE '\\'",
-                        (hid, f"%:{like_hid}"),
+                        "SELECT provider, paused, paused_at, last_failure_ts, "
+                        "last_error, consecutive_failures "
+                        "FROM host_failure_state WHERE host_id = ?",
+                        (hid,),
                     ).fetchall()
                 except Exception:
                     fail_rows = []
                 for r in fail_rows:
-                    key = r["host_id"] or ""
-                    provider = key.split(":", 1)[0] if ":" in key else "host"
+                    provider = (r["provider"] or "").strip() or "host"
                     if not r["paused"]:
                         continue
                     ts = int(r["paused_at"] or r["last_failure_ts"] or 0)
@@ -9859,18 +9886,15 @@ async def api_hosts_timeline(
                     })
                     counts["failures"] += 1
                 try:
-                    like_hid = _sqlite_like_escape(hid)
                     ok_rows = c.execute(
-                        "SELECT host_id, last_ok_ts "
-                        "FROM host_provider_last_ok "
-                        "WHERE host_id = ? OR host_id LIKE ? ESCAPE '\\'",
-                        (hid, f"%:{like_hid}"),
+                        "SELECT provider, last_ok_ts "
+                        "FROM host_provider_last_ok WHERE host_id = ?",
+                        (hid,),
                     ).fetchall()
                 except Exception:
                     ok_rows = []
                 for r in ok_rows:
-                    key = r["host_id"] or ""
-                    provider = key.split(":", 1)[0] if ":" in key else "host"
+                    provider = (r["provider"] or "").strip() or "host"
                     ts = int(r["last_ok_ts"] or 0)
                     if ts < since:
                         continue
@@ -9997,10 +10021,10 @@ async def api_hosts_bulk_pause(
                 # isn't rewritten by a manual click.
                 c.executemany(
                     "INSERT INTO host_failure_state "
-                    "(host_id, first_failure_ts, consecutive_failures, "
-                    " paused, paused_at, last_error) "
-                    "VALUES (?, 0.0, 0, 1, ?, ?) "
-                    "ON CONFLICT(host_id) DO UPDATE SET "
+                    "(host_id, provider, first_failure_ts, "
+                    " consecutive_failures, paused, paused_at, last_error) "
+                    "VALUES (?, '', 0.0, 0, 1, ?, ?) "
+                    "ON CONFLICT(host_id, provider) DO UPDATE SET "
                     "paused = 1, paused_at = excluded.paused_at, "
                     "last_error = excluded.last_error",
                     rows,
@@ -10017,10 +10041,10 @@ async def api_hosts_bulk_pause(
                     with db_conn() as c:
                         c.execute(
                             "INSERT INTO host_failure_state "
-                            "(host_id, first_failure_ts, consecutive_failures, "
-                            " paused, paused_at, last_error) "
-                            "VALUES (?, 0.0, 0, 1, ?, ?) "
-                            "ON CONFLICT(host_id) DO UPDATE SET "
+                            "(host_id, provider, first_failure_ts, "
+                            " consecutive_failures, paused, paused_at, last_error) "
+                            "VALUES (?, '', 0.0, 0, 1, ?, ?) "
+                            "ON CONFLICT(host_id, provider) DO UPDATE SET "
                             "paused = 1, paused_at = excluded.paused_at, "
                             "last_error = excluded.last_error",
                             (hid, float(now), pause_tag),
@@ -10081,34 +10105,21 @@ async def api_hosts_bulk_resume(
     actor = _actor_from(request) or "admin"
     # Single transaction for the whole batch — pre-fix this opened
     # one db_conn() per host inside the loop. For 200 selected hosts
-    # that was 200 SQLite write transactions. One outer connection +
-    # batched DELETE collapses to a single transaction. Two passes:
-    # (1) bare-id rows via `host_id IN (?,?,…)` — exact match, no
-    # LIKE escape needed; (2) per-provider rows via `executemany` of
-    # `LIKE ? ESCAPE '\\'` patterns since SQLite has no `LIKE ANY`.
-    # Per-row failure (rare) falls back to per-host loop for partial
-    # success + per-id error attribution.
+    # that was 200 SQLite write transactions. After migration #2 the
+    # composite PK lets us DELETE every row (whole-host + every
+    # per-provider variant) for a host in a single statement: the
+    # IN list matches both ``host_id='hid' AND provider=''`` and
+    # ``host_id='hid' AND provider='snmp'`` rows together. Per-row
+    # failure (rare) falls back to per-host loop for partial success +
+    # per-id error attribution.
     if matched:
         try:
             with db_conn() as c:
-                # Pass 1: bare-id rows. Bulk DELETE in one statement.
                 placeholders = ",".join(["?"] * len(matched))
                 c.execute(
                     "DELETE FROM host_failure_state WHERE host_id IN ("
                     + placeholders + ")",  # nosec B608 — placeholders is constant `?` literals
                     list(matched),
-                )
-                # Pass 2: per-provider prefixed rows. Use executemany
-                # with one LIKE pattern per host (escaped LIKE meta-chars
-                # so a curated id like `web_01` doesn't sweep unrelated
-                # `snmp:webX01` rows via the underscore wildcard).
-                like_patterns = [
-                    (f"%:{_sqlite_like_escape(hid)}",) for hid in matched
-                ]
-                c.executemany(
-                    "DELETE FROM host_failure_state "
-                    "WHERE host_id LIKE ? ESCAPE '\\'",
-                    like_patterns,
                 )
             applied = list(matched)
         except Exception as batch_err:  # noqa: BLE001
@@ -10117,11 +10128,9 @@ async def api_hosts_bulk_resume(
             for hid in matched:
                 try:
                     with db_conn() as c:
-                        like_hid = _sqlite_like_escape(hid)
                         c.execute(
-                            "DELETE FROM host_failure_state "
-                            "WHERE host_id = ? OR host_id LIKE ? ESCAPE '\\'",
-                            (hid, f"%:{like_hid}"),
+                            "DELETE FROM host_failure_state WHERE host_id = ?",
+                            (hid,),
                         )
                     applied.append(hid)
                 except Exception as e:  # noqa: BLE001
@@ -12985,9 +12994,9 @@ async def api_admin_disable_totp(
         try:
             c.execute(
                 "INSERT INTO history "
-                "(ts, op_type, target_name, target_id, target_stack, "
-                " status, duration, events, error, actor) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, ?, 'auth', ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     time.time(), "totp_admin_disabled",
                     target.username, str(user_id), None,
@@ -13044,9 +13053,9 @@ async def api_admin_totp_force(
         try:
             c.execute(
                 "INSERT INTO history "
-                "(ts, op_type, target_name, target_id, target_stack, "
-                " status, duration, events, error, actor) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, ?, 'auth', ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     time.time(), "totp_force_set",
                     target.username, str(user_id), None,

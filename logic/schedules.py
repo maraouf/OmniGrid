@@ -862,9 +862,9 @@ async def _run_gather_refresh(params: dict) -> tuple[str, Awaitable[tuple[int, s
             with db_conn() as c:
                 c.execute(
                     "INSERT INTO history "
-                    "(ts, op_type, target_name, target_id, target_stack, "
-                    " status, duration, events, error, actor) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(ts, op_type, target_kind, target_name, target_id, "
+                    " target_stack, status, duration, events, error, actor) "
+                    "VALUES (?, ?, 'schedule', ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         started, "gather_refresh",
                         "fleet cache", op_id, None,
@@ -930,9 +930,9 @@ async def _run_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
             with db_conn() as c:
                 c.execute(
                     "INSERT INTO history "
-                    "(ts, op_type, target_name, target_id, target_stack, "
-                    " status, duration, events, error, actor) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(ts, op_type, target_kind, target_name, target_id, "
+                    " target_stack, status, duration, events, error, actor) "
+                    "VALUES (?, ?, 'schedule', ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         started, "backup",
                         backup_name or "backup", op_id, None,
@@ -1055,9 +1055,9 @@ async def _run_asset_inventory_refresh(
             with db_conn() as c:
                 c.execute(
                     "INSERT INTO history "
-                    "(ts, op_type, target_name, target_id, target_stack, "
-                    " status, duration, events, error, actor) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(ts, op_type, target_kind, target_name, target_id, "
+                    " target_stack, status, duration, events, error, actor) "
+                    "VALUES (?, ?, 'schedule', ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         started, "asset_inventory_refresh",
                         f"{count} asset(s)" if status == "success" else "asset inventory",
@@ -1131,9 +1131,9 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
             with db_conn() as c:
                 c.execute(
                     "INSERT INTO history "
-                    "(ts, op_type, target_name, target_id, target_stack, "
-                    " status, duration, events, error, actor) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(ts, op_type, target_kind, target_name, target_id, "
+                    " target_stack, status, duration, events, error, actor) "
+                    "VALUES (?, ?, 'schedule', ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         started, "prune_logs",
                         target_name,
@@ -1200,9 +1200,9 @@ async def _run_prune_notifications(
             with db_conn() as c:
                 c.execute(
                     "INSERT INTO history "
-                    "(ts, op_type, target_name, target_id, target_stack, "
-                    " status, duration, events, error, actor) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(ts, op_type, target_kind, target_name, target_id, "
+                    " target_stack, status, duration, events, error, actor) "
+                    "VALUES (?, ?, 'schedule', ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         started, "prune_notifications",
                         target_name,
@@ -1527,9 +1527,9 @@ async def _run_swarm_agent_health(
             with db_conn() as c:
                 c.execute(
                     "INSERT INTO history "
-                    "(ts, op_type, target_name, target_id, target_stack, "
-                    " status, duration, events, error, actor) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(ts, op_type, target_kind, target_name, target_id, "
+                    " target_stack, status, duration, events, error, actor) "
+                    "VALUES (?, ?, 'schedule', ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         started, "swarm_agent_health",
                         target_name,
