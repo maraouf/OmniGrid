@@ -7225,7 +7225,7 @@
                    `:latest` next deploy. Hidden when the image already
                    tracks `:latest` (or has no tag, i.e. defaults to
                    `:latest` already). -->
-              <button x-show="isAdmin() && drawerItem.stack_id && canRetagToLatest(drawerItem)"
+              <button x-show="isAdmin() && canRetagToLatest(drawerItem)"
                       @click="retagStackToLatest(drawerItem)"
                       :disabled="isItemBusy(drawerItem)"
                       class="btn btn-soft justify-center text-[12px]"
