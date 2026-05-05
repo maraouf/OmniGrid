@@ -559,43 +559,49 @@ body {
    it does. Firefox: uses thin/auto via `scrollbar-width` / `scrollbar-color`.
    --------------------------------------------------------------------------- */
 .scrollbar {
+    /* Boosted visibility pass — operators kept reporting that the
+       scrollbar looked unstyled in admin tables that legitimately
+       overflow (Sessions, Logs, etc.). Earlier rev set rest to
+       transparent then to --border (still too faint), and the hover
+       lift didn't fire on Firefox during drag because the parent's
+       :hover didn't propagate from scrollbar to wrapper. This rev
+       picks visibility-first defaults: thin scrollbar with
+       --border-bright at rest (clearly visible without being heavy)
+       and --text-dim on hover / drag (unmistakable contrast against
+       the surface). Track stays transparent so the scrollbar reads
+       as a floating thumb, not a chrome rail. */
     scrollbar-width: thin;
-    /* Subtle visible thumb at rest — was transparent (which read as
-       "unstyled / Firefox default" in admin tables that legitimately
-       overflow). Operators kept reporting the scrollbar looked native
-       on Firefox in particular. Now visible-but-faint at rest, lifts
-       to full --border-bright on hover. Track stays transparent so
-       the scrollbar reads as a floating thumb, not a chrome rail. */
-    scrollbar-color: var(--border) transparent;
+    scrollbar-color: var(--border-bright) transparent;
     transition: scrollbar-color .2s ease;
 }
 .scrollbar:hover {
-    scrollbar-color: var(--border-bright) transparent;
+    scrollbar-color: var(--text-dim) transparent;
 }
 .scrollbar::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
 }
 .scrollbar::-webkit-scrollbar-track {
     background: transparent;
 }
 .scrollbar::-webkit-scrollbar-thumb {
-    background: var(--border);
+    background: var(--border-bright);
     border-radius: var(--r-md);
     transition: background .2s ease;
 }
-/* Two hover triggers — parent-hover (cursor anywhere in the scroll
-   container) AND thumb-hover (cursor directly over the bar). The
-   former handles "user is reading the table"; the latter handles
-   "user is grabbing the scrollbar to drag" — without the second
-   selector the thumb stayed at the rest colour during drag because
-   the cursor leaves the scrollable content area when grabbing the
-   scrollbar in some browsers (notably Firefox). The two selectors
-   carry the same colour so the visual effect stays consistent. */
+/* Three hover triggers — parent-hover (cursor anywhere in the scroll
+   container) AND thumb-hover / thumb-active (cursor directly over the
+   bar / dragging it). Without the latter two the thumb stayed at the
+   rest colour during drag because the cursor leaves the scrollable
+   content area when grabbing the scrollbar in some browsers (notably
+   Firefox / some Chromium builds — the parent's :hover doesn't
+   propagate from scrollbar back to wrapper). The three selectors
+   carry the same colour so the visual effect stays consistent
+   regardless of how the operator interacts with the bar. */
 .scrollbar:hover::-webkit-scrollbar-thumb,
 .scrollbar::-webkit-scrollbar-thumb:hover,
 .scrollbar::-webkit-scrollbar-thumb:active {
-    background: var(--border-bright);
+    background: var(--text-dim);
 }
 
 /* Opt-in: completely hide the scrollbar chrome, e.g. for short tables

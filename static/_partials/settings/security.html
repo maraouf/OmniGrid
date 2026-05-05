@@ -1,13 +1,12 @@
       <section x-show="settingsSection === 'security'" class="page-grid space-y-5">
         <!-- Security card — change password (local users only).
-             Header icon stays `icon-lock` so it doesn't duplicate the
-             Two-factor authentication card's `icon-shield` further
-             down. The sidebar's `security` entry uses shield to mark
-             the section as a whole — keeping per-card icons distinct
-             (lock / shield / key) so each card has its own identity. -->
+             Header icon is `icon-shield` matching the sidebar's
+             `security` entry; the Two-factor card below uses
+             `icon-lock` so each card has its own distinct identity
+             (shield / lock / key). -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-4">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-lock"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.security')"></h3>
           </div>
           <template x-if="me && me.source === 'local'">
@@ -79,11 +78,15 @@
         </section>
 
         <!-- Two-factor authentication card. Local users only —
-             Authentik users see an i18n hint pointing at their IdP. -->
+             Authentik users see an i18n hint pointing at their IdP.
+             Header icon is `icon-lock` so it stays distinct from the
+             Security card above (which now uses `icon-shield`
+             matching the sidebar). Each card carries its own icon
+             identity: shield (Security) / lock (2FA) / key (recovery). -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
                  x-show="me && me.source === 'local'">
           <div class="flex items-center gap-2 mb-4">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-lock"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.totp.title')"></h3>
             <span x-show="totp.required" class="totp-required-pill" x-text="t('settings.profile.totp.required_pill')"></span>
           </div>
