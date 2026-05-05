@@ -13762,12 +13762,61 @@ async def login_page():
 
 
 # Shell-HTML cache — tiny map keyed by file path. Each entry stores the
-# raw file bytes and the mtime we last saw; a disk change invalidates the
-# entry lazily on the next request. `str.replace` runs on every hit
-# (cheap — the two HTMLs together are <200 KB) so `__APP_VERSION__` marker
-# references pick up a new PATCH as soon as VERSION.txt changes, without
-# any restart.
+# assembled file bytes (with `<!-- INCLUDE: ... -->` markers expanded) and
+# the combined mtime tuple of the master file + every referenced partial;
+# a disk change to ANY of them invalidates the entry lazily on the next
+# request. `str.replace` runs on every hit (cheap — the two HTMLs together
+# are <200 KB) so `__APP_VERSION__` marker references pick up a new PATCH
+# as soon as VERSION.txt changes, without any restart.
 _SHELL_CACHE: dict = {}
+
+# Partial-include marker. Matches `<!-- INCLUDE: <path> -->` with
+# arbitrary leading whitespace preserved (via the `.sub` callback below
+# that re-emits the original indent). The path is resolved relative to
+# `static/_partials/` and a path-traversal guard refuses anything that
+# would escape the partials root. One level of inlining only — partials
+# don't recursively include each other today (keeps the contract simple
+# and the cache-key audit shallow).
+_INCLUDE_RE = re.compile(r"<!--\s*INCLUDE:\s*([^\s]+)\s*-->")
+_PARTIALS_BASE = os.path.join("static", "_partials")
+
+
+def _expand_includes(body: str, path: str) -> tuple[str, tuple]:
+    """Expand `<!-- INCLUDE: <rel-path> -->` markers in `body`.
+
+    Returns `(assembled_body, mtime_signature)` where `mtime_signature`
+    is a tuple of `(master_mtime_ns, *(partial_path, partial_mtime_ns)...)`
+    that the caller uses as the cache key. Any partial that fails to
+    read collapses to an empty string in the output (visible visual
+    regression but the page still renders) and contributes its
+    attempted-mtime to the signature so the next disk change invalidates.
+    """
+    base = os.path.abspath(_PARTIALS_BASE)
+    sig: list = []
+    try:
+        sig.append(os.stat(path).st_mtime_ns)
+    except OSError:
+        sig.append(0)
+
+    def _replace(m: "re.Match[str]") -> str:
+        rel = m.group(1)
+        candidate = os.path.abspath(os.path.join(_PARTIALS_BASE, rel))
+        # Path-traversal guard: refuse anything that escapes _partials/.
+        if candidate != base and not candidate.startswith(base + os.sep):
+            sig.append((rel, 0))
+            return ""
+        try:
+            mt = os.stat(candidate).st_mtime_ns
+            with open(candidate, "r", encoding="utf-8") as f:
+                content = f.read()
+        except OSError:
+            sig.append((rel, 0))
+            return ""
+        sig.append((rel, mt))
+        return content
+
+    expanded = _INCLUDE_RE.sub(_replace, body)
+    return expanded, tuple(sig)
 
 
 def _render_shell(path: str) -> Response:
@@ -13779,19 +13828,45 @@ def _render_shell(path: str) -> Response:
     Any other entry-point HTML that references versioned assets should
     be served through this too; the bare StaticFiles mount at "/" won't
     run the substitution.
+
+    Also expands `<!-- INCLUDE: admin/<tab>.html -->` markers so the
+    admin sub-tabs can live in `static/_partials/admin/` instead of one
+    14k-line `index.html`. Cache key tracks every partial's mtime so a
+    partial edit is picked up on the next request without restart.
     """
     try:
-        st = os.stat(path)
-        mtime_ns = st.st_mtime_ns
+        master_mtime = os.stat(path).st_mtime_ns
     except OSError:
         raise HTTPException(status_code=404, detail=f"{path} not found")
     cached = _SHELL_CACHE.get(path)
-    if cached is None or cached[1] != mtime_ns:
+    # Quick path: cached entry's signature still matches every disk file
+    # we depend on. The master mtime alone isn't enough — a partial edit
+    # leaves the master untouched so we re-walk the partial mtimes too.
+    if cached is not None and cached[0][0] == master_mtime:
+        # Re-stat every partial referenced by the cached signature; if
+        # they all match, serve from cache. Cheap: ~18 stat() calls for
+        # the admin partials, each <1 µs.
+        ok = True
+        for entry in cached[0][1:]:
+            rel, prev_mt = entry
+            cand = os.path.abspath(os.path.join(_PARTIALS_BASE, rel))
+            try:
+                if os.stat(cand).st_mtime_ns != prev_mt:
+                    ok = False
+                    break
+            except OSError:
+                if prev_mt != 0:
+                    ok = False
+                    break
+        if ok:
+            body = cached[1]
+        else:
+            cached = None
+    if cached is None:
         with open(path, "r", encoding="utf-8") as f:
-            body = f.read()
-        _SHELL_CACHE[path] = (body, mtime_ns)
-    else:
-        body = cached[0]
+            raw = f.read()
+        body, sig = _expand_includes(raw, path)
+        _SHELL_CACHE[path] = (sig, body)
     # Use the LIVE version, not the import-time snapshot. This lets an
     # operator edit /app/VERSION.txt on the server and have cache-busting
     # URLs follow without restarting the container.

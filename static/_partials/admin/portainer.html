@@ -1,0 +1,187 @@
+      <div x-show="adminTab==='portainer'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <div class="flex items-start justify-between">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <img :src="_themeIcon('/img/icons/portainer.svg')" alt="" width="14" height="14" class="rounded-sm" aria-hidden="true">
+                <h3 class="font-semibold text-[13px]" x-text="t('settings.portainer.connection_title')"></h3>
+              </div>
+              <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.connection_desc')"></p>
+            </div>
+            <span x-show="portainerStatus" class="chip"
+                  :class="portainerStatus && portainerStatus.configured ? 'pill-ok' : 'pill-muted'"
+                  x-text="portainerStatus ? (portainerStatus.configured ? t('settings.portainer.configured') : t('settings.portainer.not_configured')) : ''"></span>
+          </div>
+          <div x-show="portainerStatus" class="space-y-3">
+            <!-- Master switch. Disables every Portainer-bound
+                 fetch via `is_configured()` so the app degrades
+                 gracefully (Stacks/Services/Nodes empty, no error
+                 spam) without erasing the stored URL or API key.
+                 Saves with the rest of the form via the Save button
+                 below — no auto-save on change. -->
+            <label class="flex items-center gap-2 text-[12.5px] cursor-pointer select-none">
+              <input type="checkbox" x-model="settings.portainer_enabled"
+                     @change="markPortainerFormDirty()"
+                     :disabled="isReadonly()">
+              <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
+              <span class="text-[11px] text-[var(--text-faint)]"
+                    x-text="settings.portainer_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
+            </label>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.url_label')"></label>
+              <input x-model="portainerForm.url" type="url"
+                     @input="markPortainerFormDirty()"
+                     :disabled="isReadonly() || !settings.portainer_enabled"
+                     :placeholder="t('settings.portainer.url_placeholder')" class="w-full mono text-[12.5px]">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+                <span x-text="t('settings.portainer.api_key_label')"></span>
+              </label>
+              <span x-show="portainerStatus && portainerStatus.api_key_set"
+                    class="block text-[11px] text-[var(--success)] mb-1"
+                    x-text="t('settings.secret_input.saved_hint')"></span>
+              <div class="secret-input-row">
+                <input x-model="portainerForm.api_key" type="password"
+                       @input="markPortainerFormDirty()"
+                       :disabled="isReadonly() || !settings.portainer_enabled"
+                       :placeholder="(portainerStatus && portainerStatus.api_key_set) ? t('settings.secret_input.placeholder_keep') : t('settings.portainer.api_key_placeholder')"
+                       autocomplete="new-password"
+                       class="mono text-[12px]">
+                <button type="button"
+                        x-show="portainerStatus && portainerStatus.api_key_set && isAdmin()"
+                        @click="clearPortainerApiKey()"
+                        :disabled="!settings.portainer_enabled"
+                        class="btn btn-ghost text-[11.5px] secret-input-clear"
+                        x-text="t('settings.host_stats.clear_secret_label')"></button>
+              </div>
+              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-text="t('settings.portainer.api_key_hint')"></p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.endpoint_id')"></label>
+                <input x-model.number="portainerForm.endpoint_id" type="number" min="1"
+                       @input="markPortainerFormDirty()"
+                       :disabled="isReadonly() || !settings.portainer_enabled"
+                       class="w-full mono text-[12.5px]">
+              </div>
+              <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mt-5">
+                <input type="checkbox" :checked="portainerForm.verify_tls"
+                       @change="portainerForm.verify_tls = $event.target.checked; markPortainerFormDirty()"
+                       :disabled="isReadonly() || !settings.portainer_enabled">
+                <span x-text="t('settings.portainer.verify_tls')"></span>
+              </label>
+            </div>
+            <!-- Public URL — was its own card with a separate Save
+                 button; now folded into the main Portainer settings
+                 section so the master toggle disables it alongside
+                 the connection fields and one Save button commits
+                 every Portainer setting at once. The backend already
+                 accepts `portainer_public_url` on the same /api/settings
+                 endpoint that `savePortainerSettings()` posts to, so
+                 the only wiring needed was: include it in the form
+                 grid, gate `:disabled` on the master switch, fire
+                 `markPortainerFormDirty()` on input. -->
+            <div class="pt-2 border-t border-dashed border-[var(--border)] mt-1">
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.public_title')"></label>
+              <p class="text-[11px] text-[var(--text-faint)] mb-2" x-text="t('settings.portainer.public_desc')"></p>
+              <input x-model="settings.portainer_public_url" type="url"
+                     @input="markPortainerFormDirty()"
+                     :disabled="isReadonly() || !settings.portainer_enabled"
+                     :placeholder="t('settings.portainer.public_placeholder')"
+                     class="w-full mono text-[12.5px]">
+            </div>
+            <!-- Swarm autoheal action — chosen action for the
+                 `swarm_agent_health` schedule kind when it detects an
+                 unhealthy Portainer agent. Lives in the Portainer
+                 section because the action targets Portainer's agent
+                 service (a Portainer-side concept, not a notifications
+                 routing concern). `notify` (default) only fires the
+                 existing `swarm_agent_unhealthy` notification event;
+                 `restart` additionally spawns a do_restart_swarm_agent
+                 op subject to the cooldown tunable. -->
+            <div class="pt-2 border-t border-dashed border-[var(--border)] mt-1">
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1 font-medium"
+                     x-text="t('settings.portainer.swarm_autoheal_label') || 'Swarm autoheal action'"></label>
+              <p class="text-[11px] text-[var(--text-faint)] mb-2"
+                 x-text="t('settings.portainer.swarm_autoheal_hint') || 'When the swarm_agent_health schedule kind detects an unhealthy Portainer agent, what should happen? Notify-only fires the existing notification event. Auto-restart additionally spawns a do_restart_swarm_agent op subject to the cooldown tunable.'"></p>
+              <select x-model="settings.swarm_autoheal_action"
+                      @change="markPortainerFormDirty()"
+                      :disabled="isReadonly() || !settings.portainer_enabled"
+                      class="w-full">
+                <option value="notify"
+                        x-text="t('settings.portainer.swarm_autoheal_notify') || 'Notify only (default)'"></option>
+                <option value="restart"
+                        x-text="t('settings.portainer.swarm_autoheal_restart') || 'Auto-restart agent service'"></option>
+              </select>
+            </div>
+            <!-- First-boot auto-bootstrap of a default
+                 `swarm_agent_health` schedule. Pre-fix the kind
+                 required an admin-created schedule row; the helper
+                 in `logic/schedules.py:bootstrap_swarm_agent_health_schedule`
+                 now creates a 5-minute default the first time
+                 Portainer is configured AND no equivalent row
+                 exists. Operators who want to opt out flip this
+                 toggle to off BEFORE the next restart; the
+                 bootstrap-done latch ensures a deleted-on-purpose
+                 row stays deleted across restarts regardless. -->
+            <div class="pt-2 border-t border-dashed border-[var(--border)] mt-1">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox"
+                       x-model="settings.swarm_autoheal_bootstrap_enabled"
+                       @change="markPortainerFormDirty()"
+                       :disabled="isReadonly() || !settings.portainer_enabled">
+                <span class="text-[11px] text-[var(--text-dim)] font-medium"
+                      x-text="t('settings.portainer.swarm_autoheal_bootstrap_label') || 'Auto-create default swarm_agent_health schedule'"></span>
+              </label>
+              <p class="text-[11px] text-[var(--text-faint)] mt-1"
+                 x-text="t('settings.portainer.swarm_autoheal_bootstrap_hint') || 'On first boot, when Portainer is configured AND no equivalent row exists, OmniGrid auto-creates a 5-minute swarm_agent_health schedule so the autoheal action fires without manual setup. Disable this BEFORE the first boot if you prefer to manage the schedule yourself. Once a schedule exists (auto or manual), this toggle has no further effect — deleting the auto-created row leaves it deleted.'"></p>
+            </div>
+            <div x-show="isAdmin()" class="flex items-center gap-3 pt-1 flex-wrap">
+              <!-- Save is GATED on a successful Test when the service
+                   is enabled — admins can't ship a typo'd URL / API key
+                   without proving the round-trip works first. When the
+                   master switch is OFF the gate releases (no probe
+                   will fire either way). The :title surfaces the
+                   reason via tooltip when Save is locked. -->
+              <button @click="savePortainerSettings()"
+                      :disabled="portainerSaving || !canSavePortainer()"
+                      :class="portainerDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                      :title="!canSavePortainer() ? t('settings.portainer.save_requires_test') : ''"
+                      class="btn btn-primary text-[12px]">
+                <span x-show="!portainerSaving" x-text="t('settings.portainer.save_button')"></span>
+                <span x-show="portainerSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+              </button>
+              <button @click="testPortainerConnection()"
+                      :disabled="!settings.portainer_enabled"
+                      class="btn btn-soft text-[12px]" x-text="t('settings.portainer.test_button')"></button>
+              <span x-show="portainerDirty()"
+                    class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+                <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
+              </span>
+              <!-- Inline reminder when Save is locked because the
+                   service is enabled but no successful Test has run
+                   against the CURRENT form values. Disappears the
+                   moment a Test passes; reappears on any edit after. -->
+              <span x-show="settings.portainer_enabled && !canSavePortainer()"
+                    class="text-[11.5px] text-[var(--text-faint)]"
+                    x-text="t('settings.portainer.save_requires_test')"></span>
+            </div>
+            <div x-show="portainerTestResult" class="text-[12px] rounded-md px-3 py-2"
+                 :class="portainerTestResult && portainerTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
+              <template x-if="portainerTestResult && portainerTestResult.pending">
+                <span x-text="t('loading.testing')"></span>
+              </template>
+              <template x-if="portainerTestResult && !portainerTestResult.pending">
+                <span>
+                  <span x-text="portainerTestResult.ok ? '✓' : '✗'"></span>
+                  <span class="ml-1" x-text="portainerTestResult.detail"></span>
+                </span>
+              </template>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- OIDC TAB -->
