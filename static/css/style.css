@@ -1744,6 +1744,124 @@ details summary::-webkit-details-marker {
     border-radius: var(--r-md);
     padding: var(--s-3) var(--s-4);
 }
+
+/* ---------------------------------------------------------------------------
+   AI palette response modal — Question / Answer / metadata blocks.
+   Used by `askAi()`'s SweetAlert (#ai-palette-response). The modal is
+   the single most-stared-at AI surface in the SPA — every troubleshoot
+   conversation lands here — so the layout deliberately leans visual
+   over compact: explicit section labels, distinct backgrounds for the
+   question vs the answer, a chip-strip footer for provider/model/timing.
+   --------------------------------------------------------------------------- */
+.ai-resp { text-align: start; font-size: var(--fs-sm); }
+.ai-resp-section + .ai-resp-section { margin-top: var(--s-4); }
+.ai-resp-label {
+    font-size: var(--fs-3xs);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.ai-resp-label .ai-resp-label-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--text-faint);
+    flex-shrink: 0;
+}
+.ai-resp-label.is-question .ai-resp-label-dot { background: var(--primary); }
+.ai-resp-label.is-answer   .ai-resp-label-dot { background: var(--success); }
+.ai-resp-question {
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-inline-start: 3px solid var(--primary);
+    border-radius: var(--r-md);
+    padding: var(--s-3) var(--s-4);
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+}
+.ai-resp-answer {
+    color: var(--text);
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: color-mix(in srgb, var(--success) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 25%, transparent);
+    border-inline-start: 3px solid var(--success);
+    border-radius: var(--r-md);
+    padding: var(--s-3) var(--s-4);
+}
+/* "Ran action" pill — sits below the answer. Two-tone: a solid
+ * green disc with a white check inside on the leading edge, then
+ * the action label. Designed to feel like a celebration of "the AI
+ * just did the thing for you", not just a status line. */
+.ai-resp-action-ran {
+    margin-top: var(--s-3);
+    font-size: var(--fs-xs);
+    color: color-mix(in srgb, var(--success) 80%, var(--text));
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px 6px 6px;
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 35%, transparent);
+    border-radius: 999px;
+    font-weight: 500;
+    box-shadow: 0 1px 0 color-mix(in srgb, var(--success) 18%, transparent);
+}
+.ai-resp-action-ran > span:first-child {
+    /* The ✓ glyph from the markup — promoted to a circular green
+     * badge with white text. Operator-visible "done" badge. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: var(--success);
+    color: var(--text-on-primary);
+    font-size: var(--fs-md);
+    font-weight: 700;
+    flex-shrink: 0;
+    line-height: 1;
+}
+.ai-resp-action-ran > span:last-child {
+    color: color-mix(in srgb, var(--success) 85%, var(--text));
+}
+.ai-resp-meta {
+    margin-top: var(--s-4);
+    padding-top: var(--s-3);
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: var(--fs-3xs);
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+}
+.ai-resp-meta-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-dim);
+}
+.ai-resp-meta-chip strong {
+    color: var(--text);
+    font-weight: 600;
+}
+
 .cmdpal-kind-pill {
     flex-shrink: 0;
     background: var(--surface-2);

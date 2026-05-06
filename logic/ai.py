@@ -34,6 +34,14 @@ from typing import Any
 import httpx
 
 
+# Canonical, ordered tuple of every AI provider OmniGrid speaks to.
+# CANONICAL source of truth — every other module that needs the list
+# (settings validators, /api/me's `client_config.ai.provider_names`,
+# the SPA's `aiProviderNames`) imports from HERE rather than declaring
+# a parallel literal. Adding a fifth provider is a one-line edit to
+# this tuple plus per-provider plumbing in `_DEFAULT_BASE_URLS` /
+# `_DEFAULT_MODELS` / probe + ask helpers below; consumers pick up
+# the new entry automatically.
 SUPPORTED_PROVIDERS = ("claude", "gemini", "chatgpt", "deepseek")
 
 
