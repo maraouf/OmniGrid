@@ -1872,6 +1872,26 @@ details summary::-webkit-details-marker {
     font-weight: 600;
 }
 
+/* AI response — markdown bullet / numbered list rendering. The
+   `_renderAiAnswerMd` helper translates `* x` / `- x` / `1. x` lines
+   into <ul>/<ol class="ai-resp-list">. Tighter line-height + small
+   indent so the lists nest cleanly in the .ai-resp-answer surface
+   without dwarfing the surrounding prose. */
+.ai-resp-list {
+    margin: var(--s-2) 0 var(--s-2) 0;
+    padding-inline-start: var(--s-5);
+    line-height: 1.55;
+}
+.ai-resp-list li { margin: var(--s-1) 0; }
+.ai-resp-answer code {
+    background: var(--surface-3);
+    color: var(--text);
+    padding: 1px var(--s-1);
+    border-radius: var(--r-sm);
+    font-size: 0.92em;
+}
+.ai-resp-answer strong { color: var(--text); font-weight: 600; }
+
 /* AI response — per-host disk-projection charts. Rendered when the
    AI emits a `HOSTS: <id1>, <id2>, ...` trailer; one chart per host
    below the answer body. Each card carries a header (host id +

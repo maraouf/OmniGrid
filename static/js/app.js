@@ -3832,6 +3832,57 @@ function app() {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
     },
+    // Render a safe subset of Markdown for AI answer bodies. The
+    // models routinely return prose with `**bold**` host names,
+    // numbered top-N lists, and inline `code`; rendering those as
+    // literal asterisks / digits-then-dot looked unfinished. This
+    // helper escapes HTML first (XSS guard against any model that
+    // tries to inject `<script>` or similar), then translates:
+    //   - `**text**`     → <strong>text</strong>
+    //   - `` `text` ``  → <code>text</code>
+    //   - lines `* x`   → wrapped in <ul class="ai-resp-list"><li>...
+    //   - lines `- x`   → wrapped in <ul class="ai-resp-list"><li>...
+    //   - lines `1. x`  → wrapped in <ol class="ai-resp-list"><li>...
+    //   - blank line    → paragraph break (closes any open list)
+    //   - other line    → text + <br>
+    // Deliberately tiny — no headings, links, tables, or inline italic
+    // (`_text_` would misfire on snake_case identifiers). Output is
+    // already-escaped HTML, safe to inject via swal `html:` payload.
+    _renderAiAnswerMd(text) {
+      if (!text) return '';
+      let s = this._logEscape(text);
+      // Inline replacements first so they apply across line groupings.
+      s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+      const lines = s.split('\n');
+      const parts = [];
+      let listKind = null;  // 'ul' | 'ol' | null
+      const closeList = () => {
+        if (listKind) { parts.push('</' + listKind + '>'); listKind = null; }
+      };
+      for (const line of lines) {
+        const ulMatch = /^\s*[*-]\s+(.+)$/.exec(line);
+        const olMatch = /^\s*(\d+)\.\s+(.+)$/.exec(line);
+        if (ulMatch) {
+          if (listKind && listKind !== 'ul') closeList();
+          if (!listKind) { parts.push('<ul class="ai-resp-list">'); listKind = 'ul'; }
+          parts.push('<li>' + ulMatch[1] + '</li>');
+        } else if (olMatch) {
+          if (listKind && listKind !== 'ol') closeList();
+          if (!listKind) { parts.push('<ol class="ai-resp-list">'); listKind = 'ol'; }
+          parts.push('<li>' + olMatch[2] + '</li>');
+        } else {
+          closeList();
+          if (line.trim() === '') {
+            parts.push('');  // blank line = paragraph break
+          } else {
+            parts.push(line + '<br>');
+          }
+        }
+      }
+      closeList();
+      return parts.join('').replace(/<br>$/, '');
+    },
     // Wrap recognised tags like [webmin] / [beszel] in coloured
     // spans. Returns safe HTML (already escaped) for x-html. Tag
     // map below keeps the list explicit — new backend prefixes need
@@ -8393,7 +8444,7 @@ function app() {
           + '<span class="ai-resp-label-dot" aria-hidden="true"></span>'
           + esc(this.t('command_palette.ai.answer_label') || 'Answer')
           + '</div>'
-          + '<div class="ai-resp-answer">' + esc(answer) + '</div>'
+          + '<div class="ai-resp-answer">' + this._renderAiAnswerMd(answer) + '</div>'
           + actionRanLine
           + '</div>'
           + errorBlock
@@ -13215,7 +13266,11 @@ function app() {
             + (answerIsEmpty
               ? '<div class="ai-resp-answer" role="status" aria-live="polite" style="opacity:0.7">'
               : '<div class="ai-resp-answer">')
-            + this._logEscape(answer)
+            // Render the AI's answer through the safe-Markdown helper
+            // so `**host**` renders as bold, `1. ...` lines render as
+            // a real ordered list, etc. Empty-response sentinel stays
+            // plain text — the helper short-circuits on falsy input.
+            + (answerIsEmpty ? this._logEscape(answer) : this._renderAiAnswerMd(answer))
             + '</div>'
             + actionRanLine
             + '</div>'
