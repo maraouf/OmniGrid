@@ -37,36 +37,34 @@
                    class="w-full mono text-[12px]">
             <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.issuer_hint')"></p>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.client_id')"></label>
-              <input x-model="oidcForm.client_id" type="text"
+          <div>
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.client_id')"></label>
+            <input x-model="oidcForm.client_id" type="text"
+                   @input="markOidcFormDirty()"
+                   :disabled="isReadonly() || !oidcForm.enabled"
+                   :placeholder="t('settings.oidc.client_id_placeholder')"
+                   class="w-full mono text-[12px]">
+          </div>
+          <div>
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+              <span x-text="t('settings.oidc.client_secret')"></span>
+            </label>
+            <span x-show="oidcStatus && oidcStatus.client_secret_set"
+                  class="block text-[11px] text-[var(--success)] mb-1"
+                  x-text="t('settings.secret_input.saved_hint')"></span>
+            <div class="secret-input-row">
+              <input x-model="oidcForm.client_secret" type="password"
                      @input="markOidcFormDirty()"
                      :disabled="isReadonly() || !oidcForm.enabled"
-                     :placeholder="t('settings.oidc.client_id_placeholder')"
+                     :placeholder="(oidcStatus && oidcStatus.client_secret_set) ? t('settings.secret_input.placeholder_keep') : t('settings.oidc.client_secret_placeholder')"
+                     autocomplete="new-password"
                      class="w-full mono text-[12px]">
-            </div>
-            <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">
-                <span x-text="t('settings.oidc.client_secret')"></span>
-              </label>
-              <span x-show="oidcStatus && oidcStatus.client_secret_set"
-                    class="block text-[11px] text-[var(--success)] mb-1"
-                    x-text="t('settings.secret_input.saved_hint')"></span>
-              <div class="secret-input-row">
-                <input x-model="oidcForm.client_secret" type="password"
-                       @input="markOidcFormDirty()"
-                       :disabled="isReadonly() || !oidcForm.enabled"
-                       :placeholder="(oidcStatus && oidcStatus.client_secret_set) ? t('settings.secret_input.placeholder_keep') : t('settings.oidc.client_secret_placeholder')"
-                       autocomplete="new-password"
-                       class="mono text-[12px]">
-                <button type="button"
-                        x-show="oidcStatus && oidcStatus.client_secret_set && isAdmin()"
-                        @click="clearOidcClientSecret()"
-                        :disabled="!oidcForm.enabled"
-                        class="btn btn-ghost text-[11.5px] secret-input-clear"
-                        x-text="t('settings.host_stats.clear_secret_label')"></button>
-              </div>
+              <button type="button"
+                      x-show="oidcStatus && oidcStatus.client_secret_set && isAdmin()"
+                      @click="clearOidcClientSecret()"
+                      :disabled="!oidcForm.enabled"
+                      class="btn btn-ghost text-[11.5px] secret-input-clear"
+                      x-text="t('settings.host_stats.clear_secret_label')"></button>
             </div>
           </div>
           <div>

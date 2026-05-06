@@ -50,6 +50,21 @@
               <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
                  x-text="t('admin.ai.active_provider_hint')"></p>
             </div>
+            <!-- Generic max_tokens — applied to every provider's chat
+                 completion request. Bumped when a provider's response
+                 keeps coming back truncated; lowered to cap costs on a
+                 paid tier. Clamped 64..32000 server-side. -->
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('admin.ai.max_tokens_label')"></label>
+              <input type="number" min="64" max="32000" step="1"
+                     x-model.number="settings.ai_max_tokens"
+                     @input="markAiFormDirty()"
+                     :disabled="isReadonly() || !settings.ai_enabled"
+                     class="w-full md:max-w-[260px] text-[12.5px]"
+                     placeholder="1024">
+              <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                 x-text="t('admin.ai.max_tokens_hint')"></p>
+            </div>
             <div class="flex items-center gap-2 flex-wrap">
               <button @click="saveAiSettings()"
                       :disabled="isReadonly() || aiSaving || !aiFormDirty()"
