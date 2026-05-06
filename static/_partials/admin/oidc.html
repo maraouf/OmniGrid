@@ -118,7 +118,7 @@
               <span class="block text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.group_case_sensitive_hint')"></span>
             </span>
           </label>
-          <div x-show="isAdmin()" class="flex items-center gap-3 pt-1 flex-wrap">
+          <div x-show="isAdmin()" class="flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
             <!-- Same Save-gating as Admin → Portainer: when OIDC is
                  enabled, Save is locked until a Test connection has
                  succeeded against the CURRENT form values; any edit

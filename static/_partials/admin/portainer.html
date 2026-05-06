@@ -144,7 +144,7 @@
               <p class="text-[11px] text-[var(--text-faint)] mt-1"
                  x-text="t('settings.portainer.swarm_autoheal_bootstrap_hint') || 'On first boot, when Portainer is configured AND no equivalent row exists, OmniGrid auto-creates a 5-minute swarm_agent_health schedule so the autoheal action fires without manual setup. Disable this BEFORE the first boot if you prefer to manage the schedule yourself. Once a schedule exists (auto or manual), this toggle has no further effect — deleting the auto-created row leaves it deleted.'"></p>
             </div>
-            <div x-show="isAdmin()" class="flex items-center gap-3 pt-1 flex-wrap">
+            <div x-show="isAdmin()" class="flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
               <!-- Save is GATED on a successful Test when the service
                    is enabled — admins can't ship a typo'd URL / API key
                    without proving the round-trip works first. When the

@@ -147,7 +147,7 @@
             <span class="text-[11px] text-[var(--text-dim)] ms-auto"
                   x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_log_retention_days'] || {}).effective })"></span>
           </div>
-          <div class="flex items-center gap-3 mt-3" x-show="isAdmin()">
+          <div class="flex items-center gap-3 mt-3 pt-3 border-t border-[var(--border)]" x-show="isAdmin()">
             <button @click="saveTuning()"
                     :disabled="tuningSaving"
                     :class="tuningDirty() ? 'ring-2 ring-[var(--warning)]' : ''"

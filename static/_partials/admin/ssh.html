@@ -258,7 +258,7 @@
                   x-text="(sshTestOnHost.result && sshTestOnHost.result.ok ? t('admin_ssh.test_ok_prefix') : t('admin_ssh.test_fail_prefix')) + (sshTestOnHost.result && (sshTestOnHost.result.error || (sshTestOnHost.result.resolved && (sshTestOnHost.result.resolved.user + '@' + sshTestOnHost.result.resolved.host + ':' + sshTestOnHost.result.resolved.port))) || '')"></span>
           </div>
         </div>
-        <div class="mt-5 flex items-center gap-3 flex-wrap">
+        <div class="mt-5 flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
           <button x-show="isAdmin()" @click="saveSshSettings()"
                   :disabled="sshSettingsBusy"
                   :class="sshSettingsDirty ? 'ring-2 ring-[var(--warning)]' : ''"

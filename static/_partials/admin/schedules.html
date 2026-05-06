@@ -10,15 +10,14 @@
             <h3 class="font-semibold text-[13px]" x-text="t('scheduler_settings.title')"></h3>
           </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('scheduler_settings.intro')"></p>
-          <div class="flex items-end gap-3 flex-wrap">
-            <div class="flex flex-col gap-1">
-              <label class="text-[11px] text-[var(--text-faint)]" x-text="t('scheduler_settings.tz_label')"></label>
-              <input type="text" x-model="settings.scheduler_timezone"
-                     :disabled="!isAdmin()"
-                     list="tz-common-admin"
-                     :placeholder="t('scheduler_settings.tz_placeholder')"
-                     class="w-64 mono text-[12.5px]">
-              <datalist id="tz-common-admin">
+          <div class="flex flex-col gap-1">
+            <label class="text-[11px] text-[var(--text-faint)]" x-text="t('scheduler_settings.tz_label')"></label>
+            <input type="text" x-model="settings.scheduler_timezone"
+                   :disabled="!isAdmin()"
+                   list="tz-common-admin"
+                   :placeholder="t('scheduler_settings.tz_placeholder')"
+                   class="w-64 mono text-[12.5px]">
+            <datalist id="tz-common-admin">
                 <option value="Africa/Cairo">Africa/Cairo</option>
                 <option value="America/Los_Angeles">America/Los_Angeles</option>
                 <option value="America/New_York">America/New_York</option>
@@ -32,14 +31,15 @@
                 <option value="Asia/Tokyo">Asia/Tokyo</option>
                 <option value="Australia/Sydney">Australia/Sydney</option>
                 <option value="UTC">UTC</option>
-              </datalist>
-              <span class="text-[10.5px] text-[var(--text-faint)]">
-                <span x-text="t('scheduler_settings.tz_hint_prefix')"></span><a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
-                              target="_blank" rel="noopener"
-                              class="text-[var(--primary)] hover:underline"
-                              x-text="t('scheduler_settings.tz_hint_link')"></a><span x-text="t('scheduler_settings.tz_hint_suffix')"></span>
-              </span>
-            </div>
+            </datalist>
+            <span class="text-[10.5px] text-[var(--text-faint)]">
+              <span x-text="t('scheduler_settings.tz_hint_prefix')"></span><a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+                            target="_blank" rel="noopener"
+                            class="text-[var(--primary)] hover:underline"
+                            x-text="t('scheduler_settings.tz_hint_link')"></a><span x-text="t('scheduler_settings.tz_hint_suffix')"></span>
+            </span>
+          </div>
+          <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <button x-show="isAdmin()" @click="saveSchedulerSettings()"
                     :disabled="schedulerSaving"
                     class="btn btn-primary text-[12px]">
@@ -93,9 +93,13 @@
                so the form shrinks to the minimum the operator needs. -->
           <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
             <template x-if="newSchedule.cadence_mode === 'interval'">
-              <input x-model.number="newSchedule.interval_seconds" type="number"
-                     :min="scheduleMinInterval" step="60"
-                     :placeholder="t('admin.schedules.interval_placeholder')" class="w-full">
+              <div class="flex flex-col gap-1">
+                <input x-model.number="newSchedule.interval_seconds" type="number"
+                       :min="scheduleMinInterval" step="60"
+                       :placeholder="t('admin.schedules.interval_placeholder')" class="w-full">
+                <span class="text-[10.5px] text-[var(--text-faint)]"
+                      x-text="t('admin.schedules.min_interval_hint', { min: scheduleMinInterval })"></span>
+              </div>
             </template>
             <template x-if="newSchedule.cadence_mode !== 'interval'">
               <input x-model="newSchedule.run_at_hhmm" type="time"
@@ -130,13 +134,11 @@
                       class="w-full mono text-[11.5px]"
                       :placeholder="t('admin.schedules.params_placeholder')"></textarea>
           </div>
-          <div class="mt-3 flex items-center gap-2">
+          <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-2">
             <button @click="createSchedule()" :disabled="scheduleBusy"
                     class="btn btn-primary text-[12px]"
                     :class="scheduleBusy && 'opacity-60'"
                     x-text="scheduleBusy ? t('loading.creating') : t('admin.schedules.create_button')"></button>
-            <span class="text-[11px] text-[var(--text-faint)]"
-                  x-text="t('admin.schedules.min_interval_hint', { min: scheduleMinInterval })"></span>
           </div>
         </section>
 

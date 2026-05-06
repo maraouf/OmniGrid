@@ -267,19 +267,23 @@ async def _chat_gemini(api_key: str, model: str, base_url: str,
         "x-goog-api-key": api_key,
         "content-type":   "application/json",
     }
-    # Disable Gemini 2.5's "thinking" mode for the palette assistant
-    # — the operator wants fast concise answers, not deep reasoning.
-    # Without this, gemini-2.5-pro consumes the entire token budget on
-    # internal thinking and finishes with no visible output (the
-    # operator-reported "(empty response)" with 409/400 tokens used).
-    # `thinkingBudget: 0` is silently ignored by older models so the
-    # extra config is harmless on 1.5-flash / 1.0-pro / 2.0-flash.
+    # Gemini 2.5 model family: Flash + Lite accept `thinkingBudget: 0`
+    # (disables thinking, gives the operator a fast palette response).
+    # Pro REJECTS budget=0 with HTTP 400 — the API enforces a minimum
+    # positive budget for Pro because the model only operates in
+    # thinking mode. So gate the budget by model:
+    #   * `2.5-pro`: omit thinkingConfig entirely (model picks budget)
+    #   * any other 2.5: budget=0 (skip thinking, fast cheap response)
+    #   * pre-2.5: omit (no thinking config in older API revs)
+    # If thinking eats the entire `max_tokens` budget, the operator can
+    # bump it via Admin → AI Integration's max_tokens field.
+    mdl_lc = (mdl or "").lower()
+    gen_config: dict = {"maxOutputTokens": max_tokens}
+    if "2.5" in mdl_lc and "pro" not in mdl_lc:
+        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
     body: dict = {
         "contents":         [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "maxOutputTokens": max_tokens,
-            "thinkingConfig":  {"thinkingBudget": 0},
-        },
+        "generationConfig": gen_config,
     }
     if system_prompt:
         body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
