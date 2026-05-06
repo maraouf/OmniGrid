@@ -92,7 +92,7 @@
                  disabled. -->
             <div class="pt-3 mt-2 border-t border-[var(--border)]" x-show="tuningLoaded">
               <div class="flex items-center gap-2 mb-2">
-                <svg width="13" height="13" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/></svg>
+                <svg width="13" height="13" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/></svg>
                 <h3 class="font-semibold text-[12.5px]"
                     x-text="t('admin.ai.retry.heading')"></h3>
               </div>
@@ -188,31 +188,21 @@
                 <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.help')"></p>
               </div>
-              <!-- Save row for the retry tunables — uses the shared
-                   tuningForm/saveTuning machinery so this saves EVERY
-                   tunable, not just retry knobs (matches the
-                   Admin → Logs `tuning_log_retention_days` pattern). -->
-              <div class="flex items-center gap-3 mt-3 pt-3 border-t border-[var(--border)]" x-show="isAdmin()">
-                <button @click="saveTuning()"
-                        :disabled="tuningSaving"
-                        :class="tuningDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                        class="btn btn-primary text-[12px]">
-                  <span x-show="!tuningSaving" x-text="t('admin.config.save')"></span>
-                  <span x-show="tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-                </button>
-                <span x-show="tuningDirty()" class="text-[11px] text-[var(--warning)]"
-                      x-text="t('admin.config.unsaved')"></span>
-              </div>
             </div>
+            <!-- Single Save row — saves both the AI master settings
+                 (toggle / active provider / max_tokens) AND the retry
+                 tunables in one click. Disabled gate fires when EITHER
+                 form is mid-save OR neither is dirty. The amber-ring
+                 dirty-cue lights up on EITHER side dirty. -->
             <div class="flex items-center gap-2 flex-wrap pt-3 border-t border-[var(--border)]">
-              <button @click="saveAiSettings()"
-                      :disabled="isReadonly() || aiSaving || !aiFormDirty()"
+              <button @click="if (aiFormDirty()) saveAiSettings(); if (tuningDirty()) saveTuning();"
+                      :disabled="isReadonly() || aiSaving || tuningSaving || (!aiFormDirty() && !tuningDirty())"
                       class="btn btn-primary text-[12.5px]"
-                      :class="aiFormDirty() ? 'ring-2 ring-[var(--warning)]' : ''">
-                <span x-show="!aiSaving" x-text="t('actions.save')"></span>
-                <span x-show="aiSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+                      :class="(aiFormDirty() || tuningDirty()) ? 'ring-2 ring-[var(--warning)]' : ''">
+                <span x-show="!aiSaving && !tuningSaving" x-text="t('actions.save')"></span>
+                <span x-show="aiSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
               </button>
-              <span x-show="aiFormDirty() && !aiSaving"
+              <span x-show="(aiFormDirty() || tuningDirty()) && !aiSaving && !tuningSaving"
                     class="text-[10.5px] text-[var(--warning)] flex items-center gap-1">
                 <span class="dot dot-warning dot-pulse" aria-hidden="true"></span>
                 <span class="unsaved-flash" x-text="t('common.unsaved')"></span>
