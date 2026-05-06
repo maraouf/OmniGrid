@@ -1130,6 +1130,16 @@ function app() {
       // dial in the same place).
       'tuning_notification_retention_days',
       'tuning_notification_page_size',
+      // AI provider auto-retry on transient upstream overload —
+      // rendered in Admin → AI Integration alongside the existing
+      // master toggle / active-provider / max-tokens fields. Per
+      // user request: "add the config items to tunables in the AI
+      // section please in admin", NOT the generic Process tunables
+      // form. Backend reads via `tuning_int(...)` per-call inside
+      // `logic/ai.py:_with_retry`.
+      'tuning_ai_retry_enabled',
+      'tuning_ai_retry_backoff_ms',
+      'tuning_ai_retry_first_attempt_max_ms',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -12867,9 +12877,27 @@ function app() {
         + ' · <span class="ai-resp-chart-sub">' + exhaustionLabel + '</span>'
         + '</div>'
       );
+      // Source label — the operator-friendly name of the sampler
+      // table the projection is built from. Helps debug "AI says X
+      // but chart says Y" cases where two sources for the same host
+      // disagree (e.g. NE root-disk vs Pulse full-pool ZFS view).
+      // The endpoint picks the source whose latest disk_total is
+      // LARGEST (the canonical pool view), but operators still want
+      // to see which one was picked.
+      const sourceLabel = (data && data.source)
+        ? esc(t('command_palette.ai.disk_chart.source_' + data.source, data.source))
+        : '';
+      const sourceChip = sourceLabel
+        ? ('<span class="ai-resp-chart-source" :title="\''
+           + esc(t('command_palette.ai.disk_chart.source_label', 'Source'))
+           + '\'">'
+           + esc(t('command_palette.ai.disk_chart.source_label', 'Source')) + ': ' + sourceLabel
+           + '</span>')
+        : '';
       return (
         '<div class="ai-resp-chart-header">'
         + '<span class="ai-resp-chart-title">' + hidEsc + '</span>'
+        + sourceChip
         + '<span class="ai-resp-chart-confidence ai-resp-chart-confidence--' + esc(confidence) + '">'
         + esc(confLabel) + '</span>'
         + '</div>'

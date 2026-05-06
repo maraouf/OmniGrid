@@ -27,6 +27,7 @@ from the toast.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Any
@@ -207,6 +208,57 @@ def score_accuracy(*, kind: str, ok: bool, text: str | None,
     # Round to 4dp so floating-point summation noise (0.5 + 0.2 + 0.1
     # = 0.7999999...) doesn't surface in the dashboard or assertions.
     return round(min(score, 1.0), 4), check
+
+
+async def _with_retry(call_factory, *, provider: str, model: str) -> dict:
+    """Run an AI provider call with one optional retry on transient
+    upstream overload. The retry policy is fully configurable via the
+    three `tuning_ai_retry_*` knobs (Admin → AI Integration):
+      - `tuning_ai_retry_enabled` (0/1)        — master gate
+      - `tuning_ai_retry_backoff_ms`           — sleep before retry
+      - `tuning_ai_retry_first_attempt_max_ms` — gate: only retry when
+        the first attempt resolved within this many ms (slow first
+        attempts mean the upstream is genuinely struggling and a retry
+        won't help — just doubles the wait).
+
+    Retry-classified statuses: 429 / 502 / 503 / 504. Other failures
+    (auth, model-not-found, payload-too-large, real backend bugs)
+    propagate unchanged — retrying them either can't help or risks
+    double-charge if the first call was actually billed.
+
+    Logs a `[ai] warning ... retrying` line when the retry fires AND
+    a `[ai] warning ... retry-skipped` line when the first attempt
+    was too slow to retry — both classify WARN per the persistent-log
+    severity regex.
+    """
+    from logic.tuning import tuning_int
+    enabled = bool(tuning_int("tuning_ai_retry_enabled"))
+    if not enabled:
+        return await call_factory()
+    backoff_ms = tuning_int("tuning_ai_retry_backoff_ms")
+    first_max_ms = tuning_int("tuning_ai_retry_first_attempt_max_ms")
+    transient_statuses = (429, 502, 503, 504)
+    import time as _time
+    t0 = _time.monotonic()
+    out = await call_factory()
+    elapsed_ms = (_time.monotonic() - t0) * 1000.0
+    # Only consider retry on a non-OK transient-overload outcome.
+    if not (isinstance(out, dict) and not out.get("ok")
+            and out.get("status") in transient_statuses):
+        return out
+    status = out.get("status")
+    if elapsed_ms >= first_max_ms:
+        # Slow first attempt — log + propagate without retrying.
+        # Word "warning" + no "fail/error" tokens → classifier picks WARN.
+        print(f"[ai] retry-skipped warning — provider={provider} model={model} "
+              f"HTTP={status} first-attempt-{elapsed_ms:.0f}ms >= threshold-{first_max_ms}ms "
+              f"(upstream slow, retry would only double wait)")
+        return out
+    print(f"[ai] retrying-after-{backoff_ms}ms warning — provider={provider} model={model} "
+          f"HTTP={status} upstream-overloaded (transient)")
+    if backoff_ms > 0:
+        await asyncio.sleep(backoff_ms / 1000.0)
+    return await call_factory()
 
 
 def _resolve_endpoint(provider: str, base_url: str | None) -> str:
@@ -566,17 +618,22 @@ async def ask_provider(
         return {"ok": False, "status": 0, "provider": p,
                 "detail": "prompt is required", "response_time_ms": 0}
 
+    # Build a thunk for the per-provider call so the retry wrapper
+    # can re-invoke it identically on a transient-overload retry.
+    async def _do_call() -> dict:
+        if p == "claude":
+            return await _chat_claude(api_key, model or "", base_url or "",
+                                      prompt, system_prompt, max_tokens, timeout)
+        elif p == "gemini":
+            return await _chat_gemini(api_key, model or "", base_url or "",
+                                      prompt, system_prompt, max_tokens, timeout)
+        else:
+            return await _chat_openai_compatible(p, api_key, model or "", base_url or "",
+                                                 prompt, system_prompt, max_tokens, timeout)
+
     started = time.time()
     try:
-        if p == "claude":
-            out = await _chat_claude(api_key, model or "", base_url or "",
-                                     prompt, system_prompt, max_tokens, timeout)
-        elif p == "gemini":
-            out = await _chat_gemini(api_key, model or "", base_url or "",
-                                     prompt, system_prompt, max_tokens, timeout)
-        else:
-            out = await _chat_openai_compatible(p, api_key, model or "", base_url or "",
-                                                prompt, system_prompt, max_tokens, timeout)
+        out = await _with_retry(_do_call, provider=p, model=(model or _DEFAULT_MODELS.get(p, "")))
     except httpx.TimeoutException:
         out = {"ok": False, "status": 0,
                "detail": f"Request timed out after {timeout:.0f}s — the provider's API may be slow.",

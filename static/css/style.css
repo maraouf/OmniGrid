@@ -1910,6 +1910,12 @@ details summary::-webkit-details-marker {
     border: 1px solid var(--border);
     background: var(--surface);
 }
+.ai-resp-chart-source {
+    font-size: var(--fs-2xs);
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    margin-inline-start: auto;
+}
 .ai-resp-chart-confidence--high {
     background: var(--pill-ok-bg, var(--surface));
     color: var(--success);

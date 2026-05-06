@@ -1787,7 +1787,23 @@ async def _gather_impl() -> None:
             its = g["items"]
             its.sort(key=lambda i: (i.get("name") or "").lower())
             g["total"] = len(its)
-            g["updates"] = sum(1 for i in its if i["status"] == "update")
+            # `updates` counts ONLY actionable live updates — running
+            # items with a newer remote digest. Offline / orphan
+            # containers with stale digests get counted separately
+            # under `updates_offline` so the stack-header chip and
+            # the "Update stack" button only fire for items the
+            # update path can actually fix. Pre-fix an exited
+            # Swarm-task orphan with a stale-pinned digest inflated
+            # the `updates` count and made the amber button suggest
+            # "Update stack" when really the operator needed to
+            # REMOVE the orphan via the existing offline-cleanup
+            # flow. Splitting the counts gives the dashboard an
+            # honest signal: live-update vs digest-stale-but-already-
+            # offline.
+            g["updates"] = sum(1 for i in its
+                               if i["status"] == "update" and i.get("health") != "offline")
+            g["updates_offline"] = sum(1 for i in its
+                                       if i["status"] == "update" and i.get("health") == "offline")
             g["errors"] = sum(1 for i in its if i["status"] == "error")
             g["unknowns"] = sum(1 for i in its if i["status"] == "unknown")
             g["uptodate"] = sum(1 for i in its if i["status"] == "up-to-date")

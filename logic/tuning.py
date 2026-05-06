@@ -395,6 +395,28 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # so the user-side popup picks up the resolved value without a
     # restart.
     "tuning_notification_page_size":      ("NOTIFICATION_PAGE_SIZE", 25, 5, 200),
+    # AI provider auto-retry on transient upstream overload (HTTP 429
+    # / 502 / 503 / 504). Enabled by default — when an AI palette /
+    # host-filter call hits one of those statuses on the FIRST attempt
+    # AND the first attempt was fast (< first_attempt_max_ms), the
+    # call retries ONCE after `backoff_ms` and propagates the second
+    # outcome to the route handler. Encoded as 0/1 because TUNABLES
+    # only carries ints. Operator can disable from Admin → AI
+    # Integration when the second-attempt latency is more annoying
+    # than the modal pop-up.
+    "tuning_ai_retry_enabled":            ("AI_RETRY_ENABLED", 1, 0, 1),
+    # Backoff in milliseconds before the retry attempt. Default 2000ms
+    # = 2s — short enough that the operator's typing rhythm isn't
+    # broken, long enough that a transient overload usually clears.
+    # Range 0..30000 (0 = retry immediately, useful for tests; 30s =
+    # generous for slow upstreams under heavy load).
+    "tuning_ai_retry_backoff_ms":         ("AI_RETRY_BACKOFF_MS", 2000, 0, 30000),
+    # First-attempt-max-duration gate. The retry only fires when the
+    # FIRST attempt resolved in < this many ms — if the first attempt
+    # was already slow, the upstream is genuinely struggling and a
+    # retry won't help (just doubles the user's wait). Default 5000ms
+    # = 5s. Range 100..60000.
+    "tuning_ai_retry_first_attempt_max_ms": ("AI_RETRY_FIRST_ATTEMPT_MAX_MS", 5000, 100, 60000),
 }
 
 
