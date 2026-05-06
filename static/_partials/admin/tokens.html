@@ -12,7 +12,9 @@
               <option value="admin" x-text="t('admin.users.role_admin')"></option>
             </select>
           </div>
-          <button @click="createToken()" class="btn btn-primary text-[12px] mt-3" x-text="t('admin.tokens.create_button')"></button>
+          <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+            <button @click="createToken()" class="btn btn-primary text-[12px]" x-text="t('admin.tokens.create_button')"></button>
+          </div>
         </section>
 
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">

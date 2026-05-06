@@ -204,7 +204,7 @@
              Refresh. These three live together because they're all
              upstream-API actions / status. Save sits on its own row
              below, separated by an HR. -->
-        <div class="flex items-center gap-2 flex-wrap">
+        <div class="mt-3 flex items-center gap-2 flex-wrap">
           <button x-show="isAdmin()" @click="testAssetConnection()"
                   class="btn btn-soft text-[12px]"
                   :disabled="assetTestResult && assetTestResult.pending">
@@ -230,7 +230,7 @@
              a Test connection has succeeded against the CURRENT form
              values; any edit after a passing Test re-locks Save. When
              the master toggle is OFF the gate releases. -->
-        <div class="flex items-center gap-2 flex-wrap pt-3 border-t border-[var(--border)]">
+        <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
           <button x-show="isAdmin()" @click="saveAssetSettings()"
                   class="btn btn-primary text-[12px]"
                   :class="assetDirty() ? 'ring-2 ring-[var(--warning)]' : ''"

@@ -11892,6 +11892,12 @@ function app() {
           verbs: ['notifications', 'inbox', 'alerts'],
           run:   () => { this.toggleNotificationsPanel(); }
         }] : []),
+        ...(typeof this.markAllNotificationsRead === 'function' ? [{
+          id: 'mark-all-notifications-read',
+          label: t('command_palette.action.mark_all_notifications_read', 'Mark all notifications as read'),
+          verbs: ['notifications', 'mark', 'read', 'clear', 'inbox'],
+          run:   () => { this.markAllNotificationsRead(); }
+        }] : []),
 
         // Sign out — destructive (terminates the session)
         ...(typeof this.logout === 'function' ? [{
@@ -12181,6 +12187,27 @@ function app() {
         return false;
       }
     },
+    // Resolve a snake_case action ID emitted by the AI palette
+    // backend (e.g. `mark_all_notifications_read`) to a descriptor
+    // from `_commandActions()` (which uses kebab-case ids like
+    // `mark-all-notifications-read`). Returns null when no match.
+    _actionDescriptorById(snakeId) {
+      const id = (snakeId || '').toString().trim();
+      if (!id) return null;
+      const kebab = id.replace(/_/g, '-');
+      // Backend's snake_case set maps to kebab-case ids in
+      // `_commandActions()`. A few synonyms — `logout` / `sign_out` /
+      // `signout` all share one descriptor.
+      const aliasMap = {
+        sign_out:  'logout',
+        sign_off:  'logout',
+        logoff:    'logout',
+      };
+      const target = aliasMap[id] || kebab;
+      const all = (typeof this._commandActions === 'function')
+        ? this._commandActions() : [];
+      return all.find(a => a.id === target) || null;
+    },
     async _runCommandPaletteAi(payload) {
       const query = (payload && payload.query) || '';
       if (!query) return;
@@ -12244,17 +12271,48 @@ function app() {
         }
         const answer = (j.text || '').trim() || (this.t('command_palette.ai.empty_response') || '(empty response)');
         const tokens = (j.tokens && (j.tokens.prompt + j.tokens.completion)) || 0;
+        const fmtNum = (n) => Number.isFinite(+n) ? (+n).toLocaleString() : String(n || 0);
         const subline = (j.provider || '?') + (j.model ? ' · ' + j.model : '')
-                        + (j.response_time_ms ? ' · ' + j.response_time_ms + 'ms' : '')
-                        + (tokens ? ' · ' + tokens + ' tokens' : '');
+                        + (j.response_time_ms ? ' · ' + fmtNum(j.response_time_ms) + 'ms' : '')
+                        + (tokens ? ' · ' + fmtNum(tokens) + ' tokens' : '');
+        // Action chip — backend stamps `j.action = "<id>"` when the AI
+        // wants to invoke one of the canonical command-palette actions
+        // (mark_all_notifications_read / refresh / theme_dark / etc.).
+        // Render an Execute button next to the answer; clicking it
+        // closes the modal and runs the matching action descriptor
+        // through the existing `_runCommandPaletteAction` dispatcher.
+        const actionId = (j.action || '').toString().trim();
+        const actionDesc = actionId ? this._actionDescriptorById(actionId) : null;
+        let actionHtml = '';
+        if (actionDesc) {
+          actionHtml = '<div class="mt-3 flex items-center gap-2 flex-wrap" style="justify-content:flex-start">'
+            + '<span class="text-[10.5px] text-[var(--text-faint)] mono">'
+            + this._logEscape(this.t('command_palette.ai.proposed_action') || 'Proposed action:')
+            + '</span>'
+            + '<button type="button" id="og-ai-action-execute" class="btn btn-primary text-[12px]">'
+            + this._logEscape(actionDesc.label || actionId)
+            + '</button>'
+            + '</div>';
+        }
         swal.fire({
           icon:  'info',
           title: this.t('command_palette.ai.answer_title') || 'AI response',
           html:  '<div class="text-[12.5px]" style="text-align:left;white-space:pre-wrap">'
                  + this._logEscape(answer) + '</div>'
+                 + actionHtml
                  + '<div class="mt-3 text-[10.5px] text-[var(--text-faint)] mono" style="text-align:left">'
                  + this._logEscape(subline) + '</div>',
           width: 640,
+          didOpen: () => {
+            if (!actionDesc) return;
+            const btn = document.getElementById('og-ai-action-execute');
+            if (btn) {
+              btn.addEventListener('click', () => {
+                swal.close();
+                this._runCommandPaletteAction(actionDesc);
+              });
+            }
+          },
         });
       } catch (e) {
         swal.fire({

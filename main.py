@@ -4199,17 +4199,44 @@ async def api_ai_palette(
     # limits are the bottleneck on every test deployment. The operator
     # gets a single short answer per click; the model is told to
     # surface concrete OmniGrid actions / paths when relevant.
+    #
+    # Structured-action protocol: when the operator wants to RUN one of
+    # the canonical command-palette actions (instead of being told how
+    # to do it manually), the model ends its reply with exactly one
+    # line of the form `ACTION: <id>` where <id> is one of the
+    # whitelisted action IDs below. The SPA parses that line, strips
+    # it from the visible answer, and renders an Execute button so the
+    # operator runs the action with one click. Avoid responding with
+    # endpoint URLs the operator has to look up — pick an action when
+    # one matches.
     sys_prompt = (
         "You are the Cmd-K palette assistant for OmniGrid, a Docker-Swarm "
         "management dashboard. The operator just typed a query into the "
         "command palette and wants help navigating, diagnosing, or acting. "
-        "Reply concisely (1-3 short paragraphs MAX). When relevant, name "
+        "Reply concisely (1-2 short paragraphs MAX). When relevant, name "
         "the exact OmniGrid surface (e.g. 'Admin → Hosts', 'host drawer', "
         "'item drawer', 'Stacks view'), the exact button or action "
-        "('click Switch to :latest', 'click Resume sampling'), or the "
-        "exact API endpoint. Don't invent features that aren't real. If "
-        "the operator's query is ambiguous, ask one short clarifying "
-        "question. Output plain text — no markdown headers."
+        "('click Switch to :latest', 'click Resume sampling'). Don't "
+        "invent features that aren't real. Don't tell the operator to "
+        "POST to API endpoints — they're using the UI; pick an ACTION "
+        "below if one matches. If the operator's query is ambiguous, "
+        "ask one short clarifying question. Output plain text — no "
+        "markdown headers.\n\n"
+        "AVAILABLE ACTIONS (when the operator's query maps to one of "
+        "these, end your reply with a SINGLE line `ACTION: <id>` and "
+        "nothing after it):\n"
+        " - mark_all_notifications_read — mark every notification as read\n"
+        " - refresh — refresh the current view's data from the backend\n"
+        " - reload — full SPA reload (Ctrl-R equivalent)\n"
+        " - theme_dark — switch UI to dark theme\n"
+        " - theme_light — switch UI to light theme\n"
+        " - theme_auto — let UI follow OS theme\n"
+        " - open_notifications — open the notifications drawer\n"
+        " - show_hotkeys — show the keyboard-shortcuts modal\n"
+        " - sign_out — log out of OmniGrid\n"
+        "Example reply: 'I'll mark every notification as read for you.\\n"
+        "ACTION: mark_all_notifications_read'\n"
+        "If no action fits, omit the ACTION line entirely."
     )
     # Trim context to keep token budget low.
     user_prompt_parts = [f"Operator query: {query}"]
@@ -4250,6 +4277,72 @@ async def api_ai_palette(
         max_tokens=max_toks,
         timeout=30.0,
     )
+
+    # Parse the trailing `ACTION: <id>` line (if present) and split it
+    # off the visible text so the SPA renders only the natural-language
+    # answer in the modal body and the action chip / Execute button
+    # separately.
+    _ALLOWED_PALETTE_ACTIONS = {
+        "mark_all_notifications_read",
+        "refresh",
+        "reload",
+        "theme_dark",
+        "theme_light",
+        "theme_auto",
+        "open_notifications",
+        "show_hotkeys",
+        "sign_out",
+    }
+    text = (out.get("text") or "") if isinstance(out, dict) else ""
+    action_id: str = ""
+    if text:
+        import re as _re
+        m = _re.search(r"(?:^|\n)\s*ACTION\s*:\s*([a-z_]+)\s*$", text)
+        if m:
+            candidate = m.group(1).strip().lower()
+            if candidate in _ALLOWED_PALETTE_ACTIONS:
+                action_id = candidate
+                # Strip the ACTION line from the visible text.
+                text = text[: m.start()].rstrip()
+                out["text"] = text
+    if action_id:
+        out["action"] = action_id
+
+    # Persist the call into ai_jobs so the Admin → AI dashboard tiles
+    # populate. Best-effort: failures here MUST NOT break the response
+    # — the operator already got their answer.
+    try:
+        with db_conn() as c:
+            tokens_dict = (out.get("tokens") if isinstance(out, dict) else None) or {}
+            prompt_t = int(tokens_dict.get("prompt") or 0)
+            completion_t = int(tokens_dict.get("completion") or 0)
+            total_t = prompt_t + completion_t
+            c.execute(
+                "INSERT INTO ai_jobs ("
+                "  ts, provider, model, kind, status,"
+                "  prompt_tokens, completion_tokens, total_tokens,"
+                "  cost_usd, response_time_ms, error, metadata"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    int(time.time()),
+                    active,
+                    model or "",
+                    "palette",
+                    "success" if (isinstance(out, dict) and out.get("ok")) else "error",
+                    prompt_t,
+                    completion_t,
+                    total_t,
+                    None,  # cost not yet computed — provider rate-card
+                           # plumbing belongs in a follow-up.
+                    int((out.get("response_time_ms") or 0) if isinstance(out, dict) else 0),
+                    (out.get("detail") or "") if (isinstance(out, dict) and not out.get("ok")) else None,
+                    None,
+                ),
+            )
+            c.commit()
+    except Exception as _e:
+        print(f"[ai] ai_jobs insert failed: {_e}")
+
     return out
 
 
