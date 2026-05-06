@@ -3783,10 +3783,29 @@ async def _api_set_settings_inner(s, request, _portainer):
         try:
             _n = int(_raw)
         except (TypeError, ValueError):
-            raise HTTPException(
-                status_code=400,
-                detail=f"{_k} must be an integer (got {_val!r})",
-            )
+            # Loose boolean coercion for tunables bounded to 0..1 — the
+            # SPA's checkbox-bound knobs (e.g. tuning_ai_retry_enabled)
+            # may receive "true" / "false" if a previous form-state
+            # binding leaked a JS bool through `String(true)`. Accept
+            # the common truthy / falsy strings for those bounds so a
+            # corrupt DB row from the iteration period self-heals on
+            # the next save without operator intervention.
+            _l = _raw.lower()
+            if _lo == 0 and _hi == 1:
+                if _l in ("true", "yes", "on", "y", "t", "1"):
+                    _n = 1
+                elif _l in ("false", "no", "off", "n", "f", "0"):
+                    _n = 0
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{_k} must be 0 or 1 (got {_val!r})",
+                    )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{_k} must be an integer (got {_val!r})",
+                )
         if _n < _lo or _n > _hi:
             raise HTTPException(
                 status_code=400,

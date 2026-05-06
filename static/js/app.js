@@ -7967,9 +7967,25 @@ function app() {
         const d = await r.json();
         this.tuningEffective = d || {};
         const form = {};
+        // Tunables whose range is 0..1 accept common boolean strings
+        // ("true"/"false"/"yes"/"no") at write-time on the backend, but
+        // the SPA's checkbox `true-value="1" false-value="0"` won't
+        // light a checkmark unless the model is the literal "1". Self-
+        // heal corrupt DB values by normalising at read time too — a
+        // previous form-state binding that leaked `String(true)` →
+        // "true" into the DB would otherwise show as unchecked here.
+        const TRUTHY = new Set(['true','yes','on','y','t']);
+        const FALSY  = new Set(['false','no','off','n','f']);
         for (const k of this._allTuningKeys()) {
           const row = (d || {})[k] || {};
-          form[k] = (row.db == null || row.db === '') ? '' : String(row.db);
+          let v = (row.db == null || row.db === '') ? '' : String(row.db);
+          const isBoolBound = (Number(row.min) === 0 && Number(row.max) === 1);
+          if (isBoolBound && v !== '' && !/^[01]$/.test(v)) {
+            const lo = v.toLowerCase();
+            if (TRUTHY.has(lo))      v = '1';
+            else if (FALSY.has(lo))  v = '0';
+          }
+          form[k] = v;
         }
         this.tuningForm = form;
         this._tuningBaseline = this._tuningSnapshot();
