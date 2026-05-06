@@ -703,7 +703,7 @@ If you see HTTP 504s on the Hosts view (gateway timeout, generic NPM error page 
 OmniGrid's own JSON `{"detail": "per-host probe budget exceeded (30s) for <id>"}`), the
 upstream proxy is timing out before OmniGrid gets a chance to surface its own actionable error.
 
-Contract (#506):
+Contract:
 
 - OmniGrid wraps each `/api/hosts/one/{id}` call in `asyncio.wait_for(timeout=30.0)`. If the
   inner probe sequence (single-flight Beszel + Pulse hub + per-host NE / Webmin) runs past

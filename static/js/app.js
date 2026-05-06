@@ -1418,10 +1418,10 @@ function app() {
               this.applyTheme();
             }
           } catch (_) {}
-          // Hydrate host-drawer time-range picker from DB (#1103) —
-          // same shape as theme above. Override the localStorage cache
-          // when the DB has a value so the operator's preferred range
-          // follows them across browsers.
+          // Hydrate host-drawer time-range picker from DB — same shape
+          // as theme above. Override the localStorage cache when the DB
+          // has a value so the operator's preferred range follows them
+          // across browsers.
           try {
             const dbRange = m && m.ui_prefs && Number(m.ui_prefs.host_history_range);
             if (Number.isFinite(dbRange) && dbRange > 0
@@ -1497,7 +1497,7 @@ function app() {
       // first-paint before /api/me round-trips; the DB-backed
       // `users.ui_prefs.host_history_range` is the cross-browser /
       // cross-machine source of truth. Same shape as the theme
-      // migration (#1101).
+      // migration.
       this.$watch('hostHistoryRange', v => {
         try { localStorage.setItem('hostHistoryRange', String(v)); } catch (_) {}
         this.persistHostHistoryRange(v);
@@ -12294,7 +12294,23 @@ function app() {
         swal.fire({
           icon:  'info',
           title: this.t('command_palette.ai.answer_title') || 'AI response',
-          html:  '<div class="text-[12.5px]" style="text-align:left;white-space:pre-wrap">'
+          // Render the operator's original question above the answer
+          // so the modal carries enough context to troubleshoot a
+          // surprising response without rebuilding the prompt from
+          // memory. Question is `query` (the literal palette input
+          // captured at the top of askAi); rendered in a muted
+          // bordered block, mono font, with a small "Question" label
+          // so it visually separates from the answer body.
+          html:  '<div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider" style="text-align:left;font-weight:600;letter-spacing:0.4px">'
+                 + this._logEscape(this.t('command_palette.ai.question_label') || 'Question')
+                 + '</div>'
+                 + '<div class="text-[12px] mono mt-1 mb-3 p-2 rounded" '
+                 + 'style="text-align:left;white-space:pre-wrap;background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim)">'
+                 + this._logEscape(query) + '</div>'
+                 + '<div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider" style="text-align:left;font-weight:600;letter-spacing:0.4px">'
+                 + this._logEscape(this.t('command_palette.ai.answer_label') || 'Answer')
+                 + '</div>'
+                 + '<div class="text-[12.5px] mt-1" style="text-align:left;white-space:pre-wrap">'
                  + this._logEscape(answer) + '</div>'
                  + actionRanLine
                  + '<div class="mt-3 text-[10.5px] text-[var(--text-faint)] mono" style="text-align:left">'

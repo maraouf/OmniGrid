@@ -524,7 +524,7 @@ Mitigations (pick one):
 
 This repo is private (self-hosted Git), so `.env` is committed at the repo root alongside
 `main.py` / `logic/auth.py` and ships via the normal CI rsync pipeline to
-`/opt/omnigrid/app/.env` on the manager. After the image-build deploy migration (#609) the
+`/opt/omnigrid/app/.env` on the manager. After the image-build deploy migration the
 `.env` is no longer baked into the image — it rides a per-file bind mount declared in
 `docker-compose.yml` (`/opt/omnigrid/app/.env:/app/.env:ro`), so secrets stay operator-controlled
 on the host while the application code lives inside the image. `main.py`'s first lines load
@@ -584,7 +584,7 @@ Paste the output into `.env`, commit, push. Users re-authenticate.
 ## Initial server setup (do once)
 
 The deploy target is a Debian 13 VM (amd64, 16 GB / 100 GB) reachable at `pi@docker.example.com`.
-Image-build deploy (#609) — `/opt/omnigrid/app/` is the rsynced build context, NOT a runtime
+Image-build deploy — `/opt/omnigrid/app/` is the rsynced build context, NOT a runtime
 bind mount. The operator creates the directory tree once; every subsequent change ships via CI
 which rsyncs the build context, runs `docker build` on the manager, and rolls the new tag in.
 
