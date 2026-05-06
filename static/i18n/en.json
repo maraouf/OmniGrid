@@ -328,6 +328,9 @@
     "running_label": "running",
     "running": "{count} running"
   },
+  "active_ops": {
+    "toggle_label": "Toggle active operations panel ({count} running)"
+  },
   "loading": {
     "resources": "Loading resources from Portainer…",
     "signing_in": "Signing in…",

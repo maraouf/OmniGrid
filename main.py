@@ -4225,15 +4225,34 @@ async def api_ai_palette(
         "You are the Cmd-K palette assistant for OmniGrid, a Docker-Swarm "
         "management dashboard. The operator just typed a query into the "
         "command palette and wants help navigating, diagnosing, or acting. "
-        "Reply concisely (1-2 short paragraphs MAX). When relevant, name "
-        "the exact OmniGrid surface (e.g. 'Admin → Hosts', 'host drawer', "
-        "'item drawer', 'Stacks view'), the exact button or action "
-        "('click Switch to :latest', 'click Resume sampling'). Don't "
-        "invent features that aren't real. Don't tell the operator to "
-        "POST to API endpoints — they're using the UI; pick an ACTION "
-        "below if one matches. If the operator's query is ambiguous, "
-        "ask one short clarifying question. Output plain text — no "
-        "markdown headers.\n\n"
+        "\n\n"
+        "ANSWER WITH DATA WHEN YOU HAVE IT. The user_prompt below carries "
+        "JSON records for every visible host (id, label, status, cpu_pct, "
+        "mem_pct, disk_pct, disk_free_gb, disk_total_gb, uptime_s, paused, "
+        "providers) and every visible item (name, status, health, type, "
+        "replicas, desired, update_available). When the operator asks a "
+        "DATA question (\"which hosts are running out of space soon?\", "
+        "\"top 5 hosts by CPU\", \"any services degraded?\", \"what's "
+        "stopped?\", \"any updates pending?\"), DON'T point them at a UI "
+        "column to sort — RANK / COUNT / AGGREGATE the records yourself "
+        "and reply with a short list of the top 3-5 specifics including "
+        "the actual numbers. Example shape:\n"
+        "  Top 3 hosts low on disk:\n"
+        "  1. nas01 — 92% used (8 GB free of 100 GB)\n"
+        "  2. web03 — 87% used (52 GB free of 400 GB)\n"
+        "  3. dockerpve — 76% used (240 GB free of 1.0 TB)\n"
+        "Use the EXACT id/label from the JSON. When the data shows nothing "
+        "of concern, say so explicitly (e.g. \"no host above 80% disk — "
+        "you're fine\").\n\n"
+        "When the question is HOW-TO (\"how do I update a stack?\"), name "
+        "the exact OmniGrid surface ('Admin → Hosts', 'host drawer', 'item "
+        "drawer', 'Stacks view') and the exact button or action ('click "
+        "Switch to :latest', 'click Resume sampling'). Don't invent "
+        "features that aren't real. Don't tell the operator to POST to "
+        "API endpoints — they're using the UI; pick an ACTION below if "
+        "one matches. If the operator's query is ambiguous, ask one "
+        "short clarifying question. Reply concisely — bullet list with "
+        "the data is fine; no markdown headers.\n\n"
         "AVAILABLE ACTIONS (when the operator's query maps to one of "
         "these, end your reply with a SINGLE line `ACTION: <id>` and "
         "nothing after it):\n"
@@ -4251,7 +4270,17 @@ async def api_ai_palette(
         "ACTION: mark_all_notifications_read'\n"
         "If no action fits, omit the ACTION line entirely."
     )
-    # Trim context to keep token budget low.
+    # Trim context to keep token budget low. Hosts now arrive as
+    # structured objects (`{id, label, status, cpu_pct, mem_pct,
+    # disk_pct, disk_free_gb, disk_total_gb, uptime_s, paused,
+    # providers}`) instead of bare strings — the SPA enriches the
+    # payload so the model can answer data questions ("which hosts
+    # are running out of space soon?") with specifics, not "go look
+    # at the disk column". Items follow the same shape (status /
+    # health / type / replicas / update_available). We serialise as
+    # JSON-lines per record so the model sees a consistent schema
+    # without parser ambiguity.
+    import json as _json
     user_prompt_parts = [f"Operator query: {query}"]
     hosts = ctx.get("hosts") if isinstance(ctx, dict) else None
     items = ctx.get("items") if isinstance(ctx, dict) else None
@@ -4260,12 +4289,33 @@ async def api_ai_palette(
         user_prompt_parts.append(f"Current view: {view}")
     if isinstance(hosts, list) and hosts:
         # Cap at ~30 — a 200-host fleet's full list would blow the
-        # token budget without adding signal for a single-query.
+        # token budget without adding signal for a single query.
         sample = hosts[:30]
-        user_prompt_parts.append("Available hosts: " + ", ".join(str(h) for h in sample))
+        # Detect the legacy bare-string shape from older SPA versions
+        # so a stale browser doesn't break this round-trip while the
+        # new bundle is rolling out.
+        if all(isinstance(h, str) for h in sample):
+            user_prompt_parts.append("Available hosts: " + ", ".join(sample))
+        else:
+            host_lines = [_json.dumps(h, separators=(",", ":")) for h in sample]
+            user_prompt_parts.append(
+                "Available hosts (one JSON record per line, fields: "
+                "id, label, status, cpu_pct, mem_pct, disk_pct, "
+                "disk_free_gb, disk_total_gb, uptime_s, paused, providers):\n"
+                + "\n".join(host_lines)
+            )
     if isinstance(items, list) and items:
         sample = items[:30]
-        user_prompt_parts.append("Available items: " + ", ".join(str(i) for i in sample))
+        if all(isinstance(i, str) for i in sample):
+            user_prompt_parts.append("Available items: " + ", ".join(sample))
+        else:
+            item_lines = [_json.dumps(i, separators=(",", ":")) for i in sample]
+            user_prompt_parts.append(
+                "Available items (one JSON record per line, fields: "
+                "name, status, health, type, replicas, desired, "
+                "update_available):\n"
+                + "\n".join(item_lines)
+            )
     user_prompt = "\n".join(user_prompt_parts)
 
     # max_tokens is admin-tunable from Admin → AI Integration. 1024 is

@@ -12372,11 +12372,53 @@ function app() {
         }
         return;
       }
-      // Minimal context — top names only. Backend caps at 30 each so
-      // sending more is wasted bytes; sending fewer is a cheaper
-      // round-trip. Hosts: id is enough. Items: name is enough.
-      const hostsCtx = (this.hosts || []).slice(0, 30).map(h => h.id || h.host).filter(Boolean);
-      const itemsCtx = (this.items || []).slice(0, 30).map(i => i.name).filter(Boolean);
+      // Rich context — give the AI the actual numbers so it can
+      // answer data questions ("which hosts are running out of space
+      // soon?") with specifics (top-N + percents) instead of pointing
+      // the operator at a chart. Cap at top 30 each so the prompt
+      // stays inside the token budget; trim every value to compact
+      // primitives (no nested objects) so 30 hosts × ~12 fields = ~3k
+      // tokens — well inside the 1024-default response cap.
+      const fmtHost = (h) => {
+        const total = Number(h.disk_total || 0);
+        const used = Number(h.disk_used || 0);
+        const out = {
+          id: h.id || h.host || '',
+          label: h.label || '',
+          status: h.status || '',
+        };
+        if (h.cpu_percent !== undefined && h.cpu_percent !== null) {
+          out.cpu_pct = Math.round(Number(h.cpu_percent) * 10) / 10;
+        }
+        const memPct = (h.mem_percent !== undefined && h.mem_percent !== null)
+          ? Number(h.mem_percent) : (typeof this.memPercentOf === 'function' ? this.memPercentOf(h) : null);
+        if (memPct !== null && Number.isFinite(memPct)) {
+          out.mem_pct = Math.round(memPct);
+        }
+        if (total > 0) {
+          out.disk_pct = Math.round((used / total) * 100);
+          out.disk_free_gb = Math.round((total - used) / (1024 ** 3));
+          out.disk_total_gb = Math.round(total / (1024 ** 3));
+        }
+        if (h.uptime) out.uptime_s = Number(h.uptime);
+        if (h.sampling_paused) out.paused = true;
+        if (Array.isArray(h.providers) && h.providers.length) {
+          out.providers = h.providers.slice(0, 6);
+        }
+        return out;
+      };
+      const fmtItem = (i) => {
+        const out = { name: i.name || '' };
+        if (i.status)  out.status = i.status;
+        if (i.health)  out.health = i.health;
+        if (i.type)    out.type = i.type;
+        if (i.replicas !== undefined) out.replicas = i.replicas;
+        if (i.desired  !== undefined) out.desired = i.desired;
+        if (i.update_available) out.update_available = true;
+        return out;
+      };
+      const hostsCtx = (this.hosts || []).slice(0, 30).map(fmtHost).filter(h => h.id);
+      const itemsCtx = (this.items || []).slice(0, 30).map(fmtItem).filter(i => i.name);
       const ctx = {
         view:  this.view || '',
         hosts: hostsCtx,
