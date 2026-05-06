@@ -677,6 +677,13 @@ function app() {
     commandPaletteOpen: false,
     commandPaletteQuery: '',
     commandPaletteSelectedIdx: 0,
+    // Bulk palette mode — entered via verb-prefix queries like
+    // `pause: web*` or `resume: provider:beszel`. When active the
+    // palette renders a chip strip of matched hosts + a single "Run
+    // on N hosts" action row instead of the regular results list.
+    // `bulkExcluded` is a Set of host_ids the operator has clicked
+    // off the chip strip (excluded from the bulk run).
+    commandPaletteBulkExcluded: new Set(),
     opsExpanded: true,
     toast: '', toastType: 'success', _tt: null,
     // Auto-refresh cadence (seconds; 0 = off). Persisted to
@@ -11807,6 +11814,10 @@ function app() {
       // isn't defined) used to swallow the entire palette open.
       try { this.commandPaletteOpen = true; } catch (e) { console.error('[cmdpal] open: state flip failed', e); }
       try { this.commandPaletteQuery = ''; this.commandPaletteSelectedIdx = 0; } catch (_) {}
+      // Bulk-mode exclusion set is per-session; clear it on every
+      // open so a previous run's deselections don't bleed into the
+      // next bulk action.
+      try { this.commandPaletteBulkExcluded = new Set(); } catch (_) {}
       // Focus the input on the next tick (after Alpine renders the
       // x-show / :style branch). Without rAF the input isn't in the
       // DOM yet and the focus call no-ops.
@@ -11826,6 +11837,7 @@ function app() {
       this.commandPaletteOpen = false;
       this.commandPaletteQuery = '';
       this.commandPaletteSelectedIdx = 0;
+      this.commandPaletteBulkExcluded = new Set();
     },
     // Static admin-route map. Each entry navigates to the matching
     // Admin → <tab> view via setAdminTab. Adding a new admin tab here
@@ -12049,7 +12061,208 @@ function app() {
       ];
       return actions;
     },
+    // ---------------------------------------------------------------
+    // BULK PALETTE MODE — Phase 1.
+    //
+    // Entry: query starts with `<verb>:` where verb is one of the
+    //        canonical bulk verbs (`pause` / `resume`). Everything
+    //        after the colon is the SELECTOR DSL — a list of
+    //        whitespace-separated tokens, ANDed together. Each token
+    //        is one of:
+    //          - wildcard pattern  : matches host.id OR host.label
+    //                                (case-insensitive; `*` is the
+    //                                only wildcard glyph supported in
+    //                                phase 1; `*nas` / `nas*` / `*nas*`
+    //                                / bare `nas` all do substring
+    //                                contains).
+    //          - `provider:<name>` : host.providers includes <name>
+    //          - `status:<value>`  : host.status === <value>
+    //          - `paused`          : host.sampling_paused is true
+    //                                (useful for `resume: paused`).
+    //
+    // The chip strip + run-row UI is driven entirely by the parsed
+    // selector + this.hosts; no persistent server state until the
+    // operator confirms the run.
+    //
+    // Phase 2+ (planned): add an AI-translated path that takes a
+    // natural-language phrase and returns the same selector shape
+    // (so the AI never directly invokes destructive ops, just
+    // proposes a filter the operator confirms).
+    // ---------------------------------------------------------------
+    _BULK_VERBS: ['pause', 'resume'],
+    _commandPaletteParseBulk(rawQuery) {
+      const q = (rawQuery || '').trim();
+      if (!q) return null;
+      // Match `<verb>:` (case-insensitive) at the very start, with
+      // optional whitespace after. Anything else is a regular query.
+      const m = q.match(/^([a-z_-]+)\s*:\s*(.*)$/i);
+      if (!m) return null;
+      const verb = m[1].toLowerCase();
+      if (!this._BULK_VERBS.includes(verb)) return null;
+      const tail = (m[2] || '').trim();
+      // Empty tail = no selector yet — still in bulk mode but
+      // matches everything (gives the operator immediate visual
+      // feedback that bulk mode is engaged + shows the full host
+      // list to refine from).
+      const tokens = tail
+        ? tail.split(/\s+/).filter(Boolean).map(tok => {
+            const lc = tok.toLowerCase();
+            // `provider:<name>` / `status:<value>` / `paused`
+            if (lc === 'paused') return { kind: 'paused' };
+            const colon = tok.indexOf(':');
+            if (colon > 0) {
+              const k = tok.slice(0, colon).toLowerCase();
+              const v = tok.slice(colon + 1).toLowerCase();
+              if (k === 'provider') return { kind: 'provider', value: v };
+              if (k === 'status')   return { kind: 'status',   value: v };
+              // Unknown key:value — treat as a wildcard literal so
+              // the user isn't punished for typos; downstream `match`
+              // does the substring search.
+              return { kind: 'wildcard', value: lc };
+            }
+            return { kind: 'wildcard', value: lc.replace(/\*/g, '') };
+          })
+        : [];
+      return { verb, tokens, tail };
+    },
+    _commandPaletteBulkMatchHost(host, tokens) {
+      if (!host) return false;
+      if (!tokens.length) return true;
+      const id    = (host.id || host.host || '').toString().toLowerCase();
+      const label = (host.label || '').toString().toLowerCase();
+      const status   = (host.status || '').toString().toLowerCase();
+      const paused   = !!host.sampling_paused;
+      const provs    = Array.isArray(host.providers) ? host.providers.map(p => String(p).toLowerCase()) : [];
+      for (const tok of tokens) {
+        if (tok.kind === 'wildcard') {
+          if (!tok.value) continue;
+          if (!id.includes(tok.value) && !label.includes(tok.value)) return false;
+        } else if (tok.kind === 'provider') {
+          if (!provs.includes(tok.value)) return false;
+        } else if (tok.kind === 'status') {
+          if (status !== tok.value) return false;
+        } else if (tok.kind === 'paused') {
+          if (!paused) return false;
+        }
+      }
+      return true;
+    },
+    commandPaletteBulkState() {
+      // Single source of truth for "are we in bulk mode and what's
+      // the current selection?" Consumed by the chip-strip render,
+      // the run-row label, and the activate path. Returns null when
+      // bulk mode is NOT active so callers can short-circuit cheaply.
+      const parsed = this._commandPaletteParseBulk(this.commandPaletteQuery);
+      if (!parsed) return null;
+      const all = this.hosts || [];
+      const matched = all.filter(h => this._commandPaletteBulkMatchHost(h, parsed.tokens));
+      const excluded = this.commandPaletteBulkExcluded || new Set();
+      const selected = matched.filter(h => !excluded.has(h.id || h.host));
+      return {
+        verb: parsed.verb,
+        tokens: parsed.tokens,
+        matched,
+        selected,
+        excluded,
+      };
+    },
+    isCommandPaletteBulkMode() {
+      return this.commandPaletteBulkState() !== null;
+    },
+    toggleCommandPaletteBulkChip(hostId) {
+      // Toggle a host's exclusion. Reactivity: re-create the Set so
+      // Alpine sees the change (Set mutation in place doesn't trip
+      // the reactive proxy).
+      const next = new Set(this.commandPaletteBulkExcluded || []);
+      if (next.has(hostId)) {
+        next.delete(hostId);
+      } else {
+        next.add(hostId);
+      }
+      this.commandPaletteBulkExcluded = next;
+    },
+    async runCommandPaletteBulk() {
+      const state = this.commandPaletteBulkState();
+      if (!state) return;
+      const ids = state.selected.map(h => h.id || h.host).filter(Boolean);
+      if (!ids.length) return;
+      const verb = state.verb;
+      // SweetAlert confirm — same shape as `bulkPauseHosts` so the
+      // operator gets a consistent two-stage gate (chip-strip preview
+      // + final destructive confirm). Body shows up to 10 host names.
+      const swal = (window.Swal || (typeof Swal !== 'undefined' && Swal));
+      if (!swal) {
+        if (typeof this.showToast === 'function') {
+          this.showToast('SweetAlert unavailable', 'error');
+        }
+        return;
+      }
+      const sample = ids.slice(0, 10);
+      const more = ids.length - sample.length;
+      const sampleHtml = sample.map(id => '<code>' + this._logEscape(id) + '</code>').join(', ');
+      const moreHtml = more > 0
+        ? ' ' + (this.t('hosts_extra.bulk.pause_confirm_more', { more }) || ('… and ' + more + ' more'))
+        : '';
+      const titleKey = 'command_palette.bulk.confirm_title_' + verb;
+      const bodyKey  = 'command_palette.bulk.confirm_body_'  + verb;
+      const okKey    = 'command_palette.bulk.confirm_ok_'    + verb;
+      const fallbackTitle = (verb === 'pause' ? 'Pause sampling on selected hosts?' : 'Resume sampling on selected hosts?');
+      const fallbackBody  = (verb === 'pause' ? 'Pause sampling on ' : 'Resume sampling on ') + ids.length + ' host(s)?';
+      const fallbackOk    = (verb === 'pause' ? 'Pause' : 'Resume');
+      try {
+        const res = await swal.fire({
+          title: this.t(titleKey) || fallbackTitle,
+          html:  (this.t(bodyKey, { count: ids.length }) || fallbackBody)
+                 + '<br><br><div class="text-[11.5px] text-[var(--text-dim)] mono break-words">' + sampleHtml + moreHtml + '</div>',
+          icon:  'warning',
+          showCancelButton: true,
+          confirmButtonText: this.t(okKey) || fallbackOk,
+          cancelButtonText:  this.t('actions.cancel') || 'Cancel',
+        });
+        if (!res.isConfirmed) return;
+      } catch { return; }
+      // Pause requires step-up reauth (matches the per-host bulk
+      // pause contract); resume does not.
+      let reauthToken = null;
+      if (verb === 'pause') {
+        reauthToken = await this._mintReauthToken();
+        if (reauthToken === null) return;
+      }
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (reauthToken) headers['X-Reauth-Token'] = reauthToken;
+        const r = await fetch('/api/hosts/bulk/' + verb, {
+          method:  'POST',
+          headers,
+          body:    JSON.stringify({ host_ids: ids }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.showToast((data && data.detail) || ('HTTP ' + r.status), 'error');
+          return;
+        }
+        const okKey2 = 'command_palette.bulk.success_' + verb;
+        this.showToast(
+          this.t(okKey2, { count: (data.applied || []).length || ids.length })
+          || ((verb === 'pause' ? 'Paused' : 'Resumed') + ' ' + ((data.applied || []).length || ids.length) + ' host(s)'),
+          'success',
+        );
+        // Clear the palette so a back-to-back bulk doesn't carry the
+        // exclusion set across runs.
+        this.closeCommandPalette && this.closeCommandPalette();
+        if (typeof this.loadHosts === 'function') this.loadHosts(true);
+      } catch (e) {
+        this.showToast(String(e && e.message || e), 'error');
+      }
+    },
     commandPaletteResults() {
+      // BULK MODE short-circuit — when the query parses as a bulk
+      // verb-prefix, return ZERO regular results. The bulk UI lives
+      // in a separate render block above the listbox (driven by
+      // `commandPaletteBulkState()`), so the listbox stays empty and
+      // the keyboard-arrow navigation focuses the chip strip / run
+      // button instead of phantom host rows.
+      if (this.isCommandPaletteBulkMode()) return [];
       const q = (this.commandPaletteQuery || '').trim().toLowerCase();
       const results = [];
       const MAX_PER_GROUP = 8;
@@ -12238,6 +12451,16 @@ function app() {
       });
     },
     commandPaletteActivate() {
+      // Bulk-mode short-circuit — the regular result list is empty
+      // when the query parses as a bulk verb-prefix, so Enter has
+      // no row to activate. Route to the bulk-run handler instead.
+      // The handler does its own confirm + close; we don't close
+      // the palette here so it can show the SweetAlert dialog on
+      // top of the still-open palette.
+      if (this.isCommandPaletteBulkMode()) {
+        this.runCommandPaletteBulk();
+        return;
+      }
       const r = this.commandPaletteResults();
       const sel = r[this.commandPaletteSelectedIdx];
       if (!sel) return;

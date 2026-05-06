@@ -7814,11 +7814,52 @@
           <kbd class="text-[10.5px] text-[var(--text-faint)] border border-[var(--border)] rounded px-1.5 py-0.5">Esc</kbd>
         </div>
         <div class="overflow-y-auto scrollbar flex-1">
-          <template x-if="commandPaletteResults().length === 0">
+          <!-- BULK MODE — chip strip + run row. Only renders when the
+               query parses as `<verb>: <selector>` (pause: / resume:).
+               The chip strip lets the operator click off individual
+               hosts before committing; the run row is keyboard-active
+               (Enter triggers `commandPaletteActivate` which the JS
+               re-routes to `runCommandPaletteBulk`). -->
+          <template x-if="isCommandPaletteBulkMode()">
+            <div class="cmdpal-bulk">
+              <div class="cmdpal-bulk-summary">
+                <span class="cmdpal-bulk-verb"
+                      x-text="(commandPaletteBulkState() && commandPaletteBulkState().verb) || ''"></span>
+                <span x-text="t('command_palette.bulk.matched_label', { matched: (commandPaletteBulkState() && commandPaletteBulkState().matched.length) || 0, selected: (commandPaletteBulkState() && commandPaletteBulkState().selected.length) || 0 })"></span>
+                <span class="flex-1"></span>
+                <span class="text-[10.5px] text-[var(--text-faint)]"
+                      x-text="t('command_palette.bulk.dsl_hint')"></span>
+              </div>
+              <div class="cmdpal-bulk-chips">
+                <template x-for="h in (commandPaletteBulkState() && commandPaletteBulkState().matched) || []"
+                          :key="h.id || h.host">
+                  <button type="button"
+                          @click.stop="toggleCommandPaletteBulkChip(h.id || h.host)"
+                          :class="(commandPaletteBulkExcluded && commandPaletteBulkExcluded.has(h.id || h.host)) ? 'cmdpal-bulk-chip is-excluded' : 'cmdpal-bulk-chip is-included'"
+                          :title="t('command_palette.bulk.chip_toggle_hint')">
+                    <span class="cmdpal-bulk-chip-dot" aria-hidden="true"></span>
+                    <span x-text="h.label || h.id || h.host"></span>
+                  </button>
+                </template>
+                <span x-show="!(commandPaletteBulkState() && commandPaletteBulkState().matched.length)"
+                      class="text-[11px] text-[var(--text-faint)] italic"
+                      x-text="t('command_palette.bulk.no_matches')"></span>
+              </div>
+              <button type="button"
+                      class="cmdpal-bulk-run"
+                      :disabled="!(commandPaletteBulkState() && commandPaletteBulkState().selected.length)"
+                      @click.stop="runCommandPaletteBulk()">
+                <span class="cmdpal-bulk-run-label"
+                      x-text="t('command_palette.bulk.run_label_' + (commandPaletteBulkState() && commandPaletteBulkState().verb), { count: (commandPaletteBulkState() && commandPaletteBulkState().selected.length) || 0 })"></span>
+                <span class="cmdpal-bulk-run-hint" aria-hidden="true">↵</span>
+              </button>
+            </div>
+          </template>
+          <template x-if="!isCommandPaletteBulkMode() && commandPaletteResults().length === 0">
             <div class="p-6 text-center text-[12px] text-[var(--text-faint)]"
                  x-text="commandPaletteQuery ? t('command_palette.empty_state') : t('command_palette.start_typing')"></div>
           </template>
-          <template x-if="commandPaletteResults().length > 0">
+          <template x-if="!isCommandPaletteBulkMode() && commandPaletteResults().length > 0">
             <div id="cmdpal-results" role="listbox" :aria-label="t('command_palette.results_label')">
               <template x-for="(r, i) in commandPaletteResults()" :key="r.kind + ':' + (r.payload && (r.payload.id || r.payload) || r.label) + ':' + i">
                 <button type="button"
