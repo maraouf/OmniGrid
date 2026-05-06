@@ -267,9 +267,19 @@ async def _chat_gemini(api_key: str, model: str, base_url: str,
         "x-goog-api-key": api_key,
         "content-type":   "application/json",
     }
+    # Disable Gemini 2.5's "thinking" mode for the palette assistant
+    # — the operator wants fast concise answers, not deep reasoning.
+    # Without this, gemini-2.5-pro consumes the entire token budget on
+    # internal thinking and finishes with no visible output (the
+    # operator-reported "(empty response)" with 409/400 tokens used).
+    # `thinkingBudget: 0` is silently ignored by older models so the
+    # extra config is harmless on 1.5-flash / 1.0-pro / 2.0-flash.
     body: dict = {
         "contents":         [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": max_tokens},
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "thinkingConfig":  {"thinkingBudget": 0},
+        },
     }
     if system_prompt:
         body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
@@ -281,15 +291,40 @@ async def _chat_gemini(api_key: str, model: str, base_url: str,
         j = r.json()
         candidates = j.get("candidates") or []
         text = ""
+        finish_reason = ""
         if candidates:
-            parts = ((candidates[0] or {}).get("content") or {}).get("parts") or []
-            text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+            cand0 = candidates[0] or {}
+            finish_reason = (cand0.get("finishReason") or "").upper()
+            parts = (cand0.get("content") or {}).get("parts") or []
+            # Skip parts marked as `thought` (Gemini 2.5+ thinking
+            # blocks); keep only text parts the model meant to expose.
+            text = "".join(
+                p.get("text", "")
+                for p in parts
+                if isinstance(p, dict) and not p.get("thought")
+            ).strip()
         usage = j.get("usageMetadata") or {}
+        # When the model produced nothing visible AND finish_reason
+        # signals a budget exhaustion, surface that fact verbatim so
+        # the operator knows to bump max_tokens or pick a non-thinking
+        # model — much better than the silent "(empty response)" they
+        # were seeing pre-fix.
+        if not text:
+            if finish_reason in ("MAX_TOKENS", "STOP_SEQUENCE"):
+                detail = (f"Empty response — Gemini hit {finish_reason} "
+                          f"after {int(usage.get('candidatesTokenCount', 0))} "
+                          f"output tokens. Try a shorter prompt or a "
+                          f"non-thinking model (gemini-1.5-flash / "
+                          f"gemini-2.0-flash).")
+                return {"ok": False, "status": r.status_code,
+                        "detail": detail, "provider": "gemini",
+                        "finish_reason": finish_reason}
         return {
             "ok": True, "status": 200, "text": text,
             "tokens": {"prompt": int(usage.get("promptTokenCount", 0)),
                        "completion": int(usage.get("candidatesTokenCount", 0))},
-            "model": mdl,
+            "model":  mdl,
+            "finish_reason": finish_reason,
         }
     except (ValueError, json.JSONDecodeError) as e:
         return {"ok": False, "status": r.status_code,

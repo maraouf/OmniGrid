@@ -2239,6 +2239,7 @@ class SettingsIn(BaseModel):
     # -----------------------------------------------------------------
     ai_enabled: Optional[bool] = None
     ai_active_provider: Optional[str] = None
+    ai_max_tokens: Optional[int] = None
     ai_provider_claude_enabled: Optional[bool] = None
     ai_provider_claude_model: Optional[str] = None
     ai_provider_claude_base_url: Optional[str] = None
@@ -2649,6 +2650,7 @@ async def api_get_settings(request: Request):
         "ai": {
             "enabled":         (get_setting("ai_enabled", "false") or "false").lower() == "true",
             "active_provider": (get_setting("ai_active_provider", "") or "claude"),
+            "max_tokens":      int(get_setting("ai_max_tokens", "1024") or "1024"),
             "providers": {
                 name: {
                     "enabled":     (get_setting(f"ai_provider_{name}_enabled", "false") or "false").lower() == "true",
@@ -3630,6 +3632,16 @@ async def _api_set_settings_inner(s, request, _portainer):
                 f"ai_active_provider must be one of {','.join(_AI_PROVIDER_NAMES)}",
             )
         set_setting("ai_active_provider", active)
+    if s.ai_max_tokens is not None:
+        # Clamp to a sensible range so a typo'd zero / negative / huge value
+        # can't render every AI call useless. Upper bound 32k matches the
+        # most generous current provider's context-window default.
+        try:
+            mt = int(s.ai_max_tokens)
+        except (TypeError, ValueError):
+            mt = 1024
+        mt = max(64, min(32000, mt))
+        set_setting("ai_max_tokens", str(mt))
     for _ai_name in _AI_PROVIDER_NAMES:
         # enabled
         _v = getattr(s, f"ai_provider_{_ai_name}_enabled", None)
@@ -4216,6 +4228,18 @@ async def api_ai_palette(
         user_prompt_parts.append("Available items: " + ", ".join(str(i) for i in sample))
     user_prompt = "\n".join(user_prompt_parts)
 
+    # max_tokens is admin-tunable from Admin → AI Integration. 1024 is
+    # the default — generous enough for a few-paragraph response on the
+    # operator's typical "what should I do about X" query, AND leaves
+    # headroom on Gemini 2.5 thinking models even when our
+    # `thinkingBudget: 0` flag fails to disable thinking on certain
+    # model variants. Bumped via the `ai_max_tokens` setting when a
+    # provider needs more breathing room.
+    try:
+        max_toks = int(get_setting("ai_max_tokens", "1024") or "1024")
+    except (TypeError, ValueError):
+        max_toks = 1024
+    max_toks = max(64, min(32000, max_toks))
     out = await _ai.ask_provider(
         active,
         api_key=api_key,
@@ -4223,7 +4247,7 @@ async def api_ai_palette(
         system_prompt=sys_prompt,
         model=model,
         base_url=base_url,
-        max_tokens=400,
+        max_tokens=max_toks,
         timeout=30.0,
     )
     return out
@@ -10405,6 +10429,37 @@ async def api_hosts_snmp_temp_history(
     return {"probes": probes, "error": None}
 
 
+@app.get("/api/hosts/{host_id}/triage")
+async def api_hosts_triage(
+    host_id: str,
+    hours: int = 720,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Similar-incidents grouping for one host. Walks history /
+    notifications / host_failure_events for the last ``hours``
+    (default 720 = 30 days, range 1..2160), classifies each error via
+    `logic.triage._classify_error()` into one of ~10 buckets (timeout
+    / auth / refused / dns / tls / not-found / server-error / network
+    / parse / rate-limit / other), and groups by (provider, pattern).
+
+    Each group returns: count, first_ts, last_ts, avg_duration_s
+    (computed by pairing host_failure_events paused→recovered rows),
+    sample_errors (capped at 3 distinct strings), occurrences (capped
+    at 50 ts+error pairs). Sorted newest-first (last_ts DESC + count
+    DESC as tiebreaker).
+
+    Drives the host drawer's "Similar incidents" panel — operators
+    used to scroll-hunt across History tab + the per-host Timeline +
+    Admin → Logs to triangulate "is this the same problem"; the
+    panel does the work upfront.
+    """
+    curated = _load_hosts_config()
+    if not next((x for x in curated if x.get("id") == (host_id or "").strip()), None):
+        raise HTTPException(404, f"Host not found: {host_id}")
+    from logic import triage as _triage
+    return _triage.triage_host(host_id, hours=hours)
+
+
 @app.get("/api/hosts/{host_id}/timeline")
 async def api_hosts_timeline(
     host_id: str,
@@ -12907,6 +12962,7 @@ async def api_me(request: Request):
             "ai": {
                 "enabled":         get_setting_bool("ai_enabled", False),
                 "active_provider": (get_setting("ai_active_provider", "") or "").strip().lower(),
+                "max_tokens":      int(get_setting("ai_max_tokens", "1024") or "1024"),
             },
             # Last-Test-success timestamps per provider (DB-backed,
             # cross-browser / cross-machine). Stamped at the END of every

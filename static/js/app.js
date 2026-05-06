@@ -454,6 +454,13 @@ function app() {
     // card consumes this directly; reactive so the chevron rotates +
     // empty/loading/error states render off the same map.
     hostTimeline: {},
+    // Per-host triage state — populated by loadHostTriage(). Same
+    // shape and lifetime as hostTimeline. Drives the "Similar
+    // Incidents" panel below the Timeline card.
+    hostTriage: {},
+    // Per-host (group_index) expand state for the Similar Incidents
+    // panel. Two-level key: { [hostId]: { [groupIdx]: bool } }.
+    triageExpanded: {},
     // Per-host expand state — Timeline card is collapsed by default
     // so the drawer's first paint stays light. Persisted only in
     // memory (not localStorage) — fresh open should always start
@@ -716,7 +723,10 @@ function app() {
                 // Passkey master toggle default — same `true` as the backend's
                 // `_TOTP_POLICY_DEFAULTS["passkeys_allowed"]` so the form
                 // renders the box checked before the first /api/settings hit.
-                passkeys_allowed: true },
+                passkeys_allowed: true,
+                // AI integration defaults so the AI tab's form renders
+                // sensibly before the first /api/settings response.
+                ai_enabled: false, ai_active_provider: 'claude', ai_max_tokens: 1024 },
     schedulerSaving: false,
     openMeteoSaving: false,
     scheduleSaving: false,   // schedule modal Save button
@@ -5410,6 +5420,7 @@ function app() {
           // `this.aiForm` separately by hydrateAiFromSettings(d).
           ai_enabled:         !!(d.ai && d.ai.enabled),
           ai_active_provider: (d.ai && d.ai.active_provider) || 'claude',
+          ai_max_tokens:      (d.ai && Number.isFinite(+d.ai.max_tokens) && +d.ai.max_tokens > 0) ? +d.ai.max_tokens : 1024,
         };
         // Hydrate per-event notification toggles from the GET response.
         // The api_get_settings handler resolves each through
@@ -9843,6 +9854,7 @@ function app() {
       return JSON.stringify({
         master:           !!this.settings.ai_enabled,
         active_provider:  this.settings.ai_active_provider || '',
+        max_tokens:       Number.isFinite(+this.settings.ai_max_tokens) ? +this.settings.ai_max_tokens : 1024,
         claude:   { en: !!p.claude.enabled,   m: p.claude.model   || '', u: p.claude.base_url   || '', k: p.claude.api_key   || '', s: !!p.claude.api_key_set   },
         gemini:   { en: !!p.gemini.enabled,   m: p.gemini.model   || '', u: p.gemini.base_url   || '', k: p.gemini.api_key   || '', s: !!p.gemini.api_key_set   },
         chatgpt:  { en: !!p.chatgpt.enabled,  m: p.chatgpt.model  || '', u: p.chatgpt.base_url  || '', k: p.chatgpt.api_key  || '', s: !!p.chatgpt.api_key_set  },
@@ -9875,6 +9887,7 @@ function app() {
       this.aiDefaults = ai.defaults || {};
       this.settings.ai_enabled         = !!ai.enabled;
       this.settings.ai_active_provider = ai.active_provider || 'claude';
+      this.settings.ai_max_tokens      = (Number.isFinite(+ai.max_tokens) && +ai.max_tokens > 0) ? +ai.max_tokens : 1024;
       this.aiProviderNames.forEach(name => {
         const p   = provs[name] || {};
         const dflt = (ai.defaults || {})[name] || {};
@@ -9900,6 +9913,7 @@ function app() {
         const body = {
           ai_enabled:                    !!this.settings.ai_enabled,
           ai_active_provider:            this.settings.ai_active_provider || 'claude',
+          ai_max_tokens:                 (Number.isFinite(+this.settings.ai_max_tokens) && +this.settings.ai_max_tokens > 0) ? +this.settings.ai_max_tokens : 1024,
         };
         this.aiProviderNames.forEach(name => {
           const p = this.aiForm.providers[name];
@@ -20368,7 +20382,90 @@ function app() {
         if (stale) {
           this.loadHostTimeline(id, false);
         }
+        // Triage panel rides the same expand state — fetch it
+        // alongside the timeline so the operator doesn't see a
+        // half-rendered drawer when the timeline lands first.
+        const tcache = this.hostTriage[id];
+        const tstale = !tcache
+          || !tcache.loadedAt
+          || (now - tcache.loadedAt) > 30000;
+        if (tstale) {
+          this.loadHostTriage(id);
+        }
       }
+    },
+    async loadHostTriage(hostId) {
+      const id = (hostId || '').toString();
+      if (!id) return;
+      const hours = this.hostTimelineRange[id] || 168;
+      const existing = this.hostTriage[id] || {};
+      this.hostTriage[id] = { ...existing, loading: true, error: null };
+      try {
+        const r = await fetch(
+          '/api/hosts/' + encodeURIComponent(id) + '/triage?hours=' + hours,
+          { credentials: 'same-origin' },
+        );
+        if (!r.ok) {
+          const detail = await r.text().catch(() => '');
+          throw new Error('HTTP ' + r.status + (detail ? ': ' + detail.slice(0, 200) : ''));
+        }
+        const data = await r.json();
+        this.hostTriage[id] = {
+          groups:   Array.isArray(data.groups) ? data.groups : [],
+          scope:    data.scope || { hours },
+          loading:  false,
+          error:    data.error || null,
+          loadedAt: Date.now(),
+        };
+      } catch (e) {
+        this.hostTriage[id] = {
+          ...(this.hostTriage[id] || {}),
+          loading: false,
+          error: (e && e.message) ? e.message : 'triage fetch failed',
+        };
+      }
+    },
+    isTriageGroupExpanded(hostId, groupIdx) {
+      const map = this.triageExpanded[hostId];
+      return !!(map && map[groupIdx]);
+    },
+    toggleTriageGroup(hostId, groupIdx) {
+      const id = (hostId || '').toString();
+      if (!id) return;
+      if (!this.triageExpanded[id]) this.triageExpanded[id] = {};
+      this.triageExpanded[id][groupIdx] = !this.triageExpanded[id][groupIdx];
+    },
+    triagePatternLabel(pattern) {
+      const p = (pattern || 'other').toString();
+      const key = 'host_drawer.triage.pattern.' + p.replace(/-/g, '_');
+      const tr = this.t(key);
+      if (tr && tr !== key) return tr;
+      // Forward-compat: humanise the enum so a future pattern shows
+      // up readable until the i18n key catches up.
+      return p.replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase());
+    },
+    triagePatternChipClass(pattern) {
+      switch ((pattern || '').toString()) {
+        case 'auth':         return 'pill-error';
+        case 'tls':          return 'pill-error';
+        case 'timeout':      return 'pill-warning';
+        case 'refused':      return 'pill-error';
+        case 'dns':          return 'pill-warning';
+        case 'network':      return 'pill-warning';
+        case 'server-error': return 'pill-error';
+        case 'rate-limit':   return 'pill-warning';
+        case 'not-found':    return 'pill-info';
+        case 'parse':        return 'pill-info';
+        default:             return 'pill-muted';
+      }
+    },
+    triageAvgRecoveryLabel(seconds) {
+      const n = Number(seconds);
+      if (!Number.isFinite(n) || n <= 0) return '—';
+      if (n < 60)    return Math.round(n) + 's';
+      if (n < 3600)  return Math.round(n / 60) + 'm';
+      if (n < 86400) return Math.round(n / 3600) + 'h';
+      return Math.round(n / 86400) + 'd';
     },
     setHostTimelineRange(hostId, hours) {
       const id = (hostId || '').toString();
@@ -20377,7 +20474,9 @@ function app() {
       this.hostTimelineRange[id] = h;
       // Clear cache so the new range is honoured immediately.
       delete this.hostTimeline[id];
+      delete this.hostTriage[id];
       this.loadHostTimeline(id, true);
+      this.loadHostTriage(id);
     },
     async loadHostTimeline(hostId, force) {
       const id = (hostId || '').toString();

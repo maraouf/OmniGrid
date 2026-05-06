@@ -98,7 +98,7 @@
                       x-text="t('settings.secret_input.saved_hint')"></span>
                 <div class="secret-input-row">
                   <input type="password" x-model="assetForm.client_secret" :disabled="isReadonly()"
-                         class="mono text-[12.5px] py-1.5"
+                         class="w-full mono text-[12.5px] py-1.5"
                          :placeholder="(assetStatus && assetStatus.client_secret_set) ? t('settings.secret_input.placeholder_keep') : t('admin_assets.client_secret_placeholder')"
                          autocomplete="new-password">
                   <button type="button"
@@ -138,7 +138,7 @@
                       x-text="t('settings.secret_input.saved_hint')"></span>
                 <div class="secret-input-row">
                   <input type="password" x-model="assetForm.lifetime_token" :disabled="isReadonly()"
-                         class="mono text-[12.5px] py-1.5"
+                         class="w-full mono text-[12.5px] py-1.5"
                          :placeholder="(assetStatus && assetStatus.lifetime_token_set) ? t('settings.secret_input.placeholder_keep') : t('admin_assets.lifetime_token_placeholder')"
                          autocomplete="new-password">
                   <button type="button"

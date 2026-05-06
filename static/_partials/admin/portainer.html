@@ -54,7 +54,7 @@
                        :disabled="isReadonly() || !settings.portainer_enabled"
                        :placeholder="(portainerStatus && portainerStatus.api_key_set) ? t('settings.secret_input.placeholder_keep') : t('settings.portainer.api_key_placeholder')"
                        autocomplete="new-password"
-                       class="mono text-[12px]">
+                       class="w-full mono text-[12.5px]">
                 <button type="button"
                         x-show="portainerStatus && portainerStatus.api_key_set && isAdmin()"
                         @click="clearPortainerApiKey()"

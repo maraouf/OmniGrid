@@ -2977,13 +2977,16 @@ details summary::-webkit-details-marker {
     display: flex;
     align-items: center;
     gap: var(--s-2);
+    width: 100%;
 }
-.secret-input-row > input {
-    flex: 1;
+.secret-input-row > input,
+.secret-input-row > textarea {
+    flex: 1 1 auto;
     min-width: 0;
+    width: 100%;
 }
 .secret-input-row > .secret-input-clear {
-    flex-shrink: 0;
+    flex: 0 0 auto;
     white-space: nowrap;
 }
 

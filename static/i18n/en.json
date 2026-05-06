@@ -775,6 +775,8 @@
       "master_hint_disabled": "(no provider will be called until enabled)",
       "active_provider_label": "Active provider",
       "active_provider_hint": "The provider that any future AI-backed feature will route through. You can keep credentials on file for every provider — only the active one is used.",
+      "max_tokens_label": "Max response tokens",
+      "max_tokens_hint": "Maximum tokens the model is allowed to emit per response. Applied to every provider. Default 1024 (clamped 64–32000). Lower to cap costs on a paid tier; raise when responses keep coming back truncated.",
       "save_ok": "AI settings saved.",
       "save_failed": "AI settings save failed",
       "providers_heading": "Provider credentials",
@@ -2092,6 +2094,27 @@
       "kind_notification": "Notification",
       "kind_provider_paused": "Provider paused",
       "kind_provider_recovered": "Provider recovered"
+    },
+    "triage": {
+      "heading": "Similar incidents",
+      "summary": "{groups} pattern(s) over {hours}h",
+      "row_summary": "{count}× · last {last} · avg recovery {avg}",
+      "occurrences_label": "Occurrences ({count})",
+      "more_occurrences": "… and {count} more",
+      "no_patterns": "No repeated error patterns in this range — every event was unique.",
+      "pattern": {
+        "auth": "Auth",
+        "tls": "TLS",
+        "timeout": "Timeout",
+        "refused": "Refused",
+        "dns": "DNS",
+        "network": "Network",
+        "server_error": "Server error",
+        "rate_limit": "Rate limit",
+        "not_found": "Not found",
+        "parse": "Parse error",
+        "other": "Other"
+      }
     },
     "system": {
       "heading": "System",
