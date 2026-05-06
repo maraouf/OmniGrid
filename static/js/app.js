@@ -684,6 +684,10 @@ function app() {
     // `bulkExcluded` is a Set of host_ids the operator has clicked
     // off the chip strip (excluded from the bulk run).
     commandPaletteBulkExcluded: new Set(),
+    // Phase 2 — flips true while /api/ai/host-filter is in flight so
+    // the input chrome can show a busy hint without blocking the
+    // operator from cancelling and continuing to type.
+    commandPaletteAiBulkBusy: false,
     opsExpanded: true,
     toast: '', toastType: 'success', _tt: null,
     // Auto-refresh cadence (seconds; 0 = off). Persisted to
@@ -9920,6 +9924,34 @@ function app() {
       if (Math.abs(v) >= 1_000)     return (v / 1_000).toFixed(1) + 'k';
       return String(Math.round(v));
     },
+    aiFormatPct01(n) {
+      // 0..1 score → "NN%" string. Returns "—" when null / undefined
+      // / NaN / 0 because we don't yet wire any accuracy validator —
+      // every row's accuracy_score is null, AVG over null returns
+      // null, but a single 0 would still render misleadingly. Once
+      // accuracy validation lands and 0 becomes a real value, gate
+      // the zero-as-dash branch on a `score_known` carrier.
+      if (n === null || n === undefined) return '—';
+      const v = Number(n);
+      if (!Number.isFinite(v) || v === 0) return '—';
+      return Math.round(v * 100) + '%';
+    },
+    aiFormatCost(n) {
+      // Differentiates "no cost data recorded" (—) from a real $0.00.
+      // Backend writes `cost_usd=NULL` until per-provider rate-card
+      // lookup lands; rollups summing only-null rows return 0, which
+      // would mislead operators if rendered as "$0.0000". Render "—"
+      // for null / undefined / 0 so the column reads as honest until
+      // the rate-card plumbing arrives. Once cost is genuinely
+      // computed and a row legitimately reads $0 (free-tier provider,
+      // cached response, etc.), this helper can be tightened to
+      // distinguish via a `cost_known: bool` carrier from the
+      // backend.
+      if (n === null || n === undefined) return '—';
+      const v = Number(n);
+      if (!Number.isFinite(v) || v === 0) return '—';
+      return '$' + v.toFixed(4);
+    },
     aiFormatTime(ts) {
       if (!ts) return '—';
       const d = new Date(ts * 1000);
@@ -12418,6 +12450,27 @@ function app() {
       const aiSurfaceEnabled = this._aiPaletteSurfaceEnabled();
       if (aiSurfaceEnabled && q && q.length >= 2) {
         const aiCfg = this.me.client_config.ai;
+        // Phase 2 — when the query LEADS with a bulk verb as a
+        // natural-language phrase (e.g. "pause every host with low
+        // disk", "resume all the down hosts") AND doesn't already
+        // parse as a Phase 1 DSL, surface a dedicated "AI translate
+        // → bulk filter" row that routes to /api/ai/host-filter and
+        // sets the palette query to the returned DSL. The Phase 1
+        // chip-strip + confirm path then takes over so AI never
+        // directly invokes destructive ops.
+        const bulkVerbLead = /^\s*(pause|resume)\b\s+\S/i.test(this.commandPaletteQuery || '');
+        const looksLikeBulkNL = bulkVerbLead && !this._commandPaletteParseBulk(this.commandPaletteQuery);
+        if (looksLikeBulkNL) {
+          results.push({
+            kind:  'ai-bulk',
+            label: this.t('command_palette.ai.bulk_translate_label', { query: q })
+                   || ('Translate to bulk filter: ' + q),
+            sub:   this.t('command_palette.ai.bulk_translate_sub')
+                   || ('Ask ' + aiCfg.active_provider + ' to propose a Phase 1 DSL — you confirm before any host is touched.'),
+            payload: { query: this.commandPaletteQuery, provider: aiCfg.active_provider },
+            group: 'ai',
+          });
+        }
         results.push({
           kind:  'ai',
           label: this.t('command_palette.ai.ask_label', { query: q })
@@ -12511,17 +12564,65 @@ function app() {
           // key, rate limited, etc.).
           this._runCommandPaletteAi(sel.payload);
           break;
+        case 'ai-bulk':
+          // Phase 2 bulk-translate — does NOT close the palette; calls
+          // /api/ai/host-filter, then writes the returned DSL into
+          // commandPaletteQuery so Phase 1's parser flips into bulk
+          // mode (chip strip + Run button) for the operator to confirm.
+          // Reopen the palette since we already closed it above.
+          this.openCommandPalette();
+          this._runCommandPaletteAiBulk(sel.payload);
+          break;
+      }
+    },
+    async _runCommandPaletteAiBulk(payload) {
+      if (!payload || !payload.query) return;
+      const original = payload.query;
+      // Cheap visible signal — swap the input placeholder while the
+      // call is in flight. Don't overwrite the query text since the
+      // operator might cancel and continue typing.
+      const prevPlaceholder = this.commandPaletteAiBulkBusy;
+      this.commandPaletteAiBulkBusy = true;
+      try {
+        const r = await fetch('/api/ai/host-filter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: original }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok || !j.dsl) {
+          const msg = (j && (j.detail || j.error)) || ('HTTP ' + r.status);
+          if (typeof this.showToast === 'function') {
+            this.showToast(this.t('toasts.failed_with_error', { error: msg }), 'error');
+          }
+          return;
+        }
+        // Set the query — the watcher / re-render will pick up the
+        // bulk DSL and flip the palette into bulk mode.
+        this.commandPaletteQuery = j.dsl;
+      } catch (e) {
+        if (typeof this.showToast === 'function') {
+          this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
+        }
+      } finally {
+        this.commandPaletteAiBulkBusy = prevPlaceholder ? true : false;
       }
     },
     async _runCommandPaletteAction(action) {
       if (!action || typeof action.run !== 'function') return;
       if (action.destructive) {
+        // Operator already explicitly invoked this action via the
+        // Cmd-K palette (or accepted the AI's proposal of it), so the
+        // confirm dialog focuses Confirm — Enter on the dialog now
+        // fires the action instead of cancelling. Mirrors the typing
+        // rhythm: type → Enter (action selected) → Enter (confirm).
         const ok = await this.confirmDialog({
           title: action.confirmTitle || action.label,
           html:  action.confirmText || (this.t('command_palette.action.destructive_confirm')
                                          || 'This action affects live state — proceed?'),
           icon:  'warning',
           confirmText: action.confirmButton || (this.t('actions.confirm') || 'Confirm'),
+          focusConfirm: true,
         });
         if (!ok) return;
       }
@@ -21610,20 +21711,32 @@ function app() {
       navigator.clipboard?.writeText(text);
       this.showToast(this.t('toasts.copied'));
     },
-    async confirmDialog({ title, html, icon = 'warning', confirmText, confirmColor }) {
+    async confirmDialog({ title, html, icon = 'warning', confirmText, confirmColor, focusConfirm = false }) {
       // No hex fallbacks — every token below is declared in BOTH :root
       // blocks. If `_cssVar` returns "" something is genuinely broken
       // at the token level and we want it to surface visibly rather
       // than be silently papered over by a literal that diverges from
       // the rest of the theme. Per CLAUDE.md's "no fallback literals"
       // rule (extended to JS-side reads).
+      //
+      // `focusCancel` defaults to true — the safe-by-default behaviour
+      // for "are you sure?" dialogs surfaced by inadvertent clicks
+      // (Enter confirms the cancel, no destructive action fires).
+      // Call sites where the operator has ALREADY typed the intent
+      // explicitly (Cmd-K palette + AI-proposed actions, where the
+      // user just pressed Enter on a clearly-named action) pass
+      // `focusConfirm: true` to flip the focus — Enter on the
+      // confirm dialog now activates Confirm, matching the
+      // operator's typing rhythm. Defaults preserve every other
+      // call site's existing safety.
       const r = await Swal.fire({
         title, html, icon,
         showCancelButton: true,
         confirmButtonText: confirmText || this.t('actions.confirm'),
         cancelButtonText: this.t('actions.cancel'),
         reverseButtons: true,
-        focusCancel: true,
+        focusCancel:  !focusConfirm,
+        focusConfirm: !!focusConfirm,
         background: this._cssVar('--surface'),
         color: this._cssVar('--text'),
         confirmButtonColor: confirmColor || this._cssVar('--warning'),

@@ -153,7 +153,7 @@
             <button type="button" @click="openAiModal('cost')" class="ai-tile">
               <div class="ai-tile-label" x-text="t('admin.ai.tile.cost')"></div>
               <div class="ai-tile-value"
-                   x-text="aiDashboard ? ('$' + (aiDashboard.summary.total_cost_usd || 0).toFixed(4)) : '$0.0000'"></div>
+                   x-text="aiDashboard ? aiFormatCost(aiDashboard.summary.total_cost_usd) : '—'"></div>
               <div class="ai-tile-sub" x-text="t('admin.ai.tile.cost_sub')"></div>
             </button>
             <button type="button" @click="openAiModal('tokens')" class="ai-tile">
@@ -171,7 +171,7 @@
             <button type="button" @click="openAiModal('accuracy')" class="ai-tile">
               <div class="ai-tile-label" x-text="t('admin.ai.tile.accuracy')"></div>
               <div class="ai-tile-value"
-                   x-text="(aiDashboard && aiDashboard.summary.avg_accuracy_score !== null) ? Math.round(aiDashboard.summary.avg_accuracy_score * 100) + '%' : '—'"></div>
+                   x-text="aiDashboard ? aiFormatPct01(aiDashboard.summary.avg_accuracy_score) : '—'"></div>
               <div class="ai-tile-sub" x-text="t('admin.ai.tile.accuracy_sub')"></div>
             </button>
           </div>
@@ -204,7 +204,7 @@
                       <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.tokens') + ':'"></span>
                             <span class="mono" x-text="aiFormatNumber(p.total_tokens)"></span></span>
                       <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.cost') + ':'"></span>
-                            <span class="mono" x-text="'$' + (p.total_cost_usd || 0).toFixed(4)"></span></span>
+                            <span class="mono" x-text="aiFormatCost(p.total_cost_usd)"></span></span>
                       <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.pass_rate') + ':'"></span>
                             <span class="mono" x-text="Math.round((p.pass_rate || 0) * 100) + '%'"></span></span>
                     </div>
@@ -227,7 +227,7 @@
                         <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.tokens') + ':'"></span>
                               <span class="mono" x-text="aiFormatNumber(m.total_tokens)"></span></span>
                         <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.cost') + ':'"></span>
-                              <span class="mono" x-text="'$' + (m.total_cost_usd || 0).toFixed(4)"></span></span>
+                              <span class="mono" x-text="aiFormatCost(m.total_cost_usd)"></span></span>
                       </span>
                     </div>
                   </template>
@@ -397,10 +397,9 @@
                 <h4 class="font-semibold text-[13px] flex-1"
                     x-text="aiModalKey ? t('admin.ai.modal.' + aiModalKey + '_title') : ''"></h4>
                 <button type="button" @click="closeAiModal()"
-                        class="btn btn-ghost text-[11px]"
-                        :aria-label="t('actions.close')">
-                  <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/></svg>
-                </button>
+                        class="btn btn-ghost text-base leading-none"
+                        :title="t('actions.close')"
+                        :aria-label="t('actions.close')">✕</button>
               </div>
               <div class="overflow-y-auto scrollbar p-4 flex-1">
                 <!-- Jobs modal — paginated job log. -->
@@ -495,8 +494,8 @@
                           <td class="py-1 text-end" x-text="row.jobs"></td>
                           <td class="py-1 text-end" x-text="Math.round((row.pass_rate || 0) * 100) + '%'"></td>
                           <td class="py-1 text-end" x-text="aiFormatNumber(row.total_tokens || 0)"></td>
-                          <td class="py-1 text-end" x-text="'$' + (row.total_cost_usd || 0).toFixed(4)"></td>
-                          <td class="py-1 text-end" x-text="(row.avg_accuracy_score !== null && row.avg_accuracy_score !== undefined) ? Math.round(row.avg_accuracy_score * 100) + '%' : '—'"></td>
+                          <td class="py-1 text-end" x-text="aiFormatCost(row.total_cost_usd)"></td>
+                          <td class="py-1 text-end" x-text="aiFormatPct01(row.avg_accuracy_score)"></td>
                         </tr>
                       </template>
                     </tbody>

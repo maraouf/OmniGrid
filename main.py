@@ -4184,12 +4184,18 @@ async def api_ai_palette(
     action). For now the response is plain text — the operator reads
     it and picks the next manual step.
     """
+    # Endpoint orchestration only — system prompt, action whitelist,
+    # parsers, user-prompt builder, and recorder helper all live in
+    # `logic.ai`. This route reads settings → resolves the active
+    # provider → calls `ask_provider` → splits the ACTION trailer →
+    # records the call. Behaviour is unchanged; the strings + parsing
+    # rules are reusable from any future AI-backed feature.
+    from logic import ai as _ai
     if not get_setting_bool("ai_enabled", False):
         return {"ok": False, "status": 0, "provider": "",
                 "detail": "AI integration is disabled. Enable it in Admin → AI Integration first.",
                 "response_time_ms": 0}
     active = (get_setting("ai_active_provider", "") or "").strip().lower()
-    from logic import ai as _ai
     if active not in _ai.SUPPORTED_PROVIDERS:
         return {"ok": False, "status": 0, "provider": active,
                 "detail": "No active AI provider is selected. Pick one in Admin → AI Integration.",
@@ -4207,124 +4213,6 @@ async def api_ai_palette(
         raise HTTPException(400, "query is required")
     ctx = body.context if isinstance(body.context, dict) else {}
 
-    # System prompt — keep it tight; the provider's free-tier rate
-    # limits are the bottleneck on every test deployment. The operator
-    # gets a single short answer per click; the model is told to
-    # surface concrete OmniGrid actions / paths when relevant.
-    #
-    # Structured-action protocol: when the operator wants to RUN one of
-    # the canonical command-palette actions (instead of being told how
-    # to do it manually), the model ends its reply with exactly one
-    # line of the form `ACTION: <id>` where <id> is one of the
-    # whitelisted action IDs below. The SPA parses that line, strips
-    # it from the visible answer, and renders an Execute button so the
-    # operator runs the action with one click. Avoid responding with
-    # endpoint URLs the operator has to look up — pick an action when
-    # one matches.
-    sys_prompt = (
-        "You are the Cmd-K palette assistant for OmniGrid, a Docker-Swarm "
-        "management dashboard. The operator just typed a query into the "
-        "command palette and wants help navigating, diagnosing, or acting. "
-        "\n\n"
-        "ANSWER WITH DATA WHEN YOU HAVE IT. The user_prompt below carries "
-        "JSON records for every visible host (id, label, status, cpu_pct, "
-        "mem_pct, disk_pct, disk_free_gb, disk_total_gb, uptime_s, paused, "
-        "providers) and every visible item (name, status, health, type, "
-        "replicas, desired, update_available). When the operator asks a "
-        "DATA question (\"which hosts are running out of space soon?\", "
-        "\"top 5 hosts by CPU\", \"any services degraded?\", \"what's "
-        "stopped?\", \"any updates pending?\"), DON'T point them at a UI "
-        "column to sort — RANK / COUNT / AGGREGATE the records yourself "
-        "and reply with a short list of the top 3-5 specifics including "
-        "the actual numbers. Example shape:\n"
-        "  Top 3 hosts low on disk:\n"
-        "  1. nas01 — 92% used (8 GB free of 100 GB)\n"
-        "  2. web03 — 87% used (52 GB free of 400 GB)\n"
-        "  3. dockerpve — 76% used (240 GB free of 1.0 TB)\n"
-        "Use the EXACT id/label from the JSON. When the data shows nothing "
-        "of concern, say so explicitly (e.g. \"no host above 80% disk — "
-        "you're fine\").\n\n"
-        "When the question is HOW-TO (\"how do I update a stack?\"), name "
-        "the exact OmniGrid surface ('Admin → Hosts', 'host drawer', 'item "
-        "drawer', 'Stacks view') and the exact button or action ('click "
-        "Switch to :latest', 'click Resume sampling'). Don't invent "
-        "features that aren't real. Don't tell the operator to POST to "
-        "API endpoints — they're using the UI; pick an ACTION below if "
-        "one matches. If the operator's query is ambiguous, ask one "
-        "short clarifying question. Reply concisely — bullet list with "
-        "the data is fine; no markdown headers.\n\n"
-        "AVAILABLE ACTIONS (when the operator's query maps to one of "
-        "these, end your reply with a SINGLE line `ACTION: <id>` and "
-        "nothing after it):\n"
-        " - mark_all_notifications_read — mark every notification as read\n"
-        " - refresh — refresh the current view's data from the backend\n"
-        " - reload — full SPA reload (Ctrl-R equivalent)\n"
-        " - theme_dark — switch UI to dark theme\n"
-        " - theme_light — switch UI to light theme\n"
-        " - theme_auto — let UI follow OS theme\n"
-        " - open_notifications — open the notifications drawer\n"
-        " - show_hotkeys — show the keyboard-shortcuts modal\n"
-        " - cleanup_stopped — remove every stopped / failed / orphaned container the dashboard can see. Operator-friendly synonyms: 'cleanup', 'clean up', 'purge', 'prune', 'remove stopped containers'. (Destructive — the SPA still confirms before issuing the rm batch, so picking this is safe.)\n"
-        " - sign_out — log out of OmniGrid\n"
-        "Example reply: 'I'll mark every notification as read for you.\\n"
-        "ACTION: mark_all_notifications_read'\n"
-        "If no action fits, omit the ACTION line entirely."
-    )
-    # Trim context to keep token budget low. Hosts now arrive as
-    # structured objects (`{id, label, status, cpu_pct, mem_pct,
-    # disk_pct, disk_free_gb, disk_total_gb, uptime_s, paused,
-    # providers}`) instead of bare strings — the SPA enriches the
-    # payload so the model can answer data questions ("which hosts
-    # are running out of space soon?") with specifics, not "go look
-    # at the disk column". Items follow the same shape (status /
-    # health / type / replicas / update_available). We serialise as
-    # JSON-lines per record so the model sees a consistent schema
-    # without parser ambiguity.
-    import json as _json
-    user_prompt_parts = [f"Operator query: {query}"]
-    hosts = ctx.get("hosts") if isinstance(ctx, dict) else None
-    items = ctx.get("items") if isinstance(ctx, dict) else None
-    view = ctx.get("view") if isinstance(ctx, dict) else None
-    if view:
-        user_prompt_parts.append(f"Current view: {view}")
-    if isinstance(hosts, list) and hosts:
-        # Cap at ~30 — a 200-host fleet's full list would blow the
-        # token budget without adding signal for a single query.
-        sample = hosts[:30]
-        # Detect the legacy bare-string shape from older SPA versions
-        # so a stale browser doesn't break this round-trip while the
-        # new bundle is rolling out.
-        if all(isinstance(h, str) for h in sample):
-            user_prompt_parts.append("Available hosts: " + ", ".join(sample))
-        else:
-            host_lines = [_json.dumps(h, separators=(",", ":")) for h in sample]
-            user_prompt_parts.append(
-                "Available hosts (one JSON record per line, fields: "
-                "id, label, status, cpu_pct, mem_pct, disk_pct, "
-                "disk_free_gb, disk_total_gb, uptime_s, paused, providers):\n"
-                + "\n".join(host_lines)
-            )
-    if isinstance(items, list) and items:
-        sample = items[:30]
-        if all(isinstance(i, str) for i in sample):
-            user_prompt_parts.append("Available items: " + ", ".join(sample))
-        else:
-            item_lines = [_json.dumps(i, separators=(",", ":")) for i in sample]
-            user_prompt_parts.append(
-                "Available items (one JSON record per line, fields: "
-                "name, status, health, type, replicas, desired, "
-                "update_available):\n"
-                + "\n".join(item_lines)
-            )
-    user_prompt = "\n".join(user_prompt_parts)
-
-    # max_tokens is admin-tunable from Admin → AI Integration. 1024 is
-    # the default — generous enough for a few-paragraph response on the
-    # operator's typical "what should I do about X" query, AND leaves
-    # headroom on Gemini 2.5 thinking models even when our
-    # `thinkingBudget: 0` flag fails to disable thinking on certain
-    # model variants. Bumped via the `ai_max_tokens` setting when a
-    # provider needs more breathing room.
     try:
         max_toks = int(get_setting("ai_max_tokens", "1024") or "1024")
     except (TypeError, ValueError):
@@ -4333,137 +4221,148 @@ async def api_ai_palette(
     out = await _ai.ask_provider(
         active,
         api_key=api_key,
-        prompt=user_prompt,
-        system_prompt=sys_prompt,
+        prompt=_ai.build_palette_user_prompt(query, ctx),
+        system_prompt=_ai.PALETTE_SYSTEM_PROMPT,
         model=model,
         base_url=base_url,
         max_tokens=max_toks,
         timeout=30.0,
     )
 
-    # Parse the trailing `ACTION: <id>` line (if present) and split it
-    # off the visible text so the SPA renders only the natural-language
-    # answer in the modal body and the action chip / Execute button
-    # separately.
-    _ALLOWED_PALETTE_ACTIONS = {
-        "mark_all_notifications_read",
-        "refresh",
-        "reload",
-        "theme_dark",
-        "theme_light",
-        "theme_auto",
-        "open_notifications",
-        "show_hotkeys",
-        "cleanup_stopped",
-        "sign_out",
-    }
+    # Split the optional `ACTION: <id>` trailer off the visible text.
     text = (out.get("text") or "") if isinstance(out, dict) else ""
-    action_id: str = ""
-    if text:
-        import re as _re
-        m = _re.search(r"(?:^|\n)\s*ACTION\s*:\s*([a-z_]+)\s*$", text)
-        if m:
-            candidate = m.group(1).strip().lower()
-            if candidate in _ALLOWED_PALETTE_ACTIONS:
-                action_id = candidate
-                # Strip the ACTION line from the visible text.
-                text = text[: m.start()].rstrip()
-                out["text"] = text
+    action_id, cleaned_text = _ai.parse_palette_action(text)
     if action_id:
+        out["text"] = cleaned_text
         out["action"] = action_id
+    text = cleaned_text
 
-    # Persist the call into ai_jobs so the Admin → AI dashboard tiles
-    # populate. Best-effort: failures here MUST NOT break the response
-    # — the operator already got their answer.
-    try:
-        with db_conn() as c:
-            tokens_dict = (out.get("tokens") if isinstance(out, dict) else None) or {}
-            prompt_t = int(tokens_dict.get("prompt") or 0)
-            completion_t = int(tokens_dict.get("completion") or 0)
-            total_t = prompt_t + completion_t
-            ok_flag = bool(isinstance(out, dict) and out.get("ok"))
-            response_ms = int((out.get("response_time_ms") or 0) if isinstance(out, dict) else 0)
-            err_detail = (out.get("detail") or "") if (isinstance(out, dict) and not ok_flag) else None
-            now_ts = int(time.time())
-            c.execute(
-                "INSERT INTO ai_jobs ("
-                "  ts, provider, model, kind, status,"
-                "  prompt_tokens, completion_tokens, total_tokens,"
-                "  cost_usd, response_time_ms, error, metadata"
-                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    now_ts,
-                    active,
-                    model or "",
-                    "palette",
-                    "success" if ok_flag else "error",
-                    prompt_t,
-                    completion_t,
-                    total_t,
-                    None,  # cost not yet computed — provider rate-card
-                           # plumbing belongs in a follow-up.
-                    response_ms,
-                    err_detail,
-                    None,
-                ),
-            )
-            # Mirror the call into the history table too — operators want
-            # AI prompts + answers in the History tab alongside other ops
-            # (stack updates / restarts / etc.) so they can troubleshoot
-            # weeks-old AI interactions without dropping into the SQLite
-            # browser. `events` carries the structured payload (prompt /
-            # answer / tokens / action_id) as JSON; the existing History
-            # detail view already renders that field for every op_type.
-            # `target_name` = provider, `target_id` = model so the tab's
-            # search-by-name filter finds AI calls naturally.
-            try:
-                events_json = json.dumps({
-                    "prompt": query,
-                    "answer": text,
-                    "action_id": action_id or "",
-                    "tokens": {
-                        "prompt": prompt_t,
-                        "completion": completion_t,
-                        "total": total_t,
-                    },
-                    "context": {
-                        "view":  ctx.get("view") if isinstance(ctx, dict) else "",
-                        # Only count — full lists are noise in History.
-                        "hosts_count": (
-                            len(ctx.get("hosts") or [])
-                            if isinstance(ctx, dict) else 0
-                        ),
-                        "items_count": (
-                            len(ctx.get("items") or [])
-                            if isinstance(ctx, dict) else 0
-                        ),
-                    },
-                }, ensure_ascii=False)
-            except (TypeError, ValueError):
-                events_json = "{}"
-            c.execute(
-                "INSERT INTO history ("
-                "  ts, op_type, target_kind, target_name, target_id,"
-                "  status, duration, events, error, actor"
-                ") VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (
-                    float(now_ts),
-                    "ai_palette",
-                    "ai",
-                    active,
-                    model or "",
-                    "success" if ok_flag else "error",
-                    (response_ms / 1000.0) if response_ms else 0.0,
-                    events_json,
-                    err_detail,
-                    getattr(_admin, "username", "ui") or "ui",
-                ),
-            )
-            c.commit()
-    except Exception as _e:
-        print(f"[ai] ai_jobs / history insert failed: {_e}")
-
+    # Best-effort recorder writes ai_jobs + history so the Admin → AI
+    # Usage Dashboard tiles + the History tab pick up every call.
+    ok_flag = bool(isinstance(out, dict) and out.get("ok"))
+    response_ms = int((out.get("response_time_ms") or 0) if isinstance(out, dict) else 0)
+    err_detail = (out.get("detail") or "") if (isinstance(out, dict) and not ok_flag) else None
+    _ai.record_ai_call(
+        db_conn_factory=db_conn,
+        provider=active,
+        model=model,
+        kind="palette",
+        ok=ok_flag,
+        response_time_ms=response_ms,
+        tokens=(out.get("tokens") if isinstance(out, dict) else None),
+        error_detail=err_detail,
+        history_actor=getattr(_admin, "username", "ui") or "ui",
+        history_events={
+            "prompt": query,
+            "answer": text,
+            "action_id": action_id or "",
+            "context": {
+                "view":  ctx.get("view") if isinstance(ctx, dict) else "",
+                "hosts_count": (len(ctx.get("hosts") or []) if isinstance(ctx, dict) else 0),
+                "items_count": (len(ctx.get("items") or []) if isinstance(ctx, dict) else 0),
+            },
+        },
+    )
     return out
+
+
+@app.post("/api/ai/host-filter")
+async def api_ai_host_filter(
+    body: AiPaletteIn,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Bulk palette Phase 2 — translate a natural-language phrase into
+    a Phase 1 bulk-palette DSL string. The SPA detects bulk-verb-leading
+    queries the operator types into Cmd-K (e.g. "pause every host with
+    low disk", "resume all the down hosts") and routes them through
+    this endpoint; the response's `dsl` string is set as the palette
+    query, which then re-renders into bulk mode (chip strip + confirm).
+    The AI never directly invokes destructive ops — it just proposes a
+    selector the operator reviews and confirms.
+
+    Returns ``{ok: bool, dsl: str, explanation: str, provider, model,
+    tokens, response_time_ms, detail?}``. Validation: `dsl` must start
+    with a known verb (`pause:` / `resume:`) and be parseable by the
+    Phase 1 DSL — invalid responses return ok=False with detail set.
+    """
+    # Endpoint orchestration only — system prompt + parser + recorder
+    # all live in `logic.ai`. This route reads settings → resolves
+    # the active provider → calls `ask_provider` → parses the DSL
+    # response → records the call.
+    from logic import ai as _ai
+    if not get_setting_bool("ai_enabled", False):
+        return {"ok": False, "detail": "AI integration is disabled. Enable it in Admin → AI Integration first.",
+                "dsl": "", "explanation": "", "response_time_ms": 0}
+    active = (get_setting("ai_active_provider", "") or "").strip().lower()
+    if active not in _ai.SUPPORTED_PROVIDERS:
+        return {"ok": False, "detail": "No active AI provider is selected. Pick one in Admin → AI Integration.",
+                "dsl": "", "explanation": "", "response_time_ms": 0}
+    if not get_setting_bool(f"ai_provider_{active}_enabled", False):
+        return {"ok": False, "detail": f"Active provider '{active}' is not enabled. Enable it in Admin → AI Integration.",
+                "dsl": "", "explanation": "", "response_time_ms": 0}
+    api_key = (get_setting(f"ai_provider_{active}_api_key", "") or "").strip()
+    model = (get_setting(f"ai_provider_{active}_model", "") or "").strip()
+    base_url = (get_setting(f"ai_provider_{active}_base_url", "") or "").strip()
+
+    query = (body.query or "").strip()
+    if not query:
+        raise HTTPException(400, "query is required")
+    ctx = body.context if isinstance(body.context, dict) else {}
+
+    try:
+        max_toks = int(get_setting("ai_max_tokens", "1024") or "1024")
+    except (TypeError, ValueError):
+        max_toks = 1024
+    max_toks = max(64, min(32000, max_toks))
+    out = await _ai.ask_provider(
+        active,
+        api_key=api_key,
+        prompt=_ai.build_host_filter_user_prompt(query, ctx),
+        system_prompt=_ai.HOST_FILTER_SYSTEM_PROMPT,
+        model=model,
+        base_url=base_url,
+        max_tokens=max_toks,
+        timeout=30.0,
+    )
+
+    text = (out.get("text") or "") if isinstance(out, dict) else ""
+    dsl = ""
+    explanation = ""
+    err_detail = ""
+    if isinstance(out, dict) and out.get("ok"):
+        dsl, explanation, err_detail = _ai.parse_host_filter_response(text)
+    else:
+        err_detail = (isinstance(out, dict) and out.get("detail")) or "AI request failed."
+
+    response_ms = int((out.get("response_time_ms") or 0) if isinstance(out, dict) else 0)
+    _ai.record_ai_call(
+        db_conn_factory=db_conn,
+        provider=active,
+        model=model,
+        kind="host_filter",
+        ok=bool(dsl),
+        response_time_ms=response_ms,
+        tokens=(out.get("tokens") if isinstance(out, dict) else None),
+        error_detail=err_detail or None,
+        history_actor=getattr(_admin, "username", "ui") or "ui",
+        history_events={
+            "prompt": query,
+            "answer": text,
+            "dsl": dsl,
+            "explanation": explanation,
+        },
+    )
+
+    return {
+        "ok":               bool(dsl),
+        "dsl":              dsl,
+        "explanation":      explanation,
+        "provider":         active,
+        "model":            model,
+        "response_time_ms": int((out.get("response_time_ms") or 0) if isinstance(out, dict) else 0),
+        "tokens":           (out.get("tokens") if isinstance(out, dict) else None) or {},
+        "detail":           err_detail or None,
+    }
 
 
 # ----------------------------------------------------------------------------
