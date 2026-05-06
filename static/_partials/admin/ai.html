@@ -100,20 +100,21 @@
                  x-text="t('admin.ai.retry.help')"></p>
               <!-- Master toggle (0/1 encoded as int per TUNABLES contract). -->
               <div class="mb-3">
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1"
-                       x-text="t('admin.config.fields.tuning_ai_retry_enabled.label')"></label>
-                <div class="flex items-center gap-2">
-                  <select x-model="tuningForm['tuning_ai_retry_enabled']"
-                          :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
-                          class="text-[12.5px]">
-                    <option value="">— default —</option>
-                    <option value="1" x-text="t('admin.ai.retry.enabled_on')"></option>
-                    <option value="0" x-text="t('admin.ai.retry.enabled_off')"></option>
-                  </select>
-                  <span class="text-[10.5px] text-[var(--text-faint)]"
-                        x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_retry_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></span>
-                </div>
-                <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                <!-- Checkbox encodes 0/1 — checked → "1", unchecked → "0".
+                     `:true-value` / `:false-value` keep the storage shape
+                     consistent with the TUNABLES int contract (and with
+                     the placeholder showing the live default). -->
+                <label class="inline-flex items-center gap-2 text-[11.5px] text-[var(--text)] cursor-pointer">
+                  <input type="checkbox"
+                         x-model="tuningForm['tuning_ai_retry_enabled']"
+                         true-value="1" false-value="0"
+                         :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
+                         class="cursor-pointer">
+                  <span x-text="t('admin.config.fields.tuning_ai_retry_enabled.label')"></span>
+                </label>
+                <div class="ms-6 mt-1 text-[10.5px] text-[var(--text-faint)]"
+                     x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_retry_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
+                <p class="ms-6 text-[10.5px] text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_retry_enabled.help')"></p>
               </div>
               <!-- Backoff in milliseconds. -->
