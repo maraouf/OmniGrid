@@ -112,9 +112,13 @@
                          class="cursor-pointer">
                   <span x-text="t('admin.config.fields.tuning_ai_retry_enabled.label')"></span>
                 </label>
-                <div class="ms-6 mt-1 text-[10.5px] text-[var(--text-faint)]"
+                <!-- Effective + help text aligned to the section's
+                     natural left edge (no ms-6 indent under the
+                     checkbox label) so it matches the rest of the
+                     page's field-help indentation pattern. -->
+                <div class="mt-1 text-[10.5px] text-[var(--text-faint)]"
                      x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_retry_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
-                <p class="ms-6 text-[10.5px] text-[var(--text-faint)] mt-1"
+                <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_retry_enabled.help')"></p>
               </div>
               <!-- Backoff in milliseconds. -->
@@ -224,35 +228,48 @@
                    AND no eligible provider exists. The form-state still
                    persists fine; this just tells the operator nothing
                    will actually fire until they enable + key another
-                   provider. -->
-              <p class="ms-6 mb-3 text-[10.5px] text-[var(--warning)]"
+                   provider. Aligned to section left, not indented under
+                   the checkbox label, to match the rest of the page. -->
+              <p class="mb-3 text-[10.5px] text-[var(--warning)]"
                  x-show="settings.ai_fallback_enabled && aiFallbackEligibleCount() === 0"
                  x-text="t('admin.ai.fallback.no_eligible_warning')"></p>
               <!-- Max-depth selector — 1 or 2 hops. -->
-              <div class="ms-6 mb-3" x-show="settings.ai_fallback_enabled">
+              <div class="mb-3" x-show="settings.ai_fallback_enabled">
                 <label class="block text-[11px] text-[var(--text-dim)] mb-1"
                        x-text="t('admin.ai.fallback.max_depth_label')"></label>
-                <select x-model.number="settings.ai_fallback_max_depth"
-                        @change="markAiFormDirty()"
-                        :disabled="isReadonly() || !settings.ai_enabled"
-                        class="text-[12.5px]">
-                  <option :value="1">1</option>
-                  <option :value="2">2</option>
-                </select>
-                <span class="ms-2 text-[10.5px] text-[var(--text-faint)]"
-                      x-text="t('admin.ai.fallback.max_depth_hint')"></span>
+                <div class="flex flex-wrap items-center gap-2">
+                  <select x-model.number="settings.ai_fallback_max_depth"
+                          @change="markAiFormDirty()"
+                          :disabled="isReadonly() || !settings.ai_enabled"
+                          class="text-[12.5px] w-20">
+                    <option :value="1">1</option>
+                    <option :value="2">2</option>
+                  </select>
+                  <span class="text-[10.5px] text-[var(--text-faint)]"
+                        x-text="t('admin.ai.fallback.max_depth_hint')"></span>
+                </div>
               </div>
               <!-- Per-provider chain controls. Lists every supported
-                   provider; eligible ones get an Add/Remove + reorder
-                   chip; ineligible ones (disabled / no key / IS the
-                   active primary) get a muted hint explaining why. -->
-              <div class="ms-6" x-show="settings.ai_fallback_enabled">
+                   provider as a compact card row with the provider
+                   name on the left + status pill / action buttons on
+                   the right. Each row gets a subtle surface-2 fill +
+                   border so the chain reads as a list of cards
+                   instead of cramped flex lines, and the Backup
+                   priority chip reads cleanly against the row's own
+                   background.
+                   Eligible providers get reorder + Add/Remove buttons;
+                   ineligible ones (disabled / no key / IS the active
+                   primary) show a status pill or muted hint instead. -->
+              <div x-show="settings.ai_fallback_enabled">
                 <label class="block text-[11px] text-[var(--text-dim)] mb-1"
                        x-text="t('admin.ai.fallback.chain_label')"></label>
-                <div class="space-y-1.5">
+                <div class="flex flex-col gap-1.5">
                   <template x-for="name in aiProviderNames" :key="name">
-                    <div class="flex items-center gap-2 text-[11.5px]">
-                      <span class="mono text-[var(--text)]" x-text="aiProviderDisplayName(name)"></span>
+                    <div class="flex items-center gap-2 text-[11.5px]
+                                bg-[var(--surface-2)] border border-[var(--border)]
+                                rounded-md px-3 py-2">
+                      <span class="mono font-semibold text-[var(--text)]"
+                            x-text="aiProviderDisplayName(name)"></span>
                       <!-- Active primary — can't be a fallback target. -->
                       <span x-show="settings.ai_active_provider === name"
                             class="chip pill-info text-[10px]"
@@ -264,7 +281,10 @@
                                             && !(aiForm.providers[name].api_key || '').trim()))"
                             class="text-[10.5px] text-[var(--text-faint)] italic"
                             x-text="t('admin.ai.fallback.ineligible_hint')"></span>
-                      <!-- Eligible — reorder + remove controls. -->
+                      <!-- Eligible — Backup priority chip + reorder /
+                           Add+Remove buttons pinned to the trailing
+                           edge so the row reads name-on-left,
+                           controls-on-right consistently. -->
                       <template x-if="settings.ai_active_provider !== name
                                        && aiForm.providers[name].enabled
                                        && (aiForm.providers[name].api_key_set
@@ -277,7 +297,7 @@
                                   x-show="fallbackPriority(name) >= 1"
                                   @click="moveFallbackProvider(name, -1)"
                                   :disabled="isReadonly()"
-                                  class="btn btn-ghost text-[10.5px]"
+                                  class="btn btn-ghost text-[11px] px-2 py-0.5"
                                   :aria-label="t('admin.ai.fallback.move_up')"
                                   :title="t('admin.ai.fallback.move_up')">↑</button>
                           <button type="button"
@@ -285,13 +305,14 @@
                                           && fallbackPriority(name) < (settings.ai_fallback_order || []).length - 1"
                                   @click="moveFallbackProvider(name, +1)"
                                   :disabled="isReadonly()"
-                                  class="btn btn-ghost text-[10.5px]"
+                                  class="btn btn-ghost text-[11px] px-2 py-0.5"
                                   :aria-label="t('admin.ai.fallback.move_down')"
                                   :title="t('admin.ai.fallback.move_down')">↓</button>
                           <button type="button"
                                   @click="toggleFallbackProvider(name)"
                                   :disabled="isReadonly()"
-                                  class="btn btn-ghost text-[10.5px]"
+                                  class="btn text-[11px] px-2 py-0.5"
+                                  :class="fallbackPriority(name) >= 0 ? 'btn-ghost' : 'btn-primary'"
                                   x-text="fallbackPriority(name) >= 0
                                             ? t('admin.ai.fallback.remove_btn')
                                             : t('admin.ai.fallback.add_btn')"></button>

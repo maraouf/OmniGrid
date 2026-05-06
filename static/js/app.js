@@ -9498,9 +9498,21 @@ function app() {
     },
 
     get counts() {
-      const c = { update:0, uptodate:0, unknown:0, error:0, ignored:0, healthy:0, degraded:0, offline:0 };
+      // `update` counts ONLY actionable live updates — running items
+      // with a newer remote digest. Offline / orphan containers with
+      // stale digests get tracked separately under `update_offline`
+      // so the topbar nav badge + filter chip + any other consumer
+      // doesn't show "1 pending update" for a stack whose only stale
+      // item is an exited orphan that the Update-stack button can't
+      // fix anyway. Mirrors the per-stack rollup in `logic/gather.py`
+      // and the per-node rollup in `nodesView` so all three count
+      // sources read consistently.
+      const c = { update:0, update_offline:0, uptodate:0, unknown:0, error:0, ignored:0, healthy:0, degraded:0, offline:0 };
       for (const i of this.items) {
-        if (i.status==='update') c.update++;
+        if (i.status==='update') {
+          if (i.health==='offline') c.update_offline++;
+          else c.update++;
+        }
         else if (i.status==='up-to-date') c.uptodate++;
         else if (i.status==='unknown') c.unknown++;
         else if (i.status==='error') c.error++;
