@@ -12275,45 +12275,40 @@ function app() {
         const subline = (j.provider || '?') + (j.model ? ' · ' + j.model : '')
                         + (j.response_time_ms ? ' · ' + fmtNum(j.response_time_ms) + 'ms' : '')
                         + (tokens ? ' · ' + fmtNum(tokens) + ' tokens' : '');
-        // Action chip — backend stamps `j.action = "<id>"` when the AI
-        // wants to invoke one of the canonical command-palette actions
+        // Backend stamps `j.action = "<id>"` when the AI wants to
+        // invoke one of the canonical command-palette actions
         // (mark_all_notifications_read / refresh / theme_dark / etc.).
-        // Render an Execute button next to the answer; clicking it
-        // closes the modal and runs the matching action descriptor
-        // through the existing `_runCommandPaletteAction` dispatcher.
+        // The action runs DIRECTLY (no Execute button) — operator-
+        // requested behaviour: when the AI proposes an action that
+        // matches the request, just do it. Destructive actions still
+        // go through `_runCommandPaletteAction`'s SweetAlert confirm
+        // gate, which will replace this answer modal with the confirm.
         const actionId = (j.action || '').toString().trim();
         const actionDesc = actionId ? this._actionDescriptorById(actionId) : null;
-        let actionHtml = '';
-        if (actionDesc) {
-          actionHtml = '<div class="mt-3 flex items-center gap-2 flex-wrap" style="justify-content:flex-start">'
-            + '<span class="text-[10.5px] text-[var(--text-faint)] mono">'
-            + this._logEscape(this.t('command_palette.ai.proposed_action') || 'Proposed action:')
-            + '</span>'
-            + '<button type="button" id="og-ai-action-execute" class="btn btn-primary text-[12px]">'
-            + this._logEscape(actionDesc.label || actionId)
-            + '</button>'
-            + '</div>';
-        }
+        const actionRanLine = actionDesc
+          ? '<div class="mt-2 text-[11.5px] text-[var(--success)] flex items-center gap-1.5">'
+            + '<span aria-hidden="true">✓</span>'
+            + '<span>' + this._logEscape((this.t('command_palette.ai.action_ran') || 'Ran action: ') + (actionDesc.label || actionId)) + '</span>'
+            + '</div>'
+          : '';
         swal.fire({
           icon:  'info',
           title: this.t('command_palette.ai.answer_title') || 'AI response',
           html:  '<div class="text-[12.5px]" style="text-align:left;white-space:pre-wrap">'
                  + this._logEscape(answer) + '</div>'
-                 + actionHtml
+                 + actionRanLine
                  + '<div class="mt-3 text-[10.5px] text-[var(--text-faint)] mono" style="text-align:left">'
                  + this._logEscape(subline) + '</div>',
           width: 640,
-          didOpen: () => {
-            if (!actionDesc) return;
-            const btn = document.getElementById('og-ai-action-execute');
-            if (btn) {
-              btn.addEventListener('click', () => {
-                swal.close();
-                this._runCommandPaletteAction(actionDesc);
-              });
-            }
-          },
         });
+        // Fire the action AFTER the answer modal renders. Destructive
+        // actions will surface their confirm via SweetAlert which
+        // takes over the dialog stack — operator sees the confirm
+        // instead of the answer in that case (acceptable; the answer
+        // text still landed in the toast/store before the confirm).
+        if (actionDesc) {
+          this._runCommandPaletteAction(actionDesc);
+        }
       } catch (e) {
         swal.fire({
           icon:  'error',

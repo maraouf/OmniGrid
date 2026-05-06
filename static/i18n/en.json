@@ -1514,7 +1514,7 @@
       "answer_title":   "AI response",
       "error_title":    "AI request failed",
       "empty_response": "(empty response)",
-      "proposed_action": "Proposed action:",
+      "action_ran":     "Ran action: ",
       "disabled":       "AI is disabled — enable it in Admin → AI Integration"
     },
     "admin": {
