@@ -27,7 +27,7 @@
                other admin tabs (Apprise / OpenMeteo / Portainer / OIDC /
                Config). Toggling the checkbox just marks the tab dirty;
                operator commits via Save. -->
-          <div class="flex items-center gap-2 flex-wrap mt-4">
+          <div class="flex items-center gap-2 flex-wrap mt-4 pt-3 border-t border-[var(--border)]">
             <button x-show="isAdmin()" @click="saveDebugSettings()"
                     class="btn btn-primary text-[12.5px]"
                     :disabled="debugSaving"

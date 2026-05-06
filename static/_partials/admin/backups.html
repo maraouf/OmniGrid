@@ -20,16 +20,16 @@
           <!-- Retention: keep the newest N backups after every create
                (manual or scheduled). 0 = keep all. Applies to the
                manual "Backup now" button AND the scheduler 'backup' kind. -->
-          <div class="mt-4 pt-4 border-t border-[var(--border)] flex items-end gap-2 flex-wrap">
-            <div class="flex flex-col gap-1">
-              <label class="text-[11px] text-[var(--text-faint)]"
-                     x-text="t('admin.backups.retention_label')"></label>
-              <input x-model.number="settings.backup_retention_count"
-                     type="number" min="0" step="1"
-                     class="w-28">
-              <span class="text-[10.5px] text-[var(--text-faint)]"
-                    x-text="t('admin.backups.retention_hint')"></span>
-            </div>
+          <div class="mt-4 pt-4 border-t border-[var(--border)] flex flex-col gap-1">
+            <label class="text-[11px] text-[var(--text-faint)]"
+                   x-text="t('admin.backups.retention_label')"></label>
+            <input x-model.number="settings.backup_retention_count"
+                   type="number" min="0" step="1"
+                   class="w-28">
+            <span class="text-[10.5px] text-[var(--text-faint)]"
+                  x-text="t('admin.backups.retention_hint')"></span>
+          </div>
+          <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <button @click="saveRetention()"
                     :disabled="retentionSaving"
                     class="btn btn-primary text-[12px]">

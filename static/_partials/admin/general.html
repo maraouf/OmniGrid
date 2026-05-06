@@ -31,7 +31,7 @@
                  class="w-full mono text-[12px]">
           <!-- Save action row below the input — matches the Apprise
                panel above it for visual consistency (operator request). -->
-          <div class="flex items-center gap-3 mt-3 flex-wrap" x-show="isAdmin()">
+          <div class="flex items-center gap-3 mt-3 flex-wrap pt-3 border-t border-[var(--border)]" x-show="isAdmin()">
             <button @click="saveOpenMeteoUrl()"
                     :disabled="openMeteoSaving"
                     :class="openMeteoDirty() ? 'ring-2 ring-[var(--warning)]' : ''"

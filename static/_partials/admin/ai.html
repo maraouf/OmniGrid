@@ -65,7 +65,7 @@
               <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
                  x-text="t('admin.ai.max_tokens_hint')"></p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex items-center gap-2 flex-wrap pt-3 border-t border-[var(--border)]">
               <button @click="saveAiSettings()"
                       :disabled="isReadonly() || aiSaving || !aiFormDirty()"
                       class="btn btn-primary text-[12.5px]"
