@@ -810,6 +810,7 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     "open_notifications",
     "show_hotkeys",
     "cleanup_stopped",
+    "update_all_updatable",
     "sign_out",
 })
 
@@ -890,6 +891,7 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - open_notifications — open the notifications drawer\n"
     " - show_hotkeys — show the keyboard-shortcuts modal\n"
     " - cleanup_stopped — remove every stopped / failed / orphaned container the dashboard can see. Operator-friendly synonyms: 'cleanup', 'clean up', 'purge', 'prune', 'remove stopped containers', 'package cleanup' (loose match — there is no package-level cleanup, only container cleanup). (Destructive — the SPA still confirms before issuing the rm batch, so picking this is safe.)\n"
+    " - update_all_updatable — pull updates for every stack and standalone container that currently has an available update. Operator synonyms: 'update stacks', 'update all', 'update everything', 'pull updates', 'upgrade', 'upgrade everything', 'deploy updates', 'apply updates'. The SPA dedupes by stack id (one POST per stack, not per service), shows a confirm popup listing each affected stack/container, then issues the batch. (Destructive — the SPA confirms before issuing the update batch, so picking this is safe.)\n"
     " - sign_out — log out of OmniGrid\n"
     "Example single-action reply: 'I'll mark every notification as read for you.\\n"
     "ACTION: mark_all_notifications_read'\n"
