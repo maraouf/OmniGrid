@@ -12261,6 +12261,21 @@ function app() {
           run:   () => { this.bulkRemoveAll(); }
         }] : []),
 
+        // Update everything updatable — pull updates for every stack /
+        // standalone container with an available update. Same shape as
+        // cleanup-stopped: `bulkUpdateAll()` already shows a rich
+        // SweetAlert listing every affected stack/container, so defer
+        // the confirm to the inner dialog rather than double-prompting.
+        ...(typeof this.bulkUpdateAll === 'function' ? [{
+          id: 'update-all-updatable',
+          label: t('command_palette.action.update_all_updatable', 'Update everything updatable'),
+          sub:   t('command_palette.action.update_all_updatable_sub', 'Pull updates for every stack and standalone container with an update available'),
+          verbs: ['update', 'updates', 'upgrade', 'pull', 'apply', 'deploy', 'stacks', 'all'],
+          destructive: true,
+          defer_confirm_to_run: true,
+          run:   () => { this.bulkUpdateAll(); }
+        }] : []),
+
         // Sign out — destructive (terminates the session)
         ...(typeof this.logout === 'function' ? [{
           id: 'logout',
@@ -12863,6 +12878,14 @@ function app() {
         // kebab form (`cleanup-stopped`) verbatim too.
         cleanup_stopped:  'cleanup-stopped',
         cleanup:          'cleanup-stopped',
+        // Update-all synonyms — canonical id is `update_all_updatable`;
+        // accept the looser shapes operators emit when chaining
+        // imperatives ("update stacks and refresh", "update all").
+        update_all_updatable: 'update-all-updatable',
+        update_all_stacks:    'update-all-updatable',
+        update_all:           'update-all-updatable',
+        update_stacks:        'update-all-updatable',
+        upgrade_all:          'update-all-updatable',
       };
       const target = aliasMap[id] || kebab;
       const all = (typeof this._commandActions === 'function')
@@ -13352,6 +13375,11 @@ function app() {
       // Everything currently removable, regardless of selection. Drives the
       // topbar "Cleanup N" fast-action button.
       return this.items.filter(i => i.removable);
+    },
+    updatableAll() {
+      // Every item with an available update, regardless of selection. Drives
+      // the AI palette `update_all_updatable` action.
+      return this.items.filter(i => i.status === 'update' && this.canUpdate(i));
     },
     selectionRestartable() {
       return this.items.filter(i => this.selected.includes(i.id) && this.isRestartable(i));
@@ -22496,10 +22524,18 @@ function app() {
       }
     },
     async bulkUpdate() {
-      const picked = this.selectionUpdatable();
+      return this._bulkUpdateItems(this.selectionUpdatable(), { clearSelection: true });
+    },
+    async bulkUpdateAll() {
+      // AI palette fast-action — pull updates for every item with an
+      // available update, regardless of selection. Same dedupe + confirm
+      // dialog + sequential POST loop as `bulkUpdate()`.
+      return this._bulkUpdateItems(this.updatableAll(), { clearSelection: false });
+    },
+    async _bulkUpdateItems(source, { clearSelection }) {
       const stackIds = new Set();
       const queue = [];
-      for (const i of picked) {
+      for (const i of source) {
         if (i.stack_id) {
           if (!stackIds.has(i.stack_id)) { stackIds.add(i.stack_id); queue.push(i); }
         } else {
@@ -22537,7 +22573,7 @@ function app() {
           else { fail++; this._clearBusy(key); }
         } catch (e) { fail++; this._clearBusy(key); }
       }
-      this.selected = [];
+      if (clearSelection) this.selected = [];
       this.pollOpsNow();
       this.showToast(this.t('toasts.bulk_result', { ok: okCount, fail }), fail ? 'error' : 'success');
     },

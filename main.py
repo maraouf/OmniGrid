@@ -13894,13 +13894,37 @@ async def api_upload_avatar(
     return {"ok": True, "avatar_url": f"/api/avatars/{fname}"}
 
 
+def _safe_avatar_path(name: str) -> Optional[str]:
+    """Resolve `<_AVATAR_DIR>/<name>` and confirm the result stays
+    within `_AVATAR_DIR`. Returns the realpath on success or None
+    when the input is shape-invalid (slash / `..`/ empty) OR the
+    resolved path escapes the root (symlink / corrupt DB row).
+
+    Same defence-in-depth pattern as `logic/logs.py:safe_log_path`:
+    shape regex + realpath + `+ os.sep` prefix-confinement so a
+    sibling directory with a colliding prefix can't pass.
+    """
+    if not name or "/" in name or ".." in name:
+        return None
+    root = os.path.realpath(_AVATAR_DIR)
+    candidate = os.path.realpath(os.path.join(root, name))
+    if candidate != root and not candidate.startswith(root + os.sep):
+        return None
+    return candidate
+
+
 @app.delete("/api/me/avatar")
 async def api_clear_avatar(user: auth.User = Depends(auth.current_user)):
     with db_conn() as c:
         p = auth.get_user_profile(c, user.id)
     if p and p.get("avatar_path"):
-        full = os.path.join(_AVATAR_DIR, p["avatar_path"])
-        if os.path.exists(full):
+        # `avatar_path` originates as a user-uploaded basename; even
+        # though the upload path stores only `u<id>.<ext>`, route
+        # through the realpath-guarded resolver so a corrupt DB row
+        # can't trick this delete into removing a file outside
+        # `_AVATAR_DIR`.
+        full = _safe_avatar_path(p["avatar_path"])
+        if full and os.path.exists(full):
             try: os.remove(full)
             except OSError: pass
     with db_conn() as c:
@@ -13912,14 +13936,11 @@ async def api_clear_avatar(user: auth.User = Depends(auth.current_user)):
 async def api_serve_avatar(fname: str, _user: auth.User = Depends(auth.current_user)):
     """Serve an uploaded avatar. Authed — avatars are user data, shouldn't
     be browsable anonymously. Path-traversal-guarded: only basenames are
-    accepted, and the final path is re-rooted under _AVATAR_DIR.
+    accepted, and the final path is re-rooted under `_AVATAR_DIR` via
+    `_safe_avatar_path` (realpath + prefix-confinement).
     """
-    # Reject anything with a slash or path-escape attempt — we only store
-    # flat basenames of the form u<id>.<ext>, nothing else is valid.
-    if "/" in fname or ".." in fname or not fname:
-        raise HTTPException(status_code=404, detail="Not found")
-    full = os.path.join(_AVATAR_DIR, fname)
-    if not os.path.exists(full) or not os.path.isfile(full):
+    full = _safe_avatar_path(fname)
+    if not full or not os.path.isfile(full):
         raise HTTPException(status_code=404, detail="Not found")
     # Derive content-type from the stored extension.
     ext = fname.rsplit(".", 1)[-1].lower()
@@ -15303,7 +15324,18 @@ async def api_node_modules(path: str):
     # explicit check makes the security property obvious.
     if ".." in path or path.startswith("/") or path not in _NPM_ALLOWED:
         raise HTTPException(404, "Not found")
-    file_path = os.path.join("node_modules", path)
+    # Defence-in-depth: even though `_NPM_ALLOWED` is a closed set of
+    # 8 known-safe relative paths, also normalise the joined result
+    # via `os.path.realpath` and confirm it stays within the
+    # node_modules root. Catches any future relaxation of the
+    # allowlist (operator adds a new entry that happens to traverse
+    # via a symlink) AND silences static-analysis path-injection
+    # findings that won't trust enum-allowlist validation alone.
+    # Mirrors the `safe_log_path` pattern in `logic/logs.py`.
+    root = os.path.realpath("node_modules")
+    file_path = os.path.realpath(os.path.join(root, path))
+    if file_path != root and not file_path.startswith(root + os.sep):
+        raise HTTPException(404, "Not found")
     if not os.path.isfile(file_path):
         raise HTTPException(404, "Not found")
     return FileResponse(file_path)
