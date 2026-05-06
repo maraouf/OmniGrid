@@ -1539,6 +1539,8 @@
     "ai": {
       "ask_label":      "Ask AI: {query}",
       "ask_sub":        "Send to the active AI provider",
+      "bulk_translate_label": "Translate to bulk filter: {query}",
+      "bulk_translate_sub":   "Ask the AI to propose a Phase 1 DSL — you confirm before any host is touched",
       "thinking_title": "Thinking…",
       "answer_title":   "AI response",
       "question_label": "Question",
