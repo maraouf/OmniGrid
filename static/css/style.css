@@ -1862,6 +1862,112 @@ details summary::-webkit-details-marker {
     font-weight: 600;
 }
 
+/* AI response — per-host disk-projection charts. Rendered when the
+   AI emits a `HOSTS: <id1>, <id2>, ...` trailer; one chart per host
+   below the answer body. Each card carries a header (host id +
+   confidence pill), the SVG, and a one-line summary (current% ·
+   trend · time-to-fill). */
+.ai-resp-charts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-3);
+    margin-top: var(--s-4);
+}
+.ai-resp-chart {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: var(--s-3) var(--s-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+}
+.ai-resp-chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+    flex-wrap: wrap;
+}
+.ai-resp-chart-title {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text);
+    font-size: var(--fs-sm);
+}
+.ai-resp-chart-status {
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
+}
+.ai-resp-chart-status--error { color: var(--danger); }
+.ai-resp-chart-status--muted { color: var(--text-faint); font-style: italic; }
+.ai-resp-chart-confidence {
+    font-size: var(--fs-2xs);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px var(--s-2);
+    border-radius: var(--r-pill);
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+.ai-resp-chart-confidence--high {
+    background: var(--pill-ok-bg, var(--surface));
+    color: var(--success);
+    border-color: var(--success);
+}
+.ai-resp-chart-confidence--medium {
+    background: var(--pill-warning-bg, var(--surface));
+    color: var(--warning);
+    border-color: var(--warning);
+}
+.ai-resp-chart-confidence--low {
+    color: var(--text-faint);
+}
+.ai-resp-chart-body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 60px;
+}
+.ai-resp-chart-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+.ai-resp-chart-area {
+    fill: var(--primary);
+    fill-opacity: 0.18;
+    stroke: none;
+}
+.ai-resp-chart-line {
+    stroke: var(--primary);
+    stroke-width: 1.5;
+}
+.ai-resp-chart-line--proj {
+    stroke-dasharray: 4, 3;
+    stroke-opacity: 0.85;
+}
+.ai-resp-chart-axis {
+    fill: var(--text-faint);
+    font-size: var(--fs-3xs);
+    font-family: var(--font-mono);
+}
+.ai-resp-chart-now-label {
+    fill: var(--text-dim);
+    font-weight: 600;
+}
+.ai-resp-chart-summary {
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
+}
+.ai-resp-chart-summary strong {
+    color: var(--text);
+    font-weight: 600;
+}
+.ai-resp-chart-sub {
+    color: var(--text-faint);
+}
+
 .cmdpal-kind-pill {
     flex-shrink: 0;
     background: var(--surface-2);

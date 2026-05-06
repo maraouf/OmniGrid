@@ -4237,6 +4237,22 @@ async def api_ai_palette(
         out["action"] = action_id
     text = cleaned_text
 
+    # Split the optional `HOSTS: <id1>, <id2>, ...` trailer off too.
+    # Validate against the curated host id set so the model can't
+    # plant chart requests for hosts the SPA doesn't have a row for.
+    known_host_ids: set[str] = set()
+    if isinstance(ctx, dict):
+        for h in (ctx.get("hosts") or []):
+            if isinstance(h, dict):
+                hid = (h.get("id") or "").strip()
+                if hid:
+                    known_host_ids.add(hid)
+    host_ids, cleaned_text = _ai.parse_palette_hosts(text, known_host_ids or None)
+    if host_ids:
+        out["text"] = cleaned_text
+        out["hosts"] = host_ids
+    text = cleaned_text
+
     # Best-effort recorder writes ai_jobs + history so the Admin → AI
     # Usage Dashboard tiles + the History tab pick up every call.
     ok_flag = bool(isinstance(out, dict) and out.get("ok"))
@@ -4256,6 +4272,7 @@ async def api_ai_palette(
             "prompt": query,
             "answer": text,
             "action_id": action_id or "",
+            "hosts": host_ids,
             "context": {
                 "view":  ctx.get("view") if isinstance(ctx, dict) else "",
                 "hosts_count": (len(ctx.get("hosts") or []) if isinstance(ctx, dict) else 0),
@@ -10440,6 +10457,173 @@ async def api_hosts_snmp_history(
             "disk_used":        (int(r[19]) if r[19] is not None else None),
         })
     return {"points": points, "error": None}
+
+
+@app.get("/api/hosts/{host_id}/disk-projection")
+async def api_hosts_disk_projection(
+    host_id: str, hours: int = 720,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Linear-projection disk-fill forecast for one curated host.
+
+    Reads `disk_used` / `disk_total` history from whichever sampler
+    table has rows for this host (priority: ``host_metrics_samples``
+    → ``host_pulse_samples`` → ``host_webmin_samples``). Computes
+    ordinary-least-squares linear regression of ``used_pct`` over time;
+    projects forward by the same window as the lookback. Confidence
+    pill derives from R² + sample density:
+        high   ≥ 0.85 R²  AND  ≥ 60 samples
+        medium ≥ 0.60 R²  OR   ≥ 30 samples
+        low    otherwise
+    Exhaustion timestamp = first projected point where used_pct ≥ 100;
+    None when slope ≤ 0 (host is shrinking / stable) OR projection
+    stays under 100% within the forward window (operator has time).
+    Lookback ``hours`` clamped 24..2160 (1d..90d).
+    """
+    h = max(24, min(2160, int(hours or 720)))
+    hid = (host_id or "").strip()
+    if not hid:
+        return {"error": "host_id required"}
+    since = int(time.time() - h * 3600)
+    # Try each sampler table in priority order; first one with ≥ 5
+    # rows wins. If none have data the response carries the empty
+    # shape so the SPA can render an "Insufficient data" placeholder.
+    sources = (
+        ("host_metrics_samples", "node_exporter"),
+        ("host_pulse_samples",   "pulse"),
+        ("host_webmin_samples",  "webmin"),
+    )
+    rows: list[tuple] = []
+    source_used = None
+    try:
+        with db_conn() as c:
+            for table, label in sources:
+                cur = c.execute(
+                    f"SELECT ts, disk_used, disk_total FROM {table} "
+                    f"WHERE host_id=? AND ts>=? AND disk_used IS NOT NULL "
+                    f"  AND disk_total IS NOT NULL AND disk_total > 0 "
+                    f"ORDER BY ts ASC",
+                    (hid, since),
+                )
+                fetched = cur.fetchall()
+                if len(fetched) >= 5:
+                    rows = fetched
+                    source_used = label
+                    break
+    except Exception as e:
+        return {"error": f"db read failed: {e}", "samples": [], "projection": []}
+    if not rows:
+        return {
+            "host_id": hid,
+            "samples": [],
+            "projection": [],
+            "exhaustion_ts": None,
+            "confidence": "low",
+            "current": None,
+            "slope_pct_per_day": 0.0,
+            "total_bytes": None,
+            "source": None,
+            "error": None,
+        }
+    # Build the (ts, used_pct, used_bytes, total_bytes) series.
+    series = [
+        (int(r[0]), (int(r[1]) / int(r[2])) * 100.0, int(r[1]), int(r[2]))
+        for r in rows
+    ]
+    n = len(series)
+    # OLS regression on (ts, used_pct). Anchor x at the first sample
+    # so the magnitudes stay small (otherwise int(time.time())^2 in
+    # the sums overflows float64 precision noticeably).
+    t0 = series[0][0]
+    xs = [(s[0] - t0) for s in series]
+    ys = [s[1] for s in series]
+    sx = sum(xs); sy = sum(ys)
+    sxx = sum(x * x for x in xs)
+    sxy = sum(x * y for x, y in zip(xs, ys))
+    denom = (n * sxx) - (sx * sx)
+    if denom == 0:
+        slope = 0.0
+        intercept = sy / n
+    else:
+        slope = (n * sxy - sx * sy) / denom
+        intercept = (sy - slope * sx) / n
+    # R² on the same series.
+    mean_y = sy / n
+    ss_tot = sum((y - mean_y) ** 2 for y in ys)
+    ss_res = sum((y - (intercept + slope * x)) ** 2 for x, y in zip(xs, ys))
+    r2 = 0.0 if ss_tot == 0 else max(0.0, 1.0 - (ss_res / ss_tot))
+    # Confidence pill — needs both R² AND sample density.
+    if r2 >= 0.85 and n >= 60:
+        confidence = "high"
+    elif r2 >= 0.60 or n >= 30:
+        confidence = "medium"
+    else:
+        confidence = "low"
+    # Exhaustion: solve intercept + slope * (t - t0) = 100 for t.
+    exhaustion_ts: int | None = None
+    if slope > 1e-12:
+        t_exhaust_offset = (100.0 - intercept) / slope
+        t_exhaust = t0 + t_exhaust_offset
+        # Only meaningful if it's in the future (post-now) AND within
+        # a "reasonable" forecast window (10× the lookback — beyond
+        # that the linear-extrapolation assumption is too fragile).
+        now_ts = int(time.time())
+        max_horizon = now_ts + (h * 3600 * 10)
+        if t_exhaust > now_ts and t_exhaust < max_horizon:
+            exhaustion_ts = int(t_exhaust)
+    # Slope rendered as pct-per-day for the operator-friendly summary.
+    slope_pct_per_day = slope * 86400.0
+    # Build the response samples — downsample to ≤ 120 points so the
+    # chart payload stays small. Take evenly-spaced indices.
+    if n <= 120:
+        out_samples = series
+    else:
+        step = n / 120.0
+        idxs = sorted({int(i * step) for i in range(120)} | {n - 1})
+        out_samples = [series[i] for i in idxs]
+    samples_payload = [
+        {"ts": s[0], "used_pct": round(s[1], 2),
+         "used_bytes": s[2], "total_bytes": s[3]}
+        for s in out_samples
+    ]
+    # Projection — same forward window length as lookback, ~30 points.
+    forward_secs = h * 3600
+    projection_payload = []
+    proj_steps = 30
+    now_ts = int(time.time())
+    for i in range(proj_steps + 1):
+        t_offset = (forward_secs * i) / proj_steps
+        ts_proj = now_ts + int(t_offset)
+        used_pct_proj = intercept + slope * (ts_proj - t0)
+        # Clamp 0..100 — projecting < 0 (host losing data faster than
+        # plausible) or > 100 (already exhausted) is operator-confusing
+        # noise; the exhaustion_ts field carries the meaningful "when".
+        used_pct_clamped = max(0.0, min(100.0, used_pct_proj))
+        projection_payload.append({
+            "ts": ts_proj,
+            "used_pct": round(used_pct_clamped, 2),
+        })
+    last = series[-1]
+    return {
+        "host_id":           hid,
+        "samples":           samples_payload,
+        "projection":        projection_payload,
+        "exhaustion_ts":     exhaustion_ts,
+        "confidence":        confidence,
+        "current": {
+            "ts":            last[0],
+            "used_pct":      round(last[1], 2),
+            "used_bytes":    last[2],
+            "total_bytes":   last[3],
+        },
+        "slope_pct_per_day": round(slope_pct_per_day, 4),
+        "total_bytes":       last[3],
+        "source":            source_used,
+        "lookback_hours":    h,
+        "r2":                round(r2, 4),
+        "sample_count":      n,
+        "error":             None,
+    }
 
 
 @app.get("/api/hosts/{host_id}/snmp/iface_history")

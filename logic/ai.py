@@ -60,6 +60,155 @@ _DEFAULT_MODELS = {
 }
 
 
+# Per-(provider, model-prefix) USD rates per 1,000,000 tokens.
+# Prefix-matched longest-first so a versioned model id like
+# `claude-opus-4-7-20260101` still resolves to the base entry.
+# Numbers are public list rates as of 2026-Q2; operators on enterprise
+# / volume agreements should treat the resulting cost as an upper bound
+# rather than ground truth. When rates rotate, edit this table; existing
+# `ai_jobs.cost_usd` rows are historical (computed at insert time) and
+# do NOT retroactively update.
+RATE_CARD: dict[tuple[str, str], tuple[float, float]] = {
+    # Anthropic Claude — opus / sonnet / haiku
+    ("claude", "claude-opus-4-7"):    (15.00, 75.00),
+    ("claude", "claude-opus-4"):      (15.00, 75.00),
+    ("claude", "claude-opus"):        (15.00, 75.00),
+    ("claude", "claude-sonnet-4-6"):  (3.00, 15.00),
+    ("claude", "claude-sonnet-4"):    (3.00, 15.00),
+    ("claude", "claude-sonnet"):      (3.00, 15.00),
+    ("claude", "claude-haiku-4-5"):   (1.00, 5.00),
+    ("claude", "claude-haiku-4"):     (1.00, 5.00),
+    ("claude", "claude-haiku"):       (1.00, 5.00),
+    # Google Gemini — 2.5 family pricing tiers
+    ("gemini", "gemini-2.5-pro"):         (1.25, 10.00),
+    ("gemini", "gemini-2.5-flash-lite"):  (0.0375, 0.15),
+    ("gemini", "gemini-2.5-flash"):       (0.075, 0.30),
+    ("gemini", "gemini-1.5-pro"):         (1.25, 5.00),
+    ("gemini", "gemini-1.5-flash"):       (0.075, 0.30),
+    # OpenAI ChatGPT — gpt-5 / gpt-4o family
+    ("chatgpt", "gpt-5-mini"):    (0.25, 2.00),
+    ("chatgpt", "gpt-5"):         (1.25, 10.00),
+    ("chatgpt", "gpt-4o-mini"):   (0.15, 0.60),
+    ("chatgpt", "gpt-4o"):        (2.50, 10.00),
+    ("chatgpt", "gpt-4-turbo"):   (10.00, 30.00),
+    # DeepSeek — chat (V3) + reasoner (R1)
+    ("deepseek", "deepseek-reasoner"): (0.55, 2.19),
+    ("deepseek", "deepseek-chat"):     (0.27, 1.10),
+}
+
+
+def compute_cost_usd(provider: str, model: str,
+                     prompt_tokens: int, completion_tokens: int) -> float | None:
+    """Resolve `(provider, model)` against `RATE_CARD` (longest-prefix
+    wins) and return USD cost for the call. Returns ``None`` when no
+    rate-card entry matches — recorder writes NULL so the dashboard
+    renders "—" instead of lying with $0.0000 on an unpriced model.
+    A genuinely-zero-token call against a known model still yields
+    0.0 (truthful — nothing was billed).
+    """
+    if not provider or not model:
+        return None
+    p = provider.strip().lower()
+    m = model.strip().lower()
+    # Longest-prefix match — entries are sorted at lookup time so a
+    # new entry can land anywhere in the table without breaking
+    # resolution order.
+    candidates = [
+        (prefix, rates) for (prov, prefix), rates in RATE_CARD.items()
+        if prov == p and m.startswith(prefix.lower())
+    ]
+    if not candidates:
+        return None
+    # Sort by prefix length DESC, take the longest (most specific) match.
+    candidates.sort(key=lambda kv: len(kv[0]), reverse=True)
+    in_rate, out_rate = candidates[0][1]
+    pt = max(0, int(prompt_tokens or 0))
+    ct = max(0, int(completion_tokens or 0))
+    return round((pt * in_rate + ct * out_rate) / 1_000_000.0, 6)
+
+
+# Coarse heuristic for `accuracy_score`. Captures cheap structural
+# signals (call succeeded, answer non-empty + substantive, ACTION line
+# fired when expected, response references real OmniGrid surface
+# vocabulary). Does NOT validate factual correctness — that needs a
+# critic model or operator-rated post-hoc UI, both filed as Stage 2+.
+# Until then the score is a relative-quality indicator: 0.0 means
+# failed, 1.0 means every cheap signal lit up, in-between rows
+# indicate partial success.
+import re as _re
+_OMNIGRID_SURFACE_RE = _re.compile(
+    r"\b(host|admin|drawer|stack|service|portainer|webmin|beszel|pulse|"
+    r"snmp|cpu|memory|disk|/api/|node[ -]?exporter|swarm)\b",
+    _re.IGNORECASE,
+)
+
+
+def score_accuracy(*, kind: str, ok: bool, text: str | None,
+                   history_events: dict | None) -> tuple[float | None, dict]:
+    """
+    Returns ``(score, check)`` where:
+    - score: 0..1 float, or None when the call shape carries no signal
+      (e.g. a kind we don't have heuristics for yet).
+    - check: dict of named signal components that contributed to the
+      score; lands in ``ai_jobs.accuracy_check`` as JSON for triage.
+
+    Caller passes the same ``history_events`` it hands `record_ai_call`,
+    so this helper can read structural signals (resolved action_id,
+    extracted DSL) without re-parsing.
+    """
+    check: dict = {}
+    if not ok:
+        check["ok"] = False
+        return 0.0, check
+
+    if kind == "test":
+        # One-token auth ping — binary success.
+        check["ok"] = True
+        return 1.0, check
+
+    text_str = (text or "").strip()
+    events = history_events or {}
+
+    if kind == "host_filter":
+        # Caller stuffs the parsed DSL into history_events.dsl. When
+        # present we know the response was structurally correct; when
+        # absent the call succeeded HTTP-wise but the model didn't
+        # emit a parseable filter (treat as a partial answer).
+        dsl = (events.get("dsl") or "").strip()
+        if dsl:
+            check["dsl_extracted"] = True
+            return 1.0, check
+        check["dsl_extracted"] = False
+        # Some text returned but unusable — small positive signal so
+        # the dashboard doesn't read a flat 0% on a working endpoint
+        # that just got an unparseable response.
+        return 0.3, check
+
+    # Default: palette-shaped (and any future free-form kinds).
+    if not text_str:
+        check["empty_text"] = True
+        return 0.3, check
+    score = 0.5
+    check["non_empty"] = True
+    if len(text_str) >= 30:
+        score += 0.2
+        check["substantive"] = True
+    if (events.get("action_id") or "").strip():
+        # Model emitted a valid ACTION: line that the backend whitelist
+        # accepted — strong structural signal it parsed the user's
+        # intent correctly.
+        score += 0.15
+        check["action_emitted"] = True
+    if _OMNIGRID_SURFACE_RE.search(text_str):
+        # Model knows it's talking about OmniGrid surfaces, not
+        # hand-waving about generic dashboards.
+        score += 0.1
+        check["surface_referenced"] = True
+    # Round to 4dp so floating-point summation noise (0.5 + 0.2 + 0.1
+    # = 0.7999999...) doesn't surface in the dashboard or assertions.
+    return round(min(score, 1.0), 4), check
+
+
 def _resolve_endpoint(provider: str, base_url: str | None) -> str:
     """Strip trailing slashes; fall back to canonical default if empty."""
     base = (base_url or "").strip().rstrip("/")
@@ -528,7 +677,25 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - sign_out — log out of OmniGrid\n"
     "Example reply: 'I'll mark every notification as read for you.\\n"
     "ACTION: mark_all_notifications_read'\n"
-    "If no action fits, omit the ACTION line entirely."
+    "If no action fits, omit the ACTION line entirely.\n\n"
+    "HOSTS PROTOCOL — when your reply identifies SPECIFIC hosts BY "
+    "NAME (e.g. answering 'top hosts low on disk', 'which hosts are "
+    "running out of space', 'which hosts are at high CPU', 'top N "
+    "by memory'), you MUST end your reply with a SINGLE line "
+    "`HOSTS: <id1>, <id2>, <id3>` listing each referenced host's "
+    "curated `id` field — NOT its label, alias, or display name — "
+    "in the order they appear in your prose. Maximum 8 ids. The "
+    "SPA picks up the HOSTS line, strips it from the visible text, "
+    "and renders inline disk-projection charts for each host below "
+    "the answer (historical usage + linear-projection forecast of "
+    "when the disk fills up). Use ONLY ids that appear in the "
+    "supplied 'Hosts:' context block — never invent ids the SPA "
+    "doesn't know about. The HOSTS line and the ACTION line are "
+    "INDEPENDENT — both can appear (HOSTS first, then ACTION). "
+    "Skip the HOSTS line entirely when your answer is generic / "
+    "doesn't reference specific named hosts. Example reply: "
+    "'Top 3 hosts low on disk: 1. nas01 — 92% used, 2. db02 — 88%, "
+    "3. cache03 — 85%.\\nHOSTS: nas01, db02, cache03'"
 )
 
 
@@ -599,6 +766,56 @@ def parse_palette_action(text: str) -> tuple[str, str]:
         return "", text
     cleaned = text[: m.start()].rstrip()
     return candidate, cleaned
+
+
+def parse_palette_hosts(text: str, known_ids: set[str] | None = None) -> tuple[list[str], str]:
+    """Extract the optional `HOSTS: <id1>, <id2>, ...` trailer from a
+    palette response. Returns ``(host_ids, cleaned_text)``.
+
+    Tolerant matcher mirroring `parse_palette_action`: matches the
+    line at the strict end OR anywhere-mid-body, optional surrounding
+    whitespace / backticks / asterisks. Tokens split on commas /
+    whitespace; trailing punctuation stripped. When ``known_ids`` is
+    supplied, IDs not in that set are dropped (the model occasionally
+    invents names the SPA doesn't have curated rows for — better to
+    silently drop than render a chart for a phantom host).
+
+    Cap of 8 hosts mirrors the prompt's instruction; extra ids past
+    8 are dropped.
+    """
+    if not text:
+        return [], text or ""
+    import re as _re
+    m = _re.search(
+        r"(?:^|\n)[\s`*]*HOSTS\s*:\s*(.+?)[\s`.*]*$",
+        text, _re.IGNORECASE | _re.MULTILINE,
+    )
+    if not m:
+        return [], text
+    raw = m.group(1)
+    # Split on commas first (preferred), fall back to whitespace.
+    parts: list[str] = []
+    if "," in raw:
+        parts = [p.strip() for p in raw.split(",")]
+    else:
+        parts = raw.split()
+    # Strip trailing punctuation / quote chars / backticks per token.
+    cleaned_ids: list[str] = []
+    seen: set[str] = set()
+    for p in parts:
+        token = p.strip().strip("`'\"*.,;").strip()
+        if not token:
+            continue
+        if known_ids is not None and token not in known_ids:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        cleaned_ids.append(token)
+        if len(cleaned_ids) >= 8:
+            break
+    cleaned_text = text[: m.start()].rstrip()
+    return cleaned_ids, cleaned_text
 
 
 def parse_host_filter_response(text: str) -> tuple[str, str, str]:
@@ -718,20 +935,40 @@ def record_ai_call(
         completion_t = int((tokens or {}).get("completion") or 0)
         total_t = prompt_t + completion_t
         now_ts = int(_time.time())
+        # Cost computed at insert time so historical rows survive a
+        # rate-card edit. None when no entry matches (model not in
+        # RATE_CARD) — dashboard renders "—" via aiFormatCost null
+        # branch instead of misleading $0.0000.
+        cost_usd = compute_cost_usd(provider, model or "", prompt_t, completion_t)
+        # Coarse accuracy signal — see logic/ai.py:score_accuracy.
+        # `text` is read from history_events for the heuristic; the
+        # caller already passes it in events for both palette + filter
+        # kinds.
+        _text_for_score = (history_events or {}).get("answer") or ""
+        accuracy_score, accuracy_check = score_accuracy(
+            kind=kind, ok=ok, text=_text_for_score,
+            history_events=history_events,
+        )
+        try:
+            accuracy_check_json = _json.dumps(accuracy_check, ensure_ascii=False)
+        except (TypeError, ValueError):
+            accuracy_check_json = None
         with db_conn_factory() as c:
             c.execute(
                 "INSERT INTO ai_jobs ("
                 "  ts, provider, model, kind, status,"
                 "  prompt_tokens, completion_tokens, total_tokens,"
-                "  cost_usd, response_time_ms, error, metadata"
-                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                "  cost_usd, response_time_ms, accuracy_score,"
+                "  accuracy_check, error, metadata"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     now_ts, provider, model or "", kind,
                     "success" if ok else "error",
                     prompt_t, completion_t, total_t,
-                    None,  # cost not yet computed — provider rate-card
-                           # plumbing is a follow-up.
+                    cost_usd,
                     int(response_time_ms or 0),
+                    accuracy_score,
+                    accuracy_check_json,
                     error_detail or None,
                     None,
                 ),

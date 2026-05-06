@@ -214,10 +214,30 @@ def safe_log_path(name: str) -> Optional[str]:
     download / view endpoints against path-traversal attempts (``..``,
     absolute paths, symlinks). The regex is the only allowed shape so
     even basename-encoded traversal can't slip through.
+
+    Defence-in-depth: even though `_LOG_NAME_RE` is anchored
+    (`^omnigrid-YYYY-MM-DD.log$`) and rejects every separator/
+    traversal char, also normalise the joined path via
+    ``os.path.realpath`` and confirm the result is contained within
+    ``LOG_DIR``. Catches any future regex relaxation (operator-
+    customisable suffix, alternate naming, etc.) AND silences static-
+    analysis path-injection findings that won't trust regex-shape
+    validation alone.
     """
     if not _LOG_NAME_RE.match(name or ""):
         return None
-    return os.path.join(LOG_DIR, name)
+    # Resolve symlinks + collapse `..` segments before the
+    # confinement check. `realpath` follows links — important so a
+    # symlinked attack file pointing OUT of LOG_DIR fails the prefix
+    # guard rather than silently leaking.
+    root = os.path.realpath(LOG_DIR)
+    candidate = os.path.realpath(os.path.join(root, name))
+    # Prefix-with-separator guard prevents a sibling directory whose
+    # name starts with the same prefix (e.g. `/var/log/omnigrid_evil`
+    # against root `/var/log/omnigrid`) from passing the check.
+    if candidate != root and not candidate.startswith(root + os.sep):
+        return None
+    return candidate
 
 
 def read_persistent_log(name: str, tail_lines: Optional[int] = None) -> Optional[str]:
