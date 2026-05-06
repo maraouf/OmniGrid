@@ -4258,6 +4258,15 @@ async def api_ai_palette(
     ok_flag = bool(isinstance(out, dict) and out.get("ok"))
     response_ms = int((out.get("response_time_ms") or 0) if isinstance(out, dict) else 0)
     err_detail = (out.get("detail") or "") if (isinstance(out, dict) and not ok_flag) else None
+    # Persistent-log triage line for non-OK outcomes — upstream
+    # rate-limits / overloads classify as WARN, everything else as
+    # ERROR. Full upstream message stays in ai_jobs.error + history.
+    _ai.log_ai_outcome(
+        kind="palette", provider=active, model=model,
+        ok=ok_flag,
+        status=(isinstance(out, dict) and out.get("status")) or None,
+        detail=err_detail,
+    )
     _ai.record_ai_call(
         db_conn_factory=db_conn,
         provider=active,
@@ -4352,6 +4361,17 @@ async def api_ai_host_filter(
         err_detail = (isinstance(out, dict) and out.get("detail")) or "AI request failed."
 
     response_ms = int((out.get("response_time_ms") or 0) if isinstance(out, dict) else 0)
+    # Persistent-log triage — same shape as the palette path. Note
+    # ok=bool(dsl) here because for host_filter "ok" means we got a
+    # parseable DSL out, not just HTTP 200. An HTTP-200 reply that
+    # the parser rejected logs as ERROR (operator-actionable: model
+    # is misbehaving on the prompt).
+    _ai.log_ai_outcome(
+        kind="host_filter", provider=active, model=model,
+        ok=bool(dsl),
+        status=(isinstance(out, dict) and out.get("status")) or None,
+        detail=err_detail,
+    )
     _ai.record_ai_call(
         db_conn_factory=db_conn,
         provider=active,

@@ -905,6 +905,42 @@ def build_host_filter_user_prompt(query: str, ctx: dict | None) -> str:
     return "\n".join(parts)
 
 
+def log_ai_outcome(*, kind: str, provider: str, model: str,
+                   ok: bool, status: int | None, detail: str | None) -> None:
+    """Emit a `[ai]` log line that the persistent-log severity
+    classifier (`logic/logs.py:_severity_for`) routes to WARN or
+    ERROR. Successful calls are not logged here — operators only want
+    to see triage-worthy events in Admin → Logs (the full call history
+    lives in `ai_jobs` + the History tab).
+
+    Severity rules:
+      - 429 / 502 / 503 / 504  → WARN  (transient upstream overload
+        / rate-limit — keyword "warning" + no "fail"/"error" tokens
+        in the line so the classifier picks WARN, not ERROR).
+      - everything else        → ERROR (operator-actionable: auth
+        failure, model-not-found, DNS, TLS, etc. — keyword "failed"
+        in the line; upstream detail truncated to 200 chars).
+
+    The full upstream message always lands in `ai_jobs.error` and
+    `history.error` (operator can drill into Admin → AI Usage
+    Dashboard or History for the verbatim text). This log line just
+    gives correlation-by-time + provider-model triage in one place.
+    """
+    if ok:
+        return
+    s = int(status) if status else 0
+    transient = s in (429, 502, 503, 504)
+    if transient:
+        # Word "warning" + no "failed/error" → classifier picks WARN.
+        print(f"[ai] {kind} warning — provider={provider} model={model} "
+              f"HTTP={s} upstream-overloaded (transient, retry later)")
+    else:
+        truncated = (detail or "")[:200].replace("\n", " ").strip() or "(no detail)"
+        # Word "failed" → classifier picks ERROR.
+        print(f"[ai] {kind} call failed — provider={provider} model={model} "
+              f"HTTP={s}: {truncated}")
+
+
 def record_ai_call(
     *,
     db_conn_factory,
