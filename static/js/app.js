@@ -12915,6 +12915,18 @@ function app() {
     // pre-AI version.
     _aiPaletteSurfaceEnabled() {
       try {
+        // Read from reactive `this.settings` first so toggling AI on /
+        // off in Admin → AI Integration updates the sidebar / launcher
+        // / palette gates immediately on Save (no full page reload
+        // required). Falls back to `me.client_config.ai` for the
+        // brief window between SPA boot and the first /api/settings
+        // hydration.
+        const sEnabled  = this.settings && this.settings.ai_enabled;
+        const sProvider = (this.settings && this.settings.ai_active_provider) || '';
+        if (sEnabled !== undefined && sEnabled !== null) {
+          if (!sEnabled) return false;
+          return !!sProvider;
+        }
         const aiCfg = this.me && this.me.client_config && this.me.client_config.ai;
         if (!aiCfg) return false;
         if (!aiCfg.enabled) return false;
