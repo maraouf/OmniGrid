@@ -1482,6 +1482,15 @@ function app() {
               this.hostHistoryRange = dbRange;
             }
           } catch (_) {}
+          // AI assistant conversation history — restore from
+          // ui_prefs.ai_conversation so a hard reload (or moving to a
+          // different browser / machine) doesn't drop the chat.
+          try {
+            const conv = m && m.ui_prefs && m.ui_prefs.ai_conversation;
+            if (Array.isArray(conv) && conv.length > 0) {
+              this.aiConversation = conv;
+            }
+          } catch (_) {}
           // Hydrate the last-Test-success cache from the DB-backed
           // `client_config.last_test_success` block. Drives the
           // "Last connected: <relative time>" label next to every Test
@@ -9684,6 +9693,44 @@ function app() {
     // Same write-through pattern for the host-drawer time-range
     // picker. Stored under `ui_prefs.host_history_range` as an int so
     // the operator's preferred range follows them across browsers.
+    // Cross-browser / cross-machine persistence for the AI assistant
+    // conversation log. Stored under `ui_prefs.ai_conversation` as a
+    // capped JSON array (last 50 turns) so a hard reload + login on
+    // a different browser still restores the session. Called after
+    // every conversation mutation (send / slash run / clear). Skipped
+    // for API-token pseudo-users (negative ids).
+    async persistAiConversation() {
+      if (!this.me || !this.me.id || this.me.id < 0) return;
+      // Cap at 50 turns + drop in-flight bookkeeping (feedback-busy
+      // flags etc. live elsewhere) so the round-trip stays small.
+      const turns = (this.aiConversation || []).slice(-50).map(t => ({
+        role:             t.role || '',
+        text:             t.text || '',
+        action_id:        t.action_id || null,
+        action_label:     t.action_label || null,
+        action_ran:       !!t.action_ran,
+        slash:            !!t.slash,
+        job_id:           (t.job_id !== undefined && t.job_id !== null) ? t.job_id : null,
+        feedback:         t.feedback || null,
+        provider:         t.provider || '',
+        model:            t.model || '',
+        response_time_ms: Number(t.response_time_ms) || 0,
+        tokens:           Number(t.tokens) || 0,
+        error:            t.error || null,
+        ts:               Number(t.ts) || 0,
+      }));
+      try {
+        await fetch('/api/me/ui-prefs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefs: { ai_conversation: turns } }),
+        });
+      } catch (e) {
+        if (window.console && console.warn) {
+          console.warn('[ai-conv] persist to DB failed:', e);
+        }
+      }
+    },
     async persistHostHistoryRange(value) {
       if (!this.me || !this.me.id || this.me.id < 0) return;
       const n = Number(value);
@@ -12904,6 +12951,7 @@ function app() {
       this.aiConversation = [];
       this.aiSidebarQuery = '';
       this.aiSidebarFeedbackBusy = {};
+      this.persistAiConversation();
     },
     aiSidebarSurfaceEnabled() {
       // Same gate as the legacy palette's AI fallback row.
@@ -12999,6 +13047,7 @@ function app() {
       } finally {
         this.aiSidebarBusy = false;
         this._scrollAiSidebarToBottom();
+        this.persistAiConversation();
       }
     },
     _scrollAiSidebarToBottom() {
@@ -13035,6 +13084,7 @@ function app() {
         }
       } finally {
         this.aiSidebarFeedbackBusy[turnIdx] = false;
+        this.persistAiConversation();
       }
     },
     aiSidebarHandleKeydown(e) {
@@ -13128,6 +13178,7 @@ function app() {
         ts:           Date.now(),
       });
       this._scrollAiSidebarToBottom();
+      this.persistAiConversation();
       this._runCommandPaletteAction(action);
     },
     aiTurnSubline(turn) {

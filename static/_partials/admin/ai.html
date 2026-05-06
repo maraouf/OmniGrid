@@ -296,7 +296,7 @@
                           <button type="button"
                                   x-show="fallbackPriority(name) >= 1"
                                   @click="moveFallbackProvider(name, -1)"
-                                  :disabled="isReadonly()"
+                                  :disabled="isReadonly() || !settings.ai_enabled || !settings.ai_fallback_enabled"
                                   class="btn btn-ghost text-[11px] px-2 py-0.5"
                                   :aria-label="t('admin.ai.fallback.move_up')"
                                   :title="t('admin.ai.fallback.move_up')">↑</button>
@@ -304,13 +304,13 @@
                                   x-show="fallbackPriority(name) >= 0
                                           && fallbackPriority(name) < (settings.ai_fallback_order || []).length - 1"
                                   @click="moveFallbackProvider(name, +1)"
-                                  :disabled="isReadonly()"
+                                  :disabled="isReadonly() || !settings.ai_enabled || !settings.ai_fallback_enabled"
                                   class="btn btn-ghost text-[11px] px-2 py-0.5"
                                   :aria-label="t('admin.ai.fallback.move_down')"
                                   :title="t('admin.ai.fallback.move_down')">↓</button>
                           <button type="button"
                                   @click="toggleFallbackProvider(name)"
-                                  :disabled="isReadonly()"
+                                  :disabled="isReadonly() || !settings.ai_enabled || !settings.ai_fallback_enabled"
                                   class="btn text-[11px] px-2 py-0.5"
                                   :class="fallbackPriority(name) >= 0 ? 'btn-ghost' : 'btn-primary'"
                                   x-text="fallbackPriority(name) >= 0
