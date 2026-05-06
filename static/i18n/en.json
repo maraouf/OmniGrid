@@ -12,7 +12,8 @@
     "just_now": "just now",
     "minutes_ago": "{count}m ago",
     "hours_ago": "{count}h ago",
-    "days_ago": "{count}d ago"
+    "days_ago": "{count}d ago",
+    "now": "Now"
   },
   "item": {
     "drawer_title": "Item details"
@@ -236,6 +237,7 @@
     "external": "external",
     "off_suffix": "off",
     "upd_suffix": "upd",
+    "off_with_stale_digest_title": "{count} of these offline item(s) also has a newer remote image — but since it's already offline, the fix is to REMOVE it (use the row's trash icon), not to update the stack. The asterisk in the chip flags this case.",
     "err_suffix": "err",
     "unknown_short": "?",
     "ok_suffix": "ok",
@@ -784,6 +786,12 @@
       "active_provider_disabled_warning": "The active provider is currently disabled — enable it in its card below before any AI call can succeed.",
       "max_tokens_label": "Max response tokens",
       "max_tokens_hint": "Maximum tokens the model is allowed to emit per response. Applied to every provider. Default 1024 (clamped 64–32000). Lower to cap costs on a paid tier; raise when responses keep coming back truncated.",
+      "retry": {
+        "heading": "Auto-retry on transient overload",
+        "help": "When an AI call hits HTTP 429 / 502 / 503 / 504 (rate-limit or upstream-overloaded — e.g. Gemini's 'high demand' message) AND the first attempt was fast, retry once after a short backoff before propagating the failure to the modal. Auth failures, model-not-found, payload-too-large, and other 4xx / 5xx errors do NOT retry — they're operator-fixable.",
+        "enabled_on": "Enabled",
+        "enabled_off": "Disabled"
+      },
       "save_ok": "AI settings saved.",
       "save_failed": "AI settings save failed",
       "providers_heading": "Provider credentials",
@@ -1000,6 +1008,18 @@
         "tuning_notification_page_size": {
           "label": "Notifications page size",
           "help": "How many notifications the in-app popup loads per fetch. Default 25 — operators on busy fleets where every gather emits new entries reported the previous 50 felt overwhelming. Lower it (toward 5) for a tighter scroll-less popup; raise it (toward 200) when you want to see a longer slice of recent events without paginating. Range 5..200 enforced at write-time + clamped at read-time. Takes effect on the next /api/me round-trip + the next time the popup opens (existing open popup keeps its current value until reload)."
+        },
+        "tuning_ai_retry_enabled": {
+          "label": "AI auto-retry enabled",
+          "help": "Master toggle for the auto-retry behaviour on transient AI provider overloads (HTTP 429 / 502 / 503 / 504). When enabled, the call retries ONCE after a short backoff IF the first attempt was fast (see the first-attempt-max gate below). When disabled, the first failure propagates straight to the modal — useful when you find the retry-induced 2-second wait more annoying than the 'high demand' modal pop-up itself. Stored as 0 / 1; default 1 (enabled)."
+        },
+        "tuning_ai_retry_backoff_ms": {
+          "label": "AI retry backoff (ms)",
+          "help": "Sleep duration before the retry attempt. Default 2000 ms = 2 seconds — short enough that the user's typing rhythm isn't broken, long enough that a transient overload usually clears. Range 0..30000. Set to 0 to retry immediately (useful for tests); raise on slow upstreams under sustained load. Only applies when the master toggle above is enabled."
+        },
+        "tuning_ai_retry_first_attempt_max_ms": {
+          "label": "Retry only when first attempt was faster than (ms)",
+          "help": "First-attempt-duration gate. The retry only fires when the FIRST attempt resolved within this many milliseconds — if the first attempt was already slow, the upstream is genuinely struggling and a retry won't help (just doubles the wait). Default 5000 ms = 5 seconds. Range 100..60000. Lower it on a fast home-lab where any slow first attempt should NOT be retried; raise it when the upstream is normally slow but transient overloads are the dominant failure mode."
         },
         "tuning_host_snapshots_cache_ttl_seconds": {
           "label": "Host snapshots cache TTL (seconds)",
@@ -1559,7 +1579,11 @@
         "stable":           "stable / shrinking",
         "long_horizon":     "no exhaustion in window",
         "exhaustion_now":   "fills imminently",
-        "exhaustion_days":  "runs out in ~{days} days"
+        "exhaustion_days":  "runs out in ~{days} days",
+        "source_label":     "Source",
+        "source_node_exporter": "node-exporter (root disk)",
+        "source_pulse":     "Pulse (full pool)",
+        "source_webmin":    "Webmin"
       }
     },
     "admin": {

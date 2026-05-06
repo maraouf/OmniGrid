@@ -906,7 +906,12 @@
                   </div>
                 </td>
                 <td>
-                  <span x-show="stack.offline>0" class="pill pill-error" x-text="stack.offline + ' ' + t('chips.off_suffix')"></span>
+                  <span x-show="stack.offline>0" class="pill pill-error"
+                        :title="(stack.updates_offline > 0)
+                          ? t('chips.off_with_stale_digest_title', { count: stack.updates_offline })
+                          : ''"
+                        x-text="stack.offline + ' ' + t('chips.off_suffix')
+                                + ((stack.updates_offline > 0) ? '*' : '')"></span>
                   <span x-show="stack.degraded>0" class="pill pill-degraded ms-1" x-text="stack.degraded"></span>
                 </td>
                 <td>

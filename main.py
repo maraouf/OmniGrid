@@ -2437,6 +2437,12 @@ class SettingsIn(BaseModel):
     # prune_notifications schedule kind.
     tuning_notification_retention_days: Optional[str] = None
     tuning_notification_page_size: Optional[str] = None
+    # AI provider auto-retry on transient upstream overload (HTTP
+    # 429 / 502 / 503 / 504). Rendered in Admin → AI Integration via
+    # `relocatedTuningKeys` (NOT the generic Process tunables form).
+    tuning_ai_retry_enabled: Optional[str] = None
+    tuning_ai_retry_backoff_ms: Optional[str] = None
+    tuning_ai_retry_first_attempt_max_ms: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -10505,16 +10511,22 @@ async def api_hosts_disk_projection(
     if not hid:
         return {"error": "host_id required"}
     since = int(time.time() - h * 3600)
-    # Try each sampler table in priority order; first one with ≥ 5
-    # rows wins. If none have data the response carries the empty
-    # shape so the SPA can render an "Insufficient data" placeholder.
+    # Pick the sampler source whose latest `disk_total` is LARGEST
+    # — that matches the canonical "this is what my pool looks like"
+    # value the operator (and the AI palette context) sees on the
+    # host row, rather than picking a root-disk-only NE slice when
+    # the host's primary surface is a multi-TB Pulse-reported pool.
+    # Pre-fix the priority order was (NE → Pulse → Webmin) first-wins
+    # on count ≥ 5, which silently chose NE's root-disk view on a
+    # PVE host whose actual storage is the ZFS pool reported via Pulse.
+    # Operator-facing symptom: "AI says 96% / 975 GB but the chart
+    # says 12% / 195 GB" — different sources, same host.
     sources = (
         ("host_metrics_samples", "node_exporter"),
         ("host_pulse_samples",   "pulse"),
         ("host_webmin_samples",  "webmin"),
     )
-    rows: list[tuple] = []
-    source_used = None
+    candidates: list[tuple[str, list]] = []  # (label, rows) for each source with ≥ 5 rows
     try:
         with db_conn() as c:
             for table, label in sources:
@@ -10527,11 +10539,23 @@ async def api_hosts_disk_projection(
                 )
                 fetched = cur.fetchall()
                 if len(fetched) >= 5:
-                    rows = fetched
-                    source_used = label
-                    break
+                    candidates.append((label, fetched))
     except Exception as e:
         return {"error": f"db read failed: {e}", "samples": [], "projection": []}
+    rows: list = []
+    source_used = None
+    if candidates:
+        # Pick by largest most-recent `disk_total` — the "biggest pool"
+        # heuristic. Tie-break by sample count (more samples = more
+        # signal). The previous source-priority list is the final
+        # fallback when totals + counts are identical.
+        priority_order = {label: i for i, (_, label) in enumerate(sources)}
+        def _rank(c_label_rows):
+            label, rs = c_label_rows
+            latest_total = int(rs[-1][2] or 0)
+            return (-latest_total, -len(rs), priority_order.get(label, 999))
+        candidates.sort(key=_rank)
+        source_used, rows = candidates[0]
     if not rows:
         return {
             "host_id": hid,
