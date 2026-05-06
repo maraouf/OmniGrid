@@ -1112,11 +1112,37 @@ def _format_records_block(label: str, fields: str, records: list) -> str:
     return f"{label} (one JSON record per line, fields: {fields}):\n{body}"
 
 
-def build_palette_user_prompt(query: str, ctx: dict | None) -> str:
+def build_palette_user_prompt(query: str, ctx: dict | None,
+                               conversation: list | None = None) -> str:
     """Per-call user prompt for `/api/ai/palette`. Caps host + item
     lists at 30 each (~3k tokens for a fully-populated 30-host fleet).
+
+    ``conversation`` carries prior turns of the multi-turn AI sidebar
+    session as ``[{role: "user"|"assistant", text: "..."}]`` pairs.
+    Capped at the last 12 turns server-side to keep token budget
+    reasonable on long chats; the SPA also caps client-side. Each
+    turn is rendered as a `User:` / `Assistant:` line so the model
+    sees the chat history before the new query.
     """
-    parts: list[str] = [f"Operator query: {query}"]
+    parts: list[str] = []
+    if isinstance(conversation, list) and conversation:
+        history_lines: list[str] = []
+        for turn in conversation[-12:]:
+            if not isinstance(turn, dict):
+                continue
+            role = (turn.get("role") or "").strip().lower()
+            text = (turn.get("text") or "").strip()
+            if not text or role not in ("user", "assistant"):
+                continue
+            label = "User" if role == "user" else "Assistant"
+            # Cap each prior turn at 600 chars so an old long
+            # response doesn't dominate the prompt.
+            if len(text) > 600:
+                text = text[:600] + "…"
+            history_lines.append(f"{label}: {text}")
+        if history_lines:
+            parts.append("Prior conversation:\n" + "\n".join(history_lines))
+    parts.append(f"Operator query: {query}")
     if isinstance(ctx, dict):
         view = ctx.get("view")
         if view:
@@ -1262,7 +1288,7 @@ def record_ai_call(
     history_actor: str,
     history_target_kind: str = "ai",
     history_events: dict | None = None,
-) -> None:
+) -> int | None:
     """Best-effort write of a single AI call into both `ai_jobs`
     (dashboard tiles) AND `history` (History tab). Failures are
     swallowed and logged — the operator already got their answer.
@@ -1297,8 +1323,9 @@ def record_ai_call(
             accuracy_check_json = _json.dumps(accuracy_check, ensure_ascii=False)
         except (TypeError, ValueError):
             accuracy_check_json = None
+        ai_job_id: int | None = None
         with db_conn_factory() as c:
-            c.execute(
+            cur = c.execute(
                 "INSERT INTO ai_jobs ("
                 "  ts, provider, model, kind, status,"
                 "  prompt_tokens, completion_tokens, total_tokens,"
@@ -1317,6 +1344,10 @@ def record_ai_call(
                     None,
                 ),
             )
+            try:
+                ai_job_id = int(cur.lastrowid) if cur.lastrowid else None
+            except (TypeError, ValueError):
+                ai_job_id = None
             events_payload = dict(history_events or {})
             events_payload.setdefault("tokens", {
                 "prompt": prompt_t,
@@ -1346,5 +1377,7 @@ def record_ai_call(
                 ),
             )
             c.commit()
+        return ai_job_id
     except Exception as e:  # noqa: BLE001
         print(f"[ai] record_ai_call({kind}) failed: {e}")
+        return None

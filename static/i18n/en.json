@@ -1512,6 +1512,23 @@
     "confirm_title": "Restart Portainer agent service?",
     "confirm_text": "This will force-update the Portainer agent global service. Every node's agent task respawns and re-registers with the manager. Workload services are not touched. The agent service is auto-discovered (by image prefix + name pattern); if multiple candidates are found the op fails with a list so you can pick manually."
   },
+  "ai_sidebar": {
+    "title":            "AI Assistant",
+    "drawer_label":     "AI Assistant chat",
+    "launcher_title":   "Open AI Assistant (Ctrl-K)",
+    "input_placeholder": "Ask the AI assistant — Enter to send, Shift-Enter for newline",
+    "empty_title":      "Start a conversation",
+    "empty_hint":       "Ask anything about OmniGrid: navigate, diagnose, or trigger an action.",
+    "send":             "Send",
+    "send_busy":        "Sending…",
+    "enter_hint":       "↵ Send · ⇧↵ newline · Esc close",
+    "clear":            "Clear",
+    "clear_title":      "Clear conversation history",
+    "action_ran":       "Ran:",
+    "feedback_up":      "Helpful",
+    "feedback_down":    "Not helpful",
+    "error_prefix":     "Error:"
+  },
   "command_palette": {
     "dialog_label": "Command palette",
     "placeholder": "Search hosts, services, admin, views…",

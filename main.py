@@ -4283,11 +4283,27 @@ class AiPaletteIn(BaseModel):
     `query` is what the operator typed; `context` is a small SPA-side
     blob giving the model the available host names / item names /
     admin tabs / actions so the response can reference real OmniGrid
-    surfaces. The endpoint's system prompt orients the model as the
-    OmniGrid command-palette assistant.
+    surfaces. ``conversation`` carries prior turns as [{role, text}]
+    pairs so multi-turn follow-ups land coherent — the backend
+    prepends them to the prompt before the new query. The endpoint's
+    system prompt orients the model as the OmniGrid command-palette
+    assistant.
     """
     query: str
     context: Optional[dict] = None
+    conversation: Optional[list] = None
+
+
+class AiFeedbackIn(BaseModel):
+    """Request body for `/api/ai/feedback` — operator-rated thumbs-up
+    or thumbs-down on a specific assistant turn. ``job_id`` is the
+    auto-incremented PK from the ai_jobs row stamped on the assistant
+    turn at response time. Rating "up" → 1.0, "down" → 0.0 in
+    accuracy_score so the dashboard's per-provider quality tile picks
+    up real operator feedback over time.
+    """
+    job_id: Optional[int] = None
+    rating: str = "up"
 
 
 @app.post("/api/ai/palette")
@@ -4350,11 +4366,12 @@ async def api_ai_palette(
     # key entries are skipped silently. See `_resolve_ai_fallback_chain`
     # below for the resolver.
     fb_enabled, fb_chain, provider_creds, fb_max_depth = _resolve_ai_fallback_chain(active)
+    conversation = body.conversation if isinstance(body.conversation, list) else None
     out = await _ai.ask_provider_with_fallback(
         active,
         fallback_chain=fb_chain,
         provider_creds=provider_creds,
-        prompt=_ai.build_palette_user_prompt(query, ctx),
+        prompt=_ai.build_palette_user_prompt(query, ctx, conversation=conversation),
         system_prompt=_ai.PALETTE_SYSTEM_PROMPT,
         max_tokens=max_toks,
         timeout=30.0,
@@ -4422,7 +4439,7 @@ async def api_ai_palette(
         fallback_from=_fb_from,
         hosts_count=(len(host_ids) if host_ids else None),
     )
-    _ai.record_ai_call(
+    job_id = _ai.record_ai_call(
         db_conn_factory=db_conn,
         provider=active,
         model=model,
@@ -4444,7 +4461,46 @@ async def api_ai_palette(
             },
         },
     )
+    if isinstance(out, dict) and job_id is not None:
+        out["job_id"] = job_id
     return out
+
+
+@app.post("/api/ai/feedback")
+async def api_ai_feedback(
+    body: AiFeedbackIn,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Operator-rated feedback on a specific AI assistant turn.
+
+    The SPA stamps the assistant turn with the ai_jobs row id at
+    response time; clicking 👍 / 👎 next to the turn POSTs here with
+    `{job_id, rating}`. Rating "up" → 1.0, "down" → 0.0 in
+    accuracy_score so the dashboard's per-provider quality tile picks
+    up real operator signal over time. Idempotent — clicking the same
+    rating twice writes the same value.
+    """
+    rating = (body.rating or "").strip().lower()
+    if rating not in ("up", "down"):
+        raise HTTPException(400, "rating must be 'up' or 'down'")
+    if not body.job_id:
+        # No job_id (e.g. the recorder failed mid-call) — still
+        # acknowledge so the SPA can render the chosen feedback chip
+        # without flicker, but skip the DB write.
+        return {"ok": True, "stored": False}
+    score = 1.0 if rating == "up" else 0.0
+    try:
+        with db_conn() as c:
+            cur = c.execute(
+                "UPDATE ai_jobs SET accuracy_score = ? WHERE id = ?",
+                (score, int(body.job_id)),
+            )
+            c.commit()
+            stored = bool(cur.rowcount)
+    except Exception as e:  # noqa: BLE001
+        print(f"[ai] feedback update failed: {e}")
+        return {"ok": False, "detail": str(e)}
+    return {"ok": True, "stored": stored}
 
 
 @app.post("/api/ai/host-filter")
