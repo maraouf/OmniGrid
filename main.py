@@ -4391,14 +4391,28 @@ async def api_ai_palette(
     ok_flag = bool(isinstance(out, dict) and out.get("ok"))
     response_ms = int((out.get("response_time_ms") or 0) if isinstance(out, dict) else 0)
     err_detail = (out.get("detail") or "") if (isinstance(out, dict) and not ok_flag) else None
-    # Persistent-log triage line for non-OK outcomes — upstream
-    # rate-limits / overloads classify as WARN, everything else as
-    # ERROR. Full upstream message stays in ai_jobs.error + history.
+    # Persistent-log triage line — every call lands in Admin → Logs
+    # with provider / model / timing / tokens / action / fallback
+    # context. Successful calls log as SUCCESS; transient overloads
+    # as WARN; auth / model-not-found / etc. as ERROR. Full upstream
+    # message stays in ai_jobs.error + history for failed calls.
+    _toks = (out.get("tokens") if isinstance(out, dict) else None) or {}
+    _fb_from = (out.get("fallback_from") if isinstance(out, dict) else None)
+    _resolved_model = (out.get("model") if isinstance(out, dict) else None) or model
+    _resolved_provider = (out.get("provider") if isinstance(out, dict) else None) or active
     _ai.log_ai_outcome(
-        kind="palette", provider=active, model=model,
+        kind="palette", provider=_resolved_provider, model=_resolved_model,
         ok=ok_flag,
         status=(isinstance(out, dict) and out.get("status")) or None,
         detail=err_detail,
+        response_time_ms=response_ms,
+        prompt_tokens=int(_toks.get("prompt") or 0),
+        completion_tokens=int(_toks.get("completion") or 0),
+        actor=(getattr(_admin, "username", None) or "ui"),
+        prompt_excerpt=query,
+        action_id=action_id or None,
+        fallback_from=_fb_from,
+        hosts_count=(len(host_ids) if host_ids else None),
     )
     _ai.record_ai_call(
         db_conn_factory=db_conn,
@@ -4502,11 +4516,22 @@ async def api_ai_host_filter(
     # parseable DSL out, not just HTTP 200. An HTTP-200 reply that
     # the parser rejected logs as ERROR (operator-actionable: model
     # is misbehaving on the prompt).
+    _toks_hf = (out.get("tokens") if isinstance(out, dict) else None) or {}
+    _fb_from_hf = (out.get("fallback_from") if isinstance(out, dict) else None)
+    _resolved_model_hf = (out.get("model") if isinstance(out, dict) else None) or model
+    _resolved_provider_hf = (out.get("provider") if isinstance(out, dict) else None) or active
     _ai.log_ai_outcome(
-        kind="host_filter", provider=active, model=model,
+        kind="host_filter", provider=_resolved_provider_hf, model=_resolved_model_hf,
         ok=bool(dsl),
         status=(isinstance(out, dict) and out.get("status")) or None,
         detail=err_detail,
+        response_time_ms=response_ms,
+        prompt_tokens=int(_toks_hf.get("prompt") or 0),
+        completion_tokens=int(_toks_hf.get("completion") or 0),
+        actor=(getattr(_admin, "username", None) or "ui"),
+        prompt_excerpt=query,
+        dsl=dsl or None,
+        fallback_from=_fb_from_hf,
     )
     _ai.record_ai_call(
         db_conn_factory=db_conn,

@@ -1111,14 +1111,30 @@ def build_host_filter_user_prompt(query: str, ctx: dict | None) -> str:
 
 
 def log_ai_outcome(*, kind: str, provider: str, model: str,
-                   ok: bool, status: int | None, detail: str | None) -> None:
+                   ok: bool, status: int | None, detail: str | None,
+                   response_time_ms: int | None = None,
+                   prompt_tokens: int | None = None,
+                   completion_tokens: int | None = None,
+                   cost_usd: float | None = None,
+                   actor: str | None = None,
+                   prompt_excerpt: str | None = None,
+                   action_id: str | None = None,
+                   dsl: str | None = None,
+                   fallback_from: str | None = None,
+                   hosts_count: int | None = None) -> None:
     """Emit a `[ai]` log line that the persistent-log severity
-    classifier (`logic/logs.py:_severity_for`) routes to WARN or
-    ERROR. Successful calls are not logged here — operators only want
-    to see triage-worthy events in Admin → Logs (the full call history
-    lives in `ai_jobs` + the History tab).
+    classifier (`logic/logs.py:_severity_for`) routes to SUCCESS / WARN
+    / ERROR.
+
+    Every AI call lands in Admin → Logs with meaningful triage data —
+    operators tracking AI behaviour shouldn't have to drill into the
+    AI Usage Dashboard or History tab to see basic call metadata.
 
     Severity rules:
+      - ok=True                → SUCCESS (keyword "ok" — the persistent-
+        log classifier picks SUCCESS for that token; operators can
+        filter SUCCESS rows off via Admin → Logs severity selector
+        when the volume gets noisy).
       - 429 / 502 / 503 / 504  → WARN  (transient upstream overload
         / rate-limit — keyword "warning" + no "fail"/"error" tokens
         in the line so the classifier picks WARN, not ERROR).
@@ -1126,24 +1142,64 @@ def log_ai_outcome(*, kind: str, provider: str, model: str,
         failure, model-not-found, DNS, TLS, etc. — keyword "failed"
         in the line; upstream detail truncated to 200 chars).
 
-    The full upstream message always lands in `ai_jobs.error` and
-    `history.error` (operator can drill into Admin → AI Usage
-    Dashboard or History for the verbatim text). This log line just
-    gives correlation-by-time + provider-model triage in one place.
+    Optional metadata fields are appended only when set so the line
+    stays compact for failure cases (where most metadata is null /
+    irrelevant). The full upstream message + ai_jobs.error column
+    + history.error column are unchanged — this log line is the
+    triage breadcrumb, not the audit trail.
     """
+    # Compose the metadata tail in a stable shape: most-useful fields
+    # first (timing / tokens), then call-specific signals (action /
+    # dsl / fallback), then context (actor / hosts_count / prompt
+    # excerpt). Only emit fields that have a value so successful
+    # palette calls without a fired action don't render a noisy
+    # `action=""` chip.
+    parts: list[str] = []
+    if response_time_ms is not None and response_time_ms > 0:
+        parts.append(f"ms={int(response_time_ms)}")
+    if prompt_tokens is not None and completion_tokens is not None:
+        parts.append(f"tokens={int(prompt_tokens)}+{int(completion_tokens)}")
+    elif prompt_tokens is not None:
+        parts.append(f"prompt_tokens={int(prompt_tokens)}")
+    if cost_usd is not None and cost_usd > 0:
+        parts.append(f"cost=${cost_usd:.6f}")
+    if (action_id or "").strip():
+        parts.append(f"action={action_id}")
+    if (dsl or "").strip():
+        # DSL strings are short by design; quote them for grep-ability.
+        dsl_esc = dsl.replace("\n", " ").strip()[:80]
+        parts.append(f"dsl={dsl_esc!r}")
+    if (fallback_from or "").strip():
+        parts.append(f"fallback_from={fallback_from}")
+    if hosts_count is not None and hosts_count > 0:
+        parts.append(f"hosts={int(hosts_count)}")
+    if (actor or "").strip():
+        parts.append(f"actor={actor}")
+    if (prompt_excerpt or "").strip():
+        excerpt = prompt_excerpt.replace("\n", " ").strip()[:80]
+        if len(prompt_excerpt) > 80:
+            excerpt += "…"
+        parts.append(f"q={excerpt!r}")
+    tail = (" " + " ".join(parts)) if parts else ""
+
     if ok:
+        # Keyword "ok" → severity classifier picks SUCCESS.
+        s = int(status) if status else 200
+        print(f"[ai] {kind} ok — provider={provider} model={model} "
+              f"HTTP={s}{tail}")
         return
+
     s = int(status) if status else 0
     transient = s in (429, 502, 503, 504)
     if transient:
         # Word "warning" + no "failed/error" → classifier picks WARN.
         print(f"[ai] {kind} warning — provider={provider} model={model} "
-              f"HTTP={s} upstream-overloaded (transient, retry later)")
+              f"HTTP={s} upstream-overloaded (transient, retry later){tail}")
     else:
         truncated = (detail or "")[:200].replace("\n", " ").strip() or "(no detail)"
         # Word "failed" → classifier picks ERROR.
         print(f"[ai] {kind} call failed — provider={provider} model={model} "
-              f"HTTP={s}: {truncated}")
+              f"HTTP={s}: {truncated}{tail}")
 
 
 def record_ai_call(
