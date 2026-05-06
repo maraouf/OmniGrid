@@ -2415,6 +2415,14 @@ function app() {
         // primes the tile grid. Failure of either is non-fatal: the
         // partial degrades to an empty-state.
         await Promise.all([this.loadSettings(), this.loadAiDashboard(true)]);
+        // AI tab also renders the relocated `tuning_ai_retry_*`
+        // tunables (sub-section "Auto-retry on transient overload");
+        // ensure tuning state is hydrated on first visit so the
+        // section's `x-show="tuningLoaded"` gate fires and the
+        // bounds-chips / effective-value / form bindings render
+        // instead of staying invisible. Same lazy-load pattern as
+        // host_stats / notifications / logs tabs.
+        if (!this.tuningLoaded) await this.loadTuning();
       }
       else if (tab === 'config') {
         await this.loadTuning();
@@ -10023,11 +10031,60 @@ function app() {
         master:           !!this.settings.ai_enabled,
         active_provider:  this.settings.ai_active_provider || '',
         max_tokens:       Number.isFinite(+this.settings.ai_max_tokens) ? +this.settings.ai_max_tokens : 1024,
+        fb_enabled:       !!this.settings.ai_fallback_enabled,
+        fb_order:         (Array.isArray(this.settings.ai_fallback_order)
+                            ? this.settings.ai_fallback_order : []).join(','),
+        fb_max_depth:     Math.max(1, Math.min(2, +this.settings.ai_fallback_max_depth || 1)),
         claude:   { en: !!p.claude.enabled,   m: p.claude.model   || '', u: p.claude.base_url   || '', k: p.claude.api_key   || '', s: !!p.claude.api_key_set   },
         gemini:   { en: !!p.gemini.enabled,   m: p.gemini.model   || '', u: p.gemini.base_url   || '', k: p.gemini.api_key   || '', s: !!p.gemini.api_key_set   },
         chatgpt:  { en: !!p.chatgpt.enabled,  m: p.chatgpt.model  || '', u: p.chatgpt.base_url  || '', k: p.chatgpt.api_key  || '', s: !!p.chatgpt.api_key_set  },
         deepseek: { en: !!p.deepseek.enabled, m: p.deepseek.model || '', u: p.deepseek.base_url || '', k: p.deepseek.api_key || '', s: !!p.deepseek.api_key_set },
       });
+    },
+    // Helper: index of a provider in the fallback chain, or -1 if not in chain.
+    fallbackPriority(name) {
+      const order = Array.isArray(this.settings.ai_fallback_order)
+                      ? this.settings.ai_fallback_order : [];
+      return order.indexOf(name);
+    },
+    // Helper: count of providers eligible to be fallback (master-enabled
+    // + has API key + NOT the active primary). Used to gate the
+    // fallback-config section visibility / hint text.
+    aiFallbackEligibleCount() {
+      const active = (this.settings.ai_active_provider || '').toLowerCase();
+      let n = 0;
+      for (const name of this.aiProviderNames) {
+        const p = this.aiForm.providers[name];
+        if (!p || !p.enabled || name === active) continue;
+        // API key set OR newly-typed counts as "has key".
+        if (p.api_key_set || (p.api_key || '').trim()) n++;
+      }
+      return n;
+    },
+    // Toggle a provider's membership in the fallback chain. Adding
+    // appends to the end (lowest priority); removing splices out and
+    // shifts the rest up. Operator can re-order via the up/down chips
+    // surfaced in the per-card UI below.
+    toggleFallbackProvider(name) {
+      const order = Array.isArray(this.settings.ai_fallback_order)
+                      ? this.settings.ai_fallback_order.slice() : [];
+      const i = order.indexOf(name);
+      if (i >= 0) order.splice(i, 1);
+      else order.push(name);
+      this.settings.ai_fallback_order = order;
+      this.markAiFormDirty();
+    },
+    // Move a provider up (-1) or down (+1) in the fallback order.
+    moveFallbackProvider(name, delta) {
+      const order = Array.isArray(this.settings.ai_fallback_order)
+                      ? this.settings.ai_fallback_order.slice() : [];
+      const i = order.indexOf(name);
+      if (i < 0) return;
+      const j = i + delta;
+      if (j < 0 || j >= order.length) return;
+      [order[i], order[j]] = [order[j], order[i]];
+      this.settings.ai_fallback_order = order;
+      this.markAiFormDirty();
     },
     markAiFormDirty() {
       // No-op — the watcher reads aiFormDirty() lazily off the snapshot.
@@ -10056,6 +10113,16 @@ function app() {
       this.settings.ai_enabled         = !!ai.enabled;
       this.settings.ai_active_provider = ai.active_provider || 'claude';
       this.settings.ai_max_tokens      = (Number.isFinite(+ai.max_tokens) && +ai.max_tokens > 0) ? +ai.max_tokens : 1024;
+      // Provider fallback chain — opt-in resilience surface. Empty
+      // `fallback_order` means no chain configured; UI renders the
+      // "no backup providers" hint. `fallback_max_depth` clamps 1..2
+      // server-side so any garbage from settings is harmless.
+      this.settings.ai_fallback_enabled    = !!ai.fallback_enabled;
+      this.settings.ai_fallback_order      = (ai.fallback_order || '').split(',')
+                                                .map(s => s.trim().toLowerCase())
+                                                .filter(Boolean);
+      this.settings.ai_fallback_max_depth  = Math.max(1, Math.min(2,
+                                                +ai.fallback_max_depth || 1));
       this.aiProviderNames.forEach(name => {
         const p   = provs[name] || {};
         const dflt = (ai.defaults || {})[name] || {};
@@ -10082,6 +10149,14 @@ function app() {
           ai_enabled:                    !!this.settings.ai_enabled,
           ai_active_provider:            this.settings.ai_active_provider || 'claude',
           ai_max_tokens:                 (Number.isFinite(+this.settings.ai_max_tokens) && +this.settings.ai_max_tokens > 0) ? +this.settings.ai_max_tokens : 1024,
+          // Fallback chain — backend re-validates the CSV against
+          // SUPPORTED_PROVIDERS so an unknown id can't slip through.
+          ai_fallback_enabled:           !!this.settings.ai_fallback_enabled,
+          ai_fallback_order:             (Array.isArray(this.settings.ai_fallback_order)
+                                            ? this.settings.ai_fallback_order : [])
+                                            .filter(Boolean).join(','),
+          ai_fallback_max_depth:         Math.max(1, Math.min(2,
+                                            +this.settings.ai_fallback_max_depth || 1)),
         };
         this.aiProviderNames.forEach(name => {
           const p = this.aiForm.providers[name];

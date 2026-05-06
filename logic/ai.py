@@ -652,6 +652,144 @@ async def ask_provider(
 
 
 # ---------------------------------------------------------------------------
+# Provider fallback chain — when the active provider returns a transient-
+# overload status (429 / 502 / 503 / 504), transparently try the next
+# operator-ordered provider before propagating the failure to the route
+# handler. Builds on `_with_retry` (each provider attempt still gets the
+# same single-retry treatment) — so a 503 from Gemini retries Gemini once
+# THEN falls back to Claude (which retries Claude once if Claude also
+# 503s, etc.).
+#
+# Operator controls the order via `ai_fallback_order` (CSV of provider ids
+# in priority order) and the master switch via `ai_fallback_enabled`. Cap
+# the depth via `ai_fallback_max_depth` (1 or 2 — beyond that a multi-
+# provider outage cascades into 4× latency for no real recovery upside).
+# Skip providers in the chain that are disabled OR have no API key
+# configured (filter happens at the route layer before calling this; the
+# wrapper just walks the list given to it).
+#
+# Capability-mismatch guard: only fall back when the prompt is small (≤
+# `prompt_size_cap_chars`, default ~8k tokens × 4 chars). Larger prompts
+# might choke a fallback provider with a smaller context window or weaker
+# JSON-format compliance — better to return the original transient
+# failure than serve a hallucinated answer from a less-capable provider.
+# ---------------------------------------------------------------------------
+_FALLBACK_RETRY_STATUSES = (429, 502, 503, 504)
+
+
+async def ask_provider_with_fallback(
+    primary: str,
+    *,
+    fallback_chain: list[str],
+    provider_creds: dict[str, dict],
+    prompt: str,
+    system_prompt: str = "",
+    max_tokens: int = 512,
+    timeout: float = 30.0,
+    fallback_enabled: bool = False,
+    max_depth: int = 1,
+    prompt_size_cap_chars: int = 32000,
+) -> dict:
+    """Try `primary` first; on transient overload, walk `fallback_chain`
+    (operator-ordered list of provider ids) up to `max_depth` deep.
+
+    `provider_creds` carries `{provider_id: {api_key, model, base_url}}`
+    — the caller fetches these from settings + filters to enabled
+    providers BEFORE calling. The wrapper trusts the chain it's given.
+
+    Response shape extends `ask_provider`'s with two fields:
+      - `fallback_used: bool`   — True iff the response came from a
+        provider OTHER than `primary`.
+      - `fallback_chain: [{provider, status, response_time_ms,
+        succeeded}, ...]` — every attempt's outcome (primary first,
+        then each fallback hop) so the SPA can render
+        "Fell back from gemini-2.5-pro to claude-opus-4-7 due to
+        upstream overload" in the answer modal.
+    """
+    history: list[dict] = []
+
+    async def _attempt(provider_id: str) -> dict:
+        creds = provider_creds.get(provider_id) or {}
+        out = await ask_provider(
+            provider_id,
+            api_key=creds.get("api_key", ""),
+            prompt=prompt,
+            system_prompt=system_prompt,
+            model=creds.get("model"),
+            base_url=creds.get("base_url"),
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
+        history.append({
+            "provider":         provider_id,
+            "status":           out.get("status"),
+            "response_time_ms": out.get("response_time_ms", 0),
+            "succeeded":        bool(out.get("ok")),
+        })
+        return out
+
+    primary_out = await _attempt(primary)
+
+    # Bail-out conditions — return primary verbatim:
+    #   - primary succeeded (no need to try fallbacks)
+    #   - fallback master switch off
+    #   - failure isn't a transient-overload class (auth / payload-too-
+    #     large / model-not-found are operator-fixable, fallback can't help)
+    #   - prompt is too large for safe capability mismatch
+    #   - no fallbacks configured
+    primary_status = primary_out.get("status")
+    if primary_out.get("ok"):
+        primary_out["fallback_used"] = False
+        primary_out["fallback_chain"] = history
+        return primary_out
+    if not fallback_enabled:
+        primary_out["fallback_used"] = False
+        primary_out["fallback_chain"] = history
+        return primary_out
+    if primary_status not in _FALLBACK_RETRY_STATUSES:
+        primary_out["fallback_used"] = False
+        primary_out["fallback_chain"] = history
+        return primary_out
+    if len(prompt or "") > prompt_size_cap_chars:
+        # Prompt too large — capability-mismatch risk; surface a
+        # transparent skip log line + return primary failure unchanged.
+        print(f"[ai] fallback-skipped warning — primary={primary} HTTP={primary_status} "
+              f"prompt-{len(prompt)}-chars > cap-{prompt_size_cap_chars} "
+              f"(capability-mismatch guard, fallback would risk less-capable provider)")
+        primary_out["fallback_used"] = False
+        primary_out["fallback_chain"] = history
+        return primary_out
+    if not fallback_chain:
+        primary_out["fallback_used"] = False
+        primary_out["fallback_chain"] = history
+        return primary_out
+
+    # Walk the chain — first success wins. Cap by max_depth so a multi-
+    # provider outage doesn't cascade.
+    for hop, alt_provider in enumerate(fallback_chain[:max_depth], start=1):
+        if alt_provider == primary:
+            continue  # don't re-try the primary
+        if alt_provider not in provider_creds:
+            continue  # caller filtered it out (disabled / no API key)
+        print(f"[ai] fallback-attempt-{hop} warning — primary={primary} HTTP={primary_status} "
+              f"trying-fallback={alt_provider} upstream-overloaded")
+        alt_out = await _attempt(alt_provider)
+        if alt_out.get("ok"):
+            # Stamp the response so the route + SPA can show "Fell
+            # back from <primary> to <alt_provider>".
+            alt_out["fallback_used"] = True
+            alt_out["fallback_from"] = primary
+            alt_out["fallback_chain"] = history
+            return alt_out
+
+    # Every fallback also failed — return primary's failure with the
+    # chain history so the operator sees what was tried.
+    primary_out["fallback_used"] = False
+    primary_out["fallback_chain"] = history
+    return primary_out
+
+
+# ---------------------------------------------------------------------------
 # Cmd-K palette assistant (Phase 1 + Phase 2) — system prompts, allowed
 # action whitelist, parsers, user-prompt builders, recorder helper.
 #

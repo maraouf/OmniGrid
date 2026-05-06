@@ -2240,6 +2240,15 @@ class SettingsIn(BaseModel):
     ai_enabled: Optional[bool] = None
     ai_active_provider: Optional[str] = None
     ai_max_tokens: Optional[int] = None
+    # Provider fallback chain — opt-in resilience. When `ai_fallback_enabled`
+    # is true AND the active provider returns a transient overload (HTTP
+    # 429 / 502 / 503 / 504), the call walks `ai_fallback_order` (CSV of
+    # provider ids in operator-defined priority) up to `ai_fallback_max_depth`
+    # deep. Disabled providers + providers with no API key are skipped at
+    # the route layer before the fallback wrapper runs.
+    ai_fallback_enabled: Optional[bool] = None
+    ai_fallback_order: Optional[str] = None  # CSV, e.g. "claude,chatgpt,deepseek"
+    ai_fallback_max_depth: Optional[int] = None
     ai_provider_claude_enabled: Optional[bool] = None
     ai_provider_claude_model: Optional[str] = None
     ai_provider_claude_base_url: Optional[str] = None
@@ -2657,6 +2666,12 @@ async def api_get_settings(request: Request):
             "enabled":         (get_setting("ai_enabled", "false") or "false").lower() == "true",
             "active_provider": (get_setting("ai_active_provider", "") or "claude"),
             "max_tokens":      int(get_setting("ai_max_tokens", "1024") or "1024"),
+            # Provider fallback chain config — opt-in, off by default so
+            # existing deploys don't suddenly start cost-shifting traffic
+            # to alternate providers without operator awareness.
+            "fallback_enabled":   (get_setting("ai_fallback_enabled", "false") or "false").lower() == "true",
+            "fallback_order":     get_setting("ai_fallback_order", "") or "",
+            "fallback_max_depth": int(get_setting("ai_fallback_max_depth", "1") or "1"),
             "providers": {
                 name: {
                     "enabled":     (get_setting(f"ai_provider_{name}_enabled", "false") or "false").lower() == "true",
@@ -3652,6 +3667,26 @@ async def _api_set_settings_inner(s, request, _portainer):
             mt = 1024
         mt = max(64, min(32000, mt))
         set_setting("ai_max_tokens", str(mt))
+    if s.ai_fallback_enabled is not None:
+        set_setting("ai_fallback_enabled", "true" if s.ai_fallback_enabled else "false")
+    if s.ai_fallback_order is not None:
+        # CSV of provider ids — sanitise to known providers, drop unknowns
+        # so a typo can't bring fallback dispatch into an unsupported branch.
+        valid = set(_ai_supported_providers())
+        items = [p.strip().lower() for p in s.ai_fallback_order.split(",") if p.strip()]
+        cleaned = []
+        seen = set()
+        for p in items:
+            if p in valid and p not in seen:
+                cleaned.append(p); seen.add(p)
+        set_setting("ai_fallback_order", ",".join(cleaned))
+    if s.ai_fallback_max_depth is not None:
+        try:
+            d = int(s.ai_fallback_max_depth)
+        except (TypeError, ValueError):
+            d = 1
+        d = max(1, min(2, d))
+        set_setting("ai_fallback_max_depth", str(d))
     for _ai_name in _AI_PROVIDER_NAMES:
         # enabled
         _v = getattr(s, f"ai_provider_{_ai_name}_enabled", None)
@@ -3839,6 +3874,71 @@ def _settings_version_for_payload() -> int:
 def _ai_supported_providers() -> tuple[str, ...]:
     from logic import ai as _ai
     return tuple(_ai.SUPPORTED_PROVIDERS)
+
+
+def _resolve_ai_fallback_chain(active: str) -> tuple[bool, list[str], dict[str, dict], int]:
+    """Resolve the operator-configured fallback chain to the shape
+    `logic.ai.ask_provider_with_fallback` consumes.
+
+    Returns ``(enabled, chain, creds, max_depth)``:
+      - ``enabled``     — bool, master toggle.
+      - ``chain``       — list of provider ids in priority order, with
+                          (a) the active provider stripped (it's the
+                          primary), (b) disabled providers stripped,
+                          (c) providers without an API key stripped.
+      - ``creds``       — `{provider_id: {api_key, model, base_url}}`
+                          for the active + every viable fallback.
+                          The wrapper only attempts what's in this map.
+      - ``max_depth``   — clamped 1..2.
+
+    Edge cases handled:
+      - Empty / unset `ai_fallback_order`     → empty chain, no fallback
+        even with master switch on.
+      - Only 1 provider enabled cluster-wide  → chain after filtering
+        is empty; wrapper returns primary verbatim.
+      - Provider listed in order but disabled → silently skipped (a
+        previously-tested provider that the operator later disabled
+        shouldn't surface a confusing "skipping due to..." log line).
+    """
+    enabled = get_setting_bool("ai_fallback_enabled", False)
+    raw_order = (get_setting("ai_fallback_order", "") or "").strip()
+    try:
+        max_depth = int(get_setting("ai_fallback_max_depth", "1") or "1")
+    except (TypeError, ValueError):
+        max_depth = 1
+    max_depth = max(1, min(2, max_depth))
+
+    # Build creds for every supported provider that's master-enabled +
+    # has an API key. The wrapper trusts the dict — providers absent
+    # from it get skipped at the chain-walk step.
+    creds: dict[str, dict] = {}
+    for name in _ai_supported_providers():
+        if not get_setting_bool(f"ai_provider_{name}_enabled", False):
+            continue
+        api_key = (get_setting(f"ai_provider_{name}_api_key", "") or "").strip()
+        if not api_key:
+            continue
+        creds[name] = {
+            "api_key": api_key,
+            "model":   (get_setting(f"ai_provider_{name}_model", "") or "").strip(),
+            "base_url": (get_setting(f"ai_provider_{name}_base_url", "") or "").strip(),
+        }
+
+    # Parse the operator-ordered fallback list — strip the active
+    # primary, drop unknowns + duplicates + providers not in `creds`
+    # (disabled or missing API key). Order preserved.
+    chain: list[str] = []
+    seen: set[str] = set()
+    valid = set(_ai_supported_providers())
+    for raw in raw_order.split(","):
+        p = raw.strip().lower()
+        if not p or p == active or p in seen or p not in valid:
+            continue
+        if p not in creds:
+            continue  # disabled / no api key — silently skip
+        chain.append(p)
+        seen.add(p)
+    return enabled, chain, creds, max_depth
 
 
 @app.get("/api/admin/ai/dashboard")
@@ -4224,15 +4324,23 @@ async def api_ai_palette(
     except (TypeError, ValueError):
         max_toks = 1024
     max_toks = max(64, min(32000, max_toks))
-    out = await _ai.ask_provider(
+    # Provider fallback chain — when enabled AND a transient overload
+    # hits the active provider, walk the operator-ordered fallback list
+    # and try the next provider's credentials. Filtered to the providers
+    # that are master-enabled AND have an API key set; disabled / empty-
+    # key entries are skipped silently. See `_resolve_ai_fallback_chain`
+    # below for the resolver.
+    fb_enabled, fb_chain, provider_creds, fb_max_depth = _resolve_ai_fallback_chain(active)
+    out = await _ai.ask_provider_with_fallback(
         active,
-        api_key=api_key,
+        fallback_chain=fb_chain,
+        provider_creds=provider_creds,
         prompt=_ai.build_palette_user_prompt(query, ctx),
         system_prompt=_ai.PALETTE_SYSTEM_PROMPT,
-        model=model,
-        base_url=base_url,
         max_tokens=max_toks,
         timeout=30.0,
+        fallback_enabled=fb_enabled,
+        max_depth=fb_max_depth,
     )
 
     # Split the optional `ACTION: <id>` trailer off the visible text.
@@ -4346,15 +4454,18 @@ async def api_ai_host_filter(
     except (TypeError, ValueError):
         max_toks = 1024
     max_toks = max(64, min(32000, max_toks))
-    out = await _ai.ask_provider(
+    # Same fallback wiring as the palette path — see _resolve_ai_fallback_chain.
+    fb_enabled, fb_chain, provider_creds, fb_max_depth = _resolve_ai_fallback_chain(active)
+    out = await _ai.ask_provider_with_fallback(
         active,
-        api_key=api_key,
+        fallback_chain=fb_chain,
+        provider_creds=provider_creds,
         prompt=_ai.build_host_filter_user_prompt(query, ctx),
         system_prompt=_ai.HOST_FILTER_SYSTEM_PROMPT,
-        model=model,
-        base_url=base_url,
         max_tokens=max_toks,
         timeout=30.0,
+        fallback_enabled=fb_enabled,
+        max_depth=fb_max_depth,
     )
 
     text = (out.get("text") or "") if isinstance(out, dict) else ""
