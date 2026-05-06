@@ -190,6 +190,120 @@
                    x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.help')"></p>
               </div>
             </div>
+            <!-- Provider fallback chain — opt-in resilience surface.
+                 When enabled, a transient overload (HTTP 429 / 502 /
+                 503 / 504) on the active provider falls through to the
+                 operator-ordered backup chain. Eligibility filter:
+                 only providers that are master-enabled AND have an
+                 API key configured AND aren't the active primary can
+                 join the chain. Section is rendered (but most controls
+                 disabled) when fewer than 1 eligible provider exists,
+                 with an explanation hint. -->
+            <div class="pt-3 mt-2 border-t border-[var(--border)]">
+              <div class="flex items-center gap-2 mb-2">
+                <svg width="13" height="13" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
+                <h3 class="font-semibold text-[12.5px]"
+                    x-text="t('admin.ai.fallback.heading')"></h3>
+              </div>
+              <p class="text-[10.5px] text-[var(--text-faint)] mb-3 leading-snug"
+                 x-text="t('admin.ai.fallback.help')"></p>
+              <!-- Master toggle. Only meaningful when ≥ 1 eligible
+                   alternate provider exists; we still allow the toggle
+                   on (so saving config ahead of provider rollout is
+                   possible) but render an inline hint when nothing
+                   would actually fire. -->
+              <label class="inline-flex items-center gap-2 text-[11.5px] text-[var(--text)] cursor-pointer mb-2">
+                <input type="checkbox"
+                       x-model="settings.ai_fallback_enabled"
+                       @change="markAiFormDirty()"
+                       :disabled="isReadonly() || !settings.ai_enabled"
+                       class="cursor-pointer">
+                <span x-text="t('admin.ai.fallback.enable_label')"></span>
+              </label>
+              <!-- Eligibility hint — fires when the chain is enabled
+                   AND no eligible provider exists. The form-state still
+                   persists fine; this just tells the operator nothing
+                   will actually fire until they enable + key another
+                   provider. -->
+              <p class="ms-6 mb-3 text-[10.5px] text-[var(--warning)]"
+                 x-show="settings.ai_fallback_enabled && aiFallbackEligibleCount() === 0"
+                 x-text="t('admin.ai.fallback.no_eligible_warning')"></p>
+              <!-- Max-depth selector — 1 or 2 hops. -->
+              <div class="ms-6 mb-3" x-show="settings.ai_fallback_enabled">
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1"
+                       x-text="t('admin.ai.fallback.max_depth_label')"></label>
+                <select x-model.number="settings.ai_fallback_max_depth"
+                        @change="markAiFormDirty()"
+                        :disabled="isReadonly() || !settings.ai_enabled"
+                        class="text-[12.5px]">
+                  <option :value="1">1</option>
+                  <option :value="2">2</option>
+                </select>
+                <span class="ms-2 text-[10.5px] text-[var(--text-faint)]"
+                      x-text="t('admin.ai.fallback.max_depth_hint')"></span>
+              </div>
+              <!-- Per-provider chain controls. Lists every supported
+                   provider; eligible ones get an Add/Remove + reorder
+                   chip; ineligible ones (disabled / no key / IS the
+                   active primary) get a muted hint explaining why. -->
+              <div class="ms-6" x-show="settings.ai_fallback_enabled">
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1"
+                       x-text="t('admin.ai.fallback.chain_label')"></label>
+                <div class="space-y-1.5">
+                  <template x-for="name in aiProviderNames" :key="name">
+                    <div class="flex items-center gap-2 text-[11.5px]">
+                      <span class="mono text-[var(--text)]" x-text="aiProviderDisplayName(name)"></span>
+                      <!-- Active primary — can't be a fallback target. -->
+                      <span x-show="settings.ai_active_provider === name"
+                            class="chip pill-info text-[10px]"
+                            x-text="t('admin.ai.active_chip')"></span>
+                      <!-- Disabled or no API key — ineligible. -->
+                      <span x-show="settings.ai_active_provider !== name
+                                    && (!aiForm.providers[name].enabled
+                                        || (!aiForm.providers[name].api_key_set
+                                            && !(aiForm.providers[name].api_key || '').trim()))"
+                            class="text-[10.5px] text-[var(--text-faint)] italic"
+                            x-text="t('admin.ai.fallback.ineligible_hint')"></span>
+                      <!-- Eligible — reorder + remove controls. -->
+                      <template x-if="settings.ai_active_provider !== name
+                                       && aiForm.providers[name].enabled
+                                       && (aiForm.providers[name].api_key_set
+                                           || (aiForm.providers[name].api_key || '').trim())">
+                        <div class="flex items-center gap-1.5 ms-auto">
+                          <span x-show="fallbackPriority(name) >= 0"
+                                class="chip pill-warning text-[10px]"
+                                x-text="t('admin.ai.backup_chip', { n: (fallbackPriority(name) + 1) })"></span>
+                          <button type="button"
+                                  x-show="fallbackPriority(name) >= 1"
+                                  @click="moveFallbackProvider(name, -1)"
+                                  :disabled="isReadonly()"
+                                  class="btn btn-ghost text-[10.5px]"
+                                  :aria-label="t('admin.ai.fallback.move_up')"
+                                  :title="t('admin.ai.fallback.move_up')">↑</button>
+                          <button type="button"
+                                  x-show="fallbackPriority(name) >= 0
+                                          && fallbackPriority(name) < (settings.ai_fallback_order || []).length - 1"
+                                  @click="moveFallbackProvider(name, +1)"
+                                  :disabled="isReadonly()"
+                                  class="btn btn-ghost text-[10.5px]"
+                                  :aria-label="t('admin.ai.fallback.move_down')"
+                                  :title="t('admin.ai.fallback.move_down')">↓</button>
+                          <button type="button"
+                                  @click="toggleFallbackProvider(name)"
+                                  :disabled="isReadonly()"
+                                  class="btn btn-ghost text-[10.5px]"
+                                  x-text="fallbackPriority(name) >= 0
+                                            ? t('admin.ai.fallback.remove_btn')
+                                            : t('admin.ai.fallback.add_btn')"></button>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+                <p class="text-[10.5px] text-[var(--text-faint)] mt-2"
+                   x-text="t('admin.ai.fallback.chain_hint')"></p>
+              </div>
+            </div>
             <!-- Single Save row — saves both the AI master settings
                  (toggle / active provider / max_tokens) AND the retry
                  tunables in one click. Disabled gate fires when EITHER
@@ -390,6 +504,20 @@
                           x-show="settings.ai_enabled && aiForm.providers[name].enabled && settings.ai_active_provider === name"
                           :class="'pill-info'"
                           x-text="t('admin.ai.active_chip')"></span>
+                    <!-- BACKUP N chip — gated on fallback being enabled
+                         AND this provider being in the fallback chain
+                         AND not the active primary. Shows the priority
+                         number (1 = first to try after primary). Same
+                         shape as the ACTIVE chip but `pill-warning`
+                         coloured so the eye distinguishes them. -->
+                    <span class="chip text-[10px] ms-1"
+                          x-show="settings.ai_enabled
+                                  && settings.ai_fallback_enabled
+                                  && aiForm.providers[name].enabled
+                                  && settings.ai_active_provider !== name
+                                  && fallbackPriority(name) >= 0"
+                          :class="'pill-warning'"
+                          x-text="t('admin.ai.backup_chip', { n: (fallbackPriority(name) + 1) })"></span>
                   </div>
                   <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none">
                     <input type="checkbox" x-model="aiForm.providers[name].enabled"
