@@ -4362,13 +4362,21 @@ async def api_ai_palette(
         max_depth=fb_max_depth,
     )
 
-    # Split the optional `ACTION: <id>` trailer off the visible text.
+    # Split the optional `ACTION: <id>` trailer(s) off the visible
+    # text. Multi-action queries ("refresh and cleanup") emit one
+    # line per action; the parser returns them all in order so the
+    # SPA can fire each sequentially. The `action` field carries
+    # the FIRST action for backward-compatibility with any consumer
+    # that only handles single-action responses; new consumers
+    # iterate `actions` (list).
     text = (out.get("text") or "") if isinstance(out, dict) else ""
-    action_id, cleaned_text = _ai.parse_palette_action(text)
-    if action_id:
+    action_ids, cleaned_text = _ai.parse_palette_actions(text)
+    if action_ids:
         out["text"] = cleaned_text
-        out["action"] = action_id
+        out["action"] = action_ids[0]   # legacy single-action shape
+        out["actions"] = action_ids     # full ordered list
     text = cleaned_text
+    action_id = action_ids[0] if action_ids else ""
 
     # Split the optional `HOSTS: <id1>, <id2>, ...` trailer off too.
     # Validate against the curated host id set so the model can't

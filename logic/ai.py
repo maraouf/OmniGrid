@@ -858,17 +858,28 @@ PALETTE_SYSTEM_PROMPT: str = (
     "the data is fine; no markdown headers.\n\n"
     "ACTION PROTOCOL — CRITICAL. When the operator's query is a "
     "REQUEST to do something that matches one of the actions "
-    "below, you MUST end your reply with a SINGLE line "
-    "`ACTION: <id>` and nothing after it. The reply text BEFORE "
-    "the ACTION line should be a short one-liner confirmation "
-    "(\"Opening notifications.\", \"Switching to dark theme.\", "
-    "\"I'll mark every notification as read for you.\"). The SPA "
-    "parses the ACTION line, strips it from the visible text, "
-    "and INVOKES the action. Without the ACTION line, the action "
-    "DOES NOT FIRE — operators see the prose but nothing happens. "
-    "Bias toward emitting an ACTION when the query is an "
-    "imperative verb (open / show / refresh / cleanup / sign out / "
-    "switch / mark) targeting one of the listed action ids.\n\n"
+    "below, you MUST end your reply with one or more lines of the "
+    "form `ACTION: <id>` (one action per line). The reply text "
+    "BEFORE the first ACTION line should be a short one-liner "
+    "confirmation (\"Opening notifications.\", \"Switching to dark "
+    "theme.\", \"I'll mark every notification as read for you.\"). "
+    "The SPA parses every ACTION line, strips them from the visible "
+    "text, and INVOKES the actions IN ORDER. Without an ACTION "
+    "line, the action DOES NOT FIRE — operators see the prose but "
+    "nothing happens. Bias toward emitting an ACTION when the "
+    "query is an imperative verb (open / show / refresh / cleanup "
+    "/ sign out / switch / mark) targeting one of the listed action "
+    "ids.\n\n"
+    "MULTI-ACTION QUERIES. When the operator chains multiple "
+    "imperatives (\"refresh and cleanup\", \"clean up containers and "
+    "mark all notifications read\", \"switch to dark theme then "
+    "refresh\"), emit ONE ACTION line per action, in the order they "
+    "should fire. Order matters: non-destructive actions like "
+    "`refresh` should run BEFORE destructive ones like "
+    "`cleanup_stopped` so the operator sees the freshest container "
+    "list before the cleanup confirm popup. The SPA fires actions "
+    "sequentially and pauses for each destructive action's "
+    "confirmation popup before continuing.\n\n"
     "AVAILABLE ACTIONS (end reply with `ACTION: <id>` for each):\n"
     " - mark_all_notifications_read — mark every notification as read\n"
     " - refresh — refresh the current view's data from the backend\n"
@@ -878,10 +889,13 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - theme_auto — let UI follow OS theme\n"
     " - open_notifications — open the notifications drawer\n"
     " - show_hotkeys — show the keyboard-shortcuts modal\n"
-    " - cleanup_stopped — remove every stopped / failed / orphaned container the dashboard can see. Operator-friendly synonyms: 'cleanup', 'clean up', 'purge', 'prune', 'remove stopped containers'. (Destructive — the SPA still confirms before issuing the rm batch, so picking this is safe.)\n"
+    " - cleanup_stopped — remove every stopped / failed / orphaned container the dashboard can see. Operator-friendly synonyms: 'cleanup', 'clean up', 'purge', 'prune', 'remove stopped containers', 'package cleanup' (loose match — there is no package-level cleanup, only container cleanup). (Destructive — the SPA still confirms before issuing the rm batch, so picking this is safe.)\n"
     " - sign_out — log out of OmniGrid\n"
-    "Example reply: 'I'll mark every notification as read for you.\\n"
+    "Example single-action reply: 'I'll mark every notification as read for you.\\n"
     "ACTION: mark_all_notifications_read'\n"
+    "Example multi-action reply (\"refresh and cleanup\"): 'Refreshing the dashboard, then opening the cleanup confirm.\\n"
+    "ACTION: refresh\\n"
+    "ACTION: cleanup_stopped'\n"
     "If no action fits, omit the ACTION line entirely.\n\n"
     "HOSTS PROTOCOL — when your reply identifies SPECIFIC hosts BY "
     "NAME (e.g. answering 'top hosts low on disk', 'which hosts are "
@@ -942,35 +956,66 @@ HOST_FILTER_SYSTEM_PROMPT: str = (
 )
 
 
-def parse_palette_action(text: str) -> tuple[str, str]:
-    """Extract the optional `ACTION: <id>` trailer from a palette
-    response. Returns ``(action_id, cleaned_text)`` — empty
-    `action_id` when no whitelisted action found; `cleaned_text` is
-    the visible body with the ACTION line stripped.
+def parse_palette_actions(text: str) -> tuple[list[str], str]:
+    """Extract every `ACTION: <id>` (and `ACTION: <id1>, <id2>` CSV)
+    trailer from a palette response. Returns ``(action_ids,
+    cleaned_text)`` — empty list when no whitelisted action found;
+    `cleaned_text` is the visible body with every ACTION block
+    stripped from the first ACTION line onwards.
 
-    Forgiving: matches the line at the strict end of the body OR
+    Multi-action support: the model can emit multiple ACTION: lines
+    (one per action, fired in order) for combined queries like
+    "refresh and cleanup". Comma-separated single lines also accepted
+    (`ACTION: refresh, cleanup_stopped`). Unknown / mistyped action
+    ids are silently dropped from the list. Duplicates collapse to
+    first occurrence.
+
+    Forgiving: matches lines at the strict end of the body OR
     anywhere-mid-body, with optional surrounding whitespace,
     backticks, asterisks, or trailing punctuation.
     """
     if not text:
-        return "", text or ""
+        return [], text or ""
     import re as _re
-    m = _re.search(
-        r"(?:^|\n)[\s`*]*ACTION\s*:\s*([a-z_]+)\b[\s`.*]*$",
-        text, _re.IGNORECASE | _re.MULTILINE,
+    actions: list[str] = []
+    seen: set[str] = set()
+    # Find every ACTION: <body> line — body may be a single id or a
+    # comma/whitespace-separated list. Re-tokenise per line so
+    # mixed shapes work (`ACTION: refresh\nACTION: cleanup_stopped`
+    # OR `ACTION: refresh, cleanup_stopped`).
+    line_re = _re.compile(
+        r"(?:^|\n)[\s`*]*ACTION\s*:\s*([^\n]+?)[\s`.*]*$",
+        _re.IGNORECASE | _re.MULTILINE,
     )
-    if not m:
-        m = _re.search(
-            r"(?:^|\n)[\s`*]*ACTION\s*:\s*([a-z_]+)",
-            text, _re.IGNORECASE | _re.MULTILINE,
-        )
-    if not m:
-        return "", text
-    candidate = m.group(1).strip().lower()
-    if candidate not in ALLOWED_PALETTE_ACTIONS:
-        return "", text
-    cleaned = text[: m.start()].rstrip()
-    return candidate, cleaned
+    first_idx: int | None = None
+    for m in line_re.finditer(text):
+        if first_idx is None:
+            first_idx = m.start()
+        body = m.group(1).strip()
+        for tok in _re.split(r"[,\s]+", body):
+            cand = tok.strip().lower()
+            if not cand:
+                continue
+            if cand in ALLOWED_PALETTE_ACTIONS and cand not in seen:
+                seen.add(cand)
+                actions.append(cand)
+    if not actions:
+        return [], text
+    # Strip from the first ACTION: line onwards so the visible
+    # answer doesn't carry the protocol trailer.
+    cleaned = text[: first_idx].rstrip() if first_idx is not None else text
+    return actions, cleaned
+
+
+def parse_palette_action(text: str) -> tuple[str, str]:
+    """Backward-compatible single-action wrapper around
+    :func:`parse_palette_actions`. Returns the FIRST action id (or
+    empty string if none found) + the cleaned text. Existing callers
+    that only handle one action keep working; new callers should
+    use `parse_palette_actions` directly.
+    """
+    actions, cleaned = parse_palette_actions(text)
+    return (actions[0] if actions else ""), cleaned
 
 
 def parse_palette_hosts(text: str, known_ids: set[str] | None = None) -> tuple[list[str], str]:

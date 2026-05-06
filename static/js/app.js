@@ -13197,20 +13197,32 @@ function app() {
         const answer = rawAnswer || (this.t('command_palette.ai.empty_response') || '(empty response)');
         const tokens = (j.tokens && (j.tokens.prompt + j.tokens.completion)) || 0;
         const fmtNum = (n) => Number.isFinite(+n) ? (+n).toLocaleString() : String(n || 0);
-        // Backend stamps `j.action = "<id>"` when the AI wants to
-        // invoke one of the canonical command-palette actions
-        // (mark_all_notifications_read / refresh / theme_dark / etc.).
-        // The action runs DIRECTLY (no Execute button) — operator-
-        // requested behaviour: when the AI proposes an action that
-        // matches the request, just do it. Destructive actions still
-        // go through `_runCommandPaletteAction`'s SweetAlert confirm
-        // gate, which will replace this answer modal with the confirm.
-        const actionId = (j.action || '').toString().trim();
-        const actionDesc = actionId ? this._actionDescriptorById(actionId) : null;
-        const actionRanLine = actionDesc
+        // Backend stamps `j.actions = ["<id>", ...]` (ordered list)
+        // when the AI wants to invoke one or more canonical command-
+        // palette actions (mark_all_notifications_read / refresh /
+        // theme_dark / etc.). Single-action responses also populate
+        // the legacy `j.action` field for backward-compat. Multi-
+        // action queries ("refresh and cleanup") emit multiple ids
+        // — fire each in order. Destructive actions still go through
+        // `_runCommandPaletteAction`'s SweetAlert confirm gate (or
+        // the action's own popup when `defer_confirm_to_run` is set,
+        // e.g. cleanup-stopped's container-list confirm); the
+        // sequential dispatch awaits each one so the operator sees
+        // the popups in order.
+        let actionIds = Array.isArray(j.actions) ? j.actions.map(s => String(s || '').trim()).filter(Boolean) : [];
+        if (!actionIds.length && j.action) {
+          actionIds = [String(j.action).trim()];
+        }
+        const actionDescs = actionIds
+          .map(id => this._actionDescriptorById(id))
+          .filter(Boolean);
+        const actionRanLine = actionDescs.length
           ? '<div class="ai-resp-action-ran">'
             + '<span aria-hidden="true">✓</span>'
-            + '<span>' + this._logEscape((this.t('command_palette.ai.action_ran') || 'Ran action: ') + (actionDesc.label || actionId)) + '</span>'
+            + '<span>' + this._logEscape(
+                (this.t('command_palette.ai.action_ran') || 'Ran action: ')
+                + actionDescs.map(d => d.label || d.id).join(' → '))
+              + '</span>'
             + '</div>'
           : '';
         // Build the metadata chip strip — provider / model / timing /
@@ -13297,13 +13309,29 @@ function app() {
             this._populateAiHostChart(hid);
           }
         }
-        // Fire the action AFTER the answer modal renders. Destructive
-        // actions will surface their confirm via SweetAlert which
-        // takes over the dialog stack — operator sees the confirm
-        // instead of the answer in that case (acceptable; the answer
-        // text still landed in the toast/store before the confirm).
-        if (actionDesc) {
-          this._runCommandPaletteAction(actionDesc);
+        // Fire the action(s) AFTER the answer modal renders. Multi-
+        // action queries fire each descriptor sequentially so the
+        // operator sees popups in the order the AI proposed them —
+        // typically non-destructive first (e.g. `refresh`), then
+        // destructive (e.g. `cleanup_stopped` which surfaces its own
+        // container-list confirm). Each call is awaited so a
+        // destructive action's confirm popup blocks the next action
+        // until the operator decides; cancelling the confirm short-
+        // circuits via `_runCommandPaletteAction`'s `if (!ok) return`
+        // and the loop continues to the next action.
+        if (actionDescs.length) {
+          (async () => {
+            for (const desc of actionDescs) {
+              try {
+                await this._runCommandPaletteAction(desc);
+              } catch (e) {
+                if (typeof this.showToast === 'function') {
+                  this.showToast(this.t('toasts.failed_with_error',
+                    { error: (e && e.message) || String(e) }), 'error');
+                }
+              }
+            }
+          })();
         }
       } catch (e) {
         swal.fire({
