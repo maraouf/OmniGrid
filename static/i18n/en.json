@@ -1520,6 +1520,22 @@
       "cleanup_stopped_confirm_text":  "Removes every stopped, failed, or orphaned container the dashboard can see. You'll get one more confirm before any container is actually deleted.",
       "destructive_confirm":  "This action affects live state — proceed?"
     },
+    "bulk": {
+      "matched_label":          "{matched} match · {selected} selected",
+      "dsl_hint":               "Selectors: web* · provider:beszel · status:up · paused",
+      "chip_toggle_hint":       "Click to include / exclude this host",
+      "no_matches":             "No hosts match this selector.",
+      "run_label_pause":        "Run pause on {count} host(s)",
+      "run_label_resume":       "Run resume on {count} host(s)",
+      "confirm_title_pause":    "Pause sampling on {count} host(s)?",
+      "confirm_title_resume":   "Resume sampling on {count} host(s)?",
+      "confirm_body_pause":     "Pause sampling on {count} host(s)?",
+      "confirm_body_resume":    "Resume sampling on {count} host(s)?",
+      "confirm_ok_pause":       "Pause",
+      "confirm_ok_resume":      "Resume",
+      "success_pause":          "Paused {count} host(s).",
+      "success_resume":         "Resumed {count} host(s)."
+    },
     "ai": {
       "ask_label":      "Ask AI: {query}",
       "ask_sub":        "Send to the active AI provider",

@@ -1877,6 +1877,108 @@ details summary::-webkit-details-marker {
 .cmdpal-kind-admin    { background: color-mix(in srgb, var(--primary) 18%, transparent); color: var(--text); }
 .cmdpal-kind-views    { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
 .cmdpal-kind-hotkeys  { background: color-mix(in srgb, var(--text-faint) 20%, transparent); color: var(--text-faint); }
+/* Cmd-K bulk mode (Phase 1) — verb-prefix queries (`pause: web*`)
+   route to a chip-strip preview + a single Run row. Layout:
+   summary header on top with the verb pill, chip strip in the
+   middle (one chip per matched host, click-to-exclude), Run row
+   at the bottom that fires the bulk action. The chip strip wraps
+   freely; the Run row stays anchored at the bottom inside the
+   palette card via the parent's flex layout. */
+.cmdpal-bulk {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-3);
+    padding: var(--s-4);
+}
+.cmdpal-bulk-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
+}
+.cmdpal-bulk-verb {
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    font-size: var(--fs-3xs);
+    padding: var(--s-1) var(--s-3);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--warning) 18%, transparent);
+    color: var(--warning);
+}
+.cmdpal-bulk-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+    max-height: 240px;
+    overflow-y: auto;
+    padding: var(--s-2) 0;
+}
+.cmdpal-bulk-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-1) var(--s-3);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: var(--fs-2xs);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: opacity 0.08s linear, color 0.08s linear, border-color 0.08s linear;
+    appearance: none;
+    font-family: var(--font-mono);
+}
+.cmdpal-bulk-chip-dot {
+    width: var(--s-2);
+    height: var(--s-2);
+    border-radius: 999px;
+    background: var(--success);
+    flex-shrink: 0;
+}
+.cmdpal-bulk-chip.is-included { color: var(--text); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
+.cmdpal-bulk-chip.is-excluded { opacity: 0.45; text-decoration: line-through; }
+.cmdpal-bulk-chip.is-excluded .cmdpal-bulk-chip-dot { background: var(--text-faint); }
+.cmdpal-bulk-chip:hover { border-color: var(--border-bright); }
+.cmdpal-bulk-chip:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+.cmdpal-bulk-run {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-3);
+    width: 100%;
+    padding: var(--s-3) var(--s-4);
+    background: color-mix(in srgb, var(--warning) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+    border-radius: var(--r-md);
+    color: var(--warning);
+    font-weight: 600;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    appearance: none;
+    transition: background 0.08s linear;
+}
+.cmdpal-bulk-run:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--warning) 22%, transparent);
+}
+.cmdpal-bulk-run:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.cmdpal-bulk-run:focus-visible {
+    outline: 2px solid var(--warning);
+    outline-offset: 2px;
+}
+.cmdpal-bulk-run-hint {
+    font-family: var(--font-mono);
+    font-size: var(--fs-2xs);
+    opacity: 0.7;
+}
+
 /* Verb commands (refresh / restart / pause / theme / sign out) — split
    between "safe" (theme switch / refresh / open notifications — info
    accent) and "destructive" (logout / cleanup — danger accent) so the
