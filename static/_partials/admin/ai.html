@@ -459,14 +459,23 @@
                       </tr>
                     </thead>
                     <tbody>
-                      <template x-for="t in (aiDashboard ? aiDashboard.trend : [])" :key="t.ts">
+                      <!-- Loop variable is `row`, NOT `t` — using
+                           `t` would shadow the global `t()` i18n
+                           helper inside the loop scope. Currently no
+                           i18n calls live inside this loop, but a
+                           later edit adding one would silently throw
+                           ("t is not a function" — Alpine resolves
+                           the symbol to the trend dict, not the
+                           i18n helper). CLAUDE.md "Newer
+                           conventions" carries this rule. -->
+                      <template x-for="row in (aiDashboard ? aiDashboard.trend : [])" :key="row.ts">
                         <tr class="border-t border-[var(--border)]">
-                          <td class="py-1" x-text="aiFormatTime(t.ts)"></td>
-                          <td class="py-1 text-end" x-text="t.jobs"></td>
-                          <td class="py-1 text-end" x-text="Math.round((t.pass_rate || 0) * 100) + '%'"></td>
-                          <td class="py-1 text-end" x-text="aiFormatNumber(t.total_tokens || 0)"></td>
-                          <td class="py-1 text-end" x-text="'$' + (t.total_cost_usd || 0).toFixed(4)"></td>
-                          <td class="py-1 text-end" x-text="(t.avg_accuracy_score !== null && t.avg_accuracy_score !== undefined) ? Math.round(t.avg_accuracy_score * 100) + '%' : '—'"></td>
+                          <td class="py-1" x-text="aiFormatTime(row.ts)"></td>
+                          <td class="py-1 text-end" x-text="row.jobs"></td>
+                          <td class="py-1 text-end" x-text="Math.round((row.pass_rate || 0) * 100) + '%'"></td>
+                          <td class="py-1 text-end" x-text="aiFormatNumber(row.total_tokens || 0)"></td>
+                          <td class="py-1 text-end" x-text="'$' + (row.total_cost_usd || 0).toFixed(4)"></td>
+                          <td class="py-1 text-end" x-text="(row.avg_accuracy_score !== null && row.avg_accuracy_score !== undefined) ? Math.round(row.avg_accuracy_score * 100) + '%' : '—'"></td>
                         </tr>
                       </template>
                     </tbody>

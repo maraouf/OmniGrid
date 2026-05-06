@@ -245,8 +245,14 @@
                           <span x-text="pk.last_used_at ? t('settings.profile.passkeys.last_used_at', { when: relativeWhen(pk.last_used_at) }) : t('settings.profile.passkeys.last_used_never')"></span>
                           <template x-if="pk.transports && pk.transports.length">
                             <span class="passkey-transports inline-flex items-center gap-1 ms-1">
-                              <template x-for="t in pk.transports" :key="t">
-                                <span class="chip pill-info text-[9.5px] px-1 py-0 mono uppercase" x-text="t"></span>
+                              <!-- Loop variable is `transport`, NOT `t` —
+                                   `t` shadows the i18n helper inside the
+                                   loop body. Currently the body just
+                                   renders the transport string raw, but
+                                   a future i18n call would silently
+                                   throw. -->
+                              <template x-for="transport in pk.transports" :key="transport">
+                                <span class="chip pill-info text-[9.5px] px-1 py-0 mono uppercase" x-text="transport"></span>
                               </template>
                             </span>
                           </template>

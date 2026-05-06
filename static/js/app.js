@@ -1402,6 +1402,19 @@ function app() {
           }
           this.me = m;
           this.syncProfileForm();
+          // Hydrate `aiProviderNames` from the canonical backend list
+          // (logic.ai.SUPPORTED_PROVIDERS, surfaced via
+          // /api/me's client_config.ai.provider_names). The data field
+          // ships with a defensive fallback literal for the brief
+          // window before /api/me resolves; this overwrite makes the
+          // SPA the single source of truth for the provider order
+          // even when the backend tuple grows.
+          try {
+            const names = m && m.client_config && m.client_config.ai && m.client_config.ai.provider_names;
+            if (Array.isArray(names) && names.length) {
+              this.aiProviderNames = names.slice();
+            }
+          } catch (_) { /* fall through to the literal fallback */ }
           // Hydrate theme preference from the user's DB-backed
           // `ui_prefs.theme` (cross-browser / cross-machine source of
           // truth). localStorage stays as a per-browser fast-path
@@ -8212,6 +8225,16 @@ function app() {
       } catch (e) { console.error(e); }
     },
     openHistoryDetail(h) {
+      // ai_palette rows carry a JSON OBJECT in `events` (not the
+      // array-of-{ts,level,msg} shape every other op_type uses). Route
+      // them to the AI-specific detail renderer that re-uses the same
+      // `.ai-resp*` CSS classes the live AI response popup uses, so
+      // weeks-old AI conversations look identical to the original
+      // popup. Falls through to the standard renderer for every other
+      // op_type so all existing history detail views stay unchanged.
+      if ((h.op_type || '') === 'ai_palette') {
+        return this._openAiPaletteHistoryDetail(h);
+      }
       const events = this.parseEvents(h.events) || [];
       const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
       const rows = events.map(ev => {
@@ -8234,6 +8257,92 @@ function app() {
       Swal.fire({
         title: h.target_name || h.op_type,
         html: `${meta}<div class="swal-events">${rows}</div>`,
+        width: 720,
+        showConfirmButton: false,
+        showCloseButton: true,
+        background: this._cssVar('--surface'),
+        color: this._cssVar('--text'),
+      });
+    },
+    _openAiPaletteHistoryDetail(h) {
+      // History row's `events` carries the JSON shape the backend
+      // wrote in `/api/ai/palette` — `{prompt, answer, action_id,
+      // tokens: {prompt, completion, total}, context}`. Render with
+      // the same `.ai-resp*` Question / Answer / metadata layout the
+      // live response popup uses so an admin clicking through the
+      // History tab sees a familiar surface.
+      let payload = {};
+      try {
+        payload = JSON.parse(h.events || '{}') || {};
+      } catch (_) {
+        payload = {};
+      }
+      const esc = (s) => this._logEscape(s ?? '');
+      const fmtNum = (n) => Number.isFinite(+n) ? (+n).toLocaleString() : String(n || 0);
+      const prompt = (payload.prompt || '').toString().trim() || (this.t('history.ai_palette.no_prompt') || '(no prompt)');
+      const answer = (payload.answer || '').toString().trim() || (this.t('history.ai_palette.no_answer') || '(no answer)');
+      const actionId = (payload.action_id || '').toString().trim();
+      const actionRanLine = actionId
+        ? '<div class="ai-resp-action-ran">'
+          + '<span aria-hidden="true">✓</span>'
+          + '<span>' + esc((this.t('command_palette.ai.action_ran') || 'Ran action: ') + actionId) + '</span>'
+          + '</div>'
+        : '';
+      const tokens = payload.tokens || {};
+      const totalTokens = (tokens.total ?? ((tokens.prompt || 0) + (tokens.completion || 0))) || 0;
+      const metaChips = [];
+      if (h.target_name) {
+        metaChips.push('<span class="ai-resp-meta-chip"><strong>' + esc(h.target_name) + '</strong></span>');
+      }
+      if (h.target_id) {
+        metaChips.push('<span class="ai-resp-meta-chip">' + esc(h.target_id) + '</span>');
+      }
+      if (h.duration) {
+        metaChips.push('<span class="ai-resp-meta-chip">'
+          + fmtNum(Math.round((h.duration || 0) * 1000)) + ' ms</span>');
+      }
+      if (totalTokens) {
+        metaChips.push('<span class="ai-resp-meta-chip">' + fmtNum(totalTokens) + ' tokens</span>');
+      }
+      if (h.actor) {
+        metaChips.push('<span class="ai-resp-meta-chip">'
+          + esc(this.t('history.detail.actor').replace(/:$/, '')) + ': <strong>' + esc(h.actor) + '</strong></span>');
+      }
+      metaChips.push('<span class="ai-resp-meta-chip">' + esc(this.formatTime(h.ts)) + '</span>');
+      const errorBlock = h.error
+        ? '<div class="ai-resp-section">'
+          + '<div class="ai-resp-label" style="color:var(--danger)">'
+          + '<span class="ai-resp-label-dot" style="background:var(--danger)" aria-hidden="true"></span>'
+          + esc(this.t('history.detail.error').replace(/:$/, '') || 'Error')
+          + '</div>'
+          + '<div class="ai-resp-answer" style="background:color-mix(in srgb, var(--danger) 6%, transparent);'
+          + 'border-color:color-mix(in srgb, var(--danger) 25%, transparent);'
+          + 'border-inline-start-color:var(--danger);color:var(--text)">'
+          + esc(h.error)
+          + '</div>'
+          + '</div>'
+        : '';
+      Swal.fire({
+        title: this.t('command_palette.ai.answer_title') || 'AI response',
+        html: '<div class="ai-resp">'
+          + '<div class="ai-resp-section">'
+          + '<div class="ai-resp-label is-question">'
+          + '<span class="ai-resp-label-dot" aria-hidden="true"></span>'
+          + esc(this.t('command_palette.ai.question_label') || 'Question')
+          + '</div>'
+          + '<div class="ai-resp-question">' + esc(prompt) + '</div>'
+          + '</div>'
+          + '<div class="ai-resp-section">'
+          + '<div class="ai-resp-label is-answer">'
+          + '<span class="ai-resp-label-dot" aria-hidden="true"></span>'
+          + esc(this.t('command_palette.ai.answer_label') || 'Answer')
+          + '</div>'
+          + '<div class="ai-resp-answer">' + esc(answer) + '</div>'
+          + actionRanLine
+          + '</div>'
+          + errorBlock
+          + (metaChips.length ? '<div class="ai-resp-meta">' + metaChips.join('') + '</div>' : '')
+          + '</div>',
         width: 720,
         showConfirmButton: false,
         showCloseButton: true,
@@ -9758,6 +9867,14 @@ function app() {
     // No actual AI calls are made yet; this is the surface that future
     // stages will write into via `logic/ai.py`.
     // ---------------------------------------------------------------
+    // Defensive fallback — overwritten from `/api/me`'s
+    // `client_config.ai.provider_names` (canonical
+    // `logic.ai.SUPPORTED_PROVIDERS`) the moment that response
+    // resolves. If `loadMe()` has just kicked off and Alpine
+    // bindings render before the response lands, every consumer
+    // (provider grid, settings form, active-provider dropdown)
+    // sees this literal and renders cleanly. Don't rely on this
+    // literal as the source of truth — edit the backend tuple.
     aiProviderNames: ['claude', 'gemini', 'chatgpt', 'deepseek'],
     aiProviderDisplayName(name) {
       // Brand-stable casing for the four providers; unknown names get
@@ -11899,6 +12016,26 @@ function app() {
           run:   () => { this.markAllNotificationsRead(); }
         }] : []),
 
+        // Cleanup — bulk-remove every stopped / failed / orphaned
+        // container the SPA can see (powered by the topbar Cleanup
+        // button + the existing `bulkRemoveAll()` flow). Destructive:
+        // the underlying handler issues docker rm + volume remove on
+        // each picked item, so it routes through the SweetAlert
+        // confirm path. Verbs cover the natural-language ways an
+        // operator might phrase this — "cleanup" / "purge" / "prune"
+        // / "remove stopped" — and the AI prompt's structured-action
+        // protocol uses the snake_case `cleanup_stopped` id below.
+        ...(typeof this.bulkRemoveAll === 'function' ? [{
+          id: 'cleanup-stopped',
+          label: t('command_palette.action.cleanup_stopped', 'Cleanup — remove every stopped / failed container'),
+          sub:   t('command_palette.action.cleanup_stopped_sub', 'Same as the topbar Cleanup button'),
+          verbs: ['cleanup', 'clean', 'purge', 'prune', 'remove', 'delete'],
+          destructive: true,
+          confirmTitle: t('command_palette.action.cleanup_stopped_confirm_title', 'Cleanup stopped containers?'),
+          confirmText:  t('command_palette.action.cleanup_stopped_confirm_text', 'Removes every stopped / failed / orphaned container the dashboard can see. The handler still confirms each batch separately before issuing docker rm.'),
+          run:   () => { this.bulkRemoveAll(); }
+        }] : []),
+
         // Sign out — destructive (terminates the session)
         ...(typeof this.logout === 'function' ? [{
           id: 'logout',
@@ -12202,6 +12339,11 @@ function app() {
         sign_out:  'logout',
         sign_off:  'logout',
         logoff:    'logout',
+        // Cleanup synonyms — the AI prompt teaches the model the
+        // canonical `cleanup_stopped` id but operators may type the
+        // kebab form (`cleanup-stopped`) verbatim too.
+        cleanup_stopped:  'cleanup-stopped',
+        cleanup:          'cleanup-stopped',
       };
       const target = aliasMap[id] || kebab;
       const all = (typeof this._commandActions === 'function')
@@ -12272,9 +12414,6 @@ function app() {
         const answer = (j.text || '').trim() || (this.t('command_palette.ai.empty_response') || '(empty response)');
         const tokens = (j.tokens && (j.tokens.prompt + j.tokens.completion)) || 0;
         const fmtNum = (n) => Number.isFinite(+n) ? (+n).toLocaleString() : String(n || 0);
-        const subline = (j.provider || '?') + (j.model ? ' · ' + j.model : '')
-                        + (j.response_time_ms ? ' · ' + fmtNum(j.response_time_ms) + 'ms' : '')
-                        + (tokens ? ' · ' + fmtNum(tokens) + ' tokens' : '');
         // Backend stamps `j.action = "<id>"` when the AI wants to
         // invoke one of the canonical command-palette actions
         // (mark_all_notifications_read / refresh / theme_dark / etc.).
@@ -12286,36 +12425,66 @@ function app() {
         const actionId = (j.action || '').toString().trim();
         const actionDesc = actionId ? this._actionDescriptorById(actionId) : null;
         const actionRanLine = actionDesc
-          ? '<div class="mt-2 text-[11.5px] text-[var(--success)] flex items-center gap-1.5">'
+          ? '<div class="ai-resp-action-ran">'
             + '<span aria-hidden="true">✓</span>'
             + '<span>' + this._logEscape((this.t('command_palette.ai.action_ran') || 'Ran action: ') + (actionDesc.label || actionId)) + '</span>'
             + '</div>'
           : '';
+        // Build the metadata chip strip — provider / model / timing /
+        // tokens — each as its own pill so the eye can pick one out
+        // without parsing a single concatenated `·`-separated subline.
+        const metaChips = [];
+        if (j.provider) {
+          metaChips.push('<span class="ai-resp-meta-chip"><strong>'
+            + this._logEscape(j.provider) + '</strong></span>');
+        }
+        if (j.model) {
+          metaChips.push('<span class="ai-resp-meta-chip">'
+            + this._logEscape(j.model) + '</span>');
+        }
+        if (j.response_time_ms) {
+          metaChips.push('<span class="ai-resp-meta-chip">'
+            + fmtNum(j.response_time_ms) + ' ms</span>');
+        }
+        if (tokens) {
+          metaChips.push('<span class="ai-resp-meta-chip">'
+            + fmtNum(tokens) + ' tokens</span>');
+        }
         swal.fire({
           icon:  'info',
           title: this.t('command_palette.ai.answer_title') || 'AI response',
-          // Render the operator's original question above the answer
-          // so the modal carries enough context to troubleshoot a
-          // surprising response without rebuilding the prompt from
-          // memory. Question is `query` (the literal palette input
-          // captured at the top of askAi); rendered in a muted
-          // bordered block, mono font, with a small "Question" label
-          // so it visually separates from the answer body.
-          html:  '<div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider" style="text-align:left;font-weight:600;letter-spacing:0.4px">'
-                 + this._logEscape(this.t('command_palette.ai.question_label') || 'Question')
-                 + '</div>'
-                 + '<div class="text-[12px] mono mt-1 mb-3 p-2 rounded" '
-                 + 'style="text-align:left;white-space:pre-wrap;background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim)">'
-                 + this._logEscape(query) + '</div>'
-                 + '<div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider" style="text-align:left;font-weight:600;letter-spacing:0.4px">'
-                 + this._logEscape(this.t('command_palette.ai.answer_label') || 'Answer')
-                 + '</div>'
-                 + '<div class="text-[12.5px] mt-1" style="text-align:left;white-space:pre-wrap">'
-                 + this._logEscape(answer) + '</div>'
-                 + actionRanLine
-                 + '<div class="mt-3 text-[10.5px] text-[var(--text-faint)] mono" style="text-align:left">'
-                 + this._logEscape(subline) + '</div>',
-          width: 640,
+          // Class-based layout (`.ai-resp*` rules in style.css) instead
+          // of inline-style spaghetti — gives us proper Question /
+          // Answer hierarchy with distinct accent borders (primary for
+          // the operator's question, success for the AI answer), a
+          // chip-strip metadata footer, and a contained "Ran action"
+          // pill below the answer. CSS adapts to dark / light theme
+          // via the existing token system.
+          html: '<div class="ai-resp">'
+            + '<div class="ai-resp-section">'
+            + '<div class="ai-resp-label is-question">'
+            + '<span class="ai-resp-label-dot" aria-hidden="true"></span>'
+            + this._logEscape(this.t('command_palette.ai.question_label') || 'Question')
+            + '</div>'
+            + '<div class="ai-resp-question">'
+            + this._logEscape(query)
+            + '</div>'
+            + '</div>'
+            + '<div class="ai-resp-section">'
+            + '<div class="ai-resp-label is-answer">'
+            + '<span class="ai-resp-label-dot" aria-hidden="true"></span>'
+            + this._logEscape(this.t('command_palette.ai.answer_label') || 'Answer')
+            + '</div>'
+            + '<div class="ai-resp-answer">'
+            + this._logEscape(answer)
+            + '</div>'
+            + actionRanLine
+            + '</div>'
+            + (metaChips.length
+              ? '<div class="ai-resp-meta">' + metaChips.join('') + '</div>'
+              : '')
+            + '</div>',
+          width: 720,
         });
         // Fire the action AFTER the answer modal renders. Destructive
         // actions will surface their confirm via SweetAlert which

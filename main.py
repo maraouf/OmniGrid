@@ -2658,7 +2658,7 @@ async def api_get_settings(request: Request):
                     "base_url":    get_setting(f"ai_provider_{name}_base_url", "") or "",
                     "api_key_set": bool(get_setting(f"ai_provider_{name}_api_key", "")),
                 }
-                for name in ("claude", "gemini", "chatgpt", "deepseek")
+                for name in _ai_supported_providers()
             },
             "defaults": {
                 "claude":   {"model": "claude-opus-4-7",   "base_url": "https://api.anthropic.com"},
@@ -3621,7 +3621,11 @@ async def _api_set_settings_inner(s, request, _portainer):
     # Master toggle + active-provider validator + per-provider fields.
     # API keys ride the keep-current-if-blank contract: only a non-empty
     # string is persisted, so an empty POST keeps the existing key.
-    _AI_PROVIDER_NAMES = ("claude", "gemini", "chatgpt", "deepseek")
+    # Provider list is the canonical `logic.ai.SUPPORTED_PROVIDERS`
+    # tuple — adding a fifth provider is a one-line edit there and
+    # every consumer (validator below + api_get_settings + api_me) picks
+    # it up automatically.
+    _AI_PROVIDER_NAMES = _ai_supported_providers()
     if s.ai_enabled is not None:
         set_setting("ai_enabled", "true" if s.ai_enabled else "false")
     if s.ai_active_provider is not None:
@@ -3821,7 +3825,14 @@ def _settings_version_for_payload() -> int:
 # wrapper that records into `ai_jobs`. For now the table is empty and
 # every aggregate returns zero / empty arrays — the SPA renders cleanly.
 # ----------------------------------------------------------------------------
-_AI_PROVIDER_NAMES_TUPLE = ("claude", "gemini", "chatgpt", "deepseek")
+# Canonical provider names — single source of truth lives in
+# `logic.ai.SUPPORTED_PROVIDERS`. Helper below reads the live tuple
+# (so a hot-reload of the AI module picks up additions without restart)
+# and is used everywhere main.py needs the list — settings validators,
+# the dashboard endpoint, /api/me's `client_config.ai.provider_names`.
+def _ai_supported_providers() -> tuple[str, ...]:
+    from logic import ai as _ai
+    return tuple(_ai.SUPPORTED_PROVIDERS)
 
 
 @app.get("/api/admin/ai/dashboard")
@@ -3851,6 +3862,7 @@ async def api_admin_ai_dashboard(
         hours = max(1, min(int(hours or 24), 24 * 30))
     except (TypeError, ValueError):
         hours = 24
+    _provider_names = _ai_supported_providers()
     cutoff = int(time.time()) - hours * 3600
 
     summary = {
@@ -3871,7 +3883,7 @@ async def api_admin_ai_dashboard(
             "enabled": (get_setting(f"ai_provider_{n}_enabled", "false") or "false").lower() == "true",
             "model":   get_setting(f"ai_provider_{n}_model", "") or "",
         }
-        for n in _AI_PROVIDER_NAMES_TUPLE
+        for n in _provider_names
     }
     trend: list[dict] = []
     try:
@@ -4003,10 +4015,10 @@ async def api_admin_ai_dashboard(
     return {
         "window_hours": hours,
         "summary":      summary,
-        "providers":    [providers[n] for n in _AI_PROVIDER_NAMES_TUPLE
+        "providers":    [providers[n] for n in _provider_names
                          if n in providers] + [
                             providers[k] for k in sorted(providers.keys())
-                            if k not in _AI_PROVIDER_NAMES_TUPLE
+                            if k not in _provider_names
                         ],
         "trend":        trend,
     }
@@ -4233,6 +4245,7 @@ async def api_ai_palette(
         " - theme_auto — let UI follow OS theme\n"
         " - open_notifications — open the notifications drawer\n"
         " - show_hotkeys — show the keyboard-shortcuts modal\n"
+        " - cleanup_stopped — remove every stopped / failed / orphaned container the dashboard can see. Operator-friendly synonyms: 'cleanup', 'clean up', 'purge', 'prune', 'remove stopped containers'. (Destructive — the SPA still confirms before issuing the rm batch, so picking this is safe.)\n"
         " - sign_out — log out of OmniGrid\n"
         "Example reply: 'I'll mark every notification as read for you.\\n"
         "ACTION: mark_all_notifications_read'\n"
@@ -4291,6 +4304,7 @@ async def api_ai_palette(
         "theme_auto",
         "open_notifications",
         "show_hotkeys",
+        "cleanup_stopped",
         "sign_out",
     }
     text = (out.get("text") or "") if isinstance(out, dict) else ""
@@ -13112,6 +13126,13 @@ async def api_me(request: Request):
                 "enabled":         get_setting_bool("ai_enabled", False),
                 "active_provider": (get_setting("ai_active_provider", "") or "").strip().lower(),
                 "max_tokens":      int(get_setting("ai_max_tokens", "1024") or "1024"),
+                # Canonical provider list — the SPA's `aiProviderNames`
+                # reads from this so adding a fifth provider is a
+                # one-line edit to `logic.ai.SUPPORTED_PROVIDERS` and
+                # every consumer (provider grid, settings form, the
+                # active-provider dropdown) picks it up automatically
+                # without a parallel SPA literal to keep in sync.
+                "provider_names":  list(_ai_supported_providers()),
             },
             # Last-Test-success timestamps per provider (DB-backed,
             # cross-browser / cross-machine). Stamped at the END of every
