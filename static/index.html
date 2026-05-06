@@ -2992,6 +2992,7 @@
             class="active-ops-header w-full text-start px-3 py-2 bg-[var(--surface-2)] border-b border-[var(--border)] flex items-center gap-2 cursor-pointer rounded-t-md"
             :aria-expanded="opsExpanded ? 'true' : 'false'"
             aria-controls="active-ops-body"
+            :aria-label="t('active_ops.toggle_label', { count: activeOps.length })"
             @click="opsExpanded=!opsExpanded">
       <span class="dot dot-primary dot-pulse" aria-hidden="true"></span>
       <span class="font-semibold text-[12px]" x-text="t('states.running', { count: activeOps.length })"></span>
@@ -7939,7 +7940,8 @@
                     @click="reconnectHostTerminal()"
                     x-text="t('hosts_extra_ssh.terminal.reconnect')"></button>
             <button @click="closeHostTerminal()" class="btn btn-ghost"
-                    :title="t('hosts_extra_ssh.terminal.close_hint')">✕</button>
+                    :title="t('hosts_extra_ssh.terminal.close_hint')"
+                    :aria-label="t('hosts_extra_ssh.terminal.close_hint')">✕</button>
           </div>
         </header>
         <div class="terminal-host scrollbar"
