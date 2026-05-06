@@ -1227,6 +1227,16 @@ button:disabled {
 .chip.pill-info    { background: color-mix(in srgb, var(--info) 14%, transparent);
                      color: var(--info);
                      border-color: color-mix(in srgb, var(--info) 30%, transparent); }
+/* `.pill-warning` exists as a standalone pill rule but the `.chip.*`
+   variant grid was missing this row — `.chip.pill-warning` was
+   inheriting the bare `.chip` base + the loose `.pill-warning` rule,
+   which on chip-density elements rendered with a transparent fill
+   (the user reported the AI tab's `Backup N` chip was visually
+   indistinguishable from the surrounding card surface). Match the
+   token pattern of the other chip variants. */
+.chip.pill-warning { background: var(--pill-update-bg);
+                     color: var(--pill-update-fg);
+                     border-color: var(--pill-update-br); }
 .chip.pill-degraded { background: var(--pill-degraded-bg);
                       color: var(--pill-degraded-fg);
                       border-color: var(--pill-degraded-br); }

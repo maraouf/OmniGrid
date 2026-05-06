@@ -2178,7 +2178,17 @@ function app() {
           services: its.filter(i => i.type === 'service').length,
           containers: its.filter(i => i.type === 'container' || i.type === 'orphan').length,
           stacks:   stackList.filter(s => !s.is_standalone).length,
-          updates:  its.filter(i => i.status === 'update').length,
+          // `updates` counts ONLY actionable live items — running
+          // items with a newer remote digest. Offline / orphan
+          // containers with stale digests are tracked separately
+          // under `updates_offline` so the per-node header chip
+          // doesn't inflate when the operator just has a few exited
+          // task containers whose pinned image happens to have
+          // drifted. Mirrors the per-stack rollup in
+          // `logic/gather.py` (the server-side split for the
+          // Stacks view) so both views read consistently.
+          updates:  its.filter(i => i.status === 'update' && i.health !== 'offline').length,
+          updates_offline: its.filter(i => i.status === 'update' && i.health === 'offline').length,
           // Up-to-date count so the Nodes header can show a green
           // pill matching the Stacks view's `uptodate / total ok`
           // convention. Without this, Nodes shows only the bad
