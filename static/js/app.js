@@ -2802,6 +2802,7 @@ function app() {
           icon: 'warning',
           confirmText: this.t('admin.schedules.run_now'),
           confirmColor: this._cssVar('--danger'),
+          focusConfirm: true,
         });
         if (!ok) return;
       }
@@ -8368,6 +8369,7 @@ function app() {
         icon: 'warning',
         confirmText: this.t('history.clear_confirm_button'),
         confirmColor: this._cssVar('--danger'),
+        focusConfirm: true,
       });
       if (!ok) return;
       await fetch('/api/history', { method: 'DELETE' });
@@ -21780,11 +21782,13 @@ function app() {
             title: this.t('dialogs.update_stack_title'),
             html: this.t('dialogs.update_stack_html', { name: item.stack }),
             icon: 'warning', confirmText: this.t('actions.update_stack'),
+            focusConfirm: true,
           })
         : await this.confirmDialog({
             title: this.t('dialogs.recreate_container_title'),
             html: this.t('dialogs.recreate_container_html', { name: item.name }),
             icon: 'warning', confirmText: this.t('actions.recreate'),
+            focusConfirm: true,
           });
       if (!ok) return;
       if (this.isItemBusy(item)) return;
@@ -21812,6 +21816,7 @@ function app() {
         title: this.t('dialogs.update_stack_title'),
         html: this.t('dialogs.update_stack_html', { name: stack.name }),
         icon: 'warning', confirmText: this.t('actions.update_stack'),
+        focusConfirm: true,
       });
       if (!ok) return;
       if (this.isStackBusy(stack)) return;
@@ -21897,6 +21902,7 @@ function app() {
                  || 'This container isn\'t managed by Portainer\'s stack engine — it will be stopped, removed, and recreated with the new tag. Named volumes + env + networks survive; transient state does not.')
               + '</div>')),
         icon: 'warning', confirmText: this.t('actions.retag_latest'),
+        focusConfirm: true,
       });
       if (!ok) return;
       const key = isStackPath
@@ -21933,6 +21939,7 @@ function app() {
         title: isService ? this.t('dialogs.restart_service_title') : this.t('dialogs.restart_container_title'),
         html: body,
         icon: 'question', confirmText: this.t('actions.restart'), confirmColor: this._cssVar('--primary'),
+        focusConfirm: true,
       });
       if (!ok) return;
       if (this.isRestartBusy(item)) return;
@@ -21963,6 +21970,7 @@ function app() {
         icon: 'warning',
         confirmText: this.t('swarm_agent_banner.restart_button'),
         confirmColor: this._cssVar('--warning'),
+        focusConfirm: true,
       });
       if (!ok) return;
       if (this.swarmAgentRestartBusy) return;
@@ -21993,6 +22001,7 @@ function app() {
         title: this.t(titleKey, { count: picked.length }),
         html: this.t('dialogs.bulk_restart_html', { items, more }),
         icon: 'question', confirmText: this.t('actions.restart'), confirmColor: this._cssVar('--primary'),
+        focusConfirm: true,
       });
       if (!ok) return;
       let okCount = 0, fail = 0;
@@ -22018,6 +22027,7 @@ function app() {
         title: this.t('dialogs.remove_container_title'),
         html: this.t('dialogs.remove_container_html', { name: item.name }),
         icon: 'warning', confirmText: this.t('actions.remove'), confirmColor: this._cssVar('--danger'),
+        focusConfirm: true,
       });
       if (!ok) return;
       if (this.isItemBusy(item)) return;
@@ -22061,6 +22071,7 @@ function app() {
           skipped_note: skippedNote, items, more,
         }),
         icon: 'warning', confirmText: this.t('actions.update'),
+        focusConfirm: true,
       });
       if (!ok) return;
       let okCount = 0, fail = 0;
@@ -22100,6 +22111,7 @@ function app() {
         title: this.t(titleKey, { count: picked.length }),
         html: this.t('dialogs.bulk_remove_html', { items, more }),
         icon: 'warning', confirmText: this.t('actions.remove'), confirmColor: this._cssVar('--danger'),
+        focusConfirm: true,
       });
       if (!ok) return;
       let okCount = 0, fail = 0;
