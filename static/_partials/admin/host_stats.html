@@ -79,7 +79,7 @@
             <input x-model="settings.node_exporter_url_template" type="text"
                    :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
                    class="w-full mono text-[11.5px]"
-                   placeholder="http://{host}:9100/metrics">
+                   :placeholder="t('settings.host_stats.url_placeholder')">
             <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
                x-text="t('settings.host_stats.url_hint')"></p>
           </div>
@@ -188,7 +188,7 @@
             <input x-model="settings.beszel_hub_url" type="url"
                    :disabled="isReadonly() || !hasHostStatsSource('beszel')"
                    class="w-full mono text-[11.5px]"
-                   placeholder="http://beszel.example.com:8090">
+                   :placeholder="t('settings.host_stats.beszel_url_placeholder')">
             <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
                x-text="t('settings.host_stats.beszel_url_hint')"></p>
           </div>
@@ -198,7 +198,7 @@
             <input x-model="settings.beszel_identity" type="text"
                    :disabled="isReadonly() || !hasHostStatsSource('beszel')"
                    class="w-full text-[11.5px]"
-                   placeholder="readonly@example.com">
+                   :placeholder="t('settings.host_stats.beszel_identity_placeholder')">
           </div>
           <div>
             <label class="block text-[11px] text-[var(--text-faint)] mb-1">

@@ -117,11 +117,8 @@
                     :title="t('admin_ssh.clear_password_title')"
                     x-text="t('admin_ssh.clear_label')"></button>
           </div>
-          <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
-            Used when no private key is configured, or when a per-host
-            row overrides with its own password. Key auth wins when
-            both are set.
-          </p>
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+             x-text="t('admin_ssh.password_help')"></p>
         </div>
         <!-- FQDN suffix — appended to bare host IDs during SSH resolve.
              Example: ssh_fqdn_suffix=".example.com", host id="webserver"
@@ -129,19 +126,15 @@
              already contain a dot are used as-is. Per-host ssh.host
              / ssh.fqdn override wins over the suffix rule. -->
         <div class="mb-3">
-          <label class="block text-[11px] text-[var(--text-faint)] mb-1">
-            FQDN suffix
-          </label>
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                 x-text="t('admin_ssh.fqdn_suffix_label')"></label>
           <input x-model="sshSettings.fqdn_suffix" type="text"
                  @input="markSshSettingsDirty()"
                  :disabled="isReadonly() || !settings.ssh_enabled"
-                 placeholder="e.g. .example.com"
+                 :placeholder="t('admin_ssh.fqdn_suffix_placeholder')"
                  class="w-full mono text-[12.5px] py-1.5">
-          <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
-            Appended to bare host IDs that don't already contain a dot.
-            Normalised on save to include the leading dot (you can paste
-            with or without).
-          </p>
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+             x-text="t('admin_ssh.fqdn_suffix_help')"></p>
         </div>
         <div class="mb-3">
           <label class="block text-[11px] text-[var(--text-faint)] mb-1"

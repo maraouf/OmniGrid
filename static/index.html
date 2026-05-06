@@ -725,7 +725,8 @@
       </div>
       <button @click="dismissSessionSecretWarning()"
               class="btn btn-ghost text-[11px] flex-shrink-0"
-              :title="t('warnings.session_secret_auto.dismiss_title')">✕</button>
+              :title="t('warnings.session_secret_auto.dismiss_title')"
+              :aria-label="t('actions.close')">✕</button>
     </div>
 
     <!-- / Bootstrap-admin env vars still set in .env even
@@ -742,7 +743,8 @@
       </div>
       <button @click="dismissBootstrapEnvWarning()"
               class="btn btn-ghost text-[11px] flex-shrink-0"
-              :title="t('warnings.bootstrap_env_still_set.dismiss_title')">✕</button>
+              :title="t('warnings.bootstrap_env_still_set.dismiss_title')"
+              :aria-label="t('actions.close')">✕</button>
     </div>
 
     <!-- BULK BAR — only shown to admins (readonly can select for inspection but not act). -->
@@ -1981,7 +1983,8 @@
               x-show="hostsSearch"
               x-text="filteredHosts().length + ' of ' + hosts.length"></span>
         <button x-show="hostsSearch" @click="hostsSearch=''"
-                class="btn btn-ghost text-[11px]" :title="t('hosts_extra.empty.clear_filter')">✕</button>
+                class="btn btn-ghost text-[11px]" :title="t('hosts_extra.empty.clear_filter')"
+                :aria-label="t('hosts_extra.empty.clear_filter')">✕</button>
         <label class="flex items-center gap-1.5 text-[11px] text-[var(--text-faint)] whitespace-nowrap"
                :title="t('hosts_extra.hide_unconfigured_title')">
           <input type="checkbox" x-model="hostsHideUnconfigured" class="align-middle">
@@ -2978,8 +2981,13 @@
   </main>
 
   <!-- ================== ACTIVE OPS FLOATING PANEL ================== -->
+  <!-- bottom-4 → bottom: calc(...) so the panel clears the mobile-nav
+       footer + iOS home-bar safe area on narrow viewports (matches
+       the .hosts-bulk-bar pattern). On desktop --mobile-nav-height
+       is 0px so behaviour is unchanged. -->
   <div x-show="activeOps.length>0"
-       class="fixed bottom-4 end-4 bg-[var(--surface)] border border-[var(--primary)]/40 rounded-md w-[380px] max-w-[calc(100vw-32px)] z-40 glow fade-in">
+       class="fixed end-4 bg-[var(--surface)] border border-[var(--primary)]/40 rounded-md w-[380px] max-w-[calc(100vw-32px)] z-40 glow fade-in"
+       style="bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + var(--s-4))">
     <button type="button"
             class="active-ops-header w-full text-start px-3 py-2 bg-[var(--surface-2)] border-b border-[var(--border)] flex items-center gap-2 cursor-pointer rounded-t-md"
             :aria-expanded="opsExpanded ? 'true' : 'false'"
@@ -3090,7 +3098,8 @@
                   </button>
                   <button @click="closeHostDrawer()"
                           class="btn btn-ghost text-base leading-none"
-                          :title="t('actions.close') || 'Close'">✕</button>
+                          :title="t('actions.close') || 'Close'"
+                          :aria-label="t('actions.close') || 'Close'">✕</button>
                 </div>
               </div>
               <!-- Permanent-fail banner — fires when the
@@ -3313,7 +3322,8 @@
                           @click="toggleHealthPopover()"
                           class="btn btn-ghost text-[11.5px]"
                           :aria-label="t('hosts_extra.health.popover_close')"
-                          :title="t('hosts_extra.health.popover_close')">✕</button>
+                          :title="t('hosts_extra.health.popover_close')"
+                          :aria-label="t('hosts_extra.health.popover_close')">✕</button>
                 </div>
                 <template x-for="axis in healthAxes(h)" :key="axis.key">
                   <div class="axis-row text-[11.5px]">

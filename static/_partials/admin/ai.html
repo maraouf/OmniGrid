@@ -49,6 +49,19 @@
               </select>
               <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
                  x-text="t('admin.ai.active_provider_hint')"></p>
+              <!-- Inline warning when the operator has the active provider
+                   set to a disabled one. Doesn't block Save (staged
+                   config is a real workflow — set name now, enable
+                   later) but flags the mismatch so they don't ship a
+                   broken state and wonder why the palette can't reach
+                   the model. -->
+              <p x-show="settings.ai_enabled && settings.ai_active_provider
+                          && aiForm.providers[settings.ai_active_provider]
+                          && !aiForm.providers[settings.ai_active_provider].enabled"
+                 class="text-[10.5px] text-[var(--warning)] mt-1 flex items-center gap-1.5">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
+                <span x-text="t('admin.ai.active_provider_disabled_warning')"></span>
+              </p>
             </div>
             <!-- Generic max_tokens — applied to every provider's chat
                  completion request. Bumped when a provider's response
@@ -83,14 +96,22 @@
         </section>
 
         <!-- Dashboard tiles — top row of compact stat cards. Renders
-             zero / NA cleanly on a fresh deploy with no recorded jobs. -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+             zero / NA cleanly on a fresh deploy with no recorded jobs.
+             aria-busy on the section flips while a fetch is in flight
+             so screen readers announce the loading state without the
+             operator misreading "0%" as authoritative empty data. The
+             header also shows a subtle inline spinner while loading. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
+                 :aria-busy="aiDashboardLoading ? 'true' : 'false'">
           <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
             <div class="flex items-center gap-2">
               <svg width="14" height="14" aria-hidden="true" class="text-[var(--text-dim)]">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
               </svg>
               <h3 class="font-semibold text-[13px]" x-text="t('admin.ai.dashboard_title')"></h3>
+              <span x-show="aiDashboardLoading" class="spin" aria-hidden="true"></span>
+              <span x-show="aiDashboardLoading" class="text-[10.5px] text-[var(--text-faint)]"
+                    x-text="t('admin.ai.dashboard_loading')"></span>
             </div>
             <div class="flex items-center gap-2 text-[11px]">
               <span class="text-[var(--text-faint)]" x-text="t('admin.ai.range_label')"></span>

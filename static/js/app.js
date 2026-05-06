@@ -12084,7 +12084,12 @@ function app() {
           label: x.action.label,
           sub:   x.action.sub || '',
           payload: x.action,
-          group: 'actions',
+          // Pill colour gates on `destructive` so safe commands (theme
+          // switch / refresh) get the info accent and destructive
+          // ones (logout / cleanup) keep the danger accent. The
+          // template binds `cmdpal-kind-<group>` so the group string
+          // itself decides the class.
+          group: x.action.destructive ? 'actions-destructive' : 'actions',
         });
       }
       // Hosts — search id / label / asset name / vendor / model.
@@ -12406,12 +12411,20 @@ function app() {
           swal.fire({
             icon:  'error',
             title: this.t('command_palette.ai.error_title') || 'AI request failed',
-            html:  '<div class="text-[12px] mono" style="text-align:left;white-space:pre-wrap">'
+            // role="alert" + aria-live="assertive" — backstops
+            // SweetAlert's `icon: 'error'` semantic so screen readers
+            // announce the failure body verbatim. Belt-and-braces; the
+            // SweetAlert role="dialog" + icon image alone don't always
+            // trigger an announcement on every reader.
+            html:  '<div class="text-[12px] mono" role="alert" aria-live="assertive" '
+                   + 'style="text-align:left;white-space:pre-wrap">'
                    + this._logEscape(detail) + '</div>',
           });
           return;
         }
-        const answer = (j.text || '').trim() || (this.t('command_palette.ai.empty_response') || '(empty response)');
+        const rawAnswer = (j.text || '').trim();
+        const answerIsEmpty = !rawAnswer;
+        const answer = rawAnswer || (this.t('command_palette.ai.empty_response') || '(empty response)');
         const tokens = (j.tokens && (j.tokens.prompt + j.tokens.completion)) || 0;
         const fmtNum = (n) => Number.isFinite(+n) ? (+n).toLocaleString() : String(n || 0);
         // Backend stamps `j.action = "<id>"` when the AI wants to
@@ -12475,7 +12488,14 @@ function app() {
             + '<span class="ai-resp-label-dot" aria-hidden="true"></span>'
             + this._logEscape(this.t('command_palette.ai.answer_label') || 'Answer')
             + '</div>'
-            + '<div class="ai-resp-answer">'
+            // Empty-response state gets `role="status" aria-live="polite"`
+            // so screen readers announce "(empty response)" instead of
+            // skipping it as silent body text. Real-content responses
+            // stay as plain divs (no aria-live) — re-announcing every
+            // multi-paragraph answer would be noisy.
+            + (answerIsEmpty
+              ? '<div class="ai-resp-answer" role="status" aria-live="polite" style="opacity:0.7">'
+              : '<div class="ai-resp-answer">')
             + this._logEscape(answer)
             + '</div>'
             + actionRanLine

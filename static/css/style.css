@@ -1877,11 +1877,16 @@ details summary::-webkit-details-marker {
 .cmdpal-kind-admin    { background: color-mix(in srgb, var(--primary) 18%, transparent); color: var(--text); }
 .cmdpal-kind-views    { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
 .cmdpal-kind-hotkeys  { background: color-mix(in srgb, var(--text-faint) 20%, transparent); color: var(--text-faint); }
-/* Verb commands (refresh / restart / pause / theme / sign out) — danger
-   accent so they read as "this DOES something" against the navigation
-   rows above. Action chips lead the result list when the query is verb-
-   prefixed, drop below navigation when not. */
-.cmdpal-kind-actions  { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+/* Verb commands (refresh / restart / pause / theme / sign out) — split
+   between "safe" (theme switch / refresh / open notifications — info
+   accent) and "destructive" (logout / cleanup — danger accent) so the
+   pill colour matches the actual blast radius. Pre-fix every action
+   inherited the danger accent and innocent commands like "switch to
+   dark theme" misled the operator into hesitating. The descriptor's
+   `destructive: bool` flag drives which class the row gets via
+   `commandPaletteResults()`. */
+.cmdpal-kind-actions             { background: color-mix(in srgb, var(--info)   18%, transparent); color: var(--info); }
+.cmdpal-kind-actions-destructive { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
 /* AI assistant fallback row — uses the primary accent (same as the
    admin kind) but with a slightly stronger mix so it stands out as the
    "ask the model" affordance distinct from the navigation rows. */
