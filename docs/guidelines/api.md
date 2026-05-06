@@ -119,8 +119,8 @@ part of any auth handshake) to pick up Admin → Config edits without a SPA relo
   "role": "admin",
   "source": "local",
   "client_config": {
-    "ops_poll_ms": 2000,             // tuning_ops_poll_interval_seconds × 1000 (renamed in #514)
-    "hosts_parallel_fetch": 6,        // tuning_hosts_parallel_fetch (#508)
+    "ops_poll_ms": 2000,             // tuning_ops_poll_interval_seconds × 1000
+    "hosts_parallel_fetch": 6,        // tuning_hosts_parallel_fetch
     "scheduler_tz": { "configured": "Africa/Cairo", "resolved": "Africa/Cairo", "fallback": false }
     // ...
   }
@@ -557,7 +557,7 @@ curl -sS https://omnigrid.example.com/api/version | jq
 ```
 
 The `/api/admin/version` endpoint and Admin → Version UI page were removed in 2026-04-30
-alongside the deploy migration to image-build (#606). Versions are now baked into the image
+alongside the deploy migration to image-build. Versions are now baked into the image
 at build time via the Dockerfile's `ARG VERSION`; durable MAJOR/MINOR seeds are done by
 editing the repo-root `VERSION.txt`, committing, and pushing — `deploy.yml`'s version
 resolver picks it up as the floor for the next PATCH bump. See `docs/RELEASE_PROCESS.md`

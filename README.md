@@ -63,7 +63,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ### Deploy story
 - **No Docker socket** — every Docker call goes through Portainer's REST API.
-- **Image-build deploy** (#609) — CI pipeline rsyncs the build context (Dockerfile + source + `node_modules/`) to the Swarm manager, builds an `omnigrid:<version>` image there, pushes to a container registry, and force-updates the Swarm service onto the new tag. Each version is pinned in Swarm's task spec so manual rollback has a discrete tag to point at.
+- **Image-build deploy** — CI pipeline rsyncs the build context (Dockerfile + source + `node_modules/`) to the Swarm manager, builds an `omnigrid:<version>` image there, pushes to a container registry, and force-updates the Swarm service onto the new tag. Each version is pinned in Swarm's task spec so manual rollback has a discrete tag to point at.
 - **Self-healing** — Swarm `update_config: start-first, failure_action: rollback, monitor: 30s` so a failed deploy auto-rolls back (the same template OmniGrid recommends for services it manages).
 
 ## Architecture
@@ -207,11 +207,11 @@ GET    /api/history?limit=100&search=...   persisted completed ops (filterable)
 DELETE /api/history                        clear history (admin)
 
 # Hosts (curated inventory + telemetry)
-GET    /api/hosts                          legacy — composes /list + per-row /one (#524). Accepts ?force=true
+GET    /api/hosts                          legacy — composes /list + per-row /one. Accepts ?force=true
 GET    /api/hosts/list                     skeleton list (fast, no per-host probes). Accepts ?force=true
 GET    /api/hosts/one/{host_id}            single curated host merged with provider data. Accepts ?force=true
 GET    /api/hosts/history?system_id=...&host_id=...&hours=...   per-host time-series; system_id (Beszel) OR host_id (NE-only)
-GET    /api/hosts/{host_id}/ping/history?hours=...              ping reachability + RTT series (#343)
+GET    /api/hosts/{host_id}/ping/history?hours=...              ping reachability + RTT series
 GET / POST                   /api/hosts/config                   list / replace `hosts_config`
 GET                          /api/hosts/discover                 probe each provider for available host names
 POST                         /api/hosts/test                     per-row validation (provider names + URLs)
@@ -238,12 +238,12 @@ GET / POST / DELETE          /api/tokens[/{id}]
 # Settings & integrations (admin)
 GET    /api/settings
 POST   /api/settings                       additive — null = keep current
-POST   /api/portainer/test                 probe Portainer + verify endpoint id (#335)
+POST   /api/portainer/test                 probe Portainer + verify endpoint id
 POST   /api/beszel/test
 POST   /api/pulse/test
 POST   /api/webmin/test
-POST   /api/ping/test                      probe a single ping target (TCP or ICMP) (#343)
-POST   /api/snmp/test                      probe an SNMP v2c / v3 target (#344)
+POST   /api/ping/test                      probe a single ping target (TCP or ICMP)
+POST   /api/snmp/test                      probe an SNMP v2c / v3 target
 POST   /api/oidc/test                      probe issuer's discovery endpoint
 POST   /api/notify-test                    fire a test Apprise ping
 

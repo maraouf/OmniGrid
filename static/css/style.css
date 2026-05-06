@@ -1643,7 +1643,7 @@ details summary::-webkit-details-marker {
     appearance: none;
     border: 1px solid var(--border);
     background: var(--surface-2);
-    border-radius: var(--r-md, 6px);
+    border-radius: var(--r-md);
     padding: var(--s-3) var(--s-4);
     text-align: start;
     color: inherit;
@@ -1686,7 +1686,7 @@ details summary::-webkit-details-marker {
     gap: 2px;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: var(--r-sm, 4px);
+    border-radius: var(--r-sm);
     padding: var(--s-2) var(--s-3);
 }
 .ai-provider-row {
@@ -1741,7 +1741,7 @@ details summary::-webkit-details-marker {
 .ai-provider-card {
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: var(--r-md, 6px);
+    border-radius: var(--r-md);
     padding: var(--s-3) var(--s-4);
 }
 .cmdpal-kind-pill {

@@ -57,12 +57,12 @@ single-use, can be downloaded as a .txt, and remain visible (encrypted at rest) 
 Profile → Security. If you've never enrolled in TOTP and lose every passkey, ask an admin
 to clear your 2FA via the Users tab.
 
-## RP-ID mismatch detection (#605)
+## RP-ID mismatch detection
 
 If you migrate OmniGrid between hostnames (e.g. `omnigrid.old.example.com` → `omnigrid.new.example.com`)
 or move from a `localhost:8088` dev URL to a production NPM-fronted domain, the browser refuses
 to offer your previously-enrolled passkeys at the new origin — they were registered against the
-old RP ID and the new domain is a separate WebAuthn relying party. Pre-#605 this manifested as
+old RP ID and the new domain is a separate WebAuthn relying party. Earlier this manifested as
 "the Passkey button defaults to QR with no explanation" and the operator had no in-UI signal of
 why their fingerprint / Touch ID prompts weren't appearing.
 
@@ -77,11 +77,11 @@ Today:
   Security on the new domain ({current})."*
 - **Profile → Security** shows a per-credential red "registered for `<old-rp-id>`" badge so the
   operator can revoke + re-enrol orphaned credentials WITHOUT needing to authenticate first.
-- Server logs include a greppable `[webauthn] <user> login-start RP-ID mismatch (#605) current=<x>
+- Server logs include a greppable `[webauthn] <user> login-start RP-ID mismatch current=<x>
   orphaned=[...] matching=N` line per affected login attempt.
 
-Empty `rp_id` (legacy credentials enrolled before #605 landed) is treated as unknown / assume
-matching — existing enrolments don't fire spurious banners.
+Empty `rp_id` (legacy credentials enrolled before this feature landed) is treated as unknown /
+assume matching — existing enrolments don't fire spurious banners.
 
 ## Troubleshooting
 

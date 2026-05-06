@@ -4317,6 +4317,10 @@ async def api_ai_palette(
             prompt_t = int(tokens_dict.get("prompt") or 0)
             completion_t = int(tokens_dict.get("completion") or 0)
             total_t = prompt_t + completion_t
+            ok_flag = bool(isinstance(out, dict) and out.get("ok"))
+            response_ms = int((out.get("response_time_ms") or 0) if isinstance(out, dict) else 0)
+            err_detail = (out.get("detail") or "") if (isinstance(out, dict) and not ok_flag) else None
+            now_ts = int(time.time())
             c.execute(
                 "INSERT INTO ai_jobs ("
                 "  ts, provider, model, kind, status,"
@@ -4324,24 +4328,76 @@ async def api_ai_palette(
                 "  cost_usd, response_time_ms, error, metadata"
                 ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    int(time.time()),
+                    now_ts,
                     active,
                     model or "",
                     "palette",
-                    "success" if (isinstance(out, dict) and out.get("ok")) else "error",
+                    "success" if ok_flag else "error",
                     prompt_t,
                     completion_t,
                     total_t,
                     None,  # cost not yet computed — provider rate-card
                            # plumbing belongs in a follow-up.
-                    int((out.get("response_time_ms") or 0) if isinstance(out, dict) else 0),
-                    (out.get("detail") or "") if (isinstance(out, dict) and not out.get("ok")) else None,
+                    response_ms,
+                    err_detail,
                     None,
+                ),
+            )
+            # Mirror the call into the history table too — operators want
+            # AI prompts + answers in the History tab alongside other ops
+            # (stack updates / restarts / etc.) so they can troubleshoot
+            # weeks-old AI interactions without dropping into the SQLite
+            # browser. `events` carries the structured payload (prompt /
+            # answer / tokens / action_id) as JSON; the existing History
+            # detail view already renders that field for every op_type.
+            # `target_name` = provider, `target_id` = model so the tab's
+            # search-by-name filter finds AI calls naturally.
+            try:
+                events_json = json.dumps({
+                    "prompt": query,
+                    "answer": text,
+                    "action_id": action_id or "",
+                    "tokens": {
+                        "prompt": prompt_t,
+                        "completion": completion_t,
+                        "total": total_t,
+                    },
+                    "context": {
+                        "view":  ctx.get("view") if isinstance(ctx, dict) else "",
+                        # Only count — full lists are noise in History.
+                        "hosts_count": (
+                            len(ctx.get("hosts") or [])
+                            if isinstance(ctx, dict) else 0
+                        ),
+                        "items_count": (
+                            len(ctx.get("items") or [])
+                            if isinstance(ctx, dict) else 0
+                        ),
+                    },
+                }, ensure_ascii=False)
+            except (TypeError, ValueError):
+                events_json = "{}"
+            c.execute(
+                "INSERT INTO history ("
+                "  ts, op_type, target_kind, target_name, target_id,"
+                "  status, duration, events, error, actor"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (
+                    float(now_ts),
+                    "ai_palette",
+                    "ai",
+                    active,
+                    model or "",
+                    "success" if ok_flag else "error",
+                    (response_ms / 1000.0) if response_ms else 0.0,
+                    events_json,
+                    err_detail,
+                    getattr(_admin, "username", "ui") or "ui",
                 ),
             )
             c.commit()
     except Exception as _e:
-        print(f"[ai] ai_jobs insert failed: {_e}")
+        print(f"[ai] ai_jobs / history insert failed: {_e}")
 
     return out
 
