@@ -1548,7 +1548,19 @@
       "error_title":    "AI request failed",
       "empty_response": "(empty response)",
       "action_ran":     "Ran action: ",
-      "disabled":       "AI is disabled — enable it in Admin → AI Integration"
+      "disabled":       "AI is disabled — enable it in Admin → AI Integration",
+      "disk_chart": {
+        "loading":          "Loading projection…",
+        "no_data":          "Not enough sampled history yet",
+        "error":            "Could not load projection",
+        "confidence_high":   "High Confidence",
+        "confidence_medium": "Medium Confidence",
+        "confidence_low":    "Low Confidence",
+        "stable":           "stable / shrinking",
+        "long_horizon":     "no exhaustion in window",
+        "exhaustion_now":   "fills imminently",
+        "exhaustion_days":  "runs out in ~{days} days"
+      }
     },
     "admin": {
       "general": "Admin → General",

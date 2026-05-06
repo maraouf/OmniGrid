@@ -12681,6 +12681,202 @@ function app() {
         ? this._commandActions() : [];
       return all.find(a => a.id === target) || null;
     },
+    // ----- AI palette: per-host disk-projection charts ------------------
+    // Backend HOSTS protocol returns `j.hosts: [<id>, ...]` alongside the
+    // answer text. We render a placeholder shell per id inline in the
+    // SweetAlert body, then async-fan-out fetches and inject the SVG
+    // chart once each `/api/hosts/{id}/disk-projection` resolves.
+    _renderAiHostChartShells(hostIds) {
+      if (!Array.isArray(hostIds) || hostIds.length === 0) return '';
+      const shells = hostIds.map(hid => {
+        const safeAttr = String(hid).replace(/[^A-Za-z0-9_.-]/g, '_');
+        return ('<div class="ai-resp-chart" data-disk-host="' + safeAttr + '">'
+          + '<div class="ai-resp-chart-header">'
+          + '<span class="ai-resp-chart-title">' + this._logEscape(hid) + '</span>'
+          + '<span class="ai-resp-chart-status">'
+          + this._logEscape(this.t('command_palette.ai.disk_chart.loading') || 'Loading projection…')
+          + '</span>'
+          + '</div>'
+          + '<div class="ai-resp-chart-body">'
+          + '<span class="spin" aria-hidden="true"></span>'
+          + '</div>'
+          + '</div>');
+      }).join('');
+      return '<div class="ai-resp-charts">' + shells + '</div>';
+    },
+    async _populateAiHostChart(hostId) {
+      const safeAttr = String(hostId).replace(/[^A-Za-z0-9_.-]/g, '_');
+      const shell = document.querySelector('[data-disk-host="' + safeAttr + '"]');
+      if (!shell) return;
+      try {
+        const r = await fetch(
+          '/api/hosts/' + encodeURIComponent(hostId) + '/disk-projection?hours=720'
+        );
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          shell.innerHTML = this._renderDiskProjectionInner(hostId, null,
+            (data && data.error) || ('HTTP ' + r.status));
+          return;
+        }
+        shell.innerHTML = this._renderDiskProjectionInner(hostId, data, null);
+      } catch (e) {
+        shell.innerHTML = this._renderDiskProjectionInner(hostId, null, e.message || String(e));
+      }
+    },
+    _renderDiskProjectionInner(hostId, data, errorMsg) {
+      const t = (k, fb) => this.t(k) || fb;
+      const esc = (s) => this._logEscape(s);
+      const hidEsc = esc(hostId);
+      // Error path — couldn't fetch / parse.
+      if (errorMsg) {
+        return ('<div class="ai-resp-chart-header">'
+          + '<span class="ai-resp-chart-title">' + hidEsc + '</span>'
+          + '<span class="ai-resp-chart-status ai-resp-chart-status--error">'
+          + esc(t('command_palette.ai.disk_chart.error', 'Could not load projection') + ': ' + errorMsg)
+          + '</span>'
+          + '</div>');
+      }
+      const samples = (data && Array.isArray(data.samples)) ? data.samples : [];
+      const projection = (data && Array.isArray(data.projection)) ? data.projection : [];
+      // Insufficient data — render a header + placeholder, no chart.
+      if (samples.length < 2) {
+        return ('<div class="ai-resp-chart-header">'
+          + '<span class="ai-resp-chart-title">' + hidEsc + '</span>'
+          + '<span class="ai-resp-chart-status ai-resp-chart-status--muted">'
+          + esc(t('command_palette.ai.disk_chart.no_data', 'Not enough sampled history yet'))
+          + '</span>'
+          + '</div>');
+      }
+      // Compose the SVG. Layout:
+      //   total area: 640w × 100h. Chart drawable: 562w × 70h
+      //   (left pad 30 for "%" labels, right pad 8, top pad 6, bottom pad 24)
+      const W = 640, H = 100, PL = 30, PR = 8, PT = 6, PB = 24;
+      const cw = W - PL - PR;
+      const ch = H - PT - PB;
+      const tFirst = samples[0].ts;
+      // Project window — last projection point or last sample if no projection.
+      const projLast = projection.length > 0
+        ? projection[projection.length - 1].ts : samples[samples.length - 1].ts;
+      const tLast = Math.max(projLast, samples[samples.length - 1].ts);
+      const tNow = (data && data.current && data.current.ts) || samples[samples.length - 1].ts;
+      const xOf = (ts) => PL + ((ts - tFirst) / Math.max(1, (tLast - tFirst))) * cw;
+      const yOf = (pct) => PT + (1 - Math.max(0, Math.min(100, pct)) / 100) * ch;
+      // Historical area path: closed polygon along the top + back along the baseline.
+      let areaPath = 'M ' + xOf(samples[0].ts) + ' ' + yOf(samples[0].used_pct);
+      for (let i = 1; i < samples.length; i++) {
+        areaPath += ' L ' + xOf(samples[i].ts) + ' ' + yOf(samples[i].used_pct);
+      }
+      // Close to baseline (y=H-PB) — area fill underneath.
+      areaPath += ' L ' + xOf(samples[samples.length - 1].ts) + ' ' + (H - PB);
+      areaPath += ' L ' + xOf(samples[0].ts) + ' ' + (H - PB) + ' Z';
+      // Historical stroke (top edge of the area, no closing).
+      let histStroke = 'M ' + xOf(samples[0].ts) + ' ' + yOf(samples[0].used_pct);
+      for (let i = 1; i < samples.length; i++) {
+        histStroke += ' L ' + xOf(samples[i].ts) + ' ' + yOf(samples[i].used_pct);
+      }
+      // Projection stroke (dashed, from "now" forward).
+      let projStroke = '';
+      if (projection.length >= 2) {
+        projStroke = 'M ' + xOf(projection[0].ts) + ' ' + yOf(projection[0].used_pct);
+        for (let i = 1; i < projection.length; i++) {
+          projStroke += ' L ' + xOf(projection[i].ts) + ' ' + yOf(projection[i].used_pct);
+        }
+      }
+      // Y-axis ticks at 0/50/100.
+      const yTicks = [0, 50, 100].map(p => (
+        '<line x1="' + PL + '" y1="' + yOf(p) + '" x2="' + (W - PR) + '" y2="' + yOf(p) + '" '
+        + 'stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>'
+        + '<text x="' + (PL - 4) + '" y="' + (yOf(p) + 3) + '" text-anchor="end" '
+        + 'class="ai-resp-chart-axis">' + p + '%</text>'
+      )).join('');
+      // X-axis labels: first / now / last (formatted as MMM DD).
+      const fmtDate = (ts) => {
+        const d = new Date(ts * 1000);
+        const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+        return m + ' ' + d.getDate();
+      };
+      const xLabels = (
+        '<text x="' + xOf(tFirst) + '" y="' + (H - 6) + '" text-anchor="start" class="ai-resp-chart-axis">'
+        + esc(fmtDate(tFirst)) + '</text>'
+        + '<text x="' + xOf(tNow) + '" y="' + (H - 6) + '" text-anchor="middle" class="ai-resp-chart-axis ai-resp-chart-now-label">'
+        + esc(t('common.now', 'Now')) + '</text>'
+        + '<text x="' + xOf(tLast) + '" y="' + (H - 6) + '" text-anchor="end" class="ai-resp-chart-axis">'
+        + esc(fmtDate(tLast)) + '</text>'
+      );
+      // "Now" vertical divider.
+      const nowLine = (
+        '<line x1="' + xOf(tNow) + '" y1="' + PT + '" x2="' + xOf(tNow) + '" y2="' + (H - PB) + '" '
+        + 'stroke="var(--text-faint)" stroke-width="1" stroke-dasharray="3,3"/>'
+      );
+      const svg = ('<svg viewBox="0 0 ' + W + ' ' + H + '" '
+        + 'preserveAspectRatio="xMidYMid meet" class="ai-resp-chart-svg" '
+        + 'role="img" aria-label="' + esc(hostId + ' disk usage projection') + '">'
+        + yTicks
+        + '<path d="' + areaPath + '" class="ai-resp-chart-area"/>'
+        + '<path d="' + histStroke + '" class="ai-resp-chart-line ai-resp-chart-line--hist" fill="none"/>'
+        + (projStroke ? '<path d="' + projStroke + '" class="ai-resp-chart-line ai-resp-chart-line--proj" fill="none"/>' : '')
+        + nowLine
+        + xLabels
+        + '</svg>');
+      // Header bar: host id + summary chip + confidence pill.
+      const cur = (data && data.current) || {};
+      const currentPct = (cur.used_pct !== undefined && cur.used_pct !== null) ? Math.round(cur.used_pct) : null;
+      const fmtBytes = (n) => {
+        if (!Number.isFinite(+n) || +n <= 0) return '';
+        const v = +n;
+        if (v >= 1024**4) return (v / 1024**4).toFixed(1) + ' TB';
+        if (v >= 1024**3) return (v / 1024**3).toFixed(1) + ' GB';
+        if (v >= 1024**2) return (v / 1024**2).toFixed(1) + ' MB';
+        return v + ' B';
+      };
+      const slope = data && data.slope_pct_per_day;
+      const exhaustionTs = data && data.exhaustion_ts;
+      const confidence = (data && data.confidence) || 'low';
+      const confLabel = t('command_palette.ai.disk_chart.confidence_' + confidence,
+        confidence === 'high' ? 'High Confidence'
+        : confidence === 'medium' ? 'Medium Confidence' : 'Low Confidence');
+      let summaryParts = [];
+      if (currentPct !== null) {
+        const freeStr = (cur.total_bytes && cur.used_bytes !== undefined)
+          ? esc(fmtBytes(cur.total_bytes - cur.used_bytes) + ' free of ' + fmtBytes(cur.total_bytes))
+          : '';
+        summaryParts.push('<strong>' + currentPct + '% used</strong>'
+          + (freeStr ? ' · <span class="ai-resp-chart-sub">' + freeStr + '</span>' : ''));
+      }
+      let trendLabel = '';
+      if (typeof slope === 'number') {
+        const sign = slope > 0 ? '+' : '';
+        trendLabel = sign + slope.toFixed(2) + '%/day';
+      }
+      let exhaustionLabel = '';
+      if (exhaustionTs) {
+        const days = Math.max(0, Math.round((exhaustionTs - Math.floor(Date.now() / 1000)) / 86400));
+        exhaustionLabel = days <= 0
+          ? esc(t('command_palette.ai.disk_chart.exhaustion_now', 'fills imminently'))
+          : esc(t('command_palette.ai.disk_chart.exhaustion_days', 'runs out in ~' + days + ' days')
+            .replace('{days}', String(days)));
+      } else if (typeof slope === 'number' && slope <= 0) {
+        exhaustionLabel = esc(t('command_palette.ai.disk_chart.stable', 'stable / shrinking'));
+      } else {
+        exhaustionLabel = esc(t('command_palette.ai.disk_chart.long_horizon', 'no exhaustion in window'));
+      }
+      const summaryRow = (
+        '<div class="ai-resp-chart-summary">'
+        + (summaryParts.length ? summaryParts.join('') : '')
+        + (trendLabel ? ' · <span class="ai-resp-chart-sub">' + esc(trendLabel) + '</span>' : '')
+        + ' · <span class="ai-resp-chart-sub">' + exhaustionLabel + '</span>'
+        + '</div>'
+      );
+      return (
+        '<div class="ai-resp-chart-header">'
+        + '<span class="ai-resp-chart-title">' + hidEsc + '</span>'
+        + '<span class="ai-resp-chart-confidence ai-resp-chart-confidence--' + esc(confidence) + '">'
+        + esc(confLabel) + '</span>'
+        + '</div>'
+        + '<div class="ai-resp-chart-body">' + svg + '</div>'
+        + summaryRow
+      );
+    },
     async _runCommandPaletteAi(payload) {
       const query = (payload && payload.query) || '';
       if (!query) return;
@@ -12868,12 +13064,29 @@ function app() {
             + '</div>'
             + actionRanLine
             + '</div>'
+            // HOSTS-protocol chart shells. Backend strips the
+            // `HOSTS: ...` trailer from the answer text and returns
+            // `j.hosts = [...]`; for each id we render a placeholder
+            // here, then fan out per-host /api/hosts/{id}/disk-projection
+            // fetches AFTER swal.fire() opens the modal and replace each
+            // shell with the rendered chart inline.
+            + this._renderAiHostChartShells(Array.isArray(j.hosts) ? j.hosts : [])
             + (metaChips.length
               ? '<div class="ai-resp-meta">' + metaChips.join('') + '</div>'
               : '')
             + '</div>',
           width: 720,
         });
+        // Kick off the per-host projection fetches. swal.fire() returned
+        // synchronously (no `await`) so the modal is mounted; we can
+        // querySelector each shell and inject the SVG once the fetch
+        // resolves. Errors land as a small "no data" hint per host so
+        // one failed projection doesn't poison the whole modal.
+        if (Array.isArray(j.hosts) && j.hosts.length > 0) {
+          for (const hid of j.hosts) {
+            this._populateAiHostChart(hid);
+          }
+        }
         // Fire the action AFTER the answer modal renders. Destructive
         // actions will surface their confirm via SweetAlert which
         // takes over the dialog stack — operator sees the confirm
