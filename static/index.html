@@ -3419,6 +3419,89 @@
                       </li>
                     </template>
                   </ul>
+
+                  <!-- ========== SIMILAR INCIDENTS PANEL ==========
+                       Computed similarity grouping over the same time
+                       window. Walks history + notifications +
+                       host_failure_events for the host, classifies each
+                       error into one of ~10 buckets (timeout / auth /
+                       refused / dns / tls / not-found / server-error /
+                       network / parse / rate-limit / other), groups
+                       by (provider, pattern), surfaces aggregate stats
+                       per group. Operators used to scroll-hunt across
+                       three surfaces to triangulate "is this the same
+                       problem we've seen before"; this panel does the
+                       work upfront. Lives BELOW the timeline so the
+                       chronological events come first; the patterns
+                       below summarise what those events have in common. -->
+                  <div x-show="hostTriage[h.id] && (hostTriage[h.id].groups || []).length > 0"
+                       class="mt-5 pt-4 border-t border-dashed border-[var(--border)]">
+                    <div class="flex items-center gap-2 mb-3">
+                      <svg width="13" height="13" class="text-[var(--text-dim)]" aria-hidden="true"><use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-target'"/></svg>
+                      <h4 class="font-semibold text-[12.5px]"
+                          x-text="t('host_drawer.triage.heading')"></h4>
+                      <span class="text-[10.5px] text-[var(--text-faint)]"
+                            x-text="t('host_drawer.triage.summary', {
+                              groups: (hostTriage[h.id].groups || []).length,
+                              hours:  (hostTriage[h.id].scope && hostTriage[h.id].scope.hours) || 0,
+                            })"></span>
+                    </div>
+                    <ul class="triage-list space-y-1.5">
+                      <template x-for="(g, gi) in (hostTriage[h.id] ? hostTriage[h.id].groups : [])"
+                                :key="(g.provider || '_') + ':' + g.pattern + ':' + gi">
+                        <li class="triage-row rounded border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
+                          <button type="button"
+                                  class="triage-row-header w-full flex items-center gap-2 text-start"
+                                  @click="toggleTriageGroup(h.id, gi)"
+                                  :aria-expanded="isTriageGroupExpanded(h.id, gi) ? 'true' : 'false'">
+                            <svg width="10" height="10" class="flip-rtl flex-shrink-0" aria-hidden="true"
+                                 :style="isTriageGroupExpanded(h.id, gi) ? 'transform: rotate(90deg)' : ''"><use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-chevron-right'"/></svg>
+                            <span class="chip text-[10px] px-1.5 py-0 mono"
+                                  :class="triagePatternChipClass(g.pattern)"
+                                  x-text="triagePatternLabel(g.pattern)"></span>
+                            <span class="text-[11.5px] text-[var(--text-dim)]"
+                                  x-show="g.provider"
+                                  x-text="g.provider"></span>
+                            <span class="flex-1"></span>
+                            <span class="text-[11.5px] text-[var(--text)]"
+                                  x-text="t('host_drawer.triage.row_summary', {
+                                    count: g.count,
+                                    last:  hostTimelineTimeLabel(g.last_ts || 0),
+                                    avg:   triageAvgRecoveryLabel(g.avg_duration_s),
+                                  })"></span>
+                          </button>
+                          <div x-show="isTriageGroupExpanded(h.id, gi)" x-cloak class="mt-2 ms-5">
+                            <div x-show="(g.sample_errors || []).length > 0"
+                                 class="text-[10.5px] text-[var(--text-dim)] mono break-words mb-2">
+                              <template x-for="err in (g.sample_errors || []).slice(0, 3)" :key="err">
+                                <div class="mb-0.5" x-text="'· ' + err"></div>
+                              </template>
+                            </div>
+                            <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider mb-1"
+                                 x-show="(g.occurrences || []).length > 0"
+                                 x-text="t('host_drawer.triage.occurrences_label', { count: g.occurrences.length })"></div>
+                            <ul class="space-y-0.5">
+                              <template x-for="(occ, oi) in (g.occurrences || []).slice(0, 8)" :key="occ.ts + ':' + oi">
+                                <li class="text-[10.5px] mono">
+                                  <span class="text-[var(--text-faint)]"
+                                        x-text="hostTimelineTimeLabel(occ.ts)"></span>
+                                </li>
+                              </template>
+                              <li class="text-[10px] text-[var(--text-faint)] italic"
+                                  x-show="(g.occurrences || []).length > 8"
+                                  x-text="t('host_drawer.triage.more_occurrences', { count: g.occurrences.length - 8 })"></li>
+                            </ul>
+                          </div>
+                        </li>
+                      </template>
+                    </ul>
+                  </div>
+                  <div x-show="hostTriage[h.id] && (hostTriage[h.id].groups || []).length === 0
+                               && !hostTriage[h.id].error
+                               && !hostTriage[h.id].loading
+                               && hostTimeline[h.id] && (hostTimeline[h.id].events || []).length > 0"
+                       class="mt-3 text-[10.5px] text-[var(--text-faint)] italic"
+                       x-text="t('host_drawer.triage.no_patterns')"></div>
                 </div>
               </section>
               <!-- Drawer grid — shows whenever we have ANY data

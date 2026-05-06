@@ -192,34 +192,32 @@
             <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
                x-text="t('settings.host_stats.beszel_url_hint')"></p>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-            <div>
-              <label class="block text-[11px] text-[var(--text-faint)] mb-1"
-                     x-text="t('settings.host_stats.beszel_identity_label')"></label>
-              <input x-model="settings.beszel_identity" type="text"
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('settings.host_stats.beszel_identity_label')"></label>
+            <input x-model="settings.beszel_identity" type="text"
+                   :disabled="isReadonly() || !hasHostStatsSource('beszel')"
+                   class="w-full text-[11.5px]"
+                   placeholder="readonly@example.com">
+          </div>
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+              <span x-text="t('settings.host_stats.beszel_password_label')"></span>
+            </label>
+            <span x-show="settings.beszel_password_set" class="block text-[11px] text-[var(--success)] mb-1"
+                  x-text="t('settings.secret_input.saved_hint')"></span>
+            <div class="secret-input-row">
+              <input x-model="settings.beszel_password" type="password"
+                     autocomplete="new-password"
                      :disabled="isReadonly() || !hasHostStatsSource('beszel')"
                      class="w-full text-[11.5px]"
-                     placeholder="readonly@example.com">
-            </div>
-            <div>
-              <label class="block text-[11px] text-[var(--text-faint)] mb-1">
-                <span x-text="t('settings.host_stats.beszel_password_label')"></span>
-              </label>
-              <span x-show="settings.beszel_password_set" class="block text-[11px] text-[var(--success)] mb-1"
-                    x-text="t('settings.secret_input.saved_hint')"></span>
-              <div class="secret-input-row">
-                <input x-model="settings.beszel_password" type="password"
-                       autocomplete="new-password"
-                       :disabled="isReadonly() || !hasHostStatsSource('beszel')"
-                       class="text-[11.5px]"
-                       :placeholder="settings.beszel_password_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.beszel_password_placeholder')">
-                <button type="button"
-                        x-show="settings.beszel_password_set && isAdmin()"
-                        @click="clearBeszelPassword()"
-                        :disabled="!hasHostStatsSource('beszel')"
-                        class="btn btn-ghost text-[11.5px] secret-input-clear"
-                        x-text="t('settings.host_stats.clear_secret_label')"></button>
-              </div>
+                     :placeholder="settings.beszel_password_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.beszel_password_placeholder')">
+              <button type="button"
+                      x-show="settings.beszel_password_set && isAdmin()"
+                      @click="clearBeszelPassword()"
+                      :disabled="!hasHostStatsSource('beszel')"
+                      class="btn btn-ghost text-[11.5px] secret-input-clear"
+                      x-text="t('settings.host_stats.clear_secret_label')"></button>
             </div>
           </div>
           <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
@@ -353,7 +351,7 @@
               <input x-model="settings.pulse_token" type="password"
                      autocomplete="new-password"
                      :disabled="isReadonly() || !hasHostStatsSource('pulse')"
-                     class="text-[11.5px]"
+                     class="w-full text-[11.5px]"
                      :placeholder="settings.pulse_token_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.pulse_token_placeholder')">
               <button type="button"
                       x-show="settings.pulse_token_set && isAdmin()"
@@ -473,35 +471,33 @@
                   :class="hasHostStatsSource('webmin') ? 'pill-ok' : 'pill-muted'"
                   x-text="hasHostStatsSource('webmin') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-            <div>
-              <label class="block text-[11px] text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.webmin_user_label')"></label>
-              <input x-model="settings.webmin_user" type="text"
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.webmin_user_label')"></label>
+            <input x-model="settings.webmin_user" type="text"
+                   :disabled="isReadonly() || !hasHostStatsSource('webmin')"
+                   class="w-full text-[11.5px]"
+                   :placeholder="t('settings.host_stats.webmin_user_placeholder')">
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-html="t('settings.host_stats.webmin_user_hint_html')"></p>
+          </div>
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+              <span x-text="t('settings.host_stats.webmin_password_label')"></span>
+            </label>
+            <span x-show="settings.webmin_password_set" class="block text-[11px] text-[var(--success)] mb-1"
+                  x-text="t('settings.secret_input.saved_hint')"></span>
+            <div class="secret-input-row">
+              <input x-model="settings.webmin_password" type="password"
+                     autocomplete="new-password"
                      :disabled="isReadonly() || !hasHostStatsSource('webmin')"
                      class="w-full text-[11.5px]"
-                     :placeholder="t('settings.host_stats.webmin_user_placeholder')">
-              <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
-                 x-html="t('settings.host_stats.webmin_user_hint_html')"></p>
-            </div>
-            <div>
-              <label class="block text-[11px] text-[var(--text-faint)] mb-1">
-                <span x-text="t('settings.host_stats.webmin_password_label')"></span>
-              </label>
-              <span x-show="settings.webmin_password_set" class="block text-[11px] text-[var(--success)] mb-1"
-                    x-text="t('settings.secret_input.saved_hint')"></span>
-              <div class="secret-input-row">
-                <input x-model="settings.webmin_password" type="password"
-                       autocomplete="new-password"
-                       :disabled="isReadonly() || !hasHostStatsSource('webmin')"
-                       class="text-[11.5px]"
-                       :placeholder="settings.webmin_password_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.webmin_password_placeholder')">
-                <button type="button"
-                        x-show="settings.webmin_password_set && isAdmin()"
-                        @click="clearWebminPassword()"
-                        :disabled="!hasHostStatsSource('webmin')"
-                        class="btn btn-ghost text-[11.5px] secret-input-clear"
-                        x-text="t('settings.host_stats.clear_secret_label')"></button>
-              </div>
+                     :placeholder="settings.webmin_password_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.webmin_password_placeholder')">
+              <button type="button"
+                      x-show="settings.webmin_password_set && isAdmin()"
+                      @click="clearWebminPassword()"
+                      :disabled="!hasHostStatsSource('webmin')"
+                      class="btn btn-ghost text-[11.5px] secret-input-clear"
+                      x-text="t('settings.host_stats.clear_secret_label')"></button>
             </div>
           </div>
           <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">

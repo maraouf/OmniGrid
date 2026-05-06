@@ -61,7 +61,7 @@
                       @input="markSshSettingsDirty()"
                       :disabled="isReadonly() || !settings.ssh_enabled"
                       rows="6"
-                      class="mono text-[11px] py-1.5 scrollbar"
+                      class="w-full mono text-[11px] py-1.5 scrollbar"
                       :placeholder="sshSettings.private_key_set ? t('settings.secret_input.placeholder_keep') : t('admin_ssh.key_placeholder')"></textarea>
             <button type="button"
                     x-show="sshSettings.private_key_set && isAdmin()"
@@ -84,7 +84,7 @@
                    autocomplete="new-password"
                    @input="markSshSettingsDirty()"
                    :disabled="isReadonly() || !settings.ssh_enabled"
-                   class="text-[12.5px]"
+                   class="w-full text-[12.5px]"
                    :placeholder="sshSettings.passphrase_set ? t('settings.secret_input.placeholder_keep') : t('admin_ssh.passphrase_placeholder')">
             <button type="button"
                     x-show="sshSettings.passphrase_set && isAdmin()"
@@ -108,7 +108,7 @@
                    autocomplete="new-password"
                    @input="markSshSettingsDirty()"
                    :disabled="isReadonly() || !settings.ssh_enabled"
-                   class="text-[12.5px]"
+                   class="w-full text-[12.5px]"
                    :placeholder="sshSettings.password_set ? t('settings.secret_input.placeholder_keep') : t('admin_ssh.password_placeholder')">
             <button type="button"
                     x-show="sshSettings.password_set && isAdmin()"
