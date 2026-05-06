@@ -7835,11 +7835,8 @@
         <div class="ai-turn" :class="turn.role === 'user' ? 'ai-turn-user' : 'ai-turn-assistant'">
           <div x-show="turn.text || turn.error"
                class="ai-bubble"
-               :class="turn.role === 'user' ? 'ai-bubble-user' : (turn.error ? 'ai-bubble-error' : 'ai-bubble-assistant')">
-            <div x-show="turn.text && !turn.error" x-text="turn.text"></div>
-            <div x-show="turn.error" class="text-[12px]"
-                 x-text="t('ai_sidebar.error_prefix') + ' ' + turn.error"></div>
-          </div>
+               :class="turn.role === 'user' ? 'ai-bubble-user' : (turn.error ? 'ai-bubble-error' : 'ai-bubble-assistant')"
+               x-text="turn.error ? (t('ai_sidebar.error_prefix') + ' ' + turn.error) : turn.text"></div>
           <div x-show="turn.role === 'assistant' && turn.action_label && turn.action_ran"
                class="ai-bubble-action">
             <svg width="10" height="10" aria-hidden="true">

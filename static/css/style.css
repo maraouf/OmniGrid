@@ -3472,30 +3472,33 @@ details summary::-webkit-details-marker {
 .ai-turn {
     display: flex;
     flex-direction: column;
-    width: fit-content;
-    max-width: 100%;
+    width: 100%;
 }
 .ai-turn-user {
-    align-self: flex-end;
     align-items: flex-end;
-    max-width: 80%;
 }
 .ai-turn-assistant {
-    align-self: flex-start;
     align-items: flex-start;
-    max-width: 92%;
 }
 .ai-bubble {
-    display: inline-block;
-    width: auto;
-    max-width: 100%;
+    /* `width: max-content` shrinks the bubble to its text's natural
+       single-line width, capped by `max-width`. This is the reliable
+       way to get a chat-bubble shape inside a flex column — `width:
+       fit-content` and `display: inline-block` both fight the flex
+       algorithm in subtle ways. */
+    width: max-content;
+    max-width: 80%;
     padding: 5px 10px;
     border-radius: 12px;
-    font-size: 12.5px;
+    font-size: 12.5px !important;
     line-height: 1.35;
     white-space: pre-wrap;
     word-wrap: break-word;
     overflow-wrap: anywhere;
+    text-align: start;
+}
+.ai-turn-assistant .ai-bubble {
+    max-width: 92%;
 }
 .ai-bubble-user {
     background: var(--primary);
@@ -3524,7 +3527,7 @@ details summary::-webkit-details-marker {
 }
 .ai-bubble-meta {
     margin-top: 1px;
-    font-size: 9.5px;
+    font-size: 9.5px !important;
     color: var(--text-faint);
     font-family: var(--font-mono, monospace);
     line-height: 1.25;
@@ -3540,11 +3543,10 @@ details summary::-webkit-details-marker {
     color: var(--success);
     border: 1px solid var(--success);
     border-radius: var(--r-sm);
-    font-size: 10px;
+    font-size: 10px !important;
     line-height: 14px;
     font-weight: 500;
     white-space: nowrap;
-    width: fit-content;
 }
 .ai-bubble-feedback {
     display: inline-flex;
