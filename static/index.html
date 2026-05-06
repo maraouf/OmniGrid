@@ -7772,6 +7772,133 @@
        result's `kind` (see commandPaletteActivate in app.js).
        Backdrop click + Esc close. ↑/↓ moves selection; Enter
        activates. -->
+  <!-- ============== AI ASSISTANT SIDEBAR ============== -->
+  <!-- Floating launcher button — always visible on the left edge,
+       vertically centered. Clicking opens the conversational AI
+       drawer; Cmd-K / Ctrl-K does the same. Hidden while the drawer
+       is open so it doesn't visually clash with the drawer surface. -->
+  <button type="button"
+          x-show="!aiSidebarOpen"
+          @click="openAiSidebar()"
+          class="ai-sidebar-launcher"
+          :title="t('ai_sidebar.launcher_title')"
+          :aria-label="t('ai_sidebar.launcher_title')">
+    <svg width="18" height="18" aria-hidden="true">
+      <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-message-circle'"/>
+    </svg>
+  </button>
+  <!-- Backdrop — click to dismiss. Sits below the drawer
+       (z-39 vs z-40) so the drawer is always reachable. -->
+  <div x-show="aiSidebarOpen"
+       x-cloak
+       @click="closeAiSidebar()"
+       class="ai-sidebar-backdrop"
+       aria-hidden="true"></div>
+  <!-- Drawer — slides in from the left. Always rendered so the
+       slide-in transform animates; visibility controlled via the
+       `.open` class. -->
+  <aside class="ai-sidebar-drawer"
+         :class="aiSidebarOpen ? 'open' : ''"
+         role="dialog" aria-modal="true"
+         :aria-label="t('ai_sidebar.drawer_label')"
+         :aria-hidden="aiSidebarOpen ? 'false' : 'true'">
+    <div class="ai-sidebar-header">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-message-circle'"/>
+      </svg>
+      <h3 x-text="t('ai_sidebar.title')"></h3>
+      <button type="button"
+              @click="clearAiConversation()"
+              x-show="aiConversation.length > 0"
+              class="btn btn-ghost text-[11px]"
+              :title="t('ai_sidebar.clear_title')"
+              x-text="t('ai_sidebar.clear')"></button>
+      <button type="button"
+              @click="closeAiSidebar()"
+              class="btn btn-ghost text-[11px]"
+              :title="t('actions.close')"
+              :aria-label="t('actions.close')">
+        <svg width="14" height="14" aria-hidden="true">
+          <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-x'"/>
+        </svg>
+      </button>
+    </div>
+    <div id="og-ai-sidebar-log" class="ai-sidebar-log scrollbar">
+      <div x-show="aiConversation.length === 0 && !aiSidebarBusy"
+           class="ai-sidebar-log-empty">
+        <div>
+          <div class="text-[12.5px] mb-1" x-text="t('ai_sidebar.empty_title')"></div>
+          <div class="text-[11px]" x-text="t('ai_sidebar.empty_hint')"></div>
+        </div>
+      </div>
+      <template x-for="(turn, idx) in aiConversation" :key="idx">
+        <div class="flex flex-col" :class="turn.role === 'user' ? 'items-end' : 'items-start'">
+          <div class="ai-bubble"
+               :class="turn.role === 'user' ? 'ai-bubble-user' : (turn.error ? 'ai-bubble-error' : 'ai-bubble-assistant')">
+            <div x-show="turn.role === 'user' || (turn.text && !turn.error)"
+                 x-text="turn.text"></div>
+            <div x-show="turn.error" class="text-[12px]"
+                 x-text="t('ai_sidebar.error_prefix') + ' ' + turn.error"></div>
+            <div x-show="turn.role === 'assistant' && turn.action_label && turn.action_ran"
+                 class="ai-bubble-action">
+              <svg width="10" height="10" aria-hidden="true">
+                <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-check'"/>
+              </svg>
+              <span x-text="t('ai_sidebar.action_ran') + ' ' + turn.action_label"></span>
+            </div>
+            <div x-show="turn.role === 'assistant' && !turn.error" class="ai-bubble-feedback">
+              <button type="button"
+                      class="ai-feedback-btn"
+                      :class="turn.feedback === 'up' ? 'active-up' : ''"
+                      :disabled="aiSidebarFeedbackBusy[idx]"
+                      :title="t('ai_sidebar.feedback_up')"
+                      @click="submitAiFeedback(idx, 'up')">👍</button>
+              <button type="button"
+                      class="ai-feedback-btn"
+                      :class="turn.feedback === 'down' ? 'active-down' : ''"
+                      :disabled="aiSidebarFeedbackBusy[idx]"
+                      :title="t('ai_sidebar.feedback_down')"
+                      @click="submitAiFeedback(idx, 'down')">👎</button>
+            </div>
+          </div>
+          <div x-show="turn.role === 'assistant' && !turn.error && aiTurnSubline(turn)"
+               class="ai-bubble-meta"
+               x-text="aiTurnSubline(turn)"></div>
+        </div>
+      </template>
+      <div x-show="aiSidebarBusy" class="ai-sidebar-thinking">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('command_palette.ai.thinking_title')"></span>
+      </div>
+    </div>
+    <div class="ai-sidebar-input-row">
+      <textarea id="og-ai-sidebar-input"
+                x-model="aiSidebarQuery"
+                @keydown="aiSidebarHandleKeydown($event)"
+                :placeholder="t('ai_sidebar.input_placeholder')"
+                :disabled="aiSidebarBusy || !aiSidebarSurfaceEnabled()"
+                rows="2"></textarea>
+      <div class="ai-sidebar-input-actions">
+        <button type="button"
+                @click="sendAiSidebarMessage()"
+                :disabled="aiSidebarBusy || !aiSidebarQuery.trim() || !aiSidebarSurfaceEnabled()"
+                class="btn btn-primary text-[12px]">
+          <span x-show="!aiSidebarBusy" x-text="t('ai_sidebar.send')"></span>
+          <span x-show="aiSidebarBusy" class="flex items-center gap-1">
+            <span class="spin"></span>
+            <span x-text="t('ai_sidebar.send_busy')"></span>
+          </span>
+        </button>
+        <span class="text-[10px] text-[var(--text-faint)]"
+              x-show="aiSidebarSurfaceEnabled()"
+              x-text="t('ai_sidebar.enter_hint')"></span>
+        <span class="text-[10.5px] text-[var(--warning)]"
+              x-show="!aiSidebarSurfaceEnabled()"
+              x-text="t('command_palette.ai.disabled')"></span>
+      </div>
+    </div>
+  </aside>
+
   <!-- Modal display gated by inline :style instead of x-show.
        Three rounds of operator reports of Ctrl+K not opening the
        panel; capture-phase listener confirmed the keystroke

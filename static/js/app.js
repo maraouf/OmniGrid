@@ -677,6 +677,20 @@ function app() {
     commandPaletteOpen: false,
     commandPaletteQuery: '',
     commandPaletteSelectedIdx: 0,
+    // ----- AI Assistant sidebar (conversational drawer) ---------------
+    // Cmd-K / Ctrl-K + the floating launcher button on the left edge
+    // both open this drawer. Multi-turn chat with the active AI
+    // provider; each turn carries the prior conversation as context so
+    // follow-ups land coherent. Conversation log lives in memory only
+    // — closing + reopening keeps it (same SPA load); a hard reload
+    // clears it. Each assistant turn carries an optional `action`
+    // descriptor (auto-executed) and a `job_id` for thumbs-up/down
+    // feedback that writes to ai_jobs.accuracy_score.
+    aiSidebarOpen: false,
+    aiSidebarQuery: '',
+    aiSidebarBusy: false,
+    aiConversation: [],          // [{role, text, action?, job_id?, feedback?, ts, error?}]
+    aiSidebarFeedbackBusy: {},   // turn-index → bool while POST /api/ai/feedback in flight
     // Bulk palette mode — entered via verb-prefix queries like
     // `pause: web*` or `resume: provider:beszel`. When active the
     // palette renders a chip strip of matched hosts + a single "Run
@@ -1664,8 +1678,12 @@ function app() {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        if (this.commandPaletteOpen) this.closeCommandPalette();
-        else this.openCommandPalette();
+        // Cmd-K / Ctrl-K now opens the AI Assistant sidebar (the
+        // conversational drawer that replaced the modal palette). The
+        // legacy palette modal stays in code as a programmatic option
+        // but is no longer the primary keyboard target.
+        if (this.aiSidebarOpen) this.closeAiSidebar();
+        else this.openAiSidebar();
       }, { capture: true });
       // (Diagnostic `window.__omnigridOpenPalette` escape hatch
       //  removed — the palette is verified working in production
@@ -12857,6 +12875,186 @@ function app() {
       } catch (_) {
         return false;
       }
+    },
+    // ----- AI Assistant sidebar (conversational drawer) ----------------
+    //
+    // Floating launcher button (left edge) + Cmd-K both open the
+    // sidebar. Multi-turn chat: each user query carries the prior
+    // conversation as context so follow-ups land coherent. Each
+    // assistant turn surfaces the action that ran (auto-executed) and
+    // accepts thumbs-up/down feedback that updates the row in
+    // ai_jobs.
+    openAiSidebar() {
+      this.aiSidebarOpen = true;
+      // Focus the input next tick so typing works immediately.
+      this.$nextTick(() => {
+        const el = document.getElementById('og-ai-sidebar-input');
+        if (el && typeof el.focus === 'function') el.focus();
+      });
+    },
+    closeAiSidebar() {
+      this.aiSidebarOpen = false;
+    },
+    toggleAiSidebar() {
+      if (this.aiSidebarOpen) this.closeAiSidebar();
+      else this.openAiSidebar();
+    },
+    clearAiConversation() {
+      this.aiConversation = [];
+      this.aiSidebarQuery = '';
+      this.aiSidebarFeedbackBusy = {};
+    },
+    aiSidebarSurfaceEnabled() {
+      // Same gate as the legacy palette's AI fallback row.
+      return (typeof this._aiPaletteSurfaceEnabled === 'function')
+        ? this._aiPaletteSurfaceEnabled()
+        : false;
+    },
+    async sendAiSidebarMessage() {
+      const q = (this.aiSidebarQuery || '').trim();
+      if (!q || this.aiSidebarBusy) return;
+      if (!this.aiSidebarSurfaceEnabled()) {
+        if (typeof this.showToast === 'function') {
+          this.showToast(this.t('command_palette.ai.disabled')
+                         || 'AI is disabled — enable it in Admin → AI Integration', 'error');
+        }
+        return;
+      }
+      // Push the user turn immediately so the operator sees feedback.
+      this.aiConversation.push({
+        role: 'user',
+        text: q,
+        ts:   Date.now(),
+      });
+      this.aiSidebarQuery = '';
+      this.aiSidebarBusy = true;
+      this._scrollAiSidebarToBottom();
+
+      // Build conversation context for the backend — only role + text
+      // pairs (no metadata). Cap at the last 12 turns so token budget
+      // doesn't balloon on long chats.
+      const priorTurns = this.aiConversation
+        .slice(0, -1)  // exclude the user turn we just pushed
+        .filter(t => t && t.role && (t.text || '').trim())
+        .slice(-12)
+        .map(t => ({ role: t.role, text: t.text }));
+
+      // Minimal context (same shape as the legacy modal call).
+      const hostsCtx = (this.hosts || []).slice(0, 30).map(h => h.id || h.host).filter(Boolean);
+      const itemsCtx = (this.items || []).slice(0, 30).map(i => i.name).filter(Boolean);
+      const ctx = {
+        view:  this.view || '',
+        hosts: hostsCtx,
+        items: itemsCtx,
+      };
+      try {
+        const r = await fetch('/api/ai/palette', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: q, context: ctx, conversation: priorTurns }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) {
+          this.aiConversation.push({
+            role:  'assistant',
+            text:  '',
+            error: (j && j.detail) || (this.t('toasts.failed') || 'Failed'),
+            ts:    Date.now(),
+          });
+          return;
+        }
+        const answer = (j.text || '').trim() || (this.t('command_palette.ai.empty_response') || '(empty response)');
+        const actionId = (j.action || '').toString().trim();
+        const actionDesc = actionId ? this._actionDescriptorById(actionId) : null;
+        const turn = {
+          role:             'assistant',
+          text:             answer,
+          provider:         j.provider || '',
+          model:            j.model || '',
+          response_time_ms: j.response_time_ms || 0,
+          tokens:           (j.tokens && (j.tokens.prompt + j.tokens.completion)) || 0,
+          job_id:           (j.job_id !== undefined && j.job_id !== null) ? j.job_id : null,
+          action_id:        actionId || null,
+          action_label:     actionDesc ? (actionDesc.label || actionId) : null,
+          action_ran:       false,
+          ts:               Date.now(),
+        };
+        this.aiConversation.push(turn);
+        // Auto-run the proposed action (operator-requested behaviour:
+        // "do the action directly, don't show button"). Destructive
+        // actions still confirm via SweetAlert; that overlay sits on
+        // top of the sidebar, not inside it.
+        if (actionDesc) {
+          turn.action_ran = true;
+          this._runCommandPaletteAction(actionDesc);
+        }
+      } catch (e) {
+        this.aiConversation.push({
+          role:  'assistant',
+          text:  '',
+          error: (e && e.message) ? e.message : 'AI request failed',
+          ts:    Date.now(),
+        });
+      } finally {
+        this.aiSidebarBusy = false;
+        this._scrollAiSidebarToBottom();
+      }
+    },
+    _scrollAiSidebarToBottom() {
+      this.$nextTick(() => {
+        const el = document.getElementById('og-ai-sidebar-log');
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+    async submitAiFeedback(turnIdx, rating) {
+      const turn = this.aiConversation[turnIdx];
+      if (!turn || turn.role !== 'assistant') return;
+      if (turn.feedback === rating) return;  // already set
+      if (this.aiSidebarFeedbackBusy[turnIdx]) return;
+      // Optimistic UI — flip immediately, revert on failure.
+      const prev = turn.feedback || '';
+      turn.feedback = rating;
+      this.aiSidebarFeedbackBusy[turnIdx] = true;
+      try {
+        const r = await fetch('/api/ai/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job_id: turn.job_id || null, rating }),
+        });
+        if (!r.ok) {
+          turn.feedback = prev;
+          if (typeof this.showToast === 'function') {
+            this.showToast(this.t('toasts.failed') || 'Failed', 'error');
+          }
+        }
+      } catch (e) {
+        turn.feedback = prev;
+        if (typeof this.showToast === 'function') {
+          this.showToast((e && e.message) || 'Failed', 'error');
+        }
+      } finally {
+        this.aiSidebarFeedbackBusy[turnIdx] = false;
+      }
+    },
+    aiSidebarHandleKeydown(e) {
+      // Enter sends; Shift+Enter inserts a newline.
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this.sendAiSidebarMessage();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.closeAiSidebar();
+      }
+    },
+    aiTurnSubline(turn) {
+      if (!turn) return '';
+      const fmtNum = (n) => Number.isFinite(+n) ? (+n).toLocaleString() : String(n || 0);
+      const parts = [];
+      if (turn.provider) parts.push(turn.provider);
+      if (turn.model) parts.push(turn.model);
+      if (turn.response_time_ms) parts.push(fmtNum(turn.response_time_ms) + 'ms');
+      if (turn.tokens) parts.push(fmtNum(turn.tokens) + ' tokens');
+      return parts.join(' · ');
     },
     // Resolve a snake_case action ID emitted by the AI palette
     // backend (e.g. `mark_all_notifications_read`) to a descriptor
