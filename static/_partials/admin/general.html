@@ -29,8 +29,9 @@
                  :disabled="isReadonly() || !settings.open_meteo_enabled"
                  :placeholder="t('admin_integrations.open_meteo_placeholder')"
                  class="w-full mono text-[12px]">
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-2" x-text="t('admin_integrations.open_meteo_hint')"></p>
           <!-- Save action row below the input — matches the Apprise
-               panel above it for visual consistency (operator request). -->
+               panel above it for visual consistency. -->
           <div class="flex items-center gap-3 mt-3 flex-wrap pt-3 border-t border-[var(--border)]" x-show="isAdmin()">
             <button @click="saveOpenMeteoUrl()"
                     :disabled="openMeteoSaving"
@@ -45,7 +46,6 @@
               <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
             </span>
           </div>
-          <p class="text-[10.5px] text-[var(--text-faint)] mt-2" x-text="t('admin_integrations.open_meteo_hint')"></p>
         </div>
       </section>
 

@@ -144,7 +144,7 @@
             <button type="button" @click="openAiModal('response_time')" class="ai-tile">
               <div class="ai-tile-label" x-text="t('admin.ai.tile.response_time')"></div>
               <div class="ai-tile-value"
-                   x-text="(aiDashboard && aiDashboard.summary.avg_response_time_ms !== null) ? Math.round(aiDashboard.summary.avg_response_time_ms) + ' ms' : '—'"></div>
+                   x-text="(aiDashboard && aiDashboard.summary.avg_response_time_ms !== null) ? (Math.round(aiDashboard.summary.avg_response_time_ms)).toLocaleString() + ' ms' : '—'"></div>
               <div class="ai-tile-sub" x-text="t('admin.ai.tile.response_time_sub')"></div>
             </button>
             <button type="button" @click="openAiModal('accuracy')" class="ai-tile">
@@ -327,7 +327,7 @@
                            on `result.response_time_ms` without `?.`. -->
                       <span x-show="aiTestState[name].result?.response_time_ms !== undefined"
                             class="text-[var(--text-faint)] mono"
-                            x-text="'(' + (aiTestState[name].result?.response_time_ms ?? 0) + ' ms)'"></span>
+                            x-text="'(' + (Number(aiTestState[name].result?.response_time_ms ?? 0)).toLocaleString() + ' ms)'"></span>
                     </span>
                   </div>
                   <p x-show="aiTestState[name].result && !aiTestState[name].result?.ok"
@@ -431,7 +431,7 @@
                               x-text="opStatusLabel(j.status)"></td>
                           <td class="py-1 text-end" x-text="aiFormatNumber(j.total_tokens || 0)"></td>
                           <td class="py-1 text-end" x-text="(j.cost_usd !== null && j.cost_usd !== undefined) ? '$' + j.cost_usd.toFixed(4) : '—'"></td>
-                          <td class="py-1 text-end" x-text="(j.response_time_ms !== null && j.response_time_ms !== undefined) ? j.response_time_ms + ' ms' : '—'"></td>
+                          <td class="py-1 text-end" x-text="(j.response_time_ms !== null && j.response_time_ms !== undefined) ? (Number(j.response_time_ms)).toLocaleString() + ' ms' : '—'"></td>
                         </tr>
                       </template>
                     </tbody>
