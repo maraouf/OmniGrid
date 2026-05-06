@@ -1505,6 +1505,10 @@
       "logout":               "Sign out",
       "logout_confirm_title": "Sign out?",
       "logout_confirm_text":  "End your current session.",
+      "cleanup_stopped":              "Cleanup — remove every stopped / failed container",
+      "cleanup_stopped_sub":          "Same as the topbar Cleanup button",
+      "cleanup_stopped_confirm_title": "Cleanup stopped containers?",
+      "cleanup_stopped_confirm_text":  "Removes every stopped, failed, or orphaned container the dashboard can see. You'll get one more confirm before any container is actually deleted.",
       "destructive_confirm":  "This action affects live state — proceed?"
     },
     "ai": {
