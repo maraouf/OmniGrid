@@ -691,6 +691,7 @@ function app() {
     aiSidebarBusy: false,
     aiConversation: [],          // [{role, text, action?, job_id?, feedback?, ts, error?}]
     aiSidebarFeedbackBusy: {},   // turn-index → bool while POST /api/ai/feedback in flight
+    aiSidebarSlashIdx: 0,        // selected index in the slash-command picker
     // Bulk palette mode — entered via verb-prefix queries like
     // `pause: web*` or `resume: provider:beszel`. When active the
     // palette renders a chip strip of matched hosts + a single "Run
@@ -13037,7 +13038,36 @@ function app() {
       }
     },
     aiSidebarHandleKeydown(e) {
-      // Enter sends; Shift+Enter inserts a newline.
+      // When the slash-command picker is open, route arrow / Enter
+      // through it. Esc clears the slash mode (back to chat) without
+      // closing the drawer; second Esc closes.
+      if (this.aiSidebarSlashOpen()) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          const max = this.aiSidebarSlashResults().length - 1;
+          if (max < 0) return;
+          this.aiSidebarSlashIdx = Math.min(max, (this.aiSidebarSlashIdx || 0) + 1);
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          this.aiSidebarSlashIdx = Math.max(0, (this.aiSidebarSlashIdx || 0) - 1);
+          return;
+        }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          const list = this.aiSidebarSlashResults();
+          const sel = list[this.aiSidebarSlashIdx || 0];
+          if (sel) this.runAiSidebarSlashAction(sel);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          this.aiSidebarQuery = '';
+          return;
+        }
+      }
+      // Default: Enter sends; Shift+Enter inserts a newline; Esc closes.
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         this.sendAiSidebarMessage();
@@ -13045,6 +13075,60 @@ function app() {
         e.preventDefault();
         this.closeAiSidebar();
       }
+    },
+    // Slash-command quick-action picker. Typing `/` at the start of
+    // the input switches the dropdown into action-filter mode so the
+    // operator can fire any palette action directly without going
+    // through the AI. Same `_commandActions()` catalog as Cmd-K, same
+    // `_runCommandPaletteAction()` dispatcher (destructive actions
+    // still confirm via SweetAlert).
+    aiSidebarSlashOpen() {
+      const q = (this.aiSidebarQuery || '').trimStart();
+      return q.startsWith('/');
+    },
+    aiSidebarSlashResults() {
+      const q = (this.aiSidebarQuery || '').trimStart();
+      if (!q.startsWith('/')) return [];
+      const needle = q.slice(1).toLowerCase().trim();
+      const all = (typeof this._commandActions === 'function')
+        ? this._commandActions() : [];
+      if (!needle) return all.slice(0, 12);
+      const scored = all.map(a => {
+        const label = (a.label || '').toLowerCase();
+        const verbs = Array.isArray(a.verbs) ? a.verbs : [];
+        let score = 0;
+        if (label.includes(needle)) score += 50;
+        if (label.startsWith(needle)) score += 30;
+        verbs.forEach(v => {
+          const vl = (v || '').toLowerCase();
+          if (vl === needle) score += 100;
+          else if (vl.startsWith(needle)) score += 60;
+          else if (vl.includes(needle)) score += 20;
+        });
+        return { a, score };
+      }).filter(x => x.score > 0);
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, 12).map(x => x.a);
+    },
+    runAiSidebarSlashAction(action) {
+      if (!action) return;
+      this.aiSidebarQuery = '';
+      this.aiSidebarSlashIdx = 0;
+      // Push a synthetic conversation turn so the operator sees what
+      // they just ran in the chat history (with the auto-fired chip).
+      // No AI round-trip; no ai_jobs row; no feedback buttons (no
+      // job_id to attach feedback to).
+      this.aiConversation.push({
+        role:         'assistant',
+        text:         '',
+        action_id:    action.id,
+        action_label: action.label || action.id,
+        action_ran:   true,
+        slash:        true,
+        ts:           Date.now(),
+      });
+      this._scrollAiSidebarToBottom();
+      this._runCommandPaletteAction(action);
     },
     aiTurnSubline(turn) {
       if (!turn) return '';

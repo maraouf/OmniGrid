@@ -7832,36 +7832,37 @@
         </div>
       </div>
       <template x-for="(turn, idx) in aiConversation" :key="idx">
-        <div class="flex flex-col" :class="turn.role === 'user' ? 'items-end' : 'items-start'">
-          <div class="ai-bubble"
+        <div class="ai-turn" :class="turn.role === 'user' ? 'ai-turn-user' : 'ai-turn-assistant'">
+          <div x-show="turn.text || turn.error"
+               class="ai-bubble"
                :class="turn.role === 'user' ? 'ai-bubble-user' : (turn.error ? 'ai-bubble-error' : 'ai-bubble-assistant')">
-            <div x-show="turn.role === 'user' || (turn.text && !turn.error)"
-                 x-text="turn.text"></div>
+            <div x-show="turn.text && !turn.error" x-text="turn.text"></div>
             <div x-show="turn.error" class="text-[12px]"
                  x-text="t('ai_sidebar.error_prefix') + ' ' + turn.error"></div>
-            <div x-show="turn.role === 'assistant' && turn.action_label && turn.action_ran"
-                 class="ai-bubble-action">
-              <svg width="10" height="10" aria-hidden="true">
-                <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-check'"/>
-              </svg>
-              <span x-text="t('ai_sidebar.action_ran') + ' ' + turn.action_label"></span>
-            </div>
-            <div x-show="turn.role === 'assistant' && !turn.error" class="ai-bubble-feedback">
-              <button type="button"
-                      class="ai-feedback-btn"
-                      :class="turn.feedback === 'up' ? 'active-up' : ''"
-                      :disabled="aiSidebarFeedbackBusy[idx]"
-                      :title="t('ai_sidebar.feedback_up')"
-                      @click="submitAiFeedback(idx, 'up')">👍</button>
-              <button type="button"
-                      class="ai-feedback-btn"
-                      :class="turn.feedback === 'down' ? 'active-down' : ''"
-                      :disabled="aiSidebarFeedbackBusy[idx]"
-                      :title="t('ai_sidebar.feedback_down')"
-                      @click="submitAiFeedback(idx, 'down')">👎</button>
-            </div>
           </div>
-          <div x-show="turn.role === 'assistant' && !turn.error && aiTurnSubline(turn)"
+          <div x-show="turn.role === 'assistant' && turn.action_label && turn.action_ran"
+               class="ai-bubble-action">
+            <svg width="10" height="10" aria-hidden="true">
+              <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-check'"/>
+            </svg>
+            <span x-text="t('ai_sidebar.action_ran') + ' ' + turn.action_label"></span>
+          </div>
+          <div x-show="turn.role === 'assistant' && !turn.error && !turn.slash"
+               class="ai-bubble-feedback">
+            <button type="button"
+                    class="ai-feedback-btn"
+                    :class="turn.feedback === 'up' ? 'active-up' : ''"
+                    :disabled="aiSidebarFeedbackBusy[idx]"
+                    :title="t('ai_sidebar.feedback_up')"
+                    @click="submitAiFeedback(idx, 'up')">👍</button>
+            <button type="button"
+                    class="ai-feedback-btn"
+                    :class="turn.feedback === 'down' ? 'active-down' : ''"
+                    :disabled="aiSidebarFeedbackBusy[idx]"
+                    :title="t('ai_sidebar.feedback_down')"
+                    @click="submitAiFeedback(idx, 'down')">👎</button>
+          </div>
+          <div x-show="turn.role === 'assistant' && !turn.error && !turn.slash && aiTurnSubline(turn)"
                class="ai-bubble-meta"
                x-text="aiTurnSubline(turn)"></div>
         </div>
@@ -7871,17 +7872,42 @@
         <span x-text="t('command_palette.ai.thinking_title')"></span>
       </div>
     </div>
+    <!-- Slash-command picker — surfaces above the textarea when the
+         input starts with `/`. Filters every command-palette action;
+         click or Enter fires the action immediately (no AI round-trip,
+         no ai_jobs row). Same dispatcher as Cmd-K modal so destructive
+         actions still confirm via SweetAlert. -->
+    <div class="ai-slash-picker" x-show="aiSidebarSlashOpen()" x-cloak>
+      <div class="ai-slash-header" x-text="t('ai_sidebar.slash_header')"></div>
+      <ul class="ai-slash-list">
+        <template x-for="(act, sIdx) in aiSidebarSlashResults()" :key="act.id">
+          <li class="ai-slash-row"
+              :class="aiSidebarSlashIdx === sIdx ? 'ai-slash-row-active' : ''"
+              @click="runAiSidebarSlashAction(act)"
+              @mouseenter="aiSidebarSlashIdx = sIdx">
+            <span class="ai-slash-row-label" x-text="act.label"></span>
+            <span x-show="act.destructive"
+                  class="ai-slash-row-badge"
+                  x-text="t('ai_sidebar.slash_destructive')"></span>
+          </li>
+        </template>
+        <li x-show="aiSidebarSlashResults().length === 0"
+            class="ai-slash-empty"
+            x-text="t('ai_sidebar.slash_no_match')"></li>
+      </ul>
+    </div>
     <div class="ai-sidebar-input-row">
       <textarea id="og-ai-sidebar-input"
                 x-model="aiSidebarQuery"
+                @input="aiSidebarSlashIdx = 0"
                 @keydown="aiSidebarHandleKeydown($event)"
                 :placeholder="t('ai_sidebar.input_placeholder')"
-                :disabled="aiSidebarBusy || !aiSidebarSurfaceEnabled()"
+                :disabled="aiSidebarBusy"
                 rows="2"></textarea>
       <div class="ai-sidebar-input-actions">
         <button type="button"
                 @click="sendAiSidebarMessage()"
-                :disabled="aiSidebarBusy || !aiSidebarQuery.trim() || !aiSidebarSurfaceEnabled()"
+                :disabled="aiSidebarBusy || !aiSidebarQuery.trim() || !aiSidebarSurfaceEnabled() || aiSidebarSlashOpen()"
                 class="btn btn-primary text-[12px]">
           <span x-show="!aiSidebarBusy" x-text="t('ai_sidebar.send')"></span>
           <span x-show="aiSidebarBusy" class="flex items-center gap-1">
@@ -7890,10 +7916,13 @@
           </span>
         </button>
         <span class="text-[10px] text-[var(--text-faint)]"
-              x-show="aiSidebarSurfaceEnabled()"
+              x-show="!aiSidebarSlashOpen() && aiSidebarSurfaceEnabled()"
               x-text="t('ai_sidebar.enter_hint')"></span>
+        <span class="text-[10px] text-[var(--text-faint)]"
+              x-show="aiSidebarSlashOpen()"
+              x-text="t('ai_sidebar.slash_hint')"></span>
         <span class="text-[10.5px] text-[var(--warning)]"
-              x-show="!aiSidebarSurfaceEnabled()"
+              x-show="!aiSidebarSlashOpen() && !aiSidebarSurfaceEnabled()"
               x-text="t('command_palette.ai.disabled')"></span>
       </div>
     </div>
