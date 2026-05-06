@@ -12200,8 +12200,13 @@ function app() {
           sub:   t('command_palette.action.cleanup_stopped_sub', 'Same as the topbar Cleanup button'),
           verbs: ['cleanup', 'clean', 'purge', 'prune', 'remove', 'delete'],
           destructive: true,
-          confirmTitle: t('command_palette.action.cleanup_stopped_confirm_title', 'Cleanup stopped containers?'),
-          confirmText:  t('command_palette.action.cleanup_stopped_confirm_text', 'Removes every stopped / failed / orphaned container the dashboard can see. The handler still confirms each batch separately before issuing docker rm.'),
+          // `bulkRemoveAll()` ALREADY shows its own SweetAlert listing
+          // every container by name (first 8 + `+N more` overflow), so
+          // the generic destructive-confirm dialog would produce a
+          // double-popup. Defer to the inner confirm — the operator
+          // sees ONE rich popup with the real container list, not a
+          // generic "you'll get one more confirm" wrapper.
+          defer_confirm_to_run: true,
           run:   () => { this.bulkRemoveAll(); }
         }] : []),
 
@@ -12735,7 +12740,16 @@ function app() {
     },
     async _runCommandPaletteAction(action) {
       if (!action || typeof action.run !== 'function') return;
-      if (action.destructive) {
+      // Some destructive actions wrap their OWN SweetAlert confirm
+      // INSIDE `run()` and present a richer payload (e.g. the topbar
+      // Cleanup flow lists every container by name in its confirm
+      // popup). Showing the generic confirm here AND THEN the
+      // run-internal one produces a double-popup ("are you sure?" →
+      // "are you really sure? here's the list"). Opting in via
+      // `defer_confirm_to_run: true` skips the generic dialog and
+      // lets `run()` show its own — operator sees ONE popup with
+      // the real data.
+      if (action.destructive && !action.defer_confirm_to_run) {
         // Operator already explicitly invoked this action via the
         // Cmd-K palette (or accepted the AI's proposal of it), so the
         // confirm dialog focuses Confirm — Enter on the dialog now
