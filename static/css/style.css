@@ -3518,10 +3518,13 @@ details summary::-webkit-details-marker {
     font-weight: 600;
     color: var(--text);
 }
-/* Mode-toggle dropdown — keeps the sidebar header compact while
-   surfacing the Approval / Autonomous switch. Sits between the
-   title and the export / clear buttons; tokenised colours so the
-   dropdown matches the rest of the surface. */
+/* Mode-toggle dropdown — Approval / Autonomous switch. Sits in
+   the input/send row next to the Send button so the operator sees
+   "what mode am I in" right next to "what action am I about to
+   trigger". Sized to match adjacent `.btn btn-primary fs-sm` so
+   the row reads as one typographic unit. Font inherits from the
+   `.fs-sm` utility class on the element itself; this rule covers
+   the chrome (background / border / chevron). */
 .ai-sidebar-mode-select {
     appearance: none;
     -webkit-appearance: none;
@@ -3529,13 +3532,16 @@ details summary::-webkit-details-marker {
     color: var(--text-dim);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
-    padding: 2px 18px 2px 6px;
-    line-height: 1.3;
+    /* Match the Send button's height so the row reads aligned. */
+    padding: 4px 22px 4px 8px;
+    line-height: 1.4;
+    font-family: inherit;
+    font-weight: 500;
     cursor: pointer;
     background-image: linear-gradient(45deg, transparent 50%, var(--text-faint) 50%),
                       linear-gradient(-45deg, transparent 50%, var(--text-faint) 50%);
-    background-position: calc(100% - 9px) calc(50% - 1px),
-                         calc(100% - 5px) calc(50% - 1px);
+    background-position: calc(100% - 11px) calc(50% - 1px),
+                         calc(100% - 7px) calc(50% - 1px);
     background-size: 4px 4px;
     background-repeat: no-repeat;
     transition: border-color .12s, color .12s;
