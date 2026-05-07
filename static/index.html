@@ -7884,6 +7884,12 @@
                     :title="t('ai_sidebar.feedback_down')"
                     @click="submitAiFeedback(idx, 'down')">👎</button>
           </div>
+          <!-- Inline disk-projection charts — rendered when the AI
+               returned a HOSTS list with the answer. Shells are
+               scoped by turn ts so multi-turn chats don't collide on
+               the same `[data-disk-host=X]` selector. -->
+          <div x-show="turn.role === 'assistant' && !turn.error && Array.isArray(turn.host_ids) && turn.host_ids.length > 0"
+               x-html="_renderAiSidebarHostChartShells(turn.host_ids, turn.ts)"></div>
           <div x-show="turn.role === 'assistant' && !turn.error && !turn.slash && aiTurnSubline(turn)"
                class="ai-bubble-meta"
                x-text="aiTurnSubline(turn)"></div>
