@@ -1,0 +1,104 @@
+      <section x-show="adminTab==='port_scan'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <!-- Title row + Enabled/Disabled pill — matches Admin →
+             SSH / Portainer / Notifications visual rhythm. Port Scan
+             was originally filed under Admin → Providers but it isn't
+             a continuous-telemetry source like Beszel / Pulse / NE /
+             Webmin / SNMP / Ping — it's an on-demand action surface
+             closer in spirit to SSH (operator-triggered, not polled).
+             Lifted into its own admin tab placed AFTER SSH so the
+             two action-style admin surfaces sit together. -->
+        <div class="flex items-start justify-between">
+          <div>
+            <div class="flex items-center gap-2 mb-2">
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/></svg>
+              <h3 class="font-semibold text-[13px]" x-text="t('admin_port_scan.title')"></h3>
+            </div>
+            <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
+               x-text="t('admin_port_scan.intro')"></p>
+          </div>
+          <span class="chip"
+                :class="settings.port_scan_enabled ? 'pill-ok' : 'pill-muted'"
+                x-text="settings.port_scan_enabled ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+        </div>
+
+        <!-- Master toggle. Mirrors the master-toggle dirty-mark pattern
+             documented in CLAUDE.md ("Master-toggle pattern across
+             admin tabs"): clicking the toggle ONLY marks the form
+             dirty; dependent inputs visually disable; Save is what
+             commits. Backend short-circuits on `port_scan_enabled` —
+             `_merge_one_host` skips the detected_ports stamp and
+             `POST /api/hosts/{id}/port-scan` returns a 400 when off. -->
+        <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)] mt-2">
+          <label class="inline-flex items-center gap-2 text-[12px] font-medium">
+            <input type="checkbox"
+                   :disabled="isReadonly()"
+                   x-model="settings.port_scan_enabled">
+            <span x-text="t('admin_port_scan.master_toggle_label')"></span>
+          </label>
+        </div>
+
+        <p class="text-[10.5px] text-[var(--text-faint)] mt-3"
+           x-text="t('settings.host_stats.port_scan.section_desc')"></p>
+
+        <div class="mt-3">
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                 x-text="t('settings.host_stats.port_scan.default_ports_label')"></label>
+          <input x-model="settings.port_scan_default_ports" type="text"
+                 :disabled="isReadonly() || !settings.port_scan_enabled"
+                 class="w-full mono text-[11.5px]"
+                 placeholder="22,80,443,8000-8100">
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+             x-text="t('settings.host_stats.port_scan.default_ports_hint')"></p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('settings.host_stats.port_scan.default_timeout_label')"></label>
+            <input x-model.number="settings.port_scan_default_timeout"
+                   type="number" min="1" max="30"
+                   :disabled="isReadonly() || !settings.port_scan_enabled"
+                   class="w-full mono text-[11.5px]"
+                   placeholder="2">
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-text="t('settings.host_stats.port_scan.default_timeout_hint')"></p>
+          </div>
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('settings.host_stats.port_scan.default_concurrency_label')"></label>
+            <input x-model.number="settings.port_scan_default_concurrency"
+                   type="number" min="1" max="256"
+                   :disabled="isReadonly() || !settings.port_scan_enabled"
+                   class="w-full mono text-[11.5px]"
+                   placeholder="32">
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-text="t('settings.host_stats.port_scan.default_concurrency_hint')"></p>
+          </div>
+        </div>
+
+        <p class="text-[10.5px] text-[var(--text-faint)] italic mt-3"
+           x-text="t('settings.host_stats.port_scan.on_demand_note')"></p>
+
+        <!-- Save + unsaved-changes indicator. Reuses `hostStatsDirty()`
+             / `saveHostStats()` because the four port_scan settings
+             still live on the same `settings` payload that the
+             host-stats partial saves — the relocation is a UI move,
+             not a data-model split. The Save row in this tab and the
+             one still rendered in Admin → Providers BOTH commit the
+             same fields; either button works. -->
+        <div class="mt-4 flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
+          <button x-show="isAdmin()" @click="saveHostStats()"
+                  :disabled="hostStatsSaving"
+                  :class="hostStatsDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                  class="btn btn-primary text-[12px]">
+            <span x-show="!hostStatsSaving" x-text="t('actions.save')"></span>
+            <span x-show="hostStatsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+          </button>
+          <span x-show="hostStatsDirty()"
+                class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
+                :title="t('hosts_actions.host_stats_unsaved_title')">
+            <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+            <span x-text="t('common.unsaved')"></span>
+          </span>
+        </div>
+      </section>

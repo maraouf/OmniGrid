@@ -1637,6 +1637,12 @@
     "export_empty_toast":"Conversation is empty — nothing to export.",
     "export_done_toast":"Conversation exported as {filename}",
     "export_failed_toast":"Export failed: {error}",
+    "incident_chip_run_title": "Click to ask the AI assistant about this incident with a pre-filled investigation prompt.",
+    "mode_label": "AI action mode",
+    "mode_approval": "Approval",
+    "mode_autonomous": "Autonomous",
+    "mode_approval_title": "Approval mode — destructive actions (sign out, cleanup, restart, update, remove) surface an inline [Yes, run it] [Cancel] chip on the assistant's turn before firing. Default and recommended for operator-driven sessions.",
+    "mode_autonomous_title": "Autonomous mode — the AI fires every action immediately without confirmation, including destructive ones (sign out, cleanup, restart, update, remove). Use only for agentic background workflows where you want the AI to act without intervention. The audit trail still lands in History; ai_jobs still records every call.",
     "action_ran":       "Ran:",
     "action_ran_label": "Ran: {action}",
     "opened":           "Opened",
@@ -3036,6 +3042,11 @@
       "destructive_hint": "This command matched a destructive pattern. Type the hostname to confirm.",
       "copied_output": "Copied SSH output"
     }
+  },
+  "admin_port_scan": {
+    "title": "Port Scan",
+    "intro": "On-demand TCP-connect port scanner. Unlike the host-stats providers (Beszel / Pulse / node-exporter / Webmin / SNMP / Ping) port scan never polls in the background — it runs ONLY when you click \"Scan ports\" in a host drawer or ask the AI palette to scan. Per-host overrides (enabled / ports / timeout / concurrency) live in Admin → Hosts under each row's Port Scan section.",
+    "master_toggle_label": "Port-scan provider enabled"
   },
   "admin_ssh": {
     "title": "SSH",

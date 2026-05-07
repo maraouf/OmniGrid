@@ -247,9 +247,9 @@
                          :disabled="!isAdmin() || tuningSaving">
                   <span x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.label')"></span>
                 </label>
-                <div class="text-[10.5px] text-[var(--text-faint)] mt-1 ms-6"
+                <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
                      x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_conversation_export_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
-                <p class="text-[10.5px] text-[var(--text-faint)] mt-1 ms-6"
+                <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.help')"></p>
               </div>
             </div>
