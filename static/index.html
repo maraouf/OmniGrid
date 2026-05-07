@@ -2785,9 +2785,19 @@
           <option value="restart_container">restart_container</option>
           <option value="remove_container">remove_container</option>
           <option value="prune_node">prune_node</option>
+          <option value="prune_all_nodes">prune_all_nodes</option>
+          <option value="prune_logs">prune_logs</option>
+          <option value="prune_notifications">prune_notifications</option>
           <option value="backup">backup</option>
           <option value="gather_refresh">gather_refresh</option>
           <option value="asset_inventory_refresh">asset_inventory_refresh</option>
+          <option value="ssh_run">ssh_run</option>
+          <option value="ssh_terminal">ssh_terminal</option>
+          <option value="port_scan">port_scan</option>
+          <option value="ai_palette">ai_palette</option>
+          <option value="ai_host_filter">ai_host_filter</option>
+          <option value="swarm_agent_health">swarm_agent_health</option>
+          <option value="restart_swarm_agent">restart_swarm_agent</option>
         </select>
         <select x-model="historyFilters.stack" @change="historyApplyFilter()" class="text-[12px] min-w-[150px]">
           <option value="" x-text="t('history.all_stacks')"></option>
