@@ -1029,10 +1029,6 @@ function app() {
       // /api/hosts/one/<id> fan-out. Read on /api/me into
       // `me.client_config.hosts_parallel_fetch`.
       'tuning_hosts_parallel_fetch',
-      // AI Assistant sidebar drawer width (px) — operator-tunable
-      // so the same drawer adapts cleanly across viewport sizes.
-      // SPA reads via me.client_config.ai_sidebar_width_px.
-      'tuning_ai_sidebar_width_px',
       // / SSE heartbeat cadence + connection lifetime.
       'tuning_sse_heartbeat_seconds',
       'tuning_sse_max_lifetime_seconds',
@@ -1196,6 +1192,11 @@ function app() {
       'tuning_ai_retry_enabled',
       'tuning_ai_retry_backoff_ms',
       'tuning_ai_retry_first_attempt_max_ms',
+      // AI sidebar drawer width — also rendered under Admin → AI
+      // Integration (NOT the generic Process tunables form) per user
+      // preference: it's an AI-feature UI control, not a generic
+      // tunable. Reads via `me.client_config.ai_sidebar_width_px`.
+      'tuning_ai_sidebar_width_px',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -10105,8 +10106,11 @@ function app() {
     upsStatusLabel(status) {
       // Pretty-print the snake-case enum from PowerNet-MIB. i18n keys
       // exist for the canonical set; unknown values fall through to
-      // the raw enum string.
+      // the raw enum string. Short-circuit when the status is empty
+      // / null so the i18n loader doesn't see a missing-key probe
+      // for `host_drawer.ups.status_` (no enum value).
       const s = String(status || '').toLowerCase();
+      if (!s) return '';
       const key = `host_drawer.ups.status_${s.replace(/-/g, '_')}`;
       const translated = this.t(key);
       return (translated && translated !== key) ? translated : (status || '');
@@ -14123,13 +14127,16 @@ function app() {
       // trusting a single deterministic line.
       let projStroke = '';
       let projBand   = '';
+      let projHighEdge = '';
+      let projLowEdge  = '';
       if (projection.length >= 2) {
         projStroke = 'M ' + xOf(projection[0].ts) + ' ' + yOf(projection[0].used_pct);
         for (let i = 1; i < projection.length; i++) {
           projStroke += ' L ' + xOf(projection[i].ts) + ' ' + yOf(projection[i].used_pct);
         }
-        // Build the band only when the backend supplied bounds
-        // (older API versions don't emit `low_pct` / `high_pct`).
+        // Build the band + edge strokes only when the backend
+        // supplied bounds (older API versions don't emit `low_pct`
+        // / `high_pct`).
         const hasBand = projection.every(p =>
           p.low_pct !== undefined && p.high_pct !== undefined);
         if (hasBand) {
@@ -14144,6 +14151,19 @@ function app() {
           }
           band += ' Z';
           projBand = band;
+          // Separate dashed edge strokes for high + low so the
+          // bounds are explicitly visible — even when the
+          // confidence cone is shallow (flat slope, small residual
+          // variance) the operator can still SEE the upper / lower
+          // bound lines next to the central projection.
+          let high = 'M ' + xOf(projection[0].ts) + ' ' + yOf(projection[0].high_pct);
+          let low  = 'M ' + xOf(projection[0].ts) + ' ' + yOf(projection[0].low_pct);
+          for (let i = 1; i < projection.length; i++) {
+            high += ' L ' + xOf(projection[i].ts) + ' ' + yOf(projection[i].high_pct);
+            low  += ' L ' + xOf(projection[i].ts) + ' ' + yOf(projection[i].low_pct);
+          }
+          projHighEdge = high;
+          projLowEdge  = low;
         }
       }
       // Y-axis ticks at 0/50/100.
@@ -14178,6 +14198,8 @@ function app() {
         + yTicks
         + '<path d="' + areaPath + '" class="ai-resp-chart-area"/>'
         + (projBand ? '<path d="' + projBand + '" class="ai-resp-chart-band"/>' : '')
+        + (projHighEdge ? '<path d="' + projHighEdge + '" class="ai-resp-chart-band-edge"><title>High (95% upper)</title></path>' : '')
+        + (projLowEdge  ? '<path d="' + projLowEdge  + '" class="ai-resp-chart-band-edge"><title>Low (95% lower)</title></path>' : '')
         + '<path d="' + histStroke + '" class="ai-resp-chart-line ai-resp-chart-line--hist" fill="none"/>'
         + (projStroke ? '<path d="' + projStroke + '" class="ai-resp-chart-line ai-resp-chart-line--proj" fill="none"/>' : '')
         + nowLine

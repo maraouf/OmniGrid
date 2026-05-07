@@ -2261,6 +2261,11 @@
       "ping_down": "Unreachable",
       "ping_loss_title": "Packet loss across the polled window",
       "source_ping": "ICMP round-trip latency in milliseconds. Source: OmniGrid's built-in ping sampler (host_ping_samples), opt-in per host via Admin → Hosts → ping_enabled. Hosts without the toggle hide this chart entirely.",
+      "source_snmp_cpu": "CPU usage from the SNMP probe (hrProcessorLoad table average). Source: SNMP only. Surfaces on hosts where the SNMP agent exposes the host-resources MIB; missing on devices that ship a stripped MIB profile.",
+      "source_snmp_load": "Load averages derived from the SNMP probe (UCD-SNMP-MIB::laLoad). Source: SNMP only — UCD-flavoured agents (Linux net-snmp, OPNsense, OpenWRT). Devices without the UCD MIB hide this chart.",
+      "source_snmp_memory": "Memory usage from the SNMP probe (hrStorageRam entries in the host-resources MIB). Source: SNMP only.",
+      "source_snmp_throughput": "Per-interface throughput from the SNMP probe (ifHCInOctets / ifHCOutOctets, falling back to the 32-bit ifInOctets / ifOutOctets counters when high-capacity counters aren't published). Source: SNMP only.",
+      "source_gpu": "GPU utilisation. Source: Beszel agent (system_stats.g) when the host has an NVIDIA / AMD GPU exposed to the agent. Hosts without GPU readings hide this chart entirely.",
       "source_dell_temps": "Per-probe temperature readings (°C) from the iDRAC's temperatureProbeTable walk (1.3.6.1.4.1.674.10892.5.4.700.20). Source: SNMP only — Inlet / Exhaust / CPU1 / CPU2 + any chipset / DIMM / disk-bay probes the chassis exposes. The sampler writes one row per probe per tick into host_snmp_temp_samples (skip-don't-synthesize: missing reads are dropped, never stored as 0). Chart needs at least 2 ticks (~10 minutes at the default 300s interval) before lines appear; until then 'collecting data' renders."
     },
     "empty": {

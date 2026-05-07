@@ -2014,13 +2014,26 @@ details summary::-webkit-details-marker {
     /* Confidence-interval fork — shaded polygon between
        projection_high and projection_low. Fades away from the
        central dashed line so the band reads as uncertainty
-       widening with extrapolation distance, not a hard boundary. */
+       widening with extrapolation distance, not a hard boundary.
+       Pre-fix the fill+stroke opacities (0.12 / 0.25) were too soft
+       on a 70 px-tall chart to register as visibly distinct from
+       the historical area; bumped so the band reads as "this is
+       the uncertainty cone" at a glance. */
     fill: var(--primary);
-    fill-opacity: 0.12;
+    fill-opacity: 0.22;
+    stroke: none;
+}
+.ai-resp-chart-band-edge {
+    /* High and low edge strokes — make the bounds explicitly
+       visible even when the fill cone is shallow (flat slope or
+       small residual variance). Dashed so they read as projections
+       (matching the central dashed projection line); thinner than
+       the central line so the hierarchy is obvious. */
     stroke: var(--primary);
-    stroke-opacity: 0.25;
-    stroke-width: 0.5;
-    stroke-dasharray: 1, 2;
+    stroke-opacity: 0.55;
+    stroke-width: 0.75;
+    stroke-dasharray: 2, 2;
+    fill: none;
 }
 .ai-resp-chart-line {
     stroke: var(--primary);
