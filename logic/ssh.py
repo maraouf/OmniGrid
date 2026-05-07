@@ -960,7 +960,15 @@ def ssh_status(host_id: str, hosts_config: list[dict]) -> dict:
             f"password_source={resolved.get('password_source')!r} "
             f"per_host_password={bool(resolved.get('_per_host_password'))} "
             f"disabled={resolved.get('disabled')} "
-            f"error={resolved.get('error')!r}"
+            # The field key here is `detail` rather than `error` so the
+            # persistent-log severity classifier (logic/logs.py:_severity_for)
+            # doesn't regex-match `\berror\b` on benign status snapshots
+            # where the value is None and stamp them as ERROR severity.
+            # The word `error` in the line text was painting these
+            # informational reports red in Admin → Logs even though
+            # `configured=True` and the value was None — exactly the
+            # drift class CLAUDE.md flags ("pick verbs carefully").
+            f"detail={resolved.get('error')!r}"
         )
     # Strip every underscore-prefixed key from the resolved dict
     # before handing it to the API — those are internal-only
