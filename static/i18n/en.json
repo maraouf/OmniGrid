@@ -867,6 +867,9 @@
       "disabled_chip": "Disabled",
       "active_chip": "Active",
       "backup_chip": "Backup {n}",
+      "chip_ok_title": "Provider is enabled and an API key is configured.",
+      "chip_no_key_title": "Provider is enabled but no API key is saved — calls will fail with HTTP 401 until a key is added.",
+      "chip_disabled_title": "Provider is disabled. Enable it in its card to start using it.",
       "current_chip": "current",
       "current_model_label": "Current model:",
       "current_model_title": "The model id stored on the provider's settings card. Historical sub-rows below show every model that recorded usage in the selected period.",
@@ -939,6 +942,7 @@
         "accuracy_sub": "Mean accuracy score, 0..100"
       },
       "modal": {
+        "title_fallback": "AI dashboard",
         "jobs_title": "Recent AI jobs",
         "passrate_title": "Pass-rate trend",
         "passrate_desc": "Hourly success rate (success ÷ non-running calls).",
@@ -1134,6 +1138,10 @@
         "tuning_hosts_parallel_fetch": {
           "label": "Hosts fan-out concurrency",
           "help": "Cap on the SPA's PARALLEL /api/hosts/one/{id} calls during a Hosts-tab load / refresh. The SPA fetches the curated host list first (fast skeleton), then fans out per-host probes with this concurrency. Lower it if a slow Webmin / unreachable node-exporter saturates NPM's upstream pool — symptom is 504s on UNRELATED static-asset requests (icons, fonts) because their requests queue behind the slow per-host probes. Raise it on a beefy NPM + manager with many hosts so the Hosts tab paints fully in fewer wall-clock seconds. Default 6. Takes effect on the next /api/me round-trip."
+        },
+        "tuning_ai_sidebar_width_px": {
+          "label": "AI sidebar width (px)",
+          "help": "Width of the AI Assistant slide-in drawer. The 480 px default fits a 1366 px laptop comfortably; raise it (up to 720 px) on a 4K monitor where the drawer otherwise feels narrow, or lower it (down to 320 px) on a smaller laptop where the drawer covers too much working area. Mobile viewports (< 480 px wide) ignore this value and always render full-width. Range 320..720. Default 480. Takes effect on the next /api/me round-trip — the SPA reads it via `me.client_config.ai_sidebar_width_px` and stamps it onto the drawer root via inline `--ai-sidebar-width` style."
         },
         "tuning_sse_heartbeat_seconds": {
           "label": "SSE heartbeat cadence (seconds)",
@@ -1606,12 +1614,12 @@
     "title":            "AI Assistant",
     "drawer_label":     "AI Assistant chat",
     "launcher_title":   "Open AI Assistant (Ctrl-K)",
-    "input_placeholder": "Ask the AI assistant — type / for actions",
+    "input_placeholder": "Ask the AI assistant — type / for actions, ↑ to recall last query",
     "empty_title":      "Start a conversation",
     "empty_hint":       "Ask anything about OmniGrid, or type / to run an action directly.",
     "send":             "Send",
     "send_busy":        "Sending…",
-    "enter_hint":       "↵ Send · ⇧↵ newline · / actions · Esc close",
+    "enter_hint":       "↵ Send · ⇧↵ newline · ↑ recall · / actions · Esc close",
     "slash_header":     "Quick actions",
     "slash_hint":       "↑↓ navigate · ↵ run · Esc cancel",
     "slash_no_match":   "No matching action",
@@ -1726,7 +1734,10 @@
         "source_label":     "Source",
         "source_node_exporter": "node-exporter (root disk)",
         "source_pulse":     "Pulse (full pool)",
-        "source_webmin":    "Webmin"
+        "source_webmin":    "Webmin",
+        "stale_label":      "Stale",
+        "stale_title":      "The most recent sample is {minutes} minutes old. The underlying provider may have stopped reporting; treat the projection as cached, not live.",
+        "confidence_title": "Linear-regression fit quality. R² = {r2}, samples = {samples}. High ≥ 0.85 R² AND ≥ 60 samples. Medium ≥ 0.60 R² OR ≥ 30 samples. Low otherwise — projection is operating on a noisier fit and the exhaustion estimate has wide error bars."
       }
     },
     "admin": {
@@ -2699,6 +2710,7 @@
     "snmp_version_label": "Version",
     "section_providers": "Providers",
     "section_ping": "Ping",
+    "snmp_section_label": "SNMP",
     "snmp_wall_clock_budget_label": "Wall-clock budget (s)",
     "snmp_wall_clock_budget_hint": "Total wall-clock budget for ONE SNMP probe against THIS host (seconds). Blank = the global default (60s). Slow iDRAC chassis with the BIOS / virtual-disk / power-supply walks may need 90-120s; embedded snmpd's typically finish well under the default. Range 5..600s.",
     "snmp_vendors_label": "Vendor MIBs",

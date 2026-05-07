@@ -2407,6 +2407,11 @@ class SettingsIn(BaseModel):
     # fan-out in `loadHosts()`. Read on /api/me into
     # `me.client_config.hosts_parallel_fetch`.
     tuning_hosts_parallel_fetch: Optional[str] = None
+    # AI Assistant sidebar drawer width (px). Operator-tunable so the
+    # same drawer adapts across a 1366 px laptop and a 4K monitor.
+    # SPA reads via me.client_config.ai_sidebar_width_px and applies
+    # via inline style on the <aside> root.
+    tuning_ai_sidebar_width_px: Optional[str] = None
     # / SSE heartbeat cadence + connection lifetime cap.
     tuning_sse_heartbeat_seconds: Optional[str] = None
     tuning_sse_max_lifetime_seconds: Optional[str] = None
@@ -7110,8 +7115,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     # while NE's bytes win, producing an inconsistent merged shape:
     # 90% in `host_mem_percent` (used in the host card label) vs
     # ~82% the chart history shows (sampler computes from NE's
-    # bytes). Operator-reported on OPNsense.home.lan: outside card
-    # reads "90% (13 GB / 15 GB)" while the drawer's memory chart
+    # bytes). Reported on a FreeBSD / OPNsense host where the outside
+    # card reads "90% (13 GB / 15 GB)" while the drawer's memory chart
     # reads 82% — same data, two answers. Recomputing from the
     # merged bytes gives one truth.
     _t = merged.get("host_mem_total") or 0
@@ -11098,6 +11103,17 @@ async def api_hosts_disk_projection(
             "high_pct":  round(high_clamped, 2),
         })
     last = series[-1]
+    # Stale-data hint — the latest sample's age vs now. If the most
+    # recent sample is older than the typical sampler interval × N,
+    # the underlying provider has likely stopped reporting (paused /
+    # auth failure / network outage) and the projection is operating
+    # on a frozen snapshot. The frontend renders a badge when
+    # `stale=True`. Threshold = 30 minutes; samplers run every 5 min
+    # by default so anything older than 30 min is suspect.
+    now_ts = int(time.time())
+    last_ts = int(last[0] or 0)
+    age_seconds = max(0, now_ts - last_ts) if last_ts > 0 else 0
+    is_stale = age_seconds > 1800  # 30 minutes
     return {
         "host_id":           hid,
         "samples":           samples_payload,
@@ -11116,6 +11132,8 @@ async def api_hosts_disk_projection(
         "lookback_hours":    h,
         "r2":                round(r2, 4),
         "sample_count":      n,
+        "stale":             is_stale,
+        "stale_age_seconds": age_seconds,
         "error":             None,
     }
 
@@ -13972,6 +13990,10 @@ async def api_me(request: Request):
             # per /api/me round-trip so an Admin → Config save takes
             # effect on the next call.
             "hosts_parallel_fetch": tuning.tuning_int("tuning_hosts_parallel_fetch"),
+            # AI Assistant sidebar drawer width (px). SPA's
+            # ai-sidebar-drawer reads this and applies via inline
+            # style on the <aside> root. Mobile layout ignores it.
+            "ai_sidebar_width_px": tuning.tuning_int("tuning_ai_sidebar_width_px"),
             # SSE freshness-watchdog idle threshold. Stored as
             # seconds; SPA's `_sseIdleThresholdMs` consumer wants ms.
             "sse_idle_threshold_ms": tuning.tuning_int("tuning_sse_idle_threshold_seconds") * 1000,

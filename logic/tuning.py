@@ -110,6 +110,18 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # const; min 1 (serialised — guaranteed safe but slow); max 32 (NPM
     # default upstream pool exhausts well before this on most setups).
     "tuning_hosts_parallel_fetch": ("HOSTS_PARALLEL_FETCH", 6, 1, 32),
+    # AI Assistant sidebar drawer width (pixels). Operator-tunable so
+    # the same drawer adapts cleanly across a 1366 px laptop (480 px =
+    # ~35% of horizontal space, often too wide) and a 4K monitor (480
+    # px = ~13%, often too narrow). Surfaced via /api/me's
+    # `client_config.ai_sidebar_width_px` and read by the SPA at
+    # render time so a Save in Admin → Config takes effect on the
+    # next page load. Mobile layout (≤ 720 px viewport) ignores this
+    # value and goes full-width per the existing media query.
+    # Range 320..720 — narrower than 320 hides the slash-picker chip
+    # strip, wider than 720 covers most secondary content on a
+    # standard laptop.
+    "tuning_ai_sidebar_width_px": ("AI_SIDEBAR_WIDTH_PX", 480, 320, 720),
     # SSE heartbeat cadence (seconds). The /api/events stream
     # emits a `: keepalive\n\n` comment every N seconds so an idle NPM
     # / cloudflare proxy doesn't drop the connection on its own
