@@ -12326,19 +12326,329 @@ class PortScanIn(BaseModel):
     udp_concurrency: Optional[int] = None
 
 
+async def _run_port_scan_async(
+    *,
+    hid:           str,
+    target:        str,
+    ports_list:    list,
+    timeout_s:     int,
+    concurrency:   int,
+    banner_grab:   bool,
+    udp_enabled:   bool,
+    udp_ports_list: list,
+    udp_timeout_s: int,
+    udp_concurrency: int,
+    snmp_community: str,
+    max_seconds:   int,
+    scan_id:       str,
+    started:       float,
+    h:             dict,
+    actor:         str,
+) -> None:
+    """Run a port scan + persist results out-of-band from the request.
+
+    Fire-and-forget task spawned by ``api_hosts_port_scan`` so the
+    HTTP request returns immediately (HTTP 202) instead of blocking
+    for the full scan duration. Wide port-range scans (the 11000-port
+    cap) can run minutes; reverse proxies (NPM / openresty) typically
+    cap at 60s ``proxy_read_timeout`` and would 504 the synchronous
+    path. By kicking the scan off here, the request budget stays
+    short and the scan continues independently.
+
+    Errors are caught + logged — there's no caller to raise them
+    back to. Persistence + the ``port_scan:completed`` SSE publish
+    happen at the end so the SPA picks up results without polling.
+    """
+    from logic import port_scanner as _ps
+    from logic import events as _events
+    try:
+        if udp_enabled:
+            from logic import port_scanner_udp as _ps_udp
+            tcp_scan, udp_scan = await asyncio.wait_for(
+                asyncio.gather(
+                    _ps.scan_host(
+                        target,
+                        ports_list,
+                        timeout_s=float(timeout_s),
+                        concurrency=int(concurrency),
+                        banner_grab=bool(banner_grab),
+                    ),
+                    _ps_udp.udp_scan_host(
+                        target,
+                        udp_ports_list,
+                        timeout_s=float(udp_timeout_s),
+                        concurrency=int(udp_concurrency),
+                        snmp_community=str(snmp_community),
+                    ),
+                ),
+                timeout=float(max_seconds),
+            )
+            scan = tcp_scan
+        else:
+            scan = await asyncio.wait_for(
+                _ps.scan_host(
+                    target,
+                    ports_list,
+                    timeout_s=float(timeout_s),
+                    concurrency=int(concurrency),
+                    banner_grab=bool(banner_grab),
+                ),
+                timeout=float(max_seconds),
+            )
+            udp_scan = None
+    except asyncio.TimeoutError:
+        print(
+            f"[port_scan] failed host_id={hid!r} target={target!r} "
+            f"reason=timeout (>{max_seconds}s budget) scan_id={scan_id}"
+        )
+        try:
+            with db_conn() as c:
+                c.execute(
+                    "INSERT INTO history "
+                    "(ts, op_type, target_kind, target_name, target_id, "
+                    " status, duration, events, error, actor) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        float(time.time()),
+                        "port_scan",
+                        "host",
+                        hid,
+                        hid,
+                        "error",
+                        float(max_seconds),
+                        json.dumps({"scan_id": scan_id, "target": target}),
+                        f"timeout (>{max_seconds}s budget)",
+                        actor,
+                    ),
+                )
+                c.commit()
+        except Exception as e:  # noqa: BLE001
+            print(f"[port_scan] history-insert failed after timeout for {hid}: {e}")
+        try:
+            _events.publish("port_scan:completed", {
+                "host_id": hid, "scan_id": scan_id, "ok": False,
+                "error": "timeout",
+            })
+        except Exception:  # noqa: BLE001
+            pass
+        return
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"[port_scan] failed host_id={hid!r} target={target!r} "
+            f"reason={type(e).__name__}: {e} scan_id={scan_id}"
+        )
+        try:
+            _events.publish("port_scan:completed", {
+                "host_id": hid, "scan_id": scan_id, "ok": False,
+                "error": f"{type(e).__name__}: {e}",
+            })
+        except Exception:  # noqa: BLE001
+            pass
+        return
+    duration_ms = scan.get("duration_ms") or int((time.time() - started) * 1000)
+    open_entries = _ps.open_ports_only(scan)
+    for e in open_entries:
+        e.setdefault("protocol", "tcp")
+    udp_open_entries: list[dict] = []
+    if udp_enabled and udp_scan is not None:
+        from logic import port_scanner_udp as _ps_udp
+        udp_open_entries = _ps_udp.open_udp_ports_only(udp_scan)
+        udp_duration_ms = udp_scan.get("duration_ms") or 0
+        if udp_scan.get("error"):
+            print(
+                f"[port_scan] udp failed host_id={hid!r} target={target!r} "
+                f"reason={udp_scan.get('error')!r} scan_id={scan_id} "
+                f"udp_duration_ms={udp_duration_ms}"
+            )
+        else:
+            print(
+                f"[port_scan] udp ok host_id={hid!r} target={target!r} "
+                f"udp_ports_scanned={len(udp_scan.get('ports') or [])} "
+                f"udp_ports_open={len(udp_open_entries)} "
+                f"udp_duration_ms={udp_duration_ms} scan_id={scan_id}"
+            )
+    if scan.get("error"):
+        print(
+            f"[port_scan] failed host_id={hid!r} target={target!r} "
+            f"reason={scan.get('error')!r} scan_id={scan_id} "
+            f"duration_ms={duration_ms}"
+        )
+    else:
+        print(
+            f"[port_scan] ok host_id={hid!r} target={target!r} "
+            f"ports_scanned={len(scan.get('ports') or [])} "
+            f"ports_open={len(open_entries)} duration_ms={duration_ms} "
+            f"scan_id={scan_id}"
+        )
+    prev_open_ports: set[tuple[int, str]] = set()
+    try:
+        with db_conn() as c:
+            prev_head = c.execute(
+                "SELECT scan_id, MAX(ts) AS ts FROM host_port_scans "
+                "WHERE host_id = ? AND scan_id != ? "
+                "GROUP BY scan_id ORDER BY ts DESC LIMIT 1",
+                (hid, scan_id),
+            ).fetchone()
+            if prev_head and prev_head["scan_id"]:
+                prev_rows = c.execute(
+                    "SELECT port, protocol FROM host_port_scans WHERE scan_id = ?",
+                    (prev_head["scan_id"],),
+                ).fetchall()
+                prev_open_ports = {
+                    (int(r["port"]), (r["protocol"] or "tcp"))
+                    for r in prev_rows
+                }
+    except Exception:  # noqa: BLE001
+        prev_open_ports = set()
+    curated_services_for_diff = h.get("services") if isinstance(h.get("services"), list) else []
+    curated_ports_set = {int(s.get("port") or 0)
+                         for s in curated_services_for_diff if isinstance(s, dict)}
+    try:
+        with db_conn() as c:
+            for entry in open_entries:
+                c.execute(
+                    "INSERT INTO host_port_scans "
+                    "(ts, host_id, scan_id, port, service_hint, "
+                    " banner_excerpt, protocol) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        int(scan.get("scanned_at") or time.time()),
+                        hid,
+                        scan_id,
+                        int(entry.get("port") or 0),
+                        entry.get("service_hint") or "",
+                        entry.get("banner_excerpt") or "",
+                        "tcp",
+                    ),
+                )
+            for entry in udp_open_entries:
+                c.execute(
+                    "INSERT INTO host_port_scans "
+                    "(ts, host_id, scan_id, port, service_hint, "
+                    " banner_excerpt, protocol) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        int((udp_scan or {}).get("scanned_at") or time.time()),
+                        hid,
+                        scan_id,
+                        int(entry.get("port") or 0),
+                        entry.get("service_hint") or "",
+                        entry.get("banner_excerpt") or "",
+                        "udp",
+                    ),
+                )
+            events_payload = {
+                "scan_id":              scan_id,
+                "ports_scanned":        len(scan.get("ports") or []),
+                "ports_open":           len(open_entries),
+                "scan_duration_ms":     duration_ms,
+                "target":               target,
+                "udp_enabled":          bool(udp_enabled),
+                "udp_ports_scanned":    len((udp_scan or {}).get("ports") or []) if udp_enabled else 0,
+                "udp_ports_open":       len(udp_open_entries) if udp_enabled else 0,
+                "udp_scan_duration_ms": int((udp_scan or {}).get("duration_ms") or 0) if udp_enabled else 0,
+            }
+            try:
+                events_json = json.dumps(events_payload, ensure_ascii=False)
+            except (TypeError, ValueError):
+                events_json = "{}"
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " status, duration, events, error, actor) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (
+                    float(time.time()),
+                    "port_scan",
+                    "host",
+                    hid,
+                    hid,
+                    "success" if not scan.get("error") else "error",
+                    float(duration_ms) / 1000.0,
+                    events_json,
+                    scan.get("error") or None,
+                    actor,
+                ),
+            )
+            c.commit()
+    except Exception as e:  # noqa: BLE001
+        print(f"[port_scan] persist failed for {hid}: {e}")
+
+    if prev_open_ports and not scan.get("error"):
+        all_open = list(open_entries) + list(udp_open_entries)
+        new_ports = [
+            e for e in all_open
+            if (int(e.get("port") or 0), (e.get("protocol") or "tcp")) not in prev_open_ports
+            and int(e.get("port") or 0) not in curated_ports_set
+        ]
+        if new_ports:
+            try:
+                from logic import ops as _ops
+                for entry in new_ports:
+                    pnum = int(entry.get("port") or 0)
+                    hint = entry.get("service_hint") or ""
+                    proto = (entry.get("protocol") or "tcp").lower()
+                    label = f"{pnum}/{proto}" + (f" ({hint})" if hint else "")
+                    await _ops.notify(
+                        event="port_scan_new_port",
+                        severity="info",
+                        actor_username=actor,
+                        target_kind="host",
+                        target_id=hid,
+                        message=(
+                            f"{label} listening on {target} — not in the previous "
+                            f"scan and not in this host's curated services. "
+                            f"Promote to curated in the host drawer if expected."
+                        ),
+                        metadata={
+                            "port": pnum,
+                            "protocol": proto,
+                            "service_hint": hint,
+                            "scan_id": scan_id,
+                        },
+                    )
+            except Exception as e:  # noqa: BLE001
+                print(f"[port_scan] notify failed for {hid}: {e}")
+
+    # Notify any open SPA tabs that the scan completed so they can
+    # refresh `host.detected_ports` without polling. The publisher
+    # carries the scan summary so the SPA's handler can show a toast
+    # without a follow-up GET.
+    try:
+        _events.publish("port_scan:completed", {
+            "host_id":      hid,
+            "scan_id":      scan_id,
+            "ok":           not bool(scan.get("error")),
+            "target":       target,
+            "ports_open":   len(open_entries),
+            "udp_open":     len(udp_open_entries),
+            "duration_ms":  duration_ms,
+            "error":        scan.get("error") or None,
+        })
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @app.post("/api/hosts/{host_id}/port-scan")
 async def api_hosts_port_scan(
     host_id: str,
     body:    Optional[PortScanIn] = None,
     _admin:  auth.User = Depends(auth.require_admin),
 ):
-    """On-demand port scan for one curated host. Admin-only. Runs an
-    asyncio TCP-connect scan synchronously inside the request (a
-    typical 100-port scan finishes in ~3-8s with concurrency=32);
-    persists one row per OPEN port to ``host_port_scans``; writes a
-    history row so the operator can browse "last scanned: X" via
-    the History tab. Returns the full scan shape so the SPA can
-    render the chip-strip diff immediately.
+    """On-demand port scan for one curated host. Admin-only.
+
+    The actual scan runs as a fire-and-forget asyncio task spawned
+    from this handler — pre-fix the endpoint blocked for the FULL
+    scan duration (up to ``tuning_port_scan_max_seconds`` = 120 s)
+    and tripped reverse-proxy timeouts (NPM / openresty default
+    ``proxy_read_timeout`` is typically 60 s) on wide port-range
+    scans, surfacing as a raw 504 HTML page in the SPA's toast.
+    Now: pre-validate + resolve target / config synchronously,
+    spawn the scan, return ``{scan_id, status: 'queued'}`` (HTTP 202)
+    immediately. The scan persists to ``host_port_scans`` + writes a
+    history row + emits a ``port_scan:completed`` SSE event when
+    done; SPA picks up the new ``detected_ports`` via the SSE
+    handler (or its 30 s polling fallback).
     """
     hid = (host_id or "").strip()
     if not get_setting_bool("port_scan_enabled", False):
@@ -12452,298 +12762,46 @@ async def api_hosts_port_scan(
             if ps_cfg.get("udp_concurrency") is not None else
             tuning.tuning_int("tuning_port_scan_udp_default_concurrency")
         )
-    # Hard bound the scan duration to keep request handling sane.
-    # Outer wall-clock budget flows through TUNABLES so the operator
-    # can raise it for large ranges (the 11000-port range cap can
-    # reach 10-15 minutes on a slow link) or lower it on tight
-    # ingress timeouts. Default 120s.
+    # Hard bound the scan duration. Outer wall-clock budget flows
+    # through TUNABLES so the operator can raise it for large ranges
+    # (the 11000-port range cap can reach 10-15 minutes on a slow link).
+    # The endpoint NO LONGER blocks on the budget — it spawns the scan
+    # as a fire-and-forget asyncio task and returns 202 immediately.
     scan_id = str(uuid.uuid4())
     started = time.time()
     max_seconds = tuning.tuning_int("tuning_port_scan_max_seconds")
+    snmp_cfg = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
+    snmp_community = (
+        snmp_cfg.get("community")
+        or get_setting("snmp_default_community", "")
+        or "public"
+    )
     print(
-        f"[port_scan] start host_id={hid!r} target={target!r} "
+        f"[port_scan] queued host_id={hid!r} target={target!r} "
         f"ports={len(ports_list)} timeout_s={timeout_s} "
         f"concurrency={concurrency} banner_grab={bool(body.banner_grab)} "
         f"udp_enabled={udp_enabled} udp_ports={len(udp_ports_list)} "
         f"max_seconds={max_seconds} scan_id={scan_id}"
     )
-    try:
-        # Run TCP + UDP in parallel via asyncio.gather under the
-        # outer wall-clock budget. Both halves complete or both
-        # fail together. UDP scan is OPTIONAL — when `udp_enabled`
-        # is false, only the TCP scan runs and `udp_scan` is None.
-        if udp_enabled:
-            from logic import port_scanner_udp as _ps_udp
-            # SNMP community for the SNMP probe — operators may have
-            # configured a non-public community in Admin → Hosts →
-            # SNMP. Fall back to 'public' for hosts without SNMP set.
-            snmp_cfg = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
-            snmp_community = (
-                snmp_cfg.get("community")
-                or get_setting("snmp_default_community", "")
-                or "public"
-            )
-            tcp_scan, udp_scan = await asyncio.wait_for(
-                asyncio.gather(
-                    _ps.scan_host(
-                        target,
-                        ports_list,
-                        timeout_s=float(timeout_s),
-                        concurrency=int(concurrency),
-                        banner_grab=bool(body.banner_grab),
-                    ),
-                    _ps_udp.udp_scan_host(
-                        target,
-                        udp_ports_list,
-                        timeout_s=float(udp_timeout_s),
-                        concurrency=int(udp_concurrency),
-                        snmp_community=str(snmp_community),
-                    ),
-                ),
-                timeout=float(max_seconds),
-            )
-            scan = tcp_scan
-        else:
-            scan = await asyncio.wait_for(
-                _ps.scan_host(
-                    target,
-                    ports_list,
-                    timeout_s=float(timeout_s),
-                    concurrency=int(concurrency),
-                    banner_grab=bool(body.banner_grab),
-                ),
-                timeout=float(max_seconds),
-            )
-            udp_scan = None
-    except asyncio.TimeoutError:
-        print(
-            f"[port_scan] failed host_id={hid!r} target={target!r} "
-            f"reason=timeout (>{max_seconds}s budget) scan_id={scan_id}"
-        )
-        raise HTTPException(
-            status_code=504,
-            detail=f"Port scan exceeded {max_seconds}s budget for {hid}",
-        )
-    except Exception as e:  # noqa: BLE001
-        print(
-            f"[port_scan] failed host_id={hid!r} target={target!r} "
-            f"reason={type(e).__name__}: {e} scan_id={scan_id}"
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Port scan failed for {hid}: {e}",
-        )
-    duration_ms = scan.get("duration_ms") or int((time.time() - started) * 1000)
-    open_entries = _ps.open_ports_only(scan)
-    # Annotate every TCP entry with `protocol='tcp'` so the unified
-    # downstream schema (drawer chip strip, history detail viewer)
-    # can render either family with the same code path.
-    for e in open_entries:
-        e.setdefault("protocol", "tcp")
-    udp_open_entries: list[dict] = []
-    if udp_enabled and udp_scan is not None:
-        from logic import port_scanner_udp as _ps_udp
-        udp_open_entries = _ps_udp.open_udp_ports_only(udp_scan)
-        udp_duration_ms = udp_scan.get("duration_ms") or 0
-        if udp_scan.get("error"):
-            print(
-                f"[port_scan] udp failed host_id={hid!r} target={target!r} "
-                f"reason={udp_scan.get('error')!r} scan_id={scan_id} "
-                f"udp_duration_ms={udp_duration_ms}"
-            )
-        else:
-            print(
-                f"[port_scan] udp ok host_id={hid!r} target={target!r} "
-                f"udp_ports_scanned={len(udp_scan.get('ports') or [])} "
-                f"udp_ports_open={len(udp_open_entries)} "
-                f"udp_duration_ms={udp_duration_ms} scan_id={scan_id}"
-            )
-    if scan.get("error"):
-        # Scanner returned a structured error (DNS failure, connection
-        # refused at the target hostname level, etc.). Log as warning —
-        # not an exception path, but operator-visible.
-        print(
-            f"[port_scan] failed host_id={hid!r} target={target!r} "
-            f"reason={scan.get('error')!r} scan_id={scan_id} "
-            f"duration_ms={duration_ms}"
-        )
-    else:
-        print(
-            f"[port_scan] ok host_id={hid!r} target={target!r} "
-            f"ports_scanned={len(scan.get('ports') or [])} "
-            f"ports_open={len(open_entries)} duration_ms={duration_ms} "
-            f"scan_id={scan_id}"
-        )
-    # Find the PREVIOUS scan's open ports so we can fire a
-    # `port_scan_new_port` notification per port that's newly open
-    # (and not already in the curated services list — operator
-    # already knows about those). Empty list when this is the first
-    # scan for the host.
-    # Track previous open ports as `(port, protocol)` tuples so a
-    # newly-open UDP/161 doesn't get suppressed because TCP/161 was
-    # already known. Legacy rows pre-migration-004 default to 'tcp'.
-    prev_open_ports: set[tuple[int, str]] = set()
-    try:
-        with db_conn() as c:
-            prev_head = c.execute(
-                "SELECT scan_id, MAX(ts) AS ts FROM host_port_scans "
-                "WHERE host_id = ? GROUP BY scan_id ORDER BY ts DESC LIMIT 1",
-                (hid,),
-            ).fetchone()
-            if prev_head and prev_head["scan_id"]:
-                prev_rows = c.execute(
-                    "SELECT port, protocol FROM host_port_scans WHERE scan_id = ?",
-                    (prev_head["scan_id"],),
-                ).fetchall()
-                prev_open_ports = {
-                    (int(r["port"]), (r["protocol"] or "tcp"))
-                    for r in prev_rows
-                }
-    except Exception:  # noqa: BLE001
-        prev_open_ports = set()
-    curated_services_for_diff = h.get("services") if isinstance(h.get("services"), list) else []
-    # Curated services don't carry a protocol column today, so a
-    # curated `port: 22` matches BOTH families. Once curated services
-    # grow a `protocol` field this set should become tuples.
-    curated_ports_set = {int(s.get("port") or 0)
-                         for s in curated_services_for_diff if isinstance(s, dict)}
-    # Persist one row per OPEN port, plus a history row so the
-    # operator can browse scans + see "last scanned: N hours ago".
-    try:
-        with db_conn() as c:
-            for entry in open_entries:
-                c.execute(
-                    "INSERT INTO host_port_scans "
-                    "(ts, host_id, scan_id, port, service_hint, "
-                    " banner_excerpt, protocol) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        int(scan.get("scanned_at") or time.time()),
-                        hid,
-                        scan_id,
-                        int(entry.get("port") or 0),
-                        entry.get("service_hint") or "",
-                        entry.get("banner_excerpt") or "",
-                        "tcp",
-                    ),
-                )
-            for entry in udp_open_entries:
-                c.execute(
-                    "INSERT INTO host_port_scans "
-                    "(ts, host_id, scan_id, port, service_hint, "
-                    " banner_excerpt, protocol) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        int((udp_scan or {}).get("scanned_at") or time.time()),
-                        hid,
-                        scan_id,
-                        int(entry.get("port") or 0),
-                        entry.get("service_hint") or "",
-                        entry.get("banner_excerpt") or "",
-                        "udp",
-                    ),
-                )
-            # History row — single entry for the whole scan, regardless
-            # of how many open ports it found. `events` JSON carries
-            # the scan summary so the History tab can show counts +
-            # duration without a separate fetch. `op_type='port_scan'`
-            # is a NEW event name; add it to NOTIFY_EVENT_NAMES if a
-            # future iteration wants to fire notifications via the
-            # generic `notify(...)` path.
-            events_payload = {
-                "scan_id":              scan_id,
-                "ports_scanned":        len(scan.get("ports") or []),
-                "ports_open":           len(open_entries),
-                "scan_duration_ms":     duration_ms,
-                "target":               target,
-                "udp_enabled":          bool(udp_enabled),
-                "udp_ports_scanned":    len((udp_scan or {}).get("ports") or []) if udp_enabled else 0,
-                "udp_ports_open":       len(udp_open_entries) if udp_enabled else 0,
-                "udp_scan_duration_ms": int((udp_scan or {}).get("duration_ms") or 0) if udp_enabled else 0,
-            }
-            try:
-                events_json = json.dumps(events_payload, ensure_ascii=False)
-            except (TypeError, ValueError):
-                events_json = "{}"
-            c.execute(
-                "INSERT INTO history "
-                "(ts, op_type, target_kind, target_name, target_id, "
-                " status, duration, events, error, actor) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (
-                    float(time.time()),
-                    "port_scan",
-                    "host",
-                    hid,
-                    hid,
-                    "success" if not scan.get("error") else "error",
-                    float(duration_ms) / 1000.0,
-                    events_json,
-                    scan.get("error") or None,
-                    getattr(_admin, "username", "ui") or "ui",
-                ),
-            )
-            c.commit()
-    except Exception as e:  # noqa: BLE001
-        # Best-effort persistence — the scan succeeded, the operator
-        # gets the result, but the History row / chip-diff source row
-        # may be missing.
-        print(f"[port_scan] persist failed for {hid}: {e}")
-
-    # Fire `port_scan_new_port` notifications for ports that are
-    # newly open (not in previous scan AND not in curated services).
-    # First scan ever (`prev_open_ports` empty) is special-cased: we
-    # SKIP firing so the operator doesn't get a flood of "new!"
-    # notifications when first enabling the scanner. Default OFF
-    # event so even configured operators must opt in explicitly.
-    if prev_open_ports and not scan.get("error"):
-        all_open = list(open_entries) + list(udp_open_entries)
-        new_ports = [
-            e for e in all_open
-            if (int(e.get("port") or 0), (e.get("protocol") or "tcp")) not in prev_open_ports
-            and int(e.get("port") or 0) not in curated_ports_set
-        ]
-        if new_ports:
-            try:
-                from logic import ops as _ops
-                for entry in new_ports:
-                    pnum = int(entry.get("port") or 0)
-                    hint = entry.get("service_hint") or ""
-                    proto = (entry.get("protocol") or "tcp").lower()
-                    label = f"{pnum}/{proto}" + (f" ({hint})" if hint else "")
-                    # Use the template system — `notify(...)` resolves
-                    # title + body from `notify_template_port_scan_new_port_*`
-                    # settings (admin override) → NOTIFY_TEMPLATE_DEFAULTS
-                    # (hard-coded baseline). Caller passes `message`
-                    # for the body's `{message}` placeholder.
-                    await _ops.notify(
-                        event="port_scan_new_port",
-                        severity="info",
-                        actor_username=getattr(_admin, "username", "ui") or "ui",
-                        target_kind="host",
-                        target_id=hid,
-                        message=(
-                            f"{label} listening on {target} — not in the previous "
-                            f"scan and not in this host's curated services. "
-                            f"Promote to curated in the host drawer if expected."
-                        ),
-                        metadata={
-                            "port": pnum,
-                            "protocol": proto,
-                            "service_hint": hint,
-                            "scan_id": scan_id,
-                        },
-                    )
-            except Exception as e:  # noqa: BLE001
-                print(f"[port_scan] notify failed for {hid}: {e}")
-
-    # Return the diff against `hosts_config[].services[]` so the SPA
-    # can render the chip strip without an additional fetch. Curated
-    # diff still operates on TCP entries (curated services don't
-    # carry a protocol field today); UDP open ports return alongside
-    # for the drawer's separate annotation.
-    curated_services = h.get("services") if isinstance(h.get("services"), list) else []
-    diff = _ps.diff_against_curated(open_entries, curated_services)
+    actor = getattr(_admin, "username", "ui") or "ui"
+    asyncio.create_task(_run_port_scan_async(
+        hid=hid,
+        target=target,
+        ports_list=ports_list,
+        timeout_s=int(timeout_s),
+        concurrency=int(concurrency),
+        banner_grab=bool(body.banner_grab),
+        udp_enabled=bool(udp_enabled),
+        udp_ports_list=udp_ports_list,
+        udp_timeout_s=int(udp_timeout_s),
+        udp_concurrency=int(udp_concurrency),
+        snmp_community=str(snmp_community),
+        max_seconds=int(max_seconds),
+        scan_id=scan_id,
+        started=started,
+        h=h,
+        actor=actor,
+    ))
     config_used = {
         "ports_count": len(ports_list),
         "timeout_s":   int(timeout_s),
@@ -12755,23 +12813,18 @@ async def api_hosts_port_scan(
         config_used["udp_ports_count"] = len(udp_ports_list)
         config_used["udp_timeout_s"]   = int(udp_timeout_s)
         config_used["udp_concurrency"] = int(udp_concurrency)
-    return {
-        "ok":              not bool(scan.get("error")) and not bool((udp_scan or {}).get("error")),
-        "host_id":         hid,
-        "target":          target,
-        "scan_id":         scan_id,
-        "scanned_at":      scan.get("scanned_at"),
-        "duration_ms":     duration_ms,
-        "ports":           scan.get("ports") or [],
-        "open_ports":      open_entries,
-        "udp_ports":       (udp_scan or {}).get("ports") or [],
-        "udp_open_ports":  udp_open_entries,
-        "udp_duration_ms": int((udp_scan or {}).get("duration_ms") or 0) if udp_enabled else 0,
-        "udp_error":       (udp_scan or {}).get("error") if udp_enabled else None,
-        "diff":            diff,
-        "error":           scan.get("error"),
-        "config_used":     config_used,
-    }
+    return JSONResponse(
+        status_code=202,
+        content={
+            "ok":          True,
+            "status":      "queued",
+            "host_id":     hid,
+            "target":      target,
+            "scan_id":     scan_id,
+            "scanned_at":  int(started),
+            "config_used": config_used,
+        },
+    )
 
 
 @app.get("/api/history/port-scan/{scan_id}/ports")
