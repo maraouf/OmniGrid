@@ -1593,14 +1593,45 @@ function app() {
           // (visible chat resets) while every turn stays preserved in
           // the DB for learning / analytics.
           try {
-            const conv = m && m.ui_prefs && m.ui_prefs.ai_conversation;
+            const dbConv = m && m.ui_prefs && m.ui_prefs.ai_conversation;
             const cutoff = (m && m.ui_prefs && Number(m.ui_prefs.ai_conversation_cleared_at)) || 0;
+            // Pick whichever source has the most turns. DB is canonical
+            // for cross-browser; localStorage is the per-browser
+            // write-through cache (`persistAiConversation` writes both).
+            // The cache wins when (a) the DB row is missing because
+            // a redeploy ran before the last PATCH landed, OR (b) a
+            // concurrent /api/me wholesale-replace clobbered it
+            // mid-flight. Either source's older turns get filtered by
+            // the cleared_at cutoff so screen-clear semantics hold
+            // regardless of which one wins.
+            let lsConv = null;
+            try {
+              if (typeof localStorage !== 'undefined' && m && m.id) {
+                const raw = localStorage.getItem('aiConversation:' + m.id);
+                if (raw) {
+                  const parsed = JSON.parse(raw);
+                  if (Array.isArray(parsed)) lsConv = parsed;
+                }
+              }
+            } catch (_) { /* private-mode / corrupt entry — skip */ }
+            const dbLen = Array.isArray(dbConv) ? dbConv.length : 0;
+            const lsLen = Array.isArray(lsConv) ? lsConv.length : 0;
+            const conv = (lsLen > dbLen) ? lsConv : dbConv;
             if (Array.isArray(conv) && conv.length > 0) {
               const filtered = cutoff > 0
                 ? conv.filter(t => t && Number(t.ts) > cutoff)
                 : conv;
               this.aiConversation = filtered;
               this._aiConversationClearedAt = cutoff;
+              // If localStorage held more turns than the DB (a
+              // mid-flight regression mid-PATCH or a redeploy that
+              // outran the last write), repair the DB by re-persisting
+              // from the merged in-memory array. Fire-and-forget — a
+              // failure here just means the next persist round-trip
+              // (next turn / clear / feedback) will handle it.
+              if (lsLen > dbLen) {
+                try { this.persistAiConversation(); } catch (_) {}
+              }
               // Re-fetch chart data for any restored turn that had
               // `host_ids` — the shells render via x-html but stay in
               // "Loading…" state until the populator runs.
@@ -10085,6 +10116,23 @@ function app() {
         pending_action:   t.pending_action || null,
         cancelled:        !!t.cancelled,
       }));
+      // Write-through localStorage cache — keyed per user so multiple
+      // logins on the same browser don't trample each other. Captures
+      // the same shape the DB sees so init's hydration helper can
+      // restore from EITHER source. This makes the chat survive
+      // (a) a PATCH that races with a refresh, (b) a backend that's
+      // mid-restart when the SPA tries to persist, (c) the per-tuning
+      // /api/me wholesale-replace that briefly overwrites
+      // me.ui_prefs.ai_conversation with a stale snapshot. DB stays
+      // the cross-browser source of truth; localStorage is the
+      // per-browser fast-path. Best-effort: a thrown SecurityError
+      // (private mode / quota) just falls back to DB-only persistence.
+      try {
+        if (typeof localStorage !== 'undefined') {
+          const key = 'aiConversation:' + this.me.id;
+          localStorage.setItem(key, JSON.stringify(turns));
+        }
+      } catch (_) { /* private-mode / quota — skip */ }
       try {
         await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
@@ -13722,6 +13770,15 @@ function app() {
       // from ui_prefs and filter pre-Clear turns out of the
       // hydration.
       this._aiConversationClearedAt = cutoff;
+      // Drop the per-browser write-through cache so the localStorage
+      // fallback in init's hydration doesn't restore pre-Clear turns
+      // when the DB cutoff PATCH races a refresh. The DB still holds
+      // every turn for the analytics / learning surface.
+      try {
+        if (typeof localStorage !== 'undefined' && this.me && this.me.id) {
+          localStorage.removeItem('aiConversation:' + this.me.id);
+        }
+      } catch (_) { /* private-mode — skip */ }
       // Best-effort write the cutoff to ui_prefs WITHOUT touching the
       // ai_conversation array. Skip for API-token pseudo-users
       // (negative ids) since /api/me/ui-prefs returns 400 for them.
@@ -13765,6 +13822,14 @@ function app() {
       this.aiSidebarQuery = '';
       this.aiSidebarBusy = true;
       this._scrollAiSidebarToBottom();
+      // Persist the user turn IMMEDIATELY — pre-fix `persistAiConversation`
+      // only fired in the `finally` block after the AI response landed,
+      // so a refresh / redeploy that hit during a slow LLM round-trip
+      // (Gemini 2.5 Pro typically takes 5-15 s) lost the question
+      // entirely. Persisting twice (once now, once after the assistant
+      // turn lands) is cheap; both writes round-trip the full capped
+      // array, so the second write supersedes the first cleanly.
+      try { this.persistAiConversation(); } catch (_) {}
 
       // Build conversation context for the backend — only role + text
       // pairs (no metadata). Cap at the last 12 turns so token budget
