@@ -3406,7 +3406,7 @@ details summary::-webkit-details-marker {
     left: 0;
     top: 0;
     bottom: 0;
-    width: 400px;
+    width: 480px;
     max-width: 100vw;
     z-index: 40;
     background: var(--surface);
