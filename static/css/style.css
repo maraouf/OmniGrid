@@ -3548,6 +3548,59 @@ details summary::-webkit-details-marker {
     font-weight: 500;
     white-space: nowrap;
 }
+.ai-bubble-action--cancelled {
+    color: var(--text-faint);
+    border-color: var(--border);
+    text-decoration: line-through;
+}
+/* Inline-confirm chip — replaces the SweetAlert popup for destructive
+   actions invoked from the AI sidebar. Wraps a warning icon, the
+   action label, and Yes / Cancel buttons in one compact row attached
+   to the assistant's chat turn. */
+.ai-confirm-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    padding: 4px 8px;
+    background: var(--pill-warning-bg, var(--surface-3));
+    color: var(--pill-warning-fg, var(--warning));
+    border: 1px solid var(--pill-warning-br, var(--warning));
+    border-radius: var(--r-sm);
+    font-size: 11px;
+    line-height: 1.3;
+    flex-wrap: wrap;
+}
+.ai-confirm-label {
+    font-weight: 500;
+}
+.ai-confirm-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 0 7px;
+    height: 20px;
+    line-height: 18px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    transition: background .12s, border-color .12s, color .12s;
+}
+.ai-confirm-btn-yes {
+    background: var(--danger);
+    color: var(--text-on-primary, #fff);
+    border-color: var(--danger);
+}
+.ai-confirm-btn-yes:hover {
+    filter: brightness(1.1);
+}
+.ai-confirm-btn-no {
+    color: var(--text-dim);
+}
+.ai-confirm-btn-no:hover {
+    border-color: var(--text-dim);
+    color: var(--text);
+}
 .ai-bubble-feedback {
     display: inline-flex;
     gap: 2px;

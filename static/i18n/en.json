@@ -1529,6 +1529,12 @@
     "clear":            "Clear",
     "clear_title":      "Clear conversation history",
     "action_ran":       "Ran:",
+    "opened":           "Opened",
+    "navigated":        "Navigated to",
+    "confirm_run":      "Run",
+    "confirm_yes":      "Yes, run it",
+    "confirm_cancel":   "Cancel",
+    "cancelled":        "Cancelled",
     "feedback_up":      "Helpful",
     "feedback_down":    "Not helpful",
     "error_prefix":     "Error:"

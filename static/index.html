@@ -7837,7 +7837,32 @@
                class="ai-bubble"
                :class="turn.role === 'user' ? 'ai-bubble-user' : (turn.error ? 'ai-bubble-error' : 'ai-bubble-assistant')"
                x-text="turn.error ? (t('ai_sidebar.error_prefix') + ' ' + turn.error) : turn.text"></div>
-          <div x-show="turn.role === 'assistant' && turn.action_label && turn.action_ran"
+          <!-- Pending inline confirmation — destructive action awaits
+               operator's Yes / Cancel click in-conversation. Replaces
+               the SweetAlert popup that the modal palette uses. -->
+          <div x-show="turn.role === 'assistant' && turn.pending_confirm"
+               class="ai-confirm-chip">
+            <svg width="11" height="11" aria-hidden="true">
+              <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-alert-triangle'"/>
+            </svg>
+            <span class="ai-confirm-label"
+                  x-text="t('ai_sidebar.confirm_run') + ' ' + turn.action_label + '?'"></span>
+            <button type="button"
+                    class="ai-confirm-btn ai-confirm-btn-yes"
+                    @click="confirmInlineAction(idx)"
+                    x-text="t('ai_sidebar.confirm_yes')"></button>
+            <button type="button"
+                    class="ai-confirm-btn ai-confirm-btn-no"
+                    @click="cancelInlineAction(idx)"
+                    x-text="t('ai_sidebar.confirm_cancel')"></button>
+          </div>
+          <!-- Cancelled — operator picked Cancel. Show a faint marker
+               so the chat history accurately reflects what happened. -->
+          <div x-show="turn.role === 'assistant' && turn.cancelled"
+               class="ai-bubble-action ai-bubble-action--cancelled">
+            <span x-text="t('ai_sidebar.cancelled') + ' ' + turn.action_label"></span>
+          </div>
+          <div x-show="turn.role === 'assistant' && turn.action_label && turn.action_ran && !turn.cancelled"
                class="ai-bubble-action">
             <svg width="10" height="10" aria-hidden="true">
               <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-check'"/>

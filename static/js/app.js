@@ -12549,15 +12549,19 @@ function app() {
         this.showToast(String(e && e.message || e), 'error');
       }
     },
-    commandPaletteResults() {
+    commandPaletteResults(qOverride) {
       // BULK MODE short-circuit — when the query parses as a bulk
       // verb-prefix, return ZERO regular results. The bulk UI lives
       // in a separate render block above the listbox (driven by
       // `commandPaletteBulkState()`), so the listbox stays empty and
       // the keyboard-arrow navigation focuses the chip strip / run
-      // button instead of phantom host rows.
-      if (this.isCommandPaletteBulkMode()) return [];
-      const q = (this.commandPaletteQuery || '').trim().toLowerCase();
+      // button instead of phantom host rows. Skipped when an
+      // override is passed (the AI sidebar slash picker doesn't
+      // surface bulk mode — that's modal-palette-only).
+      if (qOverride === undefined && this.isCommandPaletteBulkMode()) return [];
+      const q = (qOverride !== undefined
+                  ? String(qOverride || '').trim().toLowerCase()
+                  : (this.commandPaletteQuery || '').trim().toLowerCase());
       const results = [];
       const MAX_PER_GROUP = 8;
       // ACTIONS — verb-first commands. Score by max(label, verbs);
@@ -12744,8 +12748,11 @@ function app() {
         });
       }
       // Clamp the selected index so it doesn't point past the end of
-      // a fresh result set after the query changed.
-      if (this.commandPaletteSelectedIdx >= results.length) {
+      // a fresh result set after the query changed. Skipped when
+      // called with an override (slash picker has its own selected-
+      // index bookkeeping; mutating `commandPaletteSelectedIdx` here
+      // would also trip Alpine reactivity from a getter).
+      if (qOverride === undefined && this.commandPaletteSelectedIdx >= results.length) {
         this.commandPaletteSelectedIdx = Math.max(0, results.length - 1);
       }
       return results;
@@ -12870,23 +12877,34 @@ function app() {
         this.commandPaletteAiBulkBusy = prevPlaceholder ? true : false;
       }
     },
-    async _runCommandPaletteAction(action) {
+    async _runCommandPaletteAction(action, opts) {
       if (!action || typeof action.run !== 'function') return;
+      const fromSidebar = !!(opts && opts.surface === 'sidebar');
+      const skipConfirm = !!(opts && opts.skipConfirm);
       // Some destructive actions wrap their OWN SweetAlert confirm
       // INSIDE `run()` and present a richer payload (e.g. the topbar
-      // Cleanup flow lists every container by name in its confirm
-      // popup). Showing the generic confirm here AND THEN the
-      // run-internal one produces a double-popup ("are you sure?" →
-      // "are you really sure? here's the list"). Opting in via
-      // `defer_confirm_to_run: true` skips the generic dialog and
-      // lets `run()` show its own — operator sees ONE popup with
-      // the real data.
-      if (action.destructive && !action.defer_confirm_to_run) {
-        // Operator already explicitly invoked this action via the
-        // Cmd-K palette (or accepted the AI's proposal of it), so the
-        // confirm dialog focuses Confirm — Enter on the dialog now
-        // fires the action instead of cancelling. Mirrors the typing
-        // rhythm: type → Enter (action selected) → Enter (confirm).
+      // Cleanup flow lists every container by name). Opting in via
+      // `defer_confirm_to_run: true` skips the generic dialog so we
+      // don't double-popup.
+      if (action.destructive && !action.defer_confirm_to_run && !skipConfirm) {
+        if (fromSidebar) {
+          // AI sidebar surface — replace the SweetAlert popup with an
+          // inline confirmation chip in the chat. Operator clicks Yes
+          // / Cancel right inside the conversation; no popup, no
+          // experience disruption. The chip lives on the SAME assistant
+          // turn `_appendActionChatTurn` just pushed.
+          const idx = this.aiConversation.length - 1;
+          const turn = this.aiConversation[idx];
+          if (turn) {
+            turn.pending_confirm = true;
+            turn.pending_action  = action;
+            this.persistAiConversation();
+            this._scrollAiSidebarToBottom();
+          }
+          return;
+        }
+        // Modal palette surface — keep the SweetAlert popup since
+        // there's no chat to inline-confirm into.
         const ok = await this.confirmDialog({
           title: action.confirmTitle || action.label,
           html:  action.confirmText || (this.t('command_palette.action.destructive_confirm')
@@ -12899,11 +12917,51 @@ function app() {
       }
       try {
         await action.run();
+        // Sidebar: flip the most-recent assistant turn's `action_ran`
+        // to true so the green "Ran:" chip surfaces. Skip when this
+        // call is from the modal palette path (no turn to update).
+        if (fromSidebar) {
+          const idx = this.aiConversation.length - 1;
+          const turn = this.aiConversation[idx];
+          if (turn && turn.action_id === action.id) {
+            turn.action_ran = true;
+            this.persistAiConversation();
+          }
+        }
       } catch (e) {
         if (typeof this.showToast === 'function') {
           this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
         }
       }
+    },
+    // Inline confirmation handlers for destructive actions invoked
+    // from the AI sidebar. The chat turn carries `pending_confirm:
+    // true` + `pending_action: <descriptor>` until the operator
+    // clicks one of the two buttons in the bubble.
+    async confirmInlineAction(turnIdx) {
+      const turn = this.aiConversation[turnIdx];
+      if (!turn || !turn.pending_confirm || !turn.pending_action) return;
+      const action = turn.pending_action;
+      turn.pending_confirm = false;
+      turn.pending_action  = null;
+      turn.action_ran      = true;
+      this.persistAiConversation();
+      this._scrollAiSidebarToBottom();
+      try {
+        await action.run();
+      } catch (e) {
+        if (typeof this.showToast === 'function') {
+          this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
+        }
+      }
+    },
+    cancelInlineAction(turnIdx) {
+      const turn = this.aiConversation[turnIdx];
+      if (!turn) return;
+      turn.pending_confirm = false;
+      turn.pending_action  = null;
+      turn.cancelled       = true;
+      this.persistAiConversation();
     },
     // Single source of truth for "should the AI surface be wired into
     // Cmd-K right now?" Consulted both at result-build time (deciding
@@ -13000,14 +13058,12 @@ function app() {
         .slice(-12)
         .map(t => ({ role: t.role, text: t.text }));
 
-      // Minimal context (same shape as the legacy modal call).
-      const hostsCtx = (this.hosts || []).slice(0, 30).map(h => h.id || h.host).filter(Boolean);
-      const itemsCtx = (this.items || []).slice(0, 30).map(i => i.name).filter(Boolean);
-      const ctx = {
-        view:  this.view || '',
-        hosts: hostsCtx,
-        items: itemsCtx,
-      };
+      // Build a RICH context — same shape as the legacy modal palette
+      // path. Without the metric fields (cpu_pct / mem_pct / disk_pct
+      // / disk_free_gb / status / paused / providers) the AI has
+      // nothing to work with when answering "which hosts are out of
+      // disk?" and falls back to fabricating host names + values.
+      const ctx = this._buildAiPaletteContext();
       try {
         const r = await fetch('/api/ai/palette', {
           method: 'POST',
@@ -13041,13 +13097,25 @@ function app() {
           ts:               Date.now(),
         };
         this.aiConversation.push(turn);
-        // Auto-run the proposed action (operator-requested behaviour:
-        // "do the action directly, don't show button"). Destructive
-        // actions still confirm via SweetAlert; that overlay sits on
-        // top of the sidebar, not inside it.
+        // Auto-run the proposed action. Non-destructive actions fire
+        // immediately. Destructive actions (sign_out, etc.) route
+        // through `_runCommandPaletteAction` with `surface: 'sidebar'`
+        // which converts the SweetAlert popup into an inline
+        // confirmation chip rendered on the SAME assistant turn — no
+        // popup, no experience disruption. Operator clicks Yes /
+        // Cancel right inside the chat. Actions with `defer_confirm_to_run`
+        // (cleanup_stopped, update_all_updatable) keep their inner
+        // data popup since it lists every container by name — that's
+        // legitimate confirmation data, not a disruption.
         if (actionDesc) {
-          turn.action_ran = true;
-          this._runCommandPaletteAction(actionDesc);
+          if (actionDesc.destructive && !actionDesc.defer_confirm_to_run) {
+            // Pre-mark as not-yet-ran; the inline-confirm flow flips
+            // `action_ran` true on Yes click.
+            turn.action_ran = false;
+          } else {
+            turn.action_ran = true;
+          }
+          this._runCommandPaletteAction(actionDesc, { surface: 'sidebar' });
         }
       } catch (e) {
         this.aiConversation.push({
@@ -13151,47 +13219,140 @@ function app() {
     aiSidebarSlashResults() {
       const q = (this.aiSidebarQuery || '').trimStart();
       if (!q.startsWith('/')) return [];
-      const needle = q.slice(1).toLowerCase().trim();
-      const all = (typeof this._commandActions === 'function')
-        ? this._commandActions() : [];
-      if (!needle) return all.slice(0, 12);
-      const scored = all.map(a => {
-        const label = (a.label || '').toLowerCase();
-        const verbs = Array.isArray(a.verbs) ? a.verbs : [];
-        let score = 0;
-        if (label.includes(needle)) score += 50;
-        if (label.startsWith(needle)) score += 30;
-        verbs.forEach(v => {
-          const vl = (v || '').toLowerCase();
-          if (vl === needle) score += 100;
-          else if (vl.startsWith(needle)) score += 60;
-          else if (vl.includes(needle)) score += 20;
-        });
-        return { a, score };
-      }).filter(x => x.score > 0);
-      scored.sort((a, b) => b.score - a.score);
-      return scored.slice(0, 12).map(x => x.a);
+      const needle = q.slice(1).trim();
+      // Reuse the modal palette's full result set — actions, hosts,
+      // items, admin tabs, top-level views, hotkeys, AI fallback row.
+      // Empty needle (just `/`) returns the full action catalog at
+      // score 1, mirroring the modal palette's empty-query behaviour.
+      // The modal's bulk-NL and other commandPaletteQuery-specific
+      // branches are skipped via the override path.
+      const results = (typeof this.commandPaletteResults === 'function')
+        ? this.commandPaletteResults(needle)
+        : [];
+      // Hide the AI-bulk row from the slash picker — the bulk-palette
+      // surface is keyboard-modal-only; surfacing it inline would just
+      // confuse the operator who's already in a chat.
+      return results.filter(r => r.kind !== 'ai-bulk').slice(0, 12);
     },
-    runAiSidebarSlashAction(action) {
-      if (!action) return;
+    runAiSidebarSlashAction(result) {
+      // `result` is one row from `commandPaletteResults()` carrying
+      // `{kind, label, sub, payload, group}`. Different kinds activate
+      // differently — actions fire via the dispatcher, navigation
+      // results close the drawer + jump to the surface, AI sends the
+      // query into the existing chat. Synthetic conversation turn
+      // logs WHAT the operator picked so the chat history is honest
+      // ("Ran: Switch to dark theme" / "Opened host: web01.example").
+      if (!result) return;
       this.aiSidebarQuery = '';
       this.aiSidebarSlashIdx = 0;
-      // Push a synthetic conversation turn so the operator sees what
-      // they just ran in the chat history (with the auto-fired chip).
-      // No AI round-trip; no ai_jobs row; no feedback buttons (no
-      // job_id to attach feedback to).
+      const kind = result.kind;
+      // Helper — close the drawer for navigation kinds so the operator
+      // lands on the target surface instead of staring at the sidebar.
+      const closeAndNavigate = (fn) => {
+        this.closeAiSidebar();
+        this.$nextTick(fn);
+      };
+      switch (kind) {
+        case 'action':
+          // Destructive actions get an inline confirmation chip
+          // instead of a SweetAlert popup — see the inline-confirm
+          // branch in `_runCommandPaletteAction`. Non-destructive
+          // actions fire immediately.
+          this._appendActionChatTurn(result.payload, /* slash= */ true);
+          this._runCommandPaletteAction(result.payload, { surface: 'sidebar' });
+          break;
+        case 'host':
+          this.aiConversation.push({
+            role: 'assistant', text: '',
+            action_label: this.t('ai_sidebar.opened') + ' ' + (result.label || ''),
+            action_ran: true, slash: true, ts: Date.now(),
+          });
+          this._scrollAiSidebarToBottom();
+          this.persistAiConversation();
+          closeAndNavigate(() => {
+            if (typeof this.openHostDrawer === 'function') {
+              this.openHostDrawer(result.payload);
+            }
+          });
+          break;
+        case 'item':
+          this.aiConversation.push({
+            role: 'assistant', text: '',
+            action_label: this.t('ai_sidebar.opened') + ' ' + (result.label || ''),
+            action_ran: true, slash: true, ts: Date.now(),
+          });
+          this._scrollAiSidebarToBottom();
+          this.persistAiConversation();
+          closeAndNavigate(() => {
+            if (typeof this.openItemDrawer === 'function') {
+              this.openItemDrawer(result.payload);
+            } else {
+              this.drawerItem = result.payload;
+            }
+          });
+          break;
+        case 'admin':
+          this.aiConversation.push({
+            role: 'assistant', text: '',
+            action_label: this.t('ai_sidebar.navigated') + ' ' + (result.label || ''),
+            action_ran: true, slash: true, ts: Date.now(),
+          });
+          this._scrollAiSidebarToBottom();
+          this.persistAiConversation();
+          closeAndNavigate(() => {
+            this.view = 'admin';
+            if (typeof this.setAdminTab === 'function') this.setAdminTab(result.payload);
+            else this.adminTab = result.payload;
+          });
+          break;
+        case 'view':
+          this.aiConversation.push({
+            role: 'assistant', text: '',
+            action_label: this.t('ai_sidebar.navigated') + ' ' + (result.label || ''),
+            action_ran: true, slash: true, ts: Date.now(),
+          });
+          this._scrollAiSidebarToBottom();
+          this.persistAiConversation();
+          closeAndNavigate(() => {
+            if (typeof this.setView === 'function') this.setView(result.payload);
+            else this.view = result.payload;
+          });
+          break;
+        case 'hotkey':
+          // Selecting a hotkey row opens the cheat sheet — same as
+          // the modal palette's behaviour.
+          closeAndNavigate(() => { this.showHotkeys = true; });
+          break;
+        case 'ai':
+          // Operator typed `/<question>` and selected the AI fallback
+          // row. Route through the same chat path as a regular send.
+          this.aiSidebarQuery = result.payload && result.payload.query || '';
+          this.sendAiSidebarMessage();
+          break;
+        default:
+          // Forward-compat — surface as a no-op assistant turn so the
+          // operator sees something happened.
+          break;
+      }
+    },
+    _appendActionChatTurn(action, slash) {
+      // Push a synthetic assistant turn so the chat log shows what
+      // the operator just invoked. For destructive actions we leave
+      // `action_ran: false` initially — the inline confirmation chip
+      // flips it to true on Yes click. Non-destructive auto-runs go
+      // straight to true.
+      const isDestructive = !!(action && action.destructive);
       this.aiConversation.push({
-        role:         'assistant',
-        text:         '',
-        action_id:    action.id,
-        action_label: action.label || action.id,
-        action_ran:   true,
-        slash:        true,
-        ts:           Date.now(),
+        role:           'assistant',
+        text:           '',
+        action_id:      action.id,
+        action_label:   action.label || action.id,
+        action_ran:     !isDestructive,
+        slash:          !!slash,
+        ts:             Date.now(),
       });
       this._scrollAiSidebarToBottom();
       this.persistAiConversation();
-      this._runCommandPaletteAction(action);
     },
     aiTurnSubline(turn) {
       if (!turn) return '';
@@ -13202,6 +13363,63 @@ function app() {
       if (turn.response_time_ms) parts.push(fmtNum(turn.response_time_ms) + 'ms');
       if (turn.tokens) parts.push(fmtNum(turn.tokens) + ' tokens');
       return parts.join(' · ');
+    },
+    // Build the rich `{view, hosts, items}` context object the AI
+    // palette + sidebar + any future AI surface ship to /api/ai/palette.
+    // Compact primitives only — no nested objects — so the prompt
+    // stays inside the token budget (30 hosts × ~12 fields ≈ 3k
+    // tokens). The backend's `build_palette_user_prompt` renders these
+    // as a "Available hosts" / "Available items" block. WITHOUT the
+    // metric fields here, the AI has nothing to answer "which hosts
+    // are out of disk?" with and falls back to fabricating host names
+    // + values — observed regression on the AI sidebar before this
+    // helper was extracted.
+    _buildAiPaletteContext() {
+      const fmtHost = (h) => {
+        const total = Number(h.disk_total || 0);
+        const used = Number(h.disk_used || 0);
+        const out = {
+          id: h.id || h.host || '',
+          label: h.label || '',
+          status: h.status || '',
+        };
+        if (h.cpu_percent !== undefined && h.cpu_percent !== null) {
+          out.cpu_pct = Math.round(Number(h.cpu_percent) * 10) / 10;
+        }
+        const memPct = (h.mem_percent !== undefined && h.mem_percent !== null)
+          ? Number(h.mem_percent) : (typeof this.memPercentOf === 'function' ? this.memPercentOf(h) : null);
+        if (memPct !== null && Number.isFinite(memPct)) {
+          out.mem_pct = Math.round(memPct);
+        }
+        if (total > 0) {
+          out.disk_pct = Math.round((used / total) * 100);
+          out.disk_free_gb = Math.round((total - used) / (1024 ** 3));
+          out.disk_total_gb = Math.round(total / (1024 ** 3));
+        }
+        if (h.uptime) out.uptime_s = Number(h.uptime);
+        if (h.sampling_paused) out.paused = true;
+        if (Array.isArray(h.providers) && h.providers.length) {
+          out.providers = h.providers.slice(0, 6);
+        }
+        return out;
+      };
+      const fmtItem = (i) => {
+        const out = { name: i.name || '' };
+        if (i.status)  out.status = i.status;
+        if (i.health)  out.health = i.health;
+        if (i.type)    out.type = i.type;
+        if (i.replicas !== undefined) out.replicas = i.replicas;
+        if (i.desired  !== undefined) out.desired = i.desired;
+        if (i.update_available) out.update_available = true;
+        return out;
+      };
+      const hostsCtx = (this.hosts || []).slice(0, 30).map(fmtHost).filter(h => h.id);
+      const itemsCtx = (this.items || []).slice(0, 30).map(fmtItem).filter(i => i.name);
+      return {
+        view:  this.view || '',
+        hosts: hostsCtx,
+        items: itemsCtx,
+      };
     },
     // Resolve a snake_case action ID emitted by the AI palette
     // backend (e.g. `mark_all_notifications_read`) to a descriptor
@@ -13468,58 +13686,13 @@ function app() {
         }
         return;
       }
-      // Rich context — give the AI the actual numbers so it can
-      // answer data questions ("which hosts are running out of space
-      // soon?") with specifics (top-N + percents) instead of pointing
-      // the operator at a chart. Cap at top 30 each so the prompt
-      // stays inside the token budget; trim every value to compact
-      // primitives (no nested objects) so 30 hosts × ~12 fields = ~3k
-      // tokens — well inside the 1024-default response cap.
-      const fmtHost = (h) => {
-        const total = Number(h.disk_total || 0);
-        const used = Number(h.disk_used || 0);
-        const out = {
-          id: h.id || h.host || '',
-          label: h.label || '',
-          status: h.status || '',
-        };
-        if (h.cpu_percent !== undefined && h.cpu_percent !== null) {
-          out.cpu_pct = Math.round(Number(h.cpu_percent) * 10) / 10;
-        }
-        const memPct = (h.mem_percent !== undefined && h.mem_percent !== null)
-          ? Number(h.mem_percent) : (typeof this.memPercentOf === 'function' ? this.memPercentOf(h) : null);
-        if (memPct !== null && Number.isFinite(memPct)) {
-          out.mem_pct = Math.round(memPct);
-        }
-        if (total > 0) {
-          out.disk_pct = Math.round((used / total) * 100);
-          out.disk_free_gb = Math.round((total - used) / (1024 ** 3));
-          out.disk_total_gb = Math.round(total / (1024 ** 3));
-        }
-        if (h.uptime) out.uptime_s = Number(h.uptime);
-        if (h.sampling_paused) out.paused = true;
-        if (Array.isArray(h.providers) && h.providers.length) {
-          out.providers = h.providers.slice(0, 6);
-        }
-        return out;
-      };
-      const fmtItem = (i) => {
-        const out = { name: i.name || '' };
-        if (i.status)  out.status = i.status;
-        if (i.health)  out.health = i.health;
-        if (i.type)    out.type = i.type;
-        if (i.replicas !== undefined) out.replicas = i.replicas;
-        if (i.desired  !== undefined) out.desired = i.desired;
-        if (i.update_available) out.update_available = true;
-        return out;
-      };
-      const hostsCtx = (this.hosts || []).slice(0, 30).map(fmtHost).filter(h => h.id);
-      const itemsCtx = (this.items || []).slice(0, 30).map(fmtItem).filter(i => i.name);
-      const ctx = {
-        view:  this.view || '',
-        hosts: hostsCtx,
-        items: itemsCtx,
-      };
+      // Rich context — built via the shared `_buildAiPaletteContext`
+      // helper so the sidebar + modal palette + any future AI surface
+      // all see the same structured-host shape (id / label / status /
+      // cpu_pct / mem_pct / disk_pct / disk_free_gb / disk_total_gb /
+      // uptime_s / paused / providers). Without these the model
+      // hallucinates host names + values when asked data questions.
+      const ctx = this._buildAiPaletteContext();
       // Open a SweetAlert immediately so the operator sees feedback
       // even if the round-trip takes 5-10s.
       const swal = (window.Swal || (typeof Swal !== 'undefined' && Swal));

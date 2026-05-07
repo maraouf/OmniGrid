@@ -6970,6 +6970,32 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                 # instead of the red "down" the operator expected.
                 providers_hit.append("ping")
 
+    # Re-derive `host_mem_percent` and `host_disk_percent` from the
+    # MERGED used + total values so the percent stays consistent with
+    # the bytes regardless of which providers contributed which field.
+    # Without this: SNMP reports `host_mem_percent: 90.87` (computed
+    # from `total - free`, FreeBSD-naive — doesn't subtract cache /
+    # inactive), while NE reports `host_mem_used: 13.58 GB` /
+    # `host_mem_total: 16.56 GB` (FreeBSD-aware: free + inactive +
+    # laundry + cache as available). NE comes AFTER SNMP in the merge
+    # order, but NE's `extract_stats` doesn't emit `host_mem_percent`
+    # — only used/total/avail — so SNMP's percent survives the merge
+    # while NE's bytes win, producing an inconsistent merged shape:
+    # 90% in `host_mem_percent` (used in the host card label) vs
+    # ~82% the chart history shows (sampler computes from NE's
+    # bytes). Operator-reported on OPNsense.home.lan: outside card
+    # reads "90% (13 GB / 15 GB)" while the drawer's memory chart
+    # reads 82% — same data, two answers. Recomputing from the
+    # merged bytes gives one truth.
+    _t = merged.get("host_mem_total") or 0
+    _u = merged.get("host_mem_used") or 0
+    if _t > 0 and _u > 0:
+        merged["host_mem_percent"] = round(min(100.0, (_u / _t) * 100.0), 2)
+    _t = merged.get("host_disk_total") or 0
+    _u = merged.get("host_disk_used") or 0
+    if _t > 0 and _u > 0:
+        merged["host_disk_percent"] = round(min(100.0, (_u / _t) * 100.0), 2)
+
     # Snapshot fallback — when a provider went down mid-session,
     # fill missing host_* fields from the previous gather's persisted
     # snapshot and tag them in `_stale_fields` so the SPA can dim those
