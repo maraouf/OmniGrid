@@ -2412,6 +2412,9 @@ class SettingsIn(BaseModel):
     # SPA reads via me.client_config.ai_sidebar_width_px and applies
     # via inline style on the <aside> root.
     tuning_ai_sidebar_width_px: Optional[str] = None
+    # AI conversation export — gates the export-to-txt / export-to-json
+    # buttons in the AI sidebar header. 0 = hide, 1 = show (default).
+    tuning_ai_conversation_export_enabled: Optional[str] = None
     # / SSE heartbeat cadence + connection lifetime cap.
     tuning_sse_heartbeat_seconds: Optional[str] = None
     tuning_sse_max_lifetime_seconds: Optional[str] = None
@@ -12247,22 +12250,26 @@ async def api_hosts_port_scan(
     the History tab. Returns the full scan shape so the SPA can
     render the chip-strip diff immediately.
     """
+    hid = (host_id or "").strip()
     if not get_setting_bool("port_scan_enabled", False):
+        print(f"[port_scan] skipped host_id={hid!r} — provider disabled (master toggle off)")
         raise HTTPException(
             status_code=400,
             detail="Port-scan provider is disabled. Enable it in "
                    "Admin → Providers → Port Scan first.",
         )
-    hid = (host_id or "").strip()
     if not hid:
+        print("[port_scan] skipped — host_id required")
         raise HTTPException(400, "host_id required")
     curated = _load_hosts_config()
     h = next((x for x in curated if x.get("id") == hid), None)
     if h is None:
+        print(f"[port_scan] skipped host_id={hid!r} — not found in curated list")
         raise HTTPException(404, f"Host not found: {hid}")
     ps_cfg = h.get("port_scan") if isinstance(h.get("port_scan"), dict) else {}
     # Per-host enabled flag wins; otherwise inherit the master.
     if "enabled" in ps_cfg and not ps_cfg.get("enabled"):
+        print(f"[port_scan] skipped host_id={hid!r} — per-host enable flag is False")
         raise HTTPException(
             status_code=400,
             detail=f"Port scan is disabled for host {hid}. "
@@ -12302,6 +12309,12 @@ async def api_hosts_port_scan(
     # the worker forever.
     scan_id = str(uuid.uuid4())
     started = time.time()
+    print(
+        f"[port_scan] start host_id={hid!r} target={target!r} "
+        f"ports={len(ports_list)} timeout_s={timeout_s} "
+        f"concurrency={concurrency} banner_grab={bool(body.banner_grab)} "
+        f"scan_id={scan_id}"
+    )
     try:
         scan = await asyncio.wait_for(
             _ps.scan_host(
@@ -12314,12 +12327,41 @@ async def api_hosts_port_scan(
             timeout=120.0,
         )
     except asyncio.TimeoutError:
+        print(
+            f"[port_scan] failed host_id={hid!r} target={target!r} "
+            f"reason=timeout (>120s budget) scan_id={scan_id}"
+        )
         raise HTTPException(
             status_code=504,
             detail=f"Port scan exceeded 120s budget for {hid}",
         )
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"[port_scan] failed host_id={hid!r} target={target!r} "
+            f"reason={type(e).__name__}: {e} scan_id={scan_id}"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Port scan failed for {hid}: {e}",
+        )
     duration_ms = scan.get("duration_ms") or int((time.time() - started) * 1000)
     open_entries = _ps.open_ports_only(scan)
+    if scan.get("error"):
+        # Scanner returned a structured error (DNS failure, connection
+        # refused at the target hostname level, etc.). Log as warning —
+        # not an exception path, but operator-visible.
+        print(
+            f"[port_scan] failed host_id={hid!r} target={target!r} "
+            f"reason={scan.get('error')!r} scan_id={scan_id} "
+            f"duration_ms={duration_ms}"
+        )
+    else:
+        print(
+            f"[port_scan] ok host_id={hid!r} target={target!r} "
+            f"ports_scanned={len(scan.get('ports') or [])} "
+            f"ports_open={len(open_entries)} duration_ms={duration_ms} "
+            f"scan_id={scan_id}"
+        )
     # Find the PREVIOUS scan's open ports so we can fire a
     # `port_scan_new_port` notification per port that's newly open
     # (and not already in the curated services list — operator
@@ -13994,6 +14036,10 @@ async def api_me(request: Request):
             # ai-sidebar-drawer reads this and applies via inline
             # style on the <aside> root. Mobile layout ignores it.
             "ai_sidebar_width_px": tuning.tuning_int("tuning_ai_sidebar_width_px"),
+            # AI conversation export — gates the "Export TXT" /
+            # "Export JSON" buttons in the AI sidebar header.
+            # 0 = hide buttons, 1 = show. Default 1.
+            "ai_conversation_export_enabled": bool(tuning.tuning_int("tuning_ai_conversation_export_enabled")),
             # SSE freshness-watchdog idle threshold. Stored as
             # seconds; SPA's `_sseIdleThresholdMs` consumer wants ms.
             "sse_idle_threshold_ms": tuning.tuning_int("tuning_sse_idle_threshold_seconds") * 1000,
@@ -14491,18 +14537,31 @@ def _safe_avatar_path(name: str) -> Optional[str]:
     when the input fails the strict shape regex OR the resolved path
     escapes the root (symlink / corrupt DB row).
 
-    Strict allowlist regex (`^[A-Za-z0-9._-]+$`) — no slashes, no
-    backslashes, no leading dots that could form `..`, no NUL bytes,
-    no path separators of any flavour. Belt-and-braces realpath +
-    prefix-confinement still applies in case the regex is bypassed
-    by a future relaxation. Same defence-in-depth pattern as
-    `logic/logs.py:safe_log_path`.
+    Four-layer defence-in-depth so CodeQL's taint tracker recognises
+    every barrier (the prior `startswith(root + os.sep)` check was
+    correct but not in CodeQL's sanitizer list, and CodeQL kept
+    flagging downstream filesystem reads as ``py/path-injection``):
+
+    1. **Type + emptiness guard** — bail on anything that isn't a
+       non-empty string before touching any path API.
+    2. **Strict allowlist regex** ``^[A-Za-z0-9._-]+$`` — no
+       slashes, no backslashes, no leading dots that could form
+       ``..``, no NUL bytes, no path separators of any flavour.
+    3. **`os.path.basename`** — CodeQL recognises this as a
+       canonical path-component sanitizer. The regex above already
+       guarantees the input has no separators so the basename is a
+       no-op on well-formed values, but the explicit call is what
+       convinces the taint tracker the value is path-safe.
+    4. **`os.path.commonpath` confinement** — re-canonicalises the
+       joined path via `realpath` and confirms the joined result
+       shares the avatar root as its common prefix. CodeQL
+       recognises ``commonpath == root`` as an explicit barrier
+       (versus the older ``startswith(root + os.sep)`` shape, which
+       is correct semantically but isn't in the sanitizer list).
     """
     if not isinstance(name, str) or not name:
         return None
-    # Strict regex first — rejects every path-traversal vector
-    # (slash, backslash, `..`, NUL, leading dot-only, etc.) before
-    # the value reaches `os.path.join`.
+    # Layer 2 — strict regex.
     if not _AVATAR_SAFE_NAME.fullmatch(name):
         return None
     # Reject standalone `.` / `..` / leading dots (regex above
@@ -14510,9 +14569,22 @@ def _safe_avatar_path(name: str) -> Optional[str]:
     # would also match — extra explicit guard).
     if name in (".", "..") or name.startswith(".."):
         return None
+    # Layer 3 — basename strip. No-op on regex-valid inputs but
+    # registered as a sanitizer barrier in CodeQL's path-injection
+    # query.
+    safe_name = os.path.basename(name)
+    if safe_name != name or not safe_name:
+        return None
     root = os.path.realpath(_AVATAR_DIR)
-    candidate = os.path.realpath(os.path.join(root, name))
-    if candidate != root and not candidate.startswith(root + os.sep):
+    candidate = os.path.realpath(os.path.join(root, safe_name))
+    # Layer 4 — commonpath confinement (recognised barrier).
+    try:
+        common = os.path.commonpath([root, candidate])
+    except ValueError:
+        # Different drives / mount points (Windows) / mixed separators
+        # → can't share a common path → reject.
+        return None
+    if common != root:
         return None
     return candidate
 

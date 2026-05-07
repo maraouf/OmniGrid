@@ -234,6 +234,24 @@
                 <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.help')"></p>
               </div>
+              <!-- AI conversation export master toggle. Same shape as
+                   the retry-enabled checkbox above so the visual rhythm
+                   matches. Stored as 0/1 via tuning_int; the SPA's
+                   sidebar-header export buttons gate on the resolved
+                   `me.client_config.ai_conversation_export_enabled`. -->
+              <div class="mt-3">
+                <label class="text-[12.5px] text-[var(--text-dim)] flex items-center gap-2">
+                  <input type="checkbox"
+                         x-model="tuningForm['tuning_ai_conversation_export_enabled']"
+                         true-value="1" false-value="0"
+                         :disabled="!isAdmin() || tuningSaving">
+                  <span x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.label')"></span>
+                </label>
+                <div class="text-[10.5px] text-[var(--text-faint)] mt-1 ms-6"
+                     x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_conversation_export_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
+                <p class="text-[10.5px] text-[var(--text-faint)] mt-1 ms-6"
+                   x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.help')"></p>
+              </div>
             </div>
             <!-- Provider fallback chain — opt-in resilience surface.
                  When enabled, a transient overload (HTTP 429 / 502 /
