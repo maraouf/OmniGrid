@@ -1197,6 +1197,11 @@ function app() {
       // preference: it's an AI-feature UI control, not a generic
       // tunable. Reads via `me.client_config.ai_sidebar_width_px`.
       'tuning_ai_sidebar_width_px',
+      // AI conversation export master toggle — surfaced as a
+      // checkbox under Admin → AI Integration. Reads via
+      // `me.client_config.ai_conversation_export_enabled`; SPA hides
+      // the export buttons in the AI sidebar header when false.
+      'tuning_ai_conversation_export_enabled',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -9878,7 +9883,19 @@ function app() {
         response_time_ms: Number(t.response_time_ms) || 0,
         tokens:           Number(t.tokens) || 0,
         error:            t.error || null,
-        ts:               Number(t.ts) || 0,
+        // `host_ids` carries the disk-projection chart targets the
+        // AI returned with the answer (HOSTS protocol). Pre-fix this
+        // field was OMITTED from the persist mapping, so even though
+        // every fresh turn carried it in memory the DB-stored copy
+        // didn't — reload found no `host_ids` to repopulate, the
+        // `<div x-show>` gate evaluated false, and the chart shells
+        // never re-rendered. Same drift class for `pending_confirm` /
+        // `pending_action` / `cancelled` — the inline-confirm chip's
+        // restore-after-reload contract needs them.
+        host_ids:         Array.isArray(t.host_ids) ? t.host_ids.slice() : null,
+        pending_confirm:  !!t.pending_confirm,
+        pending_action:   t.pending_action || null,
+        cancelled:        !!t.cancelled,
       }));
       try {
         await fetch('/api/me/ui-prefs', {
@@ -13312,6 +13329,139 @@ function app() {
       if (this.aiSidebarOpen) this.closeAiSidebar();
       else this.openAiSidebar();
     },
+    // Export the visible AI conversation as a downloadable file.
+    // Format = 'txt' (human-readable transcript) or 'json' (full
+    // structured payload). Triggered from the AI sidebar header
+    // buttons; gated by `me.client_config.ai_conversation_export_enabled`
+    // (master toggle in Admin → AI Integration). Only the VISIBLE
+    // conversation is exported — turns hidden by a prior Clear stay
+    // in `users.ui_prefs.ai_conversation` but aren't included
+    // because the operator already declared them "screen-cleared"
+    // for the current viewing session.
+    //
+    // TXT shape — one user / assistant turn per stanza:
+    //   ## User · 2026-05-07 22:31:04
+    //   how does the disk projection work?
+    //
+    //   ## Assistant · gemini · gemini-2.5-pro · 4474+183 tokens · 16532ms
+    //   The chart projects forward by linear regression over...
+    //   [Ran: switch_theme_dark]
+    //   [Hosts: web01, nas-zfs]
+    //
+    // JSON shape — every turn field carried along (export-equivalent
+    // to what `persistAiConversation` writes to ui_prefs, plus a
+    // top-level metadata block).
+    exportAiConversation(format) {
+      const turns = (this.aiConversation || []);
+      if (!turns.length) {
+        this.showToast(this.t('ai_sidebar.export_empty_toast'), 'error');
+        return;
+      }
+      const me = this.me || {};
+      const fmtTs = (ms) => {
+        if (!ms || !Number.isFinite(Number(ms))) return '';
+        try {
+          const d = new Date(Number(ms));
+          const pad = (n) => String(n).padStart(2, '0');
+          return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+            + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+        } catch (_) { return ''; }
+      };
+      let blob, filename;
+      try {
+        if (format === 'json') {
+          // Full structured payload — fields match the persist-shape
+          // `persistAiConversation` writes plus an `_export_meta` block
+          // for context (who exported, when, app version).
+          const payload = {
+            _export_meta: {
+              exported_at: new Date().toISOString(),
+              app_version: window.OG_VERSION || null,
+              exported_by: me.username || null,
+              turn_count:  turns.length,
+            },
+            turns: turns.map(t => ({
+              role:             t.role || '',
+              text:             t.text || '',
+              ts:               Number(t.ts) || 0,
+              ts_iso:           t.ts ? new Date(Number(t.ts)).toISOString() : null,
+              provider:         t.provider || null,
+              model:            t.model || null,
+              response_time_ms: Number(t.response_time_ms) || null,
+              tokens:           Number(t.tokens) || null,
+              prompt_tokens:    Number(t.prompt_tokens) || null,
+              completion_tokens:Number(t.completion_tokens) || null,
+              action_id:        t.action_id || null,
+              action_label:     t.action_label || null,
+              action_ran:       !!t.action_ran,
+              slash:            !!t.slash,
+              host_ids:         Array.isArray(t.host_ids) ? t.host_ids.slice() : null,
+              feedback:         t.feedback || null,
+              error:            t.error || null,
+              cancelled:        !!t.cancelled,
+              pending_confirm:  !!t.pending_confirm,
+              pending_action:   t.pending_action || null,
+              job_id:           (t.job_id !== undefined && t.job_id !== null) ? t.job_id : null,
+            })),
+          };
+          blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+          filename = 'omnigrid-ai-conversation-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.json';
+        } else {
+          // Plain-text transcript. One stanza per turn separated by a
+          // blank line. Subline carries provider / model / token /
+          // duration metadata when present so the export is
+          // self-contained for triage / debugging.
+          const lines = [];
+          lines.push('# OmniGrid AI conversation export');
+          lines.push('# Exported: ' + new Date().toISOString());
+          if (me.username) lines.push('# By: ' + me.username);
+          if (window.OG_VERSION) lines.push('# App version: ' + window.OG_VERSION);
+          lines.push('# Turns: ' + turns.length);
+          lines.push('');
+          for (const t of turns) {
+            const role = (t.role === 'user') ? 'User' : (t.role === 'assistant' ? 'Assistant' : (t.role || 'turn'));
+            const meta = [];
+            if (t.provider) meta.push(t.provider);
+            if (t.model)    meta.push(t.model);
+            if (Number(t.tokens))           meta.push(Number(t.tokens) + ' tokens');
+            if (Number(t.response_time_ms)) meta.push(Number(t.response_time_ms) + 'ms');
+            const ts = fmtTs(t.ts);
+            const head = '## ' + role
+              + (ts ? ' · ' + ts : '')
+              + (meta.length ? ' · ' + meta.join(' · ') : '');
+            lines.push(head);
+            if (t.text)         lines.push(String(t.text));
+            if (t.error)        lines.push('[Error: ' + t.error + ']');
+            if (t.action_label) lines.push('[' + (t.action_ran ? 'Ran' : 'Proposed') + ': ' + t.action_label + ']');
+            if (t.cancelled)    lines.push('[Cancelled]');
+            if (Array.isArray(t.host_ids) && t.host_ids.length) {
+              lines.push('[Hosts: ' + t.host_ids.join(', ') + ']');
+            }
+            if (t.feedback)     lines.push('[Feedback: ' + t.feedback + ']');
+            lines.push('');
+          }
+          blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+          filename = 'omnigrid-ai-conversation-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.txt';
+        }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        // Defer revoke until after click so the download path can
+        // fully capture the blob URL — some browsers (Safari) drop
+        // the download if the URL is revoked synchronously.
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 100);
+        this.showToast(this.t('ai_sidebar.export_done_toast', { filename }), 'success');
+      } catch (e) {
+        this.showToast(this.t('ai_sidebar.export_failed_toast', { error: String(e && e.message || e) }), 'error');
+      }
+    },
+
     clearAiConversation() {
       // SCREEN-clear only: empty the visible chat AND stamp a "cleared
       // at" timestamp into ui_prefs, but DON'T delete the underlying

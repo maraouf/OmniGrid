@@ -122,6 +122,15 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # strip, wider than 720 covers most secondary content on a
     # standard laptop.
     "tuning_ai_sidebar_width_px": ("AI_SIDEBAR_WIDTH_PX", 480, 320, 720),
+    # AI conversation export — toggles the export-to-txt /
+    # export-to-json buttons in the AI sidebar header. Default ON
+    # (1). Disable to hide the export affordance entirely (e.g. in
+    # shared-deployment scenarios where conversation export should
+    # require a specific operator role; the SPA-side hide is a UX
+    # nudge, not a security boundary — bearer-token clients can
+    # still read /api/me/ui-prefs.ai_conversation directly).
+    # Range 0..1 (boolean shape).
+    "tuning_ai_conversation_export_enabled": ("AI_CONVERSATION_EXPORT_ENABLED", 1, 0, 1),
     # SSE heartbeat cadence (seconds). The /api/events stream
     # emits a `: keepalive\n\n` comment every N seconds so an idle NPM
     # / cloudflare proxy doesn't drop the connection on its own

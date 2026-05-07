@@ -145,6 +145,12 @@ HOSTS_PARALLEL_FETCH=6
 # Mobile viewports (< 480 px) ignore this and always render full-width.
 AI_SIDEBAR_WIDTH_PX=480
 
+# AI conversation export master toggle. 0 hides the "Export TXT" /
+# "Export JSON" buttons in the AI sidebar header; 1 (default) shows
+# them. The conversation persists in users.ui_prefs.ai_conversation
+# regardless — this only governs the SPA-side download UI.
+AI_CONVERSATION_EXPORT_ENABLED=1
+
 # Ping host-stats provider knobs. The first three control the
 # lifespan-managed sampler that writes ping_samples; the cool-down
 # throttles probes against an unreachable host.
@@ -388,6 +394,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | Runtime    | `5`                  | host_snapshots read-cache TTL.                                                   |
 | `HOSTS_PARALLEL_FETCH`            | Runtime     | `6`                  | SPA fan-out concurrency cap on `/api/hosts/one/{id}`.                            |
 | `AI_SIDEBAR_WIDTH_PX`             | Runtime     | `480`                | AI Assistant sidebar drawer width in pixels (320..720). Mobile ignores.          |
+| `AI_CONVERSATION_EXPORT_ENABLED`  | Runtime     | `1`                  | Show / hide the AI conversation export buttons (TXT + JSON) in the sidebar.     |
 | `PING_INTERVAL_SECONDS`           | Runtime     | `60`                 | Ping sampler tick cadence.                                                       |
 | `PING_CONCURRENCY`                | Runtime     | `16`                 | Ping sampler fan-out.                                                            |
 | `PING_PROBE_TIMEOUT_SECONDS`      | Runtime     | `2`                  | Per-probe timeout.                                                               |

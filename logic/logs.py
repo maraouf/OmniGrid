@@ -127,9 +127,28 @@ def _severity_for(text: str, stream: str) -> str:
     wins over stream so stderr lines without negative keywords stay at
     INFO (uvicorn's startup banners + our own [tag] info prints all go
     to stderr).
+
+    **Structured success prefix wins over body keywords.** When a line
+    has the canonical OmniGrid shape `[<tag>] <subject> ok — ...` or
+    `[<tag>] ... → ok ...`, the success marker reliably appears in
+    the first ~80 chars of the line (right after the tag + subject).
+    The classifier checks for that EARLY-position success marker
+    before running the ERROR / WARN body scans so user-controlled
+    content downstream (an operator's AI query, an SSH command's
+    stdout, an Apprise webhook's body) can't poison the bucket
+    classification. Without this guard:
+    `[ai] palette ok — ... q="how to solve this error..."` was
+    classified ERROR because the body contained "error" — even
+    though the prefix unambiguously marks the call as successful.
+    Real failures say `[ai] palette failed — ...` / `[ssh] run
+    ERROR ...` near the start, NOT `ok —`.
     """
     if not text:
         return "INFO"
+    # Early-position success-marker scan (first 80 chars).
+    head = text[:80]
+    if _RE_OK.search(head):
+        return "SUCCESS"
     if _RE_ERROR.search(text):
         return "ERROR"
     if _RE_WARN.search(text):

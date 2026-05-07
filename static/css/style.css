@@ -2012,27 +2012,27 @@ details summary::-webkit-details-marker {
 }
 .ai-resp-chart-band {
     /* Confidence-interval fork — shaded polygon between
-       projection_high and projection_low. Fades away from the
-       central dashed line so the band reads as uncertainty
-       widening with extrapolation distance, not a hard boundary.
-       Pre-fix the fill+stroke opacities (0.12 / 0.25) were too soft
-       on a 70 px-tall chart to register as visibly distinct from
-       the historical area; bumped so the band reads as "this is
-       the uncertainty cone" at a glance. */
-    fill: var(--primary);
-    fill-opacity: 0.22;
+       projection_high and projection_low. Operator-visible cone
+       fanning out from the "now" divider so uncertainty reads at a
+       glance. Uses `--warning` (amber) instead of `--primary`
+       deliberately: the historical area also uses `--primary` at
+       0.18 fill-opacity, so a same-colour band blended right into
+       it. Switching to amber makes the cone visibly distinct from
+       the historical fill regardless of the bumped opacity. */
+    fill: var(--warning);
+    fill-opacity: 0.40;
     stroke: none;
 }
 .ai-resp-chart-band-edge {
-    /* High and low edge strokes — make the bounds explicitly
-       visible even when the fill cone is shallow (flat slope or
-       small residual variance). Dashed so they read as projections
-       (matching the central dashed projection line); thinner than
-       the central line so the hierarchy is obvious. */
-    stroke: var(--primary);
-    stroke-opacity: 0.55;
-    stroke-width: 0.75;
-    stroke-dasharray: 2, 2;
+    /* High and low edge strokes — explicit dashed lines tracing the
+       upper and lower bounds. Picks up the same amber as the band
+       fill (so the colour story is consistent: amber = uncertainty,
+       primary = central prediction) and reads at full opacity so
+       the bounds are obvious even on a shallow cone. */
+    stroke: var(--warning);
+    stroke-opacity: 0.95;
+    stroke-width: 1;
+    stroke-dasharray: 3, 2;
     fill: none;
 }
 .ai-resp-chart-line {

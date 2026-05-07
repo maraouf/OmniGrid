@@ -7891,6 +7891,28 @@
       </svg>
       <h3 x-text="t('ai_sidebar.title')"></h3>
       <button type="button"
+              @click="exportAiConversation('txt')"
+              x-show="aiConversation.length > 0 && (me && me.client_config && me.client_config.ai_conversation_export_enabled !== false)"
+              class="btn btn-ghost fs-xs"
+              :title="t('ai_sidebar.export_txt_title')"
+              :aria-label="t('ai_sidebar.export_txt_title')">
+        <svg width="12" height="12" aria-hidden="true">
+          <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-file-text'"/>
+        </svg>
+        <span x-text="t('ai_sidebar.export_txt')"></span>
+      </button>
+      <button type="button"
+              @click="exportAiConversation('json')"
+              x-show="aiConversation.length > 0 && (me && me.client_config && me.client_config.ai_conversation_export_enabled !== false)"
+              class="btn btn-ghost fs-xs"
+              :title="t('ai_sidebar.export_json_title')"
+              :aria-label="t('ai_sidebar.export_json_title')">
+        <svg width="12" height="12" aria-hidden="true">
+          <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-file-text'"/>
+        </svg>
+        <span x-text="t('ai_sidebar.export_json')"></span>
+      </button>
+      <button type="button"
               @click="clearAiConversation()"
               x-show="aiConversation.length > 0"
               class="btn btn-ghost fs-xs"

@@ -1143,6 +1143,10 @@
           "label": "AI sidebar width (px)",
           "help": "Width of the AI Assistant slide-in drawer. The 480 px default fits a 1366 px laptop comfortably; raise it (up to 720 px) on a 4K monitor where the drawer otherwise feels narrow, or lower it (down to 320 px) on a smaller laptop where the drawer covers too much working area. Mobile viewports (< 480 px wide) ignore this value and always render full-width. Range 320..720. Default 480. Takes effect on the next /api/me round-trip — the SPA reads it via `me.client_config.ai_sidebar_width_px` and stamps it onto the drawer root via inline `--ai-sidebar-width` style."
         },
+        "tuning_ai_conversation_export_enabled": {
+          "label": "Allow AI conversation export",
+          "help": "Show the \"Export TXT\" and \"Export JSON\" buttons in the AI Assistant sidebar header. When enabled, you can download the current chat as a plain-text transcript or a structured JSON payload — useful for sharing reproducible interactions back with developers / vendors / yourself across machines. Disable to hide the affordance entirely (the conversation still persists in `users.ui_prefs.ai_conversation`; the toggle only governs the SPA-side export UI). Range 0..1. Default 1 (enabled)."
+        },
         "tuning_sse_heartbeat_seconds": {
           "label": "SSE heartbeat cadence (seconds)",
           "help": "How often the /api/events stream emits a `: keepalive` comment so an idle reverse proxy (NPM / Cloudflare / Traefik) doesn't drop the connection on its own idle-keepalive timer. Lower this if your proxy has a tight idle timeout (some defaults are 30s); raise it to cut comment-traffic on long-lived tabs. Default 25 seconds. Takes effect on the NEXT SSE reconnect — already-open connections keep their old cadence until they cycle (every 6h via the lifetime cap, OR after a network drop)."
@@ -1626,6 +1630,13 @@
     "slash_destructive": "Destructive",
     "clear":            "Clear",
     "clear_title":      "Clear conversation history",
+    "export_txt":       "Export TXT",
+    "export_txt_title": "Download the current chat as a plain-text transcript (.txt) for sharing or archival.",
+    "export_json":      "Export JSON",
+    "export_json_title":"Download the current chat as a structured JSON payload (.json) — preserves every field (provider / model / tokens / response_time / host_ids / action_id / pending_confirm) so the export can be re-loaded or fed to tooling.",
+    "export_empty_toast":"Conversation is empty — nothing to export.",
+    "export_done_toast":"Conversation exported as {filename}",
+    "export_failed_toast":"Export failed: {error}",
     "action_ran":       "Ran:",
     "action_ran_label": "Ran: {action}",
     "opened":           "Opened",
