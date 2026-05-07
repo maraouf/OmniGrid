@@ -4282,6 +4282,18 @@
                     <div class="text-[var(--text-faint)] text-[11px] mb-2"
                          x-text="t('host_drawer.port_scan.no_scans_yet')"></div>
                   </template>
+                  <!-- Scan ran but found 0 open ports — distinct from
+                       "no scan yet". Tells the operator the probe
+                       actually completed and ALL the scanned ports
+                       are closed/filtered. Helpful pointer to the
+                       Admin → Logs `[port_scanner]` line which carries
+                       the categorised closed-reason summary
+                       (dns / refused / timeout / oserror) so they can
+                       triage WHY zero ports came back. -->
+                  <template x-if="h.last_port_scan_ts && !(h.detected_ports || []).length">
+                    <div class="text-[var(--text-faint)] text-[11px] mb-2"
+                         x-text="t('host_drawer.port_scan.zero_open')"></div>
+                  </template>
                   <template x-if="(h.detected_ports || []).length">
                     <div class="mb-2">
                       <div class="text-[var(--text-dim)] text-[11px] mb-1"

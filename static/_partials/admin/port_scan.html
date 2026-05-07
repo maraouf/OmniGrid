@@ -54,47 +54,83 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
           <div>
             <label class="block text-[11px] text-[var(--text-faint)] mb-1"
-                   x-text="t('settings.host_stats.port_scan.default_timeout_label')"></label>
-            <input x-model.number="settings.port_scan_default_timeout"
-                   type="number" min="1" max="30"
-                   :disabled="isReadonly() || !settings.port_scan_enabled"
-                   class="w-full mono text-[11.5px]"
-                   placeholder="2">
+                   x-text="t('admin.config.fields.tuning_port_scan_default_timeout_seconds.label')"></label>
+            <input x-model="tuningForm['tuning_port_scan_default_timeout_seconds']"
+                   type="number"
+                   :placeholder="tuningPlaceholder('tuning_port_scan_default_timeout_seconds')"
+                   :min="(tuningEffective['tuning_port_scan_default_timeout_seconds'] || {}).min"
+                   :max="(tuningEffective['tuning_port_scan_default_timeout_seconds'] || {}).max"
+                   :disabled="isReadonly() || !settings.port_scan_enabled || tuningSaving"
+                   class="w-full mono text-[11.5px]">
             <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
-               x-text="t('settings.host_stats.port_scan.default_timeout_hint')"></p>
+               x-text="t('admin.config.fields.tuning_port_scan_default_timeout_seconds.help')"></p>
           </div>
           <div>
             <label class="block text-[11px] text-[var(--text-faint)] mb-1"
-                   x-text="t('settings.host_stats.port_scan.default_concurrency_label')"></label>
-            <input x-model.number="settings.port_scan_default_concurrency"
-                   type="number" min="1" max="256"
-                   :disabled="isReadonly() || !settings.port_scan_enabled"
-                   class="w-full mono text-[11.5px]"
-                   placeholder="32">
+                   x-text="t('admin.config.fields.tuning_port_scan_default_concurrency.label')"></label>
+            <input x-model="tuningForm['tuning_port_scan_default_concurrency']"
+                   type="number"
+                   :placeholder="tuningPlaceholder('tuning_port_scan_default_concurrency')"
+                   :min="(tuningEffective['tuning_port_scan_default_concurrency'] || {}).min"
+                   :max="(tuningEffective['tuning_port_scan_default_concurrency'] || {}).max"
+                   :disabled="isReadonly() || !settings.port_scan_enabled || tuningSaving"
+                   class="w-full mono text-[11.5px]">
             <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
-               x-text="t('settings.host_stats.port_scan.default_concurrency_hint')"></p>
+               x-text="t('admin.config.fields.tuning_port_scan_default_concurrency.help')"></p>
+          </div>
+        </div>
+
+        <!-- Outer scan budget + banner-grab read timeout. Both flow
+             through TUNABLES so operators can extend the budget for
+             larger ranges (the 11000-port range cap can need 10-15
+             min on slow links) and tune banner read for noisy
+             services without redeploy. -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('admin.config.fields.tuning_port_scan_max_seconds.label')"></label>
+            <input x-model="tuningForm['tuning_port_scan_max_seconds']"
+                   type="number"
+                   :placeholder="tuningPlaceholder('tuning_port_scan_max_seconds')"
+                   :min="(tuningEffective['tuning_port_scan_max_seconds'] || {}).min"
+                   :max="(tuningEffective['tuning_port_scan_max_seconds'] || {}).max"
+                   :disabled="isReadonly() || !settings.port_scan_enabled || tuningSaving"
+                   class="w-full mono text-[11.5px]">
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-text="t('admin.config.fields.tuning_port_scan_max_seconds.help')"></p>
+          </div>
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('admin.config.fields.tuning_port_scan_banner_read_seconds.label')"></label>
+            <input x-model="tuningForm['tuning_port_scan_banner_read_seconds']"
+                   type="number"
+                   :placeholder="tuningPlaceholder('tuning_port_scan_banner_read_seconds')"
+                   :min="(tuningEffective['tuning_port_scan_banner_read_seconds'] || {}).min"
+                   :max="(tuningEffective['tuning_port_scan_banner_read_seconds'] || {}).max"
+                   :disabled="isReadonly() || !settings.port_scan_enabled || tuningSaving"
+                   class="w-full mono text-[11.5px]">
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-text="t('admin.config.fields.tuning_port_scan_banner_read_seconds.help')"></p>
           </div>
         </div>
 
         <p class="text-[10.5px] text-[var(--text-faint)] italic mt-3"
            x-text="t('settings.host_stats.port_scan.on_demand_note')"></p>
 
-        <!-- Save + unsaved-changes indicator. Reuses `hostStatsDirty()`
-             / `saveHostStats()` because the four port_scan settings
-             still live on the same `settings` payload that the
-             host-stats partial saves — the relocation is a UI move,
-             not a data-model split. The Save row in this tab and the
-             one still rendered in Admin → Providers BOTH commit the
-             same fields; either button works. -->
+        <!-- Save + unsaved-changes indicator. The page now mixes
+             plain settings (`port_scan_enabled` + the CSV
+             `port_scan_default_ports`) AND TUNABLES (the four
+             integer knobs); the Save row commits BOTH when either
+             is dirty. Same pattern as Admin → AI Integration. -->
         <div class="mt-4 flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
-          <button x-show="isAdmin()" @click="saveHostStats()"
-                  :disabled="hostStatsSaving"
-                  :class="hostStatsDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+          <button x-show="isAdmin()" @click="if (hostStatsDirty()) saveHostStats(); if (tuningDirty()) saveTuning();"
+                  :disabled="hostStatsSaving || tuningSaving || (!hostStatsDirty() && !tuningDirty())"
+                  :class="(hostStatsDirty() || tuningDirty()) ? 'ring-2 ring-[var(--warning)]' : ''"
                   class="btn btn-primary text-[12px]">
-            <span x-show="!hostStatsSaving" x-text="t('actions.save')"></span>
-            <span x-show="hostStatsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+            <span x-show="!hostStatsSaving && !tuningSaving" x-text="t('actions.save')"></span>
+            <span x-show="hostStatsSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
-          <span x-show="hostStatsDirty()"
+          <span x-show="hostStatsDirty() || tuningDirty()"
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
                 :title="t('hosts_actions.host_stats_unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
