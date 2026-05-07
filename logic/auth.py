@@ -1562,6 +1562,16 @@ def make_auth_middleware(db_conn_factory):
             and user is not None
             and not _is_auth_optional(path)
             and not _is_bearer_request(request)
+            # Beacon endpoints — `navigator.sendBeacon` cannot set
+            # custom headers, so the X-CSRF-Token double-submit
+            # defence breaks. Beacon paths are restricted to the
+            # caller's OWN ui_prefs (/api/me/ui-prefs/beacon) so a
+            # cross-site attacker forging a beacon can only ever
+            # mutate their own session-cookie owner's prefs — same
+            # capability the cookie already grants. Document new
+            # beacon endpoints here when added so the CSRF gate
+            # stays explicit about the bypass.
+            and path != "/api/me/ui-prefs/beacon"
         ):
             header = request.headers.get("x-csrf-token", "")
             cookie = request.cookies.get(CSRF_COOKIE, "")

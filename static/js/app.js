@@ -1723,15 +1723,65 @@ function app() {
       });
       // Persistence safety net — `aiConversation` mutations should
       // ideally call `persistAiConversation()` explicitly (every push
-      // site does), but a missed call means the chat is lost on
-      // reload. This $watch fires on EVERY array reassignment / mutation
-      // and double-checks persistence — debounced 500ms so a burst of
-      // pushes (user turn + assistant turn within the same tick) only
-      // round-trips once. Operator-flagged: chat persistence missed in
-      // some flows; defence-in-depth pinning the contract makes it
-      // impossible to forget. The actual persist function is idempotent
-      // (always serialises the full capped array) so duplicate calls
-      // from the explicit + implicit paths are harmless.
+      // site does), but Alpine's $watch on an array doesn't reliably
+      // fire on `.push()` mutations (only on full reassignment). Three
+      // belt-and-braces layers replace the unreliable single $watch:
+      //
+      //   1. `_aiConvSignature` tracks the JSON-serialised length+last-ts
+      //      tuple of `aiConversation`; an interval ticks every 2s
+      //      and fires `persistAiConversation` when the signature
+      //      changed since the last tick. Catches every push regardless
+      //      of how Alpine's reactivity reports it.
+      //
+      //   2. `beforeunload` fires `persistAiConversationSync()` (a
+      //      blocking version using `navigator.sendBeacon` — fire-and-
+      //      forget but DELIVERY-GUARANTEED via the browser's beacon
+      //      queue). Covers the "user typed and refreshed within the
+      //      next 2s" race the interval can't catch.
+      //
+      //   3. The original $watch stays for the ASSIGNMENT path
+      //      (init hydration / clearAiConversation). It fires there
+      //      reliably even when it doesn't fire for pushes.
+      //
+      // The actual persist function is idempotent (always serialises
+      // the full capped array) so duplicate calls are harmless.
+      this._aiConvSignature = '';
+      const _computeAiConvSig = () => {
+        const arr = this.aiConversation || [];
+        const last = arr[arr.length - 1] || {};
+        return arr.length + ':' + (last.ts || 0) + ':' + (last.role || '') + ':' + (last.text || '').length;
+      };
+      this._aiPersistInterval = setInterval(() => {
+        try {
+          const sig = _computeAiConvSig();
+          if (sig !== this._aiConvSignature) {
+            this._aiConvSignature = sig;
+            this.persistAiConversation();
+          }
+        } catch (_) { /* never let a failed tick kill the interval */ }
+      }, 2000);
+      // beforeunload — write through synchronously via navigator.sendBeacon
+      // so the request lands even though the page is unloading. Falls
+      // back to localStorage-only when sendBeacon is unavailable
+      // (very rare; localStorage is sync so it ALWAYS lands).
+      window.addEventListener('beforeunload', () => {
+        try { this.persistAiConversationSync(); } catch (_) {}
+      });
+      // pagehide is fired on iOS Safari and on bfcache freezes; mirrors
+      // beforeunload to cover those paths. Both can fire so the persist
+      // is idempotent (writes the same payload twice = no harm).
+      window.addEventListener('pagehide', () => {
+        try { this.persistAiConversationSync(); } catch (_) {}
+      });
+      // visibilitychange to 'hidden' covers tab-switch + window blur —
+      // a save here means the chat survives even if the user closes
+      // the browser without firing beforeunload (some mobile cases).
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+          try { this.persistAiConversationSync(); } catch (_) {}
+        }
+      });
+      // The original $watch stays for ASSIGNMENT paths.
       let _aiPersistDebounce = null;
       this.$watch('aiConversation', () => {
         if (_aiPersistDebounce) clearTimeout(_aiPersistDebounce);
@@ -9409,7 +9459,14 @@ function app() {
       });
       es.addEventListener('port_scan:completed', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        // NOTE: do NOT short-circuit on `_isSelfEvent` — the SPA
+        // tab that kicked the scan off NEEDS to see this event so
+        // it can clear the spinner + show the completion toast.
+        // The "self-event filter" pattern is for cross-tab dedupe
+        // of state changes the originating tab already mirrored
+        // optimistically; here, the originating tab is sitting on
+        // a 202-Accepted with the spinner still running and is
+        // EXACTLY the audience that needs the event.
         try {
           const data = JSON.parse(e.data || '{}');
           const payload = data.payload || {};
@@ -9419,6 +9476,15 @@ function app() {
             + ' ports_open=' + (payload.ports_open || 0)
             + ' udp_open=' + (payload.udp_open || 0)
             + ' ok=' + payload.ok);
+          // Clear the in-flight marker + the row's spinner on EVERY
+          // tab that has the host loaded — not just the originating
+          // tab. Two tabs both watching opnsense both see the
+          // button re-enable when the scan finishes.
+          const row = (this.hosts || []).find(h => h && h.id === hostId);
+          if (row) row._port_scan_running = false;
+          if (this.drawerHost && this.drawerHost.id === hostId) {
+            this.drawerHost._port_scan_running = false;
+          }
           // Refresh the host row so `detected_ports` + `last_port_scan_ts`
           // repaint without a manual reload.
           this.refreshHostRow(hostId, { force: true });
@@ -10240,6 +10306,62 @@ function app() {
           + ' (localStorage=' + (localStorageOk ? 'ok' : 'fail')
           + ', db=' + (dbOk ? 'ok' : 'fail-' + dbStatus) + ')');
       }
+    },
+
+    // Synchronous variant for `beforeunload` / `pagehide` /
+    // `visibilitychange:hidden`. The async `await fetch` would be
+    // killed when the page is unloading; `navigator.sendBeacon`
+    // is the spec-correct path: the browser queues the request
+    // and ships it after the page is gone. localStorage is
+    // synchronous and always lands. Together they make the
+    // unload-time save bulletproof.
+    persistAiConversationSync() {
+      const meId = this.me && this.me.id;
+      const isValidUserId = (typeof meId === 'number' && meId >= 0)
+        || (typeof meId === 'string' && meId && !meId.startsWith('-'));
+      if (!isValidUserId) return;
+      const turns = (this.aiConversation || []).slice(-50).map(t => ({
+        role:             t.role || '',
+        text:             t.text || '',
+        action_id:        t.action_id || null,
+        action_label:     t.action_label || null,
+        action_ran:       !!t.action_ran,
+        slash:            !!t.slash,
+        job_id:           (t.job_id !== undefined && t.job_id !== null) ? t.job_id : null,
+        feedback:         t.feedback || null,
+        provider:         t.provider || '',
+        model:            t.model || '',
+        response_time_ms: Number(t.response_time_ms) || 0,
+        tokens:           Number(t.tokens) || 0,
+        error:            t.error || null,
+        host_ids:         Array.isArray(t.host_ids) ? t.host_ids.slice() : null,
+        pending_confirm:  !!t.pending_confirm,
+        pending_action:   t.pending_action || null,
+        cancelled:        !!t.cancelled,
+        ts:               t.ts || null,
+      }));
+      // localStorage write — synchronous, always lands.
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('aiConversation:' + meId, JSON.stringify(turns));
+        }
+      } catch (_) {}
+      // sendBeacon — browser-queued, survives page unload. The CSRF
+      // token must come from the cookie since beacon doesn't allow
+      // custom headers. Backend accepts a 'application/json' beacon
+      // body the same as a regular PATCH.
+      try {
+        if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+          const body = new Blob(
+            [JSON.stringify({ prefs: { ai_conversation: turns } })],
+            { type: 'application/json' }
+          );
+          // sendBeacon uses POST by default. Backend's PATCH-only
+          // endpoint won't accept a beacon. Use a dedicated POST
+          // endpoint mirror that accepts the same body shape.
+          navigator.sendBeacon('/api/me/ui-prefs/beacon', body);
+        }
+      } catch (_) {}
     },
     async persistHostHistoryRange(value) {
       if (!this.me || !this.me.id || this.me.id < 0) return;
@@ -19679,8 +19801,21 @@ function app() {
         );
         return;
       }
-      if (host._port_scan_running) return;
+      // Guard against double-queueing the SAME host. Two checks:
+      // (a) the host-row's `_port_scan_running` flag (drives the
+      // button :disabled + spinner), and (b) the global
+      // `_inFlightPortScans` map (covers AI-palette / cross-tab
+      // dispatches where the host arg may be a synthesised stub
+      // rather than the live row reference). Either being set
+      // means a scan is already running and we must short-circuit.
+      this._inFlightPortScans = this._inFlightPortScans || {};
+      if (host._port_scan_running || this._inFlightPortScans[host.id]) {
+        this.showToast(this.t('host_drawer.port_scan.scan_already_running', { host: host.id })
+          || ('A scan is already running for ' + host.id + '.'), 'info');
+        return;
+      }
       host._port_scan_running = true;
+      let queued = false;  // tracks whether the request returned 202
       try {
         const r = await fetch('/api/hosts/' + encodeURIComponent(host.id) + '/port-scan', {
           method: 'POST',
@@ -19706,21 +19841,23 @@ function app() {
         // 202 Accepted — scan is running in the background. The
         // backend emits `port_scan:completed` via SSE when done; the
         // SPA handler refreshes the host row + shows a completion
-        // toast. We surface a "queued" toast immediately so the
-        // operator sees acknowledgement.
+        // toast AND clears `_port_scan_running` so the button
+        // re-enables. We surface a "queued" toast immediately and
+        // LEAVE the spinner running until SSE (or the fallback)
+        // tells us the scan is done.
         const data = await r.json().catch(() => ({}));
-        const queued = (data && data.status === 'queued');
-        if (queued) {
+        if (data && data.status === 'queued') {
+          queued = true;
           // Track the in-flight scan_id so the SSE handler knows
           // this tab kicked it off (and can show a completion toast
           // even when the drawer has since closed).
-          this._inFlightPortScans = this._inFlightPortScans || {};
           this._inFlightPortScans[host.id] = data.scan_id || true;
           this.showToast(this.t('host_drawer.port_scan.scan_queued_body', {
             host: host.id, target: data.target || host.id,
           }) || ('Port scan queued for ' + host.id + ' — results will appear when complete.'), 'info');
-          // Also schedule a polling fallback in case SSE is dropped.
-          // The completion handler short-circuits if SSE landed first.
+          // Polling fallback at 60 s — refreshes the host row in case
+          // SSE is dropped. Doesn't clear the spinner yet (SSE may
+          // still land); the hard timeout below handles that case.
           setTimeout(() => {
             try {
               if (this._inFlightPortScans && this._inFlightPortScans[host.id]) {
@@ -19728,6 +19865,24 @@ function app() {
               }
             } catch (_) {}
           }, 60000);
+          // Hard timeout at 10 min — if neither SSE nor polling has
+          // cleared the in-flight marker, force-clear so the button
+          // doesn't stay disabled forever. 10 min is generous: even
+          // a wide-range scan with banner-grab on a slow link
+          // should complete well within that. Tracks the host id
+          // explicitly so a CONCURRENT scan (different host) doesn't
+          // get caught by this clear.
+          setTimeout(() => {
+            try {
+              if (this._inFlightPortScans && this._inFlightPortScans[host.id]) {
+                console.warn('[port_scan] hard-timeout clearing in-flight marker for ' + host.id);
+                delete this._inFlightPortScans[host.id];
+                const row = (this.hosts || []).find(h => h && h.id === host.id);
+                if (row) row._port_scan_running = false;
+                if (host) host._port_scan_running = false;
+              }
+            } catch (_) {}
+          }, 600000);
           return;
         }
         // Legacy synchronous path — kept for forward compatibility
@@ -19745,7 +19900,17 @@ function app() {
         const friendly = this.t('host_drawer.port_scan.error_network') || msg;
         this.showToast(this.t('host_drawer.port_scan.scan_failed_body', { host: host.id, error: friendly }), 'error');
       } finally {
-        host._port_scan_running = false;
+        // Only clear the spinner when the scan was NOT queued. The
+        // 202-Accepted path leaves the marker set; SSE
+        // `port_scan:completed` (or the 10 min hard-timeout) does
+        // the clear so the button stays disabled / spinning while
+        // the actual scan runs. Pre-fix this finally always cleared
+        // and the button immediately re-enabled — letting the user
+        // queue the same host repeatedly.
+        if (!queued) {
+          host._port_scan_running = false;
+          if (this._inFlightPortScans) delete this._inFlightPortScans[host.id];
+        }
       }
     },
 

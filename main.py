@@ -14654,6 +14654,30 @@ async def api_me_ui_prefs(body: UiPrefsIn, request: Request):
     return {"ui_prefs": merged}
 
 
+@app.post("/api/me/ui-prefs/beacon")
+async def api_me_ui_prefs_beacon(body: UiPrefsIn, request: Request):
+    """Beacon-friendly variant of PATCH /api/me/ui-prefs.
+
+    `navigator.sendBeacon` only supports POST, can't set custom
+    headers (so CSRF tokens via header don't work), and the request
+    is fire-and-forget on the page-unload path. This endpoint accepts
+    the same body shape but is registered as POST and is added to
+    the CSRF exemption set in the auth middleware so unload-time
+    chat-conversation saves land cleanly.
+
+    Same auth gate as the PATCH variant — cookie session must be
+    valid; API tokens can't write prefs. Same merge semantics.
+    """
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    if user.id < 0:
+        raise HTTPException(400, "API tokens cannot store UI prefs")
+    with db_conn() as c:
+        merged = auth.update_ui_prefs(c, user.id, body.prefs)
+    return {"ui_prefs": merged}
+
+
 @app.patch("/api/me/notify-prefs")
 async def api_me_notify_prefs(
     request: Request,
