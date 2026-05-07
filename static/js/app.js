@@ -12572,9 +12572,15 @@ function app() {
       const actions = (typeof this._commandActions === 'function')
         ? this._commandActions() : [];
       const actionScored = actions.map(a => {
+        // Empty query → score 1 so the FULL action catalog surfaces
+        // when the operator just types `/` with no follow-on text.
+        // Operator-flagged: "quick actions is not showing in actions
+        // using /" — the previous filter `score > 0` killed every row
+        // because `_commandScoreLabel('', '')` returns 0.
+        if (!q) return { score: 1, action: a };
         const labelScore = this._commandScoreLabel(a.label, q);
         let verbBoost = 0;
-        if (q && Array.isArray(a.verbs)) {
+        if (Array.isArray(a.verbs)) {
           for (const v of a.verbs) {
             if (!v) continue;
             const lv = String(v).toLowerCase();
@@ -12886,13 +12892,20 @@ function app() {
       // Cleanup flow lists every container by name). Opting in via
       // `defer_confirm_to_run: true` skips the generic dialog so we
       // don't double-popup.
-      if (action.destructive && !action.defer_confirm_to_run && !skipConfirm) {
+      if (action.destructive && !skipConfirm) {
         if (fromSidebar) {
-          // AI sidebar surface — replace the SweetAlert popup with an
-          // inline confirmation chip in the chat. Operator clicks Yes
-          // / Cancel right inside the conversation; no popup, no
-          // experience disruption. The chip lives on the SAME assistant
-          // turn `_appendActionChatTurn` just pushed.
+          // AI sidebar surface — replace EVERY destructive popup with
+          // an inline confirmation chip in the chat, including actions
+          // marked `defer_confirm_to_run` (cleanup_stopped /
+          // update_all_updatable). The inner SweetAlert their `run()`
+          // raises will still appear after Yes-click on the inline
+          // chip — that's a SECOND, data-rich popup we treat as
+          // legitimate confirmation data (lists every affected
+          // container by name); the bypass-the-generic-popup goal
+          // is satisfied here. Operator clicks Yes / Cancel right
+          // inside the conversation; no GENERIC popup, no experience
+          // disruption. The chip lives on the SAME assistant turn
+          // `_appendActionChatTurn` just pushed.
           const idx = this.aiConversation.length - 1;
           const turn = this.aiConversation[idx];
           if (turn) {
@@ -12904,16 +12917,20 @@ function app() {
           return;
         }
         // Modal palette surface — keep the SweetAlert popup since
-        // there's no chat to inline-confirm into.
-        const ok = await this.confirmDialog({
-          title: action.confirmTitle || action.label,
-          html:  action.confirmText || (this.t('command_palette.action.destructive_confirm')
-                                         || 'This action affects live state — proceed?'),
-          icon:  'warning',
-          confirmText: action.confirmButton || (this.t('actions.confirm') || 'Confirm'),
-          focusConfirm: true,
-        });
-        if (!ok) return;
+        // there's no chat to inline-confirm into. Actions opting into
+        // `defer_confirm_to_run` skip the generic dialog so their
+        // run() can show a richer data confirm.
+        if (!action.defer_confirm_to_run) {
+          const ok = await this.confirmDialog({
+            title: action.confirmTitle || action.label,
+            html:  action.confirmText || (this.t('command_palette.action.destructive_confirm')
+                                           || 'This action affects live state — proceed?'),
+            icon:  'warning',
+            confirmText: action.confirmButton || (this.t('actions.confirm') || 'Confirm'),
+            focusConfirm: true,
+          });
+          if (!ok) return;
+        }
       }
       try {
         await action.run();
@@ -21756,8 +21773,21 @@ function app() {
       return Math.round((h.mem_used / h.mem_total) * 100);
     },
     diskPercentOf(h) {
-      if (!h || !h.disk_total) return 0;
-      return Math.round((h.disk_used / h.disk_total) * 100);
+      if (!h) return 0;
+      // Prefer the backend's recomputed `host_disk_percent` (derived
+      // from merged used/total in `_merge_one_host`) so the drawer
+      // chart, drawer Total-usage label, and the outside host card
+      // ALL bind to the same number. Pre-fix the drawer used
+      // `Math.round(used/total * 100)` (integer) while the outside
+      // used `host_disk_percent` (1 decimal) — same data, different
+      // numbers (9.0% vs 8.7%). Fall back to live computation when
+      // the backend value is missing.
+      if (h.disk_percent !== undefined && h.disk_percent !== null
+          && Number.isFinite(Number(h.disk_percent))) {
+        return Number(h.disk_percent);
+      }
+      if (!h.disk_total) return 0;
+      return Math.round((h.disk_used / h.disk_total) * 1000) / 10;
     },
     // Percent label that distinguishes "genuinely zero" from "small
     // but non-zero" by rendering "<1%" when 0 < v < 1 (e.g. 39 MB
