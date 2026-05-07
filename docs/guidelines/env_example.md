@@ -139,6 +139,12 @@ HOST_SNAPSHOTS_CACHE_TTL_SECONDS=5
 # requests); raise on a beefy NPM with many hosts.
 HOSTS_PARALLEL_FETCH=6
 
+# AI Assistant sidebar drawer width in pixels. Range 320..720, default
+# 480. Lower on a smaller laptop where the drawer covers too much
+# working area; raise on a 4K monitor where the drawer feels narrow.
+# Mobile viewports (< 480 px) ignore this and always render full-width.
+AI_SIDEBAR_WIDTH_PX=480
+
 # Ping host-stats provider knobs. The first three control the
 # lifespan-managed sampler that writes ping_samples; the cool-down
 # throttles probes against an unreachable host.
@@ -381,6 +387,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `NOTIFICATION_RETENTION_DAYS`     | Runtime     | `90`                 | In-app notifications retention. Drives the `prune_notifications` schedule kind. |
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | Runtime    | `5`                  | host_snapshots read-cache TTL.                                                   |
 | `HOSTS_PARALLEL_FETCH`            | Runtime     | `6`                  | SPA fan-out concurrency cap on `/api/hosts/one/{id}`.                            |
+| `AI_SIDEBAR_WIDTH_PX`             | Runtime     | `480`                | AI Assistant sidebar drawer width in pixels (320..720). Mobile ignores.          |
 | `PING_INTERVAL_SECONDS`           | Runtime     | `60`                 | Ping sampler tick cadence.                                                       |
 | `PING_CONCURRENCY`                | Runtime     | `16`                 | Ping sampler fan-out.                                                            |
 | `PING_PROBE_TIMEOUT_SECONDS`      | Runtime     | `2`                  | Per-probe timeout.                                                               |

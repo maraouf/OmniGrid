@@ -1028,6 +1028,10 @@ function app() {
       // /api/hosts/one/<id> fan-out. Read on /api/me into
       // `me.client_config.hosts_parallel_fetch`.
       'tuning_hosts_parallel_fetch',
+      // AI Assistant sidebar drawer width (px) — operator-tunable
+      // so the same drawer adapts cleanly across viewport sizes.
+      // SPA reads via me.client_config.ai_sidebar_width_px.
+      'tuning_ai_sidebar_width_px',
       // / SSE heartbeat cadence + connection lifetime.
       'tuning_sse_heartbeat_seconds',
       'tuning_sse_max_lifetime_seconds',
@@ -10520,6 +10524,17 @@ function app() {
       }
     },
     closeAiModal() { this.aiModalKey = null; },
+    // Resolve the modal's title against the i18n bundle. Falls back to
+    // a generic "AI dashboard" label when (a) no key is set yet, OR
+    // (b) the bundle is missing the per-kind title (so screen readers
+    // hear something meaningful instead of "dialog" with no name OR a
+    // raw key path like `admin.ai.modal.passrate_title`).
+    aiModalTitle() {
+      if (!this.aiModalKey) return this.t('admin.ai.modal.title_fallback');
+      const key = 'admin.ai.modal.' + this.aiModalKey + '_title';
+      const resolved = this.t(key);
+      return (resolved && resolved !== key) ? resolved : this.t('admin.ai.modal.title_fallback');
+    },
     async testAiProvider(name) {
       // Per-provider Test connection probe. POSTs the typed-but-not-
       // yet-saved api_key + model + base_url so admins can validate
@@ -13468,6 +13483,23 @@ function app() {
         this.persistAiConversation();
       }
     },
+    // Scroll the slash-picker's active row into view after Up/Down arrow
+    // navigation. The picker caps at 280 px-max-height with up to 12
+    // results, so the focused row scrolls out of sight without this.
+    // Uses ``block:'nearest'`` so unnecessary scroll-jumps are avoided
+    // when the row is already visible. ``$nextTick`` guards against
+    // the index changing before Alpine has re-rendered the active class.
+    _scrollAiSidebarSlashRowIntoView() {
+      this.$nextTick(() => {
+        const idx = this.aiSidebarSlashIdx;
+        const row = document.querySelector('[data-slash-row-idx="' + idx + '"]');
+        if (row && typeof row.scrollIntoView === 'function') {
+          try { row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+          catch (_) { /* older browsers — silently skip */ }
+        }
+      });
+    },
+
     aiSidebarHandleKeydown(e) {
       // When the slash-command picker is open, route arrow / Enter
       // through it. Esc clears the slash mode (back to chat) without
@@ -13478,11 +13510,13 @@ function app() {
           const max = this.aiSidebarSlashResults().length - 1;
           if (max < 0) return;
           this.aiSidebarSlashIdx = Math.min(max, (this.aiSidebarSlashIdx || 0) + 1);
+          this._scrollAiSidebarSlashRowIntoView();
           return;
         }
         if (e.key === 'ArrowUp') {
           e.preventDefault();
           this.aiSidebarSlashIdx = Math.max(0, (this.aiSidebarSlashIdx || 0) - 1);
+          this._scrollAiSidebarSlashRowIntoView();
           return;
         }
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -13498,13 +13532,38 @@ function app() {
           return;
         }
       }
-      // Default: Enter sends; Shift+Enter inserts a newline; Esc closes.
+      // Default: Enter sends; Shift+Enter inserts a newline; Esc closes;
+      // ↑ recalls the last user-turn text into the input — universal
+      // shell-terminal convention. Only triggers when the input is
+      // EMPTY (so editing existing text with arrow keys still works)
+      // AND the slash picker isn't open (slash-mode handles ↑ as nav).
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         this.sendAiSidebarMessage();
       } else if (e.key === 'Escape') {
         e.preventDefault();
         this.closeAiSidebar();
+      } else if (e.key === 'ArrowUp' && !this.aiSidebarQuery.trim()) {
+        // Walk backwards through aiConversation looking for the most
+        // recent user-role turn; copy its text into the input. Cheap
+        // — bounded by the 50-turn cap.
+        const turns = this.aiConversation || [];
+        for (let i = turns.length - 1; i >= 0; i--) {
+          if (turns[i] && turns[i].role === 'user' && turns[i].text) {
+            e.preventDefault();
+            this.aiSidebarQuery = turns[i].text;
+            // Move caret to end after the next tick so the operator
+            // can immediately edit / submit without arrow-keying.
+            this.$nextTick(() => {
+              const el = document.getElementById('og-ai-sidebar-input');
+              if (el && typeof el.setSelectionRange === 'function') {
+                const len = this.aiSidebarQuery.length;
+                el.setSelectionRange(len, len);
+              }
+            });
+            return;
+          }
+        }
       }
     },
     // Slash-command quick-action picker. Typing `/` at the start of
@@ -13889,25 +13948,33 @@ function app() {
       const t = (k, fb) => this.t(k) || fb;
       const esc = (s) => this._logEscape(s);
       const hidEsc = esc(hostId);
-      // Error path — couldn't fetch / parse.
+      // Error path — couldn't fetch / parse. Wrapped in
+      // `.ai-resp-chart-body` so the card height matches the
+      // success / loading shells; without the wrapper, the populator's
+      // `innerHTML = ...` collapses the body element and the operator
+      // sees a sudden 1-line height drop where the spinner used to be.
       if (errorMsg) {
         return ('<div class="ai-resp-chart-header">'
           + '<span class="ai-resp-chart-title">' + hidEsc + '</span>'
           + '<span class="ai-resp-chart-status ai-resp-chart-status--error">'
           + esc(t('command_palette.ai.disk_chart.error', 'Could not load projection') + ': ' + errorMsg)
           + '</span>'
-          + '</div>');
+          + '</div>'
+          + '<div class="ai-resp-chart-body"></div>');
       }
       const samples = (data && Array.isArray(data.samples)) ? data.samples : [];
       const projection = (data && Array.isArray(data.projection)) ? data.projection : [];
-      // Insufficient data — render a header + placeholder, no chart.
+      // Insufficient data — render a header + placeholder. Body
+      // wrapper preserved for layout stability (same reason as the
+      // error path above).
       if (samples.length < 2) {
         return ('<div class="ai-resp-chart-header">'
           + '<span class="ai-resp-chart-title">' + hidEsc + '</span>'
           + '<span class="ai-resp-chart-status ai-resp-chart-status--muted">'
           + esc(t('command_palette.ai.disk_chart.no_data', 'Not enough sampled history yet'))
           + '</span>'
-          + '</div>');
+          + '</div>'
+          + '<div class="ai-resp-chart-body"></div>');
       }
       // Compose the SVG. Layout:
       //   total area: 640w × 100h. Chart drawable: 562w × 70h
@@ -14070,11 +14137,40 @@ function app() {
            + esc(t('command_palette.ai.disk_chart.source_label', 'Source')) + ': ' + sourceLabel
            + '</span>')
         : '';
+      // Stale-data badge — backend stamps `stale: true` when the most
+      // recent sample is older than 30 minutes (typical sampler runs
+      // every 5 min, so > 30 min means the provider has stopped
+      // reporting). The chart still renders the projection from the
+      // frozen snapshot but the operator gets a visible "data may be
+      // stale" cue instead of trusting a quiet projection.
+      const isStale = !!(data && data.stale);
+      const ageMinutes = Math.round(((data && data.stale_age_seconds) || 0) / 60);
+      const staleBadge = isStale
+        ? ('<span class="ai-resp-chart-stale" title="'
+           + esc(t('command_palette.ai.disk_chart.stale_title', { minutes: ageMinutes }))
+           + '">'
+           + esc(t('command_palette.ai.disk_chart.stale_label', 'Stale'))
+           + '</span>')
+        : '';
+      // Confidence-pill tooltip — explains the underlying R² + sample
+      // count so operators can answer "why is my projection muted?"
+      // without guessing. Backend resolution table:
+      //   high   ≥ 0.85 R² AND ≥ 60 samples
+      //   medium ≥ 0.60 R² OR  ≥ 30 samples
+      //   low    otherwise
+      const r2 = (data && Number.isFinite(data.r2)) ? data.r2 : null;
+      const sampleCount = (data && Number.isFinite(data.sample_count)) ? data.sample_count : null;
+      const confidenceTitle = esc(t('command_palette.ai.disk_chart.confidence_title', {
+        r2: (r2 !== null) ? r2.toFixed(3) : '—',
+        samples: (sampleCount !== null) ? sampleCount : '—',
+      }));
       return (
         '<div class="ai-resp-chart-header">'
         + '<span class="ai-resp-chart-title">' + hidEsc + '</span>'
         + sourceChip
-        + '<span class="ai-resp-chart-confidence ai-resp-chart-confidence--' + esc(confidence) + '">'
+        + staleBadge
+        + '<span class="ai-resp-chart-confidence ai-resp-chart-confidence--' + esc(confidence) + '"'
+        + ' title="' + confidenceTitle + '">'
         + esc(confLabel) + '</span>'
         + '</div>'
         + '<div class="ai-resp-chart-body">' + svg + '</div>'

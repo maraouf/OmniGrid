@@ -6119,7 +6119,7 @@
               </div>
 
               <!-- Combined Net In/Out + Disk I/O + Load Average grid.
-                   #318 / #319 / was 2 separate Net cards; now
+                   Net In and Net Out used to be two separate cards; now
                    one Network card with both lines on a shared y-axis,
                    plus Disk I/O + Load Average. Ping was promoted to
                    its own full-width row above the 3-col grid 
@@ -7883,6 +7883,7 @@
          role="dialog" aria-modal="true"
          :aria-label="t('ai_sidebar.drawer_label')"
          :aria-hidden="aiSidebarOpen ? 'false' : 'true'"
+         :style="'--ai-sidebar-width: ' + (((me && me.client_config && me.client_config.ai_sidebar_width_px) || 480)) + 'px'"
          @keydown="aiSidebarOpen && _focusTrapKeydown($event, $el)">
     <div class="ai-sidebar-header">
       <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
@@ -7906,7 +7907,7 @@
       </button>
     </div>
     <div id="og-ai-sidebar-log" class="ai-sidebar-log scrollbar">
-      <div x-show="aiConversation.length === 0 && !aiSidebarBusy"
+      <div x-show="aiConversation.length === 0"
            class="ai-sidebar-log-empty">
         <div>
           <div class="fs-sm mb-1" x-text="t('ai_sidebar.empty_title')"></div>
@@ -8008,6 +8009,7 @@
           <button type="button"
                   role="option"
                   tabindex="-1"
+                  :data-slash-row-idx="sIdx"
                   :aria-selected="aiSidebarSlashIdx === sIdx ? 'true' : 'false'"
                   class="cmdpal-row w-full text-start px-3 py-2 cursor-pointer flex items-center gap-3 border-b border-[var(--border)] last:border-0"
                   :class="aiSidebarSlashIdx === sIdx ? 'cmdpal-row-active' : ''"
@@ -8021,9 +8023,12 @@
               <span x-show="act.sub" class="block fs-2xs text-[var(--text-faint)] truncate mono" x-text="act.sub"></span>
             </span>
             <span x-show="act.destructive"
-                  class="fs-3xs uppercase tracking-wider px-1.5 py-0.5 rounded"
-                  style="background: var(--pill-error-bg); color: var(--pill-error-fg); border: 1px solid var(--pill-error-br)"
-                  x-text="t('ai_sidebar.slash_destructive')"></span>
+                  class="pill pill-error fs-3xs uppercase tracking-wider inline-flex items-center gap-1">
+              <svg width="9" height="9" aria-hidden="true">
+                <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-alert-triangle'"/>
+              </svg>
+              <span x-text="t('ai_sidebar.slash_destructive')"></span>
+            </span>
             <span x-show="aiSidebarSlashIdx === sIdx" class="fs-2xs text-[var(--text-faint)]" aria-hidden="true">↵</span>
           </button>
         </template>
