@@ -7907,7 +7907,8 @@
         <span class="text-[var(--text-faint)] mono ms-2" x-text="t('ai_sidebar.slash_hint')"></span>
       </div>
       <div role="listbox">
-        <template x-for="(act, sIdx) in aiSidebarSlashResults()" :key="act.id">
+        <template x-for="(act, sIdx) in aiSidebarSlashResults()"
+                  :key="act.kind + ':' + ((act.payload && act.payload.id) || act.label || sIdx)">
           <button type="button"
                   role="option"
                   tabindex="-1"
@@ -7916,8 +7917,9 @@
                   :class="aiSidebarSlashIdx === sIdx ? 'cmdpal-row-active' : ''"
                   @click="runAiSidebarSlashAction(act)"
                   @mouseenter="aiSidebarSlashIdx = sIdx">
-            <span class="cmdpal-kind-pill text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded cmdpal-kind-actions"
-                  x-text="t('command_palette.group.actions') || 'Action'"></span>
+            <span class="cmdpal-kind-pill text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                  :class="'cmdpal-kind-' + (act.group || 'actions')"
+                  x-text="t('command_palette.group.' + (act.group || 'actions')) || (act.group || 'Action')"></span>
             <span class="flex-1 min-w-0">
               <span class="block text-[12.5px] text-[var(--text)] truncate" x-text="act.label"></span>
               <span x-show="act.sub" class="block text-[10.5px] text-[var(--text-faint)] truncate mono" x-text="act.sub"></span>

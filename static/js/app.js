@@ -1484,11 +1484,21 @@ function app() {
           } catch (_) {}
           // AI assistant conversation history — restore from
           // ui_prefs.ai_conversation so a hard reload (or moving to a
-          // different browser / machine) doesn't drop the chat.
+          // different browser / machine) doesn't drop the chat. The
+          // Clear button stamps `ai_conversation_cleared_at` in
+          // ui_prefs WITHOUT touching the conversation array; turns
+          // older than the cutoff are filtered out of the hydration
+          // (visible chat resets) while every turn stays preserved in
+          // the DB for learning / analytics.
           try {
             const conv = m && m.ui_prefs && m.ui_prefs.ai_conversation;
+            const cutoff = (m && m.ui_prefs && Number(m.ui_prefs.ai_conversation_cleared_at)) || 0;
             if (Array.isArray(conv) && conv.length > 0) {
-              this.aiConversation = conv;
+              const filtered = cutoff > 0
+                ? conv.filter(t => t && Number(t.ts) > cutoff)
+                : conv;
+              this.aiConversation = filtered;
+              this._aiConversationClearedAt = cutoff;
             }
           } catch (_) {}
           // Hydrate the last-Test-success cache from the DB-backed
@@ -12324,7 +12334,7 @@ function app() {
           // sees ONE rich popup with the real container list, not a
           // generic "you'll get one more confirm" wrapper.
           defer_confirm_to_run: true,
-          run:   () => { this.bulkRemoveAll(); }
+          run:   (opts) => { this.bulkRemoveAll(opts); }
         }] : []),
 
         // Update everything updatable — pull updates for every stack /
@@ -12339,7 +12349,7 @@ function app() {
           verbs: ['update', 'updates', 'upgrade', 'pull', 'apply', 'deploy', 'stacks', 'all'],
           destructive: true,
           defer_confirm_to_run: true,
-          run:   () => { this.bulkUpdateAll(); }
+          run:   (opts) => { this.bulkUpdateAll(opts); }
         }] : []),
 
         // Sign out — destructive (terminates the session)
@@ -12965,7 +12975,12 @@ function app() {
       this.persistAiConversation();
       this._scrollAiSidebarToBottom();
       try {
-        await action.run();
+        // `skipConfirm: true` propagates to the action's inner
+        // implementation (bulkRemoveAll / bulkUpdateAll / etc.) so
+        // the rich-data SweetAlert it would otherwise raise is
+        // bypassed. The operator already approved inline; a second
+        // popup would defeat the no-popup contract.
+        await action.run({ skipConfirm: true });
       } catch (e) {
         if (typeof this.showToast === 'function') {
           this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
@@ -13021,10 +13036,17 @@ function app() {
     // ai_jobs.
     openAiSidebar() {
       this.aiSidebarOpen = true;
-      // Focus the input next tick so typing works immediately.
+      // Focus the input + scroll the conversation log to the bottom
+      // next tick so the operator lands on the LATEST turn (not the
+      // top of a long restored chat) and can start typing immediately.
+      // Two ticks because Alpine renders the drawer's `.open` class
+      // first, then the slide-in transform completes — the log's
+      // scrollHeight is only finalized after the layout settles.
       this.$nextTick(() => {
         const el = document.getElementById('og-ai-sidebar-input');
         if (el && typeof el.focus === 'function') el.focus();
+        this._scrollAiSidebarToBottom();
+        this.$nextTick(() => this._scrollAiSidebarToBottom());
       });
     },
     closeAiSidebar() {
@@ -13035,10 +13057,43 @@ function app() {
       else this.openAiSidebar();
     },
     clearAiConversation() {
+      // SCREEN-clear only: empty the visible chat AND stamp a "cleared
+      // at" timestamp into ui_prefs, but DON'T delete the underlying
+      // conversation array from the DB. The next /api/me hydration
+      // filters turns with `ts <= ai_conversation_cleared_at` so the
+      // operator sees a fresh chat going forward, while every prior
+      // turn stays preserved in ui_prefs.ai_conversation (and every
+      // call stays in ai_jobs) for learning / dashboard analytics.
+      // Operator-flagged: "make sure clear button doesnt clear the
+      // database, just clear screen, but previous conversations is
+      // there so we can learn from it".
       this.aiConversation = [];
       this.aiSidebarQuery = '';
       this.aiSidebarFeedbackBusy = {};
-      this.persistAiConversation();
+      const cutoff = Date.now();
+      // Keep the in-memory cutoff so any turn pushed AFTER Clear (a
+      // brand-new send / slash run) renders as expected on the
+      // current page; the next reload will re-apply the same cutoff
+      // from ui_prefs and filter pre-Clear turns out of the
+      // hydration.
+      this._aiConversationClearedAt = cutoff;
+      // Best-effort write the cutoff to ui_prefs WITHOUT touching the
+      // ai_conversation array. Skip for API-token pseudo-users
+      // (negative ids) since /api/me/ui-prefs returns 400 for them.
+      if (this.me && this.me.id && this.me.id >= 0) {
+        try {
+          fetch('/api/me/ui-prefs', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prefs: { ai_conversation_cleared_at: cutoff } }),
+          });
+        } catch (_) { /* fire-and-forget; reload re-applies the cutoff */ }
+      }
+      // Mirror the cutoff onto `me.ui_prefs` so a tab that's still
+      // open uses the new value if it re-evaluates.
+      if (this.me && this.me.ui_prefs) {
+        this.me.ui_prefs.ai_conversation_cleared_at = cutoff;
+      }
     },
     aiSidebarSurfaceEnabled() {
       // Same gate as the legacy palette's AI fallback row.
@@ -21769,8 +21824,22 @@ function app() {
       return `Updated ${Math.floor(s / 86400)}d ago`;
     },
     memPercentOf(h) {
-      if (!h || !h.mem_total) return 0;
-      return Math.round((h.mem_used / h.mem_total) * 100);
+      if (!h) return 0;
+      // Same unification rule as `diskPercentOf` — prefer the
+      // backend's recomputed `host_mem_percent` (derived from merged
+      // used/total in `_merge_one_host`) so the drawer chart, drawer
+      // total-usage label, and the outside host card ALL bind to the
+      // same number. Operator-flagged: outside read 7% while inside
+      // chart read 6.6-6.7% — same data, two different numbers.
+      // Falls back to live computation when the backend value is
+      // missing; renders with 1-decimal precision so 6.7% reads as
+      // "6.7%" instead of either "7" (round-up) or "6.65812..." (raw).
+      if (h.mem_percent !== undefined && h.mem_percent !== null
+          && Number.isFinite(Number(h.mem_percent))) {
+        return Number(h.mem_percent);
+      }
+      if (!h.mem_total) return 0;
+      return Math.round((h.mem_used / h.mem_total) * 1000) / 10;
     },
     diskPercentOf(h) {
       if (!h) return 0;
@@ -23074,13 +23143,17 @@ function app() {
     async bulkUpdate() {
       return this._bulkUpdateItems(this.selectionUpdatable(), { clearSelection: true });
     },
-    async bulkUpdateAll() {
+    async bulkUpdateAll(opts) {
       // AI palette fast-action — pull updates for every item with an
       // available update, regardless of selection. Same dedupe + confirm
-      // dialog + sequential POST loop as `bulkUpdate()`.
-      return this._bulkUpdateItems(this.updatableAll(), { clearSelection: false });
+      // dialog + sequential POST loop as `bulkUpdate()`. Accepts
+      // `{ skipConfirm }` for the AI sidebar inline-confirm path.
+      return this._bulkUpdateItems(this.updatableAll(), {
+        clearSelection: false,
+        skipConfirm: !!(opts && opts.skipConfirm),
+      });
     },
-    async _bulkUpdateItems(source, { clearSelection }) {
+    async _bulkUpdateItems(source, { clearSelection, skipConfirm } = {}) {
       const stackIds = new Set();
       const queue = [];
       for (const i of source) {
@@ -23096,19 +23169,21 @@ function app() {
         this.showToast(skipped ? this.t('toasts.already_running', { count: skipped }) : this.t('toasts.nothing_to_update'), 'error');
         return;
       }
-      const items = runnable.slice(0, 8).map(i => `<li><code>${i.stack || i.name}</code></li>`).join('');
-      const more = runnable.length > 8 ? this.t('dialogs.bulk_update_more', { count: runnable.length - 8 }) : '';
-      const skippedNote = skipped ? this.t('dialogs.bulk_update_skipped', { count: skipped }) : '';
-      const ok = await this.confirmDialog({
-        title: this.t('dialogs.bulk_update_title'),
-        html: this.t('dialogs.bulk_update_html', {
-          runnable: runnable.length, stacks: stackIds.size,
-          skipped_note: skippedNote, items, more,
-        }),
-        icon: 'warning', confirmText: this.t('actions.update'),
-        focusConfirm: true,
-      });
-      if (!ok) return;
+      if (!skipConfirm) {
+        const items = runnable.slice(0, 8).map(i => `<li><code>${i.stack || i.name}</code></li>`).join('');
+        const more = runnable.length > 8 ? this.t('dialogs.bulk_update_more', { count: runnable.length - 8 }) : '';
+        const skippedNote = skipped ? this.t('dialogs.bulk_update_skipped', { count: skipped }) : '';
+        const ok = await this.confirmDialog({
+          title: this.t('dialogs.bulk_update_title'),
+          html: this.t('dialogs.bulk_update_html', {
+            runnable: runnable.length, stacks: stackIds.size,
+            skipped_note: skippedNote, items, more,
+          }),
+          icon: 'warning', confirmText: this.t('actions.update'),
+          focusConfirm: true,
+        });
+        if (!ok) return;
+      }
       let okCount = 0, fail = 0;
       for (const i of runnable) {
         const key = i.stack_id ? this._busyKey('stack', i.stack_id) : this._busyKey('ctn', i.raw_id);
@@ -23128,27 +23203,39 @@ function app() {
     async bulkRemove() {
       return this._bulkRemoveItems(this.selectionRemovable(), { clearSelection: true });
     },
-    async bulkRemoveAll() {
+    async bulkRemoveAll(opts) {
       // Fast-action topbar button — clean up every stopped/failed container
-      // on the cluster without having to select them one by one.
-      return this._bulkRemoveItems(this.removableAll(), { clearSelection: false });
+      // on the cluster without having to select them one by one. Accepts
+      // `{ skipConfirm }` so the AI sidebar's inline-confirm path can
+      // bypass the inner SweetAlert (the operator already approved
+      // inline; a second popup would defeat the no-popup contract).
+      return this._bulkRemoveItems(this.removableAll(), {
+        clearSelection: false,
+        skipConfirm: !!(opts && opts.skipConfirm),
+      });
     },
-    async _bulkRemoveItems(source, { clearSelection }) {
+    async _bulkRemoveItems(source, { clearSelection, skipConfirm } = {}) {
       const picked = source.filter(i => !this.isItemBusy(i));
       if (picked.length === 0) {
         this.showToast(this.t('toasts.nothing_removable'), 'error');
         return;
       }
-      const items = picked.slice(0, 8).map(i => `<li><code>${i.name}</code></li>`).join('');
-      const more = picked.length > 8 ? this.t('dialogs.bulk_update_more', { count: picked.length - 8 }) : '';
-      const titleKey = picked.length === 1 ? 'dialogs.bulk_remove_title' : 'dialogs.bulk_remove_title_plural';
-      const ok = await this.confirmDialog({
-        title: this.t(titleKey, { count: picked.length }),
-        html: this.t('dialogs.bulk_remove_html', { items, more }),
-        icon: 'warning', confirmText: this.t('actions.remove'), confirmColor: this._cssVar('--danger'),
-        focusConfirm: true,
-      });
-      if (!ok) return;
+      // `skipConfirm` is set when the AI sidebar already inline-confirmed
+      // the action (no popup contract). Modal palette + topbar callers
+      // leave it false so the rich SweetAlert with the per-container
+      // list still fires.
+      if (!skipConfirm) {
+        const items = picked.slice(0, 8).map(i => `<li><code>${i.name}</code></li>`).join('');
+        const more = picked.length > 8 ? this.t('dialogs.bulk_update_more', { count: picked.length - 8 }) : '';
+        const titleKey = picked.length === 1 ? 'dialogs.bulk_remove_title' : 'dialogs.bulk_remove_title_plural';
+        const ok = await this.confirmDialog({
+          title: this.t(titleKey, { count: picked.length }),
+          html: this.t('dialogs.bulk_remove_html', { items, more }),
+          icon: 'warning', confirmText: this.t('actions.remove'), confirmColor: this._cssVar('--danger'),
+          focusConfirm: true,
+        });
+        if (!ok) return;
+      }
       let okCount = 0, fail = 0;
       for (const i of picked) {
         const key = this._busyKey('ctn', i.raw_id);
