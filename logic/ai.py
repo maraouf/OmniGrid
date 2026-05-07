@@ -1211,6 +1211,34 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
             if weather.get("wind_kmh") is not None:
                 bits.append(f"{weather['wind_kmh']} km/h wind")
             parts.append("Current weather (from OmniGrid topbar widget — answer naturally using these values, do NOT refuse): " + " · ".join(bits))
+            # Daily forecast — when present, render up to 7 days so the
+            # AI can answer "next 5 days" / "tomorrow" / "this week"
+            # questions with real values instead of refusing.
+            forecast = weather.get("forecast")
+            if isinstance(forecast, list) and forecast:
+                lines = []
+                for d in forecast[:7]:
+                    if not isinstance(d, dict):
+                        continue
+                    bits2 = []
+                    if d.get("date"):
+                        bits2.append(str(d["date"]))
+                    if d.get("condition"):
+                        bits2.append(str(d["condition"]))
+                    if d.get("temp_min_c") is not None and d.get("temp_max_c") is not None:
+                        bits2.append(f"{d['temp_min_c']}–{d['temp_max_c']}°C")
+                    elif d.get("temp_max_c") is not None:
+                        bits2.append(f"max {d['temp_max_c']}°C")
+                    if d.get("precip_mm") is not None and d["precip_mm"] > 0:
+                        bits2.append(f"{d['precip_mm']} mm rain")
+                    if bits2:
+                        lines.append("  - " + " · ".join(bits2))
+                if lines:
+                    parts.append(
+                        "Daily forecast (from OmniGrid topbar widget — use these values to answer "
+                        "multi-day questions like 'next 5 days' / 'this week' / 'tomorrow'):\n"
+                        + "\n".join(lines)
+                    )
     return "\n".join(p for p in parts if p)
 
 
