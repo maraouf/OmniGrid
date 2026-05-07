@@ -23,6 +23,7 @@
             ['webmin',        t('settings.host_stats.source_webmin')],
             ['ping',          t('settings.host_stats.source_ping')],
             ['snmp',          t('settings.host_stats.source_snmp')],
+            ['port_scan',     t('settings.host_stats.source_port_scan')],
           ]" :key="tab[0]">
             <button @click="setHostStatsTab(tab[0])"
                     role="tab"
@@ -971,6 +972,71 @@
             <p class="basis-full text-[10.5px] text-[var(--text-faint)]"
                x-text="t('settings.host_stats.chip_color_hint')"></p>
           </div>
+        </div>
+
+        <!-- Port Scan — on-demand TCP-connect scanner. Unlike the
+             other providers in this strip, port scan is NOT a
+             continuous-telemetry source; it runs ONLY when the
+             operator clicks "Scan ports" in the host drawer or asks
+             the AI palette to scan. The form here exposes the
+             master toggle + global default ports / timeout /
+             concurrency that per-host overrides on
+             `hosts_config[].port_scan` cascade over. -->
+        <div x-show="hostStatsTab === 'port_scan'" class="space-y-3" role="tabpanel" id="provider-tabpanel-port_scan" aria-labelledby="provider-tab-port_scan" :class="!hasHostStatsSource('port_scan') ? 'opacity-60' : ''">
+          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+            <label class="inline-flex items-center gap-2 text-[12px] font-medium">
+              <input type="checkbox" :disabled="isReadonly()"
+                     :checked="hasHostStatsSource('port_scan')"
+                     @change="toggleHostStatsSource('port_scan', $event.target.checked)">
+              <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_port_scan') })"></span>
+            </label>
+            <span class="chip"
+                  :class="hasHostStatsSource('port_scan') ? 'pill-ok' : 'pill-muted'"
+                  x-text="hasHostStatsSource('port_scan') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+            <h4 class="font-semibold text-[12.5px]"
+                x-text="t('settings.host_stats.port_scan.section_title')"></h4>
+          </div>
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+             x-text="t('settings.host_stats.port_scan.section_desc')"></p>
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('settings.host_stats.port_scan.default_ports_label')"></label>
+            <input x-model="settings.port_scan_default_ports" type="text"
+                   :disabled="isReadonly() || !hasHostStatsSource('port_scan')"
+                   class="w-full mono text-[11.5px]"
+                   placeholder="22,80,443,8000-8100">
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-text="t('settings.host_stats.port_scan.default_ports_hint')"></p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                     x-text="t('settings.host_stats.port_scan.default_timeout_label')"></label>
+              <input x-model.number="settings.port_scan_default_timeout"
+                     type="number" min="1" max="30"
+                     :disabled="isReadonly() || !hasHostStatsSource('port_scan')"
+                     class="w-full mono text-[11.5px]"
+                     placeholder="2">
+              <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                 x-text="t('settings.host_stats.port_scan.default_timeout_hint')"></p>
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                     x-text="t('settings.host_stats.port_scan.default_concurrency_label')"></label>
+              <input x-model.number="settings.port_scan_default_concurrency"
+                     type="number" min="1" max="256"
+                     :disabled="isReadonly() || !hasHostStatsSource('port_scan')"
+                     class="w-full mono text-[11.5px]"
+                     placeholder="32">
+              <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                 x-text="t('settings.host_stats.port_scan.default_concurrency_hint')"></p>
+            </div>
+          </div>
+          <p class="text-[10.5px] text-[var(--text-faint)] italic"
+             x-text="t('settings.host_stats.port_scan.on_demand_note')"></p>
         </div>
 
         <!-- Save + unsaved-changes indicator. Same visual treatment as

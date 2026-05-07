@@ -566,6 +566,24 @@ body {
    doesn't actually need scrolling, without removing the affordance when
    it does. Firefox: uses thin/auto via `scrollbar-width` / `scrollbar-color`.
    --------------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------
+   Font-size utility classes — `class="fs-<size>"` resolves to the matching
+   `--fs-*` token. Use these instead of Tailwind arbitrary-property syntax
+   `text-[Npx]`; the latter bypasses the token system, leaving 1400+ sites
+   to hunt when the typographic scale shifts. Document policy: every new
+   font-size site goes through one of these classes (or, if the size is
+   genuinely component-specific, declare a named class wired to a token).
+   --------------------------------------------------------------------------- */
+.fs-3xs-half { font-size: var(--fs-3xs-half); }
+.fs-3xs      { font-size: var(--fs-3xs); }
+.fs-2xs      { font-size: var(--fs-2xs); }
+.fs-xs       { font-size: var(--fs-xs); }
+.fs-sm       { font-size: var(--fs-sm); }
+.fs-md       { font-size: var(--fs-md); }
+.fs-lg       { font-size: var(--fs-lg); }
+.fs-xl       { font-size: var(--fs-xl); }
+
 .scrollbar {
     /* Themed scrollbar — every state uses a CSS variable so the
        colour adapts cleanly to dark / light theme. Pre-fix the track
@@ -1974,6 +1992,18 @@ details summary::-webkit-details-marker {
     fill: var(--primary);
     fill-opacity: 0.18;
     stroke: none;
+}
+.ai-resp-chart-band {
+    /* Confidence-interval fork — shaded polygon between
+       projection_high and projection_low. Fades away from the
+       central dashed line so the band reads as uncertainty
+       widening with extrapolation distance, not a hard boundary. */
+    fill: var(--primary);
+    fill-opacity: 0.12;
+    stroke: var(--primary);
+    stroke-opacity: 0.25;
+    stroke-width: 0.5;
+    stroke-dasharray: 1, 2;
 }
 .ai-resp-chart-line {
     stroke: var(--primary);

@@ -82,9 +82,14 @@ NOTIFY_EVENT_NAMES = (
     "prune_failure",
     "user_login",
     "host_paused",
+    # Port-scan provider — fires when a scan reveals an open port not
+    # in the previous scan AND not in `hosts_config[].services[]`.
+    # Default OFF so a freshly-enabled scanner doesn't flood the
+    # operator with first-run notifications for every existing port.
+    "port_scan_new_port",
 )
 NOTIFY_EVENT_DEFAULTS = {
-    name: (False if name == "user_login" else True)
+    name: (False if name in ("user_login", "port_scan_new_port") else True)
     for name in NOTIFY_EVENT_NAMES
 }
 
@@ -285,6 +290,15 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
         "title": "⚠️ Host sampling paused: {name}",
         "body":  "{error}",
     },
+    # Port-scan provider — fires when a scan reveals an open port not
+    # in the previous scan AND not in the host's curated services.
+    # ``{name}`` resolves to host id; the body uses ``{message}`` so
+    # the caller can supply a one-line description ("port 8080
+    # (http-alt) is now listening on host01").
+    "port_scan_new_port": {
+        "title": "🔍 New open port on {name}",
+        "body":  "{message}",
+    },
 }
 
 
@@ -299,36 +313,87 @@ def template_setting_keys(event: str) -> tuple[str, str]:
     )
 
 
-def template_default(event: str, kind: str) -> str:
-    """Return the hard-coded default for ``(event, kind)``.
+def template_default(event: str, kind: str, locale: str = "en") -> str:
+    """Return the default template for ``(event, kind)`` resolved
+    against the operator's locale.
 
-    ``kind`` is ``"title"`` or ``"body"``. Returns ``""`` when the
-    event isn't registered in :data:`NOTIFY_TEMPLATE_DEFAULTS` — the
-    audit gate logs a WARN line for that case but the call still
-    completes (an unregistered event still fires; the operator just
-    sees a blank body).
+    ``kind`` is ``"title"`` or ``"body"``. Resolution order:
+
+      1. ``static/i18n/<locale>.json`` → ``notifications.events.<event>.<kind>``
+         via :mod:`logic.i18n`. Falls back to ``en`` when the locale
+         doesn't have the key.
+      2. Hard-coded :data:`NOTIFY_TEMPLATE_DEFAULTS` dict (legacy
+         back-compat — if the i18n bundle is somehow missing the key,
+         the Python literal still ships a sensible default so
+         notifications never go blank).
+      3. Empty string when the event isn't registered anywhere.
+
+    The i18n bundle is the canonical source of truth post-migration;
+    the dict is the safety net for missing-bundle / corrupt-load
+    cases. New events MUST be added to BOTH the dict AND the en.json
+    bundle (the audit gate will be extended to verify both).
     """
+    # Try the i18n bundle first.
+    try:
+        from logic.i18n import tr as _tr
+        i18n_key = f"notifications.events.{event}.{kind}"
+        resolved = _tr(i18n_key, locale)
+        # `tr` returns the key itself when missing — treat that as a
+        # cache-miss so we fall through to the dict.
+        if resolved and resolved != i18n_key:
+            return resolved
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify] i18n lookup failed for {event}.{kind}: {e}")
+    # Legacy dict fallback.
     entry = NOTIFY_TEMPLATE_DEFAULTS.get(event)
     if not entry:
         return ""
     return entry.get(kind) or ""
 
 
-def resolve_template(event: str, kind: str) -> str:
-    """Resolve the live template for ``(event, kind)``.
+def resolve_template(event: str, kind: str, locale: str = "en") -> str:
+    """Resolve the live template for ``(event, kind, locale)``.
 
-    DB setting wins when present + non-empty; otherwise falls back to
-    the hard-coded default in :data:`NOTIFY_TEMPLATE_DEFAULTS`. Empty
-    DB value (operator cleared the field via the admin editor) means
-    "reset to default" — same contract `api_admin_notify_templates_set`
-    enforces on writes.
+    Operator-set DB override wins when present + non-empty (verbatim
+    — no i18n applied; operators want exact wording control).
+    Otherwise falls back to the locale-aware
+    :func:`template_default`.
     """
     title_key, body_key = template_setting_keys(event)
     db_key = title_key if kind == "title" else body_key
     raw = (get_setting(db_key, "") or "").strip()
     if raw:
         return raw
-    return template_default(event, kind)
+    return template_default(event, kind, locale)
+
+
+def resolve_actor_locale(actor_username: Optional[str]) -> str:
+    """Look up the actor's stored UI locale from
+    ``users.ui_prefs.lang``. Falls back to ``"en"`` for the system /
+    scheduler / unauthenticated path. Used by :func:`notify` to pick
+    the right bundle for template resolution.
+    """
+    if not actor_username:
+        return "en"
+    try:
+        import logic.auth as _auth
+        from logic.db import db_conn as _db_conn
+        with _db_conn() as c:
+            row = c.execute(
+                "SELECT id FROM users WHERE username = ?",
+                (actor_username,),
+            ).fetchone()
+            if not row:
+                return "en"
+            profile = _auth.get_user_profile(c, int(row["id"]))
+        prefs = (profile or {}).get("ui_prefs") or {}
+        lang = (prefs.get("lang") or "").strip().lower()
+        if lang:
+            from logic.i18n import pick_locale as _pick
+            return _pick(lang)
+    except Exception:  # noqa: BLE001
+        pass
+    return "en"
 
 
 def render_template(template: str, values: dict) -> str:
@@ -979,8 +1044,13 @@ async def notify(
         )
         # Resolve and render. Empty resolver output falls through to
         # the legacy literal — never go silent on missing template.
-        rendered_title = render_template(resolve_template(event, "title"), values)
-        rendered_body = render_template(resolve_template(event, "body"), values)
+        # Locale picked from the actor's `ui_prefs.lang` so a non-en
+        # operator firing an action receives the notification in
+        # their UI locale (Apprise webhooks AND in-app store get the
+        # SAME pre-resolved string — no SPA-side translation race).
+        actor_locale = resolve_actor_locale(actor_username)
+        rendered_title = render_template(resolve_template(event, "title", actor_locale), values)
+        rendered_body = render_template(resolve_template(event, "body", actor_locale), values)
         if rendered_title:
             title = rendered_title
         if rendered_body:

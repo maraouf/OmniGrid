@@ -200,6 +200,12 @@ const CURATED_REFRESH_FIELDS = new Set([
   // can render "Auto-detect last result: <vendors>" below the Vendor
   // MIBs checkbox group. Empty list when the probe never succeeded.
   'host_snmp_active_vendors', 'host_snmp_active_vendors_source',
+  // Port-scan provider — on-demand scanner.
+  // `detected_ports` is the latest scan's open-port array; null
+  // collapse on missing keeps the drawer card gate cleanly hidden
+  // when the master toggle is off OR no scan has run. `last_port_scan_ts`
+  // drives the "Last scanned X ago" label.
+  'detected_ports', 'last_port_scan_ts',
 ]);
 
 function app() {
@@ -223,11 +229,41 @@ function app() {
         await window.I18N.load(code);
         this.lang = code;
         this.dir  = window.I18N.dir;
+        // Persist to ui_prefs so the operator's chosen locale follows
+        // them across browsers / machines AND so backend notification
+        // template resolution (logic/ops.py:resolve_actor_locale)
+        // picks up the right language for notifications fired by
+        // this operator's actions. Same write-through pattern as
+        // `persistThemePref` / `persistHostHistoryRange`.
+        if (typeof this.persistUiLang === 'function') {
+          this.persistUiLang(code);
+        }
         this.showToast(this.t('toasts.language_changed') || 'Language changed');
       } catch (e) {
         // Language fetch failed — surface a fallback message that doesn't
         // require the new dict to have loaded.
         this.showToast(this.t('toasts_extra.language_load_failed'), 'error');
+      }
+    },
+    async persistUiLang(value) {
+      // Skip API-token pseudo-users (negative ids) — /api/me/ui-prefs
+      // returns 400 for them.
+      if (!this.me || !this.me.id || this.me.id < 0) return;
+      const code = String(value || '').trim().toLowerCase();
+      if (!code) return;
+      try {
+        await fetch('/api/me/ui-prefs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefs: { lang: code } }),
+        });
+        if (this.me && this.me.ui_prefs) {
+          this.me.ui_prefs.lang = code;
+        }
+      } catch (e) {
+        if (window.console && console.warn) {
+          console.warn('[lang] persist to DB failed:', e);
+        }
       }
     },
     items: [], stacks: [], nodes: {}, nodesInfo: {},
@@ -1465,6 +1501,22 @@ function app() {
               this.themePref = dbTheme;
               try { localStorage.setItem('theme', dbTheme); } catch (_) {}
               this.applyTheme();
+            }
+          } catch (_) {}
+          // Hydrate UI language from DB — same write-through pattern
+          // as theme. localStorage caches the operator's last choice
+          // for instant first-paint; DB value wins on every load so
+          // the operator's locale follows them across browsers /
+          // machines AND so backend notification template resolution
+          // (logic/ops.py:resolve_actor_locale) picks up the right
+          // language for notifications fired by this operator.
+          try {
+            const dbLang = (m && m.ui_prefs && m.ui_prefs.lang) || '';
+            if (dbLang && dbLang !== this.lang) {
+              try { localStorage.setItem('lang', dbLang); } catch (_) {}
+              if (typeof this.setLang === 'function') {
+                this.setLang(dbLang);
+              }
             }
           } catch (_) {}
           // Hydrate host-drawer time-range picker from DB — same shape
@@ -3014,6 +3066,14 @@ function app() {
     // CSV ("beszel,node_exporter") — these helpers let the Settings
     // checkboxes treat it as a set.
     hasHostStatsSource(name) {
+      // Port-scan is an on-demand provider with its own master
+      // toggle (`port_scan_enabled`), not a continuous-telemetry
+      // provider in the `host_stats_source` CSV. Surface its
+      // active-state through the same predicate so the tab strip's
+      // dot indicator reads the right gate.
+      if (name === 'port_scan') {
+        return !!this.settings.port_scan_enabled;
+      }
       const raw = this.settings.host_stats_source || '';
       return raw.split(',').map(s => s.trim()).includes(name);
     },
@@ -3029,6 +3089,11 @@ function app() {
       return !this.isAdmin() || this.tuningSaving || !this.hasHostStatsSource(provider);
     },
     toggleHostStatsSource(name, on) {
+      // Port-scan flips its dedicated master toggle, not the CSV.
+      if (name === 'port_scan') {
+        this.settings.port_scan_enabled = !!on;
+        return;
+      }
       const current = new Set(
         (this.settings.host_stats_source || '')
           .split(',').map(s => s.trim()).filter(s => s && s !== 'none'),
@@ -3054,7 +3119,7 @@ function app() {
     // implement ←/→ keyboard nav per the WAI-ARIA tablist authoring
     // pattern. New tabs added here automatically participate in
     // keyboard navigation.
-    HOST_STATS_TAB_ORDER: ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp'],
+    HOST_STATS_TAB_ORDER: ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp', 'port_scan'],
     // Cycle tabs by ±1, wrapping at both ends. Called from each tab
     // button's @keydown.left / @keydown.right handler. After the tab
     // switches we focus the newly-active button so the focus ring
@@ -3094,6 +3159,11 @@ function app() {
         // tracker so saveHostStats picks them up alongside the other
         // providers' fields.
         'ping_enabled', 'ping_default_port', 'ping_use_icmp',
+        // port-scan provider — on-demand TCP scanner. Master toggle
+        // + global defaults; per-host overrides live on
+        // `hosts_config[].port_scan` and ride `saveHostsConfig`.
+        'port_scan_enabled', 'port_scan_default_ports',
+        'port_scan_default_timeout', 'port_scan_default_concurrency',
         // SNMP. v3 secret keys behave like beszel_password /
         // webmin_password — `_set` flag indicates persisted state, the
         // `*_key` strings are blanked on the form so any typed value
@@ -3252,6 +3322,29 @@ function app() {
       }
       if (this.settings.ping_use_icmp !== undefined) {
         payload.ping_use_icmp = !!this.settings.ping_use_icmp;
+      }
+      // Port-scan provider. Master toggle + global defaults round-trip
+      // even when disabled so the operator's saved values survive
+      // enable/disable cycles.
+      if (this.settings.port_scan_enabled !== undefined) {
+        payload.port_scan_enabled = !!this.settings.port_scan_enabled;
+      }
+      if (this.settings.port_scan_default_ports !== undefined) {
+        payload.port_scan_default_ports = String(this.settings.port_scan_default_ports || '').trim();
+      }
+      if (this.settings.port_scan_default_timeout !== undefined
+          && this.settings.port_scan_default_timeout !== '') {
+        const t = parseInt(this.settings.port_scan_default_timeout, 10);
+        if (Number.isFinite(t) && t >= 1 && t <= 30) {
+          payload.port_scan_default_timeout_seconds = t;
+        }
+      }
+      if (this.settings.port_scan_default_concurrency !== undefined
+          && this.settings.port_scan_default_concurrency !== '') {
+        const c = parseInt(this.settings.port_scan_default_concurrency, 10);
+        if (Number.isFinite(c) && c >= 1 && c <= 256) {
+          payload.port_scan_default_concurrency = c;
+        }
       }
       // SNMP provider. Defaults always round-trip (so the
       // operator's saved community / version / port survive an
@@ -5516,6 +5609,13 @@ function app() {
           ping_default_port:     (d.ping && Number.isFinite(d.ping.default_port)) ? d.ping.default_port : 443,
           ping_use_icmp:         !!(d.ping && d.ping.use_icmp),
           ping_has_icmp_support: !!(d.ping && d.ping.has_icmp_support),
+          // Port-scan provider — on-demand TCP scanner. `port_scan_enabled`
+          // is the master toggle; defaults cascade into per-host
+          // overrides on `hosts_config[].port_scan`.
+          port_scan_enabled:            !!(d.port_scan && d.port_scan.enabled),
+          port_scan_default_ports:      (d.port_scan && d.port_scan.default_ports) || '',
+          port_scan_default_timeout:    (d.port_scan && Number.isFinite(d.port_scan.default_timeout)) ? d.port_scan.default_timeout : 2,
+          port_scan_default_concurrency: (d.port_scan && Number.isFinite(d.port_scan.default_concurrency)) ? d.port_scan.default_concurrency : 32,
           // SNMP provider. v3 secret keys flow as `_set` flags
           // (write-only contract); community / version / port / aliases
           // round-trip in the clear. `has_snmp_support` reflects whether
@@ -12019,6 +12119,20 @@ function app() {
         // shell — operators can always reopen, and the alternative is
         // a Trap with no fallback.
         if (this.terminalModalOpen) { this.closeHostTerminal(); e.preventDefault(); return; }
+        // AI dashboard modal (Admin → AI) and schedule-editor modal
+        // weren't in the cascade pre-fix — clicking the X / backdrop
+        // was the only way out. Both sit above the drawers because
+        // they're full-screen overlays the operator opened explicitly.
+        if (this.aiModalKey) { this.closeAiModal(); e.preventDefault(); return; }
+        if (this.editingSchedule) { this.cancelEditSchedule(); e.preventDefault(); return; }
+        // AI sidebar slots above drawerHost / drawerItem so ESC closes the
+        // chat first when both are open — same priority order as
+        // commandPaletteOpen (which is the AI sidebar's mode-cousin).
+        // The textarea-local ESC handler in `aiSidebarHandleKeydown`
+        // covers the focus-on-input case; this branch covers Send /
+        // slash-picker / feedback chip / anywhere else the operator's
+        // focus lands while the drawer is open.
+        if (this.aiSidebarOpen) { this.closeAiSidebar(); e.preventDefault(); return; }
         if (this.drawerHost) { this.closeHostDrawer(); e.preventDefault(); return; }
         if (this.drawerItem) { this.drawerItem = null; e.preventDefault(); return; }
         if (this.selected.length) { this.clearSelection(); e.preventDefault(); return; }
@@ -12362,6 +12476,24 @@ function app() {
           destructive: true,
           defer_confirm_to_run: true,
           run:   (opts) => { this.bulkUpdateAll(opts); }
+        }] : []),
+
+        // Port scan — fires the on-demand TCP-connect scanner against
+        // the host whose drawer is currently open. Only surfaces when
+        // (a) the master toggle is on AND (b) a host drawer is open;
+        // gating on `drawerHost` keeps the action contextual rather
+        // than asking the user to pick a host from a dropdown. AI
+        // palette can suggest "scan ports on <host>" via natural
+        // language and the AI handler routes through the same
+        // runPortScan() method. Read-only against the target — no
+        // destructive flag — but takes time so we let the inner method
+        // surface the result via a toast.
+        ...(((this.settings || {}).port_scan_enabled && this.drawerHost && typeof this.runPortScan === 'function') ? [{
+          id: 'scan-ports',
+          label: t('command_palette.action.scan_ports', 'Scan ports on this host'),
+          sub:   t('command_palette.action.scan_ports_sub', 'On-demand TCP-connect scan against the open host drawer'),
+          verbs: ['scan', 'ports', 'tcp', 'discover', 'nmap'],
+          run:   () => { this.runPortScan(this.drawerHost); }
         }] : []),
 
         // Sign out — destructive (terminates the session)
@@ -13047,6 +13179,11 @@ function app() {
     // accepts thumbs-up/down feedback that updates the row in
     // ai_jobs.
     openAiSidebar() {
+      // Capture the previously-focused element so closing the sidebar
+      // returns focus to it. WCAG 2.4.3 (focus order) — without this,
+      // closing the dialog loses the operator's keyboard position.
+      try { this._aiSidebarReturnFocus = document.activeElement; }
+      catch (_) { this._aiSidebarReturnFocus = null; }
       this.aiSidebarOpen = true;
       // Focus the input + scroll the conversation log to the bottom
       // next tick so the operator lands on the LATEST turn (not the
@@ -13063,6 +13200,59 @@ function app() {
     },
     closeAiSidebar() {
       this.aiSidebarOpen = false;
+      // Restore focus to whatever was focused before the sidebar opened
+      // so keyboard navigation continues from where it was. Guarded
+      // against the previous element being detached from the DOM by
+      // the time we restore (tab close / SPA route change).
+      const ret = this._aiSidebarReturnFocus;
+      this._aiSidebarReturnFocus = null;
+      if (ret && typeof ret.focus === 'function' && document.contains(ret)) {
+        try { ret.focus(); } catch (_) { /* noop */ }
+      }
+    },
+
+    // Generic focus-trap keydown handler. Bind via
+    // ``@keydown="open && _focusTrapKeydown($event, $el)"`` on the
+    // dialog root. Intercepts Tab / Shift-Tab to cycle focus within
+    // the dialog. Other keys pass through. Tab leak was a fleet-wide
+    // gap (CLAUDE.md "Drawers + modals need ... focus-trap helper" —
+    // documented since 2026-04-30, never built fleet-wide). This helper
+    // is the building block; existing dialogs (host drawer, item drawer,
+    // terminal modal, hotkeys modal, schedule edit modal) can adopt it
+    // by adding the same `@keydown` binding to their root elements.
+    _focusTrapKeydown(e, root) {
+      if (!root || !e || e.key !== 'Tab') return;
+      // Build the focusable-within-dialog set on every keydown rather
+      // than caching — Alpine renders / removes nodes on state changes
+      // (slash-picker, inline-confirm chip, feedback chips), so a
+      // cached list goes stale. Cost is one querySelectorAll + a small
+      // visibility filter on Tab — negligible.
+      const candidates = root.querySelectorAll(
+        'a[href], button:not([disabled]), textarea:not([disabled]), ' +
+        'input:not([disabled]):not([type="hidden"]), select:not([disabled]), ' +
+        '[tabindex]:not([tabindex="-1"])'
+      );
+      const focusables = [];
+      for (const node of candidates) {
+        if (node.offsetParent === null) continue; // hidden via display:none
+        if (node.getAttribute('aria-hidden') === 'true') continue;
+        focusables.push(node);
+      }
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey) {
+        if (active === first || !root.contains(active)) {
+          last.focus();
+          e.preventDefault();
+        }
+      } else {
+        if (active === last) {
+          first.focus();
+          e.preventDefault();
+        }
+      }
     },
     toggleAiSidebar() {
       if (this.aiSidebarOpen) this.closeAiSidebar();
@@ -13375,7 +13565,7 @@ function app() {
         case 'host':
           this.aiConversation.push({
             role: 'assistant', text: '',
-            action_label: this.t('ai_sidebar.opened') + ' ' + (result.label || ''),
+            action_label: this.t('ai_sidebar.opened_label', { label: result.label || '' }),
             action_ran: true, slash: true, ts: Date.now(),
           });
           this._scrollAiSidebarToBottom();
@@ -13389,7 +13579,7 @@ function app() {
         case 'item':
           this.aiConversation.push({
             role: 'assistant', text: '',
-            action_label: this.t('ai_sidebar.opened') + ' ' + (result.label || ''),
+            action_label: this.t('ai_sidebar.opened_label', { label: result.label || '' }),
             action_ran: true, slash: true, ts: Date.now(),
           });
           this._scrollAiSidebarToBottom();
@@ -13405,7 +13595,7 @@ function app() {
         case 'admin':
           this.aiConversation.push({
             role: 'assistant', text: '',
-            action_label: this.t('ai_sidebar.navigated') + ' ' + (result.label || ''),
+            action_label: this.t('ai_sidebar.navigated_label', { label: result.label || '' }),
             action_ran: true, slash: true, ts: Date.now(),
           });
           this._scrollAiSidebarToBottom();
@@ -13419,7 +13609,7 @@ function app() {
         case 'view':
           this.aiConversation.push({
             role: 'assistant', text: '',
-            action_label: this.t('ai_sidebar.navigated') + ' ' + (result.label || ''),
+            action_label: this.t('ai_sidebar.navigated_label', { label: result.label || '' }),
             action_ran: true, slash: true, ts: Date.now(),
           });
           this._scrollAiSidebarToBottom();
@@ -13494,16 +13684,22 @@ function app() {
           label: h.label || '',
           status: h.status || '',
         };
+        // Uniform 1-decimal precision across cpu_pct / mem_pct / disk_pct
+        // so the AI never reports "memory at 67%" while a chart shows
+        // 67.4% (mixed-precision context confused operators on charts
+        // vs. text-summary parity). `fmtPercentLabel` would need
+        // string output; here we want numbers, so round via `* 10 / 10`.
+        const r1 = (n) => Math.round(Number(n) * 10) / 10;
         if (h.cpu_percent !== undefined && h.cpu_percent !== null) {
-          out.cpu_pct = Math.round(Number(h.cpu_percent) * 10) / 10;
+          out.cpu_pct = r1(h.cpu_percent);
         }
         const memPct = (h.mem_percent !== undefined && h.mem_percent !== null)
           ? Number(h.mem_percent) : (typeof this.memPercentOf === 'function' ? this.memPercentOf(h) : null);
         if (memPct !== null && Number.isFinite(memPct)) {
-          out.mem_pct = Math.round(memPct);
+          out.mem_pct = r1(memPct);
         }
         if (total > 0) {
-          out.disk_pct = Math.round((used / total) * 100);
+          out.disk_pct = r1((used / total) * 100);
           out.disk_free_gb = Math.round((total - used) / (1024 ** 3));
           out.disk_total_gb = Math.round(total / (1024 ** 3));
         }
@@ -13740,12 +13936,35 @@ function app() {
       for (let i = 1; i < samples.length; i++) {
         histStroke += ' L ' + xOf(samples[i].ts) + ' ' + yOf(samples[i].used_pct);
       }
-      // Projection stroke (dashed, from "now" forward).
+      // Projection stroke (dashed, from "now" forward) + confidence
+      // band fork (shaded polygon between high_pct and low_pct for
+      // each projected point). The band widens with extrapolation
+      // distance — mirrors the classical OLS prediction-interval
+      // cone so operators see uncertainty at a glance instead of
+      // trusting a single deterministic line.
       let projStroke = '';
+      let projBand   = '';
       if (projection.length >= 2) {
         projStroke = 'M ' + xOf(projection[0].ts) + ' ' + yOf(projection[0].used_pct);
         for (let i = 1; i < projection.length; i++) {
           projStroke += ' L ' + xOf(projection[i].ts) + ' ' + yOf(projection[i].used_pct);
+        }
+        // Build the band only when the backend supplied bounds
+        // (older API versions don't emit `low_pct` / `high_pct`).
+        const hasBand = projection.every(p =>
+          p.low_pct !== undefined && p.high_pct !== undefined);
+        if (hasBand) {
+          // Top edge (high_pct) left → right, then bottom edge
+          // (low_pct) right → left, closed for a filled polygon.
+          let band = 'M ' + xOf(projection[0].ts) + ' ' + yOf(projection[0].high_pct);
+          for (let i = 1; i < projection.length; i++) {
+            band += ' L ' + xOf(projection[i].ts) + ' ' + yOf(projection[i].high_pct);
+          }
+          for (let i = projection.length - 1; i >= 0; i--) {
+            band += ' L ' + xOf(projection[i].ts) + ' ' + yOf(projection[i].low_pct);
+          }
+          band += ' Z';
+          projBand = band;
         }
       }
       // Y-axis ticks at 0/50/100.
@@ -13779,6 +13998,7 @@ function app() {
         + 'role="img" aria-label="' + esc(hostId + ' disk usage projection') + '">'
         + yTicks
         + '<path d="' + areaPath + '" class="ai-resp-chart-area"/>'
+        + (projBand ? '<path d="' + projBand + '" class="ai-resp-chart-band"/>' : '')
         + '<path d="' + histStroke + '" class="ai-resp-chart-line ai-resp-chart-line--hist" fill="none"/>'
         + (projStroke ? '<path d="' + projStroke + '" class="ai-resp-chart-line ai-resp-chart-line--proj" fill="none"/>' : '')
         + nowLine
@@ -13844,9 +14064,9 @@ function app() {
         ? esc(t('command_palette.ai.disk_chart.source_' + data.source, data.source))
         : '';
       const sourceChip = sourceLabel
-        ? ('<span class="ai-resp-chart-source" :title="\''
+        ? ('<span class="ai-resp-chart-source" title="'
            + esc(t('command_palette.ai.disk_chart.source_label', 'Source'))
-           + '\'">'
+           + '">'
            + esc(t('command_palette.ai.disk_chart.source_label', 'Source')) + ': ' + sourceLabel
            + '</span>')
         : '';
@@ -14116,8 +14336,16 @@ function app() {
     // passed in so Alpine's effect tracker registers reads of all
     // three; without that an IIFE wrapping the same logic might
     // miss the dependency tracking.
-    _applyDrawerScrollLock(host, item, node) {
-      const lock = !!(host || item || node);
+    _applyDrawerScrollLock(host, item, node, sidebar) {
+      // `sidebar` is `aiSidebarOpen` — added so opening the AI Assistant
+      // drawer ALSO locks the body scroll. Pre-fix the AI sidebar slid
+      // in over a still-scrollable page beneath; the cascade was scoped
+      // to the three classic drawers only. Future drawer-style overlays
+      // MUST extend this signature with another bound reactive flag —
+      // do NOT compute `aiSidebarOpen` inside the function body, that
+      // breaks Alpine's dependency tracking and the lock fires once
+      // then goes silent.
+      const lock = !!(host || item || node || sidebar);
       const html = document.documentElement;
       const body = document.body;
       if (lock) {
@@ -18499,6 +18727,80 @@ function app() {
         // fleet the spam would be worse than the missing data.
       }
     },
+
+    // POST /api/hosts/{id}/port-scan — runs an on-demand TCP-connect
+    // scan against the host. Stamps `_port_scan_running` while the
+    // call is in flight so the button spinner ticks; refreshes the
+    // row on completion so `host.detected_ports` repaints. Errors
+    // surface via toast — no second confirmation since the scan is
+    // read-only against the target.
+    async runPortScan(host) {
+      if (!host || !host.id) return;
+      if (host._port_scan_running) return;
+      host._port_scan_running = true;
+      try {
+        const r = await fetch('/api/hosts/' + encodeURIComponent(host.id) + '/port-scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        if (!r.ok) {
+          const txt = await r.text().catch(() => '');
+          this.showToast(this.t('host_drawer.port_scan.scan_failed_body', { host: host.id, error: txt || ('HTTP ' + r.status) }), 'error');
+          return;
+        }
+        const data = await r.json().catch(() => ({}));
+        await this.refreshHostRow(host.id, { force: true });
+        const openCount = (data && data.open_count) || 0;
+        const newCount = (data && data.new_count) || 0;
+        this.showToast(this.t('host_drawer.port_scan.scan_complete_body', { host: host.id, open_count: openCount, new_count: newCount }), 'success');
+      } catch (e) {
+        this.showToast(this.t('host_drawer.port_scan.scan_failed_body', { host: host.id, error: String(e) }), 'error');
+      } finally {
+        host._port_scan_running = false;
+      }
+    },
+
+    // Diff helper: ports listed in `hosts_config[].services[]` but
+    // NOT seen open in the latest scan. Surfaces "expected listener is
+    // down right now" without raising it as a failure (the operator
+    // could have disabled the service; surfacing as info-grey is the
+    // honest signal).
+    curatedOnlyServices(host) {
+      if (!host) return [];
+      const detected = new Set((host.detected_ports || []).map(p => Number(p.port)));
+      const curated = Array.isArray(host.services) ? host.services : [];
+      return curated.filter(s => {
+        const port = Number(s && s.port);
+        return port > 0 && !detected.has(port);
+      }).map(s => ({ port: Number(s.port), name: s.name || s.label || '' }));
+    },
+
+    // Chip class for a detected port. Green (`pill-ok`) when the port
+    // matches a curated service entry; amber (`pill-warning`) when the
+    // port is open but not in the curated list — the operator should
+    // either add it (expected listener) or investigate (unexpected).
+    portScanChipClass(host, port) {
+      if (!host || !port) return 'pill-muted';
+      const curated = Array.isArray(host.services) ? host.services : [];
+      const match = curated.find(s => Number(s && s.port) === Number(port.port));
+      return match ? 'pill-ok' : 'pill-warning';
+    },
+
+    // Tooltip for a detected port chip.
+    portScanChipTitle(host, port) {
+      if (!host || !port) return '';
+      const curated = Array.isArray(host.services) ? host.services : [];
+      const match = curated.find(s => Number(s && s.port) === Number(port.port));
+      if (match) {
+        return this.t('host_drawer.port_scan.chip_curated_title', {
+          name: match.name || match.label || '—',
+          port: port.port,
+        });
+      }
+      return this.t('host_drawer.port_scan.chip_unknown_title', { port: port.port });
+    },
+
     // toggle a provider in the Hosts-toolbar filter set.
     // Multi-select OR semantics. The synthetic 'none' name filters
     // to hosts without ANY provider mapped (curated rows that exist
