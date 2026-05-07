@@ -1204,6 +1204,13 @@ function app() {
       // `me.client_config.ai_conversation_export_enabled`; SPA hides
       // the export buttons in the AI sidebar header when false.
       'tuning_ai_conversation_export_enabled',
+      // Port-scan tunables — rendered in Admin → Port Scan, NOT
+      // the generic Config form. Each routes through TUNABLES so
+      // the operator can adjust without redeploy.
+      'tuning_port_scan_default_timeout_seconds',
+      'tuning_port_scan_default_concurrency',
+      'tuning_port_scan_max_seconds',
+      'tuning_port_scan_banner_read_seconds',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -2589,6 +2596,16 @@ function app() {
       }
       else if (tab === 'config') {
         await this.loadTuning();
+      }
+      // Port Scan admin tab — same lazy-load pattern as Host stats /
+      // Notifications / Logs / AI: the four port-scan tunables
+      // (timeout / concurrency / max_seconds / banner_read) bind to
+      // `tuningForm[...]`, so first-visit needs the tuning state
+      // hydrated before the inputs render. Also load settings so
+      // `port_scan_enabled` + `port_scan_default_ports` round-trip.
+      else if (tab === 'port_scan') {
+        await this.loadSettings();
+        if (!this.tuningLoaded) await this.loadTuning();
       }
     },
 
@@ -8565,6 +8582,15 @@ function app() {
       if ((h.op_type || '') === 'ai_palette') {
         return this._openAiPaletteHistoryDetail(h);
       }
+      // port_scan rows carry a JSON OBJECT in `events` (same shape
+      // the endpoint emits: scan_id / target / ports_scanned /
+      // ports_open / scan_duration_ms). Route to the dedicated
+      // detail renderer so operators clicking through History see
+      // the per-scan summary + a link to view the open-ports chip
+      // strip in the host drawer.
+      if ((h.op_type || '') === 'port_scan') {
+        return this._openPortScanHistoryDetail(h);
+      }
       const events = this.parseEvents(h.events) || [];
       const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
       const rows = events.map(ev => {
@@ -8593,6 +8619,83 @@ function app() {
         background: this._cssVar('--surface'),
         color: this._cssVar('--text'),
       });
+    },
+    // History-row detail renderer for `op_type='port_scan'`. The
+    // backend writes a JSON OBJECT in `events` carrying the scan
+    // summary `{scan_id, target, ports_scanned, ports_open,
+    // scan_duration_ms}`; this renderer surfaces it as a SweetAlert
+    // popup with the meta block + a fetch of the actual open-port
+    // list (per scan_id) so the operator can see WHICH ports were
+    // open without bouncing to the host drawer.
+    async _openPortScanHistoryDetail(h) {
+      let payload = {};
+      try { payload = JSON.parse(h.events || '{}') || {}; } catch (_) {}
+      const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+      const fmtNum = (n) => Number.isFinite(+n) ? (+n).toLocaleString() : String(n || 0);
+      const scanId = (payload.scan_id || '').toString();
+      const target = (payload.target || h.target_id || h.target_name || '—').toString();
+      const portsScanned = Number(payload.ports_scanned) || 0;
+      const portsOpen = Number(payload.ports_open) || 0;
+      const durationMs = Number(payload.scan_duration_ms) || Math.round((h.duration || 0) * 1000);
+      const meta = '<div class="swal-meta mono">'
+        + '<div><b>' + esc(this.t('history.detail.when')) + '</b> ' + esc(this.formatTime(h.ts)) + '</div>'
+        + '<div><b>' + esc(this.t('history.detail.op')) + '</b> ' + esc(h.op_type) + '</div>'
+        + '<div><b>' + esc(this.t('history.detail.target')) + '</b> ' + esc(h.target_id || '—') + '</div>'
+        + '<div><b>' + esc(this.t('history.port_scan.target_label') || 'Resolved target:') + '</b> ' + esc(target) + '</div>'
+        + '<div><b>' + esc(this.t('history.port_scan.scan_id_label') || 'Scan ID:') + '</b> ' + esc(scanId || '—') + '</div>'
+        + '<div><b>' + esc(this.t('history.port_scan.ports_scanned_label') || 'Ports scanned:') + '</b> ' + fmtNum(portsScanned) + '</div>'
+        + '<div><b>' + esc(this.t('history.port_scan.ports_open_label') || 'Ports open:') + '</b> ' + fmtNum(portsOpen) + '</div>'
+        + '<div><b>' + esc(this.t('history.detail.duration')) + '</b> ' + (durationMs / 1000).toFixed(2) + 's</div>'
+        + '<div><b>' + esc(this.t('history.detail.actor')) + '</b> ' + esc(h.actor || 'ui') + '</div>'
+        + '<div><b>' + esc(this.t('history.detail.status')) + '</b> ' + esc(h.status) + '</div>'
+        + (h.error ? '<div class="swal-err"><b>' + esc(this.t('history.detail.error')) + '</b> ' + esc(h.error) + '</div>' : '')
+        + '</div>';
+      // Fetch the open-port list for this scan_id so the popup can
+      // show the actual ports (chip strip in the host drawer shows
+      // only the LATEST scan; this fetch lets the operator see a
+      // historical scan's open-port set without time-travel).
+      let portsHtml = '<div class="swal-events"><span class="text-[var(--text-faint)]">' +
+                      esc(this.t('history.port_scan.loading_ports') || 'Loading open ports…') + '</span></div>';
+      const containerId = 'port-scan-history-ports-' + (scanId || h.id || 'na');
+      Swal.fire({
+        title: target + ' — ' + esc(this.t('op_types.port_scan') || 'port scan'),
+        html: meta + '<div id="' + containerId + '">' + portsHtml + '</div>',
+        width: 720,
+        showConfirmButton: false,
+        showCloseButton: true,
+        background: this._cssVar('--surface'),
+        color: this._cssVar('--text'),
+      });
+      // Fan-out fetch — fire-and-forget so the popup paints
+      // immediately. New endpoint /api/history/port-scan/{scan_id}/ports
+      // returns the rows from host_port_scans for that scan_id.
+      try {
+        const r = await fetch('/api/history/port-scan/' + encodeURIComponent(scanId) + '/ports');
+        const target_el = document.getElementById(containerId);
+        if (!target_el) return;
+        if (!r.ok) {
+          target_el.innerHTML = '<div class="swal-err">' + esc(this.t('history.port_scan.load_failed') || 'Could not load open ports for this scan.') + '</div>';
+          return;
+        }
+        const j = await r.json();
+        const ports = Array.isArray(j.ports) ? j.ports : [];
+        if (!ports.length) {
+          target_el.innerHTML = '<div class="swal-events"><span class="text-[var(--text-faint)]">' +
+                                 esc(this.t('history.port_scan.no_open') || 'No open ports recorded for this scan.') + '</span></div>';
+          return;
+        }
+        const rows = ports.map(p => {
+          const port = p.port || '';
+          const hint = p.service_hint || '';
+          const banner = p.banner_excerpt || '';
+          return '<div class="swal-ev swal-ev-ok"><span class="swal-ev-ts mono">' + esc(String(port)) + '</span>'
+            + '<span class="swal-ev-msg">' + esc(hint) + (banner ? ' — <span class="text-[var(--text-faint)]">' + esc(banner.slice(0, 80)) + '</span>' : '') + '</span></div>';
+        }).join('');
+        target_el.innerHTML = '<div class="swal-events">' + rows + '</div>';
+      } catch (e) {
+        const el = document.getElementById(containerId);
+        if (el) el.innerHTML = '<div class="swal-err">' + esc(String(e)) + '</div>';
+      }
     },
     _openAiPaletteHistoryDetail(h) {
       // History row's `events` carries the JSON shape the backend

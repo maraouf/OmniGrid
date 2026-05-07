@@ -131,6 +131,33 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # still read /api/me/ui-prefs.ai_conversation directly).
     # Range 0..1 (boolean shape).
     "tuning_ai_conversation_export_enabled": ("AI_CONVERSATION_EXPORT_ENABLED", 1, 0, 1),
+    # Port-scan provider tunables. The four operator-tunable values
+    # (per-port timeout, probe concurrency, outer scan-budget,
+    # banner-read timeout) all flow through TUNABLES per the
+    # No-static-config rule. The CSV `port_scan_default_ports`
+    # stays as a plain `settings` row because TUNABLES is int-only;
+    # documented separately in env_example.md.
+    #
+    # Per-port TCP-connect timeout (seconds). Operator-tunable so
+    # noisy networks can raise it (5-10s on flaky links) and quiet
+    # LANs can lower it for snappier scans (1s). Range 1..30.
+    "tuning_port_scan_default_timeout_seconds": ("PORT_SCAN_DEFAULT_TIMEOUT_SECONDS", 2, 1, 30),
+    # Probe concurrency cap (parallel TCP-connect probes per scan).
+    # Higher = faster scan but louder log footprint on the target.
+    # Range 1..256.
+    "tuning_port_scan_default_concurrency": ("PORT_SCAN_DEFAULT_CONCURRENCY", 32, 1, 256),
+    # Outer wall-clock budget for one scan (seconds). Caps the
+    # `asyncio.wait_for` so a hung target can't pin the worker
+    # forever. Default 120s covers a worst-case 1024-port scan with
+    # timeout=2 + concurrency=32; raise for larger ranges (the new
+    # 11000-port range cap means an aggressive operator could need
+    # 10-15 minutes on a slow link). Range 30..1800.
+    "tuning_port_scan_max_seconds": ("PORT_SCAN_MAX_SECONDS", 120, 30, 1800),
+    # Banner-grab read timeout (seconds). When `banner_grab=true`,
+    # the scanner reads up to 256 bytes per open port — services
+    # that don't speak first (HTTP without a request) hit this
+    # timeout and get skipped with no banner. Range 1..30.
+    "tuning_port_scan_banner_read_seconds": ("PORT_SCAN_BANNER_READ_SECONDS", 2, 1, 30),
     # SSE heartbeat cadence (seconds). The /api/events stream
     # emits a `: keepalive\n\n` comment every N seconds so an idle NPM
     # / cloudflare proxy doesn't drop the connection on its own

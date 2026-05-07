@@ -127,8 +127,10 @@ def parse_port_csv(s: str) -> list[int]:
 
     Each port clamps to 1..65535. Invalid tokens silently drop. Empty
     input → empty list (caller falls back to ``DEFAULT_PORTS``).
-    Range upper bounds clamp to 1024 ports per range to avoid the
-    operator typing ``1-65535`` and producing a 30-minute scan.
+    Range upper bounds clamp to 11000 ports per range so a single
+    range can cover the typical service / app-port territory (1-1024
+    well-knowns + the 1024-10000 ephemeral / common-service band)
+    while still bounding the worst case.
     """
     if not s:
         return []
@@ -146,9 +148,10 @@ def parse_port_csv(s: str) -> list[int]:
                 continue
             if hi < lo:
                 lo, hi = hi, lo
-            # Cap each range at 1024 ports — operator typing
-            # `1-65535` shouldn't produce a 30-minute scan.
-            hi = min(hi, lo + 1024 - 1)
+            # Cap each range at 11000 ports — operator typing
+            # `1-65535` shouldn't produce a multi-hour scan, but
+            # `1-11000` covers well-knowns + common-app territory.
+            hi = min(hi, lo + 11000 - 1)
             for p in range(lo, hi + 1):
                 seen.add(p)
         else:
@@ -180,13 +183,17 @@ async def _probe_one_port(host: str, port: int, timeout_s: float,
         )
         out["open"] = True
         if banner_grab:
-            # Read up to 256 bytes with a tight 1.5s timeout — enough
-            # for an SSH banner / HTTP greeting / SMTP welcome line
-            # without holding the slot for slow services. Best-effort:
-            # services that don't speak first (HTTP without a request)
-            # time out and we move on with no banner.
+            # Read up to 256 bytes — enough for an SSH banner / HTTP
+            # greeting / SMTP welcome line without holding the slot
+            # for slow services. Timeout flows through TUNABLES
+            # (`tuning_port_scan_banner_read_seconds`, default 2s)
+            # so noisy networks can raise it without redeploy.
+            # Lazy-import to keep this module's import graph clean
+            # (port_scanner is imported by main.py before tuning).
+            from logic import tuning as _tuning
+            banner_timeout = float(_tuning.tuning_int("tuning_port_scan_banner_read_seconds"))
             try:
-                data = await asyncio.wait_for(reader.read(256), timeout=1.5)
+                data = await asyncio.wait_for(reader.read(256), timeout=banner_timeout)
                 if data:
                     text = data.decode("utf-8", errors="replace").strip()
                     # Strip control chars; cap at 200 chars so the JSON

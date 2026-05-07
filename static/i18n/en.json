@@ -489,7 +489,16 @@
     "clear_confirm_title": "Clear all history?",
     "clear_confirm_html": "<div>This will permanently delete all past update records.</div>",
     "clear_confirm_button": "Clear",
-    "cleared": "History cleared"
+    "cleared": "History cleared",
+    "port_scan": {
+      "target_label":         "Resolved target:",
+      "scan_id_label":        "Scan ID:",
+      "ports_scanned_label":  "Ports scanned:",
+      "ports_open_label":     "Ports open:",
+      "loading_ports":        "Loading open ports…",
+      "load_failed":          "Could not load open ports for this scan.",
+      "no_open":              "No open ports recorded for this scan."
+    }
   },
   "settings": {
     "title": "Settings",
@@ -1147,6 +1156,22 @@
         "tuning_ai_conversation_export_enabled": {
           "label": "Allow AI conversation export",
           "help": "Show the \"Export TXT\" and \"Export JSON\" buttons in the AI Assistant sidebar header. When enabled, you can download the current chat as a plain-text transcript or a structured JSON payload — useful for sharing reproducible interactions back with developers / vendors / yourself across machines. Disable to hide the affordance entirely (the conversation still persists in `users.ui_prefs.ai_conversation`; the toggle only governs the SPA-side export UI). Range 0..1. Default 1 (enabled)."
+        },
+        "tuning_port_scan_default_timeout_seconds": {
+          "label": "Per-port TCP-connect timeout (seconds)",
+          "help": "How long the scanner waits for one port's TCP handshake before giving up. Lower (1s) on a quiet LAN to finish faster; raise (5-10s) on flaky / WAN links so genuine listeners aren't marked closed. Per-host overrides on Admin → Hosts win. Range 1..30. Default 2."
+        },
+        "tuning_port_scan_default_concurrency": {
+          "label": "Probe concurrency",
+          "help": "Parallel TCP-connect probes per scan. Higher = faster scan but louder log footprint on the target. Lower for friendly scans of busy firewalls; higher for quick LAN sweeps. Per-host overrides on Admin → Hosts win. Range 1..256. Default 32."
+        },
+        "tuning_port_scan_max_seconds": {
+          "label": "Outer scan budget (seconds)",
+          "help": "Hard wall-clock cap on a single port-scan request. The scanner is wrapped in `asyncio.wait_for` so a hung target can't pin the worker forever. Default 120s covers a worst-case 1024-port scan with timeout=2 + concurrency=32. Raise for the larger ranges the 11000-port range cap allows (10-15 min on a slow link); lower if your reverse proxy has a tight `proxy_read_timeout`. Range 30..1800."
+        },
+        "tuning_port_scan_banner_read_seconds": {
+          "label": "Banner-grab read timeout (seconds)",
+          "help": "When `banner_grab=true` is set on a scan, the scanner reads up to 256 bytes per open port. Services that don't speak first (HTTP, which expects a request before responding) hit this timeout and get skipped with no banner. Lower for faster scans on services known to greet promptly (SSH / SMTP / IMAP); raise on slow links. Range 1..30. Default 2."
         },
         "tuning_sse_heartbeat_seconds": {
           "label": "SSE heartbeat cadence (seconds)",
@@ -2422,6 +2447,7 @@
       "scan_button_title": "Run an on-demand TCP-connect port scan against this host. Uses the host's configured port list (or the default top-100 list if unset).",
       "last_scanned": "Last scanned {when}",
       "no_scans_yet": "No scans yet — click \"Scan ports\" to run the first one.",
+      "zero_open": "Last scan completed but found 0 open ports. Check Admin → Logs for the [port_scanner] line — it shows the categorised reason (DNS unresolved / refused / timeout / network unreachable) so you can triage why nothing came back.",
       "detected_label": "Detected ({count})",
       "curated_only_label": "Curated but not listening ({count})",
       "curated_only_chip_title": "{name} is in this host's curated services but the most recent scan didn't see it open.",

@@ -2415,6 +2415,14 @@ class SettingsIn(BaseModel):
     # AI conversation export — gates the export-to-txt / export-to-json
     # buttons in the AI sidebar header. 0 = hide, 1 = show (default).
     tuning_ai_conversation_export_enabled: Optional[str] = None
+    # Port-scan tunables — admin-rendered in Admin → Port Scan, not
+    # the generic Config form. Per-port timeout / concurrency
+    # supersede the legacy plain-`settings` rows of the same name
+    # (those POST keys still accepted for back-compat).
+    tuning_port_scan_default_timeout_seconds: Optional[str] = None
+    tuning_port_scan_default_concurrency: Optional[str] = None
+    tuning_port_scan_max_seconds: Optional[str] = None
+    tuning_port_scan_banner_read_seconds: Optional[str] = None
     # / SSE heartbeat cadence + connection lifetime cap.
     tuning_sse_heartbeat_seconds: Optional[str] = None
     tuning_sse_max_lifetime_seconds: Optional[str] = None
@@ -2804,8 +2812,16 @@ async def api_get_settings(request: Request):
         "port_scan": {
             "enabled":           get_setting_bool("port_scan_enabled", False),
             "default_ports":     get_setting("port_scan_default_ports", "") or "",
-            "default_timeout":   int(get_setting("port_scan_default_timeout_seconds", "2") or "2"),
-            "default_concurrency": int(get_setting("port_scan_default_concurrency", "32") or "32"),
+            # Per-port timeout + concurrency now flow through TUNABLES
+            # (tuning_port_scan_default_timeout_seconds /
+            # tuning_port_scan_default_concurrency). The plain-settings
+            # `port_scan_default_timeout_seconds` /
+            # `port_scan_default_concurrency` rows from the legacy POST
+            # path migrate naturally — `tuning_int` resolves DB > env >
+            # default and the legacy rows continue to seed the DB
+            # value. Per the No-static-config rule.
+            "default_timeout":   tuning.tuning_int("tuning_port_scan_default_timeout_seconds"),
+            "default_concurrency": tuning.tuning_int("tuning_port_scan_default_concurrency"),
         },
         # SNMP. v3 secret keys follow the write-only ``_set``
         # flag contract; community, version, port, aliases round-trip
@@ -12275,11 +12291,33 @@ async def api_hosts_port_scan(
             detail=f"Port scan is disabled for host {hid}. "
                    f"Enable it in Admin → Hosts.",
         )
-    # Resolve the scan target — same precedence the ping endpoint
-    # uses so a host with an `ssh.fqdn` override scans against THAT
-    # name instead of the bare id.
+    # Resolve the scan target — port the FULL precedence chain the
+    # ping endpoint uses (5 fallbacks, not 3). Pre-fix port-scan
+    # only checked `ssh.fqdn` → `ssh.host` → `host_id`, which
+    # meant hosts without SSH configured but WITH a working `url`
+    # (e.g. `https://webserver.example.lan`) or per-host
+    # `ping.host` override scanned against their bare id and
+    # DNS-failed every probe — operator saw 0 open ports despite
+    # 80/443 being live. Now: per-host `ping.host` override →
+    # `ssh.fqdn` → `ssh.host` → URL hostname → bare host_id.
     ssh_cfg = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
-    target = (ssh_cfg.get("fqdn") or ssh_cfg.get("host") or hid).strip() or hid
+    ping_cfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
+    url_host = ""
+    url_raw = (h.get("url") or "").strip()
+    if url_raw:
+        try:
+            from urllib.parse import urlparse as _urlparse
+            url_host = (_urlparse(url_raw).hostname or "").strip()
+        except (ValueError, TypeError):
+            url_host = ""
+    target = (
+        (ping_cfg.get("host") or "").strip()
+        or (ssh_cfg.get("fqdn") or "").strip()
+        or (ssh_cfg.get("host") or "").strip()
+        or url_host
+        or hid
+    )
+    target = target.strip() or hid
     # Effective config: request body → per-host → global → built-in.
     body = body or PortScanIn()
     from logic import port_scanner as _ps
@@ -12294,26 +12332,28 @@ async def api_hosts_port_scan(
         if body.timeout_s is not None else
         ps_cfg.get("timeout_s")
         if ps_cfg.get("timeout_s") is not None else
-        int(get_setting("port_scan_default_timeout_seconds", "2") or "2")
+        tuning.tuning_int("tuning_port_scan_default_timeout_seconds")
     )
     concurrency = (
         body.concurrency
         if body.concurrency is not None else
         ps_cfg.get("concurrency")
         if ps_cfg.get("concurrency") is not None else
-        int(get_setting("port_scan_default_concurrency", "32") or "32")
+        tuning.tuning_int("tuning_port_scan_default_concurrency")
     )
     # Hard bound the scan duration to keep request handling sane.
-    # Even a worst-case 1024-port scan with timeout=2 + concurrency=32
-    # runs ≤ 64s; add a safety wait_for so a hung target can't pin
-    # the worker forever.
+    # Outer wall-clock budget flows through TUNABLES so the operator
+    # can raise it for large ranges (the 11000-port range cap can
+    # reach 10-15 minutes on a slow link) or lower it on tight
+    # ingress timeouts. Default 120s.
     scan_id = str(uuid.uuid4())
     started = time.time()
+    max_seconds = tuning.tuning_int("tuning_port_scan_max_seconds")
     print(
         f"[port_scan] start host_id={hid!r} target={target!r} "
         f"ports={len(ports_list)} timeout_s={timeout_s} "
         f"concurrency={concurrency} banner_grab={bool(body.banner_grab)} "
-        f"scan_id={scan_id}"
+        f"max_seconds={max_seconds} scan_id={scan_id}"
     )
     try:
         scan = await asyncio.wait_for(
@@ -12324,16 +12364,16 @@ async def api_hosts_port_scan(
                 concurrency=int(concurrency),
                 banner_grab=bool(body.banner_grab),
             ),
-            timeout=120.0,
+            timeout=float(max_seconds),
         )
     except asyncio.TimeoutError:
         print(
             f"[port_scan] failed host_id={hid!r} target={target!r} "
-            f"reason=timeout (>120s budget) scan_id={scan_id}"
+            f"reason=timeout (>{max_seconds}s budget) scan_id={scan_id}"
         )
         raise HTTPException(
             status_code=504,
-            detail=f"Port scan exceeded 120s budget for {hid}",
+            detail=f"Port scan exceeded {max_seconds}s budget for {hid}",
         )
     except Exception as e:  # noqa: BLE001
         print(
@@ -12508,6 +12548,44 @@ async def api_hosts_port_scan(
             "concurrency": int(concurrency),
             "banner_grab": bool(body.banner_grab),
         },
+    }
+
+
+@app.get("/api/history/port-scan/{scan_id}/ports")
+async def api_history_port_scan_ports(
+    scan_id: str,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Return the open ports recorded for a specific historical
+    scan_id. Powers the History-tab detail popup for `op_type='port_scan'`
+    rows so an operator clicking a past scan sees WHICH ports were
+    open, not just the summary counts.
+
+    Admin-only (the rest of the port-scan surface is admin-only too).
+    """
+    sid = (scan_id or "").strip()
+    if not sid:
+        raise HTTPException(400, "scan_id required")
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT port, service_hint, banner_excerpt, ts "
+                "FROM host_port_scans WHERE scan_id = ? ORDER BY port ASC",
+                (sid,),
+            ).fetchall()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"db read failed: {e}")
+    return {
+        "scan_id": sid,
+        "ports": [
+            {
+                "port":           int(r["port"]),
+                "service_hint":   r["service_hint"] or "",
+                "banner_excerpt": r["banner_excerpt"] or "",
+                "ts":             int(r["ts"] or 0),
+            }
+            for r in rows
+        ],
     }
 
 

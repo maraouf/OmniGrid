@@ -151,6 +151,16 @@ AI_SIDEBAR_WIDTH_PX=480
 # regardless — this only governs the SPA-side download UI.
 AI_CONVERSATION_EXPORT_ENABLED=1
 
+# Port-scan provider tunables. Per-port TCP-connect timeout +
+# parallel probe count + outer wall-clock budget + banner-grab read
+# timeout. The CSV `port_scan_default_ports` is a plain settings
+# row (not a TUNABLE — TUNABLES is integer-only) and is documented
+# in the in-app Admin → Port Scan form rather than here.
+PORT_SCAN_DEFAULT_TIMEOUT_SECONDS=2
+PORT_SCAN_DEFAULT_CONCURRENCY=32
+PORT_SCAN_MAX_SECONDS=120
+PORT_SCAN_BANNER_READ_SECONDS=2
+
 # Ping host-stats provider knobs. The first three control the
 # lifespan-managed sampler that writes ping_samples; the cool-down
 # throttles probes against an unreachable host.
@@ -395,6 +405,10 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `HOSTS_PARALLEL_FETCH`            | Runtime     | `6`                  | SPA fan-out concurrency cap on `/api/hosts/one/{id}`.                            |
 | `AI_SIDEBAR_WIDTH_PX`             | Runtime     | `480`                | AI Assistant sidebar drawer width in pixels (320..720). Mobile ignores.          |
 | `AI_CONVERSATION_EXPORT_ENABLED`  | Runtime     | `1`                  | Show / hide the AI conversation export buttons (TXT + JSON) in the sidebar.     |
+| `PORT_SCAN_DEFAULT_TIMEOUT_SECONDS` | Runtime   | `2`                  | Per-port TCP-connect timeout for the port-scan provider (1..30).                 |
+| `PORT_SCAN_DEFAULT_CONCURRENCY`   | Runtime     | `32`                 | Parallel probe cap per scan (1..256).                                            |
+| `PORT_SCAN_MAX_SECONDS`           | Runtime     | `120`                | Outer wall-clock budget for a single port-scan request (30..1800).               |
+| `PORT_SCAN_BANNER_READ_SECONDS`   | Runtime     | `2`                  | Banner-grab read timeout when `banner_grab=true` on a scan (1..30).              |
 | `PING_INTERVAL_SECONDS`           | Runtime     | `60`                 | Ping sampler tick cadence.                                                       |
 | `PING_CONCURRENCY`                | Runtime     | `16`                 | Ping sampler fan-out.                                                            |
 | `PING_PROBE_TIMEOUT_SECONDS`      | Runtime     | `2`                  | Per-probe timeout.                                                               |
