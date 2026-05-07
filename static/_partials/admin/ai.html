@@ -193,21 +193,15 @@
                 <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.help')"></p>
               </div>
-            </div>
-            <!-- AI sidebar width — operator-tunable drawer width.
-                 Lives under the AI tab (not the generic Process
-                 tunables form) because it's an AI-feature control;
-                 reads / writes the same `tuning_ai_sidebar_width_px`
-                 entry. Range and default come from `tuningEffective`
-                 so the bounds chips stay accurate without duplicating
-                 the (320..720, default 480) bounds in markup. -->
-            <div class="pt-3 mt-2 border-t border-[var(--border)]">
-              <div class="flex items-center gap-2 mb-2">
-                <svg width="13" height="13" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-message-circle"/></svg>
-                <h3 class="font-semibold text-[12.5px]"
-                    x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.label')"></h3>
-              </div>
-              <div>
+              <!-- AI sidebar drawer width — operator-tunable so the
+                   same drawer adapts cleanly across viewport sizes.
+                   Sits in the AI tab (not the generic Process tunables
+                   form) because it's an AI-feature UI control. Same
+                   shape as the retry first-attempt-max field above so
+                   the visual rhythm matches. -->
+              <div class="mt-3">
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1"
+                       x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.label')"></label>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
                          x-model="tuningForm['tuning_ai_sidebar_width_px']"

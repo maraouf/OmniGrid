@@ -624,11 +624,6 @@
                   :class="hasHostStatsSource('ping') ? 'pill-ok' : 'pill-muted'"
                   x-text="hasHostStatsSource('ping') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
           </div>
-          <div class="flex items-center gap-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-radio"/></svg>
-            <h4 class="font-semibold text-[12.5px]"
-                x-text="t('settings.host_stats.ping.section_title')"></h4>
-          </div>
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
              x-text="t('settings.host_stats.ping.section_desc')"></p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -999,11 +994,6 @@
             <span class="chip"
                   :class="hasHostStatsSource('port_scan') ? 'pill-ok' : 'pill-muted'"
                   x-text="hasHostStatsSource('port_scan') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
-          </div>
-          <div class="flex items-center gap-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
-            <h4 class="font-semibold text-[12.5px]"
-                x-text="t('settings.host_stats.port_scan.section_title')"></h4>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
              x-text="t('settings.host_stats.port_scan.section_desc')"></p>

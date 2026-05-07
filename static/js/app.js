@@ -8311,6 +8311,23 @@ function app() {
         });
         if (!r.ok) throw new Error(await r.text());
         await this.loadTuning();
+        // Refresh `me.client_config` from /api/me so any SPA bindings
+        // that read tuning values via the client_config channel
+        // (`ai_sidebar_width_px`, `hosts_parallel_fetch`, `ops_poll_ms`,
+        // etc.) update immediately instead of waiting for the operator
+        // to reload the page. The PATCH succeeded against the DB; the
+        // next /api/me round-trip carries the new value into the
+        // reactive me state, which Alpine then propagates to every
+        // binding that references `me.client_config.<key>`.
+        try {
+          const rm = await fetch('/api/me');
+          if (rm.ok) {
+            const me = await rm.json();
+            if (me && me.client_config) {
+              this.me = me;
+            }
+          }
+        } catch (_) { /* live-apply best-effort; reload still works */ }
         this.showToast(this.t('admin.config.saved_toast'));
       } catch (e) {
         this.showToast(this.t('admin.config.save_failed', { error: e.message }), 'error');
