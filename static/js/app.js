@@ -13487,11 +13487,34 @@ function app() {
       };
       const hostsCtx = (this.hosts || []).slice(0, 30).map(fmtHost).filter(h => h.id);
       const itemsCtx = (this.items || []).slice(0, 30).map(fmtItem).filter(i => i.name);
-      return {
+      // Topbar weather widget — when the operator has it enabled and
+      // the proxy fetched a payload, include the compact summary so
+      // the AI can answer "what's the weather like?" without refusing
+      // ("we have weather service in the app" — operator-flagged).
+      // Skip cleanly when disabled / not yet loaded so the prompt
+      // doesn't carry stale or empty payloads.
+      let weatherCtx = null;
+      const w = this.weather;
+      if (w && (w.temperature_2m !== undefined || w.weathercode !== undefined || w.label)) {
+        weatherCtx = {
+          label:        w.label || this.headerWeatherLabel || '',
+          temperature:  Number.isFinite(+w.temperature_2m) ? Math.round(+w.temperature_2m * 10) / 10 : null,
+          unit:         w.temperature_unit || '°C',
+          feels_like:   Number.isFinite(+w.apparent_temperature) ? Math.round(+w.apparent_temperature * 10) / 10 : null,
+          humidity:     Number.isFinite(+w.relative_humidity_2m) ? Math.round(+w.relative_humidity_2m) : null,
+          wind_kmh:     Number.isFinite(+w.wind_speed_10m) ? Math.round(+w.wind_speed_10m) : null,
+          weathercode:  Number.isFinite(+w.weathercode) ? +w.weathercode : null,
+          description:  (typeof this.weatherDescription === 'function') ? this.weatherDescription(w.weathercode) : '',
+          updated_at:   w.timestamp || w.time || null,
+        };
+      }
+      const ctx = {
         view:  this.view || '',
         hosts: hostsCtx,
         items: itemsCtx,
       };
+      if (weatherCtx) ctx.weather = weatherCtx;
+      return ctx;
     },
     // Resolve a snake_case action ID emitted by the AI palette
     // backend (e.g. `mark_all_notifications_read`) to a descriptor
@@ -21870,11 +21893,15 @@ function app() {
     // → "0%" (defensive — shouldn't happen but keeps the label
     // shape consistent).
     fmtPercentLabel(v) {
+      // 1 decimal everywhere so the outside host card and the drawer
+      // chart display IDENTICAL precision (operator-flagged "82%" vs
+      // "82.0% / 82.2%" mismatch — same data, two formats). Keep the
+      // "<1%" sentinel for genuinely-tiny values so a 0.016% mount
+      // doesn't read as "0.0%".
       const n = +v;
       if (!Number.isFinite(n) || n <= 0) return '0%';
       if (n < 1) return '<1%';
-      if (n < 10) return n.toFixed(1) + '%';
-      return Math.round(n) + '%';
+      return n.toFixed(1) + '%';
     },
     // -------------------- Per-host Health Score --------------------
     // Synthesises CPU / Memory / Disk / Provider / Pending-Updates

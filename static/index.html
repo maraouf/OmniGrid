@@ -2212,10 +2212,10 @@
               <div class="host-mobile-card-metric" x-show="hostHasMemMetric(h)">
                 <span class="name" x-text="t('columns.memory')"></span>
                 <span class="value"
-                      x-text="Math.round(h.mem_percent || memPercentOf(h)) + '%'"></span>
+                      x-text="((h.mem_percent !== undefined && h.mem_percent !== null) ? Number(h.mem_percent) : memPercentOf(h)).toFixed(1) + '%'"></span>
                 <div class="stat-bar" x-bind="statBarBind(Math.round(h.mem_percent || memPercentOf(h)), 'columns.memory')"
                      :class="[barLevel(h.mem_percent || memPercentOf(h)), (isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? 'stale' : '']"
-                     :style="'--w: ' + Math.round(h.mem_percent || memPercentOf(h)) + '%'"
+                     :style="'--w: ' + ((h.mem_percent !== undefined && h.mem_percent !== null) ? Number(h.mem_percent) : memPercentOf(h)).toFixed(1) + '%'"
                      :title="(isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? staleAge(h) : ''">
                   <div class="fill"></div>
                 </div>
@@ -2572,8 +2572,8 @@
                   <div>
                     <div class="stat-bar" x-bind="statBarBind(Math.round(h.mem_percent || memPercentOf(h)), 'columns.memory')"
                          :class="[barLevel(h.mem_percent || memPercentOf(h)), (isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? 'stale' : '']"
-                         :style="'--w: ' + Math.round(h.mem_percent || memPercentOf(h)) + '%'"
-                         :title="t('columns.memory') + ': ' + Math.round(h.mem_percent || memPercentOf(h)) + '%' + (h.mem_total ? ' (' + fmtBytes(h.mem_used) + ' / ' + fmtBytes(h.mem_total) + ')' : '') + ((isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? ' — ' + staleAge(h) : '')">
+                         :style="'--w: ' + ((h.mem_percent !== undefined && h.mem_percent !== null) ? Number(h.mem_percent) : memPercentOf(h)).toFixed(1) + '%'"
+                         :title="t('columns.memory') + ': ' + ((h.mem_percent !== undefined && h.mem_percent !== null) ? Number(h.mem_percent) : memPercentOf(h)).toFixed(1) + '%' + (h.mem_total ? ' (' + fmtBytes(h.mem_used) + ' / ' + fmtBytes(h.mem_total) + ')' : '') + ((isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? ' — ' + staleAge(h) : '')">
                       <div class="fill"></div>
                     </div>
                     <svg x-show="hostHasInlineSpark(h, 'memory')" class="spark"
@@ -2582,7 +2582,7 @@
                       <path fill="none" stroke="currentColor" stroke-width="1" :d="hostInlineSparkline(h, 'memory')"/>
                     </svg>
                     <div class="text-[10.5px] mono mt-1">
-                      <span x-text="Math.round(h.mem_percent || memPercentOf(h)) + '%'"></span>
+                      <span x-text="((h.mem_percent !== undefined && h.mem_percent !== null) ? Number(h.mem_percent) : memPercentOf(h)).toFixed(1) + '%'"></span>
                       <span class="text-[var(--text-faint)]" x-show="h.mem_total"
                             x-text="' (' + fmtBytes(h.mem_used) + '/' + fmtBytes(h.mem_total) + ')'"></span>
                     </div>
