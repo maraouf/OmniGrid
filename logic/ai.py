@@ -1186,6 +1186,30 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 "update_available",
                 items[:30],
             ))
+        weather = ctx.get("weather") if isinstance(ctx.get("weather"), dict) else None
+        if weather:
+            # Compact one-line weather summary — OmniGrid's topbar
+            # weather widget (Open-Meteo proxy) is a real product
+            # feature; the AI is allowed to answer weather questions
+            # using THIS payload when it's present. When this block is
+            # ABSENT it means the operator hasn't enabled the topbar
+            # widget — in that case the AI should say "weather widget
+            # is disabled — enable it via Settings → Profile" rather
+            # than refusing as off-topic.
+            bits = []
+            if weather.get("label"):
+                bits.append(str(weather["label"]))
+            if weather.get("temperature") is not None:
+                bits.append(f"{weather['temperature']}{weather.get('unit') or '°C'}")
+            if weather.get("description"):
+                bits.append(str(weather["description"]))
+            if weather.get("feels_like") is not None:
+                bits.append(f"feels like {weather['feels_like']}{weather.get('unit') or '°C'}")
+            if weather.get("humidity") is not None:
+                bits.append(f"{weather['humidity']}% humidity")
+            if weather.get("wind_kmh") is not None:
+                bits.append(f"{weather['wind_kmh']} km/h wind")
+            parts.append("Current weather (from OmniGrid topbar widget): " + " · ".join(bits))
     return "\n".join(p for p in parts if p)
 
 
