@@ -1499,6 +1499,18 @@ function app() {
                 : conv;
               this.aiConversation = filtered;
               this._aiConversationClearedAt = cutoff;
+              // Re-fetch chart data for any restored turn that had
+              // `host_ids` — the shells render via x-html but stay in
+              // "Loading…" state until the populator runs.
+              this.$nextTick(() => {
+                for (const t of filtered) {
+                  if (t && Array.isArray(t.host_ids) && t.host_ids.length > 0 && t.ts) {
+                    for (const hid of t.host_ids) {
+                      this._populateAiSidebarHostChart(hid, t.ts);
+                    }
+                  }
+                }
+              });
             }
           } catch (_) {}
           // Hydrate the last-Test-success cache from the DB-backed
@@ -13155,6 +13167,12 @@ function app() {
         const answer = (j.text || '').trim() || (this.t('command_palette.ai.empty_response') || '(empty response)');
         const actionId = (j.action || '').toString().trim();
         const actionDesc = actionId ? this._actionDescriptorById(actionId) : null;
+        // `j.hosts` from the HOSTS protocol — when the AI's answer
+        // references specific hosts by id, the SPA renders inline
+        // disk-projection charts inside the assistant bubble.
+        // Validated against the curated host id set server-side, so
+        // we trust the array as-is here.
+        const hostIds = Array.isArray(j.hosts) ? j.hosts.slice(0, 8) : [];
         const turn = {
           role:             'assistant',
           text:             answer,
@@ -13166,9 +13184,20 @@ function app() {
           action_id:        actionId || null,
           action_label:     actionDesc ? (actionDesc.label || actionId) : null,
           action_ran:       false,
+          host_ids:         hostIds,
           ts:               Date.now(),
         };
         this.aiConversation.push(turn);
+        // Fire chart population AFTER the bubble renders. Each shell
+        // is scoped by `data-turn-ts` so multi-turn chats don't fight
+        // for the same DOM slot.
+        if (hostIds.length > 0) {
+          this.$nextTick(() => {
+            for (const hid of hostIds) {
+              this._populateAiSidebarHostChart(hid, turn.ts);
+            }
+          });
+        }
         // Auto-run the proposed action. Non-destructive actions fire
         // immediately. Destructive actions (sign_out, etc.) route
         // through `_runCommandPaletteAction` with `surface: 'sidebar'`
@@ -13180,9 +13209,19 @@ function app() {
         // data popup since it lists every container by name — that's
         // legitimate confirmation data, not a disruption.
         if (actionDesc) {
-          if (actionDesc.destructive && !actionDesc.defer_confirm_to_run) {
-            // Pre-mark as not-yet-ran; the inline-confirm flow flips
-            // `action_ran` true on Yes click.
+          // ALL destructive actions in the sidebar route through the
+          // inline-confirm chip — including those marked
+          // `defer_confirm_to_run` (cleanup_stopped /
+          // update_all_updatable). Operator-flagged: AI said
+          // "Opening the confirmation to remove all stopped, failed,
+          // and orphaned containers" but no chip appeared because the
+          // pre-mark was setting `action_ran: true` for defer-confirm
+          // actions (their inner SweetAlert was supposed to show but
+          // is now skipped via skipConfirm in confirmInlineAction).
+          // Result: turn rendered with the green "Ran:" chip while
+          // pending_confirm was true → confirm chip rendered above
+          // it but the visual hierarchy made it easy to miss.
+          if (actionDesc.destructive) {
             turn.action_ran = false;
           } else {
             turn.action_ran = true;
@@ -13576,6 +13615,48 @@ function app() {
       const shells = hostIds.map(hid => {
         const safeAttr = String(hid).replace(/[^A-Za-z0-9_.-]/g, '_');
         return ('<div class="ai-resp-chart" data-disk-host="' + safeAttr + '">'
+          + '<div class="ai-resp-chart-header">'
+          + '<span class="ai-resp-chart-title">' + this._logEscape(hid) + '</span>'
+          + '<span class="ai-resp-chart-status">'
+          + this._logEscape(this.t('command_palette.ai.disk_chart.loading') || 'Loading projection…')
+          + '</span>'
+          + '</div>'
+          + '<div class="ai-resp-chart-body">'
+          + '<span class="spin" aria-hidden="true"></span>'
+          + '</div>'
+          + '</div>');
+      }).join('');
+      return '<div class="ai-resp-charts">' + shells + '</div>';
+    },
+    // AI sidebar version — same fetch + render pipeline as
+    // `_populateAiHostChart` but scoped by turn ts so multi-turn
+    // chats don't collide on the same `[data-disk-host=X]` element.
+    async _populateAiSidebarHostChart(hostId, turnTs) {
+      const safeAttr = String(hostId).replace(/[^A-Za-z0-9_.-]/g, '_');
+      const sel = '[data-disk-host="' + safeAttr + '"][data-turn-ts="' + turnTs + '"]';
+      const shell = document.querySelector(sel);
+      if (!shell) return;
+      try {
+        const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/disk-projection');
+        if (!r.ok) {
+          shell.innerHTML = this._renderDiskProjectionInner(hostId, null,
+            this.t('command_palette.ai.disk_chart.error') || 'Could not load projection');
+          return;
+        }
+        const data = await r.json();
+        shell.innerHTML = this._renderDiskProjectionInner(hostId, data, null);
+      } catch (e) {
+        shell.innerHTML = this._renderDiskProjectionInner(hostId, null, e.message || String(e));
+      }
+    },
+    // Render shells for the sidebar — same look as the modal palette
+    // shells but tagged with `data-turn-ts` so the populator can
+    // disambiguate multi-turn charts referencing the same host.
+    _renderAiSidebarHostChartShells(hostIds, turnTs) {
+      if (!Array.isArray(hostIds) || hostIds.length === 0) return '';
+      const shells = hostIds.map(hid => {
+        const safeAttr = String(hid).replace(/[^A-Za-z0-9_.-]/g, '_');
+        return ('<div class="ai-resp-chart" data-disk-host="' + safeAttr + '" data-turn-ts="' + turnTs + '">'
           + '<div class="ai-resp-chart-header">'
           + '<span class="ai-resp-chart-title">' + this._logEscape(hid) + '</span>'
           + '<span class="ai-resp-chart-status">'
