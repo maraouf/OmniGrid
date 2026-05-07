@@ -2975,6 +2975,7 @@
       <!-- INCLUDE: admin/assets.html -->
       <!-- INCLUDE: admin/ai.html -->
       <!-- INCLUDE: admin/ssh.html -->
+      <!-- INCLUDE: admin/port_scan.html -->
       <!-- INCLUDE: admin/schedules.html -->
       <!-- INCLUDE: admin/backups.html -->
       <!-- INCLUDE: admin/logs.html -->
@@ -7890,34 +7891,60 @@
         <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-message-circle'"/>
       </svg>
       <h3 x-text="t('ai_sidebar.title')"></h3>
+      <!-- Mode toggle — Approval (default) vs Autonomous. Approval
+           surfaces an inline-confirm chip on destructive actions;
+           Autonomous fires every action directly. Persisted to
+           ui_prefs.ai_sidebar_mode via setAiSidebarMode(). Compact
+           dropdown so it doesn't dominate the header — full
+           description lives in the :title tooltip. -->
+      <select class="ai-sidebar-mode-select fs-3xs mono"
+              :value="aiSidebarMode"
+              @change="setAiSidebarMode($event.target.value)"
+              :title="aiSidebarMode === 'autonomous' ? t('ai_sidebar.mode_autonomous_title') : t('ai_sidebar.mode_approval_title')"
+              :aria-label="t('ai_sidebar.mode_label')">
+        <option value="approval"   x-text="t('ai_sidebar.mode_approval')"></option>
+        <option value="autonomous" x-text="t('ai_sidebar.mode_autonomous')"></option>
+      </select>
+      <!-- Export buttons — icon-only to keep the sidebar header
+           compact. Tooltip + aria-label both carry the localised
+           description so screen readers + mouse-hover users still
+           get the action name. file-text icon for TXT, braces icon
+           for JSON (`{}` reads as JSON universally). -->
       <button type="button"
               @click="exportAiConversation('txt')"
               x-show="aiConversation.length > 0 && (me && me.client_config && me.client_config.ai_conversation_export_enabled !== false)"
               class="btn btn-ghost fs-xs"
               :title="t('ai_sidebar.export_txt_title')"
-              :aria-label="t('ai_sidebar.export_txt_title')">
-        <svg width="12" height="12" aria-hidden="true">
+              :aria-label="t('ai_sidebar.export_txt')">
+        <svg width="14" height="14" aria-hidden="true">
           <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-file-text'"/>
         </svg>
-        <span x-text="t('ai_sidebar.export_txt')"></span>
       </button>
       <button type="button"
               @click="exportAiConversation('json')"
               x-show="aiConversation.length > 0 && (me && me.client_config && me.client_config.ai_conversation_export_enabled !== false)"
               class="btn btn-ghost fs-xs"
               :title="t('ai_sidebar.export_json_title')"
-              :aria-label="t('ai_sidebar.export_json_title')">
-        <svg width="12" height="12" aria-hidden="true">
-          <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-file-text'"/>
+              :aria-label="t('ai_sidebar.export_json')">
+        <svg width="14" height="14" aria-hidden="true">
+          <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-braces'"/>
         </svg>
-        <span x-text="t('ai_sidebar.export_json')"></span>
       </button>
+      <!-- Clear keeps both icon AND text per user preference: it's a
+           destructive-ish action (screen-clears the visible chat),
+           and the explicit "Clear" word makes the affordance
+           unmistakable for mouse + keyboard users alike. -->
       <button type="button"
               @click="clearAiConversation()"
               x-show="aiConversation.length > 0"
-              class="btn btn-ghost fs-xs"
+              class="btn btn-ghost fs-xs flex items-center gap-1"
               :title="t('ai_sidebar.clear_title')"
-              x-text="t('ai_sidebar.clear')"></button>
+              :aria-label="t('ai_sidebar.clear')">
+        <svg width="12" height="12" aria-hidden="true">
+          <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-trash'"/>
+        </svg>
+        <span x-text="t('ai_sidebar.clear')"></span>
+      </button>
       <button type="button"
               @click="closeAiSidebar()"
               class="btn btn-ghost fs-xs"
@@ -8058,6 +8085,37 @@
              class="px-3 py-2 fs-sm text-[var(--text-faint)] italic"
              x-text="t('ai_sidebar.slash_no_match')"></div>
       </div>
+    </div>
+    <!-- Proactive incident chip — surfaces above the input when the
+         sidebar is open AND a relevant SSE event lands (host failure
+         state change, warning-level notification). One chip at a
+         time (newest wins) to avoid spam. Click triggers the
+         pre-built query; X dismisses without firing. Closes the
+         loop "incident → drawer → open AI" into one click. -->
+    <div x-show="aiSidebarIncidentChip"
+         class="ai-sidebar-incident-chip"
+         role="alert"
+         aria-live="polite"
+         aria-atomic="true">
+      <button type="button"
+              class="ai-incident-chip-action"
+              @click="runAiIncidentChip()"
+              :title="t('ai_sidebar.incident_chip_run_title')">
+        <svg width="13" height="13" aria-hidden="true">
+          <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-zap'"/>
+        </svg>
+        <span class="ai-incident-chip-text"
+              x-text="(aiSidebarIncidentChip || {}).title || ''"></span>
+      </button>
+      <button type="button"
+              class="ai-incident-chip-dismiss"
+              @click="dismissAiIncidentChip()"
+              :title="t('actions.close')"
+              :aria-label="t('actions.close')">
+        <svg width="11" height="11" aria-hidden="true">
+          <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-x'"/>
+        </svg>
+      </button>
     </div>
     <div class="ai-sidebar-input-row">
       <textarea id="og-ai-sidebar-input"

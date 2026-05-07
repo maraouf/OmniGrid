@@ -166,7 +166,11 @@ async def _probe_one_port(host: str, port: int, timeout_s: float,
     """Probe one port. Returns a dict shape suitable for inclusion in
     the scan result's ``ports`` array. ``open: True`` means the TCP
     handshake completed; ``open: False`` covers timeout / refused /
-    network unreachable.
+    network unreachable. The closed-reason is recorded on the result
+    so :func:`scan_host` can summarise failure modes in its log line
+    (a fleet-wide "0 open ports" outcome usually means DNS failure
+    or network unreachability, not actually-closed ports — operators
+    need to be able to tell the difference).
     """
     out: dict = {"port": int(port), "open": False}
     writer = None
@@ -193,11 +197,14 @@ async def _probe_one_port(host: str, port: int, timeout_s: float,
             except (asyncio.TimeoutError, OSError):
                 pass
     except asyncio.TimeoutError:
-        pass
+        out["_closed_reason"] = "timeout"
     except ConnectionRefusedError:
-        pass
-    except (socket.gaierror, OSError):
-        pass
+        out["_closed_reason"] = "refused"
+    except socket.gaierror as e:
+        out["_closed_reason"] = f"dns: {e}"
+    except OSError as e:
+        # ENETUNREACH / EHOSTUNREACH / EADDRNOTAVAIL etc. surface here.
+        out["_closed_reason"] = f"oserror: {type(e).__name__}: {e}"
     finally:
         if writer is not None:
             try:
@@ -228,6 +235,7 @@ async def scan_host(
     homelab box on a quiet LAN, 32-64 finishes faster.
     """
     if not target:
+        print("[port_scanner] no target — bailing")
         return {
             "host": target or "",
             "scanned_at": int(time.time()),
@@ -256,6 +264,42 @@ async def scan_host(
     duration_ms = int((time.monotonic() - t0) * 1000.0)
     # Sort by port for deterministic output.
     results.sort(key=lambda r: r.get("port", 0))
+    # Categorise the closed-reason distribution so a "0 open ports"
+    # outcome explains itself in the log. Most-common failure mode
+    # is the operator's tip-off:
+    #   - all `dns:` → target hostname doesn't resolve from inside
+    #     the OmniGrid container (try setting an alias / FQDN).
+    #   - all `oserror: OSError: [Errno 113] EHOSTUNREACH` → no
+    #     network route from the container to the target.
+    #   - all `refused` → target IS reachable but nothing listening
+    #     on the scanned ports (likely real, but check the firewall).
+    #   - mostly `timeout` → firewall silently dropping packets, OR
+    #     timeout_s is too short for the WAN link.
+    open_count   = sum(1 for r in results if r.get("open"))
+    reason_counts: dict[str, int] = {}
+    for r in results:
+        if r.get("open"):
+            continue
+        reason = r.get("_closed_reason") or "closed"
+        # Collapse OSError noise to a coarse bucket so the log line
+        # stays scannable when 100 ports all reported the same
+        # `oserror: OSError: [Errno 113] EHOSTUNREACH`.
+        if reason.startswith("oserror:"):
+            reason = reason.split(":", 2)[1].strip()  # → "OSError" or similar
+            reason = "oserror_" + reason
+        elif reason.startswith("dns:"):
+            reason = "dns"
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    reason_summary = ", ".join(f"{k}={v}" for k, v in sorted(reason_counts.items()))
+    print(
+        f"[port_scanner] target={target!r} ports_scanned={len(results)} "
+        f"open={open_count} duration_ms={duration_ms} "
+        f"reasons={reason_summary or '-'}"
+    )
+    # Strip internal-only `_closed_reason` field from the public
+    # result — it's diagnostic-only, not part of the API contract.
+    for r in results:
+        r.pop("_closed_reason", None)
     return {
         "host":        target,
         "scanned_at":  int(time.time()),

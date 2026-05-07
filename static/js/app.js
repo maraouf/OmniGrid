@@ -729,6 +729,8 @@ function app() {
     aiSidebarFeedbackBusy: {},   // turn-index → bool while POST /api/ai/feedback in flight
     aiSidebarSlashIdx: 0,        // selected index in the slash-command picker
     aiRecentSlashActions: [],    // FIFO of last 5 slash-action ids; persisted to ui_prefs.ai_recent_slash_actions. Only populated for ACTION kinds (not navigation), so "Open host:web01" can't pollute "Pause sampling" recents.
+    aiSidebarIncidentChip: null, // {kind, host_id, title, query, ts} — proactive chip rendered above the input when an SSE host-failure / warning-notification event lands AND the sidebar is open. Newest wins (one at a time); click runs the prepared query, X dismisses. Cleared after the query fires so the chip doesn't linger after the operator engaged with it.
+    aiSidebarMode: 'approval', // 'approval' (default — destructive actions render an inline-confirm chip) OR 'autonomous' (AI fires every action — including destructive — without prompting). Persisted to ui_prefs.ai_sidebar_mode so the choice follows the operator across browsers / machines. Read by `_runCommandPaletteAction`'s sidebar branch — if mode === 'autonomous', the destructive-confirm path is bypassed entirely and the action fires immediately.
     // Bulk palette mode — entered via verb-prefix queries like
     // `pause: web*` or `resume: provider:beszel`. When active the
     // palette renders a chip strip of matched hosts + a single "Run
@@ -1284,6 +1286,7 @@ function app() {
       { id: 'host_groups',    label: 'Host Groups',     icon: 'layers' },
       { id: 'hosts',          label: 'Hosts',           icon: 'server' },
       { id: 'ssh',            label: 'SSH',             icon: 'terminal' },
+      { id: 'port_scan',      label: 'Port Scan',       icon: 'search' },
       { id: 'assets',         label: 'Asset inventory', icon: 'package' },
       { id: 'ai',             label: 'AI integration',  icon: 'zap' },
       { id: 'schedules',      label: 'Schedules',       icon: 'calendar' },
@@ -1554,6 +1557,19 @@ function app() {
             const recents = m && m.ui_prefs && m.ui_prefs.ai_recent_slash_actions;
             if (Array.isArray(recents)) {
               this.aiRecentSlashActions = recents.slice(0, 5).filter(x => typeof x === 'string' && x);
+            }
+          } catch (_) {}
+          // AI sidebar mode (approval / autonomous). Persisted to
+          // ui_prefs.ai_sidebar_mode so the operator's pick follows
+          // them across browsers. Default 'approval' — destructive
+          // actions surface the inline-confirm chip. 'autonomous'
+          // bypasses the confirm path entirely; only choose when
+          // the operator wants the AI to act without intervention
+          // (e.g. agentic background workflows).
+          try {
+            const mode = m && m.ui_prefs && m.ui_prefs.ai_sidebar_mode;
+            if (mode === 'approval' || mode === 'autonomous') {
+              this.aiSidebarMode = mode;
             }
           } catch (_) {}
           // AI assistant conversation history — restore from
@@ -1854,6 +1870,19 @@ function app() {
             this._pollWrap(this.loadHosts());
           }, this.statsInterval * 1000);
         }
+      } else {
+        // Pre-fetch hosts ONCE on init even when the operator restored
+        // to a non-Hosts view, so the AI palette / sidebar context
+        // (`_buildAiPaletteContext`) always has host records to ground
+        // answers against. Without this, the AI sees an empty hosts
+        // array on Stacks / Services / Nodes / Settings views and
+        // refuses with "host monitoring data is currently unavailable"
+        // — frustrating because the data exists, the SPA just hasn't
+        // loaded it yet. Single fire-and-forget call (no polling
+        // timer, no SSE wiring) — keeps the data fresh enough for
+        // grounded answers without competing with the view-specific
+        // 15s timer that takes over once the operator switches views.
+        this.loadHosts();
       }
       // `updateCacheLabel` was retired (the "fresh / cached
       // Xs ago" topbar text was removed as confusing alongside the
@@ -3146,7 +3175,7 @@ function app() {
     // implement ←/→ keyboard nav per the WAI-ARIA tablist authoring
     // pattern. New tabs added here automatically participate in
     // keyboard navigation.
-    HOST_STATS_TAB_ORDER: ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp', 'port_scan'],
+    HOST_STATS_TAB_ORDER: ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp'],
     // Cycle tabs by ±1, wrapping at both ends. Called from each tab
     // button's @keydown.left / @keydown.right handler. After the tab
     // switches we focus the newly-active button so the focus ring
@@ -9204,7 +9233,8 @@ function app() {
         if (this._isSelfEvent(e)) return;
         try {
           const data = JSON.parse(e.data || '{}');
-          const id = (data.payload && data.payload.host_id) || '';
+          const payload = data.payload || {};
+          const id = payload.host_id || '';
           console.log('[live] event=host:failure_state_changed id=' + id);
           if (!id) return;
           this._hostObserverPending = this._hostObserverPending || new Set();
@@ -9213,6 +9243,19 @@ function app() {
             this._scheduleHostObserverFlush();
           } else if (typeof this._runHostRefreshQueue === 'function') {
             this._runHostRefreshQueue([id]).catch(() => {});
+          }
+          // Proactive incident chip — only surface when the operator
+          // has the AI sidebar open AND the new state is actionable
+          // (paused / failing). Recovered states ("up") are good news
+          // and don't warrant a "investigate?" prompt.
+          const newState = payload.state || payload.new_state || '';
+          if (this.aiSidebarOpen && (newState === 'paused' || newState === 'failing')) {
+            this._setAiIncidentChip({
+              kind:    'host_failure',
+              host_id: id,
+              title:   id + ' entered ' + newState + ' state — investigate?',
+              query:   'Why is host ' + id + ' in ' + newState + ' state? Walk me through the likely cause and what to check.',
+            });
           }
         } catch (_) {}
       });
@@ -9417,6 +9460,28 @@ function app() {
           console.log('[live] event=notification:created id=' + (p.id || ''));
           if (typeof this._handleNotificationCreated === 'function') {
             this._handleNotificationCreated(p);
+          }
+          // Proactive incident chip — fire on warning / error / critical
+          // severity notifications when the AI sidebar is open. Info
+          // notifications (e.g. successful schedule fires) don't
+          // warrant an "investigate?" chip — too much noise.
+          const sev = String(p.severity || '').toLowerCase();
+          if (this.aiSidebarOpen && (sev === 'warning' || sev === 'error' || sev === 'critical')) {
+            const hostId = (p.target_kind === 'host' && p.target_id) ? String(p.target_id) : '';
+            const title = p.title || p.event || 'Notification';
+            const titleLine = hostId
+              ? (title + ' (' + hostId + ') — investigate?')
+              : (title + ' — investigate?');
+            const query = hostId
+              ? ('A "' + title + '" notification just fired for host ' + hostId + '. What happened, what should I check, and what action would help?')
+              : ('A "' + title + '" notification just fired. What happened and what should I check?');
+            this._setAiIncidentChip({
+              kind:     'notification',
+              host_id:  hostId,
+              title:    titleLine,
+              query:    query,
+              severity: sev,
+            });
           }
         } catch (_) {}
       });
@@ -13119,42 +13184,56 @@ function app() {
       // don't double-popup.
       if (action.destructive && !skipConfirm) {
         if (fromSidebar) {
-          // AI sidebar surface — replace EVERY destructive popup with
-          // an inline confirmation chip in the chat, including actions
-          // marked `defer_confirm_to_run` (cleanup_stopped /
-          // update_all_updatable). The inner SweetAlert their `run()`
-          // raises will still appear after Yes-click on the inline
-          // chip — that's a SECOND, data-rich popup we treat as
-          // legitimate confirmation data (lists every affected
-          // container by name); the bypass-the-generic-popup goal
-          // is satisfied here. Operator clicks Yes / Cancel right
-          // inside the conversation; no GENERIC popup, no experience
-          // disruption. The chip lives on the SAME assistant turn
-          // `_appendActionChatTurn` just pushed.
-          const idx = this.aiConversation.length - 1;
-          const turn = this.aiConversation[idx];
-          if (turn) {
-            turn.pending_confirm = true;
-            turn.pending_action  = action;
-            this.persistAiConversation();
-            this._scrollAiSidebarToBottom();
+          // AI sidebar surface — by default replace destructive
+          // popups with an inline-confirm chip. Operator-tunable mode:
+          //   approval (default): inline-confirm chip; operator
+          //     clicks Yes / Cancel before the action fires.
+          //   autonomous: bypass the chip entirely — action fires
+          //     immediately. Operator-flagged: agentic workflows
+          //     where the AI acts without intervention.
+          if (this.aiSidebarMode === 'autonomous') {
+            // Fall through to the run() block below — no inline chip,
+            // no SweetAlert, no confirmation. The most-recent
+            // assistant turn's `action_ran` flips to true after run().
+          } else {
+            // AI sidebar surface — replace EVERY destructive popup with
+            // an inline confirmation chip in the chat, including actions
+            // marked `defer_confirm_to_run` (cleanup_stopped /
+            // update_all_updatable). The inner SweetAlert their `run()`
+            // raises will still appear after Yes-click on the inline
+            // chip — that's a SECOND, data-rich popup we treat as
+            // legitimate confirmation data (lists every affected
+            // container by name); the bypass-the-generic-popup goal
+            // is satisfied here. Operator clicks Yes / Cancel right
+            // inside the conversation; no GENERIC popup, no experience
+            // disruption. The chip lives on the SAME assistant turn
+            // `_appendActionChatTurn` just pushed.
+            const idx = this.aiConversation.length - 1;
+            const turn = this.aiConversation[idx];
+            if (turn) {
+              turn.pending_confirm = true;
+              turn.pending_action  = action;
+              this.persistAiConversation();
+              this._scrollAiSidebarToBottom();
+            }
+            return;
           }
-          return;
-        }
-        // Modal palette surface — keep the SweetAlert popup since
-        // there's no chat to inline-confirm into. Actions opting into
-        // `defer_confirm_to_run` skip the generic dialog so their
-        // run() can show a richer data confirm.
-        if (!action.defer_confirm_to_run) {
-          const ok = await this.confirmDialog({
-            title: action.confirmTitle || action.label,
-            html:  action.confirmText || (this.t('command_palette.action.destructive_confirm')
-                                           || 'This action affects live state — proceed?'),
-            icon:  'warning',
-            confirmText: action.confirmButton || (this.t('actions.confirm') || 'Confirm'),
-            focusConfirm: true,
-          });
-          if (!ok) return;
+        } else {
+          // Modal palette surface — keep the SweetAlert popup since
+          // there's no chat to inline-confirm into. Actions opting into
+          // `defer_confirm_to_run` skip the generic dialog so their
+          // run() can show a richer data confirm.
+          if (!action.defer_confirm_to_run) {
+            const ok = await this.confirmDialog({
+              title: action.confirmTitle || action.label,
+              html:  action.confirmText || (this.t('command_palette.action.destructive_confirm')
+                                             || 'This action affects live state — proceed?'),
+              icon:  'warning',
+              confirmText: action.confirmButton || (this.t('actions.confirm') || 'Confirm'),
+              focusConfirm: true,
+            });
+            if (!ok) return;
+          }
         }
       }
       try {
@@ -13329,6 +13408,43 @@ function app() {
       if (this.aiSidebarOpen) this.closeAiSidebar();
       else this.openAiSidebar();
     },
+    // Proactive incident chip — surface a one-click investigate
+    // affordance when an SSE host-failure or warning-level
+    // notification event lands AND the AI sidebar is currently
+    // open. Stored as a single field (newest wins) so a flurry of
+    // events doesn't stack chips; clicking the chip runs the
+    // prepared query, X dismisses without firing.
+    _setAiIncidentChip(chip) {
+      // Only surface chips when the sidebar is open — otherwise the
+      // operator hasn't asked for AI engagement and the chip would
+      // sit invisible until next open. The notifications popup
+      // already covers the closed-sidebar case.
+      if (!this.aiSidebarOpen) return;
+      // Don't repeat the same incident chip if it's already showing
+      // (de-dupe on host_id + kind so a rapid-fire SSE storm doesn't
+      // visually flicker).
+      const cur = this.aiSidebarIncidentChip;
+      if (cur && cur.host_id === chip.host_id && cur.kind === chip.kind) return;
+      this.aiSidebarIncidentChip = Object.assign({}, chip, { ts: Date.now() });
+    },
+    dismissAiIncidentChip() {
+      this.aiSidebarIncidentChip = null;
+    },
+    runAiIncidentChip() {
+      const chip = this.aiSidebarIncidentChip;
+      if (!chip || !chip.query) return;
+      this.aiSidebarIncidentChip = null;
+      this.aiSidebarQuery = chip.query;
+      // Focus the input so the operator sees the populated query
+      // before send (allows last-second edit), then fire on the
+      // next tick so the textarea reflects the value.
+      this.$nextTick(() => {
+        if (typeof this.sendAiSidebarMessage === 'function') {
+          this.sendAiSidebarMessage();
+        }
+      });
+    },
+
     // Export the visible AI conversation as a downloadable file.
     // Format = 'txt' (human-readable transcript) or 'json' (full
     // structured payload). Triggered from the AI sidebar header
@@ -13541,6 +13657,16 @@ function app() {
       // / disk_free_gb / status / paused / providers) the AI has
       // nothing to work with when answering "which hosts are out of
       // disk?" and falls back to fabricating host names + values.
+      // Lazy-fetch hosts on demand if the array is still empty —
+      // covers the edge case where init's pre-fetch hasn't completed
+      // yet by the time the operator opens the sidebar and sends a
+      // query. Best-effort: a fetch failure leaves `this.hosts`
+      // empty and the AI correctly says "no host data available".
+      if (!Array.isArray(this.hosts) || this.hosts.length === 0) {
+        if (typeof this.loadHosts === 'function') {
+          try { await this.loadHosts(); } catch (_) { /* fall through */ }
+        }
+      }
       const ctx = this._buildAiPaletteContext();
       try {
         const r = await fetch('/api/ai/palette', {
@@ -13838,6 +13964,30 @@ function app() {
         }
       }
     },
+    // Switch the AI sidebar's action-confirmation mode and persist
+    // the choice to `ui_prefs.ai_sidebar_mode`. Approval =
+    // destructive actions render an inline-confirm chip in the
+    // chat; Autonomous = AI fires every action immediately
+    // (including destructive). Same fire-and-forget shape as
+    // `persistThemePref` / `persistAiConversation`.
+    async setAiSidebarMode(mode) {
+      const next = (mode === 'autonomous') ? 'autonomous' : 'approval';
+      if (next === this.aiSidebarMode) return;
+      this.aiSidebarMode = next;
+      if (!this.me || !this.me.id || this.me.id < 0) return;
+      try {
+        await fetch('/api/me/ui-prefs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefs: { ai_sidebar_mode: next } }),
+        });
+      } catch (e) {
+        if (window.console && console.warn) {
+          console.warn('[ai_sidebar_mode] persist failed:', e);
+        }
+      }
+    },
+
     // Push an action id onto the recents FIFO. Dedupes by removing
     // the id if already present, then unshifts to the head, then caps
     // at 5. Persists asynchronously.
@@ -14030,6 +14180,38 @@ function app() {
         if (Array.isArray(h.providers) && h.providers.length) {
           out.providers = h.providers.slice(0, 6);
         }
+        // Asset-inventory aliases — surface vendor / model / serial
+        // / display-name fields from the curated asset record so the
+        // AI can resolve aliases like "qotom" (an asset display
+        // name) to the right host even when the host's primary
+        // `id` / `label` doesn't carry the substring. The grounding-
+        // strict system prompt says "match against any field in the
+        // supplied JSON record", so adding these fields lets natural-
+        // language queries hit the host without forcing the user to
+        // know the canonical id. Each field is a string (or skipped
+        // when empty); no PII concerns since asset records are admin-
+        // curated. `custom_number` is included for "host #5" style
+        // references; `location` so "the rack 3 host" resolves.
+        try {
+          const asset = (typeof this.assetForHost === 'function')
+            ? this.assetForHost(h) : null;
+          if (asset && typeof asset === 'object') {
+            const a = {};
+            if (asset.name)          a.name          = String(asset.name);
+            if (asset.type_short)    a.type          = String(asset.type_short);
+            if (asset.vendor)        a.vendor        = String(asset.vendor);
+            if (asset.model)         a.model         = String(asset.model);
+            if (asset.serial)        a.serial        = String(asset.serial);
+            if (asset.location)      a.location      = String(asset.location);
+            if (asset.custom_number != null && asset.custom_number !== '') {
+              a.custom_number = asset.custom_number;
+            }
+            // Only attach when at least one field is populated —
+            // empty asset records aren't useful and just bloat the
+            // prompt.
+            if (Object.keys(a).length) out.asset = a;
+          }
+        } catch (_) { /* asset lookup is best-effort context */ }
         // Stale-data hints — when the host's `_stale_fields` carries
         // any field, the merged shape was filled from a snapshot
         // because the live provider stopped reporting. The AI should
