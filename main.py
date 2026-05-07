@@ -4526,6 +4526,18 @@ async def api_ai_palette(
         out["hosts"] = host_ids
     text = cleaned_text
 
+    # Split the optional `ACTION_HOSTS: <id1>, <id2>, ...` trailer
+    # off too. Distinct from HOSTS: above — ACTION_HOSTS targets
+    # specifically for the action(s) emitted in this turn, NOT the
+    # disk-projection chart channel. So `ACTION: scan_ports` paired
+    # with `ACTION_HOSTS: opnsense` fires a scan against opnsense
+    # without rendering an unrelated chart.
+    action_host_ids, cleaned_text = _ai.parse_palette_action_hosts(text, known_host_ids or None)
+    if action_host_ids:
+        out["text"] = cleaned_text
+        out["action_hosts"] = action_host_ids
+    text = cleaned_text
+
     # Best-effort recorder writes ai_jobs + history so the Admin → AI
     # Usage Dashboard tiles + the History tab pick up every call.
     ok_flag = bool(isinstance(out, dict) and out.get("ok"))
@@ -7661,6 +7673,17 @@ def _shape_host_api_row(
         # provider chip + the Resume button. Operator clears via POST
         # /api/hosts/{id}/provider/{name}/resume.
         "provider_pause_state": _provider_pause_state_for_host(h["id"]),
+        # Port-scan provider — latest-scan rollup. Populated by
+        # `_merge_one_host` after reading `host_port_scans` for the
+        # most recent scan_id; null/empty for hosts with no scan
+        # history yet. SPA's host-drawer Port Scan card consumes
+        # `detected_ports` for the open-ports chip strip, and
+        # `last_port_scan_ts` for the "Scanned X ago" subtitle.
+        # Without surfacing these here, the host row sees the fields
+        # as undefined → the "No scans yet" message stuck on
+        # forever even after a successful scan.
+        "detected_ports":    s.get("detected_ports") or [],
+        "last_port_scan_ts": int(s.get("last_port_scan_ts") or 0),
     }
 
 

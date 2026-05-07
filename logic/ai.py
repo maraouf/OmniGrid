@@ -979,7 +979,7 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - cleanup_stopped — remove every stopped / failed / orphaned container the dashboard can see. Operator-friendly synonyms: 'cleanup', 'clean up', 'purge', 'prune', 'remove stopped containers', 'package cleanup' (loose match — there is no package-level cleanup, only container cleanup). (Destructive — the SPA still confirms before issuing the rm batch, so picking this is safe.)\n"
     " - update_all_updatable — pull updates for every stack and standalone container that currently has an available update. Operator synonyms: 'update stacks', 'update all', 'update everything', 'pull updates', 'upgrade', 'upgrade everything', 'deploy updates', 'apply updates'. The SPA dedupes by stack id (one POST per stack, not per service), shows a confirm popup listing each affected stack/container, then issues the batch. (Destructive — the SPA confirms before issuing the update batch, so picking this is safe.)\n"
     " - sign_out — log out of OmniGrid\n"
-    " - scan_ports — run an on-demand TCP-connect port scan. Synonyms: 'scan ports', 'port scan', 'tcp scan', 'discover open ports', 'nmap'. The SPA resolves the target host via this fallback chain: (1) the host drawer if open, (2) the FIRST id in your `HOSTS:` protocol line, (3) toast prompting the operator to specify. So when the operator asks 'scan ports on opnsense' you should emit BOTH lines: `HOSTS: opnsense` AND `ACTION: scan_ports` — the SPA will pick `opnsense` from HOSTS, fire the scan, and surface the result toast. The host drawer does NOT need to be open.\n"
+    " - scan_ports — run an on-demand TCP-connect port scan. Synonyms: 'scan ports', 'port scan', 'tcp scan', 'discover open ports', 'nmap'. When the operator names a host to scan, emit BOTH `ACTION: scan_ports` AND a SEPARATE `ACTION_HOSTS: <host_id>` line (NOT a `HOSTS:` line — that one is reserved for disk-projection charts and would render an unrelated chart on the response). The SPA resolves the scan target via: (1) ACTION_HOSTS first id, (2) host drawer if open, (3) operator toast. The host drawer does NOT need to be open. Example reply: 'Scanning ports on opnsense.\\nACTION: scan_ports\\nACTION_HOSTS: opnsense'.\n"
     " - test_portainer — re-test the Portainer connection. Navigates to Admin → Portainer and kicks the probe. Synonyms: 'test portainer', 'portainer test', 'check portainer'.\n"
     " - test_oidc — re-test the Authentik OIDC connection. Navigates to Admin → Authentik OIDC and kicks the probe. Synonyms: 'test oidc', 'test authentik', 'test sso'.\n"
     " - test_beszel — re-test the Beszel hub connection. Navigates to Admin → Providers → Beszel and kicks the probe. Synonyms: 'test beszel', 'check beszel'.\n"
@@ -1144,6 +1144,55 @@ def parse_palette_hosts(text: str, known_ids: set[str] | None = None) -> tuple[l
     else:
         parts = raw.split()
     # Strip trailing punctuation / quote chars / backticks per token.
+    cleaned_ids: list[str] = []
+    seen: set[str] = set()
+    for p in parts:
+        token = p.strip().strip("`'\"*.,;").strip()
+        if not token:
+            continue
+        if known_ids is not None and token not in known_ids:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        cleaned_ids.append(token)
+        if len(cleaned_ids) >= 8:
+            break
+    cleaned_text = text[: m.start()].rstrip()
+    return cleaned_ids, cleaned_text
+
+
+def parse_palette_action_hosts(text: str, known_ids: set[str] | None = None) -> tuple[list[str], str]:
+    """Extract the optional `ACTION_HOSTS: <id1>, <id2>, ...` trailer
+    from a palette response. Returns ``(host_ids, cleaned_text)``.
+
+    Distinct from :func:`parse_palette_hosts` — that one's HOSTS line
+    drives disk-projection chart rendering on the SPA. ACTION_HOSTS
+    is the action-target channel: when the AI emits `ACTION:
+    scan_ports` paired with `ACTION_HOSTS: opnsense`, the SPA fires
+    the scan against `opnsense` WITHOUT rendering disk charts. Pre-
+    fix the AI was instructed to overload HOSTS for action-target
+    hosts — operators saw a confusing disk-projection chart appear
+    when they asked for a port scan.
+
+    Same matcher / tokeniser shape as `parse_palette_hosts` so the
+    cap (8 ids) + known_ids filter behave identically.
+    """
+    if not text:
+        return [], text or ""
+    import re as _re
+    m = _re.search(
+        r"(?:^|\n)[\s`*]*ACTION_HOSTS\s*:\s*(.+?)[\s`.*]*$",
+        text, _re.IGNORECASE | _re.MULTILINE,
+    )
+    if not m:
+        return [], text
+    raw = m.group(1)
+    parts: list[str] = []
+    if "," in raw:
+        parts = [p.strip() for p in raw.split(",")]
+    else:
+        parts = raw.split()
     cleaned_ids: list[str] = []
     seen: set[str] = set()
     for p in parts:
