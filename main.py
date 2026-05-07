@@ -12425,6 +12425,12 @@ async def api_weather(
         "latitude":  str(key[0]),
         "longitude": str(key[1]),
         "current":   "temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m",
+        # Daily forecast — covers the next 7 days. AI sidebar consumers
+        # use this for "weather forecast next 5 days" questions; the
+        # topbar widget keeps showing current-only and ignores the
+        # forecast payload (small enough to ride the same response).
+        "daily":     "temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum",
+        "forecast_days": "7",
         "timezone":  "auto",
     }
     try:
@@ -12438,6 +12444,30 @@ async def api_weather(
     cur = j.get("current") or {}
     code = int(cur.get("weather_code") or 0)
     desc, icon = _WMO_CODES.get(code, ("Unknown", "cloud"))
+    # Build the daily forecast list — one entry per day with min/max
+    # temp + weather code + precipitation sum. Empty list when the
+    # upstream didn't return a `daily` block (degrades cleanly).
+    forecast: list[dict] = []
+    daily = j.get("daily") if isinstance(j.get("daily"), dict) else {}
+    times    = daily.get("time") or []
+    tmaxes   = daily.get("temperature_2m_max") or []
+    tmines   = daily.get("temperature_2m_min") or []
+    dcodes   = daily.get("weather_code") or []
+    precips  = daily.get("precipitation_sum") or []
+    for i in range(min(len(times), 7)):
+        try:
+            d_code = int(dcodes[i]) if i < len(dcodes) else 0
+        except (TypeError, ValueError):
+            d_code = 0
+        d_desc, _d_icon = _WMO_CODES.get(d_code, ("Unknown", "cloud"))
+        forecast.append({
+            "date":          times[i],
+            "temp_max_c":    tmaxes[i] if i < len(tmaxes) else None,
+            "temp_min_c":    tmines[i] if i < len(tmines) else None,
+            "code":          d_code,
+            "condition":     d_desc,
+            "precip_mm":     precips[i] if i < len(precips) else None,
+        })
     body = {
         "configured":  True,
         "label":       label,
@@ -12447,6 +12477,7 @@ async def api_weather(
         "code":        code,
         "condition":   desc,
         "icon":        icon,
+        "forecast":    forecast,
         "provider":    "open-meteo",
         "upstream":    upstream,
         "fetched_at":  int(now),

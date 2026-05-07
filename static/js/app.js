@@ -13510,6 +13510,19 @@ function app() {
           weather_code: Number.isFinite(+w.code) ? +w.code : null,
           fetched_at:   Number.isFinite(+w.fetched_at) ? +w.fetched_at : null,
         };
+        // Daily forecast — pass through up to 7 days so the AI can
+        // answer "what's the forecast for the next 5 days?" with real
+        // data. Each entry: { date, temp_max_c, temp_min_c, code,
+        // condition, precip_mm }. Backend returns the same shape.
+        if (Array.isArray(w.forecast) && w.forecast.length > 0) {
+          weatherCtx.forecast = w.forecast.slice(0, 7).map(d => ({
+            date:        d.date || '',
+            temp_max_c:  Number.isFinite(+d.temp_max_c) ? Math.round(+d.temp_max_c * 10) / 10 : null,
+            temp_min_c:  Number.isFinite(+d.temp_min_c) ? Math.round(+d.temp_min_c * 10) / 10 : null,
+            condition:   d.condition || '',
+            precip_mm:   Number.isFinite(+d.precip_mm) ? Math.round(+d.precip_mm * 10) / 10 : null,
+          }));
+        }
       }
       const ctx = {
         view:  this.view || '',
