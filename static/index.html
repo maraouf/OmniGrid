@@ -8152,27 +8152,23 @@
     </div>
     <div class="ai-sidebar-input-row">
       <!--
-        x-model.debounce.150ms — typing in the AI sidebar was laggy
-        because every keystroke synchronously updated `aiSidebarQuery`
-        which fanned out across multiple Alpine reactive bindings:
-        `aiSidebarSlashOpen()` (called 4 sites), `aiSidebarSlashResults()`
-        (called 2 sites — once for x-for, once for the empty-state
-        x-show), `:disabled` on Send button, `aiSidebarSurfaceEnabled()`,
-        plus every binding in the broader sidebar tree that Alpine's
-        reactivity system invalidates per state change. Even when each
-        binding is individually cheap, the cumulative re-evaluation pass
-        on a complex page (1000+ bindings) shows up as visible lag per
-        keystroke. The 150 ms debounce delays state propagation until
-        the operator pauses typing — slash-picker shows up 150 ms after
-        a `/` keystroke (imperceptible), the Send button enabled-state
-        updates 150 ms after the LAST keystroke (still snappy), and
-        each keystroke itself is now sub-millisecond because the
-        textarea's NATIVE state advances independently of Alpine's
-        reactivity.
+        Textarea is fully uncontrolled — NO `x-model`, NO `@input`.
+        Iteration 1 used `x-model.debounce.150ms` which still routed
+        every keystroke through Alpine's reactivity system; iteration 2
+        kept that AND a `@input` handler that reset `aiSidebarSlashIdx`
+        on every keystroke (a second per-keystroke Alpine state write).
+        On this complex page (1900+ binding sites in index.html alone)
+        even debounced reactivity registered as visible typing lag.
+        Iteration 3 (this one) goes nuclear: drop both bindings and
+        let the browser's native input handling take typing entirely
+        out of Alpine's path. The `og-ai-sidebar-input` id is the
+        single hook — `init()` attaches a vanilla-JS `input` listener
+        that throttles state propagation to ~300 ms via setTimeout,
+        and the Enter / Esc / arrow-key handlers in
+        `aiSidebarHandleKeydown` read `e.target.value` directly so
+        they never depend on the throttled state.
       -->
       <textarea id="og-ai-sidebar-input"
-                x-model.debounce.150ms="aiSidebarQuery"
-                @input="aiSidebarSlashIdx = 0"
                 @keydown="aiSidebarHandleKeydown($event)"
                 :placeholder="t('ai_sidebar.input_placeholder')"
                 :disabled="aiSidebarBusy"
