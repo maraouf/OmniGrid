@@ -1660,7 +1660,8 @@
       "hotkeys": "key",
       "actions": "action",
       "actions-destructive": "action",
-      "ai": "ai"
+      "ai": "ai",
+      "recents": "recent"
     },
     "action": {
       "refresh_now":          "Trigger gather refresh now",
