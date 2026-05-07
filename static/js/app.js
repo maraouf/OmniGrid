@@ -728,6 +728,7 @@ function app() {
     aiConversation: [],          // [{role, text, action?, job_id?, feedback?, ts, error?}]
     aiSidebarFeedbackBusy: {},   // turn-index → bool while POST /api/ai/feedback in flight
     aiSidebarSlashIdx: 0,        // selected index in the slash-command picker
+    aiRecentSlashActions: [],    // FIFO of last 5 slash-action ids; persisted to ui_prefs.ai_recent_slash_actions. Only populated for ACTION kinds (not navigation), so "Open host:web01" can't pollute "Pause sampling" recents.
     // Bulk palette mode — entered via verb-prefix queries like
     // `pause: web*` or `resume: provider:beszel`. When active the
     // palette renders a chip strip of matched hosts + a single "Run
@@ -1536,6 +1537,17 @@ function app() {
               // backend. The PATCH is idempotent (same value) so the
               // round-trip costs ~30ms once on /api/me load.
               this.hostHistoryRange = dbRange;
+            }
+          } catch (_) {}
+          // AI sidebar slash-picker recents — last 5 invoked
+          // ACTION-kind slash entries, FIFO + dedupe, persisted to
+          // ui_prefs.ai_recent_slash_actions so the "Recents" group
+          // at the top of the slash picker survives reloads + follows
+          // the operator across browsers.
+          try {
+            const recents = m && m.ui_prefs && m.ui_prefs.ai_recent_slash_actions;
+            if (Array.isArray(recents)) {
+              this.aiRecentSlashActions = recents.slice(0, 5).filter(x => typeof x === 'string' && x);
             }
           } catch (_) {}
           // AI assistant conversation history — restore from
@@ -3114,7 +3126,12 @@ function app() {
     // view on refresh. Mirrors the existing `setRefreshInterval` /
     // localStorage shape.
     setHostStatsTab(name) {
-      if (!['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp'].includes(name)) return;
+      // Validate against `HOST_STATS_TAB_ORDER` (single source of
+      // truth — see canonical-key-set rule in CLAUDE.md). Pre-fix
+      // this hardcoded a parallel literal that lagged behind every
+      // new tab — `port_scan` shipped in `HOST_STATS_TAB_ORDER` but
+      // got silently rejected here, so the tab couldn't be clicked.
+      if (!this.HOST_STATS_TAB_ORDER.includes(name)) return;
       this.hostStatsTab = name;
       try { localStorage.setItem('hostStatsTab', name); } catch {}
     },
@@ -10802,6 +10819,7 @@ function app() {
         webmin:        '#a78bfa',  // purple (distinct slot for the 4th provider)
         ping:          '#06b6d4',  // cyan   (distinct from amber + green; was conflating with exporter)
         snmp:          '#ec4899',  // pink   (sixth provider; distinct from the existing five)
+        port_scan:     '#8b5cf6',  // violet (seventh provider; matches the SVG icon's stroke colour)
       };
       // Live admin-form value first (reactive on every keystroke / save).
       const live = ((this.settings || {})['provider_color_' + name] || '').trim();
@@ -13592,7 +13610,75 @@ function app() {
       // Hide the AI-bulk row from the slash picker — the bulk-palette
       // surface is keyboard-modal-only; surfacing it inline would just
       // confuse the operator who's already in a chat.
-      return results.filter(r => r.kind !== 'ai-bulk').slice(0, 12);
+      const filtered = results.filter(r => r.kind !== 'ai-bulk');
+      // "Recents" group — when the needle is empty AND the operator
+      // has invoked at least one action recently, hoist those rows
+      // (in FIFO order — most-recent first) to the TOP of the picker.
+      // Only ACTION-kind rows are tracked so navigation results don't
+      // pollute the recents list. Each recent row carries the same
+      // shape as a normal action result PLUS `_recent: true` for the
+      // template to render the "Recents" group label.
+      if (!needle && this.aiRecentSlashActions.length) {
+        const actionsCatalog = (typeof this._commandActions === 'function')
+          ? this._commandActions() : [];
+        const byId = new Map(actionsCatalog.map(a => [a.id, a]));
+        const recentRows = [];
+        for (const id of this.aiRecentSlashActions) {
+          const a = byId.get(id);
+          if (!a) continue;  // action no longer exists / disabled
+          recentRows.push({
+            kind: 'action',
+            label: a.label,
+            sub: a.sub || '',
+            payload: a,
+            group: 'recents',
+            destructive: !!a.destructive,
+            _recent: true,
+          });
+        }
+        if (recentRows.length) {
+          // De-dupe — when a recent row also appears in the catalog
+          // result set, drop the catalog row so the picker doesn't
+          // show the same action twice.
+          const recentIds = new Set(recentRows.map(r => r.payload && r.payload.id));
+          const rest = filtered.filter(r =>
+            r.kind !== 'action' || !recentIds.has(r.payload && r.payload.id)
+          );
+          return [...recentRows, ...rest].slice(0, 12);
+        }
+      }
+      return filtered.slice(0, 12);
+    },
+    // Persist `aiRecentSlashActions` to /api/me/ui-prefs. Mirrors
+    // `persistThemePref` / `persistAiConversation` — fire-and-forget,
+    // localStorage doubles as the fast-path read since it's already
+    // in `this.aiRecentSlashActions`.
+    async _persistRecentSlashActions() {
+      if (!this.me || !this.me.id || this.me.id < 0) return;
+      try {
+        await fetch('/api/me/ui-prefs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefs: { ai_recent_slash_actions: this.aiRecentSlashActions.slice(0, 5) } }),
+        });
+      } catch (e) {
+        if (window.console && console.warn) {
+          console.warn('[ai_sidebar] persist recents failed:', e);
+        }
+      }
+    },
+    // Push an action id onto the recents FIFO. Dedupes by removing
+    // the id if already present, then unshifts to the head, then caps
+    // at 5. Persists asynchronously.
+    _recordSlashRecent(actionId) {
+      if (!actionId || typeof actionId !== 'string') return;
+      const existing = this.aiRecentSlashActions.indexOf(actionId);
+      if (existing >= 0) this.aiRecentSlashActions.splice(existing, 1);
+      this.aiRecentSlashActions.unshift(actionId);
+      if (this.aiRecentSlashActions.length > 5) {
+        this.aiRecentSlashActions.length = 5;
+      }
+      this._persistRecentSlashActions();
     },
     runAiSidebarSlashAction(result) {
       // `result` is one row from `commandPaletteResults()` carrying
@@ -13620,6 +13706,12 @@ function app() {
           // actions fire immediately.
           this._appendActionChatTurn(result.payload, /* slash= */ true);
           this._runCommandPaletteAction(result.payload, { surface: 'sidebar' });
+          // Record into recents AFTER dispatch — only ACTION kinds,
+          // not navigation. Cancelled destructive confirms still
+          // count: the operator clearly intended to use the action.
+          if (result.payload && result.payload.id) {
+            this._recordSlashRecent(result.payload.id);
+          }
           break;
         case 'host':
           this.aiConversation.push({
@@ -13766,6 +13858,26 @@ function app() {
         if (h.sampling_paused) out.paused = true;
         if (Array.isArray(h.providers) && h.providers.length) {
           out.providers = h.providers.slice(0, 6);
+        }
+        // Stale-data hints — when the host's `_stale_fields` carries
+        // any field, the merged shape was filled from a snapshot
+        // because the live provider stopped reporting. The AI should
+        // qualify its answer ("last known status — host X is paused")
+        // rather than confidently reporting cached state as current.
+        // `stale_age_s` derives from `_stale_ts` (epoch-seconds when
+        // the snapshot was persisted).
+        const staleFields = Array.isArray(h._stale_fields) ? h._stale_fields : [];
+        if (staleFields.length) {
+          out.stale = true;
+          const staleTs = Number(h._stale_ts) || 0;
+          if (staleTs > 0) {
+            out.stale_age_s = Math.max(0, Math.floor(Date.now() / 1000) - staleTs);
+          }
+          // Cap the field list at 8 so a heavily-stale host doesn't
+          // blow the prompt — first 8 is enough signal for the AI to
+          // know which axes (cpu / mem / disk / uptime / etc.) are
+          // cached.
+          out.stale_fields = staleFields.slice(0, 8);
         }
         return out;
       };
