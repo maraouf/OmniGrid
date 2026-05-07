@@ -3461,8 +3461,8 @@
                           x-text="t('host_drawer.triage.heading')"></h4>
                       <span class="text-[10.5px] text-[var(--text-faint)]"
                             x-text="t('host_drawer.triage.summary', {
-                              groups: (hostTriage[h.id].groups || []).length,
-                              hours:  (hostTriage[h.id].scope && hostTriage[h.id].scope.hours) || 0,
+                              groups: ((hostTriage[h.id] || {}).groups || []).length,
+                              hours:  ((hostTriage[h.id] || {}).scope || {}).hours || 0,
                             })"></span>
                     </div>
                     <ul class="triage-list space-y-1.5">
@@ -4255,66 +4255,66 @@
                      curated-and-detected (green), detected-only (amber,
                      "unknown port"), curated-only (grey, "not listening
                      right now"). Admin-only — gated on me.role === 'admin'. -->
-                <template x-if="(((settings || {}).port_scan_enabled) && (((h.port_scan_cfg || h.port_scan || {}).enabled !== false))) || (h.detected_ports && h.detected_ports.length)">
-                  <section class="bg-[var(--surface-2)] border border-[var(--border)] rounded-lg p-3">
-                    <div class="flex items-center justify-between mb-3">
-                      <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
-                          x-text="t('host_drawer.port_scan.heading')"></h4>
-                      <button type="button"
-                              x-show="me && me.role === 'admin'"
-                              :disabled="!!(h._port_scan_running)"
-                              @click="runPortScan(h)"
-                              class="btn btn-sm"
-                              :title="t('host_drawer.port_scan.scan_button_title')">
-                        <svg width="13" height="13" :class="h._port_scan_running ? 'spin-md' : ''" aria-hidden="true">
-                          <use href="/img/ui-sprite.svg#icon-search"/>
-                        </svg>
-                        <span x-text="h._port_scan_running ? t('host_drawer.port_scan.scanning') : t('host_drawer.port_scan.scan_button')"></span>
-                      </button>
+                <section x-show="(((settings || {}).port_scan_enabled) && (((h.port_scan_cfg || h.port_scan || {}).enabled !== false))) || (h.detected_ports && h.detected_ports.length)"
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+                  <div class="flex items-center justify-between gap-2 mb-3">
+                    <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] flex items-center gap-2">
+                      <span x-text="t('host_drawer.port_scan.heading')"></span>
+                      <template x-if="h.last_port_scan_ts">
+                        <span class="chip pill-muted text-[10.5px]"
+                              x-text="t('host_drawer.port_scan.last_scanned', { when: fmtAgo(h.last_port_scan_ts * 1000) + ' ago' })"></span>
+                      </template>
+                    </h4>
+                    <button type="button"
+                            x-show="me && me.role === 'admin'"
+                            :disabled="!!(h._port_scan_running)"
+                            @click="runPortScan(h)"
+                            class="btn btn-ghost text-[11px] flex items-center gap-1"
+                            :title="t('host_drawer.port_scan.scan_button_title')">
+                      <svg width="11" height="11" :class="h._port_scan_running ? 'spin-md' : ''" aria-hidden="true">
+                        <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-search'"/>
+                      </svg>
+                      <span x-text="h._port_scan_running ? t('host_drawer.port_scan.scanning') : t('host_drawer.port_scan.scan_button')"></span>
+                    </button>
+                  </div>
+                  <template x-if="!h.last_port_scan_ts && me && me.role === 'admin'">
+                    <div class="text-[var(--text-faint)] text-[11px] mb-2"
+                         x-text="t('host_drawer.port_scan.no_scans_yet')"></div>
+                  </template>
+                  <template x-if="(h.detected_ports || []).length">
+                    <div class="mb-2">
+                      <div class="text-[var(--text-dim)] text-[11px] mb-1"
+                           x-text="t('host_drawer.port_scan.detected_label', { count: (h.detected_ports || []).length })"></div>
+                      <div class="flex flex-wrap gap-1.5">
+                        <template x-for="p in (h.detected_ports || [])" :key="p.port">
+                          <span class="chip text-[11px] mono"
+                                :class="portScanChipClass(h, p)"
+                                :title="portScanChipTitle(h, p)">
+                            <span x-text="p.port"></span>
+                            <span x-show="p.service_hint" class="ms-1 opacity-70"
+                                  x-text="'· ' + p.service_hint"></span>
+                          </span>
+                        </template>
+                      </div>
                     </div>
-                    <template x-if="h.last_port_scan_ts">
-                      <div class="text-[var(--text-faint)] text-[11px] mb-2"
-                           x-text="t('host_drawer.port_scan.last_scanned', { when: fmtAgo(h.last_port_scan_ts * 1000) + ' ago' })"></div>
-                    </template>
-                    <template x-if="!h.last_port_scan_ts && me && me.role === 'admin'">
-                      <div class="text-[var(--text-faint)] text-[11px] mb-2"
-                           x-text="t('host_drawer.port_scan.no_scans_yet')"></div>
-                    </template>
-                    <template x-if="(h.detected_ports || []).length">
-                      <div>
-                        <div class="text-[var(--text-dim)] text-[11px] mb-1"
-                             x-text="t('host_drawer.port_scan.detected_label', { count: (h.detected_ports || []).length })"></div>
-                        <div class="flex flex-wrap gap-1.5">
-                          <template x-for="p in (h.detected_ports || [])" :key="p.port">
-                            <span class="pill text-[11px] mono"
-                                  :class="portScanChipClass(h, p)"
-                                  :title="portScanChipTitle(h, p)">
-                              <span x-text="p.port"></span>
-                              <span x-show="p.service_hint" class="ms-1 text-[var(--text-faint)]"
-                                    x-text="'· ' + p.service_hint"></span>
-                            </span>
-                          </template>
-                        </div>
+                  </template>
+                  <template x-if="curatedOnlyServices(h).length">
+                    <div>
+                      <div class="text-[var(--text-dim)] text-[11px] mb-1"
+                           x-text="t('host_drawer.port_scan.curated_only_label', { count: curatedOnlyServices(h).length })"></div>
+                      <div class="flex flex-wrap gap-1.5">
+                        <template x-for="s in curatedOnlyServices(h)" :key="s.port + ':' + (s.name || '')">
+                          <span class="chip pill-muted text-[11px] mono"
+                                :title="t('host_drawer.port_scan.curated_only_chip_title', { name: s.name || '—' })">
+                            <span x-text="s.port"></span>
+                            <span x-show="s.name" class="ms-1 opacity-70"
+                                  x-text="'· ' + s.name"></span>
+                          </span>
+                        </template>
                       </div>
-                    </template>
-                    <template x-if="curatedOnlyServices(h).length">
-                      <div class="mt-2">
-                        <div class="text-[var(--text-dim)] text-[11px] mb-1"
-                             x-text="t('host_drawer.port_scan.curated_only_label', { count: curatedOnlyServices(h).length })"></div>
-                        <div class="flex flex-wrap gap-1.5">
-                          <template x-for="s in curatedOnlyServices(h)" :key="s.port + ':' + (s.name || '')">
-                            <span class="pill pill-muted text-[11px] mono"
-                                  :title="t('host_drawer.port_scan.curated_only_chip_title', { name: s.name || '—' })">
-                              <span x-text="s.port"></span>
-                              <span x-show="s.name" class="ms-1 text-[var(--text-faint)]"
-                                    x-text="'· ' + s.name"></span>
-                            </span>
-                          </template>
-                        </div>
-                      </div>
-                    </template>
-                  </section>
-                </template>
+                    </div>
+                  </template>
+                </section>
 
                 <!-- UPS — APC PowerNet-MIB data. Rendered
                      ONLY when the host probed via SNMP returned PowerNet

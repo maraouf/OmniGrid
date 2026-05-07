@@ -148,8 +148,9 @@
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
               <span x-text="t('settings.host_stats.chip_color_label')"></span>
-              <input type="color" x-model="settings.provider_color_node_exporter"
+              <input type="color"
                      :value="settings.provider_color_node_exporter || providerColor('node_exporter')"
+                     @input="settings.provider_color_node_exporter = $event.target.value"
                      :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
                      class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
               <input type="text" x-model="settings.provider_color_node_exporter"
@@ -294,8 +295,9 @@
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
               <span x-text="t('settings.host_stats.chip_color_label')"></span>
-              <input type="color" x-model="settings.provider_color_beszel"
+              <input type="color"
                      :value="settings.provider_color_beszel || providerColor('beszel')"
+                     @input="settings.provider_color_beszel = $event.target.value"
                      :disabled="isReadonly() || !hasHostStatsSource('beszel')"
                      class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
               <input type="text" x-model="settings.provider_color_beszel"
@@ -431,8 +433,9 @@
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
               <span x-text="t('settings.host_stats.chip_color_label')"></span>
-              <input type="color" x-model="settings.provider_color_pulse"
+              <input type="color"
                      :value="settings.provider_color_pulse || providerColor('pulse')"
+                     @input="settings.provider_color_pulse = $event.target.value"
                      :disabled="isReadonly() || !hasHostStatsSource('pulse')"
                      class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
               <input type="text" x-model="settings.provider_color_pulse"
@@ -580,8 +583,9 @@
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
               <span x-text="t('settings.host_stats.chip_color_label')"></span>
-              <input type="color" x-model="settings.provider_color_webmin"
+              <input type="color"
                      :value="settings.provider_color_webmin || providerColor('webmin')"
+                     @input="settings.provider_color_webmin = $event.target.value"
                      :disabled="isReadonly() || !hasHostStatsSource('webmin')"
                      class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
               <input type="text" x-model="settings.provider_color_webmin"
@@ -724,8 +728,9 @@
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
               <span x-text="t('settings.host_stats.chip_color_label')"></span>
-              <input type="color" x-model="settings.provider_color_ping"
+              <input type="color"
                      :value="settings.provider_color_ping || providerColor('ping')"
+                     @input="settings.provider_color_ping = $event.target.value"
                      :disabled="isReadonly() || !hasHostStatsSource('ping')"
                      class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
               <input type="text" x-model="settings.provider_color_ping"
@@ -950,8 +955,9 @@
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
               <span x-text="t('settings.host_stats.chip_color_label')"></span>
-              <input type="color" x-model="settings.provider_color_snmp"
+              <input type="color"
                      :value="settings.provider_color_snmp || providerColor('snmp')"
+                     @input="settings.provider_color_snmp = $event.target.value"
                      :disabled="isReadonly() || !hasHostStatsSource('snmp')"
                      class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
               <input type="text" x-model="settings.provider_color_snmp"
