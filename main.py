@@ -18,6 +18,7 @@ Endpoints:
 import asyncio
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -890,6 +891,29 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_ping_samples_host_ts
             ON ping_samples(host_id, ts DESC);
+
+        -- Port-scan provider results. ONE ROW PER OPEN PORT per scan;
+        -- closed-port rows would balloon the table on multi-host scans.
+        -- `scan_id` groups rows from one scan so the SPA can fetch a
+        -- whole scan via `scan_id` OR the latest scan per host via
+        -- `(host_id, ts DESC, scan_id) LIMIT 1` to find the head + then
+        -- `scan_id = ?` to pull every row in that scan. `service_hint`
+        -- is a tiny lookup-table guess (port 32400 → "plex") for chip
+        -- labels; NOT a fingerprint — Stage 2's banner-grab path will
+        -- replace this with real version detection.
+        CREATE TABLE IF NOT EXISTS host_port_scans (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts              INTEGER NOT NULL,
+            host_id         TEXT    NOT NULL,
+            scan_id         TEXT    NOT NULL,
+            port            INTEGER NOT NULL,
+            service_hint    TEXT,
+            banner_excerpt  TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_port_scans_host_ts
+            ON host_port_scans(host_id, ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_host_port_scans_scan
+            ON host_port_scans(scan_id);
 
         -- In-app notifications store. One row per notification dispatched
         -- through `logic.ops.notify`'s `app` medium (sibling of the
@@ -2136,6 +2160,17 @@ class SettingsIn(BaseModel):
     ping_enabled: Optional[bool] = None
     ping_default_port: Optional[int] = None
     ping_use_icmp: Optional[bool] = None
+    # Port-scan provider — on-demand TCP-connect scanner. Triggered
+    # from the host drawer or the AI palette; never scheduled in
+    # Stage 1. ``port_scan_enabled`` is the master toggle; the
+    # default-* keys carry global defaults that per-host
+    # ``hosts_config[].port_scan = {enabled, ports?, timeout_s?,
+    # concurrency?}`` overrides on a row-by-row basis. Ports list is
+    # CSV / range syntax (e.g. "22,80,443,8000-8100").
+    port_scan_enabled: Optional[bool] = None
+    port_scan_default_ports: Optional[str] = None
+    port_scan_default_timeout_seconds: Optional[int] = None
+    port_scan_default_concurrency: Optional[int] = None
     # SNMP — sixth host-stats provider. Per-host probe (no
     # central hub). Defaults are global; per-host overrides live on
     # ``hosts_config[].snmp = {community, version, port, v3_*}``.
@@ -2752,6 +2787,18 @@ async def api_get_settings(request: Request):
             "use_icmp":         get_setting_bool("ping_use_icmp", False),
             "has_icmp_support": (lambda: __import__("logic.ping", fromlist=["has_icmp_support"]).has_icmp_support())(),
         },
+        # Port-scan provider — on-demand TCP scanner. Defaults are
+        # global; per-host overrides land on `hosts_config[].port_scan`.
+        # Default ports list is empty here so the SPA can show "using
+        # built-in top-100" placeholder when blank; the scanner
+        # falls back to `port_scanner.DEFAULT_PORTS` when given an
+        # empty list.
+        "port_scan": {
+            "enabled":           get_setting_bool("port_scan_enabled", False),
+            "default_ports":     get_setting("port_scan_default_ports", "") or "",
+            "default_timeout":   int(get_setting("port_scan_default_timeout_seconds", "2") or "2"),
+            "default_concurrency": int(get_setting("port_scan_default_concurrency", "32") or "32"),
+        },
         # SNMP. v3 secret keys follow the write-only ``_set``
         # flag contract; community, version, port, aliases round-trip
         # in the clear (community is technically a credential but it's
@@ -3124,6 +3171,50 @@ async def _api_set_settings_inner(s, request, _portainer):
         set_setting("ping_default_port", str(p))
     if s.ping_use_icmp is not None:
         set_setting("ping_use_icmp", "true" if s.ping_use_icmp else "false")
+    # Port-scan provider — master toggle + global defaults. Per-host
+    # overrides live on `hosts_config[].port_scan` and persist via the
+    # existing `hosts_config` setting; no separate aliases store.
+    # Ports list validated via `parse_port_csv` so an invalid CSV
+    # token doesn't reach the scanner.
+    if s.port_scan_enabled is not None:
+        set_setting("port_scan_enabled", "true" if s.port_scan_enabled else "false")
+    if s.port_scan_default_ports is not None:
+        from logic.port_scanner import parse_port_csv as _pcsv
+        raw = (s.port_scan_default_ports or "").strip()
+        if raw and not _pcsv(raw):
+            raise HTTPException(
+                status_code=400,
+                detail="port_scan_default_ports must be CSV/range syntax (e.g. '22,80,443,8000-8100')",
+            )
+        set_setting("port_scan_default_ports", raw)
+    if s.port_scan_default_timeout_seconds is not None:
+        try:
+            t = int(s.port_scan_default_timeout_seconds)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail="port_scan_default_timeout_seconds must be an integer",
+            )
+        if not (1 <= t <= 30):
+            raise HTTPException(
+                status_code=400,
+                detail="port_scan_default_timeout_seconds must be 1-30",
+            )
+        set_setting("port_scan_default_timeout_seconds", str(t))
+    if s.port_scan_default_concurrency is not None:
+        try:
+            c = int(s.port_scan_default_concurrency)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail="port_scan_default_concurrency must be an integer",
+            )
+        if not (1 <= c <= 256):
+            raise HTTPException(
+                status_code=400,
+                detail="port_scan_default_concurrency must be 1-256",
+            )
+        set_setting("port_scan_default_concurrency", str(c))
     # SNMP. Mirror the webmin / beszel / pulse persistence
     # contract: community / version / port / aliases round-trip in the
     # clear; v3 user is also clear text; the two v3 keys are write-only
@@ -6970,6 +7061,42 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                 # instead of the red "down" the operator expected.
                 providers_hit.append("ping")
 
+    # Port-scan provider — read the LATEST scan's open-port rows
+    # from `host_port_scans` and stamp `host.detected_ports[]` on
+    # the merged dict so the host drawer's chip strip can render
+    # the diff against `hosts_config[].services[]`. Skipped when
+    # the master toggle is off OR no scan has run for this host.
+    # No `_merge_best` call — this is curated-config data, not
+    # telemetry; the SPA reads `host.detected_ports` directly.
+    if get_setting_bool("port_scan_enabled", False):
+        ps_cfg = h.get("port_scan") if isinstance(h.get("port_scan"), dict) else {}
+        ps_enabled = ps_cfg.get("enabled", True)  # inherits master when absent
+        if ps_enabled:
+            try:
+                with db_conn() as c:
+                    head = c.execute(
+                        "SELECT scan_id, MAX(ts) AS ts FROM host_port_scans "
+                        "WHERE host_id = ? GROUP BY scan_id ORDER BY ts DESC LIMIT 1",
+                        (h["id"],),
+                    ).fetchone()
+                    if head and head["scan_id"]:
+                        rows = c.execute(
+                            "SELECT port, service_hint, banner_excerpt "
+                            "FROM host_port_scans WHERE scan_id = ? ORDER BY port ASC",
+                            (head["scan_id"],),
+                        ).fetchall()
+                        merged["detected_ports"] = [{
+                            "port":           int(r["port"]),
+                            "service_hint":   r["service_hint"] or "",
+                            "banner_excerpt": r["banner_excerpt"] or "",
+                            "scanned_at":     int(head["ts"] or 0),
+                        } for r in rows]
+                        merged["last_port_scan_ts"] = int(head["ts"] or 0)
+                        if "detected_ports" in merged:
+                            providers_hit.append("port_scan")
+            except Exception as e:  # noqa: BLE001
+                print(f"[port_scan] read failed for {h.get('id')!r}: {e}")
+
     # Re-derive `host_mem_percent` and `host_disk_percent` from the
     # MERGED used + total values so the percent stays consistent with
     # the bytes regardless of which providers contributed which field.
@@ -8063,9 +8190,59 @@ def _load_hosts_config() -> list[dict]:
             # any unset key falls through to the global default. {} =
             # "no override" (the common case).
             "snmp":        _clean_host_snmp(h.get("snmp")),
+            # Per-host port-scan override sub-dict. Optional `enabled`
+            # / `ports` / `timeout_s` / `concurrency` — any unset key
+            # falls through to the global default. {} = "use globals
+            # AND inherit the global enabled flag".
+            "port_scan":   _clean_host_port_scan(h.get("port_scan")),
             "enabled":     bool(h.get("enabled", True)),
         })
     return clean
+
+
+def _clean_host_port_scan(raw: Any) -> dict:
+    """Normalise the per-host ``port_scan`` sub-dict.
+
+    Accepts ``enabled`` (bool, defaults to inheriting the global
+    master toggle), ``ports`` (CSV/range string — validated via
+    `parse_port_csv`; empty → use global default), ``timeout_s``
+    (1..30 int), and ``concurrency`` (1..256 int). Unknown keys
+    drop. Empty → empty dict, which ``effective_port_scan_config``
+    reads as "use globals across the board".
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    if "enabled" in raw:
+        out["enabled"] = bool(raw.get("enabled"))
+    ports_raw = raw.get("ports")
+    if isinstance(ports_raw, str) and ports_raw.strip():
+        # Validate via parse_port_csv; reject empty parse results so
+        # an obviously-broken CSV ("zzz,abc") doesn't silently
+        # disable the override.
+        try:
+            from logic.port_scanner import parse_port_csv as _pcsv
+            if _pcsv(ports_raw):
+                out["ports"] = ports_raw.strip()
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        t = raw.get("timeout_s")
+        if t is not None:
+            ti = int(t)
+            if 1 <= ti <= 30:
+                out["timeout_s"] = ti
+    except (TypeError, ValueError):
+        pass
+    try:
+        c = raw.get("concurrency")
+        if c is not None:
+            ci = int(c)
+            if 1 <= ci <= 256:
+                out["concurrency"] = ci
+    except (TypeError, ValueError):
+        pass
+    return out
 
 
 def _clean_host_ssh(raw: Any) -> dict:
@@ -10841,6 +11018,15 @@ async def api_hosts_disk_projection(
     ss_tot = sum((y - mean_y) ** 2 for y in ys)
     ss_res = sum((y - (intercept + slope * x)) ** 2 for x, y in zip(xs, ys))
     r2 = 0.0 if ss_tot == 0 else max(0.0, 1.0 - (ss_res / ss_tot))
+    # Residual standard error + Sxx for the prediction-interval band.
+    # The band widens as we extrapolate further from the historical
+    # mean (`mean_x`) — it's the classical OLS forecast cone shape.
+    # Uses 1.96 (≈ 95% one-tailed normal critical value) as the
+    # multiplier; with n typically ≥ 30 the t-distribution is close
+    # enough to the normal that the simpler constant reads cleanly.
+    mean_x = sx / n
+    sxx_dev = sum((x - mean_x) ** 2 for x in xs)
+    sigma_resid = math.sqrt(max(0.0, ss_res) / max(1, n - 2)) if n >= 3 else 0.0
     # Confidence pill — needs both R² AND sample density.
     if r2 >= 0.85 and n >= 60:
         confidence = "high"
@@ -10876,21 +11062,40 @@ async def api_hosts_disk_projection(
         for s in out_samples
     ]
     # Projection — same forward window length as lookback, ~30 points.
+    # Each point carries the central prediction PLUS a 95% prediction
+    # interval (low_pct / high_pct) so the SPA can render the classic
+    # forecast-cone "fork" widening with extrapolation distance —
+    # operators see uncertainty at a glance instead of a misleading
+    # single-line prediction.
     forward_secs = h * 3600
     projection_payload = []
     proj_steps = 30
     now_ts = int(time.time())
+    z = 1.96  # ≈ 95% one-tailed normal critical value
     for i in range(proj_steps + 1):
         t_offset = (forward_secs * i) / proj_steps
         ts_proj = now_ts + int(t_offset)
-        used_pct_proj = intercept + slope * (ts_proj - t0)
-        # Clamp 0..100 — projecting < 0 (host losing data faster than
-        # plausible) or > 100 (already exhausted) is operator-confusing
-        # noise; the exhaustion_ts field carries the meaningful "when".
+        x_proj = ts_proj - t0
+        used_pct_proj = intercept + slope * x_proj
+        # Standard error of prediction at this x — widens with
+        # distance from the historical mean. When sxx_dev is 0 (all
+        # samples at one timestamp, degenerate), fall back to a flat
+        # band based on the residual std alone.
+        if sxx_dev > 0 and n >= 3:
+            se_pred = sigma_resid * math.sqrt(
+                1.0 + (1.0 / n) + ((x_proj - mean_x) ** 2) / sxx_dev
+            )
+        else:
+            se_pred = sigma_resid
+        margin = z * se_pred
         used_pct_clamped = max(0.0, min(100.0, used_pct_proj))
+        low_clamped  = max(0.0, min(100.0, used_pct_proj - margin))
+        high_clamped = max(0.0, min(100.0, used_pct_proj + margin))
         projection_payload.append({
             "ts": ts_proj,
-            "used_pct": round(used_pct_clamped, 2),
+            "used_pct":  round(used_pct_clamped, 2),
+            "low_pct":   round(low_clamped, 2),
+            "high_pct":  round(high_clamped, 2),
         })
     last = series[-1]
     return {
@@ -11996,6 +12201,254 @@ class PingTestIn(BaseModel):
     port: Optional[int] = None
     transport: Optional[str] = None
     timeout_seconds: Optional[float] = None
+
+
+class PortScanIn(BaseModel):
+    """Optional override knobs for a one-shot port scan. Empty body
+    is fine — the endpoint resolves every value from the host's
+    effective config (per-host override → global default → built-in
+    fallback) when not supplied.
+    """
+    ports:        Optional[str] = None       # CSV/range syntax
+    timeout_s:    Optional[int] = None
+    concurrency:  Optional[int] = None
+    banner_grab:  Optional[bool] = None      # Stage 2 default-OFF
+
+
+@app.post("/api/hosts/{host_id}/port-scan")
+async def api_hosts_port_scan(
+    host_id: str,
+    body:    Optional[PortScanIn] = None,
+    _admin:  auth.User = Depends(auth.require_admin),
+):
+    """On-demand port scan for one curated host. Admin-only. Runs an
+    asyncio TCP-connect scan synchronously inside the request (a
+    typical 100-port scan finishes in ~3-8s with concurrency=32);
+    persists one row per OPEN port to ``host_port_scans``; writes a
+    history row so the operator can browse "last scanned: X" via
+    the History tab. Returns the full scan shape so the SPA can
+    render the chip-strip diff immediately.
+    """
+    if not get_setting_bool("port_scan_enabled", False):
+        raise HTTPException(
+            status_code=400,
+            detail="Port-scan provider is disabled. Enable it in "
+                   "Admin → Providers → Port Scan first.",
+        )
+    hid = (host_id or "").strip()
+    if not hid:
+        raise HTTPException(400, "host_id required")
+    curated = _load_hosts_config()
+    h = next((x for x in curated if x.get("id") == hid), None)
+    if h is None:
+        raise HTTPException(404, f"Host not found: {hid}")
+    ps_cfg = h.get("port_scan") if isinstance(h.get("port_scan"), dict) else {}
+    # Per-host enabled flag wins; otherwise inherit the master.
+    if "enabled" in ps_cfg and not ps_cfg.get("enabled"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Port scan is disabled for host {hid}. "
+                   f"Enable it in Admin → Hosts.",
+        )
+    # Resolve the scan target — same precedence the ping endpoint
+    # uses so a host with an `ssh.fqdn` override scans against THAT
+    # name instead of the bare id.
+    ssh_cfg = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
+    target = (ssh_cfg.get("fqdn") or ssh_cfg.get("host") or hid).strip() or hid
+    # Effective config: request body → per-host → global → built-in.
+    body = body or PortScanIn()
+    from logic import port_scanner as _ps
+    ports_csv = (
+        (body.ports or "").strip()
+        or (ps_cfg.get("ports") or "").strip()
+        or (get_setting("port_scan_default_ports", "") or "").strip()
+    )
+    ports_list = _ps.parse_port_csv(ports_csv) if ports_csv else list(_ps.DEFAULT_PORTS)
+    timeout_s = (
+        body.timeout_s
+        if body.timeout_s is not None else
+        ps_cfg.get("timeout_s")
+        if ps_cfg.get("timeout_s") is not None else
+        int(get_setting("port_scan_default_timeout_seconds", "2") or "2")
+    )
+    concurrency = (
+        body.concurrency
+        if body.concurrency is not None else
+        ps_cfg.get("concurrency")
+        if ps_cfg.get("concurrency") is not None else
+        int(get_setting("port_scan_default_concurrency", "32") or "32")
+    )
+    # Hard bound the scan duration to keep request handling sane.
+    # Even a worst-case 1024-port scan with timeout=2 + concurrency=32
+    # runs ≤ 64s; add a safety wait_for so a hung target can't pin
+    # the worker forever.
+    scan_id = str(uuid.uuid4())
+    started = time.time()
+    try:
+        scan = await asyncio.wait_for(
+            _ps.scan_host(
+                target,
+                ports_list,
+                timeout_s=float(timeout_s),
+                concurrency=int(concurrency),
+                banner_grab=bool(body.banner_grab),
+            ),
+            timeout=120.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail=f"Port scan exceeded 120s budget for {hid}",
+        )
+    duration_ms = scan.get("duration_ms") or int((time.time() - started) * 1000)
+    open_entries = _ps.open_ports_only(scan)
+    # Find the PREVIOUS scan's open ports so we can fire a
+    # `port_scan_new_port` notification per port that's newly open
+    # (and not already in the curated services list — operator
+    # already knows about those). Empty list when this is the first
+    # scan for the host.
+    prev_open_ports: set[int] = set()
+    try:
+        with db_conn() as c:
+            prev_head = c.execute(
+                "SELECT scan_id, MAX(ts) AS ts FROM host_port_scans "
+                "WHERE host_id = ? GROUP BY scan_id ORDER BY ts DESC LIMIT 1",
+                (hid,),
+            ).fetchone()
+            if prev_head and prev_head["scan_id"]:
+                prev_rows = c.execute(
+                    "SELECT port FROM host_port_scans WHERE scan_id = ?",
+                    (prev_head["scan_id"],),
+                ).fetchall()
+                prev_open_ports = {int(r["port"]) for r in prev_rows}
+    except Exception:  # noqa: BLE001
+        prev_open_ports = set()
+    curated_services_for_diff = h.get("services") if isinstance(h.get("services"), list) else []
+    curated_ports_set = {int(s.get("port") or 0)
+                         for s in curated_services_for_diff if isinstance(s, dict)}
+    # Persist one row per OPEN port, plus a history row so the
+    # operator can browse scans + see "last scanned: N hours ago".
+    try:
+        with db_conn() as c:
+            for entry in open_entries:
+                c.execute(
+                    "INSERT INTO host_port_scans "
+                    "(ts, host_id, scan_id, port, service_hint, banner_excerpt) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        int(scan.get("scanned_at") or time.time()),
+                        hid,
+                        scan_id,
+                        int(entry.get("port") or 0),
+                        entry.get("service_hint") or "",
+                        entry.get("banner_excerpt") or "",
+                    ),
+                )
+            # History row — single entry for the whole scan, regardless
+            # of how many open ports it found. `events` JSON carries
+            # the scan summary so the History tab can show counts +
+            # duration without a separate fetch. `op_type='port_scan'`
+            # is a NEW event name; add it to NOTIFY_EVENT_NAMES if a
+            # future iteration wants to fire notifications via the
+            # generic `notify(...)` path.
+            events_payload = {
+                "scan_id":          scan_id,
+                "ports_scanned":    len(scan.get("ports") or []),
+                "ports_open":       len(open_entries),
+                "scan_duration_ms": duration_ms,
+                "target":           target,
+            }
+            try:
+                events_json = json.dumps(events_payload, ensure_ascii=False)
+            except (TypeError, ValueError):
+                events_json = "{}"
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " status, duration, events, error, actor) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (
+                    float(time.time()),
+                    "port_scan",
+                    "host",
+                    hid,
+                    hid,
+                    "success" if not scan.get("error") else "error",
+                    float(duration_ms) / 1000.0,
+                    events_json,
+                    scan.get("error") or None,
+                    getattr(_admin, "username", "ui") or "ui",
+                ),
+            )
+            c.commit()
+    except Exception as e:  # noqa: BLE001
+        # Best-effort persistence — the scan succeeded, the operator
+        # gets the result, but the History row / chip-diff source row
+        # may be missing.
+        print(f"[port_scan] persist failed for {hid}: {e}")
+
+    # Fire `port_scan_new_port` notifications for ports that are
+    # newly open (not in previous scan AND not in curated services).
+    # First scan ever (`prev_open_ports` empty) is special-cased: we
+    # SKIP firing so the operator doesn't get a flood of "new!"
+    # notifications when first enabling the scanner. Default OFF
+    # event so even configured operators must opt in explicitly.
+    if prev_open_ports and not scan.get("error"):
+        new_ports = [
+            e for e in open_entries
+            if int(e.get("port") or 0) not in prev_open_ports
+            and int(e.get("port") or 0) not in curated_ports_set
+        ]
+        if new_ports:
+            try:
+                from logic import ops as _ops
+                for entry in new_ports:
+                    pnum = int(entry.get("port") or 0)
+                    hint = entry.get("service_hint") or ""
+                    label = f"port {pnum}" + (f" ({hint})" if hint else "")
+                    # Use the template system — `notify(...)` resolves
+                    # title + body from `notify_template_port_scan_new_port_*`
+                    # settings (admin override) → NOTIFY_TEMPLATE_DEFAULTS
+                    # (hard-coded baseline). Caller passes `message`
+                    # for the body's `{message}` placeholder.
+                    await _ops.notify(
+                        event="port_scan_new_port",
+                        severity="info",
+                        actor_username=getattr(_admin, "username", "ui") or "ui",
+                        target_kind="host",
+                        target_id=hid,
+                        message=(
+                            f"{label} listening on {target} — not in the previous "
+                            f"scan and not in this host's curated services. "
+                            f"Promote to curated in the host drawer if expected."
+                        ),
+                        metadata={"port": pnum, "service_hint": hint, "scan_id": scan_id},
+                    )
+            except Exception as e:  # noqa: BLE001
+                print(f"[port_scan] notify failed for {hid}: {e}")
+
+    # Return the diff against `hosts_config[].services[]` so the SPA
+    # can render the chip strip without an additional fetch.
+    curated_services = h.get("services") if isinstance(h.get("services"), list) else []
+    diff = _ps.diff_against_curated(open_entries, curated_services)
+    return {
+        "ok":          not bool(scan.get("error")),
+        "host_id":     hid,
+        "target":      target,
+        "scan_id":     scan_id,
+        "scanned_at":  scan.get("scanned_at"),
+        "duration_ms": duration_ms,
+        "ports":       scan.get("ports") or [],
+        "open_ports":  open_entries,
+        "diff":        diff,
+        "error":       scan.get("error"),
+        "config_used": {
+            "ports_count": len(ports_list),
+            "timeout_s":   int(timeout_s),
+            "concurrency": int(concurrency),
+            "banner_grab": bool(body.banner_grab),
+        },
+    }
 
 
 @app.post("/api/ping/test")
@@ -14007,17 +14460,33 @@ async def api_upload_avatar(
     return {"ok": True, "avatar_url": f"/api/avatars/{fname}"}
 
 
+_AVATAR_SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
 def _safe_avatar_path(name: str) -> Optional[str]:
     """Resolve `<_AVATAR_DIR>/<name>` and confirm the result stays
     within `_AVATAR_DIR`. Returns the realpath on success or None
-    when the input is shape-invalid (slash / `..`/ empty) OR the
-    resolved path escapes the root (symlink / corrupt DB row).
+    when the input fails the strict shape regex OR the resolved path
+    escapes the root (symlink / corrupt DB row).
 
-    Same defence-in-depth pattern as `logic/logs.py:safe_log_path`:
-    shape regex + realpath + `+ os.sep` prefix-confinement so a
-    sibling directory with a colliding prefix can't pass.
+    Strict allowlist regex (`^[A-Za-z0-9._-]+$`) — no slashes, no
+    backslashes, no leading dots that could form `..`, no NUL bytes,
+    no path separators of any flavour. Belt-and-braces realpath +
+    prefix-confinement still applies in case the regex is bypassed
+    by a future relaxation. Same defence-in-depth pattern as
+    `logic/logs.py:safe_log_path`.
     """
-    if not name or "/" in name or ".." in name:
+    if not isinstance(name, str) or not name:
+        return None
+    # Strict regex first — rejects every path-traversal vector
+    # (slash, backslash, `..`, NUL, leading dot-only, etc.) before
+    # the value reaches `os.path.join`.
+    if not _AVATAR_SAFE_NAME.fullmatch(name):
+        return None
+    # Reject standalone `.` / `..` / leading dots (regex above
+    # allows dots in the middle, e.g. `u5.png`, but `..` and `.`
+    # would also match — extra explicit guard).
+    if name in (".", "..") or name.startswith(".."):
         return None
     root = os.path.realpath(_AVATAR_DIR)
     candidate = os.path.realpath(os.path.join(root, name))

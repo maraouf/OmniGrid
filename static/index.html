@@ -143,7 +143,7 @@
 <!-- ICON SYMBOL LIBRARY moved to static/img/ui-sprite.svg (2026-05-03) — every <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-..."/> reference resolves through that same-origin file. Preload <link> in the <head> kicks off the fetch in parallel with the HTML parse. Adding a new icon: edit static/img/ui-sprite.svg, NOT this file. -->
 
 <div x-data="app()" x-init="init()" x-cloak class="flex flex-col min-h-screen"
-     x-effect="_applyDrawerScrollLock(drawerHost, drawerItem, drawerNode)">
+     x-effect="_applyDrawerScrollLock(drawerHost, drawerItem, drawerNode, aiSidebarOpen)">
 
   <!-- ================== TOPBAR ================== -->
   <!-- On mobile (<sm), the <header> itself becomes a flex-wrap container
@@ -1690,7 +1690,8 @@
            x-cloak
            class="fixed inset-0 z-50 flex items-center justify-center p-4"
            :style="bulkSnmpVendorsModal.open ? 'display:flex' : 'display:none'"
-           role="dialog" aria-modal="true">
+           role="dialog" aria-modal="true"
+           @keydown="_focusTrapKeydown($event, $el)">
         <div class="absolute inset-0 backdrop" @click="closeBulkSnmpVendorsModal()"></div>
         <div class="relative bg-[var(--surface)] border border-[var(--border-bright)] rounded-md p-5 w-full max-w-md shadow-xl">
           <h3 class="text-[13px] font-semibold mb-3"
@@ -1739,7 +1740,8 @@
            x-cloak
            class="fixed inset-0 z-50 flex items-center justify-center p-4"
            :style="bulkSnmpTunablesModal.open ? 'display:flex' : 'display:none'"
-           role="dialog" aria-modal="true">
+           role="dialog" aria-modal="true"
+           @keydown="_focusTrapKeydown($event, $el)">
         <div class="absolute inset-0 backdrop" @click="closeBulkSnmpTunablesModal()"></div>
         <div class="relative bg-[var(--surface)] border border-[var(--border-bright)] rounded-md p-5 w-full max-w-md shadow-xl">
           <h3 class="text-[13px] font-semibold mb-3"
@@ -3054,6 +3056,7 @@
             <div x-show="isHostExpanded(h.host)"
                  role="dialog" aria-modal="true"
                  :aria-label="hostDisplayName(h)"
+                 @keydown="_focusTrapKeydown($event, $el)"
                  :class="isAllStale(h) ? 'host-drawer scrollbar bulk-stale' : 'host-drawer scrollbar'">
               <div class="flex items-center justify-between gap-3 mb-4 sticky top-0 bg-[var(--surface)] border-b border-[var(--border)] -mx-5 -mt-4 px-5 py-3 z-10">
                 <div class="min-w-0 flex items-center gap-2">
@@ -4240,6 +4243,78 @@
                     </template>
                   </dl>
                 </section>
+
+                <!-- PORT SCAN — on-demand TCP-connect scanner.
+                     Card surfaces when the master toggle is ON AND the
+                     curated row opted in via Admin → Hosts (`port_scan.enabled`),
+                     OR when the host already has a prior scan stamped
+                     in `host.detected_ports`. The "Scan ports" button
+                     fires `runPortScan(h)` which POSTs to /api/hosts/{id}/port-scan
+                     and refreshes the row. Detected-port chip diff
+                     against `host.services[]` (curated): three states —
+                     curated-and-detected (green), detected-only (amber,
+                     "unknown port"), curated-only (grey, "not listening
+                     right now"). Admin-only — gated on me.role === 'admin'. -->
+                <template x-if="(((settings || {}).port_scan_enabled) && (((h.port_scan_cfg || h.port_scan || {}).enabled !== false))) || (h.detected_ports && h.detected_ports.length)">
+                  <section class="bg-[var(--surface-2)] border border-[var(--border)] rounded-lg p-3">
+                    <div class="flex items-center justify-between mb-3">
+                      <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
+                          x-text="t('host_drawer.port_scan.heading')"></h4>
+                      <button type="button"
+                              x-show="me && me.role === 'admin'"
+                              :disabled="!!(h._port_scan_running)"
+                              @click="runPortScan(h)"
+                              class="btn btn-sm"
+                              :title="t('host_drawer.port_scan.scan_button_title')">
+                        <svg width="13" height="13" :class="h._port_scan_running ? 'spin-md' : ''" aria-hidden="true">
+                          <use href="/img/ui-sprite.svg#icon-search"/>
+                        </svg>
+                        <span x-text="h._port_scan_running ? t('host_drawer.port_scan.scanning') : t('host_drawer.port_scan.scan_button')"></span>
+                      </button>
+                    </div>
+                    <template x-if="h.last_port_scan_ts">
+                      <div class="text-[var(--text-faint)] text-[11px] mb-2"
+                           x-text="t('host_drawer.port_scan.last_scanned', { when: fmtAgo(h.last_port_scan_ts * 1000) + ' ago' })"></div>
+                    </template>
+                    <template x-if="!h.last_port_scan_ts && me && me.role === 'admin'">
+                      <div class="text-[var(--text-faint)] text-[11px] mb-2"
+                           x-text="t('host_drawer.port_scan.no_scans_yet')"></div>
+                    </template>
+                    <template x-if="(h.detected_ports || []).length">
+                      <div>
+                        <div class="text-[var(--text-dim)] text-[11px] mb-1"
+                             x-text="t('host_drawer.port_scan.detected_label', { count: (h.detected_ports || []).length })"></div>
+                        <div class="flex flex-wrap gap-1.5">
+                          <template x-for="p in (h.detected_ports || [])" :key="p.port">
+                            <span class="pill text-[11px] mono"
+                                  :class="portScanChipClass(h, p)"
+                                  :title="portScanChipTitle(h, p)">
+                              <span x-text="p.port"></span>
+                              <span x-show="p.service_hint" class="ms-1 text-[var(--text-faint)]"
+                                    x-text="'· ' + p.service_hint"></span>
+                            </span>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                    <template x-if="curatedOnlyServices(h).length">
+                      <div class="mt-2">
+                        <div class="text-[var(--text-dim)] text-[11px] mb-1"
+                             x-text="t('host_drawer.port_scan.curated_only_label', { count: curatedOnlyServices(h).length })"></div>
+                        <div class="flex flex-wrap gap-1.5">
+                          <template x-for="s in curatedOnlyServices(h)" :key="s.port + ':' + (s.name || '')">
+                            <span class="pill pill-muted text-[11px] mono"
+                                  :title="t('host_drawer.port_scan.curated_only_chip_title', { name: s.name || '—' })">
+                              <span x-text="s.port"></span>
+                              <span x-show="s.name" class="ms-1 text-[var(--text-faint)]"
+                                    x-text="'· ' + s.name"></span>
+                            </span>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </section>
+                </template>
 
                 <!-- UPS — APC PowerNet-MIB data. Rendered
                      ONLY when the host probed via SNMP returned PowerNet
@@ -7223,6 +7298,7 @@
     <aside x-show="drawerNode"
            role="dialog" aria-modal="true"
            :aria-label="drawerNode && drawerNode.name ? t('nodes.beszel.alias_section_title') + ' — ' + drawerNode.name : t('nodes.beszel.alias_section_title')"
+           @keydown="_focusTrapKeydown($event, $el)"
            class="absolute inset-y-0 right-0 w-full md:w-[460px] bg-[var(--surface)] border-l border-[var(--border)] overflow-y-auto scrollbar slide-in">
       <template x-if="drawerNode">
         <div class="p-5">
@@ -7272,6 +7348,7 @@
     <aside x-show="drawerItem"
            role="dialog" aria-modal="true"
            :aria-label="drawerItem && drawerItem.name ? drawerItem.name : t('item.drawer_title')"
+           @keydown="_focusTrapKeydown($event, $el)"
            class="absolute inset-y-0 right-0 w-full md:w-[500px] bg-[var(--surface)] border-l border-[var(--border)] overflow-y-auto scrollbar slide-in">
       <template x-if="drawerItem">
         <div class="p-5">
@@ -7399,7 +7476,8 @@
     <div class="absolute inset-0 backdrop-strong"></div>
     <div class="relative flex items-center justify-center p-4 h-full overflow-auto scrollbar">
       <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-lg w-full"
-           role="dialog" aria-modal="true" :aria-label="t('admin.token_modal.title')">
+           role="dialog" aria-modal="true" :aria-label="t('admin.token_modal.title')"
+           @keydown="_focusTrapKeydown($event, $el)">
         <div class="p-4 border-b border-[var(--border)]">
           <h2 class="text-[15px] font-semibold" x-text="t('admin.token_modal.title')"></h2>
           <p class="text-[11.5px] text-[var(--text-faint)] mt-0.5" x-text="t('admin.token_modal.hint')"></p>
@@ -7446,6 +7524,7 @@
     <div class="relative flex items-start justify-center p-4 h-full overflow-auto scrollbar"
          role="dialog" aria-modal="true"
          :aria-label="notifyTemplateEditor.readOnly ? t('profile.notify_templates.modal_title') : t('admin.notify_templates.modal_title')"
+         @keydown="_focusTrapKeydown($event, $el)"
          @keydown.escape.window="closeNotifyTemplateEditor()">
       <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-3xl w-full max-h-[90vh] overflow-y-auto scrollbar mt-[5vh]">
         <!-- Sticky header — title + reset link + close. -->
@@ -7612,6 +7691,7 @@
     <div @click="showNotificationsPopup=false" class="absolute inset-0 backdrop-strong"></div>
     <div class="relative flex items-start justify-center p-4 h-full overflow-auto scrollbar"
          role="dialog" aria-modal="true" :aria-label="t('notifications.heading')"
+         @keydown="_focusTrapKeydown($event, $el)"
          @keydown.escape.window="showNotificationsPopup=false">
       <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-3xl w-full max-h-[90vh] overflow-y-auto scrollbar mt-[5vh]">
         <div class="p-4 border-b border-[var(--border)] flex justify-between items-center sticky top-0 bg-[var(--surface)] z-10">
@@ -7798,10 +7878,12 @@
        slide-in transform animates; visibility controlled via the
        `.open` class. -->
   <aside class="ai-sidebar-drawer"
+         id="og-ai-sidebar"
          :class="aiSidebarOpen ? 'open' : ''"
          role="dialog" aria-modal="true"
          :aria-label="t('ai_sidebar.drawer_label')"
-         :aria-hidden="aiSidebarOpen ? 'false' : 'true'">
+         :aria-hidden="aiSidebarOpen ? 'false' : 'true'"
+         @keydown="aiSidebarOpen && _focusTrapKeydown($event, $el)">
     <div class="ai-sidebar-header">
       <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
         <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-message-circle'"/>
@@ -7810,12 +7892,12 @@
       <button type="button"
               @click="clearAiConversation()"
               x-show="aiConversation.length > 0"
-              class="btn btn-ghost text-[11px]"
+              class="btn btn-ghost fs-xs"
               :title="t('ai_sidebar.clear_title')"
               x-text="t('ai_sidebar.clear')"></button>
       <button type="button"
               @click="closeAiSidebar()"
-              class="btn btn-ghost text-[11px]"
+              class="btn btn-ghost fs-xs"
               :title="t('actions.close')"
               :aria-label="t('actions.close')">
         <svg width="14" height="14" aria-hidden="true">
@@ -7827,8 +7909,8 @@
       <div x-show="aiConversation.length === 0 && !aiSidebarBusy"
            class="ai-sidebar-log-empty">
         <div>
-          <div class="text-[12.5px] mb-1" x-text="t('ai_sidebar.empty_title')"></div>
-          <div class="text-[11px]" x-text="t('ai_sidebar.empty_hint')"></div>
+          <div class="fs-sm mb-1" x-text="t('ai_sidebar.empty_title')"></div>
+          <div class="fs-xs" x-text="t('ai_sidebar.empty_hint')"></div>
         </div>
       </div>
       <template x-for="(turn, idx) in aiConversation" :key="idx">
@@ -7836,17 +7918,21 @@
           <div x-show="turn.text || turn.error"
                class="ai-bubble"
                :class="turn.role === 'user' ? 'ai-bubble-user' : (turn.error ? 'ai-bubble-error' : 'ai-bubble-assistant')"
-               x-text="turn.error ? (t('ai_sidebar.error_prefix') + ' ' + turn.error) : turn.text"></div>
+               x-text="turn.error ? t('ai_sidebar.error_label', { error: turn.error }) : turn.text"></div>
           <!-- Pending inline confirmation — destructive action awaits
                operator's Yes / Cancel click in-conversation. Replaces
                the SweetAlert popup that the modal palette uses. -->
           <div x-show="turn.role === 'assistant' && turn.pending_confirm"
-               class="ai-confirm-chip">
+               class="ai-confirm-chip"
+               role="alertdialog"
+               aria-live="assertive"
+               aria-atomic="true"
+               :aria-label="t('ai_sidebar.confirm_run_prompt', { action: turn.action_label })">
             <svg width="11" height="11" aria-hidden="true">
               <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-alert-triangle'"/>
             </svg>
             <span class="ai-confirm-label"
-                  x-text="t('ai_sidebar.confirm_run') + ' ' + turn.action_label + '?'"></span>
+                  x-text="t('ai_sidebar.confirm_run_prompt', { action: turn.action_label })"></span>
             <button type="button"
                     class="ai-confirm-btn ai-confirm-btn-yes"
                     @click="confirmInlineAction(idx)"
@@ -7860,14 +7946,14 @@
                so the chat history accurately reflects what happened. -->
           <div x-show="turn.role === 'assistant' && turn.cancelled"
                class="ai-bubble-action ai-bubble-action--cancelled">
-            <span x-text="t('ai_sidebar.cancelled') + ' ' + turn.action_label"></span>
+            <span x-text="t('ai_sidebar.cancelled_label', { action: turn.action_label })"></span>
           </div>
           <div x-show="turn.role === 'assistant' && turn.action_label && turn.action_ran && !turn.cancelled"
                class="ai-bubble-action">
             <svg width="10" height="10" aria-hidden="true">
               <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-check'"/>
             </svg>
-            <span x-text="t('ai_sidebar.action_ran') + ' ' + turn.action_label"></span>
+            <span x-text="t('ai_sidebar.action_ran_label', { action: turn.action_label })"></span>
           </div>
           <div x-show="turn.role === 'assistant' && !turn.error && !turn.slash"
                class="ai-bubble-feedback">
@@ -7876,12 +7962,16 @@
                     :class="turn.feedback === 'up' ? 'active-up' : ''"
                     :disabled="aiSidebarFeedbackBusy[idx]"
                     :title="t('ai_sidebar.feedback_up')"
+                    :aria-label="t('ai_sidebar.feedback_up')"
+                    :aria-pressed="turn.feedback === 'up'"
                     @click="submitAiFeedback(idx, 'up')">👍</button>
             <button type="button"
                     class="ai-feedback-btn"
                     :class="turn.feedback === 'down' ? 'active-down' : ''"
                     :disabled="aiSidebarFeedbackBusy[idx]"
                     :title="t('ai_sidebar.feedback_down')"
+                    :aria-label="t('ai_sidebar.feedback_down')"
+                    :aria-pressed="turn.feedback === 'down'"
                     @click="submitAiFeedback(idx, 'down')">👎</button>
           </div>
           <!-- Inline disk-projection charts — rendered when the AI
@@ -7923,22 +8013,22 @@
                   :class="aiSidebarSlashIdx === sIdx ? 'cmdpal-row-active' : ''"
                   @click="runAiSidebarSlashAction(act)"
                   @mouseenter="aiSidebarSlashIdx = sIdx">
-            <span class="cmdpal-kind-pill text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+            <span class="cmdpal-kind-pill fs-3xs uppercase tracking-wider px-1.5 py-0.5 rounded"
                   :class="'cmdpal-kind-' + (act.group || 'actions')"
                   x-text="t('command_palette.group.' + (act.group || 'actions')) || (act.group || 'Action')"></span>
             <span class="flex-1 min-w-0">
-              <span class="block text-[12.5px] text-[var(--text)] truncate" x-text="act.label"></span>
-              <span x-show="act.sub" class="block text-[10.5px] text-[var(--text-faint)] truncate mono" x-text="act.sub"></span>
+              <span class="block fs-sm text-[var(--text)] truncate" x-text="act.label"></span>
+              <span x-show="act.sub" class="block fs-2xs text-[var(--text-faint)] truncate mono" x-text="act.sub"></span>
             </span>
             <span x-show="act.destructive"
-                  class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                  class="fs-3xs uppercase tracking-wider px-1.5 py-0.5 rounded"
                   style="background: var(--pill-error-bg); color: var(--pill-error-fg); border: 1px solid var(--pill-error-br)"
                   x-text="t('ai_sidebar.slash_destructive')"></span>
-            <span x-show="aiSidebarSlashIdx === sIdx" class="text-[10.5px] text-[var(--text-faint)]" aria-hidden="true">↵</span>
+            <span x-show="aiSidebarSlashIdx === sIdx" class="fs-2xs text-[var(--text-faint)]" aria-hidden="true">↵</span>
           </button>
         </template>
         <div x-show="aiSidebarSlashResults().length === 0"
-             class="px-3 py-2 text-[12px] text-[var(--text-faint)] italic"
+             class="px-3 py-2 fs-sm text-[var(--text-faint)] italic"
              x-text="t('ai_sidebar.slash_no_match')"></div>
       </div>
     </div>
@@ -7954,20 +8044,20 @@
         <button type="button"
                 @click="sendAiSidebarMessage()"
                 :disabled="aiSidebarBusy || !aiSidebarQuery.trim() || !aiSidebarSurfaceEnabled() || aiSidebarSlashOpen()"
-                class="btn btn-primary text-[12px]">
+                class="btn btn-primary fs-sm">
           <span x-show="!aiSidebarBusy" x-text="t('ai_sidebar.send')"></span>
           <span x-show="aiSidebarBusy" class="flex items-center gap-1">
             <span class="spin"></span>
             <span x-text="t('ai_sidebar.send_busy')"></span>
           </span>
         </button>
-        <span class="text-[10px] text-[var(--text-faint)]"
+        <span class="fs-3xs text-[var(--text-faint)]"
               x-show="!aiSidebarSlashOpen() && aiSidebarSurfaceEnabled()"
               x-text="t('ai_sidebar.enter_hint')"></span>
-        <span class="text-[10px] text-[var(--text-faint)]"
+        <span class="fs-3xs text-[var(--text-faint)]"
               x-show="aiSidebarSlashOpen()"
               x-text="t('ai_sidebar.slash_hint')"></span>
-        <span class="text-[10.5px] text-[var(--warning)]"
+        <span class="fs-2xs text-[var(--warning)]"
               x-show="!aiSidebarSlashOpen() && !aiSidebarSurfaceEnabled()"
               x-text="t('command_palette.ai.disabled')"></span>
       </div>
@@ -7988,7 +8078,8 @@
        direct style override that beats every cascade quirk. -->
   <div :style="commandPaletteOpen ? 'display:flex' : 'display:none'"
        class="fixed inset-0 z-50 fade-in"
-       role="dialog" aria-modal="true" :aria-label="t('command_palette.dialog_label')">
+       role="dialog" aria-modal="true" :aria-label="t('command_palette.dialog_label')"
+       @keydown="_focusTrapKeydown($event, $el)">
     <div @click="closeCommandPalette()" class="absolute inset-0 backdrop-strong"></div>
     <div class="relative flex items-center justify-center p-4 w-full h-full overflow-auto scrollbar">
       <!-- Inner card uses inline style for max-height instead of
@@ -8105,7 +8196,8 @@
   <div x-show="showHotkeys" class="fixed inset-0 z-50 fade-in">
     <div @click="showHotkeys=false" class="absolute inset-0 backdrop-strong"></div>
     <div class="relative flex items-center justify-center p-4 h-full overflow-auto scrollbar"
-         role="dialog" aria-modal="true" :aria-label="t('hotkeys.title')">
+         role="dialog" aria-modal="true" :aria-label="t('hotkeys.title')"
+         @keydown="_focusTrapKeydown($event, $el)">
       <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-2xl w-full max-h-[90vh] overflow-y-auto scrollbar">
         <div class="p-4 border-b border-[var(--border)] flex justify-between items-center sticky top-0 bg-[var(--surface)] z-10">
           <div class="flex items-start gap-2">

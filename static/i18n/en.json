@@ -85,6 +85,84 @@
       "warning": "Warning",
       "error": "Error",
       "success": "Success"
+    },
+    "events": {
+      "stack_update_success": {
+        "title": "✅ Stack updated: {name}",
+        "body": ""
+      },
+      "stack_update_failure": {
+        "title": "❌ Stack update failed: {name}",
+        "body": "{error}"
+      },
+      "container_update_success": {
+        "title": "✅ Container updated: {name}",
+        "body": ""
+      },
+      "container_update_failure": {
+        "title": "❌ Container update failed: {name}",
+        "body": "{error}"
+      },
+      "container_restart_success": {
+        "title": "🔄 Container restarted: {name}",
+        "body": ""
+      },
+      "container_restart_failure": {
+        "title": "❌ Container restart failed: {name}",
+        "body": "{error}"
+      },
+      "container_remove_success": {
+        "title": "🗑 Container removed: {name}",
+        "body": ""
+      },
+      "container_remove_failure": {
+        "title": "❌ Container remove failed: {name}",
+        "body": "{error}"
+      },
+      "service_restart_success": {
+        "title": "🔄 Service restarted: {name}",
+        "body": ""
+      },
+      "service_restart_failure": {
+        "title": "❌ Service restart failed: {name}",
+        "body": "{error}"
+      },
+      "swarm_agent_restart_success": {
+        "title": "🔄 Portainer agent restarted: {name}",
+        "body": "Force-update applied; agents on every node will respawn and re-register with the manager."
+      },
+      "swarm_agent_restart_failure": {
+        "title": "❌ Portainer agent restart failed: {name}",
+        "body": "{error}"
+      },
+      "swarm_agent_unhealthy": {
+        "title": "⚠️ Swarm agent unhealthy: {name}",
+        "body": "{message}"
+      },
+      "swarm_agent_recovered": {
+        "title": "✅ Swarm agent recovered: {name}",
+        "body": "{message}"
+      },
+      "prune_success": {
+        "title": "🧹 Prune complete on {name}",
+        "body": ""
+      },
+      "prune_failure": {
+        "title": "❌ Prune failed on {name}",
+        "body": "{error}"
+      },
+      "user_login": {
+        "title": "🔓 {actor} signed in",
+        "body": ""
+      },
+      "host_paused": {
+        "title": "⚠️ Host sampling paused: {name}",
+        "body": "{error}"
+      },
+      "port_scan_new_port": {
+        "title": "🔍 New open port on {name}",
+        "body": "{message}"
+      }
     }
   },
   "topbar": {
@@ -554,6 +632,18 @@
         "test_host_required": "Enter a host or IP to test against.",
         "test_target_label": "Pick an SNMP-mapped host",
         "test_no_hosts": "Add an SNMP target alias on at least one curated host to enable the test."
+      },
+      "source_port_scan": "Port Scan",
+      "port_scan": {
+        "section_title": "Port Scan",
+        "section_desc": "On-demand TCP-connect scanner. Unlike the other providers, port scan does NOT poll continuously — it runs only when triggered from the host drawer (\"Scan ports\" button) or asked via the AI palette. Discovers what's actually listening on the host vs the operator-curated services chip strip; new opens fire a notification so unexpected ports surface without per-scan noise. Per-host opt-in via Admin → Hosts.",
+        "default_ports_label": "Default port list",
+        "default_ports_hint": "CSV with optional ranges (e.g. \"22,80,443,8000-8100\"). Empty falls back to the built-in top-100 (well-known + common app ports — http(s), ssh, plex, qbittorrent, sonarr, etc.). Per-host override on Admin → Hosts wins per row. Each range capped at 1024 ports so a typo'd \"1-65535\" can't produce a 30-minute scan.",
+        "default_timeout_label": "Per-port TCP-connect timeout (seconds)",
+        "default_timeout_hint": "Lower (1s) on a quiet LAN to finish scans faster; higher (5-10s) on flaky links so genuine listeners don't get marked closed. Range 1-30. Per-host override available.",
+        "default_concurrency_label": "Probe concurrency",
+        "default_concurrency_hint": "Parallel TCP-connect probes per scan. Higher = faster scan but louder log footprint on the target. Range 1-256. Per-host override available.",
+        "on_demand_note": "Port scan is on-demand only. There's no scheduler / sampler — every scan is operator-triggered from the host drawer or the AI palette."
       }
     },
     "language": {
@@ -1529,15 +1619,21 @@
     "clear":            "Clear",
     "clear_title":      "Clear conversation history",
     "action_ran":       "Ran:",
+    "action_ran_label": "Ran: {action}",
     "opened":           "Opened",
+    "opened_label":     "Opened {label}",
     "navigated":        "Navigated to",
+    "navigated_label":  "Navigated to {label}",
     "confirm_run":      "Run",
+    "confirm_run_prompt": "Run {action}?",
     "confirm_yes":      "Yes, run it",
     "confirm_cancel":   "Cancel",
     "cancelled":        "Cancelled",
+    "cancelled_label":  "Cancelled {action}",
     "feedback_up":      "Helpful",
     "feedback_down":    "Not helpful",
-    "error_prefix":     "Error:"
+    "error_prefix":     "Error:",
+    "error_label":      "Error: {error}"
   },
   "command_palette": {
     "dialog_label": "Command palette",
@@ -1583,6 +1679,8 @@
       "cleanup_stopped_confirm_text":  "Removes every stopped, failed, or orphaned container the dashboard can see. You'll get one more confirm before any container is actually deleted.",
       "update_all_updatable":         "Update everything updatable",
       "update_all_updatable_sub":     "Pull updates for every stack and standalone container with an update available",
+      "scan_ports":                   "Scan ports on this host",
+      "scan_ports_sub":               "On-demand TCP-connect scan against the open host drawer",
       "destructive_confirm":  "This action affects live state — proceed?"
     },
     "bulk": {
@@ -2278,6 +2376,23 @@
       "snmp_firmware": "Firmware (SNMP)",
       "snmp_title": "Reported by the device via SNMP entPhysicalTable / vendor MIBs",
       "bios_version": "BIOS"
+    },
+    "port_scan": {
+      "heading": "Port Scan",
+      "scan_button": "Scan ports",
+      "scanning": "Scanning…",
+      "scan_button_title": "Run an on-demand TCP-connect port scan against this host. Uses the host's configured port list (or the default top-100 list if unset).",
+      "last_scanned": "Last scanned {when}",
+      "no_scans_yet": "No scans yet — click \"Scan ports\" to run the first one.",
+      "detected_label": "Detected ({count})",
+      "curated_only_label": "Curated but not listening ({count})",
+      "curated_only_chip_title": "{name} is in this host's curated services but the most recent scan didn't see it open.",
+      "chip_curated_title": "{name} on port {port} — listed in curated services AND detected open.",
+      "chip_unknown_title": "Port {port} is open but isn't in the curated services list. Add it via Admin → Hosts if it's an expected listener.",
+      "scan_failed_title": "Port scan failed",
+      "scan_failed_body": "The port scan could not be completed for {host}. {error}",
+      "scan_complete_title": "Port scan complete",
+      "scan_complete_body": "Found {open_count} open ports on {host} ({new_count} new since last scan)."
     },
     "asset": {
       "location_title": "Location (from asset inventory)",

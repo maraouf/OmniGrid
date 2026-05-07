@@ -1,0 +1,321 @@
+"""Port-scanner host-stats provider — Stage 1.
+
+On-demand TCP-connect scan of a single host. Triggered from the host
+drawer or the AI palette (admin-only); never from a scheduler in
+Stage 1. Stage 2 will layer per-service follow-up actions on top of
+the bare port-discovery surface.
+
+Auth model reconnaissance (per the CLAUDE.md provider checklist):
+  * No authentication — pure TCP-connect probes against the target's
+    listening sockets. The probe IS the auth model; closed ports are
+    indistinguishable from filtered ports under TCP-connect.
+  * Unprivileged — no `cap_add: NET_RAW` plumbing required. SYN scan
+    is deliberately deferred to a future iteration.
+  * Side-effect surface — establishes a TCP handshake then closes
+    immediately. Many services log "connection from X dropped before
+    request" warnings; rate is bounded by `concurrency` so a scan of
+    a healthy box doesn't drown its logs.
+
+Public surface:
+
+* ``async scan_host(target, ports, *, timeout_s, concurrency,
+  banner_grab=False)`` — runs the scan, returns
+  ``{host, scanned_at, ports: [{port, open: bool, banner_excerpt?}],
+  duration_ms, error}``. Errors that prevent the whole scan
+  (resolution failure, connect refused on every port) populate the
+  top-level ``error`` field; per-port failures just leave that
+  port's ``open=False``.
+
+* ``DEFAULT_PORTS`` — top-100 well-known + common-app port list.
+  Operator can override via the global setting or per-host.
+
+* ``parse_port_csv(s)`` — accepts ``"22,80,443,8000-8100"`` style
+  syntax, dedupes, sorts, clamps each port to 1..65535. Used by the
+  endpoint to validate operator-supplied port lists before passing
+  to ``scan_host``.
+
+Service-hint mapping is a tiny lookup table (port → likely service
+name) covered by ``hint_for_port``. NOT a fingerprint — it's just
+"port 32400 is probably Plex" naming convenience for the SPA chip
+labels. Banner-grab opt-in (Stage 2) will replace the hint with a
+real fingerprint when the upstream supports it.
+"""
+from __future__ import annotations
+
+import asyncio
+import socket
+import time
+from typing import Iterable, Optional
+
+
+# Top-100 ports — well-known service ports + commonly-used app ports
+# (Plex, Sonarr, Radarr, qBittorrent, Portainer, Grafana, Prometheus,
+# etc.) so a fresh scan of a homelab box surfaces useful chips out of
+# the box. Operator can override via the global setting or per-host.
+DEFAULT_PORTS: tuple[int, ...] = (
+    20, 21, 22, 23, 25, 53, 67, 68, 69, 80, 110, 111, 123, 135, 137, 138, 139,
+    143, 161, 162, 179, 389, 443, 445, 465, 514, 587, 631, 636, 873, 989, 990,
+    993, 995, 1025, 1080, 1194, 1433, 1434, 1521, 1701, 1723, 1883, 1900, 2049,
+    2082, 2083, 2086, 2087, 2095, 2096, 2375, 2376, 3000, 3128, 3306, 3389,
+    3478, 3690, 4000, 4242, 4443, 4500, 4711, 4747, 4848, 5000, 5001, 5060,
+    5061, 5222, 5269, 5353, 5432, 5601, 5666, 5672, 5800, 5900, 5984, 6379,
+    6443, 6660, 6667, 6881, 6969, 7000, 7001, 7474, 7878, 8000, 8008, 8080,
+    8081, 8086, 8088, 8089, 8096, 8123, 8181, 8200, 8332, 8333, 8388, 8443,
+    8500, 8530, 8631, 8765, 8888, 8989, 9000, 9001, 9080, 9090, 9091, 9100,
+    9117, 9200, 9300, 9418, 9443, 9696, 9981, 10000, 10001, 11211, 19999,
+    25565, 27017, 27018, 32400, 32500, 41080, 50000, 51820, 53000,
+)
+
+
+# Tiny lookup table — port → likely service name. This is NAMING
+# convenience for chip labels, NOT a fingerprint. A connection to
+# port 22 might be SSH, might be a custom app squatting on a
+# well-known port; we just emit the most likely name and let the
+# operator override via `hosts_config[].services[]`.
+_PORT_HINTS: dict[int, str] = {
+    20: "ftp-data", 21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp",
+    53: "dns", 67: "dhcp", 68: "dhcp", 69: "tftp", 80: "http",
+    110: "pop3", 111: "rpcbind", 123: "ntp", 135: "msrpc", 139: "smb",
+    143: "imap", 161: "snmp", 162: "snmp-trap", 179: "bgp", 389: "ldap",
+    443: "https", 445: "smb", 465: "smtps", 514: "syslog", 587: "submission",
+    631: "ipp", 636: "ldaps", 873: "rsync", 989: "ftps-data", 990: "ftps",
+    993: "imaps", 995: "pop3s", 1025: "msrpc", 1080: "socks", 1194: "openvpn",
+    1433: "mssql", 1434: "mssql", 1521: "oracle", 1701: "l2tp", 1723: "pptp",
+    1883: "mqtt", 1900: "ssdp", 2049: "nfs", 2082: "cpanel", 2083: "cpanel-ssl",
+    2086: "whm", 2087: "whm-ssl", 2095: "webmail", 2096: "webmail-ssl",
+    2375: "docker", 2376: "docker-ssl", 3000: "grafana", 3128: "squid",
+    3306: "mysql", 3389: "rdp", 3478: "stun", 3690: "svn", 4000: "icq",
+    4242: "graphite", 4443: "https-alt", 4500: "ipsec", 4711: "mcsmadm",
+    4747: "buschtrommel", 4848: "glassfish", 5000: "upnp", 5001: "synology",
+    5060: "sip", 5061: "sips", 5222: "xmpp-c2s", 5269: "xmpp-s2s",
+    5353: "mdns", 5432: "postgres", 5601: "kibana", 5666: "nrpe",
+    5672: "amqp", 5800: "vnc-http", 5900: "vnc", 5984: "couchdb",
+    6379: "redis", 6443: "kubernetes", 6660: "irc", 6667: "irc",
+    6881: "bittorrent", 6969: "bittorrent-tracker", 7000: "afs",
+    7001: "weblogic", 7474: "neo4j", 7878: "radarr", 8000: "http-alt",
+    8008: "http-alt", 8080: "http-alt", 8081: "http-alt", 8086: "influxdb",
+    8088: "http-alt", 8089: "splunk", 8096: "jellyfin", 8123: "homeassistant",
+    8181: "http-alt", 8200: "vault", 8332: "bitcoin", 8333: "bitcoin",
+    8388: "shadowsocks", 8443: "https-alt", 8500: "consul", 8530: "wsus",
+    8631: "ipp-alt", 8765: "http-alt", 8888: "http-alt", 8989: "sonarr",
+    9000: "portainer", 9001: "portainer-edge", 9080: "http-alt",
+    9090: "prometheus", 9091: "qbittorrent", 9100: "node-exporter",
+    9117: "jackett", 9200: "elasticsearch", 9300: "elasticsearch",
+    9418: "git", 9443: "portainer-https", 9696: "prowlarr", 9981: "tvheadend",
+    10000: "webmin", 10001: "ubiquiti", 11211: "memcached",
+    19999: "netdata", 25565: "minecraft", 27017: "mongodb", 27018: "mongodb",
+    32400: "plex", 32500: "plex", 41080: "deluge", 50000: "jenkins",
+    51820: "wireguard", 53000: "tautulli",
+}
+
+
+def hint_for_port(port: int) -> str:
+    """Return a likely service name for the given port, or empty
+    string when the port isn't in the lookup table. Naming convenience
+    for chip labels — the SPA falls back to "port <N>" when this
+    returns empty.
+    """
+    return _PORT_HINTS.get(int(port or 0), "")
+
+
+def parse_port_csv(s: str) -> list[int]:
+    """Parse the operator-supplied port string into a clean ascending
+    list of unique ports. Accepts comma-separated single ports
+    AND ``low-high`` ranges:
+
+        "22,80,443,8000-8010" → [22, 80, 443, 8000, 8001, ..., 8010]
+
+    Each port clamps to 1..65535. Invalid tokens silently drop. Empty
+    input → empty list (caller falls back to ``DEFAULT_PORTS``).
+    Range upper bounds clamp to 1024 ports per range to avoid the
+    operator typing ``1-65535`` and producing a 30-minute scan.
+    """
+    if not s:
+        return []
+    seen: set[int] = set()
+    for tok in str(s).split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        if "-" in tok:
+            try:
+                lo_s, hi_s = tok.split("-", 1)
+                lo = max(1, min(65535, int(lo_s.strip())))
+                hi = max(1, min(65535, int(hi_s.strip())))
+            except (TypeError, ValueError):
+                continue
+            if hi < lo:
+                lo, hi = hi, lo
+            # Cap each range at 1024 ports — operator typing
+            # `1-65535` shouldn't produce a 30-minute scan.
+            hi = min(hi, lo + 1024 - 1)
+            for p in range(lo, hi + 1):
+                seen.add(p)
+        else:
+            try:
+                p = int(tok)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= p <= 65535:
+                seen.add(p)
+    return sorted(seen)
+
+
+async def _probe_one_port(host: str, port: int, timeout_s: float,
+                           banner_grab: bool) -> dict:
+    """Probe one port. Returns a dict shape suitable for inclusion in
+    the scan result's ``ports`` array. ``open: True`` means the TCP
+    handshake completed; ``open: False`` covers timeout / refused /
+    network unreachable.
+    """
+    out: dict = {"port": int(port), "open": False}
+    writer = None
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout_s,
+        )
+        out["open"] = True
+        if banner_grab:
+            # Read up to 256 bytes with a tight 1.5s timeout — enough
+            # for an SSH banner / HTTP greeting / SMTP welcome line
+            # without holding the slot for slow services. Best-effort:
+            # services that don't speak first (HTTP without a request)
+            # time out and we move on with no banner.
+            try:
+                data = await asyncio.wait_for(reader.read(256), timeout=1.5)
+                if data:
+                    text = data.decode("utf-8", errors="replace").strip()
+                    # Strip control chars; cap at 200 chars so the JSON
+                    # payload stays compact.
+                    text = "".join(c for c in text if c.isprintable() or c in " \t")
+                    if text:
+                        out["banner_excerpt"] = text[:200]
+            except (asyncio.TimeoutError, OSError):
+                pass
+    except asyncio.TimeoutError:
+        pass
+    except ConnectionRefusedError:
+        pass
+    except (socket.gaierror, OSError):
+        pass
+    finally:
+        if writer is not None:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+    return out
+
+
+async def scan_host(
+    target: str,
+    ports: Iterable[int],
+    *,
+    timeout_s: float = 2.0,
+    concurrency: int = 32,
+    banner_grab: bool = False,
+) -> dict:
+    """Run an asyncio TCP-connect scan against ``target``.
+
+    Returns ``{host, scanned_at, ports: [{port, open, banner_excerpt?}],
+    duration_ms, error}``. The result includes EVERY scanned port
+    (open + closed) so the caller can diff against the previous scan
+    without an additional "what was scanned" payload.
+
+    ``concurrency`` caps the in-flight probes via a Semaphore. For a
+    well-loaded firewall a tighter cap (8-16) is friendlier; for a
+    homelab box on a quiet LAN, 32-64 finishes faster.
+    """
+    if not target:
+        return {
+            "host": target or "",
+            "scanned_at": int(time.time()),
+            "ports": [],
+            "duration_ms": 0,
+            "error": "no target",
+        }
+    port_list = sorted({int(p) for p in ports if isinstance(p, int) or str(p).isdigit()})
+    if not port_list:
+        port_list = list(DEFAULT_PORTS)
+    timeout_s = max(0.1, min(30.0, float(timeout_s or 2.0)))
+    concurrency = max(1, min(256, int(concurrency or 32)))
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _bounded(p: int) -> dict:
+        async with sem:
+            return await _probe_one_port(target, p, timeout_s, banner_grab)
+
+    t0 = time.monotonic()
+    try:
+        results = await asyncio.gather(*[_bounded(p) for p in port_list])
+        err = None
+    except Exception as e:  # noqa: BLE001
+        results = []
+        err = f"scan failed: {type(e).__name__}: {e}"
+    duration_ms = int((time.monotonic() - t0) * 1000.0)
+    # Sort by port for deterministic output.
+    results.sort(key=lambda r: r.get("port", 0))
+    return {
+        "host":        target,
+        "scanned_at":  int(time.time()),
+        "ports":       results,
+        "duration_ms": duration_ms,
+        "error":       err,
+    }
+
+
+def open_ports_only(scan_result: dict) -> list[dict]:
+    """Convenience filter: return only the open-port entries from a
+    scan result, each enriched with the service hint. Used by the
+    endpoint when persisting to ``host_port_scans`` (only open ports
+    get rows; closed-port rows would balloon the table on a /16
+    range scan).
+    """
+    out: list[dict] = []
+    for p in (scan_result.get("ports") or []):
+        if p.get("open"):
+            port_num = int(p.get("port") or 0)
+            out.append({
+                "port":           port_num,
+                "service_hint":   hint_for_port(port_num),
+                "banner_excerpt": p.get("banner_excerpt") or "",
+            })
+    return out
+
+
+def diff_against_curated(open_ports: list[dict],
+                          curated_services: Optional[list[dict]]) -> dict:
+    """Diff a scan's open-port list against the operator's curated
+    ``hosts_config[].services[]`` list. Returns
+    ``{both: [...], detected_only: [...], curated_only: [...]}`` —
+    each entry from `open_ports` is classified by whether the same
+    port number appears in the curated list. ``curated_only`` carries
+    curated services that DIDN'T match any open port (the listening
+    service may have died, OR the curated entry is for a port not in
+    the scan's port range).
+    """
+    curated = curated_services if isinstance(curated_services, list) else []
+    curated_ports = {int(s.get("port") or 0): s for s in curated if isinstance(s, dict)}
+    both: list[dict] = []
+    detected_only: list[dict] = []
+    matched_curated_ports: set[int] = set()
+    for p in open_ports:
+        pnum = int(p.get("port") or 0)
+        if pnum in curated_ports:
+            matched_curated_ports.add(pnum)
+            both.append({
+                **p,
+                "curated": curated_ports[pnum],
+            })
+        else:
+            detected_only.append(p)
+    curated_only = [
+        s for pnum, s in curated_ports.items()
+        if pnum not in matched_curated_ports
+    ]
+    return {
+        "both":          both,
+        "detected_only": detected_only,
+        "curated_only":  curated_only,
+    }
