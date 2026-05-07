@@ -1721,6 +1721,62 @@ function app() {
         try { localStorage.setItem('hostHistoryRange', String(v)); } catch (_) {}
         this.persistHostHistoryRange(v);
       });
+      // AI-sidebar textarea — vanilla input listener that throttles
+      // `aiSidebarQuery` updates to once every ~300 ms. Pre-fix the
+      // textarea used `x-model.debounce.150ms` which still routed
+      // every keystroke through Alpine's reactivity (debouncing only
+      // delays the SETTER; Alpine still wires up reactive
+      // dependencies on every keystroke), AND a `@input="aiSidebarSlashIdx = 0"`
+      // handler that wrote to a second reactive field per keystroke.
+      // On this complex page (1900+ binding sites) even cheap state
+      // writes registered as visible typing lag. The vanilla path
+      // skips Alpine entirely until the throttle fires; typing feels
+      // native because the browser owns the keystroke handling
+      // exclusively. The `$nextTick` wrap defers attachment until
+      // the textarea is in the DOM (the sidebar markup is gated by
+      // `aiSidebarOpen` x-show, which is initially false — but the
+      // textarea is always present even when hidden).
+      this.$nextTick(() => {
+        const el = document.getElementById('og-ai-sidebar-input');
+        if (!el) return;
+        let pendingTimer = null;
+        const flushSoon = () => {
+          if (pendingTimer) return;  // already scheduled
+          pendingTimer = setTimeout(() => {
+            pendingTimer = null;
+            const value = el.value || '';
+            if (value !== this.aiSidebarQuery) {
+              this.aiSidebarQuery = value;
+              // Reset slash-picker selection when the query changes
+              // (slash-results may produce a different ordered list).
+              if (this.aiSidebarSlashIdx !== 0) {
+                this.aiSidebarSlashIdx = 0;
+              }
+            }
+          }, 300);
+        };
+        el.addEventListener('input', flushSoon);
+        // Sync immediately on blur — operators expect "click Send"
+        // after typing to send the FULL text without the 300 ms
+        // settle window. The Enter-press handler also reads
+        // `e.target.value` directly via `aiSidebarHandleKeydown`,
+        // so this is belt-and-braces for the click-Send path.
+        el.addEventListener('blur', () => {
+          if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+          if (el.value !== this.aiSidebarQuery) {
+            this.aiSidebarQuery = el.value || '';
+          }
+        });
+        // Track the listener / timer so destroy paths can clean up
+        // (today the SPA doesn't tear down components, but if a
+        // future refactor introduces hot-reload semantics this
+        // hook makes the cleanup obvious).
+        this._aiSidebarInputCleanup = () => {
+          if (pendingTimer) clearTimeout(pendingTimer);
+          el.removeEventListener('input', flushSoon);
+        };
+      });
+
       // Persistence safety net — `aiConversation` mutations should
       // ideally call `persistAiConversation()` explicitly (every push
       // site does), but Alpine's $watch on an array doesn't reliably
@@ -13823,7 +13879,7 @@ function app() {
       const chip = this.aiSidebarIncidentChip;
       if (!chip || !chip.query) return;
       this.aiSidebarIncidentChip = null;
-      this.aiSidebarQuery = chip.query;
+      this._setAiSidebarQuery(chip.query);
       // Focus the input so the operator sees the populated query
       // before send (allows last-second edit), then fire on the
       // next tick so the textarea reflects the value.
@@ -13979,7 +14035,7 @@ function app() {
       // database, just clear screen, but previous conversations is
       // there so we can learn from it".
       this.aiConversation = [];
-      this.aiSidebarQuery = '';
+      this._setAiSidebarQuery('');
       this.aiSidebarFeedbackBusy = {};
       const cutoff = Date.now();
       // Keep the in-memory cutoff so any turn pushed AFTER Clear (a
@@ -14037,7 +14093,7 @@ function app() {
         text: q,
         ts:   Date.now(),
       });
-      this.aiSidebarQuery = '';
+      this._setAiSidebarQuery('');
       this.aiSidebarBusy = true;
       this._scrollAiSidebarToBottom();
       // Persist the user turn IMMEDIATELY — pre-fix `persistAiConversation`
@@ -14255,7 +14311,7 @@ function app() {
         }
         if (e.key === 'Escape') {
           e.preventDefault();
-          this.aiSidebarQuery = '';
+          this._setAiSidebarQuery('');
           return;
         }
       }
@@ -14288,7 +14344,7 @@ function app() {
         for (let i = turns.length - 1; i >= 0; i--) {
           if (turns[i] && turns[i].role === 'user' && turns[i].text) {
             e.preventDefault();
-            this.aiSidebarQuery = turns[i].text;
+            this._setAiSidebarQuery(turns[i].text);
             // Move caret to end after the next tick so the operator
             // can immediately edit / submit without arrow-keying.
             this.$nextTick(() => {
@@ -14309,6 +14365,20 @@ function app() {
     // through the AI. Same `_commandActions()` catalog as Cmd-K, same
     // `_runCommandPaletteAction()` dispatcher (destructive actions
     // still confirm via SweetAlert).
+    // Write `value` to BOTH the reactive `aiSidebarQuery` state AND
+    // the textarea DOM element. Needed because the textarea is now
+    // fully uncontrolled — clearing/recalling state without also
+    // updating the DOM would leave stale text in the input. Used by
+    // clear / send-success / arrow-up-recall / incident-chip-recall
+    // paths.
+    _setAiSidebarQuery(value) {
+      const v = value || '';
+      this.aiSidebarQuery = v;
+      try {
+        const el = document.getElementById('og-ai-sidebar-input');
+        if (el && el.value !== v) el.value = v;
+      } catch (_) {}
+    },
     aiSidebarSlashOpen() {
       const q = (this.aiSidebarQuery || '').trimStart();
       return q.startsWith('/');
@@ -14432,7 +14502,7 @@ function app() {
       // logs WHAT the operator picked so the chat history is honest
       // ("Ran: Switch to dark theme" / "Opened host: web01.example").
       if (!result) return;
-      this.aiSidebarQuery = '';
+      this._setAiSidebarQuery('');
       this.aiSidebarSlashIdx = 0;
       const kind = result.kind;
       // Helper — close the drawer for navigation kinds so the operator
@@ -14521,7 +14591,7 @@ function app() {
         case 'ai':
           // Operator typed `/<question>` and selected the AI fallback
           // row. Route through the same chat path as a regular send.
-          this.aiSidebarQuery = result.payload && result.payload.query || '';
+          this._setAiSidebarQuery((result.payload && result.payload.query) || '');
           this.sendAiSidebarMessage();
           break;
         default:
