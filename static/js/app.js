@@ -13491,21 +13491,24 @@ function app() {
       // the proxy fetched a payload, include the compact summary so
       // the AI can answer "what's the weather like?" without refusing
       // ("we have weather service in the app" — operator-flagged).
-      // Skip cleanly when disabled / not yet loaded so the prompt
-      // doesn't carry stale or empty payloads.
+      // Field names match `/api/weather`'s actual response shape:
+      // `temp_c`, `humidity`, `wind_kmh`, `code`, `condition`,
+      // `icon`, `label`, `fetched_at`. Skip cleanly when disabled /
+      // not yet loaded so the prompt doesn't carry stale or empty
+      // payloads.
       let weatherCtx = null;
       const w = this.weather;
-      if (w && (w.temperature_2m !== undefined || w.weathercode !== undefined || w.label)) {
+      if (w && w.configured !== false
+          && (w.temp_c !== undefined || w.condition !== undefined || w.label)) {
         weatherCtx = {
           label:        w.label || this.headerWeatherLabel || '',
-          temperature:  Number.isFinite(+w.temperature_2m) ? Math.round(+w.temperature_2m * 10) / 10 : null,
-          unit:         w.temperature_unit || '°C',
-          feels_like:   Number.isFinite(+w.apparent_temperature) ? Math.round(+w.apparent_temperature * 10) / 10 : null,
-          humidity:     Number.isFinite(+w.relative_humidity_2m) ? Math.round(+w.relative_humidity_2m) : null,
-          wind_kmh:     Number.isFinite(+w.wind_speed_10m) ? Math.round(+w.wind_speed_10m) : null,
-          weathercode:  Number.isFinite(+w.weathercode) ? +w.weathercode : null,
-          description:  (typeof this.weatherDescription === 'function') ? this.weatherDescription(w.weathercode) : '',
-          updated_at:   w.timestamp || w.time || null,
+          temperature:  Number.isFinite(+w.temp_c) ? Math.round(+w.temp_c * 10) / 10 : null,
+          unit:         '°C',
+          condition:    w.condition || '',
+          humidity:     Number.isFinite(+w.humidity) ? Math.round(+w.humidity) : null,
+          wind_kmh:     Number.isFinite(+w.wind_kmh) ? Math.round(+w.wind_kmh) : null,
+          weather_code: Number.isFinite(+w.code) ? +w.code : null,
+          fetched_at:   Number.isFinite(+w.fetched_at) ? +w.fetched_at : null,
         };
       }
       const ctx = {

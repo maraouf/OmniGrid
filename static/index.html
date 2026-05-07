@@ -2175,7 +2175,7 @@
                 <template x-for="p in providerStates(h)" :key="p.name">
                   <span class="chip text-[9.5px] px-1 py-0"
                         :class="p.state === 'failing' ? 'pill-error'
-                                : (p.state === 'paused' ? 'pill-warning'
+                                : (p.state === 'paused' ? 'pill-muted'
                                 : (p.state === 'loading' ? 'pill-custom chip-loading' : 'pill-custom'))"
                         :style="(p.state === 'failing' || p.state === 'paused') ? '' : providerChipStyle(p.name)"
                         :title="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: p.name, count: p.consecutive_failures, error: p.last_error || '—' })
@@ -2463,7 +2463,7 @@
                     <template x-for="p in providerStates(h)" :key="p.name">
                       <span class="chip text-[9.5px] px-1 py-0"
                             :class="p.state === 'failing' ? 'pill-error'
-                                    : (p.state === 'paused' ? 'pill-warning'
+                                    : (p.state === 'paused' ? 'pill-muted'
                                     : (p.state === 'loading' ? 'pill-custom chip-loading' : 'pill-custom'))"
                             :style="(p.state === 'failing' || p.state === 'paused') ? '' : providerChipStyle(p.name)"
                             :title="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: p.name, count: p.consecutive_failures, error: p.last_error || '—' })
