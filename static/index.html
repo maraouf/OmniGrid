@@ -7891,20 +7891,6 @@
         <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-message-circle'"/>
       </svg>
       <h3 x-text="t('ai_sidebar.title')"></h3>
-      <!-- Mode toggle — Approval (default) vs Autonomous. Approval
-           surfaces an inline-confirm chip on destructive actions;
-           Autonomous fires every action directly. Persisted to
-           ui_prefs.ai_sidebar_mode via setAiSidebarMode(). Compact
-           dropdown so it doesn't dominate the header — full
-           description lives in the :title tooltip. -->
-      <select class="ai-sidebar-mode-select fs-3xs mono"
-              :value="aiSidebarMode"
-              @change="setAiSidebarMode($event.target.value)"
-              :title="aiSidebarMode === 'autonomous' ? t('ai_sidebar.mode_autonomous_title') : t('ai_sidebar.mode_approval_title')"
-              :aria-label="t('ai_sidebar.mode_label')">
-        <option value="approval"   x-text="t('ai_sidebar.mode_approval')"></option>
-        <option value="autonomous" x-text="t('ai_sidebar.mode_autonomous')"></option>
-      </select>
       <!-- Export buttons — icon-only to keep the sidebar header
            compact. Tooltip + aria-label both carry the localised
            description so screen readers + mouse-hover users still
@@ -8136,6 +8122,19 @@
             <span x-text="t('ai_sidebar.send_busy')"></span>
           </span>
         </button>
+        <!-- Mode toggle — Approval (default) vs Autonomous. Sits in
+             the send-button row so it's adjacent to the action that
+             will fire (Send → action). Same `fs-sm` size as the Send
+             button so the row reads as one unit instead of two
+             different typographic scales. -->
+        <select class="ai-sidebar-mode-select fs-sm"
+                :value="aiSidebarMode"
+                @change="setAiSidebarMode($event.target.value)"
+                :title="aiSidebarMode === 'autonomous' ? t('ai_sidebar.mode_autonomous_title') : t('ai_sidebar.mode_approval_title')"
+                :aria-label="t('ai_sidebar.mode_label')">
+          <option value="approval"   x-text="t('ai_sidebar.mode_approval')"></option>
+          <option value="autonomous" x-text="t('ai_sidebar.mode_autonomous')"></option>
+        </select>
         <span class="fs-3xs text-[var(--text-faint)]"
               x-show="!aiSidebarSlashOpen() && aiSidebarSurfaceEnabled()"
               x-text="t('ai_sidebar.enter_hint')"></span>

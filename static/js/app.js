@@ -14319,6 +14319,16 @@ function app() {
         update_all:           'update-all-updatable',
         update_stacks:        'update-all-updatable',
         upgrade_all:          'update-all-updatable',
+        // Port-scan + per-provider Test connection actions —
+        // recently added to ALLOWED_PALETTE_ACTIONS in the backend
+        // (`logic/ai.py`); the SPA's catalog uses kebab ids so the
+        // alias map translates the snake-case the AI emits.
+        scan_ports:           'scan-ports',
+        test_portainer:       'test-portainer',
+        test_oidc:            'test-oidc',
+        test_beszel:          'test-beszel',
+        test_pulse:           'test-pulse',
+        test_webmin:          'test-webmin',
       };
       const target = aliasMap[id] || kebab;
       const all = (typeof this._commandActions === 'function')
@@ -14354,7 +14364,22 @@ function app() {
     async _populateAiSidebarHostChart(hostId, turnTs) {
       const safeAttr = String(hostId).replace(/[^A-Za-z0-9_.-]/g, '_');
       const sel = '[data-disk-host="' + safeAttr + '"][data-turn-ts="' + turnTs + '"]';
-      const shell = document.querySelector(sel);
+      // Retry loop — on init hydration the shells render via Alpine
+      // `x-html` AFTER the parent `x-for` settles, which can take
+      // multiple animation frames when restoring 50 turns from
+      // `ui_prefs.ai_conversation`. The previous single-tick lookup
+      // returned null on cold load and the spinner sat forever.
+      // Wait up to ~1500ms (8 attempts × 200ms) for the shell to
+      // appear; if it still isn't there, it likely never will be
+      // (the bubble's x-show gate evaluated false — host_ids was
+      // empty after rehydration), so silently return.
+      let shell = document.querySelector(sel);
+      let waited = 0;
+      while (!shell && waited < 1500) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        waited += 200;
+        shell = document.querySelector(sel);
+      }
       if (!shell) return;
       try {
         const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/disk-projection');

@@ -812,6 +812,22 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     "cleanup_stopped",
     "update_all_updatable",
     "sign_out",
+    # On-demand port scan against the currently-open host drawer.
+    # SPA-side gate (master toggle + drawer-open + admin role) lives
+    # in `_commandActions()`; the AI emitting `ACTION: scan_ports` is
+    # honoured only when the SPA-side gate would otherwise pass.
+    "scan_ports",
+    # Re-test connection actions for each integration. SPA-callable
+    # via `_commandActions()` (one entry per provider when the SPA
+    # has the matching test handler). The AI can fire them when the
+    # operator says "test the Portainer connection" / "re-test
+    # Beszel". Each handler navigates to the relevant Admin tab AND
+    # kicks off the probe so the result chip appears in context.
+    "test_portainer",
+    "test_oidc",
+    "test_beszel",
+    "test_pulse",
+    "test_webmin",
 })
 
 
@@ -942,6 +958,12 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - cleanup_stopped — remove every stopped / failed / orphaned container the dashboard can see. Operator-friendly synonyms: 'cleanup', 'clean up', 'purge', 'prune', 'remove stopped containers', 'package cleanup' (loose match — there is no package-level cleanup, only container cleanup). (Destructive — the SPA still confirms before issuing the rm batch, so picking this is safe.)\n"
     " - update_all_updatable — pull updates for every stack and standalone container that currently has an available update. Operator synonyms: 'update stacks', 'update all', 'update everything', 'pull updates', 'upgrade', 'upgrade everything', 'deploy updates', 'apply updates'. The SPA dedupes by stack id (one POST per stack, not per service), shows a confirm popup listing each affected stack/container, then issues the batch. (Destructive — the SPA confirms before issuing the update batch, so picking this is safe.)\n"
     " - sign_out — log out of OmniGrid\n"
+    " - scan_ports — run an on-demand TCP-connect port scan against the host whose drawer is currently open. Synonyms: 'scan ports', 'port scan', 'tcp scan', 'discover open ports', 'nmap'. Only valid when the operator has a host drawer open AND the master toggle (Admin → Port Scan) is on; if either gate fails the SPA returns a no-op + toast.\n"
+    " - test_portainer — re-test the Portainer connection. Navigates to Admin → Portainer and kicks the probe. Synonyms: 'test portainer', 'portainer test', 'check portainer'.\n"
+    " - test_oidc — re-test the Authentik OIDC connection. Navigates to Admin → Authentik OIDC and kicks the probe. Synonyms: 'test oidc', 'test authentik', 'test sso'.\n"
+    " - test_beszel — re-test the Beszel hub connection. Navigates to Admin → Providers → Beszel and kicks the probe. Synonyms: 'test beszel', 'check beszel'.\n"
+    " - test_pulse — re-test the Pulse connection. Navigates to Admin → Providers → Pulse and kicks the probe. Synonyms: 'test pulse', 'check pulse'.\n"
+    " - test_webmin — re-test the Webmin connection. Navigates to Admin → Providers → Webmin and kicks the probe. Synonyms: 'test webmin', 'check webmin'.\n"
     "Example single-action reply: 'I'll mark every notification as read for you.\\n"
     "ACTION: mark_all_notifications_read'\n"
     "Example multi-action reply (\"refresh and cleanup\"): 'Refreshing the dashboard, then opening the cleanup confirm.\\n"
