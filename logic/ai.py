@@ -902,6 +902,20 @@ PALETTE_SYSTEM_PROMPT: str = (
     "If the operator corrects you (\"I asked for hosts not nodes\"), "
     "do NOT explain that they're the same thing — they're not — "
     "answer from the Available hosts JSON.\n\n"
+    "RECENT LOG SIGNALS. The user_prompt may carry a 'Recent log "
+    "signals' block listing the last 30 ERROR / WARN lines from "
+    "OmniGrid's in-process log ring (same source as Admin → Logs). "
+    "When the operator asks 'any errors I should fix?' / 'check "
+    "logs' / 'anything wrong?', READ THAT BLOCK and answer with "
+    "concrete log evidence — quote the actual log lines (truncated "
+    "to a sentence each) and group by tag (`[beszel]` / `[snmp]` / "
+    "`[port_scan]` / etc.) so the operator can correlate. Don't "
+    "claim 'I can't check logs directly' — the block IS your log "
+    "view. When the block is ABSENT (rare — only on a fresh boot "
+    "with empty buffer) say so explicitly: 'No errors or warnings "
+    "in the last 30 entries — your fleet looks clean.' Pointer "
+    "operators at Admin → Logs for the full history; the block "
+    "you see is the most-recent slice.\n\n"
     "STALE-DATA HINTS. Some host records carry `stale: true` plus "
     "`stale_age_s` (age of the snapshot in seconds) and `stale_fields` "
     "(which axes — cpu_pct / mem_pct / disk_pct / uptime_s — were "
@@ -1357,6 +1371,33 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                         "multi-day questions like 'next 5 days' / 'this week' / 'tomorrow'):\n"
                         + "\n".join(lines)
                     )
+        # Recent log signals — last N error/warn lines from the
+        # in-process log ring buffer. Populated by the palette
+        # endpoint via `logic.logs.recent_lines(levels=[error, warn])`
+        # so the AI can honestly answer "any errors I should fix?"
+        # / "anything in the logs?" instead of falsely claiming it
+        # has no log access. Each line is a compact `LEVEL  TEXT`
+        # row capped at ~200 chars; the full log lives in Admin →
+        # Logs (which the AI can point operators at).
+        recent_logs = ctx.get("recent_logs") if isinstance(ctx.get("recent_logs"), list) else None
+        if recent_logs:
+            log_lines = []
+            for entry in recent_logs[-50:]:
+                if not isinstance(entry, dict):
+                    continue
+                lvl = (entry.get("level") or "").upper()
+                txt = (entry.get("text") or "").strip()
+                if not txt:
+                    continue
+                if len(txt) > 200:
+                    txt = txt[:200] + "…"
+                log_lines.append(f"{lvl:<7} {txt}")
+            if log_lines:
+                parts.append(
+                    "Recent log signals (last error / warn lines from the "
+                    "in-process buffer; full log at Admin → Logs):\n"
+                    + "\n".join(log_lines)
+                )
     return "\n".join(p for p in parts if p)
 
 

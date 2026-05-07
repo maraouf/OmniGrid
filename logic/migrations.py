@@ -402,8 +402,41 @@ def _migration_003_history_target_kind(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_004_port_scan_protocol_column(conn: sqlite3.Connection) -> None:
+    """Add ``protocol`` column to ``host_port_scans`` so Stage 2 UDP
+    scans can land in the same table as Stage 1 TCP scans.
+
+    Stage 1 only persisted TCP probe results; Stage 2 introduces UDP
+    via `logic/port_scanner_udp.py`. Both protocol families share
+    the same logical schema (port + service hint + banner excerpt
+    per detected open port) — the only delta is the protocol
+    family. Rather than fork into a parallel `host_port_scans_udp`
+    table (which would split the History detail viewer + the merge
+    layer's "latest open ports for this host" lookup), we add a
+    single nullable ``protocol`` column. Legacy rows (NULL) are
+    treated as 'tcp' downstream for backwards-compatibility; new
+    rows explicitly stamp 'tcp' or 'udp'.
+
+    Idempotent — ALTER inside try/except so a re-run is a no-op.
+    """
+    try:
+        conn.execute(
+            "ALTER TABLE host_port_scans ADD COLUMN protocol TEXT"
+        )
+    except sqlite3.OperationalError:
+        # Column already exists.
+        pass
+    # Backfill legacy NULL rows with 'tcp' so downstream readers can
+    # group cleanly without coalescing in every query.
+    conn.execute(
+        "UPDATE host_port_scans SET protocol = 'tcp' "
+        "WHERE protocol IS NULL"
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, MigrationFn]] = [
     (1, "flip_ssh_per_host_to_opt_in", _migration_001_flip_ssh_per_host_to_opt_in),
     (2, "split_provider_host_pk", _migration_002_split_provider_host_pk),
     (3, "history_target_kind", _migration_003_history_target_kind),
+    (4, "port_scan_protocol_column", _migration_004_port_scan_protocol_column),
 ]

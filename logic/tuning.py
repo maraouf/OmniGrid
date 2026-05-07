@@ -158,6 +158,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # that don't speak first (HTTP without a request) hit this
     # timeout and get skipped with no banner. Range 1..30.
     "tuning_port_scan_banner_read_seconds": ("PORT_SCAN_BANNER_READ_SECONDS", 2, 1, 30),
+    # Port-scan UDP companion (Stage 2). UDP is connectionless, so
+    # the timeout regime + concurrency are different from TCP — UDP
+    # probes wait the FULL window with no early "handshake completed"
+    # signal, and probe traffic is more conspicuous on the wire.
+    # Per-port timeout (seconds): 1..30, default 3 — longer than
+    # TCP's 2s because UDP can't short-circuit on a quick refusal.
+    "tuning_port_scan_udp_default_timeout_seconds": ("PORT_SCAN_UDP_DEFAULT_TIMEOUT_SECONDS", 3, 1, 30),
+    # Probe concurrency: 1..64, default 8 — friendlier cap than TCP's
+    # 32 because UDP probes are more visible to the target's IDS /
+    # firewall logging.
+    "tuning_port_scan_udp_default_concurrency": ("PORT_SCAN_UDP_DEFAULT_CONCURRENCY", 8, 1, 64),
     # SSE heartbeat cadence (seconds). The /api/events stream
     # emits a `: keepalive\n\n` comment every N seconds so an idle NPM
     # / cloudflare proxy doesn't drop the connection on its own
