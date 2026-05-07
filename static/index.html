@@ -4309,11 +4309,11 @@
                       <div class="text-[var(--text-dim)] text-[11px] mb-1"
                            x-text="t('host_drawer.port_scan.detected_label', { count: (h.detected_ports || []).length })"></div>
                       <div class="flex flex-wrap gap-1.5">
-                        <template x-for="p in (h.detected_ports || [])" :key="p.port">
+                        <template x-for="p in (h.detected_ports || [])" :key="(p.protocol || 'tcp') + ':' + p.port">
                           <span class="chip text-[11px] mono"
                                 :class="portScanChipClass(h, p)"
                                 :title="portScanChipTitle(h, p)">
-                            <span x-text="p.port"></span>
+                            <span x-text="p.port + '/' + (p.protocol || 'tcp')"></span>
                             <span x-show="p.service_hint" class="ms-1 opacity-70"
                                   x-text="'· ' + p.service_hint"></span>
                           </span>

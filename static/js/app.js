@@ -1211,6 +1211,11 @@ function app() {
       'tuning_port_scan_default_concurrency',
       'tuning_port_scan_max_seconds',
       'tuning_port_scan_banner_read_seconds',
+      // Stage 2 — UDP tunables. Surfaced from Admin → Port Scan
+      // alongside their TCP counterparts; both flow through the
+      // generic tuning form so the bounds-chips UI lights up.
+      'tuning_port_scan_udp_default_timeout_seconds',
+      'tuning_port_scan_udp_default_concurrency',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -3237,6 +3242,10 @@ function app() {
         // `hosts_config[].port_scan` and ride `saveHostsConfig`.
         'port_scan_enabled', 'port_scan_default_ports',
         'port_scan_default_timeout', 'port_scan_default_concurrency',
+        // Port-scan UDP companion (Stage 2). Secondary toggle nested
+        // under the master `port_scan_enabled`; default UDP ports +
+        // tunables follow the same dirty-tracker contract.
+        'port_scan_udp_enabled', 'port_scan_udp_default_ports',
         // SNMP. v3 secret keys behave like beszel_password /
         // webmin_password — `_set` flag indicates persisted state, the
         // `*_key` strings are blanked on the form so any typed value
@@ -3404,6 +3413,12 @@ function app() {
       }
       if (this.settings.port_scan_default_ports !== undefined) {
         payload.port_scan_default_ports = String(this.settings.port_scan_default_ports || '').trim();
+      }
+      if (this.settings.port_scan_udp_enabled !== undefined) {
+        payload.port_scan_udp_enabled = !!this.settings.port_scan_udp_enabled;
+      }
+      if (this.settings.port_scan_udp_default_ports !== undefined) {
+        payload.port_scan_udp_default_ports = String(this.settings.port_scan_udp_default_ports || '').trim();
       }
       if (this.settings.port_scan_default_timeout !== undefined
           && this.settings.port_scan_default_timeout !== '') {
@@ -5687,6 +5702,9 @@ function app() {
           // overrides on `hosts_config[].port_scan`.
           port_scan_enabled:            !!(d.port_scan && d.port_scan.enabled),
           port_scan_default_ports:      (d.port_scan && d.port_scan.default_ports) || '',
+          // Port-scan UDP companion (Stage 2).
+          port_scan_udp_enabled:        !!(d.port_scan && d.port_scan.udp_enabled),
+          port_scan_udp_default_ports:  (d.port_scan && d.port_scan.udp_default_ports) || '',
           port_scan_default_timeout:    (d.port_scan && Number.isFinite(d.port_scan.default_timeout)) ? d.port_scan.default_timeout : 2,
           port_scan_default_concurrency: (d.port_scan && Number.isFinite(d.port_scan.default_concurrency)) ? d.port_scan.default_concurrency : 32,
           // SNMP provider. v3 secret keys flow as `_set` flags
@@ -8686,9 +8704,11 @@ function app() {
         }
         const rows = ports.map(p => {
           const port = p.port || '';
+          const proto = (p.protocol || 'tcp').toLowerCase();
           const hint = p.service_hint || '';
           const banner = p.banner_excerpt || '';
-          return '<div class="swal-ev swal-ev-ok"><span class="swal-ev-ts mono">' + esc(String(port)) + '</span>'
+          const portLabel = port + '/' + proto;
+          return '<div class="swal-ev swal-ev-ok"><span class="swal-ev-ts mono">' + esc(portLabel) + '</span>'
             + '<span class="swal-ev-msg">' + esc(hint) + (banner ? ' — <span class="text-[var(--text-faint)]">' + esc(banner.slice(0, 80)) + '</span>' : '') + '</span></div>';
         }).join('');
         target_el.innerHTML = '<div class="swal-events">' + rows + '</div>';
@@ -19526,6 +19546,8 @@ function app() {
     // matches a curated service entry; amber (`pill-warning`) when the
     // port is open but not in the curated list — the operator should
     // either add it (expected listener) or investigate (unexpected).
+    // Curated services don't carry a protocol field today, so a
+    // `port: 22` curated row matches BOTH families.
     portScanChipClass(host, port) {
       if (!host || !port) return 'pill-muted';
       const curated = Array.isArray(host.services) ? host.services : [];
@@ -19538,13 +19560,15 @@ function app() {
       if (!host || !port) return '';
       const curated = Array.isArray(host.services) ? host.services : [];
       const match = curated.find(s => Number(s && s.port) === Number(port.port));
+      const proto = (port.protocol || 'tcp').toLowerCase();
+      const portLabel = port.port + '/' + proto;
       if (match) {
         return this.t('host_drawer.port_scan.chip_curated_title', {
           name: match.name || match.label || '—',
-          port: port.port,
+          port: portLabel,
         });
       }
-      return this.t('host_drawer.port_scan.chip_unknown_title', { port: port.port });
+      return this.t('host_drawer.port_scan.chip_unknown_title', { port: portLabel });
     },
 
     // toggle a provider in the Hosts-toolbar filter set.

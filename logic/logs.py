@@ -197,6 +197,49 @@ def _persist_line(record: dict[str, Any]) -> None:
                 pass
 
 
+def recent_lines(*, levels: Optional[Iterable[str]] = None,
+                 limit: int = 50) -> list[dict]:
+    """Return the most-recent in-memory log lines, newest-last,
+    filtered by severity level. ``levels`` is an iterable of
+    lowercase level names (`'error'` / `'warn'` / `'info'` /
+    `'success'`); ``None`` means every level. ``limit`` caps the
+    returned list at the most-recent N matches.
+
+    Used by the AI palette to surface recent error/warn signals
+    into the user_prompt so the assistant can honestly answer
+    "any errors I should fix?" without claiming it has no log
+    access. Each entry is `{ts, level, text}` so the prompt can
+    render compact log digests without re-classifying.
+
+    Same severity classifier as `_persist_line` to keep what the
+    AI sees consistent with what shows in Admin → Logs.
+    """
+    if not _buf:
+        return []
+    levels_set = None
+    if levels is not None:
+        levels_set = {str(lv).strip().lower() for lv in levels if lv}
+        if not levels_set:
+            return []
+    out: list[dict] = []
+    snap = list(_buf)
+    for rec in snap:
+        text = rec.get("text") or ""
+        if not text:
+            continue
+        lvl = _severity_for(text, rec.get("stream", "stdout")).lower()
+        if levels_set is not None and lvl not in levels_set:
+            continue
+        out.append({
+            "ts":    float(rec.get("ts") or 0.0),
+            "level": lvl,
+            "text":  text,
+        })
+    if limit and limit > 0 and len(out) > limit:
+        out = out[-limit:]
+    return out
+
+
 def list_persistent_logs() -> list[dict]:
     """Return metadata for every persisted daily log file. One entry
     per ``omnigrid-YYYY-MM-DD.log``: ``{name, size, mtime}``. Sorted

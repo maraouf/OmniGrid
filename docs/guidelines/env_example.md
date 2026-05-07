@@ -161,6 +161,15 @@ PORT_SCAN_DEFAULT_CONCURRENCY=32
 PORT_SCAN_MAX_SECONDS=120
 PORT_SCAN_BANNER_READ_SECONDS=2
 
+# Port-scan UDP companion (Stage 2). UDP probe timeout (3s default —
+# longer than TCP's because there's no handshake to short-circuit) and
+# concurrency cap (8 default — friendlier than TCP's 32 because UDP
+# traffic is more conspicuous on the network). The master toggle is a
+# plain settings row (`port_scan_udp_enabled`); these env vars only
+# control the per-port budget knobs.
+PORT_SCAN_UDP_DEFAULT_TIMEOUT_SECONDS=3
+PORT_SCAN_UDP_DEFAULT_CONCURRENCY=8
+
 # Ping host-stats provider knobs. The first three control the
 # lifespan-managed sampler that writes ping_samples; the cool-down
 # throttles probes against an unreachable host.
@@ -409,6 +418,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PORT_SCAN_DEFAULT_CONCURRENCY`   | Runtime     | `32`                 | Parallel probe cap per scan (1..256).                                            |
 | `PORT_SCAN_MAX_SECONDS`           | Runtime     | `120`                | Outer wall-clock budget for a single port-scan request (30..1800).               |
 | `PORT_SCAN_BANNER_READ_SECONDS`   | Runtime     | `2`                  | Banner-grab read timeout when `banner_grab=true` on a scan (1..30).              |
+| `PORT_SCAN_UDP_DEFAULT_TIMEOUT_SECONDS` | Runtime | `3`                  | Per-port UDP probe timeout (1..30). Stage 2 UDP companion.                       |
+| `PORT_SCAN_UDP_DEFAULT_CONCURRENCY` | Runtime   | `8`                  | UDP probe concurrency cap (1..64). Stage 2 UDP companion.                        |
 | `PING_INTERVAL_SECONDS`           | Runtime     | `60`                 | Ping sampler tick cadence.                                                       |
 | `PING_CONCURRENCY`                | Runtime     | `16`                 | Ping sampler fan-out.                                                            |
 | `PING_PROBE_TIMEOUT_SECONDS`      | Runtime     | `2`                  | Per-probe timeout.                                                               |
