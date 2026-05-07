@@ -12719,20 +12719,20 @@ function app() {
 
         // Port scan — fires the on-demand TCP-connect scanner against
         // the host whose drawer is currently open. Only surfaces when
-        // (a) the master toggle is on AND (b) a host drawer is open;
-        // gating on `drawerHost` keeps the action contextual rather
-        // than asking the user to pick a host from a dropdown. AI
-        // palette can suggest "scan ports on <host>" via natural
-        // language and the AI handler routes through the same
-        // runPortScan() method. Read-only against the target — no
-        // destructive flag — but takes time so we let the inner method
-        // surface the result via a toast.
-        ...(((this.settings || {}).port_scan_enabled && this.drawerHost && typeof this.runPortScan === 'function') ? [{
+        // Gates on master toggle ON; the host drawer is no longer
+        // a hard prerequisite. `runPortScan(null)` resolves the
+        // target via a fallback chain: explicit arg → drawerHost →
+        // most-recent AI assistant turn's `host_ids[0]` → toast
+        // asking the operator to specify. So the AI palette can
+        // fire `ACTION: scan_ports` paired with a `HOSTS: <id>`
+        // line and the SPA hits the right host without forcing
+        // the operator to navigate to the drawer first.
+        ...(((this.settings || {}).port_scan_enabled && typeof this.runPortScan === 'function') ? [{
           id: 'scan-ports',
           label: t('command_palette.action.scan_ports', 'Scan ports on this host'),
           sub:   t('command_palette.action.scan_ports_sub', 'On-demand TCP-connect scan against the open host drawer'),
           verbs: ['scan', 'ports', 'tcp', 'discover', 'nmap'],
-          run:   () => { this.runPortScan(this.drawerHost); }
+          run:   () => { this.runPortScan(null); }
         }] : []),
 
         // Sign out — destructive (terminates the session)
@@ -14466,35 +14466,38 @@ function app() {
     // chats don't collide on the same `[data-disk-host=X]` element.
     async _populateAiSidebarHostChart(hostId, turnTs) {
       const safeAttr = String(hostId).replace(/[^A-Za-z0-9_.-]/g, '_');
-      const sel = '[data-disk-host="' + safeAttr + '"][data-turn-ts="' + turnTs + '"]';
+      // Outer shell is the stable `<div class="ai-resp-chart"
+      // data-disk-host data-turn-ts>` rendered by Alpine
+      // `<template x-for>`; populator writes to its inner
+      // `[data-chart-slot]` child which has NO Alpine binding so
+      // the SVG survives parent re-renders. Pre-fix populator
+      // wrote to the OUTER shell's innerHTML, which Alpine kept
+      // overwriting whenever bubble state updated.
+      const outerSel = '[data-disk-host="' + safeAttr + '"][data-turn-ts="' + turnTs + '"]';
       // Retry loop — on init hydration the shells render via Alpine
-      // `x-html` AFTER the parent `x-for` settles, which can take
-      // multiple animation frames when restoring 50 turns from
-      // `ui_prefs.ai_conversation`. The previous single-tick lookup
-      // returned null on cold load and the spinner sat forever.
-      // Wait up to ~1500ms (8 attempts × 200ms) for the shell to
-      // appear; if it still isn't there, it likely never will be
-      // (the bubble's x-show gate evaluated false — host_ids was
-      // empty after rehydration), so silently return.
-      let shell = document.querySelector(sel);
+      // x-for AFTER `aiConversation = filtered` triggers reactivity,
+      // which can take multiple ticks when restoring 50 turns. Wait
+      // up to ~3 s (15 × 200 ms) for the outer shell to appear.
+      let outer = document.querySelector(outerSel);
       let waited = 0;
-      while (!shell && waited < 1500) {
+      while (!outer && waited < 3000) {
         await new Promise(resolve => setTimeout(resolve, 200));
         waited += 200;
-        shell = document.querySelector(sel);
+        outer = document.querySelector(outerSel);
       }
-      if (!shell) return;
+      if (!outer) return;
+      const slot = outer.querySelector('[data-chart-slot]') || outer;
       try {
         const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/disk-projection');
         if (!r.ok) {
-          shell.innerHTML = this._renderDiskProjectionInner(hostId, null,
+          slot.innerHTML = this._renderDiskProjectionInner(hostId, null,
             this.t('command_palette.ai.disk_chart.error') || 'Could not load projection');
           return;
         }
         const data = await r.json();
-        shell.innerHTML = this._renderDiskProjectionInner(hostId, data, null);
+        slot.innerHTML = this._renderDiskProjectionInner(hostId, data, null);
       } catch (e) {
-        shell.innerHTML = this._renderDiskProjectionInner(hostId, null, e.message || String(e));
+        slot.innerHTML = this._renderDiskProjectionInner(hostId, null, e.message || String(e));
       }
     },
     // Render shells for the sidebar — same look as the modal palette
@@ -19442,7 +19445,43 @@ function app() {
     // surface via toast — no second confirmation since the scan is
     // read-only against the target.
     async runPortScan(host) {
-      if (!host || !host.id) return;
+      // Fallback chain — when no host arg is provided, resolve
+      // from (in order): the open host drawer → the most-recent
+      // AI assistant turn's `host_ids[0]` → toast asking the
+      // operator to specify. So the AI palette can fire
+      // `ACTION: scan_ports` after producing a HOSTS: line and
+      // the SPA picks the right host without the drawer being
+      // open. The drawer is no longer a hard prerequisite.
+      if (!host || !host.id) {
+        host = this.drawerHost || null;
+      }
+      if (!host || !host.id) {
+        // Walk aiConversation backwards looking for the most-recent
+        // assistant turn that named a host via the HOSTS protocol
+        // (`turn.host_ids`). First id wins — the AI typically lists
+        // the most-relevant host first.
+        const turns = Array.isArray(this.aiConversation) ? this.aiConversation : [];
+        for (let i = turns.length - 1; i >= 0; i--) {
+          const t = turns[i];
+          if (t && t.role === 'assistant' && Array.isArray(t.host_ids) && t.host_ids.length) {
+            const hid = String(t.host_ids[0]);
+            const found = (this.hosts || []).find(h => h && h.id === hid);
+            if (found) { host = found; break; }
+            // No match in `this.hosts` — synthesize a minimal host
+            // shape so the POST still fires (refreshHostRow will
+            // fail gracefully if the id isn't curated).
+            host = { id: hid }; break;
+          }
+        }
+      }
+      if (!host || !host.id) {
+        this.showToast(
+          this.t('host_drawer.port_scan.no_target_toast') ||
+          'No host selected — open a host drawer or ask the AI to name one before scanning.',
+          'error',
+        );
+        return;
+      }
       if (host._port_scan_running) return;
       host._port_scan_running = true;
       try {
