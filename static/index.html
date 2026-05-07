@@ -8023,11 +8023,36 @@
                     @click="submitAiFeedback(idx, 'down')">👎</button>
           </div>
           <!-- Inline disk-projection charts — rendered when the AI
-               returned a HOSTS list with the answer. Shells are
-               scoped by turn ts so multi-turn chats don't collide on
-               the same `[data-disk-host=X]` selector. -->
-          <div x-show="turn.role === 'assistant' && !turn.error && Array.isArray(turn.host_ids) && turn.host_ids.length > 0"
-               x-html="_renderAiSidebarHostChartShells(turn.host_ids, turn.ts)"></div>
+               returned a HOSTS list with the answer. Shells use a
+               stable `<template x-for>` so the OUTER element's
+               `data-disk-host` / `data-turn-ts` attributes don't
+               get clobbered by Alpine re-renders. The populator
+               (`_populateAiSidebarHostChart`) writes ONLY to the
+               inner `[data-chart-slot]` div which has no Alpine
+               binding — so the rendered SVG survives any reactive
+               re-evaluation of the parent template. Pre-fix the
+               shells rendered via `x-html` and any bubble-state
+               update overwrote the populator's innerHTML, leaving
+               the spinner stuck on reload. -->
+          <template x-if="turn.role === 'assistant' && !turn.error && Array.isArray(turn.host_ids) && turn.host_ids.length > 0">
+            <div>
+              <template x-for="hid in (turn.host_ids || [])" :key="hid">
+                <div class="ai-resp-chart"
+                     :data-disk-host="String(hid).replace(/[^A-Za-z0-9_.-]/g, '_')"
+                     :data-turn-ts="turn.ts">
+                  <div data-chart-slot>
+                    <div class="ai-resp-chart-header">
+                      <span class="ai-resp-chart-title" x-text="hid"></span>
+                      <span class="ai-resp-chart-status" x-text="t('command_palette.ai.disk_chart.loading')"></span>
+                    </div>
+                    <div class="ai-resp-chart-body">
+                      <span class="spin" aria-hidden="true"></span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
           <div x-show="turn.role === 'assistant' && !turn.error && !turn.slash && aiTurnSubline(turn)"
                class="ai-bubble-meta"
                x-text="aiTurnSubline(turn)"></div>
