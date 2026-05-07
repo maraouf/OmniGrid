@@ -8114,7 +8114,7 @@
             <span x-show="aiSidebarSlashIdx === sIdx" class="fs-2xs text-[var(--text-faint)]" aria-hidden="true">↵</span>
           </button>
         </template>
-        <div x-show="aiSidebarSlashResults().length === 0"
+        <div x-show="!aiSidebarSlashResults().length"
              class="px-3 py-2 fs-sm text-[var(--text-faint)] italic"
              x-text="t('ai_sidebar.slash_no_match')"></div>
       </div>
@@ -8151,8 +8151,27 @@
       </button>
     </div>
     <div class="ai-sidebar-input-row">
+      <!--
+        x-model.debounce.150ms — typing in the AI sidebar was laggy
+        because every keystroke synchronously updated `aiSidebarQuery`
+        which fanned out across multiple Alpine reactive bindings:
+        `aiSidebarSlashOpen()` (called 4 sites), `aiSidebarSlashResults()`
+        (called 2 sites — once for x-for, once for the empty-state
+        x-show), `:disabled` on Send button, `aiSidebarSurfaceEnabled()`,
+        plus every binding in the broader sidebar tree that Alpine's
+        reactivity system invalidates per state change. Even when each
+        binding is individually cheap, the cumulative re-evaluation pass
+        on a complex page (1000+ bindings) shows up as visible lag per
+        keystroke. The 150 ms debounce delays state propagation until
+        the operator pauses typing — slash-picker shows up 150 ms after
+        a `/` keystroke (imperceptible), the Send button enabled-state
+        updates 150 ms after the LAST keystroke (still snappy), and
+        each keystroke itself is now sub-millisecond because the
+        textarea's NATIVE state advances independently of Alpine's
+        reactivity.
+      -->
       <textarea id="og-ai-sidebar-input"
-                x-model="aiSidebarQuery"
+                x-model.debounce.150ms="aiSidebarQuery"
                 @input="aiSidebarSlashIdx = 0"
                 @keydown="aiSidebarHandleKeydown($event)"
                 :placeholder="t('ai_sidebar.input_placeholder')"

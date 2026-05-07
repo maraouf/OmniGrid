@@ -1617,6 +1617,12 @@ function app() {
             const dbLen = Array.isArray(dbConv) ? dbConv.length : 0;
             const lsLen = Array.isArray(lsConv) ? lsConv.length : 0;
             const conv = (lsLen > dbLen) ? lsConv : dbConv;
+            if (window.console && console.debug) {
+              console.debug('[ai-conv] hydration: db=' + dbLen + ' turns'
+                + ', localStorage=' + lsLen + ' turns'
+                + ', cutoff=' + cutoff
+                + ', selected=' + (conv === lsConv ? 'localStorage' : 'db'));
+            }
             if (Array.isArray(conv) && conv.length > 0) {
               const filtered = cutoff > 0
                 ? conv.filter(t => t && Number(t.ts) > cutoff)
@@ -1714,6 +1720,25 @@ function app() {
       this.$watch('hostHistoryRange', v => {
         try { localStorage.setItem('hostHistoryRange', String(v)); } catch (_) {}
         this.persistHostHistoryRange(v);
+      });
+      // Persistence safety net — `aiConversation` mutations should
+      // ideally call `persistAiConversation()` explicitly (every push
+      // site does), but a missed call means the chat is lost on
+      // reload. This $watch fires on EVERY array reassignment / mutation
+      // and double-checks persistence — debounced 500ms so a burst of
+      // pushes (user turn + assistant turn within the same tick) only
+      // round-trips once. Operator-flagged: chat persistence missed in
+      // some flows; defence-in-depth pinning the contract makes it
+      // impossible to forget. The actual persist function is idempotent
+      // (always serialises the full capped array) so duplicate calls
+      // from the explicit + implicit paths are harmless.
+      let _aiPersistDebounce = null;
+      this.$watch('aiConversation', () => {
+        if (_aiPersistDebounce) clearTimeout(_aiPersistDebounce);
+        _aiPersistDebounce = setTimeout(() => {
+          _aiPersistDebounce = null;
+          try { this.persistAiConversation(); } catch (_) {}
+        }, 500);
       });
       this.$watch('view', v => {
         localStorage.setItem('view', v);
@@ -9382,6 +9407,42 @@ function app() {
           }
         } catch (_) {}
       });
+      es.addEventListener('port_scan:completed', (e) => {
+        onAny();
+        if (this._isSelfEvent(e)) return;
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const payload = data.payload || {};
+          const hostId = payload.host_id || '';
+          if (!hostId) return;
+          console.log('[live] event=port_scan:completed id=' + hostId
+            + ' ports_open=' + (payload.ports_open || 0)
+            + ' udp_open=' + (payload.udp_open || 0)
+            + ' ok=' + payload.ok);
+          // Refresh the host row so `detected_ports` + `last_port_scan_ts`
+          // repaint without a manual reload.
+          this.refreshHostRow(hostId, { force: true });
+          // Surface a completion toast IF this tab kicked off the
+          // scan (recorded by `runPortScan` in `_inFlightPortScans`).
+          // Other tabs see the row update but skip the toast — only
+          // one tab gets the "scan complete" feedback.
+          if (this._inFlightPortScans && this._inFlightPortScans[hostId]) {
+            delete this._inFlightPortScans[hostId];
+            if (payload.ok) {
+              this.showToast(this.t('host_drawer.port_scan.scan_complete_body', {
+                host:       hostId,
+                open_count: (payload.ports_open || 0) + (payload.udp_open || 0),
+                new_count:  0,  // diff happens server-side via notify path
+              }), 'success');
+            } else {
+              this.showToast(this.t('host_drawer.port_scan.scan_failed_body', {
+                host:  hostId,
+                error: payload.error || 'unknown',
+              }), 'error');
+            }
+          }
+        } catch (_) {}
+      });
       es.addEventListener('host:failure_state_changed', (e) => {
         onAny();
         if (this._isSelfEvent(e)) return;
@@ -10085,7 +10146,23 @@ function app() {
     // every conversation mutation (send / slash run / clear). Skipped
     // for API-token pseudo-users (negative ids).
     async persistAiConversation() {
-      if (!this.me || !this.me.id || this.me.id < 0) return;
+      // STRICT gate — skip API-token pseudo-users (negative ids) AND
+      // unauthenticated callers. For VALID users with a numeric id,
+      // every push must write through to BOTH the per-browser
+      // localStorage cache AND the DB-backed ui_prefs. Pre-fix logic
+      // returned early on `!this.me.id` which skipped persistence
+      // when `me.id === 0` (defensively unlikely but covered) — the
+      // tighter check below preserves "skip API tokens" while
+      // correctly persisting for every real user.
+      const meId = this.me && this.me.id;
+      const isValidUserId = (typeof meId === 'number' && meId >= 0)
+        || (typeof meId === 'string' && meId && !meId.startsWith('-'));
+      if (!isValidUserId) {
+        if (window.console && console.debug) {
+          console.debug('[ai-conv] persist skipped — no valid user id', { me: this.me });
+        }
+        return;
+      }
       // Cap at 50 turns + drop in-flight bookkeeping (feedback-busy
       // flags etc. live elsewhere) so the round-trip stays small.
       const turns = (this.aiConversation || []).slice(-50).map(t => ({
@@ -10127,22 +10204,41 @@ function app() {
       // the cross-browser source of truth; localStorage is the
       // per-browser fast-path. Best-effort: a thrown SecurityError
       // (private mode / quota) just falls back to DB-only persistence.
+      let localStorageOk = false;
       try {
         if (typeof localStorage !== 'undefined') {
-          const key = 'aiConversation:' + this.me.id;
+          const key = 'aiConversation:' + meId;
           localStorage.setItem(key, JSON.stringify(turns));
+          localStorageOk = true;
         }
-      } catch (_) { /* private-mode / quota — skip */ }
+      } catch (e) {
+        if (window.console && console.warn) {
+          console.warn('[ai-conv] localStorage write failed:', e);
+        }
+      }
+      let dbOk = false;
+      let dbStatus = 0;
       try {
-        await fetch('/api/me/ui-prefs', {
+        const r = await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prefs: { ai_conversation: turns } }),
         });
+        dbStatus = r.status;
+        dbOk = r.ok;
+        if (!r.ok && window.console && console.warn) {
+          const txt = await r.text().catch(() => '');
+          console.warn('[ai-conv] persist to DB returned ' + r.status, txt.slice(0, 200));
+        }
       } catch (e) {
         if (window.console && console.warn) {
           console.warn('[ai-conv] persist to DB failed:', e);
         }
+      }
+      if (window.console && console.debug) {
+        console.debug('[ai-conv] persisted ' + turns.length + ' turns'
+          + ' (localStorage=' + (localStorageOk ? 'ok' : 'fail')
+          + ', db=' + (dbOk ? 'ok' : 'fail-' + dbStatus) + ')');
       }
     },
     async persistHostHistoryRange(value) {
@@ -14024,6 +14120,12 @@ function app() {
         }
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
+          // Same debounce-flush dance as the default Enter path above —
+          // slash-picker results derive from the live query, so a
+          // stale `aiSidebarQuery` would point at the wrong action.
+          if (e.target && typeof e.target.value === 'string') {
+            this.aiSidebarQuery = e.target.value;
+          }
           const list = this.aiSidebarSlashResults();
           const sel = list[this.aiSidebarSlashIdx || 0];
           if (sel) this.runAiSidebarSlashAction(sel);
@@ -14042,6 +14144,16 @@ function app() {
       // AND the slash picker isn't open (slash-mode handles ↑ as nav).
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
+        // FLUSH the debounced x-model BEFORE reading aiSidebarQuery in
+        // sendAiSidebarMessage. The textarea's `x-model.debounce.150ms`
+        // delays state propagation by 150 ms to keep typing smooth;
+        // pressing Enter within that window would otherwise read a
+        // STALE query string. Read the live DOM value and force-write
+        // it onto the reactive state so the send path sees what the
+        // operator actually typed.
+        if (e.target && typeof e.target.value === 'string') {
+          this.aiSidebarQuery = e.target.value;
+        }
         this.sendAiSidebarMessage();
       } else if (e.key === 'Escape') {
         e.preventDefault();
@@ -19577,19 +19689,118 @@ function app() {
         });
         if (!r.ok) {
           const txt = await r.text().catch(() => '');
-          this.showToast(this.t('host_drawer.port_scan.scan_failed_body', { host: host.id, error: txt || ('HTTP ' + r.status) }), 'error');
+          const friendly = this._friendlyHttpError(r.status, txt, 'host_drawer.port_scan');
+          this.showToast(this.t('host_drawer.port_scan.scan_failed_body', { host: host.id, error: friendly }), 'error');
+          // 504 from the reverse proxy — the backend scan may STILL be
+          // running. Schedule a single delayed refresh so a successful
+          // background completion still updates the chip strip when
+          // the operator has the drawer open. Best-effort; no spinner
+          // since `_port_scan_running` already cleared.
+          if (r.status === 504 || r.status === 502 || r.status === 503) {
+            setTimeout(() => {
+              try { this.refreshHostRow(host.id, { force: true }); } catch (_) {}
+            }, 30000);
+          }
           return;
         }
+        // 202 Accepted — scan is running in the background. The
+        // backend emits `port_scan:completed` via SSE when done; the
+        // SPA handler refreshes the host row + shows a completion
+        // toast. We surface a "queued" toast immediately so the
+        // operator sees acknowledgement.
         const data = await r.json().catch(() => ({}));
+        const queued = (data && data.status === 'queued');
+        if (queued) {
+          // Track the in-flight scan_id so the SSE handler knows
+          // this tab kicked it off (and can show a completion toast
+          // even when the drawer has since closed).
+          this._inFlightPortScans = this._inFlightPortScans || {};
+          this._inFlightPortScans[host.id] = data.scan_id || true;
+          this.showToast(this.t('host_drawer.port_scan.scan_queued_body', {
+            host: host.id, target: data.target || host.id,
+          }) || ('Port scan queued for ' + host.id + ' — results will appear when complete.'), 'info');
+          // Also schedule a polling fallback in case SSE is dropped.
+          // The completion handler short-circuits if SSE landed first.
+          setTimeout(() => {
+            try {
+              if (this._inFlightPortScans && this._inFlightPortScans[host.id]) {
+                this.refreshHostRow(host.id, { force: true });
+              }
+            } catch (_) {}
+          }, 60000);
+          return;
+        }
+        // Legacy synchronous path — kept for forward compatibility
+        // with older backends. Refresh + summary toast as before.
         await this.refreshHostRow(host.id, { force: true });
         const openCount = (data && data.open_count) || 0;
         const newCount = (data && data.new_count) || 0;
         this.showToast(this.t('host_drawer.port_scan.scan_complete_body', { host: host.id, open_count: openCount, new_count: newCount }), 'success');
       } catch (e) {
-        this.showToast(this.t('host_drawer.port_scan.scan_failed_body', { host: host.id, error: String(e) }), 'error');
+        // `e` here is typically a TypeError ("Failed to fetch") for
+        // network drops or browser-side aborts. Surface a friendly
+        // message; raw `e.toString()` shows "TypeError" which isn't
+        // operator-actionable.
+        const msg = (e && e.message) ? e.message : String(e);
+        const friendly = this.t('host_drawer.port_scan.error_network') || msg;
+        this.showToast(this.t('host_drawer.port_scan.scan_failed_body', { host: host.id, error: friendly }), 'error');
       } finally {
         host._port_scan_running = false;
       }
+    },
+
+    // Translate an HTTP error response (status + body text) into a
+    // friendly, operator-actionable message. Centralised so any future
+    // long-running endpoint that can hit a reverse-proxy timeout
+    // (504 from openresty / nginx / NPM) gets the same UX.
+    //
+    // Detection rules:
+    // 1. Status 504 / 502 / 503 → reverse-proxy timeout/error. The
+    //    backend may still be running; show an actionable hint.
+    // 2. Body starts with `<` (HTML / XML) → upstream proxy page that
+    //    has nothing operator-readable in it. Suppress entirely.
+    // 3. Body looks like JSON `{"detail":"..."}` → extract the detail.
+    // 4. Body is plain text shorter than 200 chars → pass through.
+    // 5. Anything longer is suspicious; fall back to status-only.
+    _friendlyHttpError(status, body, i18nNamespace) {
+      const ns = i18nNamespace || 'common.errors';
+      const sCode = String(status || 0);
+      const trimmed = (body || '').trim();
+      // 1. Reverse-proxy timeouts (504 / 502 / 503).
+      if (status === 504) {
+        return this.t(ns + '.gateway_timeout')
+          || this.t('common.errors.gateway_timeout')
+          || 'The reverse proxy timed out — the request may still be running on the backend. Wait ~30s and refresh; results will appear if the backend completed.';
+      }
+      if (status === 502) {
+        return this.t(ns + '.bad_gateway')
+          || this.t('common.errors.bad_gateway')
+          || 'The reverse proxy returned a bad-gateway error — the backend may be restarting. Try again in a moment.';
+      }
+      if (status === 503) {
+        return this.t(ns + '.service_unavailable')
+          || this.t('common.errors.service_unavailable')
+          || 'Service temporarily unavailable. Try again in a moment.';
+      }
+      // 2. HTML body — strip and surface status only.
+      if (trimmed.startsWith('<')) {
+        return this.t('common.errors.http_status', { status: sCode })
+          || ('HTTP ' + sCode);
+      }
+      // 3. JSON `{"detail": "..."}`.
+      if (trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed && typeof parsed.detail === 'string' && parsed.detail) {
+            return parsed.detail;
+          }
+        } catch (_) { /* not JSON — fall through */ }
+      }
+      // 4. Short plain text — pass through.
+      if (trimmed && trimmed.length <= 200) return trimmed;
+      // 5. Fallback.
+      return this.t('common.errors.http_status', { status: sCode })
+        || ('HTTP ' + sCode);
     },
 
     // Diff helper: ports listed in `hosts_config[].services[]` but
