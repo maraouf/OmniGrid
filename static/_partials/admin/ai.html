@@ -623,10 +623,31 @@
                            (disabled). Pre-fix the chip read pill-ok for
                            "enabled but unusable" providers, hiding the
                            configuration gap until the operator hit Test. -->
-                      <span class="chip fs-3xs"
+                      <!-- Color + icon doubly encode state so colorblind
+                           operators can triage without hover (CLAUDE.md
+                           "Color is never the sole carrier of meaning").
+                           pill-ok → check, pill-warning → alert-triangle,
+                           pill-muted → circle-slash. The aria-label on
+                           the chip carries the same state in plain text
+                           for screen-reader users. -->
+                      <span class="chip fs-3xs inline-flex items-center gap-1"
                             :class="!p.enabled ? 'pill-muted' : ((aiForm.providers[p.name] && (aiForm.providers[p.name].api_key_set || aiForm.providers[p.name].api_key)) ? 'pill-ok' : 'pill-warning')"
                             :title="!p.enabled ? t('admin.ai.chip_disabled_title') : ((aiForm.providers[p.name] && (aiForm.providers[p.name].api_key_set || aiForm.providers[p.name].api_key)) ? t('admin.ai.chip_ok_title') : t('admin.ai.chip_no_key_title'))"
-                            x-text="aiProviderDisplayName(p.name)"></span>
+                            :aria-label="aiProviderDisplayName(p.name) + ' — ' + (!p.enabled ? t('admin.ai.chip_disabled_title') : ((aiForm.providers[p.name] && (aiForm.providers[p.name].api_key_set || aiForm.providers[p.name].api_key)) ? t('admin.ai.chip_ok_title') : t('admin.ai.chip_no_key_title')))">
+                        <svg width="9" height="9" aria-hidden="true"
+                             x-show="p.enabled && aiForm.providers[p.name] && (aiForm.providers[p.name].api_key_set || aiForm.providers[p.name].api_key)">
+                          <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-check'"/>
+                        </svg>
+                        <svg width="9" height="9" aria-hidden="true"
+                             x-show="p.enabled && !(aiForm.providers[p.name] && (aiForm.providers[p.name].api_key_set || aiForm.providers[p.name].api_key))">
+                          <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-alert-triangle'"/>
+                        </svg>
+                        <svg width="9" height="9" aria-hidden="true"
+                             x-show="!p.enabled">
+                          <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-x'"/>
+                        </svg>
+                        <span x-text="aiProviderDisplayName(p.name)"></span>
+                      </span>
                       <span class="fs-2xs text-[var(--text-faint)] truncate"
                             x-show="p.model"
                             :title="t('admin.ai.current_model_title')"
@@ -885,7 +906,8 @@
           <ul x-show="aiMemories && aiMemories.length > 0"
               class="space-y-2">
             <template x-for="m in (aiMemories || [])" :key="m.id">
-              <li class="flex items-start gap-2 p-2 rounded border border-[var(--border)] bg-[var(--surface-2)]">
+              <li class="flex items-start gap-2 p-2 rounded border border-[var(--border)] bg-[var(--surface-2)]"
+                  :aria-label="t('ai_memory.list_item_label', { source: t('ai_memory.source_' + (m.source || 'ai')) || (m.source || 'ai'), actor: m.actor || t('ai_memory.unknown_actor'), time: aiFormatTime(m.ts) })">
                 <span class="chip pill-info fs-3xs uppercase shrink-0"
                       x-text="t('ai_memory.source_' + (m.source || 'ai'))"></span>
                 <div class="flex-1 min-w-0">

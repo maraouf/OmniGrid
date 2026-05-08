@@ -8019,7 +8019,7 @@
        launcher visibility-vs-feature gate" rule + the UX review's
        VIS-MED finding. -->
   <button type="button"
-          x-show="!aiSidebarOpen && aiSidebarSurfaceEnabled()"
+          x-show="!aiSidebarOpen && aiSidebarSurfaceEnabled() && !aiSidebarLauncherHidden"
           @click="openAiSidebar()"
           class="ai-sidebar-launcher"
           :title="t('ai_sidebar.launcher_title')"

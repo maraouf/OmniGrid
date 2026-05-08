@@ -5198,6 +5198,9 @@ button:focus:not(:focus-visible) {
     .sse-dot,
     .skeleton,
     .ai-sidebar-drawer,
+    .ai-sidebar-jump-latest,
+    .row-stale-flash,
+    .chip-loading,
     .charts-refreshing > .metric-card {
         animation-duration: 0.001ms !important;
         animation-iteration-count: 1 !important;

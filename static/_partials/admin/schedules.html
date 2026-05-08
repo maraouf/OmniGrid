@@ -241,7 +241,9 @@
                      :placeholder="t('admin.schedules.queue_search_placeholder')"
                      class="fs-sm py-1 min-w-[220px]">
               <button x-show="scheduleQueueSearch" @click="clearScheduleQueueSearch()"
-                      class="btn btn-ghost fs-xs" :title="t('hosts_extra.empty.clear_filter')">✕</button>
+                      class="btn btn-ghost fs-xs"
+                      :title="t('hosts_extra.empty.clear_filter')"
+                      :aria-label="t('hosts_extra.empty.clear_filter') || 'Clear filter'">✕</button>
               <button @click="loadScheduleQueue()" class="btn btn-ghost fs-xs" x-text="t('actions.reload')"></button>
             </div>
           </div>

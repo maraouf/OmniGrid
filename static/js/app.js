@@ -797,6 +797,7 @@ function app() {
     aiSidebarSlashIdx: 0,        // selected index in the slash-command picker
     aiRecentSlashActions: [],    // FIFO of last 5 slash-action ids; persisted to ui_prefs.ai_recent_slash_actions. Only populated for ACTION kinds (not navigation), so "Open host:web01" can't pollute "Pause sampling" recents.
     aiSidebarIncidentChip: null, // {kind, host_id, title, query, ts} — proactive chip rendered above the input when an SSE host-failure / warning-notification event lands AND the sidebar is open. Newest wins (one at a time); click runs the prepared query, X dismisses. Cleared after the query fires so the chip doesn't linger after the operator engaged with it.
+    aiSidebarLauncherHidden: false, // Operator preference; hides the floating AI launcher. Cmd-K still opens the sidebar. Persisted to ui_prefs.ai_sidebar_launcher_hidden.
     aiSidebarMode: 'approval', // 'approval' (default — destructive actions render an inline-confirm chip) OR 'autonomous' (AI fires every action — including destructive — without prompting). Persisted to ui_prefs.ai_sidebar_mode so the choice follows the operator across browsers / machines. Read by `_runCommandPaletteAction`'s sidebar branch — if mode === 'autonomous', the destructive-confirm path is bypassed entirely and the action fires immediately.
     // In-flight port-scan tracker — global keyed by host_id so the
     // Scan-ports button can disable itself across the whole app
@@ -1677,6 +1678,16 @@ function app() {
             if (mode === 'approval' || mode === 'autonomous') {
               this.aiSidebarMode = mode;
             }
+          } catch (_) {}
+          // AI sidebar launcher visibility — operator-controlled
+          // preference to hide the floating launcher button so
+          // keyboard-only operators don't pay the Tab cost on every
+          // page load. Cmd-K still opens the sidebar regardless.
+          // Persisted to ui_prefs.ai_sidebar_launcher_hidden so the
+          // choice follows the operator across browsers.
+          try {
+            const hidden = m && m.ui_prefs && m.ui_prefs.ai_sidebar_launcher_hidden;
+            this.aiSidebarLauncherHidden = !!hidden;
           } catch (_) {}
           // AI assistant conversation history — restore from
           // ui_prefs.ai_conversation so a hard reload (or moving to a
@@ -14213,6 +14224,22 @@ function app() {
               list = (typeof this.filteredHosts === 'function')
                 ? this.filteredHosts() : (this.hosts || []);
             }
+            // Defensive dedupe by id — same idiom as the service-
+            // drawer arrow nav. A host placed by groupedHosts into
+            // both a parent bucket and a child sub-group (operator
+            // misconfiguration: overlapping ranges) would otherwise
+            // cause arrow nav to advance by 2.
+            if (list.length) {
+              const seenH = new Set();
+              const dedupedH = [];
+              for (const h of list) {
+                const k = h && h.id;
+                if (!k || seenH.has(k)) continue;
+                seenH.add(k);
+                dedupedH.push(h);
+              }
+              list = dedupedH;
+            }
             const idx = list.findIndex(h => h && h.id === this.drawerHost.id);
             if (idx >= 0) {
               const next = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
@@ -14278,6 +14305,24 @@ function app() {
               list = (this.sortedFiltered && this.sortedFiltered.length)
                 ? this.sortedFiltered
                 : (this.filteredItems || this.items || []);
+            }
+            // Defensive dedupe by id — the per-view walks above can
+            // double-include an item if a future schema lands the
+            // same item across two stacks (multi-network manifest,
+            // etc.) or if reconcile races leave a stale duplicate
+            // in the array. Keeping the FIRST occurrence preserves
+            // visible order; collapsing duplicates means arrow nav
+            // never advances by more than one row at a time.
+            if (list.length) {
+              const seen = new Set();
+              const deduped = [];
+              for (const it of list) {
+                const k = it && it.id;
+                if (!k || seen.has(k)) continue;
+                seen.add(k);
+                deduped.push(it);
+              }
+              list = deduped;
             }
             const idx = list.findIndex(it => it && it.id === this.drawerItem.id);
             if (idx >= 0) {
@@ -16161,6 +16206,29 @@ function app() {
       } catch (e) {
         if (window.console && console.warn) {
           console.warn('[ai_sidebar_mode] persist failed:', e);
+        }
+      }
+    },
+    // Toggle the AI sidebar launcher's visibility. Cmd-K still opens
+    // the sidebar even when the launcher is hidden; this preference
+    // is for keyboard-only operators who don't want the floating
+    // button in their Tab cycle on every page load. Persisted to
+    // ui_prefs.ai_sidebar_launcher_hidden so the choice follows the
+    // operator across browsers / machines.
+    async setAiSidebarLauncherHidden(hidden) {
+      const next = !!hidden;
+      if (next === this.aiSidebarLauncherHidden) return;
+      this.aiSidebarLauncherHidden = next;
+      if (!this.me || !this.me.id || this.me.id < 0) return;
+      try {
+        await fetch('/api/me/ui-prefs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefs: { ai_sidebar_launcher_hidden: next } }),
+        });
+      } catch (e) {
+        if (window.console && console.warn) {
+          console.warn('[ai_sidebar_launcher_hidden] persist failed:', e);
         }
       }
     },
