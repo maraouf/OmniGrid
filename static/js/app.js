@@ -9687,10 +9687,32 @@ function app() {
       // in the live cache (avoids a dedicated /api endpoint). Alphabetical.
       return [...new Set((this.stacks || []).map(s => s.name).filter(Boolean))].sort();
     },
+    // Request-version counter for `loadHistory` — every fetch
+    // increments this; the response handler drops stale responses
+    // (those whose version is older than the latest fired request).
+    // PERF-LOW finding from code review 2026-05-08-2: typing in a
+    // filter input that fires a debounced refetch + an SSE-driven
+    // `history:appended` reload + an operator-initiated paging
+    // change can stack 3-N concurrent /api/history requests. The
+    // newest response should win, but TCP / proxy ordering is not
+    // guaranteed — a stale response landing AFTER a newer one
+    // would clobber the fresh state via the in-place reconcile.
+    // The version-counter pattern is simpler than AbortController
+    // (no browser-API requirement) and handles the same case:
+    // mark the request, check on completion, drop if stale.
+    _historyFetchSeq: 0,
     async loadHistory() {
+      const seq = ++this._historyFetchSeq;
       try {
         const r = await fetch('/api/history?' + this._historyQueryParams({ paging: true }).toString());
         const d = await r.json();
+        // Drop stale responses — if a newer fetch fired while this
+        // one was in flight, the newer one will (or already did)
+        // populate `this.history`. Skip the reconcile to avoid
+        // clobbering fresh state with stale data.
+        if (seq !== this._historyFetchSeq) {
+          return;
+        }
         // in-place reconcile keyed on history row `id` (auto-
         // increment PK from the `history` table) so each page change
         // doesn't tear down every row's expanded `<details>` state +

@@ -226,6 +226,22 @@
             <span x-show="nav[0]==='stacks' && counts.update > 0"
                   class="nav-update-badge"
                   x-text="counts.update"></span>
+            <!-- Offline / down-services counter — fires when one or
+                 more services / containers are reporting health=offline
+                 (replicas running == 0 OR desired == 0). Same visual
+                 footprint as the amber update badge but red so the
+                 operator's attention lands on actionable failures
+                 first. Lives on the Services nav ONLY — the Stacks
+                 nav is reserved for the amber updates counter; one
+                 metric per nav button keeps the visual contract clean
+                 (red = failures live here, amber = update work lives
+                 there). The two views surface the same items, so
+                 splitting the metrics across the two navs makes the
+                 nav buttons orthogonal at-a-glance signals. -->
+            <span x-show="nav[0]==='services' && counts.offline > 0"
+                  class="nav-offline-badge"
+                  :title="t('nav.offline_title', { count: counts.offline }) || (counts.offline + ' offline service(s)')"
+                  x-text="counts.offline"></span>
           </button>
         </template>
       </nav>
@@ -7985,12 +8001,17 @@
        Backdrop click + Esc close. ↑/↓ moves selection; Enter
        activates. -->
   <!-- ============== AI ASSISTANT SIDEBAR ============== -->
-  <!-- Floating launcher button — always visible on the left edge,
-       vertically centered. Clicking opens the conversational AI
-       drawer; Cmd-K / Ctrl-K does the same. Hidden while the drawer
-       is open so it doesn't visually clash with the drawer surface. -->
+  <!-- Floating launcher button — visible on the left edge when AI
+       is enabled AND the drawer is closed. Hidden while the drawer
+       is open (so it doesn't clash with the drawer surface) AND when
+       AI is globally disabled (`ai_enabled=false` or no provider
+       configured) — visible affordance ≠ available action; pre-fix
+       operators clicked the button, typed a question, then learned
+       AI was disabled via toast on Send. Per CLAUDE.md "Floating
+       launcher visibility-vs-feature gate" rule + the UX review's
+       VIS-MED finding. -->
   <button type="button"
-          x-show="!aiSidebarOpen"
+          x-show="!aiSidebarOpen && aiSidebarSurfaceEnabled()"
           @click="openAiSidebar()"
           class="ai-sidebar-launcher"
           :title="t('ai_sidebar.launcher_title')"
@@ -8148,7 +8169,7 @@
                     :title="t('ai_sidebar.feedback_up')"
                     :aria-label="t('ai_sidebar.feedback_up')"
                     :aria-pressed="turn.feedback === 'up'"
-                    @click="submitAiFeedback(idx, 'up')">👍</button>
+                    @click="submitAiFeedback(idx, 'up')"><span aria-hidden="true">👍</span></button>
             <button type="button"
                     class="ai-feedback-btn"
                     :class="turn.feedback === 'down' ? 'active-down' : ''"
@@ -8156,7 +8177,7 @@
                     :title="t('ai_sidebar.feedback_down')"
                     :aria-label="t('ai_sidebar.feedback_down')"
                     :aria-pressed="turn.feedback === 'down'"
-                    @click="submitAiFeedback(idx, 'down')">👎</button>
+                    @click="submitAiFeedback(idx, 'down')"><span aria-hidden="true">👎</span></button>
           </div>
           <!-- Inline disk-projection charts — rendered when the AI
                returned a HOSTS list with the answer. Shells use a
