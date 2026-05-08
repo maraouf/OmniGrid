@@ -2542,6 +2542,7 @@
       "scan_failed_body": "The port scan could not be completed for {host}. {error}",
       "scan_complete_title": "Port scan complete",
       "scan_complete_body": "Found {open_count} open ports on {host} ({new_count} new since last scan).",
+      "scan_complete_body_first": "Found {open_count} open ports on {host}.",
       "scan_queued_body": "Port scan queued for {host} ({target}) — results will appear in the drawer when complete.",
       "scan_already_running": "A scan is already running for {host} — wait for it to finish before starting another.",
       "gateway_timeout": "The reverse proxy timed out — the scan may still be running on the backend. Results will appear automatically when it completes (~30 s).",
