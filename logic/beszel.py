@@ -909,6 +909,33 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
     mem_used   = _num(stats.get("mu")) * gib
     disk_total = _num(stats.get("d"))  * gib
     disk_used  = _num(stats.get("du")) * gib
+    # When the Beszel agent has reported extra filesystems, prefer
+    # their sum for the aggregate. Reason: `stats.d` is the agent's
+    # primary disk (often a container / incus overlay that the
+    # operator doesn't think of as "the host's disk"), while the
+    # operator-configured `EXTRA_FILESYSTEMS` list IS the disk view
+    # they want to see. Real-world example caught on a TrueNAS host
+    # whose agent ran inside an incus container: stats.d = 861 GB
+    # (overlay), efs = {/mnt/POOL1: 5.2 TB, /: 47 GB}. Pre-fix
+    # `host_disk_total` was 861 GB and the chip read 0.1% used; the
+    # accurate roll-up across the operator's chosen mounts is
+    # ~84% used. Sum-from-EFS short-circuits when the EFS list is
+    # empty, preserving legacy behaviour for hosts without
+    # `EXTRA_FILESYSTEMS=` configured.
+    efs_raw = stats.get("efs") if isinstance(stats.get("efs"), dict) else None
+    disk_pct_efs: float | None = None
+    if efs_raw:
+        efs_total_gib = 0.0
+        efs_used_gib = 0.0
+        for _name, _entry in efs_raw.items():
+            if not isinstance(_entry, dict):
+                continue
+            efs_total_gib += _num(_entry.get("d"))
+            efs_used_gib += _num(_entry.get("du"))
+        if efs_total_gib > 0:
+            disk_total = efs_total_gib * gib
+            disk_used = efs_used_gib * gib
+            disk_pct_efs = (efs_used_gib / efs_total_gib * 100.0) if efs_total_gib > 0 else 0.0
     # Percentages fallback: if the stats row is absent but info has
     # mp/dp percentages, we still cannot derive absolute bytes — leave
     # them at 0 and let the UI show "—" for those cells.
@@ -930,7 +957,11 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         # ``info``; ``stats`` is only for absolute numbers above.
         "host_cpu_percent": _num(stats.get("cpu")) or _num(info.get("cpu")),
         "host_mem_percent": _num(info.get("mp")),
-        "host_disk_percent": _num(info.get("dp")),
+        # When the EFS-derived total replaced stats.d above, the
+        # info.dp percent (computed by the agent against stats.d/du)
+        # no longer matches — recompute from the EFS sum so the chip
+        # value agrees with the new total.
+        "host_disk_percent": disk_pct_efs if disk_pct_efs is not None else _num(info.get("dp")),
         "host_cores":       int(_num(info.get("c"))),
         "host_threads":     int(_num(info.get("t"))),
         "host_cpu_model":   str(info.get("m") or ""),
