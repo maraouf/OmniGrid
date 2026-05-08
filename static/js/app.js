@@ -10717,65 +10717,52 @@ function app() {
               // scan ever. Backend signals via `is_first_scan` in the
               // SSE payload (only true when no prior scan_id row
               // exists in `host_port_scans` for this host).
-              // Surface the actual scan TARGET in the completion toast.
-              // Prefer the wire-level resolved IP (from getaddrinfo
-              // upfront in `port_scanner.scan_host`) over the alias
-              // string the resolver picked from the host config.
-              // User-flagged twice: "ftth" / "opnsense" aren't
-              // DNS-resolvable from the operator's perspective — but
-              // the container's resolver chain (search domain
-              // `home.lan`, mDNS, /etc/hosts) silently appends the
-              // suffix and resolves to a real IP. Showing the IP
-              // makes "what got probed" obvious without any
-              // mental DNS gymnastics. When the alias DOES match a
-              // literal hostname the operator typed, surface it
-              // alongside the IP via "<alias> (<ip>)" so they can
-              // still recognise the host.
-              //
-              // DNS-failure path: when `resolved_ip` is null the alias
-              // did NOT resolve via the container's resolver chain
-              // (search-domain miss, no /etc/hosts entry, no mDNS).
-              // Pre-fix the toast read "Found 0 open ports on
-              // router5g" which is technically true but misleading —
-              // the per-port probes all failed with `socket.gaierror`,
-              // not "everything's firewalled". Switch the toast tone +
-              // body to surface the DNS failure explicitly so the
-              // operator knows to set `ping.host` / `ssh.host` to a
-              // reachable address.
+              // Surface the configured scan target — what the user
+              // actually typed in Admin → Hosts (Hostname or IP, or
+              // a provider override). The wire-level `resolved_ip`
+              // from getaddrinfo is no longer included in the toast
+              // parenthetical: user-flagged that the resolver-derived
+              // IP is often surprising / wrong (Docker bridge
+              // gateway, search-domain mis-resolution, /etc/hosts
+              // override) and showing it next to the configured
+              // address conflated "what I asked for" with "what the
+              // OS resolved it to". The configured value is what the
+              // user expects. The DNS-failure path below is the
+              // exception — when getaddrinfo failed AND zero ports
+              // came back, that's a real "your alias doesn't
+              // resolve" signal worth surfacing.
               const _resolvedIp = payload.resolved_ip || '';
               const _target = payload.target || hostId;
               const _dnsFailed = !_resolvedIp;
               if (_dnsFailed && openCount === 0 && !payload.udp_open) {
-                // Genuine DNS failure — alias didn't resolve and no
-                // port reported open. Use the dedicated DNS-fail
-                // toast so the operator sees an actionable hint
-                // instead of a misleading "0 open ports" success.
                 this.showToast(this.t('host_drawer.port_scan.scan_dns_failed', {
                   host: _target,
                 }) || ('DNS lookup failed for ' + _target
-                       + ' — set ping.host or ssh.host in Admin → Hosts to a reachable address.'),
+                       + ' — set the Hostname or IP in Admin → Hosts to a reachable address.'),
                   'error');
               } else {
-                const _toastHost = (_resolvedIp && _resolvedIp !== _target)
-                  ? (_target + ' (' + _resolvedIp + ')')
-                  : (_resolvedIp || _target);
                 const i18nKey = payload.is_first_scan
                   ? 'host_drawer.port_scan.scan_complete_body_first'
                   : 'host_drawer.port_scan.scan_complete_body';
+                // Backend computes the new-since-last-scan diff as
+                // `payload.new_count` (raw count — port+proto tuples
+                // in this scan but not the previous one). Pre-fix
+                // this was hardcoded to 0 with the comment "diff
+                // happens server-side via notify path", but the
+                // notify path is for individual port-emerged
+                // notifications — the toast still wants the
+                // aggregate diff count. Falls back to 0 when the
+                // backend doesn't ship the field (very old payload).
                 this.showToast(this.t(i18nKey, {
-                  host:       _toastHost,
+                  host:       _target,
                   open_count: openCount,
-                  new_count:  0,  // diff happens server-side via notify path
+                  new_count:  Number(payload.new_count) || 0,
                 }), 'success');
               }
             } else {
-              const _resolvedIpErr = payload.resolved_ip || '';
               const _targetErr = payload.target || hostId;
-              const _failHost = (_resolvedIpErr && _resolvedIpErr !== _targetErr)
-                ? (_targetErr + ' (' + _resolvedIpErr + ')')
-                : (_resolvedIpErr || _targetErr);
               this.showToast(this.t('host_drawer.port_scan.scan_failed_body', {
-                host:  _failHost,
+                host:  _targetErr,
                 error: payload.error || 'unknown',
               }), 'error');
             }
@@ -15647,8 +15634,18 @@ function app() {
       this.$nextTick(() => {
         const el = document.getElementById('og-ai-sidebar-input');
         if (el && typeof el.focus === 'function') el.focus();
-        this._scrollAiSidebarToBottom();
-        this.$nextTick(() => this._scrollAiSidebarToBottom());
+        // FORCE the scroll-to-bottom on open. The non-force path
+        // honours the user's manual scroll position (chat-app
+        // convention — see #1209 jump-to-latest pill), but on a
+        // FRESH open we always want to land on the latest turn
+        // regardless of where the log was when the drawer last
+        // closed. Without `force: true`, a previously-scrolled-up
+        // log keeps that position when reopened, which is wrong:
+        // re-opening the chat is an explicit user action that
+        // should reset their reading position to the most recent
+        // assistant reply.
+        this._scrollAiSidebarToBottom({ force: true });
+        this.$nextTick(() => this._scrollAiSidebarToBottom({ force: true }));
       });
     },
     closeAiSidebar() {

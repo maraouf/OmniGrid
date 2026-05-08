@@ -519,12 +519,18 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     #    port-scan / ping / SNMP fall back to. Lets the operator set
     #    ONE address that every probe uses; SSH inherits it as the
     #    default when no SSH-specific override is set)
-    # 4. record.id + ssh_fqdn_suffix (global suffix; ".example.com" →
-    #    "webserver" becomes "webserver.example.com")
-    # 5. asset-inventory canonical FQDN
-    # 6. record.id as-is
-    # We only append the suffix when the id has no dot — ids that
-    # already contain a dot are treated as already-fully-qualified.
+    # 4. record.id as-is (last resort — typically not what the
+    #    operator wants, but the function must always return SOME
+    #    target string for the caller's logging path)
+    #
+    # User-flagged: legacy `id + ssh_fqdn_suffix` and asset-inventory
+    # FQDN fallbacks were dropped to avoid inconsistency between
+    # what the operator typed in the editor and what SSH actually
+    # connects to. Single source of truth: per-host SSH override
+    # OR the curated address field. If neither is set, the resolver
+    # falls through to the bare id — SSH won't connect (id is rarely
+    # routable) but the explicit-set-the-address contract is what
+    # the user wants over a clever auto-derive that "almost works".
     ssh_host_override = (per_host.get("host") or per_host.get("fqdn") or "").strip()
     curated_address = (record.get("address") or "").strip()
     base_id = record.get("id") or ""
@@ -536,20 +542,8 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
         resolved["host"] = curated_address
         host_resolution_path = "curated_address"
     else:
-        suffix = (g.get("fqdn_suffix") or "").strip()
-        if base_id and "." not in base_id and suffix:
-            resolved["host"] = base_id + (suffix if suffix.startswith(".") else "." + suffix)
-            host_resolution_path = f"id+suffix({suffix!r})"
-        else:
-            # Bare id with no fqdn_suffix — try the asset inventory's
-            # canonical FQDN before falling back to the bare id.
-            asset_fqdn = _asset_fqdn_for_record(record)
-            if asset_fqdn and "." not in base_id:
-                resolved["host"] = asset_fqdn
-                host_resolution_path = f"asset_fqdn({asset_fqdn!r})"
-            else:
-                resolved["host"] = base_id
-                host_resolution_path = "id_as_is"
+        resolved["host"] = base_id
+        host_resolution_path = "id_as_is"
     _log(f"[ssh] host_resolution id={host_id!r}: target={resolved['host']!r} via {host_resolution_path}")
     per_host_applied = []
     u_override = (per_host.get("user") or "").strip()

@@ -582,11 +582,9 @@
                    Providers → Ping. Pulled out of the SSH section so
                    each provider config block reads as one coherent unit. -->
               <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
-                <div class="flex items-center justify-between gap-2 mb-2">
-                  <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] font-semibold" x-text="t('admin_hosts.section_ping')"></div>
-                  <div class="fs-3xs text-[var(--text-faint)] italic"
-                       x-text="t('admin_hosts.provider.ping_address_hint')"></div>
-                </div>
+                <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] font-semibold mb-1" x-text="t('admin_hosts.section_ping')"></div>
+                <p class="fs-2xs text-[var(--text-faint)] mb-3"
+                   x-text="t('admin_hosts.provider.ping_address_hint')"></p>
                 <div class="grid grid-cols-1 md:grid-cols-[auto_1fr_1fr] gap-3 items-end">
                   <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)] pb-1.5"
                          :class="!row.enabled ? 'opacity-50' : ''">
@@ -665,8 +663,9 @@
                      x-show="!!(row.enabled && row.snmp && row.snmp.enabled === true)">
                   <div>
                     <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                      SNMP target
-                      <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1">(blank = use id)</span>
+                      <span x-text="t('admin_hosts.row.snmp_target_label') || 'SNMP target'"></span>
+                      <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                            x-text="t('admin_hosts.row.snmp_target_hint') || '(blank = falls back to Hostname or IP)'"></span>
                     </label>
                     <input type="text" x-model="row.snmp_name" :disabled="isReadonly() || !row.enabled"
                            list="snmp-names"

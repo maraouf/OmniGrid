@@ -1189,7 +1189,22 @@ PALETTE_SYSTEM_PROMPT: str = (
     "used, 2. db02 — 88%, 3. cache03 — 85%.\\nHOSTS: nas01, db02, "
     "cache03'. Example MEMORY-CHART reply: 'Here is opnsense's "
     "memory usage over the past 24 hours.\\nHOSTS: opnsense\\nCHART: "
-    "memory_history'."
+    "memory_history'. Example CPU-CHART reply: 'Here is opnsense's "
+    "CPU usage over the past 24 hours.\\nHOSTS: opnsense\\nCHART: "
+    "cpu_history'.\n\n"
+    "MANDATORY CHART KIND PAIRING — when you emit `HOSTS:` for ANY "
+    "memory / RAM / CPU / load question, you MUST also emit the "
+    "matching `CHART: <kind>` line on the line right after HOSTS. "
+    "OMITTING the CHART line for a memory / CPU question makes the "
+    "SPA render a disk-projection chart by default — visibly wrong, "
+    "user-flagged repeatedly. Hard rule: 'memory' / 'ram' / 'mem' "
+    "in the question → `CHART: memory_history`. 'cpu' / 'load' / "
+    "'processor' in the question → `CHART: cpu_history`. 'disk' / "
+    "'storage' / 'space' in the question → `CHART: disk_projection` "
+    "(or omit CHART since disk is the default). When unsure which "
+    "kind, OMIT THE HOSTS LINE ENTIRELY rather than picking the "
+    "wrong chart kind — a prose-only answer is always better than "
+    "a wrong chart."
 )
 
 
@@ -1349,6 +1364,32 @@ _VALID_CHART_KINDS: frozenset[str] = frozenset({
     "cpu_history",       # cpu_percent time-series, last 24 h
 })
 
+# AI-emitted aliases mapped to canonical kind names. The model often
+# emits short forms ("memory", "cpu", "ram") despite the prompt telling
+# it to use the full _history suffix. Treat these as equivalent so a
+# minor compliance miss doesn't fall through to the default disk-
+# projection (visibly wrong chart for a memory question). Disk synonyms
+# stay mapped to disk_projection — they're the legacy default.
+_CHART_KIND_ALIASES: dict[str, str] = {
+    "memory":       "memory_history",
+    "memory-usage": "memory_history",
+    "memory_usage": "memory_history",
+    "ram":          "memory_history",
+    "ram_history":  "memory_history",
+    "mem":          "memory_history",
+    "mem_history":  "memory_history",
+    "cpu":              "cpu_history",
+    "cpu-usage":        "cpu_history",
+    "cpu_usage":        "cpu_history",
+    "cpu_load":         "cpu_history",
+    "processor":        "cpu_history",
+    "processor_history":"cpu_history",
+    "disk":           "disk_projection",
+    "disk-projection":"disk_projection",
+    "disk_usage":     "disk_projection",
+    "storage":        "disk_projection",
+}
+
 
 def parse_palette_chart_kind(text: str) -> tuple[str, str]:
     """Extract the optional `CHART: <kind>` trailer from a palette
@@ -1375,7 +1416,7 @@ def parse_palette_chart_kind(text: str) -> tuple[str, str]:
         return "", text or ""
     import re as _re
     m = _re.search(
-        r"(?:^|\n)[\s`*]*CHART\s*:\s*([A-Za-z_][A-Za-z0-9_]*)[\s`.*]*$",
+        r"(?:^|\n)[\s`*]*CHART\s*:\s*([A-Za-z_][A-Za-z0-9_-]*)[\s`.*]*$",
         text, _re.IGNORECASE | _re.MULTILINE,
     )
     if not m:
@@ -1384,6 +1425,13 @@ def parse_palette_chart_kind(text: str) -> tuple[str, str]:
     cleaned_text = text[: m.start()].rstrip()
     if raw in _VALID_CHART_KINDS:
         return raw, cleaned_text
+    # Tolerate operator-friendly aliases the AI sometimes emits
+    # ("memory" / "ram" / "cpu" / "disk") instead of the canonical
+    # `*_history` / `*_projection` form. Falls through to "" only
+    # when the alias is genuinely unrecognised.
+    aliased = _CHART_KIND_ALIASES.get(raw)
+    if aliased:
+        return aliased, cleaned_text
     return "", cleaned_text
 
 
