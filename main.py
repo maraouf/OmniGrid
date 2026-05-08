@@ -7862,26 +7862,25 @@ def _resolve_ping_target(h: dict) -> Optional[str]:
       1. `ping.host` (per-host override on the row)
       2. `ssh.fqdn` (per-host SSH FQDN — most curated rows have this)
       3. `ssh.host` (alternate SSH-target spelling, legacy)
-      4. parsed hostname from the curated `url` field
-      5. `h.id` (last-resort fallback)
+      4. `h.id` (last-resort fallback)
+
+    The curated `url` field is DELIBERATELY excluded — it carries the
+    clickable web-UI link the operator wants to surface on the host
+    card (e.g. `https://app.plex.tv` for a Plex media-server card).
+    Probing that hostname would target the PUBLIC service relay
+    instead of the LAN host the row represents — wrong data AND
+    a privacy concern. If the operator wants the probe to hit a
+    different address than the host id, they set ``ping.host``
+    explicitly.
     """
     ping_cfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
     if not bool(ping_cfg.get("enabled", False)):
         return None
     ssh_cfg = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
-    url_host = ""
-    url_raw = (h.get("url") or "").strip()
-    if url_raw:
-        try:
-            from urllib.parse import urlparse as _urlparse
-            url_host = (_urlparse(url_raw).hostname or "").strip()
-        except (ValueError, TypeError):
-            url_host = ""
     candidate = (
         (ping_cfg.get("host") or "").strip()
         or (ssh_cfg.get("fqdn") or "").strip()
         or (ssh_cfg.get("host") or "").strip()
-        or url_host
         or (h.get("id") or "").strip()
     )
     return candidate or (h.get("id") or "")
@@ -10410,19 +10409,10 @@ async def api_hosts_debug(
             # debug surface shows the same `host` the probe is using.
             ping_cfg = (record.get("ping") or {}) if isinstance(record.get("ping"), dict) else {}
             ssh_cfg = (record.get("ssh") or {}) if isinstance(record.get("ssh"), dict) else {}
-            url_host_dbg = ""
-            url_raw = (record.get("url") or "").strip()
-            if url_raw:
-                try:
-                    from urllib.parse import urlparse as _urlparse_dbg
-                    url_host_dbg = (_urlparse_dbg(url_raw).hostname or "").strip()
-                except (ValueError, TypeError):
-                    url_host_dbg = ""
             target = (
                 (ping_cfg.get("host") or "").strip()
                 or (ssh_cfg.get("fqdn") or "").strip()
                 or (ssh_cfg.get("host") or "").strip()
-                or url_host_dbg
                 or record["id"]
             )
             providers_raw["ping"] = {
@@ -13338,30 +13328,22 @@ async def api_hosts_port_scan(
             detail=f"Port scan is disabled for host {hid}. "
                    f"Enable it in Admin → Hosts.",
         )
-    # Resolve the scan target — port the FULL precedence chain the
-    # ping endpoint uses (5 fallbacks, not 3). Pre-fix port-scan
-    # only checked `ssh.fqdn` → `ssh.host` → `host_id`, which
-    # meant hosts without SSH configured but WITH a working `url`
-    # (e.g. `https://webserver.example.lan`) or per-host
-    # `ping.host` override scanned against their bare id and
-    # DNS-failed every probe — operator saw 0 open ports despite
-    # 80/443 being live. Now: per-host `ping.host` override →
-    # `ssh.fqdn` → `ssh.host` → URL hostname → bare host_id.
+    # Resolve the scan target. Resolution chain (FIRST non-empty wins):
+    # per-host `ping.host` override → `ssh.fqdn` → `ssh.host` → bare
+    # host_id. The curated `url` field is DELIBERATELY excluded —
+    # it carries the clickable web-UI link the operator wants to
+    # surface on the host card (e.g. `https://app.plex.tv` for a
+    # Plex media-server card). Probing that hostname would target
+    # the PUBLIC service relay instead of the LAN host the row
+    # represents — wrong data AND a privacy concern. If the operator
+    # wants the scan to hit a different address than the host id,
+    # they set `ping.host` (or `ssh.host`) explicitly.
     ssh_cfg = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
     ping_cfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
-    url_host = ""
-    url_raw = (h.get("url") or "").strip()
-    if url_raw:
-        try:
-            from urllib.parse import urlparse as _urlparse
-            url_host = (_urlparse(url_raw).hostname or "").strip()
-        except (ValueError, TypeError):
-            url_host = ""
     target = (
         (ping_cfg.get("host") or "").strip()
         or (ssh_cfg.get("fqdn") or "").strip()
         or (ssh_cfg.get("host") or "").strip()
-        or url_host
         or hid
     )
     target = target.strip() or hid

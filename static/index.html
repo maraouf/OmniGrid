@@ -7530,11 +7530,28 @@
                  pattern, image-pull pattern, mount pattern) render
                  a Help link with the SSH-fixable command when the
                  error matches. -->
+            <!-- Visual urgency gates on the SERVICE'S CURRENT health.
+                 Healthy services CAN have a non-empty task_error if
+                 Swarm had to retry scheduling (e.g. transient VXLAN
+                 conflict, stale overlay subnet); the new task
+                 succeeded and the service is up — but the historical
+                 failure record persists. Showing a red alarm-style
+                 panel for a 3/3 healthy service is misleading. When
+                 healthy, switch the border + heading text + body
+                 colour to the warning (amber) family so the panel
+                 reads as "past failures, look-but-don't-panic".
+                 The auto-fix actions stay because the kernel may
+                 still hold leftover state worth proactively cleaning
+                 up. When degraded / offline, the original danger
+                 styling stays intact for the active-failure case. -->
             <div x-show="drawerItem.task_error && drawerItem.task_error.length"
                  class="mt-2 p-2 rounded border"
-                 :style="'background: var(--surface-2); border-color: var(--danger);'">
-              <div class="fs-3xs text-[var(--text-faint)] uppercase tracking-wider mb-1" x-text="t('drawer.task_error_label')"></div>
-              <div class="mono fs-xs text-[var(--danger)] whitespace-pre-wrap break-all" x-text="drawerItem.task_error"></div>
+                 :style="'background: var(--surface-2); border-color: var(--' + (drawerItem.health === 'healthy' ? 'warning' : 'danger') + ');'">
+              <div class="fs-3xs text-[var(--text-faint)] uppercase tracking-wider mb-1"
+                   x-text="drawerItem.health === 'healthy' ? (t('drawer.task_error_resolved_label') || t('drawer.task_error_label')) : t('drawer.task_error_label')"></div>
+              <div class="mono fs-xs whitespace-pre-wrap break-all"
+                   :style="'color: var(--' + (drawerItem.health === 'healthy' ? 'warning' : 'danger') + ');'"
+                   x-text="drawerItem.task_error"></div>
               <div x-show="taskErrorKnownIssue(drawerItem.task_error)"
                    class="mt-2 fs-xs"
                    :style="'color: var(--text-dim);'">
@@ -7558,8 +7575,16 @@
                    but no such class exists in style.css, so the
                    non-danger button rendered unstyled. The spinner
                    reuses the `.spin` keyframe; gap-2 keeps the
-                   buttons evenly separated. -->
-              <div x-show="isAdmin() && taskErrorAutoFixActions(drawerItem).length"
+                   buttons evenly separated.
+                   Hidden when the service is currently healthy —
+                   user-flagged: keeping the historical error visible
+                   is fine for forensic context, but exposing
+                   destructive auto-fix actions (force-restart,
+                   cleanup-stale-overlay) on a 3/3 healthy service
+                   invites accidental misclicks that would interrupt
+                   a running deployment. The buttons reappear if the
+                   service degrades. -->
+              <div x-show="isAdmin() && drawerItem.health !== 'healthy' && taskErrorAutoFixActions(drawerItem).length"
                    class="mt-3 flex flex-wrap items-center gap-2">
                 <template x-for="act in taskErrorAutoFixActions(drawerItem)" :key="act.id">
                   <button type="button"
