@@ -670,7 +670,8 @@
       "label": "Language"
     },
     "ai_prefs": {
-      "title": "AI preferences"
+      "title": "AI preferences",
+      "intro": "Per-browser preferences for the AI Assistant. Persisted to your account so the same choice follows you across browsers."
     },
     "profile": {
       "account": "Account",

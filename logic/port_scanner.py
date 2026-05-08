@@ -264,6 +264,37 @@ async def scan_host(
     concurrency = max(1, min(256, int(concurrency or 32)))
     sem = asyncio.Semaphore(concurrency)
 
+    # Resolve the target hostname to an IP address ONCE upfront.
+    # `asyncio.open_connection(host, port)` does this internally per
+    # connect, but the resolved IP isn't exposed back to the caller —
+    # so toast / log surfaces could only echo the literal hostname.
+    # On a fleet where the host_id is a friendly alias (e.g. `ftth`,
+    # `nas`, `pve`) that resolves via the container's resolver chain
+    # (mDNS, /etc/hosts, Docker DNS, search domain), the operator can
+    # trace results back to a wire-level IP for forensics by reading
+    # `resolved_ip` from the scan result. Falls back to None when
+    # resolution fails OR target is already a literal IP (str(target)
+    # round-trips via getaddrinfo cleanly in both cases — IPv4 + IPv6).
+    resolved_ip: str | None = None
+    try:
+        loop = asyncio.get_event_loop()
+        infos = await loop.getaddrinfo(
+            str(target), None,
+            family=0, type=socket.SOCK_STREAM,
+        )
+        if infos:
+            # Pick the first address-family entry. IPv4 preferred when
+            # both are returned (matches asyncio.open_connection's
+            # default happy-eyeballs behaviour).
+            for fam, _socktype, _proto, _canon, sockaddr in infos:
+                if fam == socket.AF_INET:
+                    resolved_ip = str(sockaddr[0])
+                    break
+            if resolved_ip is None:
+                resolved_ip = str(infos[0][4][0])
+    except (socket.gaierror, OSError, IndexError):
+        resolved_ip = None
+
     async def _bounded(p: int) -> dict:
         async with sem:
             return await _probe_one_port(target, p, timeout_s, banner_grab)
@@ -316,6 +347,13 @@ async def scan_host(
         r.pop("_closed_reason", None)
     return {
         "host":        target,
+        # Wire-level IP the OS resolved the target hostname to. None
+        # when getaddrinfo() failed AND the target wasn't a literal
+        # IP. Surfaced in toast / history so the operator can trace
+        # results back beyond the alias they typed (e.g. `opnsense`
+        # → `192.168.1.1`, `ftth` → `192.168.0.1` via search-domain
+        # resolution chain in the container's resolv.conf).
+        "resolved_ip": resolved_ip,
         "scanned_at":  int(time.time()),
         "ports":       results,
         "duration_ms": duration_ms,

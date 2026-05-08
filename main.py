@@ -13270,6 +13270,15 @@ async def _run_port_scan_async(
             "scan_id":      scan_id,
             "ok":           not bool(scan.get("error")),
             "target":       target,
+            # Wire-level IP the scanner's OS resolver returned for
+            # `target` BEFORE the first probe fired. Surfaced so the
+            # toast / history can show what was actually hit at the
+            # network layer when the host_id is a friendly alias
+            # (e.g. `opnsense` → `192.168.1.1` via container's
+            # search-domain resolution). None when getaddrinfo failed
+            # OR the scanner couldn't extract it; SPA falls back to
+            # `target` then `host_id` in that case.
+            "resolved_ip":  scan.get("resolved_ip"),
             "ports_open":   len(open_entries),
             "udp_open":     len(udp_open_entries),
             "duration_ms":  duration_ms,
