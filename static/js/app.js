@@ -3834,14 +3834,21 @@ function app() {
     async saveRetention() {
       if (this.retentionSaving) return;
       this.retentionSaving = true;
-      // Separate save endpoint from the general settings form so the
-      // Backups tab doesn't require pushing the full SettingsIn bundle.
+      // Backups section owns its retention tunable. Per the
+      // section-saves-its-own-tunables convention, this handler
+      // posts BOTH the legacy `backup_retention_count` (back-compat
+      // for any old code path still reading it) AND the canonical
+      // `tuning_backup_retention_count` in one body — no chain to
+      // saveTuning.
+      const tuningV = (this.tuningForm || {})['tuning_backup_retention_count'];
       const n = Math.max(0, parseInt(this.settings.backup_retention_count, 10) || 0);
       try {
+        const body = { backup_retention_count: n };
+        body['tuning_backup_retention_count'] = (tuningV == null ? '' : String(tuningV).trim());
         const r = await fetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ backup_retention_count: n }),
+          body: JSON.stringify(body),
         });
         if (r.ok) {
           this.settings.backup_retention_count = n;
@@ -6904,6 +6911,12 @@ function app() {
         if ((this.sshSettings.password || '').trim() !== '') {
           body.ssh_default_password = this.sshSettings.password;
         }
+        // SSH-section tunable — included in the same POST so the
+        // SSH Save commits it alongside the rest of the SSH config.
+        for (const k of ['tuning_ssh_ws_heartbeat_seconds']) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
         const r = await fetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -8681,6 +8694,11 @@ function app() {
     },
     async saveTuning() {
       if (this.tuningSaving) return;
+      // saveTuning is the Admin → Config "Save all" path — commits
+      // every tunable across every section. Per-section saves
+      // (saveAiSettings / saveSshSettings / saveRetention / ...)
+      // own their own subset of tunables and write them directly in
+      // their own POST body — they do NOT call saveTuning.
       // client-side integer + bounds validation
       // before posting. Pre-fix the input was `type="number"` (rejects
       // letters) BUT the form still accepted decimals like "1.5" which
@@ -8921,8 +8939,9 @@ function app() {
         // in-place reconcile keyed on history row `id` (auto-
         // increment PK from the `history` table) so each page change
         // doesn't tear down every row's expanded `<details>` state +
-        // inline-style nodes for the entire table. Same helper as
-        // #418/#436/#439.
+        // inline-style nodes for the entire table. Reuses the same
+        // `_reconcileById` helper that the hosts/items/schedules/etc.
+        // pollers use to keep Alpine reactivity stable across reloads.
         this._reconcileById(this.history, Array.isArray(d.history) ? d.history : []);
         this.historyTotal = Number.isFinite(+d.total) ? +d.total : this.history.length;
         // If the operator's persisted page is past the new filtered
@@ -11125,7 +11144,37 @@ function app() {
       // last-test stamps when fields change).
     },
     aiFormDirty() {
-      return this._aiBaselineSnapshot !== '' && this._aiSnapshot() !== this._aiBaselineSnapshot;
+      // Section-scoped dirty: the AI form fields (master toggle /
+      // active provider / per-provider creds / fallback chain) AND
+      // the AI section's owned tunables (output-token cap / fallback
+      // depth / retry knobs). Either dirty side enables the Save
+      // button — the section's Save commits both in one POST.
+      const ownDirty = this._aiBaselineSnapshot !== '' && this._aiSnapshot() !== this._aiBaselineSnapshot;
+      if (ownDirty) return true;
+      // Tunable dirty — compare each AI-section tunable against the
+      // tuning baseline. Falls back to the global tuningDirty path
+      // when the helper isn't available, but the keys-list path is
+      // cleaner because it only flags THIS section's own tunables.
+      try {
+        const baseline = this._tuningBaselineMap();
+        for (const k of this._aiSectionTuningKeys()) {
+          const cur = (this.tuningForm || {})[k];
+          const curStr = (cur == null ? '' : String(cur).trim());
+          const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+          if (curStr !== baseStr) return true;
+        }
+      } catch (_) {}
+      return false;
+    },
+    // Helper used by section-scoped dirty trackers — parses the tuning
+    // baseline JSON into an object so each section can compare its own
+    // keys against the baseline without re-snapshotting the world.
+    _tuningBaselineMap() {
+      try {
+        return JSON.parse(this._tuningBaseline || '{}') || {};
+      } catch (_) {
+        return {};
+      }
     },
     hydrateAiFromSettings(d) {
       // Called from loadSettings() after the GET resolves. Mirrors the
@@ -11173,6 +11222,27 @@ function app() {
       // assignments above are reflected in the snapshot.
       this.$nextTick(() => { this._aiBaselineSnapshot = this._aiSnapshot(); });
     },
+    // AI section's own tunables — saveAiSettings includes these in
+    // its `/api/settings` POST body so the AI Save button commits
+    // them along with the rest of the AI config (master toggle,
+    // active provider, per-provider creds, retry knobs, output-
+    // token cap). Adding a new AI tunable: add it here AND to the
+    // matching dirty-tracker keys list AND to the SettingsIn
+    // backend model.
+    _aiSectionTuningKeys() {
+      return [
+        // Auto-retry knobs (already-shipped, were saved via the
+        // generic saveTuning before; now ride along with the AI Save).
+        'tuning_ai_retry_enabled',
+        'tuning_ai_retry_backoff_ms',
+        'tuning_ai_retry_first_attempt_max_ms',
+        // Output-token cap (replaces legacy `ai_max_tokens` plain
+        // settings field; bound to the bounds-chips form row).
+        'tuning_ai_max_tokens',
+        // Fallback chain depth (replaces legacy `ai_fallback_max_depth`).
+        'tuning_ai_fallback_max_depth',
+      ];
+    },
     async saveAiSettings() {
       if (this.aiSaving || this.isReadonly()) return;
       this.aiSaving = true;
@@ -11190,6 +11260,13 @@ function app() {
           ai_fallback_max_depth:         Math.max(1, Math.min(2,
                                             +this.settings.ai_fallback_max_depth || 1)),
         };
+        // Section-owned tunables ride along in the same POST. The
+        // backend's api_set_settings handler processes plain settings
+        // + tunables uniformly; per-section save = one round-trip.
+        for (const k of this._aiSectionTuningKeys()) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
         this.aiProviderNames.forEach(name => {
           const p = this.aiForm.providers[name];
           body[`ai_provider_${name}_enabled`]  = !!p.enabled;

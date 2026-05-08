@@ -2549,6 +2549,18 @@ class SettingsIn(BaseModel):
     tuning_ai_retry_enabled: Optional[str] = None
     tuning_ai_retry_backoff_ms: Optional[str] = None
     tuning_ai_retry_first_attempt_max_ms: Optional[str] = None
+    # AI output-token cap + fallback-chain depth (4-step audit-fix
+    # promotion from plain `ai_max_tokens` / `ai_fallback_max_depth`
+    # plain-settings rows). Both consumed via `tuning_int(...)` so
+    # DB > env > default + bounds-clamp applies. Rendered in
+    # Admin → AI Integration via `relocatedTuningKeys`.
+    tuning_ai_max_tokens: Optional[str] = None
+    tuning_ai_fallback_max_depth: Optional[str] = None
+    # Backup retention count + SSH WebSocket heartbeat — same
+    # 4-step audit-fix promotion; consumed via `tuning_int(...)`;
+    # rendered in Admin → Backups and Admin → SSH respectively.
+    tuning_backup_retention_count: Optional[str] = None
+    tuning_ssh_ws_heartbeat_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -14240,11 +14252,11 @@ async def api_local_login_webauthn_start(
     # mismatched so the legacy creds don't fire spurious banners.
     orphaned = []
     matching = []
-    # MED-006 — `cred` not `c`. Outer `with db_conn() as c:` block has
-    # exited but the convention in `main.py` is `c` = sqlite connection,
-    # so reusing the name in the loop body shadows that and adds reader
-    # hazard. Renamed throughout the loop + the allowCredentials list
-    # comprehension below.
+    # Loop variable `cred`, NOT `c`. The convention in `main.py`
+    # is `c` = sqlite connection (the outer `with db_conn() as c:`
+    # has exited, but reusing the name in the loop body would shadow
+    # that and add reader hazard). Renamed throughout the loop + the
+    # allowCredentials list comprehension below.
     for cred in creds:
         cred_rp = (cred.get("rp_id") or "").strip().lower()
         if cred_rp and cred_rp != rp_id.lower():

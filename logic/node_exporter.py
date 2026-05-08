@@ -453,8 +453,8 @@ def parse_exporter_text(text: str) -> dict:
             # `nodename` is the kernel-reported hostname (what `uname -n`
             # / `hostname` returns). Distinct from the user's curated
             # `host.id` / `host.label` — typically the actual machine
-            # name (e.g. `raspberry4tm02`) while the curated id might
-            # be a role / alias (e.g. `adguard2`). Surfaced as
+            # name (e.g. `host01.example.com`) while the curated id might
+            # be a role / alias (e.g. `web01`). Surfaced as
             # `host_hostname` so SSH-target resolution + AI grounding
             # can match against either form. Aligns with SNMP +
             # Webmin which already emit `host_hostname`.

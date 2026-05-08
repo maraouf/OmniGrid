@@ -68,7 +68,7 @@
                    :min="(tuningEffective['tuning_port_scan_default_timeout_seconds'] || {}).min"
                    :max="(tuningEffective['tuning_port_scan_default_timeout_seconds'] || {}).max"
                    :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled"
-                   class="w-44 mono text-[12.5px]">
+                   class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
@@ -104,7 +104,7 @@
                    :min="(tuningEffective['tuning_port_scan_default_concurrency'] || {}).min"
                    :max="(tuningEffective['tuning_port_scan_default_concurrency'] || {}).max"
                    :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled"
-                   class="w-44 mono text-[12.5px]">
+                   class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
@@ -145,7 +145,7 @@
                    :min="(tuningEffective['tuning_port_scan_max_seconds'] || {}).min"
                    :max="(tuningEffective['tuning_port_scan_max_seconds'] || {}).max"
                    :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled"
-                   class="w-44 mono text-[12.5px]">
+                   class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
@@ -181,7 +181,7 @@
                    :min="(tuningEffective['tuning_port_scan_banner_read_seconds'] || {}).min"
                    :max="(tuningEffective['tuning_port_scan_banner_read_seconds'] || {}).max"
                    :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled"
-                   class="w-44 mono text-[12.5px]">
+                   class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
@@ -251,7 +251,7 @@
                    :min="(tuningEffective['tuning_port_scan_udp_default_timeout_seconds'] || {}).min"
                    :max="(tuningEffective['tuning_port_scan_udp_default_timeout_seconds'] || {}).max"
                    :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled || !settings.port_scan_udp_enabled"
-                   class="w-44 mono text-[12.5px]">
+                   class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
@@ -287,7 +287,7 @@
                    :min="(tuningEffective['tuning_port_scan_udp_default_concurrency'] || {}).min"
                    :max="(tuningEffective['tuning_port_scan_udp_default_concurrency'] || {}).max"
                    :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled || !settings.port_scan_udp_enabled"
-                   class="w-44 mono text-[12.5px]">
+                   class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
