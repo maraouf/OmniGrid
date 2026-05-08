@@ -16626,6 +16626,26 @@ function app() {
         if (memPct !== null && Number.isFinite(memPct)) {
           out.mem_pct = r1(memPct);
         }
+        // Absolute memory in GB. Pre-fix the AI saw `mem_pct` but no
+        // total / used / free in GB, so questions like "how much
+        // memory does opnsense have in GB" returned "I don't have
+        // the total memory size in GB" even when SNMP / NE / Beszel
+        // provided byte-precise readings. Same shape as the disk
+        // fields below — bytes / 1024^3, rounded to one decimal so
+        // 8.1 GB doesn't drift to 8 GB on small fleets where the
+        // exactness matters. The API row exposes the bytes under
+        // `mem_total` / `mem_used` (NOT `host_mem_total` —
+        // `_shape_host_api_row` strips the `host_` prefix during the
+        // shape pass for these specific fields), so read THOSE keys
+        // here. SPA-side host objects never carry the `host_*`
+        // variants for memory / disk totals.
+        const memTotal = Number(h.mem_total || 0);
+        const memUsed  = Number(h.mem_used  || 0);
+        if (memTotal > 0) {
+          out.mem_total_gb = r1(memTotal / (1024 ** 3));
+          out.mem_used_gb  = r1(memUsed  / (1024 ** 3));
+          out.mem_free_gb  = r1((memTotal - memUsed) / (1024 ** 3));
+        }
         if (total > 0) {
           out.disk_pct = r1((used / total) * 100);
           out.disk_free_gb = Math.round((total - used) / (1024 ** 3));
