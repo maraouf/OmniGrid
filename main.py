@@ -13273,8 +13273,21 @@ async def _run_port_scan_async(
     except Exception as e:  # noqa: BLE001
         print(f"[port_scan] persist failed for {hid}: {e}")
 
+    # Compute "new since last scan" — the SPA's completion toast
+    # surfaces this so the operator sees at-a-glance whether the
+    # current scan found anything different. Computed BEFORE the
+    # notify-only `new_ports` filter below (which additionally
+    # excludes curated ports for notification noise) so the toast
+    # count reflects the raw "new this scan" tally regardless of
+    # whether the new ports are curated.
+    all_open = list(open_entries) + list(udp_open_entries)
+    new_count_for_toast = 0
     if prev_open_ports and not scan.get("error"):
-        all_open = list(open_entries) + list(udp_open_entries)
+        new_count_for_toast = sum(
+            1 for e in all_open
+            if (int(e.get("port") or 0), (e.get("protocol") or "tcp")) not in prev_open_ports
+        )
+    if prev_open_ports and not scan.get("error"):
         new_ports = [
             e for e in all_open
             if (int(e.get("port") or 0), (e.get("protocol") or "tcp")) not in prev_open_ports
@@ -13332,6 +13345,16 @@ async def _run_port_scan_async(
             "udp_open":     len(udp_open_entries),
             "duration_ms":  duration_ms,
             "error":        scan.get("error") or None,
+            # Count of (port, protocol) tuples present in this scan
+            # but ABSENT from the previous scan's open-set. Drives
+            # the "(N new since last scan)" parenthetical in the
+            # completion toast. 0 when first scan OR when nothing
+            # opened since the last run. Distinct from the
+            # `port_scan_new_port` notify path's `new_ports` list
+            # — that filter additionally excludes curated ports to
+            # cut notification noise; the toast count reflects the
+            # raw diff so the user sees exactly what the scan saw.
+            "new_count":    int(new_count_for_toast),
             # Lets the SPA pick a "first scan" vs "diff vs prior scan"
             # toast wording. True when this is the host's very first
             # scan (no prior scan_id rows in host_port_scans). Saves
