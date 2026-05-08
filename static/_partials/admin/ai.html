@@ -751,6 +751,58 @@
           </div>
         </section>
 
+        <!-- AI Memory — durable lessons the AI has learned about
+             this OmniGrid deployment. Captured automatically when the
+             AI emits MEMORY: lines; toasts notify the operator
+             on save. Admin can manually add memories OR delete ones
+             that are stale / wrong. Memories are injected into the
+             palette system prompt on every call so the AI accumulates
+             knowledge over time. -->
+        <section class="space-y-3">
+          <div>
+            <h3 class="text-[14px] font-semibold mb-1" x-text="t('ai_memory.title')"></h3>
+            <p class="fs-xs text-[var(--text-faint)]" x-text="t('ai_memory.subtitle')"></p>
+          </div>
+          <div class="flex items-stretch gap-2">
+            <input type="text"
+                   x-model="aiMemoryAddText"
+                   :placeholder="t('ai_memory.add_placeholder')"
+                   :disabled="isReadonly() || aiMemoryBusy"
+                   class="flex-1 fs-sm py-1"
+                   @keydown.enter.prevent="addAiMemory()">
+            <button type="button"
+                    @click="addAiMemory()"
+                    :disabled="isReadonly() || aiMemoryBusy || !(aiMemoryAddText || '').trim()"
+                    class="btn btn-soft fs-sm"
+                    x-text="t('ai_memory.add_button')"></button>
+          </div>
+          <div x-show="!aiMemories || aiMemories.length === 0"
+               class="py-6 text-center fs-sm text-[var(--text-faint)] italic"
+               x-text="t('ai_memory.empty')"></div>
+          <ul x-show="aiMemories && aiMemories.length > 0"
+              class="space-y-2">
+            <template x-for="m in (aiMemories || [])" :key="m.id">
+              <li class="flex items-start gap-2 p-2 rounded border border-[var(--border)] bg-[var(--surface-2)]">
+                <span class="chip pill-info fs-3xs uppercase shrink-0"
+                      x-text="t('ai_memory.source_' + (m.source || 'ai'))"></span>
+                <div class="flex-1 min-w-0">
+                  <p class="fs-sm leading-snug break-words" x-text="m.text"></p>
+                  <p class="fs-3xs text-[var(--text-faint)] mt-1">
+                    <span x-text="m.actor || ''"></span>
+                    <span x-show="m.actor"> · </span>
+                    <span x-text="aiFormatTime(m.ts)"></span>
+                  </p>
+                </div>
+                <button type="button"
+                        @click="deleteAiMemory(m.id)"
+                        :disabled="isReadonly()"
+                        class="btn btn-ghost fs-3xs shrink-0"
+                        x-text="t('ai_memory.delete_button')"></button>
+              </li>
+            </template>
+          </ul>
+        </section>
+
         <!-- Modal — opens via openAiModal('<key>'). Stage 1 surfaces
              the recent jobs table; the chart-style modal kinds (cost /
              tokens / accuracy / passrate / response_time) all share the

@@ -1053,27 +1053,74 @@ PALETTE_SYSTEM_PROMPT: str = (
     "safe-Markdown subset: fenced code blocks (```), inline code "
     "(`...`), bold (**...**), bullet lists (* / -), and numbered "
     "lists (1. 2. 3.). Use them deliberately:\n"
-    " - SHELL COMMANDS, config snippets, file paths with arguments, "
-    "or anything the operator should COPY-AND-PASTE go inside a "
-    "fenced code block with a language hint when known (e.g. "
-    "```bash, ```yaml, ```json, ```sh — bare ``` is fine when no "
-    "language fits). The SPA renders fenced blocks with a "
-    "monospace font, horizontal scroll for long lines, AND a "
-    "one-click copy button — that whole experience only triggers "
-    "for triple-backtick fenced blocks, NOT inline backticks.\n"
+    " - EVERY shell / linux / bash command goes inside a fenced "
+    "code block with the language hint `bash` (or `sh` for POSIX-"
+    "only snippets, `yaml` / `json` / `ini` / `toml` for config "
+    "snippets). This is NON-NEGOTIABLE — even a single one-line "
+    "command (`docker ps`, `systemctl restart sshd`, `apt update`) "
+    "goes in a fenced block, NEVER as inline backticks. The SPA "
+    "renders fenced blocks with a monospace font, horizontal "
+    "scroll, AND a one-click copy button — that experience only "
+    "triggers for triple-backtick fenced blocks, NOT inline "
+    "backticks. Inline backticks for a command rob the operator "
+    "of the copy button.\n"
+    " - DO NOT INDENT lines inside a fenced code block. The opening "
+    "``` and closing ``` go at column 0, and every line of the "
+    "code body starts at column 0 too — even when the fenced block "
+    "follows a colon, a bullet, or a numbered-list item. Wrong: "
+    "`    Environment=\"FOO=bar\"` (4 leading spaces). Right: "
+    "`Environment=\"FOO=bar\"` (no leading spaces). Indent inside "
+    "the body ONLY when the language genuinely requires it (e.g. "
+    "Python function bodies, YAML nested keys) — never as a "
+    "stylistic prefix to align with surrounding prose.\n"
     " - When the answer involves multiple commands run in sequence, "
     "put them in ONE fenced block separated by `&&` (so a single "
     "Copy click + paste runs the chain) OR as separate consecutive "
     "fenced blocks (when each command needs to be evaluated "
     "individually before running the next). Default to `&&` chaining "
     "for the common 'apply config + restart + verify' shape.\n"
-    " - INLINE code (`...`) is for short references inside prose: a "
-    "single command name (`docker ps`), a flag (`--no-trunc`), a "
-    "file path (`/etc/docker/daemon.json`), an env var "
-    "(`DOCKER_HOST`). Don't use inline code for anything the "
-    "operator would copy-paste — use a fenced block instead.\n"
+    " - INLINE code (`...`) is for short non-command references "
+    "inside prose: a flag name (`--no-trunc`), a file path "
+    "(`/etc/docker/daemon.json`), an env var (`DOCKER_HOST`), a "
+    "field name from a JSON response. Commands DO NOT belong in "
+    "inline backticks — even short ones. The split is: 'thing the "
+    "operator would type / copy' = fenced; 'thing the operator "
+    "would read / refer to' = inline.\n"
     " - Use bold sparingly for section headers inside a longer "
     "answer. Avoid bold-spam.\n\n"
+    "MEMORY PROTOCOL — when you learn something specific to THIS "
+    "OmniGrid deployment that future you should remember to avoid "
+    "repeating mistakes (a recurring command pattern, a quirk of "
+    "the operator's environment, a non-obvious lesson from a fix "
+    "that just landed, an alias / mapping the operator uses, a "
+    "host-specific gotcha), emit a `MEMORY: <one-line note>` line "
+    "at the END of your reply (after any ACTION / HOSTS / "
+    "ACTION_HOSTS lines). The SPA persists every MEMORY line "
+    "server-side and re-injects them into your system prompt for "
+    "every subsequent palette call, so you can self-improve over "
+    "the deployment's lifetime. Rules:\n"
+    " - ONLY emit a MEMORY when there's a NEW durable lesson — not "
+    "for every reply. Most replies should not emit one. If the "
+    "knowledge is already obvious from the existing system prompt "
+    "or a previous memory, do NOT re-emit.\n"
+    " - One memory per `MEMORY:` line. Multiple lessons from the "
+    "same reply emit multiple `MEMORY:` lines.\n"
+    " - Lead with the lesson. Format: `MEMORY: <imperative or "
+    "fact>. Why: <one phrase>.` Examples: `MEMORY: When restarting "
+    "Beszel agent, always SSH to its container host (not the "
+    "Swarm manager). Why: agent runs as a docker container on the "
+    "target machine, not in Swarm.` / `MEMORY: Operator's PVE "
+    "node 'pve01.example.com' uses ZFS pool 'tank' for VM disks. "
+    "Why: monitoring queries should target tank/* not local-lvm.`\n"
+    " - DO NOT emit a MEMORY containing operator-private "
+    "information (passwords, API tokens, IP addresses outside "
+    "192.X.X.X / 10.X.X.X / *.example.com placeholders). Memories "
+    "ship to the persisted store as plain text — treat them as "
+    "shareable facts about the deployment.\n"
+    " - When you receive a memory in the system prompt that turns "
+    "out to be wrong, emit `MEMORY-FORGET: <exact memory text>` "
+    "to flag it for removal (the SPA confirms with the operator "
+    "before deleting).\n\n"
     "AVAILABLE ACTIONS (end reply with `ACTION: <id>` for each):\n"
     " - mark_all_notifications_read — mark every notification as read\n"
     " - refresh — refresh the current view's data from the backend\n"
@@ -1358,6 +1405,41 @@ def parse_host_filter_response(text: str) -> tuple[str, str, str]:
     dsl = f"{m.group(1).lower()}: {m.group(2).strip()}".rstrip()
     explanation = lines[1] if len(lines) > 1 else ""
     return dsl, explanation, ""
+
+
+def parse_palette_memories(text: str) -> tuple[list[str], list[str], str]:
+    """Parse trailing ``MEMORY: ...`` and ``MEMORY-FORGET: ...`` lines
+    off the assistant reply. Returns ``(memories_to_save, memories_to_forget,
+    cleaned_text)``. Each list element is the raw single-line text the AI
+    emitted (one memory per line). Lines that pass through with the
+    `MEMORY:` / `MEMORY-FORGET:` prefix are stripped from the visible
+    reply; everything else is preserved verbatim.
+
+    Defensive: caps memory body at 500 chars to discourage prose-bloat
+    from a chatty model. Empty bodies after the colon are ignored.
+    """
+    if not text:
+        return [], [], text or ""
+    saves: list[str] = []
+    forgets: list[str] = []
+    out_lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        # Match `MEMORY-FORGET:` BEFORE `MEMORY:` (longest-prefix wins).
+        upper = stripped.upper()
+        if upper.startswith("MEMORY-FORGET:"):
+            body = stripped.split(":", 1)[1].strip()
+            if body:
+                forgets.append(body[:500])
+            continue
+        if upper.startswith("MEMORY:"):
+            body = stripped.split(":", 1)[1].strip()
+            if body:
+                saves.append(body[:500])
+            continue
+        out_lines.append(line)
+    cleaned = "\n".join(out_lines).rstrip()
+    return saves, forgets, cleaned
 
 
 def _format_records_block(label: str, fields: str, records: list) -> str:
