@@ -548,8 +548,9 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end mt-3">
                   <div>
                     <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                      SSH FQDN / host
-                      <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1">(blank = id + global suffix)</span>
+                      <span x-text="t('admin_hosts.row.ssh_fqdn_label') || 'SSH FQDN / host'"></span>
+                      <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                            x-text="t('admin_hosts.row.ssh_fqdn_hint') || '(blank = falls back to Hostname or IP, then id + global suffix)'"></span>
                     </label>
                     <input type="text"
                            :value="row.ssh && (row.ssh.fqdn || row.ssh.host) || ''"
@@ -581,7 +582,11 @@
                    Providers → Ping. Pulled out of the SSH section so
                    each provider config block reads as one coherent unit. -->
               <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
-                <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold" x-text="t('admin_hosts.section_ping')"></div>
+                <div class="flex items-center justify-between gap-2 mb-2">
+                  <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] font-semibold" x-text="t('admin_hosts.section_ping')"></div>
+                  <div class="fs-3xs text-[var(--text-faint)] italic"
+                       x-text="t('admin_hosts.provider.ping_address_hint')"></div>
+                </div>
                 <div class="grid grid-cols-1 md:grid-cols-[auto_1fr_1fr] gap-3 items-end">
                   <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)] pb-1.5"
                          :class="!row.enabled ? 'opacity-50' : ''">

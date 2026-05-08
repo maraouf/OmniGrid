@@ -1864,6 +1864,13 @@
       "empty_response": "(empty response)",
       "action_ran":     "Ran action: ",
       "disabled":       "AI is disabled — enable it in Admin → AI Integration",
+      "history_chart": {
+        "title_memory":     "Memory · 24h",
+        "title_cpu":        "CPU · 24h",
+        "loading":          "Loading history…",
+        "empty":            "No history points in the past 24 h",
+        "error":            "Could not load history"
+      },
       "disk_chart": {
         "loading":          "Loading projection…",
         "no_data":          "Not enough sampled history yet",
@@ -2986,7 +2993,9 @@
       "icon_placeholder": "opnsense · pfsense · ghcr.io/… · none",
       "address_label": "Hostname or IP",
       "address_hint": "(default probe target for port-scan / ping / SNMP / SSH when no provider override is set)",
-      "address_placeholder": "192.168.1.50 · opnsense.home.lan · …",
+      "address_placeholder": "192.168.1.50 · host.example.com · …",
+      "ssh_fqdn_label": "SSH FQDN / host",
+      "ssh_fqdn_hint": "(blank = falls back to Hostname or IP, then id + global suffix)",
       "ne_url_placeholder": "http://192.X.X.X:9100/metrics",
       "duplicate_title": "Duplicate this host (inserts a disabled clone below)",
       "remove_title": "Remove this host",
@@ -3010,6 +3019,7 @@
       "ping_enabled_label": "Enable ping for this host",
       "snmp_enabled_label": "Enable SNMP for this host",
       "ping_enabled_hint": "Reachability + RTT only. The sampler probes every {interval}s; latency lands in the host drawer's Ping chart.",
+      "ping_address_hint": "Probes the Hostname or IP set above (then the host id as last resort).",
       "ping_port_label": "Ping port (optional)",
       "ping_port_placeholder": "(global default)",
       "ping_transport_label": "Ping transport",
