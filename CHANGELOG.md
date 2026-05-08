@@ -48,6 +48,7 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Added
 
+- Drawer keyboard navigation — Left / Right arrow keys step through the currently-visible filtered list in both the host drawer (Hosts view) and the service drawer (Stacks / Services views), no wrap. Skips when focus is in a real text input. Boundary presses eat the keystroke so the drawer body never scrolls horizontally on the no-op. Host drawer respects `filteredHosts()`; service drawer respects `sortedFiltered` first then `filteredItems`.
 - Red offline-services counter on the topbar Services nav button. Parallel to the amber updates counter that's lived on the Stacks nav for a while; same visual footprint, different colour token. One metric per nav button: Stacks = updates (work-to-do), Services = offline (failures). Reactive — appears within one /api/items poll when a service goes down, clears when it recovers. New i18n key `nav.offline_title`.
 
 ### Internal
