@@ -1109,6 +1109,12 @@ function app() {
       // /api/hosts/one/<id> fan-out. Read on /api/me into
       // `me.client_config.hosts_parallel_fetch`.
       'tuning_hosts_parallel_fetch',
+      // Idle-time progressive-fill cadence on the Hosts view —
+      // background ticker trickles not-yet-loaded rows through
+      // the shared refresh queue so when the operator scrolls
+      // down the data is already there. Surfaced via
+      // `me.client_config.hosts_idle_fill_seconds`. 0 = disabled.
+      'tuning_hosts_idle_fill_interval_seconds',
       // / SSE heartbeat cadence + connection lifetime.
       'tuning_sse_heartbeat_seconds',
       'tuning_sse_max_lifetime_seconds',
@@ -1566,6 +1572,96 @@ function app() {
         setInterval(() => {
           this._lastTestSuccessNow = Math.floor(Date.now() / 1000);
         }, 60 * 1000);
+      } catch (_) {}
+      // Idle-time progressive fill for the Hosts view. While the
+      // operator stays at the top of the page (no scroll), the
+      // IntersectionObserver only fires for the few rows actually in
+      // the viewport — every off-screen row stays unfetched
+      // indefinitely. This ticker quietly enqueues ONE not-yet-seen
+      // host every N seconds (tunable, default 3 s) into the SAME
+      // shared `_hostRefreshQueue` the IO observer feeds, so by the
+      // time the operator scrolls, rows further down already have
+      // data. Backend pressure stays bounded because every enqueued
+      // id goes through the existing `tuning_hosts_parallel_fetch`
+      // worker cap. Set `tuning_hosts_idle_fill_interval_seconds=0`
+      // to disable (scroll-only lazy load — pre-fix behaviour).
+      // Skip conditions on every tick:
+      //   - not on the Hosts view (paying the trickle cost on a view
+      //     the user isn't looking at is wasteful)
+      //   - tab is hidden (browser visibility API; same logic as
+      //     "don't poll while user is on another tab")
+      //   - drawerHost is open (operator is investigating one host;
+      //     trickle would compete with their /api/hosts/one/<id> +
+      //     history fetches)
+      //   - a fast scroll is in progress (the IO observer is firing
+      //     bursts; let it own the queue for a beat)
+      //   - every host already seen (nothing left to fill)
+      try {
+        let lastScrollTs = 0;
+        window.addEventListener('scroll', () => {
+          lastScrollTs = Date.now();
+        }, { passive: true });
+        const idleFillTick = () => {
+          try {
+            const intervalSeconds = (this.me && this.me.client_config
+              && Number(this.me.client_config.hosts_idle_fill_seconds)) || 0;
+            if (intervalSeconds <= 0) return;       // disabled
+            if (this.view !== 'hosts') return;       // wrong view
+            if (typeof document !== 'undefined'
+                && document.visibilityState === 'hidden') return;
+            if (this.drawerHost) return;            // drawer open
+            // Skip if the user is actively scrolling — let the IO
+            // observer's burst-coalescer own the queue. 1.5 s of
+            // post-scroll idle passes this gate.
+            if (Date.now() - lastScrollTs < 1500) return;
+            const hosts = this.hosts || [];
+            if (!hosts.length) return;
+            const seen = this._hostSeenIds || new Set();
+            // Find the first host not yet seen + not currently
+            // queued. `_hostRefreshQueue` is shared with the IO
+            // observer so we don't double-enqueue an id already
+            // pending a refresh. `_hostObserverPending` covers the
+            // 200 ms debounced batch the observer is about to flush.
+            const queued = new Set(this._hostRefreshQueue || []);
+            const obsPending = this._hostObserverPending || new Set();
+            let nextId = null;
+            for (const h of hosts) {
+              const id = h && h.id;
+              if (!id) continue;
+              if (seen.has(id)) continue;
+              if (queued.has(id)) continue;
+              if (obsPending.has(id)) continue;
+              nextId = id;
+              break;
+            }
+            if (!nextId) return;
+            // Mark seen NOW so a tight tick + slow worker pool can't
+            // re-enqueue the same id on the next tick. The IO
+            // observer's `_hostSeenIds.has(id) continue` gate also
+            // dedupes against scroll-triggered fetches.
+            seen.add(nextId);
+            this._hostSeenIds = seen;
+            // Route through the shared queue so the worker cap
+            // applies. The function name reads "lazy" but it IS
+            // the canonical entry point used by every refresh
+            // path including scroll-triggered ones.
+            try { this._enqueueHostRefresh(nextId); } catch (_) {}
+            try { this._ensureHostRefreshWorkers(); } catch (_) {}
+          } catch (_) { /* never let the ticker throw */ }
+        };
+        // Run the ticker every 1 s; the gate inside compares
+        // `intervalSeconds` against an internal counter so the
+        // effective cadence matches the operator-tuned value
+        // without restarting the interval when the tunable changes.
+        let tickCount = 0;
+        setInterval(() => {
+          tickCount += 1;
+          const intervalSeconds = (this.me && this.me.client_config
+            && Number(this.me.client_config.hosts_idle_fill_seconds)) || 0;
+          if (intervalSeconds <= 0) return;
+          if (tickCount % Math.max(1, Math.round(intervalSeconds)) !== 0) return;
+          idleFillTick();
+        }, 1000);
       } catch (_) {}
       // Restore persisted UI prefs that need to land before the first
       // render of their dependent views.
@@ -21750,26 +21846,22 @@ function app() {
           // this tab kicked it off (and can show a completion toast
           // even when the drawer has since closed).
           this._inFlightPortScans[host.id] = data.scan_id || true;
-          // Display: "<label> (<scan-target>)" so the operator sees the
-          // actual address being probed BEFORE results land — guards
-          // against the "scanning the public URL instead of my LAN
-          // host" misconception that prompted dropping the `host.url`
-          // fallback from the resolution chain. When the resolved
-          // target matches the id (the common case), drop the redundant
-          // parenthetical so the toast reads cleanly.
+          // ALWAYS surface the resolved scan target so the operator
+          // can validate the actual address being probed BEFORE
+          // results land. The parenthetical is non-negotiable per
+          // user-flagged requirement: "I need the actual scan target
+          // in notification — whether host DNS record or IP, whatever
+          // the probe will run on". Even when target == label the
+          // parenthetical confirms the address explicitly, removing
+          // any ambiguity about which path the resolver picked
+          // (host_id / ssh.fqdn / ssh.host / ping.host).
           const _label = this.hostDisplayName(host) || host.id;
           const _target = (data.target || host.id || '').toString();
-          const _bodyVars = (_target && _target !== _label && _target !== host.id)
-            ? { host: _label, target: _target }
-            : { host: _label, target: _target };
-          const _i18nKey = (_target && _target !== _label && _target !== host.id)
-            ? 'host_drawer.port_scan.scan_queued_body'
-            : 'host_drawer.port_scan.scan_queued_body_nohost';
           this.showToast(
-            this.t(_i18nKey, _bodyVars)
-              || ('Port scan queued for ' + _label
-                  + (_target && _target !== _label ? ' (' + _target + ')' : '')
-                  + ' — results will appear when complete.'),
+            this.t('host_drawer.port_scan.scan_queued_body', {
+              host: _label, target: _target,
+            }) || ('Port scan queued for ' + _label
+                   + ' (scanning ' + _target + ') — results will appear when complete.'),
             'info',
           );
           // Polling fallback at 60 s — refreshes the host row in case
@@ -26396,11 +26488,85 @@ function app() {
       });
       return r.isConfirmed;
     },
+    // Toast lifecycle. The 4 s auto-dismiss is paused while the
+    // operator's pointer is over the toast OR a child element holds
+    // focus — common case is "I want to copy the error text for
+    // debugging but the toast disappears before I can select it".
+    // Hovering / focusing arms `_toastHold = true`; the auto-dismiss
+    // timer drains its remaining budget into a paused state and
+    // resumes on mouseleave / blur. Clicking the close × dismisses
+    // immediately. Default duration bumped from 4 s to 6 s and
+    // error toasts get 10 s — operators triage errors more often
+    // than success confirmations and need extra time to read +
+    // decide whether to copy.
     showToast(msg, type='success') {
       this.toast = msg;
       this.toastType = type;
+      this._toastHold = false;
+      this._toastDuration = (type === 'error') ? 10000 : 6000;
+      this._toastDeadline = Date.now() + this._toastDuration;
       clearTimeout(this._tt);
-      this._tt = setTimeout(() => this.toast = '', 4000);
+      this._tt = setTimeout(() => this._dismissToast(), this._toastDuration);
+    },
+    _dismissToast() {
+      this.toast = '';
+      clearTimeout(this._tt);
+      this._tt = null;
+      this._toastHold = false;
+      this._toastDeadline = 0;
+    },
+    // Mouse / focus enters the toast — pause the auto-dismiss
+    // timer. The remaining duration is preserved so when the
+    // operator's mouse leaves / focus moves away, the timer
+    // resumes from where it left off rather than restarting.
+    _holdToast() {
+      if (!this.toast) return;
+      this._toastHold = true;
+      // Capture how much time was left when the hold began so
+      // resumeToast can re-arm with the same budget.
+      const left = Math.max(500, (this._toastDeadline || 0) - Date.now());
+      this._toastRemaining = left;
+      clearTimeout(this._tt);
+      this._tt = null;
+    },
+    _resumeToast() {
+      if (!this.toast) return;
+      if (!this._toastHold) return;
+      this._toastHold = false;
+      const left = Math.max(1500, this._toastRemaining || this._toastDuration || 6000);
+      this._toastDeadline = Date.now() + left;
+      clearTimeout(this._tt);
+      this._tt = setTimeout(() => this._dismissToast(), left);
+    },
+    // Copy the toast text to the clipboard so the operator can
+    // paste into a bug report / chat / search box. Falls back to
+    // a manual selection-copy when the Clipboard API isn't
+    // available (file:// origins, older WebViews).
+    async copyToastText() {
+      const text = String(this.toast || '');
+      if (!text) return;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); } finally { ta.remove(); }
+        }
+        // Brief affordance — flip the body to "Copied!" then back.
+        const original = this.toast;
+        this.toast = (this.t('toasts.copied') || 'Copied to clipboard.') + ' ' + original;
+        clearTimeout(this._tt);
+        this._tt = setTimeout(() => {
+          if (this.toast.endsWith(original)) this.toast = original;
+          this._tt = setTimeout(() => this._dismissToast(),
+            Math.max(2500, this._toastRemaining || 4000));
+        }, 1200);
+      } catch (_) { /* best-effort */ }
     },
 
     // Error formatter — prefers the structured `error_code` + i18n

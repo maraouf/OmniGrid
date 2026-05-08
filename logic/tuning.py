@@ -110,6 +110,20 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # const; min 1 (serialised — guaranteed safe but slow); max 32 (NPM
     # default upstream pool exhausts well before this on most setups).
     "tuning_hosts_parallel_fetch": ("HOSTS_PARALLEL_FETCH", 6, 1, 32),
+    # Idle-time progressive fill — when the operator stays at the top of
+    # the Hosts view without scrolling, a background ticker enqueues
+    # one not-yet-loaded host every N seconds into the SAME shared
+    # `_hostRefreshQueue` the IntersectionObserver feeds, so by the
+    # time they scroll, rows further down already have data. Goes
+    # through the existing `tuning_hosts_parallel_fetch` worker cap, so
+    # backend pressure stays bounded regardless of how aggressive this
+    # is. Set 0 to disable entirely (fall back to scroll-only lazy
+    # loading); set 1-2 for fast pre-warm on small fleets; default 3
+    # for a slow trickle that's invisible on backend dashboards. Range
+    # 0..30s. Surfaced via /api/me's `client_config.hosts_idle_fill_seconds`
+    # so a Save in Admin → Config takes effect immediately without
+    # restart.
+    "tuning_hosts_idle_fill_interval_seconds": ("HOSTS_IDLE_FILL_INTERVAL_SECONDS", 3, 0, 30),
     # AI Assistant sidebar drawer width (pixels). Operator-tunable so
     # the same drawer adapts cleanly across a 1366 px laptop (480 px =
     # ~35% of horizontal space, often too wide) and a 4K monitor (480

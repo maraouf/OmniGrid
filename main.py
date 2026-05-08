@@ -2666,6 +2666,7 @@ class SettingsIn(BaseModel):
     # fan-out in `loadHosts()`. Read on /api/me into
     # `me.client_config.hosts_parallel_fetch`.
     tuning_hosts_parallel_fetch: Optional[str] = None
+    tuning_hosts_idle_fill_interval_seconds: Optional[str] = None
     # AI Assistant sidebar drawer width (px). Operator-tunable so the
     # same drawer adapts across a 1366 px laptop and a 4K monitor.
     # SPA reads via me.client_config.ai_sidebar_width_px and applies
@@ -15036,6 +15037,15 @@ async def api_me(request: Request):
             # per /api/me round-trip so an Admin → Config save takes
             # effect on the next call.
             "hosts_parallel_fetch": tuning.tuning_int("tuning_hosts_parallel_fetch"),
+            # Idle-time progressive fill cadence (seconds). When the
+            # operator is on the Hosts view and stays at the top
+            # without scrolling, a background ticker trickles
+            # not-yet-loaded host rows through the shared refresh
+            # queue at this cadence so by the time they scroll, the
+            # data is already there. 0 disables (scroll-only lazy
+            # load). Goes through the same `hosts_parallel_fetch`
+            # cap so backend pressure stays bounded.
+            "hosts_idle_fill_seconds": tuning.tuning_int("tuning_hosts_idle_fill_interval_seconds"),
             # AI Assistant sidebar drawer width (px). SPA's
             # ai-sidebar-drawer reads this and applies via inline
             # style on the <aside> root. Mobile layout ignores it.
