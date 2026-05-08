@@ -140,6 +140,22 @@
               </div>
             </template>
           </div>
+          <!-- Section-owned Save: posts ONLY node-exporter's plain
+               settings + the NE probe-timeout tunable. Per the
+               section-saves-its-own-tunables convention. -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+            <button type="button"
+                    @click="saveNeSection()"
+                    :disabled="isReadonly() || hostStatsSaving"
+                    :class="neSectionDirty() ? 'btn-dirty' : ''"
+                    class="btn btn-primary text-[12px]"
+                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
+            <span x-show="neSectionDirty() && !hostStatsSaving"
+                  class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
+              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
+              <span x-text="t('admin.actions.unsaved')"></span>
+            </span>
+          </div>
           <!-- Per-provider chip colour — operator-customisable
                override that flows into the row-chip + drawer-chip
                render via `providerChipStyle`. Empty means "use the
@@ -572,11 +588,22 @@
                 </div>
               </div>
             </template>
-            <!-- per-section Save button removed. The main
-                 Save at the bottom of the host_stats panel (inside
-                 saveHostStats / hostStatsDirty) now folds these
-                 tunable changes into the same POST so operators have
-                 ONE Save action covering the whole tab. -->
+          </div>
+          <!-- Section-owned Save: posts ONLY Webmin's plain settings
+               + the four Webmin tunables. Per the section-saves-its
+               -own-tunables convention. -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+            <button type="button"
+                    @click="saveWebminSection()"
+                    :disabled="isReadonly() || hostStatsSaving"
+                    :class="webminSectionDirty() ? 'btn-dirty' : ''"
+                    class="btn btn-primary text-[12px]"
+                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
+            <span x-show="webminSectionDirty() && !hostStatsSaving"
+                  class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
+              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
+              <span x-text="t('admin.actions.unsaved')"></span>
+            </span>
           </div>
           <!-- Per-provider chip colour. -->
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
@@ -717,6 +744,22 @@
                 </div>
               </div>
             </template>
+          </div>
+          <!-- Section-owned Save: posts ONLY Ping's plain settings +
+               the five Ping tunables. Per the section-saves-its-own
+               -tunables convention. -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+            <button type="button"
+                    @click="savePingSection()"
+                    :disabled="isReadonly() || hostStatsSaving"
+                    :class="pingSectionDirty() ? 'btn-dirty' : ''"
+                    class="btn btn-primary text-[12px]"
+                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
+            <span x-show="pingSectionDirty() && !hostStatsSaving"
+                  class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
+              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
+              <span x-text="t('admin.actions.unsaved')"></span>
+            </span>
           </div>
           <!-- Per-provider chip colour. -->
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">

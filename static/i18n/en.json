@@ -1735,6 +1735,24 @@
     "error_prefix":     "Error:",
     "error_label":      "Error: {error}"
   },
+  "ai_memory": {
+    "title":               "AI memory",
+    "subtitle":            "Durable lessons the AI has learned about this OmniGrid deployment. Memories are injected into every palette call's system prompt so the AI accumulates knowledge over time.",
+    "empty":               "No memories yet. The AI emits MEMORY: lines when it learns something specific to this deployment that's worth remembering.",
+    "add_label":           "Add a memory manually",
+    "add_placeholder":     "e.g. The Beszel agent on host01.example.com runs as a docker container — restart with `docker restart beszel-agent`, not via systemd",
+    "add_button":          "Add memory",
+    "delete_button":       "Delete",
+    "delete_confirm":      "Delete this memory?",
+    "source_ai":           "AI",
+    "source_operator":     "User",
+    "source_system":       "System",
+    "toast_saved":         "Memory saved",
+    "toast_forgotten":     "Memory forgotten",
+    "toast_added":         "Memory added",
+    "forget_confirm_title": "Forget memory?",
+    "forget_confirm_body":  "The AI flagged this memory as wrong. Delete it?"
+  },
   "command_palette": {
     "dialog_label": "Command palette",
     "placeholder": "Search hosts, services, admin, views…",

@@ -1000,6 +1000,25 @@ def init_db():
             ON ai_jobs(ts DESC);
         CREATE INDEX IF NOT EXISTS idx_ai_jobs_provider_ts
             ON ai_jobs(provider, ts DESC);
+        -- AI memory table — durable lessons the AI has learned about
+        -- this specific OmniGrid deployment. Populated when an AI
+        -- reply emits a `MEMORY: ...` line; injected into every
+        -- subsequent palette call's system prompt so the AI accumulates
+        -- knowledge across sessions and avoids repeating mistakes.
+        --   text   — the memory body (one-line directive, no newlines).
+        --   source — 'ai' when emitted by a model reply, 'operator'
+        --            when added manually via the admin UI.
+        --   actor  — username of the operator whose conversation produced
+        --            the memory (or 'system' when seeded).
+        CREATE TABLE IF NOT EXISTS ai_memory (
+            id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts     INTEGER NOT NULL,
+            text   TEXT    NOT NULL,
+            source TEXT    NOT NULL DEFAULT 'ai',
+            actor  TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_memory_ts
+            ON ai_memory(ts DESC);
         COMMIT;
         """)
         # Idempotent column additions for existing deployments. SQLite pre-3.35
@@ -4577,12 +4596,37 @@ async def api_ai_palette(
     # below for the resolver.
     fb_enabled, fb_chain, provider_creds, fb_max_depth = _resolve_ai_fallback_chain(active)
     conversation = body.conversation if isinstance(body.conversation, list) else None
+    # Hydrate the system prompt with persisted AI memories (lessons
+    # the AI has learned in prior turns about THIS deployment). Capped
+    # at 200 most-recent rows so the prompt token budget stays
+    # bounded even on long-running deployments.
+    persisted_memories: list[str] = []
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT text FROM ai_memory ORDER BY ts DESC LIMIT 200"
+            ).fetchall()
+            persisted_memories = [r[0] for r in rows if r and r[0]]
+    except Exception as e:  # noqa: BLE001
+        print(f"[ai] memory hydrate failed: {e}")
+    sys_prompt = _ai.PALETTE_SYSTEM_PROMPT
+    if persisted_memories:
+        memo_block = (
+            "\n\nLEARNED MEMORIES (from prior conversations — durable "
+            "facts the AI has noted about this specific OmniGrid "
+            "deployment; trust these unless contradicted by current "
+            "data, and emit `MEMORY-FORGET: <exact text>` if you "
+            "discover one is wrong):\n"
+            + "\n".join(f" - {m}" for m in reversed(persisted_memories))
+            + "\n"
+        )
+        sys_prompt = sys_prompt + memo_block
     out = await _ai.ask_provider_with_fallback(
         active,
         fallback_chain=fb_chain,
         provider_creds=provider_creds,
         prompt=_ai.build_palette_user_prompt(query, ctx, conversation=conversation),
-        system_prompt=_ai.PALETTE_SYSTEM_PROMPT,
+        system_prompt=sys_prompt,
         max_tokens=max_toks,
         timeout=30.0,
         fallback_enabled=fb_enabled,
@@ -4631,6 +4675,31 @@ async def api_ai_palette(
     if action_host_ids:
         out["text"] = cleaned_text
         out["action_hosts"] = action_host_ids
+    text = cleaned_text
+
+    # Parse trailing MEMORY: / MEMORY-FORGET: directives. Each MEMORY:
+    # line gets persisted into ai_memory immediately (the SPA toasts
+    # the operator afterward); each MEMORY-FORGET: line is returned
+    # unprocessed so the SPA can show a confirm dialog before deleting.
+    memo_saves, memo_forgets, cleaned_text = _ai.parse_palette_memories(text)
+    if memo_saves or memo_forgets:
+        out["text"] = cleaned_text
+        out["memories_saved"] = []
+        out["memories_to_forget"] = memo_forgets
+        if memo_saves:
+            try:
+                with db_conn() as c:
+                    for m in memo_saves:
+                        c.execute(
+                            "INSERT INTO ai_memory (ts, text, source, actor) "
+                            "VALUES (?, ?, ?, ?)",
+                            (int(time.time()), m, "ai",
+                             getattr(_admin, "username", None) or "ui"),
+                        )
+                    c.commit()
+                out["memories_saved"] = list(memo_saves)
+            except Exception as e:  # noqa: BLE001
+                print(f"[ai] memory persist failed: {e}")
     text = cleaned_text
 
     # Best-effort recorder writes ai_jobs + history so the Admin → AI
@@ -4723,6 +4792,114 @@ async def api_ai_feedback(
         print(f"[ai] feedback update failed: {e}")
         return {"ok": False, "detail": str(e)}
     return {"ok": True, "stored": stored}
+
+
+@app.get("/api/ai/memory")
+async def api_ai_memory_list(
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """List persisted AI memories — newest first.
+
+    Each row is one durable lesson the AI has learned about this
+    specific OmniGrid deployment. The SPA's Admin → AI → Memory tab
+    surfaces these for operator review and pruning.
+    """
+    out: list[dict] = []
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT id, ts, text, source, actor FROM ai_memory "
+                "ORDER BY ts DESC LIMIT 500"
+            ).fetchall()
+            for r in rows:
+                out.append({
+                    "id": int(r[0]), "ts": int(r[1] or 0),
+                    "text": r[2] or "", "source": r[3] or "ai",
+                    "actor": r[4] or "",
+                })
+    except Exception as e:  # noqa: BLE001
+        print(f"[ai] memory list failed: {e}")
+    return {"ok": True, "memories": out}
+
+
+class AiMemoryIn(BaseModel):
+    text: str
+    source: Optional[str] = "operator"
+
+
+@app.post("/api/ai/memory")
+async def api_ai_memory_add(
+    body: AiMemoryIn,
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Add a memory manually. Source defaults to 'operator' so admin
+    -seeded memories are distinguishable from AI-emitted ones."""
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(400, "text is required")
+    if len(text) > 500:
+        text = text[:500]
+    src = (body.source or "operator").strip().lower()
+    if src not in ("ai", "operator", "system"):
+        src = "operator"
+    new_id: Optional[int] = None
+    try:
+        with db_conn() as c:
+            cur = c.execute(
+                "INSERT INTO ai_memory (ts, text, source, actor) "
+                "VALUES (?, ?, ?, ?)",
+                (int(time.time()), text, src,
+                 getattr(_admin, "username", None) or "ui"),
+            )
+            c.commit()
+            new_id = int(cur.lastrowid) if cur and cur.lastrowid else None
+    except Exception as e:  # noqa: BLE001
+        print(f"[ai] memory add failed: {e}")
+        raise HTTPException(500, str(e))
+    return {"ok": True, "id": new_id}
+
+
+@app.delete("/api/ai/memory/{mem_id}")
+async def api_ai_memory_delete(
+    mem_id: int,
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Delete one memory by id. Idempotent — already-gone returns ok."""
+    try:
+        with db_conn() as c:
+            c.execute("DELETE FROM ai_memory WHERE id = ?", (int(mem_id),))
+            c.commit()
+    except Exception as e:  # noqa: BLE001
+        print(f"[ai] memory delete failed: {e}")
+        raise HTTPException(500, str(e))
+    return {"ok": True}
+
+
+@app.post("/api/ai/memory/forget")
+async def api_ai_memory_forget(
+    body: AiMemoryIn,
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Delete every memory whose text MATCHES (exact) the provided
+    body. Used when the AI emits ``MEMORY-FORGET: <exact text>`` and
+    the SPA confirms with the operator before propagating the delete.
+    """
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(400, "text is required")
+    deleted = 0
+    try:
+        with db_conn() as c:
+            cur = c.execute("DELETE FROM ai_memory WHERE text = ?", (text,))
+            c.commit()
+            deleted = int(cur.rowcount or 0)
+    except Exception as e:  # noqa: BLE001
+        print(f"[ai] memory forget failed: {e}")
+        raise HTTPException(500, str(e))
+    return {"ok": True, "deleted": deleted}
 
 
 @app.post("/api/ai/host-filter")

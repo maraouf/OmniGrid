@@ -3831,6 +3831,423 @@ function app() {
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
+    // Settings → Host stats → Ping sub-tab — section-owned save.
+    // Posts ONLY Ping's plain settings + the five Ping tunables.
+    // Per the section-saves-its-own-tunables convention.
+    _pingSectionTuningKeys() {
+      return [
+        'tuning_ping_interval_seconds',
+        'tuning_ping_concurrency',
+        'tuning_ping_probe_timeout_seconds',
+        'tuning_ping_cooldown_seconds',
+        'tuning_ping_failure_pause_rounds',
+      ];
+    },
+    _pingSectionPlainKeys() {
+      return [
+        'ping_enabled', 'ping_default_port', 'ping_use_icmp',
+        'provider_color_ping',
+      ];
+    },
+    pingSectionDirty() {
+      try {
+        const baseline = this._tuningBaselineMap();
+        for (const k of this._pingSectionTuningKeys()) {
+          const cur = (this.tuningForm || {})[k];
+          const curStr = (cur == null ? '' : String(cur).trim());
+          const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+          if (curStr !== baseStr) return true;
+        }
+      } catch (_) {}
+      let base = {};
+      try {
+        if (typeof this._hostStatsBaseline === 'string' && this._hostStatsBaseline) {
+          base = JSON.parse(this._hostStatsBaseline) || {};
+        }
+      } catch (_) { base = {}; }
+      try {
+        for (const k of this._pingSectionPlainKeys()) {
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) return true;
+        }
+      } catch (_) {}
+      try {
+        const curSrc = String((this.settings || {}).host_stats_source || '');
+        const baseSrcStr = String(base.host_stats_source || '');
+        if (curSrc !== baseSrcStr) {
+          const curHas = curSrc.split(',').map(s => s.trim()).includes('ping');
+          const baseHas = baseSrcStr.split(',').map(s => s.trim()).includes('ping');
+          if (curHas !== baseHas) return true;
+        }
+      } catch (_) {}
+      return false;
+    },
+    async savePingSection() {
+      if (this.hostStatsSaving) return;
+      for (const k of this._pingSectionTuningKeys()) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) continue;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = this.tuningEffective[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+          }), 'error');
+          return;
+        }
+      }
+      this.hostStatsSaving = true;
+      try {
+        const body = {};
+        for (const k of this._pingSectionPlainKeys()) {
+          body[k] = this.settings[k] == null ? '' : this.settings[k];
+        }
+        const sources = new Set(
+          (this.settings.host_stats_source || '').split(',').map(s => s.trim()).filter(Boolean)
+        );
+        if (this.hasHostStatsSource('ping')) sources.add('ping');
+        else sources.delete('ping');
+        body.host_stats_source = [...sources].join(',');
+        for (const k of this._pingSectionTuningKeys()) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        await Promise.all([this.loadSettings(), this.loadTuning()]);
+        this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+      } catch (e) {
+        this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+      } finally {
+        this.hostStatsSaving = false;
+      }
+    },
+
+    // Settings → Host stats → node-exporter sub-tab — section-owned save.
+    // Posts ONLY NE's plain settings + the NE probe-timeout tunable.
+    // Per the section-saves-its-own-tunables convention.
+    _neSectionTuningKeys() {
+      return [
+        'tuning_node_exporter_probe_timeout_seconds',
+      ];
+    },
+    _neSectionPlainKeys() {
+      return [
+        'node_exporter_enabled',
+        'node_exporter_url_template',
+        'node_exporter_overrides_json',
+        'provider_color_node_exporter',
+      ];
+    },
+    neSectionDirty() {
+      try {
+        const baseline = this._tuningBaselineMap();
+        for (const k of this._neSectionTuningKeys()) {
+          const cur = (this.tuningForm || {})[k];
+          const curStr = (cur == null ? '' : String(cur).trim());
+          const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+          if (curStr !== baseStr) return true;
+        }
+      } catch (_) {}
+      let base = {};
+      try {
+        if (typeof this._hostStatsBaseline === 'string' && this._hostStatsBaseline) {
+          base = JSON.parse(this._hostStatsBaseline) || {};
+        }
+      } catch (_) { base = {}; }
+      try {
+        for (const k of this._neSectionPlainKeys()) {
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) return true;
+        }
+      } catch (_) {}
+      try {
+        const curSrc = String((this.settings || {}).host_stats_source || '');
+        const baseSrcStr = String(base.host_stats_source || '');
+        if (curSrc !== baseSrcStr) {
+          const curHas = curSrc.split(',').map(s => s.trim()).includes('node_exporter');
+          const baseHas = baseSrcStr.split(',').map(s => s.trim()).includes('node_exporter');
+          if (curHas !== baseHas) return true;
+        }
+      } catch (_) {}
+      return false;
+    },
+    async saveNeSection() {
+      if (this.hostStatsSaving) return;
+      for (const k of this._neSectionTuningKeys()) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) continue;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = this.tuningEffective[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+          }), 'error');
+          return;
+        }
+      }
+      this.hostStatsSaving = true;
+      try {
+        const body = {};
+        for (const k of this._neSectionPlainKeys()) {
+          body[k] = this.settings[k] == null ? '' : this.settings[k];
+        }
+        const sources = new Set(
+          (this.settings.host_stats_source || '').split(',').map(s => s.trim()).filter(Boolean)
+        );
+        if (this.hasHostStatsSource('node_exporter')) sources.add('node_exporter');
+        else sources.delete('node_exporter');
+        body.host_stats_source = [...sources].join(',');
+        for (const k of this._neSectionTuningKeys()) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        await Promise.all([this.loadSettings(), this.loadTuning()]);
+        this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+      } catch (e) {
+        this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+      } finally {
+        this.hostStatsSaving = false;
+      }
+    },
+
+    // Settings → Host stats → Webmin sub-tab — section-owned save.
+    // Posts ONLY Webmin's plain settings + the four Webmin tunables in
+    // its own body. Per the section-saves-its-own-tunables convention.
+    _webminSectionTuningKeys() {
+      return [
+        'tuning_webmin_probe_budget_seconds',
+        'tuning_webmin_host_cache_ttl_seconds',
+        'tuning_webmin_host_fail_cache_ttl_seconds',
+        'tuning_webmin_failure_pause_rounds',
+      ];
+    },
+    _webminSectionPlainKeys() {
+      // Plain settings the Webmin sub-tab owns. Tracked separately
+      // from the section's tunables so the dirty diff knows which
+      // shape to compare against the loadSettings() baseline.
+      return [
+        'webmin_user', 'webmin_verify_tls', 'webmin_aliases',
+        'provider_color_webmin',
+        // `webmin_password` follows the keep-current-if-blank contract
+        // — it dirties when typed, not on baseline.
+      ];
+    },
+    webminSectionDirty() {
+      // Tunable diff first.
+      try {
+        const baseline = this._tuningBaselineMap();
+        for (const k of this._webminSectionTuningKeys()) {
+          const cur = (this.tuningForm || {})[k];
+          const curStr = (cur == null ? '' : String(cur).trim());
+          const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+          if (curStr !== baseStr) return true;
+        }
+      } catch (_) {}
+      // Plain-settings + secret diff. The host-stats baseline is a
+      // JSON STRING (see `_hostStatsSnapshot`) — parse before reading.
+      let base = {};
+      try {
+        if (typeof this._hostStatsBaseline === 'string' && this._hostStatsBaseline) {
+          base = JSON.parse(this._hostStatsBaseline) || {};
+        }
+      } catch (_) { base = {}; }
+      try {
+        for (const k of this._webminSectionPlainKeys()) {
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) return true;
+        }
+        if (((this.settings || {}).webmin_password || '').trim() !== '') return true;
+      } catch (_) {}
+      // Master-toggle membership diff — flipping the Webmin source on
+      // / off via the sub-tab's checkbox marks the section dirty.
+      try {
+        const curSrc = String((this.settings || {}).host_stats_source || '');
+        const baseSrcStr = String(base.host_stats_source || '');
+        if (curSrc !== baseSrcStr) {
+          const curHas = curSrc.split(',').map(s => s.trim()).includes('webmin');
+          const baseHas = baseSrcStr.split(',').map(s => s.trim()).includes('webmin');
+          if (curHas !== baseHas) return true;
+        }
+      } catch (_) {}
+      return false;
+    },
+    async saveWebminSection() {
+      if (this.hostStatsSaving) return;
+      // Validate the section's tunables against TUNABLES bounds.
+      for (const k of this._webminSectionTuningKeys()) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) continue;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = this.tuningEffective[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+          }), 'error');
+          return;
+        }
+      }
+      this.hostStatsSaving = true;
+      try {
+        const body = {};
+        // Plain settings.
+        for (const k of this._webminSectionPlainKeys()) {
+          body[k] = this.settings[k] == null ? '' : this.settings[k];
+        }
+        // Master-toggle membership for the Webmin source. Read the
+        // current set, add / remove `webmin`, and write back as CSV.
+        const sources = new Set(
+          (this.settings.host_stats_source || '').split(',').map(s => s.trim()).filter(Boolean)
+        );
+        if (this.hasHostStatsSource('webmin')) sources.add('webmin');
+        else sources.delete('webmin');
+        body.host_stats_source = [...sources].join(',');
+        // Secret (keep-current-if-blank).
+        if ((this.settings.webmin_password || '').trim() !== '') {
+          body.webmin_password = this.settings.webmin_password;
+        }
+        // Section-owned tunables.
+        for (const k of this._webminSectionTuningKeys()) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        // Refresh settings + tuning baselines so the section's dirty
+        // tracker resets cleanly.
+        await Promise.all([this.loadSettings(), this.loadTuning()]);
+        this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+      } catch (e) {
+        this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+      } finally {
+        this.hostStatsSaving = false;
+      }
+    },
+
+    // Admin → Logs owns the persistent-log retention tunable. Per
+    // the section-saves-its-own-tunables convention, this handler
+    // posts ONLY the Logs section's tunable in its own body —
+    // never chains to saveTuning().
+    _logsSectionTuningKeys() {
+      return ['tuning_log_retention_days'];
+    },
+    logsSectionDirty() {
+      try {
+        const baseline = this._tuningBaselineMap();
+        for (const k of this._logsSectionTuningKeys()) {
+          const cur = (this.tuningForm || {})[k];
+          const curStr = (cur == null ? '' : String(cur).trim());
+          const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+          if (curStr !== baseStr) return true;
+        }
+      } catch (_) {}
+      return false;
+    },
+    async saveLogsSection() {
+      if (this.tuningSaving) return;
+      // Validate the section's tunables against TUNABLES bounds first.
+      for (const k of this._logsSectionTuningKeys()) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) continue;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = this.tuningEffective[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+          }), 'error');
+          return;
+        }
+      }
+      this.tuningSaving = true;
+      try {
+        const body = {};
+        for (const k of this._logsSectionTuningKeys()) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error(await r.text());
+        // Refresh tuning baseline so the section's dirty cue clears.
+        await this.loadTuning();
+        this.showToast(this.t('admin.config.saved_toast'));
+      } catch (e) {
+        this.showToast(this.t('admin.config.save_failed', { error: e.message }), 'error');
+      } finally {
+        this.tuningSaving = false;
+      }
+    },
     async saveRetention() {
       if (this.retentionSaving) return;
       this.retentionSaving = true;
@@ -3852,6 +4269,9 @@ function app() {
         });
         if (r.ok) {
           this.settings.backup_retention_count = n;
+          // Refresh both legacy settings + tuning baseline so the
+          // section's dirty tracker resets cleanly after the save.
+          await this.loadTuning();
           this.showToast(this.t('toasts.retention_saved'));
         } else {
           const j = await r.json().catch(() => ({}));
@@ -4349,9 +4769,31 @@ function app() {
       // highlighter can hook in; today the CSS just renders mono.
       const blocks = [];
       const FENCE_RE = /```([a-zA-Z0-9_+\-.]*)\n([\s\S]*?)\n?```/g;
+      // Strip common leading whitespace from a fenced block body.
+      // AI models often add 4 spaces of indentation inside ``` blocks
+      // when the surrounding prose is bullet-indented or colon-led —
+      // that becomes spurious indent in the rendered <pre>. Mirrors
+      // Python's textwrap.dedent: find the smallest leading-ws prefix
+      // across non-empty lines, strip it from every line.
+      const dedentBody = (raw) => {
+        if (!raw) return raw;
+        const lines = raw.split('\n');
+        let minIndent = -1;
+        for (const line of lines) {
+          if (line.trim() === '') continue;
+          const m = /^[ \t]*/.exec(line);
+          const n = m ? m[0].length : 0;
+          if (minIndent < 0 || n < minIndent) minIndent = n;
+          if (minIndent === 0) break;
+        }
+        if (minIndent <= 0) return raw;
+        return lines
+          .map(line => line.length >= minIndent ? line.slice(minIndent) : line)
+          .join('\n');
+      };
       let withPlaceholders = text.replace(FENCE_RE, (_m, lang, body) => {
         const idx = blocks.length;
-        blocks.push({ lang: (lang || '').toLowerCase(), body: body || '' });
+        blocks.push({ lang: (lang || '').toLowerCase(), body: dedentBody(body || '') });
         return ' FENCED_CODE_BLOCK_' + idx + ' ';
       });
       let s = this._logEscape(withPlaceholders);
@@ -6926,8 +7368,12 @@ function app() {
           const j = await r.json().catch(() => ({}));
           throw new Error(j.detail || `HTTP ${r.status}`);
         }
-        // Re-pull settings so the _set flags update without a full reload.
-        await this.loadSettings();
+        // Re-pull settings + tuning baseline so the section's dirty
+        // tracker resets after a clean save. Pre-fix `loadTuning` was
+        // skipped here, so any tuning the section owns
+        // (`tuning_ssh_ws_heartbeat_seconds`) kept reporting dirty
+        // forever because `_tuningBaseline` was stale.
+        await Promise.all([this.loadSettings(), this.loadTuning()]);
         this.showToast(this.t('toasts_extra.ssh.settings_saved'), 'success');
       } catch (e) {
         this.showToast(
@@ -11055,6 +11501,13 @@ function app() {
     aiSaving: false,
     aiDashboard: null,
     aiDashboardLoading: false,
+    // AI memory — durable lessons the AI emits via MEMORY: directives.
+    // Surfaced in Admin → AI memory; injected into every palette
+    // call's system prompt so the AI accumulates knowledge over the
+    // deployment's lifetime.
+    aiMemories: [],
+    aiMemoryAddText: '',
+    aiMemoryBusy: false,
     aiRange: 24,                     // 1 / 24 / 168 / 720 hours
     aiModalKey: null,                 // 'jobs' / 'cost' / 'tokens' / 'response_time' / 'accuracy' / 'passrate'
     aiJobs: null,                     // { total, jobs: [...] }
@@ -11295,7 +11748,16 @@ function app() {
         // (set at dashboard fetch time), so a freshly-enabled
         // provider stayed greyed out until the next manual reload.
         // Both fetches are independent — fan out in parallel.
-        await Promise.all([this.loadSettings(), this.loadAiDashboard(true)]);
+        // `loadTuning()` is in the parallel set too because the AI
+        // section now owns tunables (`tuning_ai_max_tokens`, etc.)
+        // — without re-fetching the tuning state, `_tuningBaseline`
+        // stays stale and `aiFormDirty()` reports dirty forever even
+        // after a successful save.
+        await Promise.all([
+          this.loadSettings(),
+          this.loadAiDashboard(true),
+          this.loadTuning(),
+        ]);
         // Clear the user-typed api keys so the inputs don't carry the
         // value across the dirty boundary (the GET response only
         // surfaces api_key_set; the input ought to be blank again).
@@ -11328,6 +11790,69 @@ function app() {
         this.aiDashboard = null;
       } finally {
         this.aiDashboardLoading = false;
+      }
+      // Always refresh the memory list when the dashboard loads — the
+      // AI tab and the memory pane share the same scope.
+      try { await this.loadAiMemories(); } catch (_) { /* noop */ }
+    },
+    async loadAiMemories() {
+      try {
+        const r = await fetch('/api/ai/memory');
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const j = await r.json();
+        this.aiMemories = Array.isArray(j.memories) ? j.memories : [];
+      } catch (e) {
+        console.error('[ai] loadAiMemories failed:', e);
+        this.aiMemories = [];
+      }
+    },
+    async addAiMemory() {
+      const text = (this.aiMemoryAddText || '').trim();
+      if (!text || this.aiMemoryBusy) return;
+      this.aiMemoryBusy = true;
+      try {
+        const r = await fetch('/api/ai/memory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, source: 'operator' }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        this.aiMemoryAddText = '';
+        if (typeof this.showToast === 'function') {
+          this.showToast(this.t('ai_memory.toast_added') || 'Memory added', 'success');
+        }
+        await this.loadAiMemories();
+      } catch (e) {
+        if (typeof this.showToast === 'function') {
+          this.showToast((e && e.message) || 'Failed', 'error');
+        }
+      } finally {
+        this.aiMemoryBusy = false;
+      }
+    },
+    async deleteAiMemory(memId) {
+      const ok = await this.confirmDialog({
+        title: this.t('ai_memory.delete_confirm') || 'Delete this memory?',
+        confirmButtonText: this.t('actions.delete') || 'Delete',
+        cancelButtonText:  this.t('actions.cancel') || 'Cancel',
+      });
+      if (!ok) return;
+      try {
+        const r = await fetch('/api/ai/memory/' + encodeURIComponent(memId), {
+          method: 'DELETE',
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        await this.loadAiMemories();
+        if (typeof this.showToast === 'function') {
+          this.showToast(this.t('ai_memory.toast_forgotten') || 'Memory forgotten', 'success');
+        }
+      } catch (e) {
+        if (typeof this.showToast === 'function') {
+          this.showToast((e && e.message) || 'Failed', 'error');
+        }
       }
     },
     async loadAiJobs() {
@@ -14650,6 +15175,50 @@ function app() {
         // Validated against the curated host id set server-side, so
         // we trust the array as-is here.
         const hostIds = Array.isArray(j.hosts) ? j.hosts.slice(0, 8) : [];
+        // Surface AI-emitted memories. `memories_saved` is the list
+        // the backend already persisted via /api/ai/palette; the SPA
+        // toasts each one so the operator sees the self-improvement
+        // happen in real-time. `memories_to_forget` is operator-
+        // confirmed BEFORE the actual delete propagates.
+        const memoriesSaved = Array.isArray(j.memories_saved) ? j.memories_saved : [];
+        const memoriesToForget = Array.isArray(j.memories_to_forget) ? j.memories_to_forget : [];
+        if (memoriesSaved.length > 0) {
+          for (const m of memoriesSaved) {
+            const head = m.length > 80 ? m.slice(0, 80) + '…' : m;
+            if (typeof this.showToast === 'function') {
+              this.showToast(
+                (this.t('ai_memory.toast_saved') || 'Memory saved') + ': ' + head,
+                'success'
+              );
+            }
+          }
+        }
+        if (memoriesToForget.length > 0) {
+          // Confirm with the operator before deleting. Each line in
+          // memoriesToForget is the EXACT memory text the AI flagged.
+          this.$nextTick(async () => {
+            for (const txt of memoriesToForget) {
+              const head = txt.length > 80 ? txt.slice(0, 80) + '…' : txt;
+              const ok = await this.confirmDialog({
+                title: this.t('ai_memory.forget_confirm_title') || 'Forget memory?',
+                text:  (this.t('ai_memory.forget_confirm_body') || 'The AI flagged this memory as wrong. Delete it?') + '\n\n"' + head + '"',
+                confirmButtonText: this.t('actions.delete') || 'Delete',
+                cancelButtonText:  this.t('actions.cancel') || 'Cancel',
+              });
+              if (!ok) continue;
+              try {
+                await fetch('/api/ai/memory/forget', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ text: txt }),
+                });
+                if (typeof this.showToast === 'function') {
+                  this.showToast(this.t('ai_memory.toast_forgotten') || 'Memory forgotten', 'success');
+                }
+              } catch (_) { /* swallow — operator can retry */ }
+            }
+          });
+        }
         const turn = {
           role:             'assistant',
           text:             answer,
