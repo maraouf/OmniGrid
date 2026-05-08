@@ -21,8 +21,8 @@
               <input type="file" accept="image/*" class="hidden" @change="uploadAvatar($event)" :disabled="avatarBusy">
             </label>
           </div>
-          <div class="text-[15px] font-semibold" x-text="(me && me.display_name) || (me && me.username) || ''"></div>
-          <div class="text-[11.5px] text-[var(--text-dim)] mt-0.5" x-text="me && me.username"></div>
+          <div class="fs-xl font-semibold" x-text="(me && me.display_name) || (me && me.username) || ''"></div>
+          <div class="fs-xs text-[var(--text-dim)] mt-0.5" x-text="me && me.username"></div>
           <div class="mt-3 flex items-center gap-2">
             <span class="pill" :class="me && me.role === 'admin' ? 'pill-primary' : 'pill-muted'" x-text="me && me.role"></span>
             <!-- Auth-source chip — `.chip` declares `display: inline-block`
@@ -37,37 +37,37 @@
             </span>
           </div>
           <button x-show="me && me.avatar_url" @click="clearAvatar()"
-                  class="mt-4 text-[11px] text-[var(--danger)] hover:underline" x-text="t('settings.profile.avatar_remove')"></button>
+                  class="mt-4 fs-xs text-[var(--danger)] hover:underline" x-text="t('settings.profile.avatar_remove')"></button>
         </section>
 
         <!-- Identity + account info card -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-4">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-user"/></svg>
-            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.account')"></h3>
+            <h3 class="font-semibold fs-md" x-text="t('settings.profile.account')"></h3>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.username')"></label>
-              <input :value="me && me.username" disabled class="w-full text-[12.5px]">
-              <p class="text-[10px] text-[var(--text-faint)] mt-1"
+              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.username')"></label>
+              <input :value="me && me.username" disabled class="w-full fs-sm">
+              <p class="fs-3xs text-[var(--text-faint)] mt-1"
                  x-text="t(me && me.source === 'authentik' ? 'settings.profile.username_hint_authentik' : 'settings.profile.username_hint')"></p>
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.source')"></label>
-              <input :value="me && me.source" disabled class="w-full text-[12.5px] mono">
+              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.source')"></label>
+              <input :value="me && me.source" disabled class="w-full fs-sm mono">
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.role')"></label>
-              <input :value="me && me.role" disabled class="w-full text-[12.5px] mono">
+              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.role')"></label>
+              <input :value="me && me.role" disabled class="w-full fs-sm mono">
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.last_login')"></label>
-              <input :value="me && me.last_login_at ? fmtDate(me.last_login_at) : '—'" disabled class="w-full text-[12.5px] mono">
+              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.last_login')"></label>
+              <input :value="me && me.last_login_at ? fmtDate(me.last_login_at) : '—'" disabled class="w-full fs-sm mono">
             </div>
             <div class="sm:col-span-2">
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.member_since')"></label>
-              <input :value="me && me.created_at ? fmtDate(me.created_at) : '—'" disabled class="w-full text-[12.5px] mono">
+              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.member_since')"></label>
+              <input :value="me && me.created_at ? fmtDate(me.created_at) : '—'" disabled class="w-full fs-sm mono">
             </div>
           </div>
         </section>
@@ -76,38 +76,38 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
           <div class="flex items-center gap-2 mb-4">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-id-card"/></svg>
-            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.about')"></h3>
+            <h3 class="font-semibold fs-md" x-text="t('settings.profile.about')"></h3>
           </div>
           <div class="space-y-3">
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.display_name')"></label>
+              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.display_name')"></label>
               <input x-model="profileForm.display_name" type="text" maxlength="80"
-                     :placeholder="t('settings.profile.display_name_placeholder')" class="w-full text-[12.5px]">
+                     :placeholder="t('settings.profile.display_name_placeholder')" class="w-full fs-sm">
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.email')"></label>
+              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.email')"></label>
               <input x-model="profileForm.email" type="email" maxlength="200"
                      :placeholder="t('settings.profile.email_placeholder')"
                      :disabled="me && me.source === 'authentik'"
-                     class="w-full text-[12.5px]">
+                     class="w-full fs-sm">
               <p x-show="me && me.source === 'authentik'"
-                 class="text-[10px] text-[var(--text-faint)] mt-1"
+                 class="fs-3xs text-[var(--text-faint)] mt-1"
                  x-text="t('settings.profile.email_hint_authentik')"></p>
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.bio')"></label>
+              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.bio')"></label>
               <textarea x-model="profileForm.bio" rows="3" maxlength="500"
                         :placeholder="t('settings.profile.bio_placeholder')"
-                        class="w-full text-[12.5px]"></textarea>
-              <p class="text-[10px] text-[var(--text-faint)] mt-1" x-text="t('settings.profile.bio_count', { count: (profileForm.bio || '').length })"></p>
+                        class="w-full fs-sm"></textarea>
+              <p class="fs-3xs text-[var(--text-faint)] mt-1" x-text="t('settings.profile.bio_count', { count: (profileForm.bio || '').length })"></p>
             </div>
             <div class="flex items-center gap-3 flex-wrap">
               <button @click="saveProfile()" :disabled="profileBusy"
                       :class="profileDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                      class="btn btn-primary text-[12px]"
+                      class="btn btn-primary fs-sm"
                       x-text="profileBusy ? t('actions.saving') : t('actions.save_changes')"></button>
               <span x-show="profileDirty()"
-                    class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
+                    class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
                     :title="t('common.unsaved_title')">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
                 <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
@@ -122,13 +122,13 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
           <div class="flex items-center gap-2 mb-4">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/></svg>
-            <h3 class="font-semibold text-[13px]" x-text="t('topbar_widgets.title')"></h3>
+            <h3 class="font-semibold fs-md" x-text="t('topbar_widgets.title')"></h3>
           </div>
-          <p class="text-[11.5px] text-[var(--text-faint)] mb-4">
+          <p class="fs-xs text-[var(--text-faint)] mb-4">
             <span x-text="t('topbar_widgets.intro_prefix')"></span><a href="https://open-meteo.com" target="_blank" rel="noopener" class="text-[var(--primary)] hover:underline" x-text="t('topbar_widgets.intro_link')"></a><span x-text="t('topbar_widgets.intro_suffix')"></span>
           </p>
           <div class="space-y-3">
-            <label class="flex items-center gap-2 text-[12.5px]">
+            <label class="flex items-center gap-2 fs-sm">
               <input type="checkbox" x-model="headerClockEnabled">
               <span x-text="t('topbar_widgets.show_clock')"></span>
             </label>
@@ -137,7 +137,7 @@
                  endpoint to call, so the feature isn't available
                  to opt into. Becomes visible the moment the admin
                  sets the URL in Settings → Notifications. -->
-            <label class="flex items-center gap-2 text-[12.5px]"
+            <label class="flex items-center gap-2 fs-sm"
                    x-show="settings && (settings.open_meteo_url || '').trim()">
               <input type="checkbox" x-model="headerWeatherEnabled">
               <span x-text="t('topbar_widgets.show_weather')"></span>
@@ -145,29 +145,29 @@
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3"
                  x-show="headerWeatherEnabled && settings && (settings.open_meteo_url || '').trim()">
               <div>
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.city_label')"></label>
+                <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.city_label')"></label>
                 <input type="text" x-model="headerWeatherLabel"
                        :placeholder="t('topbar_widgets.city_placeholder')"
-                       class="w-full text-[12.5px]">
+                       class="w-full fs-sm">
               </div>
               <div>
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lat_label')"></label>
+                <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lat_label')"></label>
                 <input type="number" step="any" x-model.number="headerWeatherLat"
                        placeholder="30.0444"
-                       class="w-full text-[12.5px] mono">
+                       class="w-full fs-sm mono">
               </div>
               <div>
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lon_label')"></label>
+                <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lon_label')"></label>
                 <input type="number" step="any" x-model.number="headerWeatherLon"
                        placeholder="31.2357"
-                       class="w-full text-[12.5px] mono">
+                       class="w-full fs-sm mono">
               </div>
             </div>
-            <p class="text-[10.5px] text-[var(--text-faint)]" x-show="headerWeatherEnabled">
+            <p class="fs-2xs text-[var(--text-faint)]" x-show="headerWeatherEnabled">
               <span x-text="t('topbar_widgets.tip_prefix')"></span><a href="https://www.google.com/maps" target="_blank" rel="noopener" class="text-[var(--primary)] hover:underline" x-text="t('topbar_widgets.tip_maps')"></a><span x-text="t('topbar_widgets.tip_suffix')"></span>
             </p>
             <div x-show="headerWeatherEnabled && weather && weather.error"
-                 class="text-[11px] text-[var(--danger)]"
+                 class="fs-xs text-[var(--danger)]"
                  x-text="t('topbar_widgets.fetch_failed', { error: (weather && weather.error) || '' })"></div>
             <!-- Save button — toggling the checkboxes / typing in the
                  lat/lon/label fields ONLY marks the form dirty. Save
@@ -180,10 +180,10 @@
               <button type="button"
                       @click="saveHeaderPrefs()"
                       :class="headerPrefsDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                      class="btn btn-primary text-[12px]"
+                      class="btn btn-primary fs-sm"
                       x-text="t('topbar_widgets.save')"></button>
               <span x-show="headerPrefsDirty()"
-                    class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
+                    class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
                     :title="t('common.unsaved_title')">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
                 <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>

@@ -4,11 +4,11 @@
             <div>
               <div class="flex items-center gap-2 mb-2">
                 <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-monitor"/></svg>
-                <h3 class="font-semibold text-[13px]"><span x-text="t('admin.sessions.active_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + sessions.length + ')'"></span></h3>
+                <h3 class="font-semibold fs-md"><span x-text="t('admin.sessions.active_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + sessions.length + ')'"></span></h3>
               </div>
-              <p class="text-[11.5px] text-[var(--text-faint)]" x-text="t('admin.sessions.hint')"></p>
+              <p class="fs-xs text-[var(--text-faint)]" x-text="t('admin.sessions.hint')"></p>
             </div>
-            <button @click="loadSessions()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
+            <button @click="loadSessions()" class="btn btn-ghost fs-xs" x-text="t('actions.reload')"></button>
           </div>
           <!-- Initial-load placeholder. /api/sessions does a non-trivial
                JOIN across users + sessions and on a busy backend can take
@@ -19,8 +19,8 @@
             <span x-text="t('loading.section')"></span>
           </div>
           <div class="overflow-x-auto scrollbar" x-show="sessionsLoaded">
-            <table class="w-full text-[12.5px]">
-              <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
+            <table class="w-full fs-sm">
+              <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
                   <th class="text-start px-4 py-2" x-text="t('columns.user')"></th>
                   <th class="text-start px-4 py-2" x-text="t('admin.sessions.method_label')"></th>
@@ -59,17 +59,17 @@
                         <span x-text="t('admin.sessions.method_' + (s.auth_method || 'password'))"></span>
                       </span>
                     </td>
-                    <td class="px-4 py-2 mono text-[11px]" x-text="s.ip || '—'"></td>
-                    <td class="px-4 py-2 text-[11.5px] text-[var(--text-dim)] truncate max-w-[280px]" x-text="s.user_agent || '—'" :title="s.user_agent || ''"></td>
-                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                    <td class="px-4 py-2 mono fs-xs" x-text="s.ip || '—'"></td>
+                    <td class="px-4 py-2 fs-xs text-[var(--text-dim)] truncate max-w-[280px]" x-text="s.user_agent || '—'" :title="s.user_agent || ''"></td>
+                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
                         :title="s.issued_at ? fmtDate(s.issued_at) : ''"
                         x-text="s.issued_at ? fmtDate(s.issued_at) : '—'"></td>
-                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
                         x-text="fmtDate(s.last_seen_at)"></td>
-                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
                         x-text="fmtDate(s.expires_at)"></td>
                     <td class="px-4 py-2 text-end">
-                      <button @click="revokeSession(s)" class="btn btn-ghost text-[11px] text-danger" x-text="t('admin.sessions.revoke')"></button>
+                      <button @click="revokeSession(s)" class="btn btn-ghost fs-xs text-danger" x-text="t('admin.sessions.revoke')"></button>
                     </td>
                   </tr>
                 </template>

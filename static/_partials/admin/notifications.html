@@ -6,9 +6,9 @@
           <div>
             <div class="flex items-center gap-2 mb-2">
               <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-bell"/></svg>
-              <h3 class="font-semibold text-[13px]" x-text="t('settings.notifications.title')"></h3>
+              <h3 class="font-semibold fs-md" x-text="t('settings.notifications.title')"></h3>
             </div>
-            <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
+            <p class="fs-xs text-[var(--text-faint)] mb-3">
               <span x-text="t('settings.notifications.url_format_prefix')"></span> <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
               <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> <span x-html="t('settings.notifications.url_format_suffix')"></span>
             </p>
@@ -21,12 +21,12 @@
              without erasing the URL/tag — flip back on to resume.
              Saves alongside the URL/tag when the operator clicks
              Save below (no auto-save on change). -->
-        <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mb-3 select-none">
+        <label class="flex items-center gap-2 fs-sm cursor-pointer mb-3 select-none">
           <input type="checkbox" x-model="settings.apprise_enabled"
                  @change="markAppriseDirty()"
                  :disabled="isReadonly()">
           <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
-          <span class="text-[11px] text-[var(--text-faint)]"
+          <span class="fs-xs text-[var(--text-faint)]"
                 x-text="settings.apprise_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
         </label>
         <input x-model="settings.apprise_url" type="url"
@@ -53,16 +53,16 @@
                sub-header doesn't visually duplicate. -->
           <div class="flex items-center gap-2 mb-1">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-right"/></svg>
-            <h4 class="font-semibold text-[12.5px]" x-text="t('admin.notifications.mediums_title')"></h4>
+            <h4 class="font-semibold fs-sm" x-text="t('admin.notifications.mediums_title')"></h4>
           </div>
-          <p class="text-[11px] text-[var(--text-faint)] mb-3" x-text="t('admin.notifications.medium_help')"></p>
+          <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.notifications.medium_help')"></p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
-            <label class="flex items-center gap-2 text-[12.5px] cursor-pointer select-none">
+            <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
               <input type="checkbox" x-model="settings.notify_medium_app"
                      :disabled="isReadonly()">
               <span class="font-medium" x-text="t('admin.notifications.medium_app')"></span>
             </label>
-            <label class="flex items-center gap-2 text-[12.5px] cursor-pointer select-none">
+            <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
               <input type="checkbox" x-model="settings.notify_medium_apprise"
                      :disabled="isReadonly()">
               <span class="font-medium" x-text="t('admin.notifications.medium_apprise')"></span>
@@ -76,8 +76,8 @@
              tab. The /api/notify-test endpoint always sends, so a
              test fires regardless of these checkboxes. -->
         <div class="mt-6 pt-4 border-t border-[var(--border)]">
-          <h4 class="font-semibold text-[12.5px] mb-1" x-text="t('admin.notifications.events.title')"></h4>
-          <p class="text-[11px] text-[var(--text-faint)] mb-3" x-text="t('admin.notifications.events.subtitle')"></p>
+          <h4 class="font-semibold fs-sm mb-1" x-text="t('admin.notifications.events.title')"></h4>
+          <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.notifications.events.subtitle')"></p>
 
           <!-- Categorised event toggles — same `notifyCategories()`
                source the Profile → Notifications page uses, so both
@@ -98,9 +98,9 @@
                         @click="toggleNotifyCategoryExpanded('admin:' + cat.id)"
                         :aria-expanded="isNotifyCategoryExpanded('admin:' + cat.id) ? 'true' : 'false'">
                   <div class="flex flex-col min-w-0 flex-1">
-                    <span class="text-[12.5px] font-semibold text-[var(--text)]"
+                    <span class="fs-sm font-semibold text-[var(--text)]"
                           x-text="t(cat.label_key)"></span>
-                    <span class="text-[10.5px] text-[var(--text-faint)] truncate"
+                    <span class="fs-2xs text-[var(--text-faint)] truncate"
                           x-text="t(cat.desc_key)"></span>
                   </div>
                   <span class="notify-cat-count"
@@ -124,7 +124,7 @@
                   <template x-if="cat.groups">
                     <template x-for="grp in notifyCategoryFilteredGroups(cat)" :key="'admin-grp-' + grp.label">
                       <div>
-                        <div class="text-[11.5px] font-semibold text-[var(--text)] uppercase tracking-wider pt-2 pb-1 mt-1"
+                        <div class="fs-xs font-semibold text-[var(--text)] uppercase tracking-wider pt-2 pb-1 mt-1"
                              style="border-top: 1px solid var(--border);"
                              x-text="t('admin.notifications.events.' + grp.label)"></div>
                         <template x-for="kind in ['success', 'failure']" :key="'admin-grp-' + grp.label + '-' + kind">
@@ -141,13 +141,13 @@
                                     @click="openNotifyTemplateEditor(kind === 'success' ? grp.success_key.replace(/^notify_event_/, '') : grp.failure_key.replace(/^notify_event_/, ''))"
                                     :title="t('admin.notify_templates.edit_button_title')">
                               <span class="text-[var(--text-faint)]" aria-hidden="true">↳</span>
-                              <span class="text-[11.5px] font-medium"
+                              <span class="fs-xs font-medium"
                                     :class="kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
                                     x-text="t('admin.notifications.events.' + kind)"></span>
                               <svg width="11" height="11" class="text-[var(--text-faint)] flex-shrink-0 flip-rtl"
                                    aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
                             </button>
-                            <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none flex-shrink-0">
+                            <label class="flex items-center gap-1.5 fs-xs cursor-pointer select-none flex-shrink-0">
                               <input type="checkbox"
                                      :checked="settings[kind === 'success' ? grp.success_key : grp.failure_key]"
                                      @change="settings[kind === 'success' ? grp.success_key : grp.failure_key] = $event.target.checked"
@@ -167,12 +167,12 @@
                                 class="flex items-center gap-2 min-w-0 flex-1 text-start cursor-pointer notify-event-row-btn"
                                 @click="openNotifyTemplateEditor(row.key.replace(/^notify_event_/, ''))"
                                 :title="t('admin.notify_templates.edit_button_title')">
-                          <span class="text-[12px] text-[var(--text)] truncate"
+                          <span class="fs-sm text-[var(--text)] truncate"
                                 x-text="t('admin.notifications.events.' + row.label)"></span>
                           <svg width="11" height="11" class="text-[var(--text-faint)] flex-shrink-0 flip-rtl"
                                aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
                         </button>
-                        <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none flex-shrink-0">
+                        <label class="flex items-center gap-1.5 fs-xs cursor-pointer select-none flex-shrink-0">
                           <input type="checkbox"
                                  :checked="settings[row.key]"
                                  @change="settings[row.key] = $event.target.checked"
@@ -196,18 +196,18 @@
           <div class="flex items-center gap-2 flex-wrap" x-show="isAdmin()">
             <button @click="setAllNotifyEvents(true)"
                     :disabled="isReadonly() || !settings.apprise_enabled"
-                    class="btn btn-soft text-[11.5px]"
+                    class="btn btn-soft fs-xs"
                     x-text="t('admin.notifications.events.enable_all')"></button>
             <button @click="setAllNotifyEvents(false)"
                     :disabled="isReadonly() || !settings.apprise_enabled"
-                    class="btn btn-soft text-[11.5px]"
+                    class="btn btn-soft fs-xs"
                     x-text="t('admin.notifications.events.disable_all')"></button>
             <button @click="setNotifyEventsErrorsOnly()"
                     :disabled="isReadonly() || !settings.apprise_enabled"
-                    class="btn btn-soft text-[11.5px]"
+                    class="btn btn-soft fs-xs"
                     x-text="t('admin.notifications.events.errors_only')"></button>
           </div>
-          <p class="text-[10.5px] text-[var(--text-faint)] mt-2" x-text="t('admin.notifications.events.test_always_sends')"></p>
+          <p class="fs-2xs text-[var(--text-faint)] mt-2" x-text="t('admin.notifications.events.test_always_sends')"></p>
         </div>
 
         <!-- Save action moved BELOW the tunable cards so the page
@@ -233,9 +233,9 @@
              input row. Same `tuningForm` / `tuningEffective` Alpine
              state; only visual chrome changed. -->
         <div class="mt-4 pt-3 border-t border-[var(--border)]" x-show="tuningLoaded">
-          <label class="block text-[11px] font-medium mb-1"
+          <label class="block fs-xs font-medium mb-1"
                  x-text="t('admin.config.fields.tuning_notification_retention_days.label')"></label>
-          <p class="text-[11px] text-[var(--text-faint)] mb-2 leading-snug"
+          <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
              x-text="t('admin.config.fields.tuning_notification_retention_days.help')"></p>
           <div class="flex flex-wrap items-center gap-2">
             <input type="number"
@@ -263,14 +263,14 @@
                 <span x-text="(tuningEffective['tuning_notification_retention_days'] || {}).default"></span>
               </span>
             </div>
-            <span class="text-[11px] text-[var(--text-dim)] ms-auto"
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
                   x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_notification_retention_days'] || {}).effective })"></span>
           </div>
         </div>
         <div class="mt-4 pt-3 border-t border-[var(--border)]" x-show="tuningLoaded">
-          <label class="block text-[11px] font-medium mb-1"
+          <label class="block fs-xs font-medium mb-1"
                  x-text="t('admin.config.fields.tuning_notification_page_size.label')"></label>
-          <p class="text-[11px] text-[var(--text-faint)] mb-2 leading-snug"
+          <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
              x-text="t('admin.config.fields.tuning_notification_page_size.help')"></p>
           <div class="flex flex-wrap items-center gap-2">
             <input type="number"
@@ -298,7 +298,7 @@
                 <span x-text="(tuningEffective['tuning_notification_page_size'] || {}).default"></span>
               </span>
             </div>
-            <span class="text-[11px] text-[var(--text-dim)] ms-auto"
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
                   x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_notification_page_size'] || {}).effective })"></span>
           </div>
         </div>
@@ -317,15 +317,15 @@
           <button @click="saveSettings(); if (tuningDirty()) saveTuning();"
                   :disabled="settingsSaving || tuningSaving"
                   :class="(appriseDirty() || tuningDirty()) ? 'ring-2 ring-[var(--warning)]' : ''"
-                  class="btn btn-primary text-[12px]">
+                  class="btn btn-primary fs-sm">
             <span x-show="!(settingsSaving || tuningSaving)" x-text="t('actions.save')"></span>
             <span x-show="settingsSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
           <button @click="testNotify()"
                   :disabled="!settings.apprise_enabled"
-                  class="btn btn-soft text-[12px]" x-text="t('actions.send_test')"></button>
+                  class="btn btn-soft fs-sm" x-text="t('actions.send_test')"></button>
           <span x-show="appriseDirty() || tuningDirty()"
-                class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+                class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>

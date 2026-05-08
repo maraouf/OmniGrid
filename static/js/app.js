@@ -14158,8 +14158,35 @@ function app() {
         );
         if (!inText) {
           if (this.drawerHost) {
-            const list = (typeof this.filteredHosts === 'function')
-              ? this.filteredHosts() : (this.hosts || []);
+            // Visible-order list: flatten `groupedHosts()` in
+            // bucket order, then by sub-group, then by ungrouped.
+            // The Hosts view renders this exact order, so
+            // ArrowLeft / ArrowRight follow the cursor's eye
+            // line by line. Pre-fix this used `filteredHosts()`
+            // (sorted by status/name/custom_number) which DIDN'T
+            // match the bucketed UI — operators saw arrows skip
+            // hosts because the linear list jumped across
+            // bucket boundaries unpredictably.
+            let list = [];
+            if (typeof this.groupedHosts === 'function') {
+              try {
+                for (const bucket of (this.groupedHosts() || [])) {
+                  for (const h of (bucket.hosts || [])) list.push(h);
+                  for (const child of (bucket.children || [])) {
+                    for (const h of (child.hosts || [])) list.push(h);
+                  }
+                }
+              } catch (_) { /* fall through to filtered list */ }
+            }
+            // Fallback: the operator might be on a view path that
+            // doesn't render groups (no `groupedHosts` available),
+            // OR a defensive guard for the edge case where
+            // groupedHosts errored. filteredHosts is sort-aware
+            // and filter-aware so it's still a sane default.
+            if (!list.length) {
+              list = (typeof this.filteredHosts === 'function')
+                ? this.filteredHosts() : (this.hosts || []);
+            }
             const idx = list.findIndex(h => h && h.id === this.drawerHost.id);
             if (idx >= 0) {
               const next = e.key === 'ArrowRight' ? idx + 1 : idx - 1;

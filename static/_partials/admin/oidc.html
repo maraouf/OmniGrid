@@ -10,9 +10,9 @@
               <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-authentik"/>
               </svg>
-              <h3 class="font-semibold text-[13px]" x-text="t('settings.oidc.title')"></h3>
+              <h3 class="font-semibold fs-md" x-text="t('settings.oidc.title')"></h3>
             </div>
-            <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.oidc.description')"></p>
+            <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('settings.oidc.description')"></p>
           </div>
           <span x-show="oidcStatus"
                 class="chip"
@@ -20,37 +20,37 @@
                 x-text="oidcStatus ? (oidcStatus.enabled ? t('settings.oidc.enabled') : t('settings.oidc.disabled')) : ''"></span>
         </div>
         <div x-show="oidcStatus" class="space-y-3">
-          <label class="flex items-center gap-2 text-[12.5px] cursor-pointer select-none">
+          <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
             <input type="checkbox" :checked="oidcForm.enabled"
                    @change="oidcForm.enabled = $event.target.checked; markOidcFormDirty()"
                    :disabled="isReadonly()">
             <span class="font-medium" x-text="t('settings.oidc.enable_toggle')"></span>
-            <span class="text-[11px] text-[var(--text-faint)]"
+            <span class="fs-xs text-[var(--text-faint)]"
                   x-text="oidcForm.enabled ? '' : t('admin_integrations.disabled_hint')"></span>
           </label>
           <div>
-            <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.issuer_url')"></label>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.issuer_url')"></label>
             <input x-model="oidcForm.issuer_url" type="url"
                    @input="markOidcFormDirty()"
                    :disabled="isReadonly() || !oidcForm.enabled"
                    :placeholder="t('settings.oidc.issuer_placeholder')"
-                   class="w-full mono text-[12px]">
-            <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.issuer_hint')"></p>
+                   class="w-full mono fs-sm">
+            <p class="fs-xs text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.issuer_hint')"></p>
           </div>
           <div>
-            <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.client_id')"></label>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.client_id')"></label>
             <input x-model="oidcForm.client_id" type="text"
                    @input="markOidcFormDirty()"
                    :disabled="isReadonly() || !oidcForm.enabled"
                    :placeholder="t('settings.oidc.client_id_placeholder')"
-                   class="w-full mono text-[12px]">
+                   class="w-full mono fs-sm">
           </div>
           <div>
-            <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+            <label class="block fs-xs text-[var(--text-dim)] mb-1">
               <span x-text="t('settings.oidc.client_secret')"></span>
             </label>
             <span x-show="oidcStatus && oidcStatus.client_secret_set"
-                  class="block text-[11px] text-[var(--success)] mb-1"
+                  class="block fs-xs text-[var(--success)] mb-1"
                   x-text="t('settings.secret_input.saved_hint')"></span>
             <div class="secret-input-row">
               <input x-model="oidcForm.client_secret" type="password"
@@ -58,64 +58,64 @@
                      :disabled="isReadonly() || !oidcForm.enabled"
                      :placeholder="(oidcStatus && oidcStatus.client_secret_set) ? t('settings.secret_input.placeholder_keep') : t('settings.oidc.client_secret_placeholder')"
                      autocomplete="new-password"
-                     class="w-full mono text-[12px]">
+                     class="w-full mono fs-sm">
               <button type="button"
                       x-show="oidcStatus && oidcStatus.client_secret_set && isAdmin()"
                       @click="clearOidcClientSecret()"
                       :disabled="!oidcForm.enabled"
-                      class="btn btn-ghost text-[11.5px] secret-input-clear"
+                      class="btn btn-ghost fs-xs secret-input-clear"
                       x-text="t('settings.host_stats.clear_secret_label')"></button>
             </div>
           </div>
           <div>
-            <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+            <label class="block fs-xs text-[var(--text-dim)] mb-1">
               <span x-text="t('settings.oidc.redirect_uri')"></span> <span class="text-[var(--text-faint)]" x-text="t('settings.oidc.redirect_uri_note')"></span>
             </label>
             <div class="flex items-stretch gap-2">
               <input :value="oidcStatus && oidcStatus.redirect_uri_default || ''" readonly
-                     class="w-full mono text-[12px] flex-1 bg-[var(--surface-2)]">
+                     class="w-full mono fs-sm flex-1 bg-[var(--surface-2)]">
               <button @click="copyRedirectUri()" type="button"
-                      class="btn btn-soft text-[12px] whitespace-nowrap"
+                      class="btn btn-soft fs-sm whitespace-nowrap"
                       :title="t('settings.oidc.copy_title')" x-text="t('settings.oidc.copy')"></button>
             </div>
-            <p class="text-[11px] text-[var(--text-faint)] mt-1" x-text="t('settings.oidc.redirect_uri_hint')"></p>
+            <p class="fs-xs text-[var(--text-faint)] mt-1" x-text="t('settings.oidc.redirect_uri_hint')"></p>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.scopes')"></label>
+              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.scopes')"></label>
               <input x-model="oidcForm.scopes" type="text"
                      @input="markOidcFormDirty()"
                      :disabled="isReadonly() || !oidcForm.enabled"
                      :placeholder="t('settings.oidc.scopes_placeholder')"
-                     class="w-full mono text-[12px]">
-              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.scopes_hint')"></p>
+                     class="w-full mono fs-sm">
+              <p class="fs-xs text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.scopes_hint')"></p>
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.admin_group')"></label>
+              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.admin_group')"></label>
               <input x-model="oidcForm.admin_group" type="text"
                      @input="markOidcFormDirty()"
                      :disabled="isReadonly() || !oidcForm.enabled"
                      :placeholder="t('settings.oidc.admin_group_placeholder')"
-                     class="w-full mono text-[12.5px]">
-              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.admin_group_hint')"></p>
+                     class="w-full mono fs-sm">
+              <p class="fs-xs text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.admin_group_hint')"></p>
             </div>
           </div>
-          <label class="flex items-start gap-2 text-[12.5px] cursor-pointer">
+          <label class="flex items-start gap-2 fs-sm cursor-pointer">
             <input type="checkbox" :checked="oidcForm.verify_tls"
                    @change="oidcForm.verify_tls = $event.target.checked; markOidcFormDirty()"
                    :disabled="isReadonly() || !oidcForm.enabled" class="mt-0.5">
             <span>
               <span class="font-medium" x-text="t('settings.oidc.verify_tls_title')"></span>
-              <span class="block text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.verify_tls_hint')"></span>
+              <span class="block fs-xs text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.verify_tls_hint')"></span>
             </span>
           </label>
-          <label class="flex items-start gap-2 text-[12.5px] cursor-pointer">
+          <label class="flex items-start gap-2 fs-sm cursor-pointer">
             <input type="checkbox" :checked="oidcForm.group_case_sensitive"
                    @change="oidcForm.group_case_sensitive = $event.target.checked; markOidcFormDirty()"
                    :disabled="isReadonly() || !oidcForm.enabled" class="mt-0.5">
             <span>
               <span class="font-medium" x-text="t('settings.oidc.group_case_sensitive_title')"></span>
-              <span class="block text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.group_case_sensitive_hint')"></span>
+              <span class="block fs-xs text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.group_case_sensitive_hint')"></span>
             </span>
           </label>
           <div x-show="isAdmin()" class="flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
@@ -129,26 +129,26 @@
                     :disabled="oidcSaving || !canSaveOidc()"
                     :class="oidcDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                     :title="!canSaveOidc() ? t('settings.oidc.save_requires_test') : ''"
-                    class="btn btn-primary text-[12px]">
+                    class="btn btn-primary fs-sm">
               <span x-show="!oidcSaving" x-text="t('actions.save')"></span>
               <span x-show="oidcSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
             </button>
             <button @click="testOidcConnection()"
                     :disabled="!oidcForm.enabled"
-                    class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>
+                    class="btn btn-soft fs-sm" x-text="t('settings.oidc.test_button')"></button>
             <span x-show="lastTestSuccessLabel('oidc')"
-                  class="text-[11.5px] text-[var(--text-faint)]"
+                  class="fs-xs text-[var(--text-faint)]"
                   x-text="lastTestSuccessLabel('oidc')"></span>
             <span x-show="oidcDirty()"
-                  class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+                  class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
               <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
             </span>
           </div>
           <div x-show="oidcForm.enabled && !canSaveOidc()"
-               class="text-[11.5px] text-[var(--text-faint)] -mt-1"
+               class="fs-xs text-[var(--text-faint)] -mt-1"
                x-text="t('settings.oidc.save_requires_test')"></div>
-          <div x-show="oidcTestResult" class="text-[12px] rounded-md px-3 py-2"
+          <div x-show="oidcTestResult" class="fs-sm rounded-md px-3 py-2"
                :class="oidcTestResult && oidcTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
             <template x-if="oidcTestResult && oidcTestResult.pending">
               <span x-text="t('loading.testing')"></span>

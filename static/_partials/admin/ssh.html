@@ -6,9 +6,9 @@
           <div>
             <div class="flex items-center gap-2 mb-2">
               <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-terminal"/></svg>
-              <h3 class="font-semibold text-[13px]" x-text="t('admin_ssh.title')"></h3>
+              <h3 class="font-semibold fs-md" x-text="t('admin_ssh.title')"></h3>
             </div>
-            <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
+            <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
                x-text="t('admin_ssh.intro')"></p>
           </div>
           <span class="chip"
@@ -22,74 +22,74 @@
              table so flipping back on resumes service. Saved via the
              SSH Save button below, same as every other field on this
              tab — no auto-save on change. -->
-        <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mb-4 select-none">
+        <label class="flex items-center gap-2 fs-sm cursor-pointer mb-4 select-none">
           <input type="checkbox" x-model="settings.ssh_enabled"
                  @change="markSshSettingsDirty()"
                  :disabled="isReadonly()">
           <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
-          <span class="text-[11px] text-[var(--text-faint)]"
+          <span class="fs-xs text-[var(--text-faint)]"
                 x-text="settings.ssh_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
         </label>
         <div class="grid grid-cols-1 md:grid-cols-[1fr_120px] gap-3 mb-3">
           <div>
-            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+            <label class="block fs-xs text-[var(--text-faint)] mb-1"
                    x-text="t('admin_ssh.user_label')"></label>
             <input x-model="sshSettings.user" type="text"
                    @input="markSshSettingsDirty()"
                    :disabled="isReadonly() || !settings.ssh_enabled"
-                   class="w-full mono text-[12.5px] py-1.5"
+                   class="w-full mono fs-sm py-1.5"
                    :placeholder="t('admin_ssh.user_placeholder')">
           </div>
           <div>
-            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+            <label class="block fs-xs text-[var(--text-faint)] mb-1"
                    x-text="t('admin_ssh.port_label')"></label>
             <input x-model.number="sshSettings.port" type="number"
                    @input="markSshSettingsDirty()"
                    :disabled="isReadonly() || !settings.ssh_enabled"
                    min="1" max="65535"
-                   class="w-full mono text-[12.5px] py-1.5">
+                   class="w-full mono fs-sm py-1.5">
           </div>
         </div>
         <div class="mb-3">
-          <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+          <label class="block fs-xs text-[var(--text-faint)] mb-1">
             <span x-text="t('admin_ssh.key_label')"></span>
           </label>
-          <span x-show="sshSettings.private_key_set" class="block text-[11px] text-[var(--success)] mb-1"
+          <span x-show="sshSettings.private_key_set" class="block fs-xs text-[var(--success)] mb-1"
                 x-text="t('settings.secret_input.saved_hint')"></span>
           <div class="secret-input-row">
             <textarea x-model="sshSettings.private_key"
                       @input="markSshSettingsDirty()"
                       :disabled="isReadonly() || !settings.ssh_enabled"
                       rows="6"
-                      class="w-full mono text-[11px] py-1.5 scrollbar"
+                      class="w-full mono fs-xs py-1.5 scrollbar"
                       :placeholder="sshSettings.private_key_set ? t('settings.secret_input.placeholder_keep') : t('admin_ssh.key_placeholder')"></textarea>
             <button type="button"
                     x-show="sshSettings.private_key_set && isAdmin()"
                     @click="clearSshSecret('private_key')"
-                    class="btn btn-ghost text-[11.5px] secret-input-clear"
+                    class="btn btn-ghost fs-xs secret-input-clear"
                     :title="t('admin_ssh.clear_key_title')"
                     x-text="t('admin_ssh.clear_label')"></button>
           </div>
-          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+          <p class="fs-2xs text-[var(--text-faint)] mt-1"
              x-text="t('admin_ssh.key_hint')"></p>
         </div>
         <div class="mb-3">
-          <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+          <label class="block fs-xs text-[var(--text-faint)] mb-1">
             <span x-text="t('admin_ssh.passphrase_label')"></span>
           </label>
-          <span x-show="sshSettings.passphrase_set" class="block text-[11px] text-[var(--success)] mb-1"
+          <span x-show="sshSettings.passphrase_set" class="block fs-xs text-[var(--success)] mb-1"
                 x-text="t('settings.secret_input.saved_hint')"></span>
           <div class="secret-input-row">
             <input x-model="sshSettings.passphrase" type="password"
                    autocomplete="new-password"
                    @input="markSshSettingsDirty()"
                    :disabled="isReadonly() || !settings.ssh_enabled"
-                   class="w-full text-[12.5px]"
+                   class="w-full fs-sm"
                    :placeholder="sshSettings.passphrase_set ? t('settings.secret_input.placeholder_keep') : t('admin_ssh.passphrase_placeholder')">
             <button type="button"
                     x-show="sshSettings.passphrase_set && isAdmin()"
                     @click="clearSshSecret('passphrase')"
-                    class="btn btn-ghost text-[11.5px] secret-input-clear"
+                    class="btn btn-ghost fs-xs secret-input-clear"
                     :title="t('admin_ssh.clear_passphrase_title')"
                     x-text="t('admin_ssh.clear_label')"></button>
           </div>
@@ -98,26 +98,26 @@
              set, the key wins. Useful for hosts that only accept
              password auth — NAS boxes, routers, fresh VM images. -->
         <div class="mb-3">
-          <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+          <label class="block fs-xs text-[var(--text-faint)] mb-1">
             <span x-text="t('admin_ssh.password_label')"></span>
           </label>
-          <span x-show="sshSettings.password_set" class="block text-[11px] text-[var(--success)] mb-1"
+          <span x-show="sshSettings.password_set" class="block fs-xs text-[var(--success)] mb-1"
                 x-text="t('settings.secret_input.saved_hint')"></span>
           <div class="secret-input-row">
             <input x-model="sshSettings.password" type="password"
                    autocomplete="new-password"
                    @input="markSshSettingsDirty()"
                    :disabled="isReadonly() || !settings.ssh_enabled"
-                   class="w-full text-[12.5px]"
+                   class="w-full fs-sm"
                    :placeholder="sshSettings.password_set ? t('settings.secret_input.placeholder_keep') : t('admin_ssh.password_placeholder')">
             <button type="button"
                     x-show="sshSettings.password_set && isAdmin()"
                     @click="clearSshSecret('password')"
-                    class="btn btn-ghost text-[11.5px] secret-input-clear"
+                    class="btn btn-ghost fs-xs secret-input-clear"
                     :title="t('admin_ssh.clear_password_title')"
                     x-text="t('admin_ssh.clear_label')"></button>
           </div>
-          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+          <p class="fs-2xs text-[var(--text-faint)] mt-1"
              x-text="t('admin_ssh.password_help')"></p>
         </div>
         <!-- FQDN suffix — appended to bare host IDs during SSH resolve.
@@ -126,71 +126,71 @@
              already contain a dot are used as-is. Per-host ssh.host
              / ssh.fqdn override wins over the suffix rule. -->
         <div class="mb-3">
-          <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+          <label class="block fs-xs text-[var(--text-faint)] mb-1"
                  x-text="t('admin_ssh.fqdn_suffix_label')"></label>
           <input x-model="sshSettings.fqdn_suffix" type="text"
                  @input="markSshSettingsDirty()"
                  :disabled="isReadonly() || !settings.ssh_enabled"
                  :placeholder="t('admin_ssh.fqdn_suffix_placeholder')"
-                 class="w-full mono text-[12.5px] py-1.5">
-          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                 class="w-full mono fs-sm py-1.5">
+          <p class="fs-2xs text-[var(--text-faint)] mt-1"
              x-text="t('admin_ssh.fqdn_suffix_help')"></p>
         </div>
         <div class="mb-3">
-          <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+          <label class="block fs-xs text-[var(--text-faint)] mb-1"
                  x-text="t('admin_ssh.known_hosts_label')"></label>
           <textarea x-model="sshSettings.known_hosts"
                     @input="markSshSettingsDirty()"
                     :disabled="isReadonly() || !settings.ssh_enabled"
                     rows="3"
-                    class="w-full mono text-[11px] py-1.5 scrollbar"
+                    class="w-full mono fs-xs py-1.5 scrollbar"
                     :placeholder="t('admin_ssh.known_hosts_placeholder')"></textarea>
-          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+          <p class="fs-2xs text-[var(--text-faint)] mt-1"
              x-text="t('admin_ssh.known_hosts_hint')"></p>
         </div>
         <div class="mb-3">
-          <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+          <label class="block fs-xs text-[var(--text-faint)] mb-1"
                  x-text="t('admin_ssh.custom_actions_label')"></label>
-          <p class="text-[10.5px] text-[var(--text-faint)] mb-2"
+          <p class="fs-2xs text-[var(--text-faint)] mb-2"
              x-text="t('admin_ssh.custom_actions_hint')"></p>
           <div class="flex flex-col gap-2">
             <template x-for="(action, idx) in (sshSettings.custom_actions || [])"
                       :key="'sa-' + idx">
               <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-start p-2 rounded border border-[var(--border)]">
                 <div class="md:col-span-4">
-                  <label class="block text-[10.5px] text-[var(--text-faint)] mb-0.5"
+                  <label class="block fs-2xs text-[var(--text-faint)] mb-0.5"
                          x-text="t('admin_ssh.custom_action_title_label')"></label>
                   <input type="text"
                          :value="action.title"
                          @input="action.title = $event.target.value; markSshSettingsDirty()"
                          :disabled="isReadonly() || !settings.ssh_enabled"
                          :placeholder="t('admin_ssh.custom_action_title_placeholder')"
-                         class="w-full text-[12px] py-1">
+                         class="w-full fs-sm py-1">
                 </div>
                 <div class="md:col-span-7">
-                  <label class="block text-[10.5px] text-[var(--text-faint)] mb-0.5"
+                  <label class="block fs-2xs text-[var(--text-faint)] mb-0.5"
                          x-text="t('admin_ssh.custom_action_command_label')"></label>
                   <textarea :value="action.command"
                             @input="action.command = $event.target.value; markSshSettingsDirty()"
                             :disabled="isReadonly() || !settings.ssh_enabled"
                             rows="9"
-                            class="w-full mono text-[11.5px] py-2 scrollbar"
+                            class="w-full mono fs-xs py-2 scrollbar"
                             style="min-height: 11rem; resize: vertical;"
                             :placeholder="t('admin_ssh.custom_action_command_placeholder')"></textarea>
                 </div>
                 <div class="md:col-span-1 flex md:flex-col items-center justify-end gap-1">
-                  <button type="button" class="btn btn-ghost text-[11px] px-1.5"
+                  <button type="button" class="btn btn-ghost fs-xs px-1.5"
                           x-show="isAdmin()"
                           @click="moveSshCustomAction(idx, -1)"
                           :disabled="idx === 0"
                           :title="t('admin_ssh.custom_action_move_up')">↑</button>
-                  <button type="button" class="btn btn-ghost text-[11px] px-1.5"
+                  <button type="button" class="btn btn-ghost fs-xs px-1.5"
                           x-show="isAdmin()"
                           @click="moveSshCustomAction(idx, 1)"
                           :disabled="idx === (sshSettings.custom_actions || []).length - 1"
                           :title="t('admin_ssh.custom_action_move_down')">↓</button>
                   <button type="button"
-                          class="btn btn-ghost text-[11px] text-[var(--danger)] px-1.5"
+                          class="btn btn-ghost fs-xs text-[var(--danger)] px-1.5"
                           x-show="isAdmin()"
                           @click="removeSshCustomAction(idx)"
                           :title="t('admin_ssh.custom_action_remove')">✕</button>
@@ -198,25 +198,25 @@
               </div>
             </template>
             <div x-show="(sshSettings.custom_actions || []).length === 0"
-                 class="text-[11px] text-[var(--text-faint)] italic"
+                 class="fs-xs text-[var(--text-faint)] italic"
                  x-text="t('admin_ssh.custom_actions_empty')"></div>
           </div>
           <button type="button"
                   x-show="isAdmin()"
                   @click="addSshCustomAction()"
-                  class="btn btn-soft text-[11.5px] mt-2"
+                  class="btn btn-soft fs-xs mt-2"
                   x-text="t('admin_ssh.custom_action_add')"></button>
         </div>
         <div class="mb-3">
-          <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+          <label class="block fs-xs text-[var(--text-faint)] mb-1"
                  x-text="t('admin_ssh.destructive_label')"></label>
           <textarea x-model="sshSettings.destructive_patterns"
                     @input="markSshSettingsDirty()"
                     :disabled="isReadonly() || !settings.ssh_enabled"
                     rows="4"
-                    class="w-full mono text-[11px] py-1.5 scrollbar"
+                    class="w-full mono fs-xs py-1.5 scrollbar"
                     :placeholder="t('admin_ssh.destructive_placeholder')"></textarea>
-          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+          <p class="fs-2xs text-[var(--text-faint)] mt-1"
              x-text="t('admin_ssh.destructive_hint')"></p>
         </div>
         <!-- Test before Save. Operator workflow: configure
@@ -238,9 +238,9 @@
              "Test on a host" widget so all configuration controls land
              above the test action — operators tweak then test. -->
         <div class="mt-4 pt-3 border-t border-[var(--border)]" x-show="tuningLoaded">
-          <label class="block text-[11px] font-medium mb-1"
+          <label class="block fs-xs font-medium mb-1"
                  x-text="t('admin.config.fields.tuning_ssh_ws_heartbeat_seconds.label')"></label>
-          <p class="text-[11px] text-[var(--text-faint)] mb-2 leading-snug"
+          <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
              x-text="t('admin.config.fields.tuning_ssh_ws_heartbeat_seconds.help')"></p>
           <div class="flex flex-wrap items-center gap-2">
             <input type="number"
@@ -269,7 +269,7 @@
                 <span x-text="(tuningEffective['tuning_ssh_ws_heartbeat_seconds'] || {}).default"></span>
               </span>
             </div>
-            <span class="text-[11px] text-[var(--text-dim)] ms-auto"
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
                   x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ssh_ws_heartbeat_seconds'] || {}).effective })"></span>
           </div>
         </div>
@@ -280,12 +280,12 @@
              the tunable block so all configuration is set first, then
              the operator can verify against any curated host. -->
         <div class="mt-5 pt-4 border-t border-dashed border-[var(--border)]">
-          <h4 class="font-semibold text-[12.5px] mb-1" x-text="t('admin_ssh.test_widget_title')"></h4>
-          <p class="text-[11px] text-[var(--text-faint)] mb-2" x-text="t('admin_ssh.test_widget_hint')"></p>
+          <h4 class="font-semibold fs-sm mb-1" x-text="t('admin_ssh.test_widget_title')"></h4>
+          <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('admin_ssh.test_widget_hint')"></p>
           <div class="flex items-center gap-2 flex-wrap">
-            <label class="text-[11px] text-[var(--text-faint)]" x-text="t('admin_ssh.test_host_label')"></label>
+            <label class="fs-xs text-[var(--text-faint)]" x-text="t('admin_ssh.test_host_label')"></label>
             <select x-model="sshTestOnHost.host_id"
-                    class="text-[12px] py-1 min-w-[240px]">
+                    class="fs-sm py-1 min-w-[240px]">
               <option value="">—</option>
               <template x-for="h in hostsConfig" :key="h.id">
                 <option :value="h.id" x-text="hostDisplayName(h) + ' (' + h.id + ')'"></option>
@@ -293,13 +293,13 @@
             </select>
             <button x-show="isAdmin()" @click="runSshAdminTest()"
                     :disabled="sshTestOnHost.pending || !sshTestOnHost.host_id"
-                    class="btn btn-soft text-[12px]">
+                    class="btn btn-soft fs-sm">
               <span x-show="!sshTestOnHost.pending" x-text="t('admin_ssh.test_button')"></span>
               <span x-show="sshTestOnHost.pending" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_ssh.testing')"></span></span>
             </button>
             <span x-show="sshTestOnHost.result && !sshTestOnHost.pending"
                   :class="sshTestOnHost.result && sshTestOnHost.result.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
-                  class="text-[11.5px]"
+                  class="fs-xs"
                   x-text="(sshTestOnHost.result && sshTestOnHost.result.ok ? t('admin_ssh.test_ok_prefix') : t('admin_ssh.test_fail_prefix')) + (sshTestOnHost.result && (sshTestOnHost.result.error || (sshTestOnHost.result.resolved && (sshTestOnHost.result.resolved.user + '@' + sshTestOnHost.result.resolved.host + ':' + sshTestOnHost.result.resolved.port))) || '')"></span>
           </div>
         </div>
@@ -308,12 +308,12 @@
           <button x-show="isAdmin()" @click="saveSshSettings()"
                   :disabled="sshSettingsBusy"
                   :class="sshSettingsDirty ? 'ring-2 ring-[var(--warning)]' : ''"
-                  class="btn btn-primary text-[12px]">
+                  class="btn btn-primary fs-sm">
             <span x-show="!sshSettingsBusy" x-text="t('actions.save')"></span>
             <span x-show="sshSettingsBusy" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
           <span x-show="sshSettingsDirty"
-                class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+                class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
