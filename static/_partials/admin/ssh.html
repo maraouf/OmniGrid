@@ -193,7 +193,8 @@
                           class="btn btn-ghost fs-xs text-[var(--danger)] px-1.5"
                           x-show="isAdmin()"
                           @click="removeSshCustomAction(idx)"
-                          :title="t('admin_ssh.custom_action_remove')">✕</button>
+                          :title="t('admin_ssh.custom_action_remove')"
+                          :aria-label="t('admin_ssh.custom_action_remove') || 'Remove custom action'">✕</button>
                 </div>
               </div>
             </template>

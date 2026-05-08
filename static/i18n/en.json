@@ -1769,7 +1769,9 @@
     "toast_forgotten":     "Memory forgotten",
     "toast_added":         "Memory added",
     "forget_confirm_title": "Forget memory?",
-    "forget_confirm_body":  "The AI flagged this memory as wrong. Delete it?"
+    "forget_confirm_body":  "The AI flagged this memory as wrong. Delete it?",
+    "list_item_label":      "Memory from {source} by {actor} at {time}",
+    "unknown_actor":        "unknown"
   },
   "command_palette": {
     "dialog_label": "Command palette",
@@ -2801,6 +2803,8 @@
     "intro_suffix": " (free, no API key, refreshed every 10 min).",
     "show_clock": "Show clock",
     "show_weather": "Show weather",
+    "hide_ai_launcher": "Hide the AI Assistant floating launcher",
+    "hide_ai_launcher_hint": "Cmd-K (Ctrl-K) still opens the AI sidebar — this only removes the floating button from the page.",
     "city_label": "City / label",
     "city_placeholder": "e.g. Cairo",
     "lat_label": "Latitude",

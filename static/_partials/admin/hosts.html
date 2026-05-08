@@ -112,7 +112,9 @@
                 x-show="hostsConfigFilter"
                 x-text="filteredHostsConfig().length + ' of ' + hostsConfig.length"></span>
           <button x-show="hostsConfigFilter" @click="hostsConfigFilter=''"
-                  class="btn btn-ghost fs-xs" :title="t('hosts_extra.empty.clear_filter')">✕</button>
+                  class="btn btn-ghost fs-xs"
+                  :title="t('hosts_extra.empty.clear_filter')"
+                  :aria-label="t('hosts_extra.empty.clear_filter') || 'Clear filter'">✕</button>
         </div>
 
         <!-- Bulk vendor MIB applicator. Operator picks a vendor + clicks

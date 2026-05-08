@@ -43,7 +43,8 @@
                     x-show="notifySearchQuery"
                     @click="notifySearchQuery = ''"
                     class="absolute end-2 top-1/2 -translate-y-1/2 text-[var(--text-faint)] hover:text-[var(--text)]"
-                    :title="t('actions.clear') || 'Clear'">✕</button>
+                    :title="t('actions.clear') || 'Clear'"
+                    :aria-label="t('actions.clear_search') || t('actions.clear') || 'Clear search'">✕</button>
           </div>
           <button type="button"
                   @click="expandAllNotifyCategories(true)"

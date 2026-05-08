@@ -132,6 +132,22 @@
               <input type="checkbox" x-model="headerClockEnabled">
               <span x-text="t('topbar_widgets.show_clock')"></span>
             </label>
+            <!-- AI sidebar launcher visibility — keyboard-only operators
+                 who don't use the AI sidebar can hide the floating
+                 launcher button so it isn't in their Tab cycle on every
+                 page load. Cmd-K (Ctrl-K) still opens the sidebar
+                 regardless. Persisted to ui_prefs.ai_sidebar_launcher_hidden
+                 so the choice follows the operator across browsers. -->
+            <label class="flex items-center gap-2 fs-sm"
+                   x-show="aiSidebarSurfaceEnabled()">
+              <input type="checkbox"
+                     :checked="aiSidebarLauncherHidden"
+                     @change="setAiSidebarLauncherHidden($event.target.checked)">
+              <span x-text="t('topbar_widgets.hide_ai_launcher')"></span>
+            </label>
+            <p x-show="aiSidebarSurfaceEnabled() && aiSidebarLauncherHidden"
+               class="fs-3xs text-[var(--text-faint)] -mt-2 ms-6"
+               x-text="t('topbar_widgets.hide_ai_launcher_hint')"></p>
             <!-- Weather toggle hidden entirely when the admin
                  hasn't configured Open-Meteo upstream — there's no
                  endpoint to call, so the feature isn't available

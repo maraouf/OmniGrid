@@ -274,7 +274,8 @@
                   <button x-show="isAdmin()" @click="removeHostGroup(origIdx)"
                           tabindex="-1"
                           class="btn btn-ghost fs-sm text-danger px-2"
-                          :title="t('admin_hosts.groups.remove_title')">✕</button>
+                          :title="t('admin_hosts.groups.remove_title')"
+                          :aria-label="t('admin_hosts.groups.remove_title') || 'Remove group'">✕</button>
                 </div>
               </div>
               <!-- Row 2: IP range only (NUMBER moved to row 1 first
