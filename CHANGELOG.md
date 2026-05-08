@@ -42,6 +42,8 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Fixed
 
+- TrueNAS disk-aggregate — provider-agnostic mounts-summed override. Follow-up to the earlier Beszel-EFS fix: when ANY provider supplies a `mounts[]` list summing to ≥1.5× the merged `host_disk_total`, recompute the aggregate from mounts. Handles the TrueNAS case where Pulse's PVE guest-agent fsinfo populates `/mnt/POOL1` + `/` correctly but Pulse's `host_disk_total` is the VM-allocated overlay disk (802 GiB) instead of the actual data pool (5.3 TB). 1.5× threshold protects against spurious mount entries tipping the aggregate. New `[hosts] mounts-aggregate` diagnostic prints the override.
+
 - TrueNAS Beszel disk-aggregate — when the agent reports `extra_filesystems` (operator-configured `EXTRA_FILESYSTEMS=/mnt/POOL1` etc.), `host_disk_total` / `host_disk_used` / `host_disk_free` / `host_disk_percent` now sum from the EFS map instead of the agent's primary `stats.d`. The agent's primary on a containerised Beszel install (incus, Docker) is its OWN overlay, not the host's pool — so the chip used to read the operator-invisible container disk instead of the configured-monitored disks. Hosts WITHOUT `EXTRA_FILESYSTEMS=` fall back to `stats.d` / `stats.du` unchanged.
 
 ### Added
