@@ -1210,6 +1210,21 @@ _stats_sampler_loop = _stats_mod.stats_sampler_loop
 # that outlives the handler. Tasks remove themselves on completion
 # via `task.add_done_callback(set.discard)`.
 _BACKGROUND_TASKS: set = set()
+# Defensive cap on _BACKGROUND_TASKS — a task that NEVER COMPLETES
+# (deadlock, infinite loop, hung await) sits in the set forever
+# because the done_callback never fires. Without a cap a leaky
+# spawn site could grow the set unbounded over a long-running
+# deploy. PERF-LOW finding from code review 2026-05-08-2: every
+# spawn-from-handler today goes through `_spawn_background_task`
+# which keeps the count bounded by the actual in-flight work, so
+# the cap is theoretical — but it's defence-in-depth for a future
+# regression. When the set hits the cap, drop the oldest tasks
+# (earliest by event-loop scheduling — set iteration in Python
+# is insertion-order-stable enough for monitoring purposes) and
+# log a WARN line so the issue is visible in Admin → Logs. 1000 is
+# generous: even a fleet-wide port-scan + every host-stats refresh
+# in flight at once shouldn't approach this.
+_BACKGROUND_TASKS_CAP: int = 1000
 def _spawn_background_task(coro, *, label: str = ""):
     """Wrap `asyncio.create_task` with a strong-reference + cleanup
     callback so spawned tasks aren't GC'd mid-execution.
@@ -1219,6 +1234,31 @@ def _spawn_background_task(coro, *, label: str = ""):
     completion (success / exception) so a vanished task is visible
     in Admin → Logs instead of being silently lost.
     """
+    # Defensive cap — when the set is at the limit, drop the oldest
+    # task references (the tasks themselves keep running until they
+    # complete or are explicitly cancelled; we just stop tracking
+    # them). Logging the eviction so a runaway-spawn site is visible.
+    # This branch should NEVER fire under normal operation; if it
+    # does, that's a leak signal.
+    if len(_BACKGROUND_TASKS) >= _BACKGROUND_TASKS_CAP:
+        # Set iteration order is insertion-order-stable in CPython
+        # 3.7+, which is good enough for "drop the oldest". We pop
+        # one tracked task to make room — it'll continue executing
+        # (the strong reference in _BACKGROUND_TASKS was the only
+        # thing keeping the GC from reaping it though, so by
+        # dropping it we accept the GC risk for the OLDEST tasks
+        # specifically; new tasks still get the strong reference).
+        try:
+            stale = next(iter(_BACKGROUND_TASKS))
+            _BACKGROUND_TASKS.discard(stale)
+            print(
+                f"[bg] WARNING — _BACKGROUND_TASKS at cap ({_BACKGROUND_TASKS_CAP}) "
+                f"— evicted oldest task; this signals a spawn-site leak "
+                f"or a never-completing task. Audit the [bg] log "
+                f"for tasks that spawned but never logged 'done'."
+            )
+        except StopIteration:
+            pass
     task = asyncio.create_task(coro)
     _BACKGROUND_TASKS.add(task)
     print(f"[bg] task spawned label={label!r}")

@@ -46,6 +46,15 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 - TOTP audit-row INSERT failures now surface as in-app + Apprise notifications instead of silent stderr prints. New event `totp_audit_log_failed` (defaults ON) fires WARNING when an admin TOTP-disable / force-set succeeded at the credential layer but the History audit-row INSERT failed — the operator sees the missing audit trail immediately rather than discovering it during incident triage.
 - AI palette log-context now redacts common credential patterns before shipping to the LLM. New `logic.logs.redact_secrets(text)` helper masks `Bearer <token>` / `password=<v>` / `api_key=<v>` / `token=<v>` / `secret=<v>` / `x-api-key=<v>` / AWS `AKIA[A-Z0-9]{16}` access-key IDs with `[REDACTED]` while keeping the keyword visible. `api_ai_palette` applies the helper to each `recent_logs` entry before populating the AI prompt context. Admin → Logs continues to show raw unredacted text — only the outbound AI-bound path is redacted.
 
+### Added
+
+- Red offline-services counter on the topbar Services nav button. Parallel to the amber updates counter that's lived on the Stacks nav for a while; same visual footprint, different colour token. One metric per nav button: Stacks = updates (work-to-do), Services = offline (failures). Reactive — appears within one /api/items poll when a service goes down, clears when it recovers. New i18n key `nav.offline_title`.
+
+### Internal
+
+- Defensive cap on `_BACKGROUND_TASKS` set (`main.py`) — when the strong-reference container hits 1000 tracked tasks, the helper evicts the oldest reference and emits `[bg] WARNING — _BACKGROUND_TASKS at cap` to Admin → Logs. Today every spawn site goes through the helper so the cap is theoretical, but a future spawn-site leak (or a never-completing task) is now visible instead of silently growing the set.
+- History fetch request-version counter — `loadHistory()` increments `_historyFetchSeq` on entry and drops the response if a newer fetch has fired while it was in flight. Prevents stale `/api/history` responses from clobbering fresh state when filter input + SSE `history:appended` + paging changes stack concurrent requests.
+
 ### Fixed
 
 - AI fallback-depth selector silently no-op'd. The `<select>` in Admin → AI Integration was bound to `settings.ai_fallback_max_depth` (legacy plain key), so the operator's choice persisted to a DB row that no consumer reads. Every consumer reads `tuning_int("tuning_ai_fallback_max_depth")`. Re-bound to `tuningForm['tuning_ai_fallback_max_depth']` so the chain depth actually applies. `/api/settings` and `/api/me` also disagreed on `ai_max_tokens` / `ai_fallback_max_depth` (one read via `get_setting`, the other via `tuning_int`); migrated `/api/settings` reads to `tuning_int(...)` so the two endpoints agree.

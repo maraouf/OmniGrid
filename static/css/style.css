@@ -5014,6 +5014,29 @@ details summary::-webkit-details-marker {
     margin-inline-start: var(--s-1);
 }
 
+/* Offline / down-services counter — same shape as `.nav-update-badge`
+   but red. Surfaced on the Stacks AND Services topbar nav buttons
+   when `counts.offline > 0` so the operator sees the at-a-glance
+   failure count regardless of which view they have open. Token
+   family is `--pill-offline-*` (matches the per-row offline pills
+   in the table so the visual mapping carries through). */
+.nav-offline-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 var(--s-3);
+    border-radius: var(--r-md);
+    background: var(--pill-offline-bg);
+    color: var(--pill-offline-fg);
+    border: 1px solid var(--pill-offline-br);
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    line-height: 1;
+    margin-inline-start: var(--s-1);
+}
+
 /* ==========================================================================
    Top-right user-menu avatar + dropdown popup. Avatar hue is a runtime
    variable (--avatar-hue, set inline per user) so each username renders

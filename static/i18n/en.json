@@ -69,7 +69,8 @@
     "notifications": "Notifications",
     "settings": "Settings",
     "admin": "Admin",
-    "stacks_updates_title": "{count} pending update(s)"
+    "stacks_updates_title": "{count} pending update(s)",
+    "offline_title": "{count} offline service(s)"
   },
   "avatar": {
     "unread_badge_aria": "{count} unread notifications"
