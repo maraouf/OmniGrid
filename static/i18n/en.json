@@ -1147,6 +1147,22 @@
           "label": "Retry only when first attempt was faster than (ms)",
           "help": "First-attempt-duration gate. The retry only fires when the FIRST attempt resolved within this many milliseconds — if the first attempt was already slow, the upstream is genuinely struggling and a retry won't help (just doubles the wait). Default 5000 ms = 5 seconds. Range 100..60000. Lower it on a fast home-lab where any slow first attempt should NOT be retried; raise it when the upstream is normally slow but transient overloads are the dominant failure mode."
         },
+        "tuning_ai_max_tokens": {
+          "label": "Max response tokens",
+          "help": "Output-token cap per AI request — applied to every provider's chat-completion call. Bumped when responses keep coming back truncated; lowered to cap costs on a paid tier. Note: Gemini 2.5 family has an internal \"thinking\" mode that consumes output tokens BEFORE producing visible text; on `gemini-2.5-pro` a 1024-token budget often surfaces as \"MAX_TOKENS after 0 output tokens\" because the thinking phase exhausted the budget. Raise to 4096+ when using Gemini 2.5 Pro, OR switch to `gemini-2.5-flash` (our backend disables Flash's thinking mode automatically). Range 16..16384. Default 1024."
+        },
+        "tuning_ai_fallback_max_depth": {
+          "label": "Fallback chain max depth",
+          "help": "When the active AI provider returns a transient-overload status (HTTP 429 / 502 / 503 / 504) OR times out, walk this many backup providers from the operator-defined fallback chain before surfacing the failure. Default 1 (try ONE backup); 2 tolerates a multi-provider outage at the cost of doubling user-perceived latency on a true outage. Range 0..3 (0 effectively disables the fallback chain even when the master toggle is on)."
+        },
+        "tuning_backup_retention_count": {
+          "label": "Backup retention count",
+          "help": "Number of recent backup zips to keep on disk under `/app/data/backups/`. The `backup` schedule kind purges older files once this count is exceeded. Default 0 = keep ALL backups (back-compat with pre-existing deploys). Operator typically wants 7-30 to bound disk growth on a daily schedule. Range 0..1000."
+        },
+        "tuning_ssh_ws_heartbeat_seconds": {
+          "label": "SSH WebSocket heartbeat (seconds)",
+          "help": "Server-side ping interval for the SSH terminal WebSocket — keeps the connection alive past idle-timeouts in NPM / openresty. Default 25 seconds (under the typical 30 s `proxy_read_timeout`). Lower if your reverse proxy has a tighter idle timeout; raise on long-lived sessions to cut traffic. Range 5..120. Takes effect on the NEXT iteration without reconnect."
+        },
         "tuning_host_snapshots_cache_ttl_seconds": {
           "label": "Host snapshots cache TTL (seconds)",
           "help": "Short-TTL read cache for the host_snapshots SQLite table — the source of stale-fallback data when a provider goes offline mid-session. The SPA fans out N parallel /api/hosts/one/{id} calls per refresh, each of which would otherwise issue its own SELECT against host_snapshots; caching collapses N reads into 1 per TTL window. Cache is auto-busted on every snapshot WRITE so write→read consistency is immediate (no stale-data risk). Lower it / set to 0 to disable the cache entirely (every call hits the DB — only useful for debugging cache-related stale-data bugs). Raise it on a large fleet where the parallel SELECT stampede shows up in profiling. Default 5s."

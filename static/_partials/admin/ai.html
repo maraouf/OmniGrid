@@ -63,20 +63,50 @@
                 <span x-text="t('admin.ai.active_provider_disabled_warning')"></span>
               </p>
             </div>
-            <!-- Generic max_tokens — applied to every provider's chat
+            <!-- Max response tokens — applied to every provider's chat
                  completion request. Bumped when a provider's response
-                 keeps coming back truncated; lowered to cap costs on a
-                 paid tier. Clamped 64..32000 server-side. -->
-            <div>
-              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.max_tokens_label')"></label>
-              <input type="number" min="64" max="32000" step="1"
-                     x-model.number="settings.ai_max_tokens"
-                     @input="markAiFormDirty()"
-                     :disabled="isReadonly() || !settings.ai_enabled"
-                     class="w-full md:max-w-[260px] fs-sm"
-                     placeholder="1024">
+                 keeps coming back truncated (Gemini 2.5 Pro thinking
+                 mode regularly burns 1500-3000 tokens before emitting
+                 visible output, so the 1024 default surfaces as
+                 "MAX_TOKENS after 0 output tokens" on complex prompts);
+                 lowered to cap costs on a paid tier. Routes through
+                 TUNABLES so DB > env > default + bounds-clamp applies;
+                 the bounds-chips show the live (lo, hi) bounds + the
+                 effective value. -->
+            <div x-show="tuningLoaded">
+              <label class="block fs-xs text-[var(--text-dim)] mb-1"
+                     x-text="t('admin.config.fields.tuning_ai_max_tokens.label')"></label>
+              <div class="flex flex-wrap items-center gap-2">
+                <input type="number"
+                       x-model="tuningForm['tuning_ai_max_tokens']"
+                       :placeholder="tuningPlaceholder('tuning_ai_max_tokens')"
+                       :min="(tuningEffective['tuning_ai_max_tokens'] || {}).min"
+                       :max="(tuningEffective['tuning_ai_max_tokens'] || {}).max"
+                       :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
+                       class="w-44 mono fs-sm">
+                <div class="bounds-chips" role="group"
+                     :aria-label="t('admin.config.bounds.group_label')">
+                  <span class="bounds-chip bounds-chip--min"
+                        :title="t('admin.config.bounds.min_title')">
+                    <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                    <span x-text="(tuningEffective['tuning_ai_max_tokens'] || {}).min"></span>
+                  </span>
+                  <span class="bounds-chip bounds-chip--max"
+                        :title="t('admin.config.bounds.max_title')">
+                    <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                    <span x-text="(tuningEffective['tuning_ai_max_tokens'] || {}).max"></span>
+                  </span>
+                  <span class="bounds-chip bounds-chip--default"
+                        :title="t('admin.config.bounds.default_title')">
+                    <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                    <span x-text="(tuningEffective['tuning_ai_max_tokens'] || {}).default"></span>
+                  </span>
+                </div>
+                <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                      x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ai_max_tokens'] || {}).effective })"></span>
+              </div>
               <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                 x-text="t('admin.ai.max_tokens_hint')"></p>
+                 x-text="t('admin.config.fields.tuning_ai_max_tokens.help')"></p>
             </div>
             <!-- Auto-retry on transient upstream overload (HTTP 429 /
                  502 / 503 / 504). Three tunables — `tuning_ai_retry_*` —
