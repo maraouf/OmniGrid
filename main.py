@@ -7604,6 +7604,59 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     _u = merged.get("host_mem_used") or 0
     if _t > 0 and _u > 0:
         merged["host_mem_percent"] = round(min(100.0, (_u / _t) * 100.0), 2)
+    # Post-merge mounts-aggregate override — handles the case where
+    # ANY provider supplied a `mounts[]` list (Beszel EFS, Pulse via
+    # PVE guest-agent fsinfo, NE per-mount, Webmin per-mount) that
+    # sums to substantially MORE than the merged `host_disk_total`.
+    # When that happens, the operator-visible reality is the per-mount
+    # list (which the SPA renders as DISKS rows), so the chip aggregate
+    # should agree with it. Catches the TrueNAS case where Pulse's
+    # guest-agent fsinfo populates `mounts[/mnt/POOL1, /]` with 5.3 TB
+    # total but `host_disk_total` is the agent's overlay disk
+    # (~802 GiB) — the chip used to read 0.1% used because the
+    # numerator was the overlay's used and the denominator was its
+    # total, while the per-mount list correctly showed 84% used on
+    # the actual data pool. Threshold: only override when the mounts
+    # sum is at least 1.5× the existing total — protects against
+    # spurious mount entries (loop devices, tmpfs leaking through)
+    # tipping the aggregate by a small margin. The mounts list `d` /
+    # `du` fields are GiB floats per the schema in `_flatten_efs` and
+    # `_pulse_mounts`; convert × 1024^3 to bytes for the byte-totals.
+    mounts = merged.get("mounts") or []
+    if isinstance(mounts, list) and mounts:
+        gib = 1024 ** 3
+        m_total = 0.0
+        m_used = 0.0
+        for _m in mounts:
+            if not isinstance(_m, dict):
+                continue
+            try:
+                m_total += float(_m.get("d") or 0)
+                m_used += float(_m.get("du") or 0)
+            except (TypeError, ValueError):
+                continue
+        if m_total > 0:
+            m_total_b = int(m_total * gib)
+            m_used_b = int(m_used * gib)
+            cur_total = int(merged.get("host_disk_total") or 0)
+            # Override when the mounts aggregate is meaningfully bigger
+            # than the merged total. 1.5× threshold catches the
+            # overlay-vs-real-disk case (5300/802 ≈ 6.6×) without
+            # flapping on small per-mount additions.
+            if cur_total <= 0 or m_total_b > cur_total * 1.5:
+                merged["host_disk_total"] = m_total_b
+                merged["host_disk_used"] = m_used_b
+                merged["host_disk_free"] = max(0, m_total_b - m_used_b)
+                try:
+                    print(
+                        f"[hosts] mounts-aggregate {h.get('id')!r}: "
+                        f"replaced host_disk_total={cur_total} "
+                        f"with mounts-summed {m_total_b} "
+                        f"({m_total:.1f} GiB total / {m_used:.1f} GiB used "
+                        f"across {len(mounts)} mounts)"
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
     _t = merged.get("host_disk_total") or 0
     _u = merged.get("host_disk_used") or 0
     if _t > 0 and _u > 0:
