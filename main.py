@@ -1182,6 +1182,42 @@ _gather_stats = _stats_mod.gather_stats
 _stats_history = _stats_mod.stats_history
 _stats_sampler_loop = _stats_mod.stats_sampler_loop
 
+# Background-task references — `asyncio.create_task` returns a future
+# the event loop only WEAKLY references; without a strong reference
+# elsewhere, GC can eat the task mid-execution and the work silently
+# disappears (no exceptions, no logs — the print statements never
+# get a chance to fire). Every fire-and-forget task spawned from a
+# request handler MUST get added to a strong-reference container
+# that outlives the handler. Tasks remove themselves on completion
+# via `task.add_done_callback(set.discard)`.
+_BACKGROUND_TASKS: set = set()
+def _spawn_background_task(coro, *, label: str = ""):
+    """Wrap `asyncio.create_task` with a strong-reference + cleanup
+    callback so spawned tasks aren't GC'd mid-execution.
+
+    Drop-in replacement for `asyncio.create_task(coro)` on the
+    request-handler path. Logs an `[bg]` line on creation + on
+    completion (success / exception) so a vanished task is visible
+    in Admin → Logs instead of being silently lost.
+    """
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    print(f"[bg] task spawned label={label!r}")
+    def _on_done(t):
+        _BACKGROUND_TASKS.discard(t)
+        if t.cancelled():
+            print(f"[bg] task cancelled label={label!r}")
+            return
+        exc = t.exception()
+        if exc is not None:
+            import traceback as _tb
+            tb = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+            print(f"[bg] task FAILED label={label!r} exc={type(exc).__name__}: {exc}\n{tb}")
+        else:
+            print(f"[bg] task done label={label!r}")
+    task.add_done_callback(_on_done)
+    return task
+
 
 # ============================================================================
 # Persistent-log pruner. Once per hour, walks /app/data/logs/ and
@@ -8028,10 +8064,16 @@ async def api_hosts_list(force: bool = False):
     if cached_state is not None:
         state = cached_state
         # Force-bypass with a fresh cached state — kick a background
-        # refresh so the next call hits a re-probed cache.
+        # refresh so the next call hits a re-probed cache. Use the
+        # strong-reference helper so the task isn't GC'd mid-probe;
+        # the print path inside `_get_host_provider_state` would
+        # otherwise vanish silently.
         if force:
             try:
-                asyncio.create_task(_get_host_provider_state(force=force))
+                _spawn_background_task(
+                    _get_host_provider_state(force=force),
+                    label="host_provider_state:refresh",
+                )
             except RuntimeError:
                 pass
         # `hub_probing` reflects whether a hub probe is actually in
@@ -8054,8 +8096,13 @@ async def api_hosts_list(force: bool = False):
         }
         # Schedule the hub probe so subsequent /api/hosts/one/{id}
         # calls hit a warming cache. Single-flight handles re-entry.
+        # Strong-reference helper so a GC sweep can't eat the task
+        # before the probe lands its `[hosts] ...` log lines.
         try:
-            asyncio.create_task(_get_host_provider_state(force=force))
+            _spawn_background_task(
+                _get_host_provider_state(force=force),
+                label="host_provider_state:warm",
+            )
             hub_probing = True
         except RuntimeError:
             # No event loop (shouldn't happen inside a request handler) —
@@ -12784,24 +12831,27 @@ async def api_hosts_port_scan(
         f"max_seconds={max_seconds} scan_id={scan_id}"
     )
     actor = getattr(_admin, "username", "ui") or "ui"
-    asyncio.create_task(_run_port_scan_async(
-        hid=hid,
-        target=target,
-        ports_list=ports_list,
-        timeout_s=int(timeout_s),
-        concurrency=int(concurrency),
-        banner_grab=bool(body.banner_grab),
-        udp_enabled=bool(udp_enabled),
-        udp_ports_list=udp_ports_list,
-        udp_timeout_s=int(udp_timeout_s),
-        udp_concurrency=int(udp_concurrency),
-        snmp_community=str(snmp_community),
-        max_seconds=int(max_seconds),
-        scan_id=scan_id,
-        started=started,
-        h=h,
-        actor=actor,
-    ))
+    _spawn_background_task(
+        _run_port_scan_async(
+            hid=hid,
+            target=target,
+            ports_list=ports_list,
+            timeout_s=int(timeout_s),
+            concurrency=int(concurrency),
+            banner_grab=bool(body.banner_grab),
+            udp_enabled=bool(udp_enabled),
+            udp_ports_list=udp_ports_list,
+            udp_timeout_s=int(udp_timeout_s),
+            udp_concurrency=int(udp_concurrency),
+            snmp_community=str(snmp_community),
+            max_seconds=int(max_seconds),
+            scan_id=scan_id,
+            started=started,
+            h=h,
+            actor=actor,
+        ),
+        label=f"port_scan:{hid}:{scan_id[:8]}",
+    )
     config_used = {
         "ports_count": len(ports_list),
         "timeout_s":   int(timeout_s),

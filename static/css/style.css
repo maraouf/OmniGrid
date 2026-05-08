@@ -1910,6 +1910,78 @@ details summary::-webkit-details-marker {
 }
 .ai-resp-answer strong { color: var(--text); font-weight: 600; }
 
+/* Fenced code blocks (```...```) inside AI responses — both the
+   modal palette and the sidebar bubble use the same markdown helper,
+   so the styles target the wrapping element (`.ai-resp-code-block`)
+   directly. The wrapper is positioned so the copy button can pin
+   to the top-right corner; the <pre> handles the actual scroll +
+   font + padding. Sidebar context wraps these inside .ai-bubble-assistant
+   which has its own padding — the wrapper undoes that for the code
+   panel so it spans the full bubble width. */
+.ai-resp-code-block {
+    position: relative;
+    margin: var(--s-2) 0;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+}
+.ai-resp-code-block pre.ai-resp-pre {
+    margin: 0;
+    padding: var(--s-3);
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    color: var(--text);
+    background: transparent;
+    /* Allow horizontal scroll for very long single-line commands;
+       keep multiline content readable without clipping. */
+    white-space: pre;
+    /* `tab-size: 4` matches what most operators expect when copying
+       commands that contain tabs (rare but real). */
+    tab-size: 4;
+    -moz-tab-size: 4;
+}
+.ai-resp-code-block pre.ai-resp-pre code {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: inherit;
+}
+/* Copy button — pins top-right; subtle by default, brightens on
+   hover / focus-visible. Becomes momentarily green when the
+   `--copied` modifier flashes after a successful clipboard write
+   (the JS handler adds + removes the class on a 1.2 s timeout). */
+.ai-resp-code-copy {
+    position: absolute;
+    top: var(--s-1);
+    inset-inline-end: var(--s-1);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 4px;
+    cursor: pointer;
+    color: var(--text-dim);
+    line-height: 0;
+    transition: color 120ms, background 120ms, border-color 120ms;
+}
+.ai-resp-code-copy:hover,
+.ai-resp-code-copy:focus-visible {
+    color: var(--text);
+    background: var(--surface);
+    border-color: var(--border-bright);
+    outline: none;
+}
+.ai-resp-code-copy--copied {
+    color: var(--success);
+    border-color: var(--success);
+}
+@media (prefers-reduced-motion: reduce) {
+    .ai-resp-code-copy { transition: none; }
+}
+
 /* AI response — per-host disk-projection charts. Rendered when the
    AI emits a `HOSTS: <id1>, <id2>, ...` trailer; one chart per host
    below the answer body. Each card carries a header (host id +
