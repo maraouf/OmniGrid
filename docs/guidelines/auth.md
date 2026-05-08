@@ -175,7 +175,7 @@ aid for existing deploys, then ignored — the DB is authoritative after seeding
   - **Portainer** — connection settings + public URL. Master toggle.
   - **Authentik OIDC** — SSO provider config. Master toggle. See `docs/guidelines/authentik.md`.
   - **Providers** (Beszel / Pulse / node-exporter / Webmin / Ping / SNMP — renamed from
-    "Host stats" in #583), **Hosts**, **Host Groups**, **SSH**, **Asset inventory**,
+    "Host stats"), **Hosts**, **Host Groups**, **SSH**, **Asset inventory**,
     **Schedules**, **Backups**, **Logs**, **Debug**, **Config** (process-level tunables —
     see `docs/guidelines/env_example.md`).
 - **Profile modal** opened by clicking the username pill in the top-right is now retired —

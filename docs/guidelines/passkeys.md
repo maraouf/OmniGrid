@@ -100,9 +100,10 @@ assume matching — existing enrolments don't fire spurious banners.
 - **Counter regression / clone-detection rejection** — extremely rare. The authenticator
   reported a sign count lower than what we previously stored. Revoke the credential from
   Profile → Security, re-enrol from scratch.
-- **macOS Safari/Chrome defaults to QR despite local Touch ID being available** — fixed across
-  #600 / #601 / #602 / #604: the assertion-options now carry `hints=["client-device", "hybrid",
-  "security-key"]`, force `userVerification: required` so QR isn't offered without UV, list
+- **macOS Safari/Chrome defaults to QR despite local Touch ID being available** — fixed in
+  the WebAuthn assertion-options hardening pass: the assertion-options now carry
+  `hints=["client-device", "hybrid", "security-key"]`, force `userVerification: required` so
+  QR isn't offered without UV, list
   `internal` first in transports, and union `{internal, hybrid}` into stored transports so empty
   / hybrid-only credentials still get the local-device picker. If you see this on a current
   build, grep server logs for `[webauthn] <user> login-start (rp_id=...)` to verify the payload.
@@ -117,7 +118,7 @@ assume matching — existing enrolments don't fire spurious banners.
   Alpine state), `static/js/login.js` ("Use a passkey" button on the second-factor screen).
 - **Schema** — `user_credentials(user_id, credential_id BLOB UNIQUE, public_key BLOB,
   sign_count, transports, friendly_name, created_at, last_used_at, rp_id)`. The `rp_id`
-  column was added in #605 for RP-ID mismatch detection — empty on legacy rows, stamped
+  column was added later for RP-ID mismatch detection — empty on legacy rows, stamped
   per-registration thereafter. All additions are ALTER-only in `logic/auth.py:init_auth_schema`.
 - **Lifecycle** — passkeys are wiped automatically by `delete_user`,
   `admin_reset_password`, and the user-delete cascade.

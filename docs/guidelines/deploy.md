@@ -725,7 +725,7 @@ proxy_send_timeout 60s;
 
 Other concurrency knobs that affect this surface:
 
-- `HOSTS_PARALLEL_FETCH` (default 6, range 1–32; #508) caps the SPA's fan-out concurrency on
+- `HOSTS_PARALLEL_FETCH` (default 6, range 1–32) caps the SPA's fan-out concurrency on
   `/api/hosts/one/{id}`. Lower if the upstream pool is thin or slow Webmin / NE probes saturate
   the loop. Edit live from Admin → Config — no restart needed.
 - The single-flight `_host_provider_lock` collapses parallel cold-cache hub probes into one

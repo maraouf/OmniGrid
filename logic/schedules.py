@@ -907,9 +907,12 @@ async def _run_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
             # Apply retention right after a successful create — matches
             # the behaviour of the manual "Create backup" button so a
             # scheduled nightly backup doesn't blow past the keep-N.
+            # Now reads via tuning_int (DB > env > default with bounds
+            # clamp) — same canonical resolution path as the manual
+            # "Create backup" button uses.
             try:
-                from logic.db import get_setting
-                keep = int(get_setting("backup_retention_count", "0") or "0")
+                from logic.tuning import tuning_int as _tuning_int
+                keep = _tuning_int("tuning_backup_retention_count")
             except (TypeError, ValueError):
                 keep = 0
             if keep > 0:

@@ -188,9 +188,10 @@ def _compute_row(
     if have_net_counters or have_disk_counters or have_cpu_counters:
         next_counter = (now, rx, tx, dr, dw, float(cpu_total_secs), float(cpu_idle_secs))
 
-    # Decompose `prev` tolerantly — pre-fix entries are 3-tuples; #339
-    # added disk (5-tuple); added CPU seconds (7-tuple). The cache
-    # is restart-only so older shapes only matter mid-process if a
+    # Decompose `prev` tolerantly — earliest entries were 3-tuples;
+    # the disk-counter expansion grew the shape to 5-tuple; the CPU-
+    # seconds expansion grew it again to 7-tuple. The cache is
+    # restart-only so older shapes only matter mid-process if a
     # partial reload happened — handled by len()-checking ``prev``.
     prev_ts = prev_rx = prev_tx = prev_dr = prev_dw = None
     prev_cpu_total = prev_cpu_idle = None

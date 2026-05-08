@@ -111,10 +111,10 @@ STATS_SAMPLE_INTERVAL_SECONDS=300
 HOST_PERMANENT_FAIL_WINDOW_SECONDS=900
 
 # Frontend /api/ops poll cadence in SECONDS (renamed from
-# OPS_POLL_INTERVAL_MS in #514 for operator-friendly UI). Backend
-# multiplies × 1000 before delivering to the SPA's setTimeout via
-# /api/me's `client_config.ops_poll_ms`, so the consumer contract is
-# unchanged.
+# OPS_POLL_INTERVAL_MS to a seconds-based name for operator-friendly
+# UI). Backend multiplies × 1000 before delivering to the SPA's
+# setTimeout via /api/me's `client_config.ops_poll_ms`, so the
+# consumer contract is unchanged.
 OPS_POLL_INTERVAL_SECONDS=2
 
 # Persistent-log retention in days. Daily files under /app/data/logs/
