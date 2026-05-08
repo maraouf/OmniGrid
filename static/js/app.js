@@ -4331,8 +4331,14 @@ function app() {
       // Plain settings the Webmin sub-tab owns. Tracked separately
       // from the section's tunables so the dirty diff knows which
       // shape to compare against the loadSettings() baseline.
+      // `webmin_aliases` is intentionally NOT in this list — aliases
+      // are edited per-host in the Hosts tab, NOT in this sub-tab,
+      // and including the dict-typed value here triggered an always
+      // -dirty regression (the host_stats baseline JSON-snapshot
+      // doesn't carry it, so `String({}) !== String('')` flagged the
+      // section dirty even on a fresh page load with Webmin disabled).
       return [
-        'webmin_user', 'webmin_verify_tls', 'webmin_aliases',
+        'webmin_user', 'webmin_verify_tls',
         'provider_color_webmin',
         // `webmin_password` follows the keep-current-if-blank contract
         // — it dirties when typed, not on baseline.
