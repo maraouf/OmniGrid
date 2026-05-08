@@ -1659,6 +1659,163 @@ async def api_remove_container(
     return {"op_id": op.id}
 
 
+class CleanupOverlayIn(BaseModel):
+    subnet: str
+    service_id: str
+
+
+@app.post("/api/cleanup-overlay-network")
+async def api_cleanup_overlay_network(
+    body: CleanupOverlayIn,
+    bg: BackgroundTasks,
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Auto-fix for the Docker Swarm VXLAN sandbox-join error.
+
+    Walks Portainer's network list to find the overlay matching the
+    failing subnet, verifies the network has no live containers, and
+    removes it. Docker recreates the overlay + a fresh VXLAN
+    interface when the affected service is force-updated immediately
+    after. Pure Portainer-API path — no SSH required, no kernel
+    access needed (the daemon owns the vxlan as long as the network
+    is registered, so `network rm` cleans it up cleanly).
+
+    Aborts when:
+      - Subnet is empty / not in CIDR shape.
+      - No overlay network matches the subnet (the error may have
+        already been resolved between the operator clicking and the
+        request landing).
+      - Multiple networks match (refuse rather than guess).
+      - The matching network has any container in its `Containers`
+        map (means another stack is actively using it; operator
+        needs to handle that explicitly).
+    """
+    import re as _re
+    subnet = (body.subnet or "").strip()
+    service_id = (body.service_id or "").strip()
+    if not subnet or not _re.match(r"^\d+\.\d+\.\d+\.\d+/\d+$", subnet):
+        raise HTTPException(400, "subnet must be a CIDR (e.g. 10.90.24.0/24)")
+    if not service_id:
+        raise HTTPException(400, "service_id is required")
+    name, stack = _item_context(service_id)
+    op = new_op("cleanup_overlay_network", service_id, name,
+                target_stack=stack, actor=_actor_from(request))
+    bg.add_task(_do_cleanup_overlay_network, op, subnet, service_id)
+    return {"ok": True, "op_id": op.id}
+
+
+async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
+    """Background task — find overlay matching subnet, remove it,
+    force-update the service. Single Operation row + history entry."""
+    try:
+        op.log(f"Cleanup overlay matching subnet {subnet}")
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=60.0) as client:
+            # Step 1 — list every overlay network on the endpoint.
+            nets = await portainer.pg(
+                client,
+                f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/networks?filters="
+                + httpx.QueryParams({"filters": '{"driver":["overlay"]}'}).get("filters", "")
+            )
+            if not isinstance(nets, list):
+                raise RuntimeError("Portainer returned non-list for /docker/networks")
+            # Step 2 — find every match. Walks IPAM.Config[].Subnet.
+            matches = []
+            for net in nets:
+                ipam = (net.get("IPAM") or {}).get("Config") or []
+                for cfg in ipam:
+                    if (cfg.get("Subnet") or "") == subnet:
+                        matches.append(net)
+                        break
+            if not matches:
+                op.log("No overlay network matches that subnet — error may have already cleared", "warn")
+                op.done("error", f"no overlay network matched subnet {subnet}")
+                return
+            if len(matches) > 1:
+                names = ", ".join(n.get("Name", "?") for n in matches)
+                raise RuntimeError(f"refusing — multiple networks match subnet {subnet}: {names}")
+            net = matches[0]
+            net_id = net.get("Id") or ""
+            net_name = net.get("Name") or net_id[:12]
+            op.log(f"Matched overlay network {net_name!r} (id={net_id[:12]})")
+            # Step 3 — inspect to check live containers.
+            inspect = await portainer.pg(
+                client,
+                f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/networks/{net_id}",
+            )
+            containers = (inspect.get("Containers") or {}) if isinstance(inspect, dict) else {}
+            if containers:
+                names = ", ".join(c.get("Name", "?") for c in containers.values())
+                raise RuntimeError(
+                    f"refusing — network {net_name!r} still has live containers: {names}"
+                )
+            # Step 4 — remove the network.
+            op.log(f"Removing overlay {net_name!r}")
+            r = await client.delete(
+                f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/networks/{net_id}",
+                headers=portainer.headers(),
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"network rm HTTP {r.status_code}: {r.text[:300]}")
+            op.log("Overlay network removed", "success")
+            # Step 5 — force-update the affected service so a new
+            # task spawns onto a freshly-created overlay (Docker
+            # auto-creates the network when the service references
+            # its name on the next deploy attempt).
+            op.log("Force-updating service to redeploy")
+            svc = await portainer.pg(
+                client,
+                f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services/{service_id}",
+            )
+            version = svc["Version"]["Index"]
+            spec = svc["Spec"]
+            spec.setdefault("TaskTemplate", {})
+            spec["TaskTemplate"]["ForceUpdate"] = int(spec["TaskTemplate"].get("ForceUpdate", 0)) + 1
+            r = await client.post(
+                f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/services/{service_id}/update?version={version}",
+                headers=portainer.headers(),
+                json=spec,
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"service update HTTP {r.status_code}: {r.text[:300]}")
+        op.log("Cleanup complete — watch for new task to come up", "success")
+        op.done("success")
+        # Stamp the network name onto the op for the SPA toast.
+        op.network_name = net_name
+        from logic.ops import notify as _notify
+        await _notify(
+            f"🧹 Stale overlay cleaned: {net_name}",
+            f"Removed overlay {net_name} (subnet {subnet}) and force-updated {op.target_name}.",
+            "success",
+            event="overlay_cleanup_success",
+            actor_username=op.actor,
+            target_kind="service",
+            target_id=str(op.target_id),
+        )
+    except Exception as e:  # noqa: BLE001
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        from logic.ops import notify as _notify
+        await _notify(
+            f"❌ Overlay cleanup failed: {op.target_name}",
+            str(e)[:500],
+            "error",
+            event="overlay_cleanup_failure",
+            actor_username=op.actor,
+            target_kind="service",
+            target_id=str(op.target_id),
+        )
+    finally:
+        from logic.ops import persist_history
+        from logic import gather as _gather
+        persist_history(op)
+        _gather.invalidate_cache()
+
+
 @app.post("/api/swarm/restart-agent")
 async def api_swarm_restart_agent(
     bg: BackgroundTasks, request: Request,
@@ -2575,6 +2732,10 @@ class SettingsIn(BaseModel):
     # Admin → AI Integration via `relocatedTuningKeys`.
     tuning_ai_max_tokens: Optional[str] = None
     tuning_ai_fallback_max_depth: Optional[str] = None
+    # AI log context — how many hours back to read persistent logs
+    # for the palette's user-prompt context, capped at N lines.
+    tuning_ai_log_context_hours: Optional[str] = None
+    tuning_ai_log_context_lines: Optional[str] = None
     # Backup retention count + SSH WebSocket heartbeat — same
     # 4-step audit-fix promotion; consumed via `tuning_int(...)`;
     # rendered in Admin → Backups and Admin → SSH respectively.
@@ -4568,14 +4729,25 @@ async def api_ai_palette(
         raise HTTPException(400, "query is required")
     ctx = body.context if isinstance(body.context, dict) else {}
     # Inject recent-log signals into the AI context so the model can
-    # honestly answer "any errors I should fix?" / "check logs"
-    # instead of falsely claiming it has no log access. Pulls the
-    # last 30 error+warn lines from the in-memory ring buffer (the
-    # same source backing Admin → Logs). Best-effort — a missing /
-    # broken `logs` import skips the block silently.
+    # honestly answer "any errors I should fix in the past 7 days?" /
+    # "check logs" instead of falsely claiming it has no log access.
+    # Pre-fix this read only the in-memory ring buffer's last 30 lines
+    # (covers minutes on a busy fleet, not days). Now reads the past
+    # `tuning_ai_log_context_hours` (default 168 = 7 days) of error +
+    # warn lines from the persistent log files, capped at
+    # `tuning_ai_log_context_lines` (default 200) newest-last so the
+    # most recent signals always survive trimming. Best-effort — a
+    # missing / broken `logs` import skips the block silently.
     try:
         from logic import logs as _logs
-        ctx["recent_logs"] = _logs.recent_lines(levels=["error", "warn"], limit=30)
+        _log_hours = tuning.tuning_int("tuning_ai_log_context_hours")
+        _log_limit = tuning.tuning_int("tuning_ai_log_context_lines")
+        ctx["recent_logs"] = _logs.recent_lines_window(
+            hours=_log_hours,
+            levels=["error", "warn"],
+            limit=_log_limit,
+        )
+        ctx["recent_logs_window_hours"] = _log_hours
     except Exception:  # noqa: BLE001
         pass
 

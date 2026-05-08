@@ -240,6 +240,110 @@ def recent_lines(*, levels: Optional[Iterable[str]] = None,
     return out
 
 
+def recent_lines_window(*, hours: int = 24,
+                        levels: Optional[Iterable[str]] = None,
+                        limit: int = 200) -> list[dict]:
+    """Return log lines from the past ``hours`` of PERSISTENT log
+    files (NOT just the in-memory ring buffer), newest-last, filtered
+    by severity level. Used by the AI palette so the assistant can
+    answer "any issues in the past 24 hours?" honestly instead of
+    being capped at the ring-buffer's ~last-N-minutes window.
+
+    ``hours``  — how far back to scan. Default 24h. Anything ≤ 0
+                  reads only today's file. The function reads at most
+                  ``ceil(hours/24) + 1`` daily files (today's + the
+                  N previous days' files) so a 24h window touches
+                  today + yesterday.
+    ``levels`` — iterable of lowercase level names; ``None`` returns
+                  every level. The persistent file's level prefix is
+                  trusted (no re-classification) since files are
+                  written by `_persist_line` using `_severity_for`.
+    ``limit``  — cap on returned matches, newest-last. Defaults to
+                  200 — enough for an AI to summarise a noisy day
+                  without ballooning the prompt budget. Pass 0 for
+                  uncapped (use sparingly — a busy fleet writes
+                  thousands of lines per hour).
+
+    Each entry: ``{ts: float, level: str, text: str}`` matching the
+    in-memory `recent_lines` shape.
+
+    Format expected (from `_persist_line`):
+       ``2026-05-08T12:34:56Z ERROR <message>\\n``
+    Lines that don't parse cleanly are skipped (rotation seam corrupt
+    bytes, operator-dropped notes, etc.).
+    """
+    if not os.path.isdir(LOG_DIR):
+        return []
+    levels_set = None
+    if levels is not None:
+        levels_set = {str(lv).strip().lower() for lv in levels if lv}
+        if not levels_set:
+            return []
+    # cut-off in epoch seconds. hours <= 0 → only today's file
+    # (cut-off = midnight today). hours > 0 → now - hours.
+    now = time.time()
+    if hours and hours > 0:
+        cutoff_ts = now - (hours * 3600)
+    else:
+        cutoff_ts = 0.0  # read everything in today's file
+    # Walk back day-by-day until the file's date predates the cutoff.
+    # Files are named `omnigrid-YYYY-MM-DD.log`. Resolved-tz-aware so
+    # the day boundary matches `_today_log_path()` (the rotation +
+    # parse halves stay consistent per CLAUDE.md's TZ-aware paths
+    # rule).
+    tz = _resolved_tz() or timezone.utc
+    cutoff_date = datetime.fromtimestamp(cutoff_ts, tz=tz).date() if cutoff_ts > 0 else None
+    # How many calendar days back to walk. ``hours / 24`` rounded UP +
+    # 1 covers the rotation seam where a 24h window straddles
+    # midnight (today's file + yesterday's file).
+    days_back = max(1, (hours + 23) // 24 + 1) if hours and hours > 0 else 1
+    today = datetime.fromtimestamp(now, tz=tz).date()
+    out: list[dict] = []
+    for delta in range(days_back):
+        day = today - timedelta(days=delta)
+        # Skip files older than cutoff. The cutoff_date is the
+        # earliest day we still care about.
+        if cutoff_date is not None and day < cutoff_date:
+            break
+        name = f"omnigrid-{day.isoformat()}.log"
+        path = safe_log_path(name)
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                file_lines = f.readlines()
+        except OSError:
+            continue
+        # Parse newest-last. Format: ``ISO_TS LEVEL <message>\n``.
+        # ISO_TS is 20 chars + space; LEVEL is 5 chars + space.
+        for raw in file_lines:
+            raw = raw.rstrip("\n")
+            if len(raw) < 28:  # ts(20) + space + level(5) + space + at-least-1
+                continue
+            ts_str = raw[:20]
+            level_str = raw[21:26].strip().lower()
+            text = raw[27:]
+            try:
+                # parse the trailing-Z UTC timestamp into epoch seconds
+                ts_dt = datetime.strptime(ts_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                ts_epoch = ts_dt.timestamp()
+            except ValueError:
+                continue
+            if cutoff_ts > 0 and ts_epoch < cutoff_ts:
+                continue
+            if levels_set is not None and level_str not in levels_set:
+                continue
+            out.append({"ts": ts_epoch, "level": level_str, "text": text})
+    # Sort newest-last across the day-spanning collection (within a
+    # single file, lines are already chronological — but spanning
+    # files we walked newest-day-first, so we'd otherwise emit in
+    # reverse).
+    out.sort(key=lambda r: r["ts"])
+    if limit and limit > 0 and len(out) > limit:
+        out = out[-limit:]
+    return out
+
+
 def list_persistent_logs() -> list[dict]:
     """Return metadata for every persisted daily log file. One entry
     per ``omnigrid-YYYY-MM-DD.log``: ``{name, size, mtime}``. Sorted

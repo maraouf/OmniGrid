@@ -74,7 +74,7 @@
                  the bounds-chips show the live (lo, hi) bounds + the
                  effective value. -->
             <div x-show="tuningLoaded">
-              <label class="block fs-xs text-[var(--text-dim)] mb-1"
+              <label class="block text-[11px] font-medium mb-1"
                      x-text="t('admin.config.fields.tuning_ai_max_tokens.label')"></label>
               <div class="flex flex-wrap items-center gap-2">
                 <input type="number"
@@ -134,7 +134,7 @@
                      `:true-value` / `:false-value` keep the storage shape
                      consistent with the TUNABLES int contract (and with
                      the placeholder showing the live default). -->
-                <label class="inline-flex items-center gap-2 fs-xs text-[var(--text)] cursor-pointer">
+                <label class="inline-flex items-center gap-2 text-[12px] font-medium cursor-pointer">
                   <input type="checkbox"
                          x-model="tuningForm['tuning_ai_retry_enabled']"
                          true-value="1" false-value="0"
@@ -153,7 +153,7 @@
               </div>
               <!-- Backoff in milliseconds. -->
               <div class="mb-3">
-                <label class="block fs-xs text-[var(--text-dim)] mb-1"
+                <label class="block text-[11px] font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_retry_backoff_ms.label')"></label>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
@@ -189,7 +189,7 @@
               </div>
               <!-- First-attempt-max-duration gate (ms). -->
               <div>
-                <label class="block fs-xs text-[var(--text-dim)] mb-1"
+                <label class="block text-[11px] font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.label')"></label>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
@@ -230,7 +230,7 @@
                    shape as the retry first-attempt-max field above so
                    the visual rhythm matches. -->
               <div class="mt-3">
-                <label class="block fs-xs text-[var(--text-dim)] mb-1"
+                <label class="block text-[11px] font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.label')"></label>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
@@ -270,7 +270,7 @@
                    sidebar-header export buttons gate on the resolved
                    `me.client_config.ai_conversation_export_enabled`. -->
               <div class="mt-3">
-                <label class="fs-sm text-[var(--text-dim)] flex items-center gap-2">
+                <label class="inline-flex items-center gap-2 text-[12px] font-medium cursor-pointer">
                   <input type="checkbox"
                          x-model="tuningForm['tuning_ai_conversation_export_enabled']"
                          true-value="1" false-value="0"
@@ -281,6 +281,85 @@
                      x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_conversation_export_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
                 <p class="fs-2xs text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.help')"></p>
+              </div>
+              <!-- AI log-context window — how many hours of persistent
+                   log files the palette injects per call. Default 168
+                   (7 days). Pre-fix the AI saw only the in-memory
+                   ring buffer's last 30 lines (minutes on a busy
+                   fleet). Bounded by `tuning_ai_log_context_lines`
+                   below for a hard token-budget cap. -->
+              <div class="mt-3">
+                <label class="block text-[11px] font-medium mb-1"
+                       x-text="t('admin.config.fields.tuning_ai_log_context_hours.label')"></label>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="number"
+                         x-model="tuningForm['tuning_ai_log_context_hours']"
+                         :placeholder="tuningPlaceholder('tuning_ai_log_context_hours')"
+                         :min="(tuningEffective['tuning_ai_log_context_hours'] || {}).min"
+                         :max="(tuningEffective['tuning_ai_log_context_hours'] || {}).max"
+                         :disabled="!isAdmin() || tuningSaving"
+                         class="w-44 mono fs-sm py-1">
+                  <div class="bounds-chips" role="group"
+                       :aria-label="t('admin.config.bounds.group_label')">
+                    <span class="bounds-chip bounds-chip--min"
+                          :title="t('admin.config.bounds.min_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                      <span x-text="(tuningEffective['tuning_ai_log_context_hours'] || {}).min"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--max"
+                          :title="t('admin.config.bounds.max_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                      <span x-text="(tuningEffective['tuning_ai_log_context_hours'] || {}).max"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--default"
+                          :title="t('admin.config.bounds.default_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                      <span x-text="(tuningEffective['tuning_ai_log_context_hours'] || {}).default"></span>
+                    </span>
+                  </div>
+                  <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                        x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ai_log_context_hours'] || {}).effective })"></span>
+                </div>
+                <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                   x-text="t('admin.config.fields.tuning_ai_log_context_hours.help')"></p>
+              </div>
+              <!-- AI log-context cap — hard upper bound on number of
+                   error+warn lines injected per call. Newest-last so
+                   the most recent issues survive trimming. -->
+              <div class="mt-3">
+                <label class="block text-[11px] font-medium mb-1"
+                       x-text="t('admin.config.fields.tuning_ai_log_context_lines.label')"></label>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="number"
+                         x-model="tuningForm['tuning_ai_log_context_lines']"
+                         :placeholder="tuningPlaceholder('tuning_ai_log_context_lines')"
+                         :min="(tuningEffective['tuning_ai_log_context_lines'] || {}).min"
+                         :max="(tuningEffective['tuning_ai_log_context_lines'] || {}).max"
+                         :disabled="!isAdmin() || tuningSaving"
+                         class="w-44 mono fs-sm py-1">
+                  <div class="bounds-chips" role="group"
+                       :aria-label="t('admin.config.bounds.group_label')">
+                    <span class="bounds-chip bounds-chip--min"
+                          :title="t('admin.config.bounds.min_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                      <span x-text="(tuningEffective['tuning_ai_log_context_lines'] || {}).min"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--max"
+                          :title="t('admin.config.bounds.max_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                      <span x-text="(tuningEffective['tuning_ai_log_context_lines'] || {}).max"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--default"
+                          :title="t('admin.config.bounds.default_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                      <span x-text="(tuningEffective['tuning_ai_log_context_lines'] || {}).default"></span>
+                    </span>
+                  </div>
+                  <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                        x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ai_log_context_lines'] || {}).effective })"></span>
+                </div>
+                <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                   x-text="t('admin.config.fields.tuning_ai_log_context_lines.help')"></p>
               </div>
             </div>
             <!-- Provider fallback chain — opt-in resilience surface.

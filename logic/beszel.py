@@ -936,6 +936,21 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
             disk_total = efs_total_gib * gib
             disk_used = efs_used_gib * gib
             disk_pct_efs = (efs_used_gib / efs_total_gib * 100.0) if efs_total_gib > 0 else 0.0
+            # Verbose diagnostic — confirms the EFS aggregation branch
+            # fired AND prints the totals so the operator can verify
+            # the chip / chart match. Cheap (one print per probe per
+            # EFS-configured host); a fleet-wide grep `[beszel] efs-`
+            # in Admin → Logs answers "is the fix actually running on
+            # this deploy" without requiring a fresh debug-panel paste.
+            try:
+                _hk = (info.get("h") or info.get("host") or "?")
+                print(
+                    f"[beszel] efs-aggregate {_hk}: "
+                    f"total={efs_total_gib:.1f} GiB used={efs_used_gib:.1f} GiB "
+                    f"({disk_pct_efs:.1f}%) overrides stats.d={_num(stats.get('d')):.1f} GiB"
+                )
+            except Exception:  # noqa: BLE001
+                pass
     # Percentages fallback: if the stats row is absent but info has
     # mp/dp percentages, we still cannot derive absolute bytes — leave
     # them at 0 and let the UI show "—" for those cells.
