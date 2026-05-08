@@ -3831,6 +3831,273 @@ function app() {
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
+    // Admin → Port Scan — section-owned save.
+    // Posts ONLY Port Scan's plain settings + the six Port Scan
+    // tunables (4 TCP defaults + 2 UDP defaults). Per the section
+    // -saves-its-own-tunables convention.
+    _portScanSectionTuningKeys() {
+      return [
+        'tuning_port_scan_default_timeout_seconds',
+        'tuning_port_scan_default_concurrency',
+        'tuning_port_scan_max_seconds',
+        'tuning_port_scan_banner_read_seconds',
+        'tuning_port_scan_udp_default_timeout_seconds',
+        'tuning_port_scan_udp_default_concurrency',
+      ];
+    },
+    _portScanSectionPlainKeys() {
+      return [
+        'port_scan_enabled', 'port_scan_default_ports',
+        'port_scan_udp_enabled', 'port_scan_udp_default_ports',
+      ];
+    },
+    portScanSectionDirty() {
+      try {
+        const baseline = this._tuningBaselineMap();
+        for (const k of this._portScanSectionTuningKeys()) {
+          const cur = (this.tuningForm || {})[k];
+          const curStr = (cur == null ? '' : String(cur).trim());
+          const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+          if (curStr !== baseStr) return true;
+        }
+      } catch (_) {}
+      // The host_stats baseline JSON-string carries the four Port Scan
+      // plain settings (per `_hostStatsSnapshot`'s pick list). Parse
+      // and compare each.
+      let base = {};
+      try {
+        if (typeof this._hostStatsBaseline === 'string' && this._hostStatsBaseline) {
+          base = JSON.parse(this._hostStatsBaseline) || {};
+        }
+      } catch (_) { base = {}; }
+      try {
+        for (const k of this._portScanSectionPlainKeys()) {
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) return true;
+        }
+      } catch (_) {}
+      return false;
+    },
+    async savePortScanSection() {
+      if (this.hostStatsSaving) return;
+      for (const k of this._portScanSectionTuningKeys()) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) continue;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = this.tuningEffective[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+          }), 'error');
+          return;
+        }
+      }
+      this.hostStatsSaving = true;
+      try {
+        const body = {};
+        const s = this.settings || {};
+        // Plain settings — booleans flow through as booleans, CSVs
+        // as strings (server-side validator splits + clamps).
+        body.port_scan_enabled = !!s.port_scan_enabled;
+        body.port_scan_default_ports = (s.port_scan_default_ports == null ? '' : String(s.port_scan_default_ports));
+        body.port_scan_udp_enabled = !!s.port_scan_udp_enabled;
+        body.port_scan_udp_default_ports = (s.port_scan_udp_default_ports == null ? '' : String(s.port_scan_udp_default_ports));
+        // Section-owned tunables.
+        for (const k of this._portScanSectionTuningKeys()) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        await Promise.all([this.loadSettings(), this.loadTuning()]);
+        this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+      } catch (e) {
+        this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+      } finally {
+        this.hostStatsSaving = false;
+      }
+    },
+
+    // Settings → Host stats → SNMP sub-tab — section-owned save.
+    // Posts ONLY SNMP's plain settings + every SNMP tunable rendered
+    // in the sub-tab (probe_timeout / wall_clock_budget /
+    // per_host_walk_concurrency / 5 vendor walk-concurrency overrides
+    // / global concurrency / sample_interval / unreachable_cooldown /
+    // 2 cache TTLs / failure_pause_rounds — 14 in total). Per the
+    // section-saves-its-own-tunables convention.
+    _snmpSectionTuningKeys() {
+      // Mirror the markup's `_perProviderTuneKeys.snmp` so every knob
+      // rendered in the sub-tab rides this Save handler.
+      return (this._perProviderTuneKeys && this._perProviderTuneKeys.snmp) || [];
+    },
+    _snmpSectionPlainKeys() {
+      // Non-secret plain settings the SNMP sub-tab owns. Secrets
+      // (`snmp_v3_auth_key` / `snmp_v3_priv_key`) follow the keep
+      // -current-if-blank contract — they dirty when typed, not on
+      // baseline diff.
+      return [
+        'snmp_default_community', 'snmp_default_version',
+        'snmp_default_port', 'snmp_v3_user',
+        'snmp_aliases_json',
+        'provider_color_snmp',
+      ];
+    },
+    snmpSectionDirty() {
+      try {
+        const baseline = this._tuningBaselineMap();
+        for (const k of this._snmpSectionTuningKeys()) {
+          const cur = (this.tuningForm || {})[k];
+          const curStr = (cur == null ? '' : String(cur).trim());
+          const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+          if (curStr !== baseStr) return true;
+        }
+      } catch (_) {}
+      let base = {};
+      try {
+        if (typeof this._hostStatsBaseline === 'string' && this._hostStatsBaseline) {
+          base = JSON.parse(this._hostStatsBaseline) || {};
+        }
+      } catch (_) { base = {}; }
+      try {
+        for (const k of this._snmpSectionPlainKeys()) {
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) return true;
+        }
+        // Typed-but-not-saved v3 secrets dirty the section even
+        // though they're omitted from the baseline diff.
+        if (((this.settings || {}).snmp_v3_auth_key || '').trim() !== '') return true;
+        if (((this.settings || {}).snmp_v3_priv_key || '').trim() !== '') return true;
+      } catch (_) {}
+      try {
+        const curSrc = String((this.settings || {}).host_stats_source || '');
+        const baseSrcStr = String(base.host_stats_source || '');
+        if (curSrc !== baseSrcStr) {
+          const curHas = curSrc.split(',').map(s => s.trim()).includes('snmp');
+          const baseHas = baseSrcStr.split(',').map(s => s.trim()).includes('snmp');
+          if (curHas !== baseHas) return true;
+        }
+      } catch (_) {}
+      return false;
+    },
+    async saveSnmpSection() {
+      if (this.hostStatsSaving) return;
+      // Tunable bounds-check first — bail before touching the DB.
+      for (const k of this._snmpSectionTuningKeys()) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) continue;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = this.tuningEffective[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+          }), 'error');
+          return;
+        }
+      }
+      // Plain-settings validation (mirrors the saveHostStats SNMP block).
+      const body = {};
+      const s = this.settings || {};
+      if (s.snmp_default_community !== undefined) {
+        body.snmp_default_community = (s.snmp_default_community || '').trim();
+      }
+      if (s.snmp_default_version !== undefined) {
+        const v = (s.snmp_default_version || '').trim().toLowerCase();
+        if (v && v !== 'v2c' && v !== 'v3') {
+          this.showToast(this.t('settings.host_stats.snmp.version_invalid'), 'error');
+          return;
+        }
+        body.snmp_default_version = v;
+      }
+      if (s.snmp_default_port !== undefined && s.snmp_default_port !== '') {
+        const p = parseInt(s.snmp_default_port, 10);
+        if (Number.isFinite(p) && p >= 1 && p <= 65535) {
+          body.snmp_default_port = p;
+        }
+      }
+      if (s.snmp_v3_user !== undefined) {
+        body.snmp_v3_user = (s.snmp_v3_user || '').trim();
+      }
+      // v3 secrets follow keep-current-if-blank — only POST when typed.
+      if (s.snmp_v3_auth_key) body.snmp_v3_auth_key = s.snmp_v3_auth_key;
+      if (s.snmp_v3_priv_key) body.snmp_v3_priv_key = s.snmp_v3_priv_key;
+      if (s.snmp_aliases_json !== undefined) {
+        const raw = (s.snmp_aliases_json || '').trim() || '{}';
+        let aliases = {};
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            aliases = parsed;
+          } else { throw new Error('object expected'); }
+        } catch (_) {
+          this.showToast(this.t('settings.host_stats.snmp.aliases_invalid'), 'error');
+          return;
+        }
+        body.snmp_aliases = aliases;
+      }
+      if (s.provider_color_snmp !== undefined) {
+        body.provider_color_snmp = (s.provider_color_snmp || '').trim();
+      }
+      this.hostStatsSaving = true;
+      try {
+        // Master-toggle membership.
+        const sources = new Set(
+          (s.host_stats_source || '').split(',').map(x => x.trim()).filter(Boolean)
+        );
+        if (this.hasHostStatsSource('snmp')) sources.add('snmp');
+        else sources.delete('snmp');
+        body.host_stats_source = [...sources].join(',');
+        // Section-owned tunables.
+        for (const k of this._snmpSectionTuningKeys()) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        await Promise.all([this.loadSettings(), this.loadTuning()]);
+        this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+      } catch (e) {
+        this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+      } finally {
+        this.hostStatsSaving = false;
+      }
+    },
+
     // Settings → Host stats → Ping sub-tab — section-owned save.
     // Posts ONLY Ping's plain settings + the five Ping tunables.
     // Per the section-saves-its-own-tunables convention.
@@ -11694,6 +11961,10 @@ function app() {
         'tuning_ai_max_tokens',
         // Fallback chain depth (replaces legacy `ai_fallback_max_depth`).
         'tuning_ai_fallback_max_depth',
+        // Sidebar layout + export toggle — both rendered inside the
+        // AI Integration partial so they belong on the AI Save.
+        'tuning_ai_sidebar_width_px',
+        'tuning_ai_conversation_export_enabled',
       ];
     },
     async saveAiSettings() {

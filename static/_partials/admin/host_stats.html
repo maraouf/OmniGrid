@@ -988,6 +988,23 @@
             </template>
           </div>
 
+          <!-- Section-owned Save: posts ONLY SNMP's plain settings +
+               every SNMP tunable rendered above. Per the section
+               -saves-its-own-tunables convention. -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+            <button type="button"
+                    @click="saveSnmpSection()"
+                    :disabled="isReadonly() || hostStatsSaving"
+                    :class="snmpSectionDirty() ? 'btn-dirty' : ''"
+                    class="btn btn-primary text-[12px]"
+                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
+            <span x-show="snmpSectionDirty() && !hostStatsSaving"
+                  class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
+              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
+              <span x-text="t('admin.actions.unsaved')"></span>
+            </span>
+          </div>
+
           <!-- Per-provider chip colour. -->
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
