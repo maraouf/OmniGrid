@@ -10713,27 +10713,42 @@ function app() {
               // scan ever. Backend signals via `is_first_scan` in the
               // SSE payload (only true when no prior scan_id row
               // exists in `host_port_scans` for this host).
-              // Surface the actual scan TARGET (resolved hostname /
-              // IP / `ping.host` override) in the completion toast,
-              // not the host display label. User-flagged: a toast
-              // reading "Found 3 open ports on ftth (0 new since last
-              // scan)" is misleading when "ftth" doesn't resolve via
-              // DNS — the operator can't tell what was actually
-              // probed. The SSE payload carries `target` from the
-              // backend's resolution chain (ping.host → ssh.fqdn →
-              // ssh.host → host_id); fall back to host_id only when
-              // the field is missing for some reason.
+              // Surface the actual scan TARGET in the completion toast.
+              // Prefer the wire-level resolved IP (from getaddrinfo
+              // upfront in `port_scanner.scan_host`) over the alias
+              // string the resolver picked from the host config.
+              // User-flagged twice: "ftth" / "opnsense" aren't
+              // DNS-resolvable from the operator's perspective — but
+              // the container's resolver chain (search domain
+              // `home.lan`, mDNS, /etc/hosts) silently appends the
+              // suffix and resolves to a real IP. Showing the IP
+              // makes "what got probed" obvious without any
+              // mental DNS gymnastics. When the alias DOES match a
+              // literal hostname the operator typed, surface it
+              // alongside the IP via "<alias> (<ip>)" so they can
+              // still recognise the host. Falls back cleanly when
+              // resolved_ip is null (rare — getaddrinfo failed).
+              const _resolvedIp = payload.resolved_ip || '';
+              const _target = payload.target || hostId;
+              const _toastHost = (_resolvedIp && _resolvedIp !== _target)
+                ? (_target + ' (' + _resolvedIp + ')')
+                : (_resolvedIp || _target);
               const i18nKey = payload.is_first_scan
                 ? 'host_drawer.port_scan.scan_complete_body_first'
                 : 'host_drawer.port_scan.scan_complete_body';
               this.showToast(this.t(i18nKey, {
-                host:       payload.target || hostId,
+                host:       _toastHost,
                 open_count: openCount,
                 new_count:  0,  // diff happens server-side via notify path
               }), 'success');
             } else {
+              const _resolvedIpErr = payload.resolved_ip || '';
+              const _targetErr = payload.target || hostId;
+              const _failHost = (_resolvedIpErr && _resolvedIpErr !== _targetErr)
+                ? (_targetErr + ' (' + _resolvedIpErr + ')')
+                : (_resolvedIpErr || _targetErr);
               this.showToast(this.t('host_drawer.port_scan.scan_failed_body', {
-                host:  payload.target || hostId,
+                host:  _failHost,
                 error: payload.error || 'unknown',
               }), 'error');
             }

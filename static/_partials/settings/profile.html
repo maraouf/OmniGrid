@@ -169,28 +169,36 @@
             <div x-show="headerWeatherEnabled && weather && weather.error"
                  class="fs-xs text-[var(--danger)]"
                  x-text="t('topbar_widgets.fetch_failed', { error: (weather && weather.error) || '' })"></div>
-            <!-- AI preferences sub-section — visually separated from
-                 the topbar widgets above (clock + weather) but shares
-                 the SAME Save button below to avoid two Save buttons
-                 on one card. Hidden entirely when the AI feature is
-                 globally disabled (no provider configured), since
-                 there's nothing to opt out of in that state. -->
+            <!-- AI preferences sub-section — visually styled to mirror
+                 the Topbar widgets pattern above (icon + h3 heading,
+                 fs-xs intro paragraph, space-y-3 form contents) but
+                 lives inside the SAME `<section>` so they share one
+                 Save button. The HR separator gives a clear visual
+                 break between the two pref groups; spacing matches
+                 the topbar-widgets `mb-4` heading + intro rhythm.
+                 Hidden entirely when the AI feature is globally
+                 disabled (no provider configured), since there's
+                 nothing to opt out of in that state. -->
             <template x-if="aiSidebarSurfaceEnabled()">
               <div>
                 <hr class="border-[var(--border)] my-4">
-                <div class="flex items-center gap-2 mb-3">
+                <div class="flex items-center gap-2 mb-4">
                   <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sparkles"/>
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-message-circle"/>
                   </svg>
                   <h3 class="font-semibold fs-md" x-text="t('settings.ai_prefs.title')"></h3>
                 </div>
-                <label class="flex items-center gap-2 fs-sm">
-                  <input type="checkbox" x-model="aiSidebarLauncherHiddenDraft">
-                  <span x-text="t('topbar_widgets.hide_ai_launcher')"></span>
-                </label>
-                <p x-show="aiSidebarLauncherHiddenDraft"
-                   class="fs-3xs text-[var(--text-faint)] mt-1 ms-6"
-                   x-text="t('topbar_widgets.hide_ai_launcher_hint')"></p>
+                <p class="fs-xs text-[var(--text-faint)] mb-4"
+                   x-text="t('settings.ai_prefs.intro')"></p>
+                <div class="space-y-3">
+                  <label class="flex items-center gap-2 fs-sm">
+                    <input type="checkbox" x-model="aiSidebarLauncherHiddenDraft">
+                    <span x-text="t('topbar_widgets.hide_ai_launcher')"></span>
+                  </label>
+                  <p x-show="aiSidebarLauncherHiddenDraft"
+                     class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('topbar_widgets.hide_ai_launcher_hint')"></p>
+                </div>
               </div>
             </template>
             <!-- Save button — toggling the checkboxes / typing in the
