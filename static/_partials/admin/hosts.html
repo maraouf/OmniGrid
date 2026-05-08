@@ -5,13 +5,13 @@
              standardised admin-tab pattern. -->
         <div class="flex items-center gap-2 mb-2">
           <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/></svg>
-          <h3 class="font-semibold text-[13px]" x-text="t('admin_hosts.heading')"></h3>
+          <h3 class="font-semibold fs-md" x-text="t('admin_hosts.heading')"></h3>
         </div>
-        <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
+        <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
            x-text="t('admin_hosts.intro')"></p>
         <div class="flex items-center gap-2 flex-wrap mb-3">
             <button x-show="isAdmin()" @click="discoverHosts()"
-                    class="btn btn-ghost text-[12px]"
+                    class="btn btn-ghost fs-sm"
                     :disabled="hostsDiscovering"
                     :title="t('admin_hosts.discover_title')">
               <span x-show="!hostsDiscovering" x-text="t('admin_hosts.discover_button')"></span>
@@ -19,10 +19,10 @@
             </button>
             <button x-show="isAdmin() && discoveredMissingCount() > 0"
                     @click="importDiscoveredHosts()"
-                    class="btn btn-primary text-[12px]"
+                    class="btn btn-primary fs-sm"
                     :title="t('admin_hosts.import_discovered_title')">
               <span x-text="t('admin_hosts.import_discovered_button')"></span>
-              <span class="ms-1 text-[10.5px] opacity-80"
+              <span class="ms-1 fs-2xs opacity-80"
                     x-text="'(' + discoveredMissingCount() + ')'"></span>
             </button>
             <!-- Test all — fires the per-row test endpoint for every
@@ -32,7 +32,7 @@
             <button x-show="isAdmin() && hostsConfig.length > 0"
                     @click="testAllHostRows()"
                     :disabled="hostsTestingAll"
-                    class="btn btn-ghost text-[12px]"
+                    class="btn btn-ghost fs-sm"
                     :title="t('admin_hosts.test_all_title')">
               <span x-show="!hostsTestingAll" x-text="t('actions.test_all')"></span>
               <span x-show="hostsTestingAll" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.testing')"></span></span>
@@ -42,19 +42,19 @@
                  across OmniGrid instances. -->
             <button x-show="isAdmin() && hostsConfig.length > 0"
                     @click="exportHostsConfig()"
-                    class="btn btn-ghost text-[12px]"
+                    class="btn btn-ghost fs-sm"
                     :title="t('admin_hosts.export_title')"
                     x-text="t('admin_hosts.export')"></button>
             <button x-show="isAdmin()"
                     @click="$refs.hostsImportFile.click()"
-                    class="btn btn-ghost text-[12px]"
+                    class="btn btn-ghost fs-sm"
                     :title="t('admin_hosts.import_title')"
                     x-text="t('admin_hosts.import_button')"></button>
             <input type="file" x-ref="hostsImportFile" accept="application/json,.json"
                    class="hidden"
                    @change="importHostsConfig($event)">
             <button x-show="isAdmin()" @click="loadHostsConfig()"
-                    class="btn btn-ghost text-[12px]"
+                    class="btn btn-ghost fs-sm"
                     :disabled="hostsConfigLoading"
                     x-text="t('actions.reload')"></button>
             <!-- Top-of-card Save shortcut — saves operators from
@@ -63,7 +63,7 @@
                  handler + dirty ring as the bottom bar's Save. -->
             <button x-show="isAdmin()" @click="saveHostsConfig()"
                     :class="hostsConfigDirty ? 'ring-2 ring-[var(--warning)]' : ''"
-                    class="btn btn-primary text-[12px]"
+                    class="btn btn-primary fs-sm"
                     :disabled="hostsConfigSaving">
               <span x-show="!hostsConfigSaving" x-text="t('actions.save')"></span>
               <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
@@ -106,13 +106,13 @@
              class="flex items-center gap-2 mb-3">
           <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/></svg>
           <input type="search" x-model.debounce.150ms="hostsConfigFilter"
-                 class="flex-1 text-[12.5px] py-1.5"
+                 class="flex-1 fs-sm py-1.5"
                  :placeholder="t('admin_hosts.filter_placeholder')">
-          <span class="text-[10.5px] text-[var(--text-faint)]"
+          <span class="fs-2xs text-[var(--text-faint)]"
                 x-show="hostsConfigFilter"
                 x-text="filteredHostsConfig().length + ' of ' + hostsConfig.length"></span>
           <button x-show="hostsConfigFilter" @click="hostsConfigFilter=''"
-                  class="btn btn-ghost text-[11px]" :title="t('hosts_extra.empty.clear_filter')">✕</button>
+                  class="btn btn-ghost fs-xs" :title="t('hosts_extra.empty.clear_filter')">✕</button>
         </div>
 
         <!-- Bulk vendor MIB applicator. Operator picks a vendor + clicks
@@ -122,7 +122,7 @@
              20+ iDRAC rows individually. Skips rows with snmp.enabled
              unset — same gate the per-row checkboxes use. -->
         <div x-show="!hostsConfigLoading && hostsConfig.length > 3"
-             class="flex items-center gap-2 mb-3 flex-wrap text-[11.5px]">
+             class="flex items-center gap-2 mb-3 flex-wrap fs-xs">
           <span class="text-[var(--text-faint)]"
                 x-text="t('admin_hosts.snmp_vendors_bulk_label')"></span>
           <select x-model="hostsConfigBulkVendor"
@@ -176,7 +176,7 @@
                      line on long-name rows; the wrap put them on the
                      left already, so "always on the left" is now the
                      consistent design -->
-                <span class="text-[10.5px] text-[var(--text-faint)] hidden sm:inline"
+                <span class="fs-2xs text-[var(--text-faint)] hidden sm:inline"
                       x-show="!isHostConfigExpanded(row)"
                       x-text="t('admin_hosts.click_to_edit')"></span>
                 <!-- Brand icon — only on the collapsed-row header so
@@ -194,9 +194,9 @@
                      loading="lazy"
                      @error="$event.target.style.display='none'">
                 <span x-show="row.custom_number != null && row.custom_number !== ''"
-                      class="chip text-[10px] px-1.5 py-0 mono pill-muted"
+                      class="chip fs-3xs px-1.5 py-0 mono pill-muted"
                       x-text="'#' + row.custom_number"></span>
-                <span class="font-semibold text-[12.5px] mono truncate" x-text="row.id || '(new host)'"></span>
+                <span class="font-semibold fs-sm mono truncate" x-text="row.id || '(new host)'"></span>
                 <!-- Display-only · label suffix on the collapsed row
                      header. Resolution chain : operator-set
                      `row.label` first (highest priority), else the
@@ -213,7 +213,7 @@
                      fallback vs an explicit operator-typed label.
                      Tooltip clarifies the source. -->
                 <template x-if="row.id">
-                  <span class="text-[11px] text-[var(--text-faint)] truncate min-w-0 max-w-[280px] inline-flex items-center gap-1"
+                  <span class="fs-xs text-[var(--text-faint)] truncate min-w-0 max-w-[280px] inline-flex items-center gap-1"
                         x-show="(row.label || (assetForHost(row) && assetForHost(row).name) || '') && (row.label || (assetForHost(row) && assetForHost(row).name) || '') !== row.id"
                         :title="!row.label && assetForHost(row) && assetForHost(row).name
                                  ? t('admin_hosts.label_source_asset', { name: assetForHost(row).name })
@@ -308,7 +308,7 @@
                    Keeps row 1 visually focused on identity. -->
               <div class="grid grid-cols-1 md:grid-cols-[80px_1fr_3fr_auto] gap-3 items-end min-w-0">
                 <div>
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          :title="t('hosts_extra.custom_number_title')"
                          x-text="t('hosts_extra.custom_number_label')"></label>
                   <!-- DON'T rebuild the sort on cn blur. Tabbing
@@ -320,7 +320,7 @@
                        only when focus actually leaves the entire row. -->
                   <input type="number" x-model.number="row.custom_number" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_cn'); row._cnDirty = true"
-                         class="w-full mono text-[13px] py-1.5"
+                         class="w-full mono fs-md py-1.5"
                          :class="hasFieldError('host_' + idx + '_cn') ? 'field-invalid' : ''"
                          min="1" step="1" placeholder="—">
                   <div x-show="hasFieldError('host_' + idx + '_cn')"
@@ -328,10 +328,10 @@
                        x-text="fieldError('host_' + idx + '_cn')"></div>
                 </div>
                 <div>
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">ID · Docker hostname</label>
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">ID · Docker hostname</label>
                   <input type="text" x-model="row.id" :disabled="isReadonly()"
                          @input="onHostRowEdit(idx, 'id', $event.target.value); clearFieldError('host_' + idx + '_id')"
-                         class="w-full mono text-[13px] py-1.5"
+                         class="w-full mono fs-md py-1.5"
                          :class="hasFieldError('host_' + idx + '_id') ? 'field-invalid' : ''"
                          :placeholder="t('admin_hosts.row.id_placeholder')">
                   <div x-show="hasFieldError('host_' + idx + '_id')"
@@ -339,14 +339,14 @@
                        x-text="fieldError('host_' + idx + '_id')"></div>
                 </div>
                 <div>
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          x-text="t('admin_hosts.row.display_label')"></label>
                   <input type="text" x-model="row.label" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
-                         class="w-full text-[13px] py-1.5"
+                         class="w-full fs-md py-1.5"
                          :placeholder="t('admin_hosts.row.label_placeholder')">
                 </div>
-                <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5">
+                <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)] pb-1.5">
                   <input type="checkbox" x-model="row.enabled"
                          @change="markHostRowDirty(idx)"
                          :disabled="isReadonly()">
@@ -356,20 +356,20 @@
               <!-- Row 1a — optional external URL + icon override. -->
               <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3">
                 <div>
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     <span x-text="t('admin_hosts.row.external_url')"></span>
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-text="t('admin_hosts.row.external_url_hint')"></span>
                   </label>
                   <input type="url" x-model="row.url" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
-                         class="w-full mono text-[12.5px] py-1.5"
+                         class="w-full mono fs-sm py-1.5"
                          :placeholder="t('admin_hosts.row.url_placeholder')">
                 </div>
                 <div>
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     <span x-text="t('admin_hosts.row.icon')"></span>
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-text="t('admin_hosts.row.icon_hint')"></span>
                   </label>
                   <div class="flex items-center gap-2">
@@ -385,7 +385,7 @@
                          @error="$event.target.style.display='none'">
                     <input type="text" x-model="row.icon" :disabled="isReadonly()"
                            @input="markHostRowDirty(idx)"
-                           class="flex-1 mono text-[12.5px] py-1.5"
+                           class="flex-1 mono fs-sm py-1.5"
                            :placeholder="t('admin_hosts.row.icon_placeholder')">
                   </div>
                 </div>
@@ -397,43 +397,43 @@
                    never probe). Visible mapping shrinks the editor
                    for operators who run a single-provider setup. -->
               <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
-                <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold" x-text="t('admin_hosts.section_providers')"></div>
+                <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold" x-text="t('admin_hosts.section_providers')"></div>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div x-show="hostStatsSourceEnabled('node_exporter')">
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     <span x-text="t('admin_hosts.provider.ne_url_label')"></span>
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-text="t('admin_hosts.provider.blank_skip')"></span>
                   </label>
                   <input type="url" x-model="row.ne_url" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
-                         class="w-full mono text-[12.5px] py-1.5"
+                         class="w-full mono fs-sm py-1.5"
                          :placeholder="t('admin_hosts.row.ne_url_placeholder')">
                 </div>
                 <div x-show="hostStatsSourceEnabled('beszel')">
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     <span x-text="t('admin_hosts.provider.beszel_host_label')"></span>
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-show="hostsDiscovery.beszel.length"
                           x-text="t('admin_hosts.provider.autocomplete')"></span>
                   </label>
                   <input type="text" x-model="row.beszel_name" :disabled="isReadonly()"
                          list="beszel-names"
                          @input="markHostRowDirty(idx)"
-                         class="w-full mono text-[12.5px] py-1.5"
+                         class="w-full mono fs-sm py-1.5"
                          :placeholder="t('admin_hosts.row.beszel_name_placeholder')">
                 </div>
                 <div x-show="hostStatsSourceEnabled('pulse')">
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     <span x-text="t('admin_hosts.provider.pulse_name_label')"></span>
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-show="hostsDiscovery.pulse.length"
                           x-text="t('admin_hosts.provider.autocomplete')"></span>
                   </label>
                   <input type="text" x-model="row.pulse_name" :disabled="isReadonly()"
                          list="pulse-names"
                          @input="markHostRowDirty(idx)"
-                         class="w-full mono text-[12.5px] py-1.5"
+                         class="w-full mono fs-sm py-1.5"
                          :placeholder="t('admin_hosts.row.pulse_name_placeholder')">
                 </div>
               </div>
@@ -443,27 +443,27 @@
                    Hidden entirely when Webmin is globally disabled. -->
               <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3" x-show="hostStatsSourceEnabled('webmin')">
                 <div>
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     <span x-text="t('admin_hosts.provider.webmin_url_label')"></span>
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-text="t('admin_hosts.provider.webmin_blank_skip')"></span>
                   </label>
                   <input type="url" x-model="row.webmin_url" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
-                         class="w-full mono text-[12.5px] py-1.5"
+                         class="w-full mono fs-sm py-1.5"
                          :placeholder="t('admin_hosts.row.webmin_url_placeholder')">
                 </div>
                 <div>
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     <span x-text="t('admin_hosts.provider.webmin_hostname_label')"></span>
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-show="hostsDiscovery.webmin && hostsDiscovery.webmin.length"
                           x-text="t('admin_hosts.provider.autocomplete')"></span>
                   </label>
                   <input type="text" x-model="row.webmin_name" :disabled="isReadonly()"
                          list="webmin-names"
                          @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_webmin_name')"
-                         class="w-full mono text-[12.5px] py-1.5"
+                         class="w-full mono fs-sm py-1.5"
                          :class="hasFieldError('host_' + idx + '_webmin_name') ? 'field-invalid' : ''"
                          :placeholder="t('admin_hosts.provider.webmin_name_placeholder')">
                   <div x-show="hasFieldError('host_' + idx + '_webmin_name')"
@@ -488,7 +488,7 @@
                      checkbox cell stays compact and the user/port
                      fields take the remaining width. -->
                 <div class="grid grid-cols-1 md:grid-cols-[auto_2fr_1fr] gap-3 items-end">
-                  <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5"
+                  <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)] pb-1.5"
                          :class="!row.enabled ? 'opacity-50' : ''">
                     <!-- host-level enable gates every per-provider
                          enable checkbox. A disabled host cannot have any
@@ -503,43 +503,43 @@
                     <span x-text="t('hosts_extra_ssh.per_host_enabled')"></span>
                   </label>
                   <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            x-text="t('hosts_extra_ssh.per_host_user')"></label>
                     <input type="text"
                            :value="row.ssh && row.ssh.user || ''"
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { user: $event.target.value }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
-                           class="w-full mono text-[12.5px] py-1.5"
+                           class="w-full mono fs-sm py-1.5"
                            :placeholder="t('common.hint_global_default')">
                   </div>
                   <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            x-text="t('hosts_extra_ssh.per_host_port')"></label>
                     <input type="number" min="1" max="65535"
                            :value="row.ssh && row.ssh.port || ''"
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
-                           class="w-full mono text-[12.5px] py-1.5"
+                           class="w-full mono fs-sm py-1.5"
                            placeholder="22">
                   </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end mt-3">
                   <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
                       SSH FQDN / host
-                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = id + global suffix)</span>
+                      <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1">(blank = id + global suffix)</span>
                     </label>
                     <input type="text"
                            :value="row.ssh && (row.ssh.fqdn || row.ssh.host) || ''"
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { fqdn: $event.target.value }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
-                           class="w-full mono text-[12.5px] py-1.5"
+                           class="w-full mono fs-sm py-1.5"
                            :placeholder="t('admin_hosts.row.webmin_name_placeholder')">
                   </div>
                   <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
                       SSH password
-                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                      <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                             x-text="t('common.hint_global_default')"></span>
                     </label>
                     <input type="password"
@@ -547,7 +547,7 @@
                            :value="row.ssh && row.ssh.password || ''"
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { password: $event.target.value }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
-                           class="w-full text-[12.5px] py-1.5"
+                           class="w-full fs-sm py-1.5"
                            placeholder="override for this host only">
                   </div>
                 </div>
@@ -559,9 +559,9 @@
                    Providers → Ping. Pulled out of the SSH section so
                    each provider config block reads as one coherent unit. -->
               <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
-                <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold" x-text="t('admin_hosts.section_ping')"></div>
+                <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold" x-text="t('admin_hosts.section_ping')"></div>
                 <div class="grid grid-cols-1 md:grid-cols-[auto_1fr_1fr] gap-3 items-end">
-                  <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5"
+                  <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)] pb-1.5"
                          :class="!row.enabled ? 'opacity-50' : ''">
                     <!-- Was `row.ping = Object.assign(...)` — the
                          destructured `row` from `<template x-for="{row,idx}">`
@@ -580,22 +580,22 @@
                     <span x-text="t('admin_hosts.provider.ping_enabled_label')"></span>
                   </label>
                   <div x-show="!!(row.enabled && row.ping && row.ping.enabled)">
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            x-text="t('admin_hosts.provider.ping_port_label')"></label>
                     <input type="number" min="1" max="65535"
                            :value="row.ping && row.ping.port || ''"
                            @input="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled"
-                           class="w-full mono text-[12.5px] py-1.5"
+                           class="w-full mono fs-sm py-1.5"
                            :placeholder="t('admin_hosts.provider.ping_port_placeholder')">
                   </div>
                   <div x-show="!!(row.enabled && row.ping && row.ping.enabled)">
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            x-text="t('admin_hosts.provider.ping_transport_label')"></label>
                     <select :value="row.ping && row.ping.transport || ''"
                             @change="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { transport: $event.target.value || null }); markHostRowDirty(idx)"
                             :disabled="isReadonly() || !row.enabled"
-                            class="w-full mono text-[12.5px] py-1.5">
+                            class="w-full mono fs-sm py-1.5">
                       <option value="" x-text="t('admin_hosts.provider.ping_transport_default')"></option>
                       <option value="tcp" x-text="t('admin_hosts.provider.ping_transport_tcp')"></option>
                       <option value="icmp" x-text="t('admin_hosts.provider.ping_transport_icmp')"></option>
@@ -626,7 +626,7 @@
                      otherwise" pattern, and `_merge_one_host` now
                      gates on `enabled is True` (no default-true
                      fallback). -->
-                <label class="inline-flex items-center gap-2 text-[12px] mb-3"
+                <label class="inline-flex items-center gap-2 fs-sm mb-3"
                        :class="!row.enabled ? 'opacity-50' : ''">
                   <input type="checkbox"
                          :checked="!!(row.enabled && row.snmp && row.snmp.enabled === true)"
@@ -637,53 +637,53 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end"
                      x-show="!!(row.enabled && row.snmp && row.snmp.enabled === true)">
                   <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
                       SNMP target
-                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = use id)</span>
+                      <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1">(blank = use id)</span>
                     </label>
                     <input type="text" x-model="row.snmp_name" :disabled="isReadonly() || !row.enabled"
                            list="snmp-names"
                            @input="markHostRowDirty(idx)"
-                           class="w-full mono text-[12.5px] py-1.5"
+                           class="w-full mono fs-sm py-1.5"
                            placeholder="192.X.X.10 or switch01.example.com">
                   </div>
                 </div>
                 <div x-show="!!(row.enabled && row.snmp && row.snmp.enabled === true) && !!(row.snmp_name && row.snmp_name.trim())"
                      class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-3">
                   <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
                       <span x-text="t('admin_hosts.snmp_community_label')"></span>
-                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                      <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                             x-text="t('common.hint_global_default')"></span>
                     </label>
                     <input type="text"
                            :value="row.snmp && row.snmp.community || ''"
                            @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { community: $event.target.value || null }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled"
-                           class="w-full mono text-[12.5px] py-1.5"
+                           class="w-full mono fs-sm py-1.5"
                            placeholder="public">
                   </div>
                   <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1" x-text="t('admin_hosts.snmp_version_label')"></label>
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1" x-text="t('admin_hosts.snmp_version_label')"></label>
                     <select :value="row.snmp && row.snmp.version || ''"
                             @change="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { version: $event.target.value || null }); markHostRowDirty(idx)"
                             :disabled="isReadonly() || !row.enabled"
-                            class="w-full mono text-[12.5px] py-1.5">
+                            class="w-full mono fs-sm py-1.5">
                       <option value="" x-text="t('admin_hosts.provider.ping_transport_default')"></option>
                       <option value="v2c">v2c</option>
                       <option value="v3">v3</option>
                     </select>
                   </div>
                   <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
                       UDP port
-                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = 161)</span>
+                      <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1">(blank = 161)</span>
                     </label>
                     <input type="number" min="1" max="65535"
                            :value="row.snmp && row.snmp.port || ''"
                            @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled"
-                           class="w-full mono text-[12.5px] py-1.5"
+                           class="w-full mono fs-sm py-1.5"
                            placeholder="161">
                   </div>
                   <!-- Per-host SNMP walk concurrency override. The
@@ -699,14 +699,14 @@
                        linux net-snmp, 1 (default) for printers + low-
                        power NAS + OpenWrt-class gear. -->
                   <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            :title="t('admin_hosts.snmp_walk_concurrency_hint')"
                            x-text="t('admin_hosts.snmp_walk_concurrency_label')"></label>
                     <input type="number" min="1" max="16"
                            :value="row.snmp && row.snmp.walk_concurrency || ''"
                            @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { walk_concurrency: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled"
-                           class="w-full mono text-[12.5px] py-1.5"
+                           class="w-full mono fs-sm py-1.5"
                            :placeholder="snmpWalkConcurrencyPlaceholder()"
                            :title="t('admin_hosts.snmp_walk_concurrency_hint')">
                   </div>
@@ -718,14 +718,14 @@
                        gives the BIOS / virtual-disk / power-supply
                        walks headroom without raising the global. -->
                   <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            :title="t('admin_hosts.snmp_wall_clock_budget_hint')"
                            x-text="t('admin_hosts.snmp_wall_clock_budget_label')"></label>
                     <input type="number" min="5" max="600"
                            :value="row.snmp && row.snmp.wall_clock_budget || ''"
                            @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { wall_clock_budget: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled"
-                           class="w-full mono text-[12.5px] py-1.5"
+                           class="w-full mono fs-sm py-1.5"
                            :placeholder="snmpWallClockBudgetPlaceholder()"
                            :title="t('admin_hosts.snmp_wall_clock_budget_hint')">
                   </div>
@@ -750,7 +750,7 @@
                        text node that EVERY browser surfaces on hover.
                        The outer label keeps its own :title for
                        redundancy / future a11y tooling. -->
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          :title="t('admin_hosts.snmp_vendors_hint')">
                     <span :title="t('admin_hosts.snmp_vendors_hint')"
                           x-text="t('admin_hosts.snmp_vendors_label')"></span>
@@ -763,10 +763,10 @@
                        :class), AND a small explainer banner above the
                        group tells operators exactly which gate is
                        blocking them. -->
-                  <p class="text-[10.5px] text-[var(--warning)] mt-0 mb-1.5"
+                  <p class="fs-2xs text-[var(--warning)] mt-0 mb-1.5"
                      x-show="!row.enabled || !(row.snmp && row.snmp.enabled)"
                      x-text="!row.enabled ? t('admin_hosts.snmp_vendors_host_disabled') : t('admin_hosts.snmp_vendors_snmp_disabled')"></p>
-                  <div class="flex flex-wrap gap-3 text-[11.5px]">
+                  <div class="flex flex-wrap gap-3 fs-xs">
                     <template x-for="vendor in snmpVendorKeys()" :key="vendor">
                       <label class="flex items-center gap-1.5 select-none cursor-pointer"
                              :class="(isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)) ? 'opacity-50 cursor-not-allowed' : ''">
@@ -779,10 +779,10 @@
                       </label>
                     </template>
                   </div>
-                  <p class="text-[10.5px] text-[var(--text-faint)] mt-1.5"
+                  <p class="fs-2xs text-[var(--text-faint)] mt-1.5"
                      x-show="!(row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length)"
                      x-text="t('admin_hosts.snmp_vendors_auto')"></p>
-                  <p class="text-[10.5px] text-[var(--text-faint)] mt-1.5"
+                  <p class="fs-2xs text-[var(--text-faint)] mt-1.5"
                      x-show="row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length"
                      x-text="t('admin_hosts.snmp_vendors_explicit', { vendors: (row.snmp && row.snmp.vendors || []).map(v => snmpVendorLabel(v)).join(', ') })"></p>
                   <!-- Last observed auto-detected vendor — surfaces what
@@ -794,7 +794,7 @@
                        available. The list is sourced from the host's
                        last successful probe diagnostic via
                        `snmpAutoDetectedVendors(h)`. -->
-                  <p class="text-[10.5px] text-[var(--text-faint)] mt-1.5"
+                  <p class="fs-2xs text-[var(--text-faint)] mt-1.5"
                      x-show="!(row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length) && snmpAutoDetectedVendors(row).length"
                      x-text="t('admin_hosts.snmp_vendors_last_detected', { vendors: snmpAutoDetectedVendors(row).map(v => snmpVendorLabel(v)).join(', ') })"></p>
                 </div>
@@ -815,18 +815,18 @@
                    matches both `/opt` and `/opt/foo`). Disabled-host
                    gating mirrors the vendor checkboxes. -->
               <div class="md:col-span-2 mt-3">
-                <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                        :title="t('admin_hosts.snmp_exclude_mounts_hint')">
                   <span :title="t('admin_hosts.snmp_exclude_mounts_hint')"
                         x-text="t('admin_hosts.snmp_exclude_mounts_label')"></span>
                 </label>
                 <textarea x-model="row.snmp.exclude_mounts_text"
                           rows="2"
-                          class="w-full mono text-[11.5px]"
+                          class="w-full mono fs-xs"
                           :class="(isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)) ? 'opacity-50 cursor-not-allowed' : ''"
                           :disabled="isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)"
                           :placeholder="t('admin_hosts.snmp_exclude_mounts_placeholder')"></textarea>
-                <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                <p class="fs-2xs text-[var(--text-faint)] mt-1"
                    x-text="t('admin_hosts.snmp_exclude_mounts_help')"></p>
               </div>
               <!-- Row 3 — test button + per-provider result line. The
@@ -839,14 +839,14 @@
                      :disabled which some browsers treat as truthy and
                      stuck the button in a permanently-disabled state. -->
                 <button x-show="isAdmin()" @click="testHostRow(idx)"
-                        class="btn btn-soft text-[11.5px]"
+                        class="btn btn-soft fs-xs"
                         :disabled="!!(hostsTestResults[idx] && hostsTestResults[idx].pending) || !rowHasProviderMapping(row)"
                         :title="!rowHasProviderMapping(row) ? t('admin_hosts.test_providers_disabled_title') : ''">
                   <span x-show="!(hostsTestResults[idx] && hostsTestResults[idx].pending)" x-text="t('admin_hosts.test_providers')"></span>
                   <span x-show="!!(hostsTestResults[idx] && hostsTestResults[idx].pending)" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.testing')"></span></span>
                 </button>
                 <div x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].pending && !hostsTestResults[idx].error)"
-                     class="flex flex-wrap gap-3 text-[11px] flex-1">
+                     class="flex flex-wrap gap-3 fs-xs flex-1">
                   <template x-for="name in ['beszel','pulse','node_exporter','webmin','snmp','ping']" :key="name">
                     <div x-show="!!(hostsTestResults[idx] && hostsTestResults[idx][name] && !hostsTestResults[idx][name].skipped)"
                          class="flex items-center gap-1.5"
@@ -859,7 +859,7 @@
                   </template>
                 </div>
                 <div x-show="hostsTestResults[idx] && hostsTestResults[idx].error"
-                     class="text-[11px] text-[var(--danger)]"
+                     class="fs-xs text-[var(--danger)]"
                      x-text="t('admin_hosts.test.test_failed', { error: (hostsTestResults[idx] && hostsTestResults[idx].error) || '' })"></div>
                 <!-- Row-level actions — moved here from row 1 per
                      operator request. `ms-auto`
@@ -869,25 +869,25 @@
                 <div class="flex items-center gap-1 ms-auto">
                   <button x-show="isAdmin()" @click="moveHostRow(idx, -1)"
                           :disabled="idx === 0"
-                          class="btn btn-ghost text-[12px] px-2"
+                          class="btn btn-ghost fs-sm px-2"
                           :class="idx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_up_title')">
                     <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="moveHostRow(idx, +1)"
                           :disabled="idx === hostsConfig.length - 1"
-                          class="btn btn-ghost text-[12px] px-2"
+                          class="btn btn-ghost fs-sm px-2"
                           :class="idx === hostsConfig.length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_down_title')">
                     <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="duplicateHostRow(idx)"
-                          class="btn btn-ghost text-[12px] px-2"
+                          class="btn btn-ghost fs-sm px-2"
                           :title="t('admin_hosts.row.duplicate_title')">
                     <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="removeHostRow(idx)"
-                          class="btn btn-ghost text-[12px] text-danger px-2"
+                          class="btn btn-ghost fs-sm text-danger px-2"
                           :title="t('admin_hosts.row.remove_title')"
                           x-text="t('admin_hosts.row.remove')"></button>
                 </div>
@@ -897,13 +897,13 @@
           </template>
 
           <div x-show="hostsConfig.length === 0"
-               class="text-center py-12 text-[var(--text-faint)] text-[12.5px] italic rounded-md border border-dashed border-[var(--border)]"
+               class="text-center py-12 text-[var(--text-faint)] fs-sm italic rounded-md border border-dashed border-[var(--border)]"
                x-html="t('admin_hosts.empty_html')"></div>
           <!-- Filter-out-everything state — distinct from the
                no-hosts state so the operator knows the rows exist,
                they're just filtered. -->
           <div x-show="hostsConfig.length > 0 && filteredHostsConfig().length === 0"
-               class="text-center py-8 text-[var(--text-faint)] text-[12.5px] italic">
+               class="text-center py-8 text-[var(--text-faint)] fs-sm italic">
             <span x-text="t('admin_hosts.filter_no_match')"></span>
             <button @click="hostsConfigFilter=''"
                     class="text-[var(--primary)] hover:underline not-italic ms-2"
@@ -917,7 +917,7 @@
                pages are unaffected. Per-page selector persists to
                localStorage. -->
           <div x-show="filteredHostsConfig().length > hostsConfigPerPage"
-               class="flex items-center justify-between gap-3 flex-wrap mt-3 pt-3 border-t border-[var(--border)] text-[11.5px]">
+               class="flex items-center justify-between gap-3 flex-wrap mt-3 pt-3 border-t border-[var(--border)] fs-xs">
             <div class="flex items-center gap-2 text-[var(--text-dim)]">
               <span x-text="t('pagination.page_n_of_m', { page: Math.min(hostsConfigPage, hostsConfigTotalPages()), total: hostsConfigTotalPages() })"></span>
               <span class="text-[var(--text-faint)]"
@@ -927,27 +927,27 @@
               <button @click="hostsConfigGoToPage(1)"
                       :disabled="hostsConfigPage <= 1"
                       :class="hostsConfigPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
-                      class="btn btn-ghost text-[11px] px-2" :title="t('pagination.first_page_title')">«</button>
+                      class="btn btn-ghost fs-xs px-2" :title="t('pagination.first_page_title')">«</button>
               <button @click="hostsConfigPrevPage()"
                       :disabled="hostsConfigPage <= 1"
                       :class="hostsConfigPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
-                      class="btn btn-soft text-[11px] px-2.5">‹ Prev</button>
+                      class="btn btn-soft fs-xs px-2.5">‹ Prev</button>
               <input type="number" min="1" :max="hostsConfigTotalPages()"
                      :value="Math.min(hostsConfigPage, hostsConfigTotalPages())"
                      @change="hostsConfigGoToPage($event.target.value)"
-                     class="w-14 text-center text-[11.5px] py-1"
+                     class="w-14 text-center fs-xs py-1"
                      :title="t('pagination.jump_to_page_title')">
               <button @click="hostsConfigNextPage()"
                       :disabled="hostsConfigPage >= hostsConfigTotalPages()"
                       :class="hostsConfigPage >= hostsConfigTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
-                      class="btn btn-soft text-[11px] px-2.5">Next ›</button>
+                      class="btn btn-soft fs-xs px-2.5">Next ›</button>
               <button @click="hostsConfigGoToPage(hostsConfigTotalPages())"
                       :disabled="hostsConfigPage >= hostsConfigTotalPages()"
                       :class="hostsConfigPage >= hostsConfigTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
-                      class="btn btn-ghost text-[11px] px-2" :title="t('pagination.last_page_title')">»</button>
+                      class="btn btn-ghost fs-xs px-2" :title="t('pagination.last_page_title')">»</button>
               <select :value="hostsConfigPerPage"
                       @change="hostsConfigSetPerPage($event.target.value)"
-                      class="text-[11.5px] py-1 ms-2"
+                      class="fs-xs py-1 ms-2"
                       :title="t('pagination.rows_per_page_title')">
                 <option value="10">10 / page</option>
                 <option value="25">25 / page</option>
@@ -967,22 +967,22 @@
              -->
         <div class="hosts-config-actionbar flex items-center gap-2 flex-wrap">
           <button x-show="isAdmin()" @click="addHostRow()"
-                  class="btn btn-soft text-[12.5px]"
+                  class="btn btn-soft fs-sm"
                   x-text="t('hosts_actions.add')"></button>
           <button x-show="isAdmin() && hostsConfig.length > 0"
                   @click="collapseAllHostConfigRows()"
-                  class="btn btn-soft text-[12px]"
+                  class="btn btn-soft fs-sm"
                   :title="t('hosts_actions.collapse_all_title')"
                   x-text="t('hosts_actions.collapse_all')"></button>
           <button x-show="isAdmin()" @click="saveHostsConfig()"
-                  class="btn btn-primary text-[12.5px]"
+                  class="btn btn-primary fs-sm"
                   :disabled="hostsConfigSaving"
                   :class="hostsConfigDirty ? 'ring-2 ring-[var(--warning)]' : ''">
             <span x-show="!hostsConfigSaving" x-text="t('actions.save')"></span>
             <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
           <!-- Row count — helps operators know where they are in long lists. -->
-          <span class="text-[11px] text-[var(--text-faint)] mono" x-show="hostsConfig.length > 0">
+          <span class="fs-xs text-[var(--text-faint)] mono" x-show="hostsConfig.length > 0">
             <span x-text="hostsConfig.length"></span>
             <span x-text="hostsConfig.length === 1 ? t('hosts_actions.count_host') : t('hosts_actions.count_hosts')"></span>
           </span>
@@ -990,19 +990,19 @@
                been modified since the last load/save. Pairs with the
                beforeunload guard so operators don't lose work. -->
           <span x-show="hostsConfigDirty"
-                class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
+                class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
                 :title="t('hosts_actions.unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
-          <span x-show="!hostsConfigDirty && hostsConfig.length < 8" class="text-[11.5px] text-[var(--text-faint)] ms-2"
+          <span x-show="!hostsConfigDirty && hostsConfig.length < 8" class="fs-xs text-[var(--text-faint)] ms-2"
                 x-text="t('hosts_actions.provider_blank_hint')"></span>
           <!-- Scroll-to-top — useful when the list is deep and the
                operator wants to return to the top filter box. Only
                visible when there's enough rows to have scrolled. -->
           <button type="button" x-show="hostsConfig.length > 6"
                   @click="window.scrollTo({top: 0, behavior: 'smooth'})"
-                  class="btn btn-ghost text-[11px] ms-auto"
+                  class="btn btn-ghost fs-xs ms-auto"
                   :title="t('hosts_actions.top_title')"
                   x-text="t('hosts_actions.top')"></button>
         </div>

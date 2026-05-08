@@ -3660,10 +3660,10 @@ details summary::-webkit-details-marker {
 .ai-sidebar-log {
     flex: 1 1 auto;
     overflow-y: auto;
-    padding: 8px 10px;
+    padding: var(--s-4) var(--s-5);
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--s-2);
 }
 .ai-sidebar-log-empty {
     flex: 1;
@@ -3694,8 +3694,8 @@ details summary::-webkit-details-marker {
        algorithm in subtle ways. */
     width: max-content;
     max-width: 80%;
-    padding: 5px 10px;
-    border-radius: 12px;
+    padding: var(--s-2) var(--s-5);
+    border-radius: var(--r-xl);
     /* Bubble text — `--fs-sm` (12px) is the nearest token to the
        pre-fix 12.5px literal per CLAUDE.md "round to the nearest
        existing token rather than introducing a sub-half-pixel
@@ -3751,9 +3751,9 @@ details summary::-webkit-details-marker {
 .ai-bubble-action {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    margin-top: 3px;
-    padding: 0 5px;
+    gap: var(--s-1);
+    margin-top: var(--s-1);
+    padding: 0 var(--s-2);
     height: 16px;
     background: transparent;
     color: var(--success);
@@ -3776,12 +3776,12 @@ details summary::-webkit-details-marker {
 .ai-confirm-chip {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    margin-top: 4px;
-    padding: 4px 8px;
+    gap: var(--s-3);
+    margin-top: var(--s-2);
+    padding: var(--s-2) var(--s-4);
     background: var(--pill-warning-bg);
-    color: var(--pill-warning-fg, var(--warning));
-    border: 1px solid var(--pill-warning-br, var(--warning));
+    color: var(--pill-warning-fg);
+    border: 1px solid var(--pill-warning-br);
     border-radius: var(--r-sm);
     font-size: var(--fs-xs);
     line-height: 1.3;
@@ -3819,8 +3819,8 @@ details summary::-webkit-details-marker {
 }
 .ai-bubble-feedback {
     display: inline-flex;
-    gap: 2px;
-    margin-top: 2px;
+    gap: var(--s-1);
+    margin-top: var(--s-1);
 }
 .ai-feedback-btn {
     background: transparent;
@@ -3877,7 +3877,7 @@ details summary::-webkit-details-marker {
     overflow-y: auto;
 }
 .ai-slash-header {
-    padding: 6px 12px;
+    padding: var(--s-3) var(--s-5);
     font-size: var(--fs-3xs);
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -3888,7 +3888,7 @@ details summary::-webkit-details-marker {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--s-2);
 }
 .ai-sidebar-input-row {
     flex-shrink: 0;

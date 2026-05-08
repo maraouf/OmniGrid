@@ -74,7 +74,7 @@
                  the bounds-chips show the live (lo, hi) bounds + the
                  effective value. -->
             <div x-show="tuningLoaded">
-              <label class="block text-[11px] font-medium mb-1"
+              <label class="block fs-xs font-medium mb-1"
                      x-text="t('admin.config.fields.tuning_ai_max_tokens.label')"></label>
               <div class="flex flex-wrap items-center gap-2">
                 <input type="number"
@@ -134,7 +134,7 @@
                      `:true-value` / `:false-value` keep the storage shape
                      consistent with the TUNABLES int contract (and with
                      the placeholder showing the live default). -->
-                <label class="inline-flex items-center gap-2 text-[12px] font-medium cursor-pointer">
+                <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
                   <input type="checkbox"
                          x-model="tuningForm['tuning_ai_retry_enabled']"
                          true-value="1" false-value="0"
@@ -153,7 +153,7 @@
               </div>
               <!-- Backoff in milliseconds. -->
               <div class="mb-3">
-                <label class="block text-[11px] font-medium mb-1"
+                <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_retry_backoff_ms.label')"></label>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
@@ -189,7 +189,7 @@
               </div>
               <!-- First-attempt-max-duration gate (ms). -->
               <div>
-                <label class="block text-[11px] font-medium mb-1"
+                <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.label')"></label>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
@@ -230,7 +230,7 @@
                    shape as the retry first-attempt-max field above so
                    the visual rhythm matches. -->
               <div class="mt-3">
-                <label class="block text-[11px] font-medium mb-1"
+                <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.label')"></label>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
@@ -270,7 +270,7 @@
                    sidebar-header export buttons gate on the resolved
                    `me.client_config.ai_conversation_export_enabled`. -->
               <div class="mt-3">
-                <label class="inline-flex items-center gap-2 text-[12px] font-medium cursor-pointer">
+                <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
                   <input type="checkbox"
                          x-model="tuningForm['tuning_ai_conversation_export_enabled']"
                          true-value="1" false-value="0"
@@ -289,7 +289,7 @@
                    fleet). Bounded by `tuning_ai_log_context_lines`
                    below for a hard token-budget cap. -->
               <div class="mt-3">
-                <label class="block text-[11px] font-medium mb-1"
+                <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_log_context_hours.label')"></label>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
@@ -327,7 +327,7 @@
                    error+warn lines injected per call. Newest-last so
                    the most recent issues survive trimming. -->
               <div class="mt-3">
-                <label class="block text-[11px] font-medium mb-1"
+                <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_log_context_lines.label')"></label>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
@@ -862,9 +862,9 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 space-y-3">
           <div class="flex items-center gap-2 mb-1">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-tag"/></svg>
-            <h3 class="font-semibold text-[13px]" x-text="t('ai_memory.title')"></h3>
+            <h3 class="font-semibold fs-md" x-text="t('ai_memory.title')"></h3>
           </div>
-          <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
+          <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
              x-text="t('ai_memory.subtitle')"></p>
           <div class="flex items-stretch gap-2">
             <input type="text"

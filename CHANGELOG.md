@@ -46,6 +46,11 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 - TOTP audit-row INSERT failures now surface as in-app + Apprise notifications instead of silent stderr prints. New event `totp_audit_log_failed` (defaults ON) fires WARNING when an admin TOTP-disable / force-set succeeded at the credential layer but the History audit-row INSERT failed — the operator sees the missing audit trail immediately rather than discovering it during incident triage.
 - AI palette log-context now redacts common credential patterns before shipping to the LLM. New `logic.logs.redact_secrets(text)` helper masks `Bearer <token>` / `password=<v>` / `api_key=<v>` / `token=<v>` / `secret=<v>` / `x-api-key=<v>` / AWS `AKIA[A-Z0-9]{16}` access-key IDs with `[REDACTED]` while keeping the keyword visible. `api_ai_palette` applies the helper to each `recent_logs` entry before populating the AI prompt context. Admin → Logs continues to show raw unredacted text — only the outbound AI-bound path is redacted.
 
+### Internal
+
+- Fleet-wide CSS token migration — replaced 1350+ `text-[Npx]` Tailwind arbitrary-value literals with the canonical `fs-3xs / 2xs / xs / sm / md / lg / xl` utility classes across every admin + settings partial AND `static/index.html`. Half-pixel literals (10.5 / 11.5 / 12.5px) round to the nearest token. ~99.6% migration in one pass — only 6 display-tier headings (16/17/18px between `fs-xl` and `fs-display-md`) remain as special-case literals. Future typography-scale changes land in ONE place (`:root --fs-*` declarations) instead of fleet-wide search-replace.
+- AI sidebar block tokenised — 11 spacing-px literals in `static/css/style.css` migrated to `var(--s-*)` / `var(--r-*)`; 10 `text-[Npx]` sites in the AI partial migrated to `fs-*` utilities.
+
 ### Added
 
 - Drawer keyboard navigation — Left / Right arrow keys step through the currently-visible filtered list in both the host drawer (Hosts view) and the service drawer (Stacks / Services views), no wrap. Skips when focus is in a real text input. Boundary presses eat the keystroke so the drawer body never scrolls horizontally on the no-op. Host drawer respects `filteredHosts()`; service drawer respects `sortedFiltered` first then `filteredItems`.

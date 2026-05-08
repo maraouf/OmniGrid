@@ -7,24 +7,24 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-4">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
-            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.security')"></h3>
+            <h3 class="font-semibold fs-md" x-text="t('settings.profile.security')"></h3>
           </div>
           <template x-if="me && me.source === 'local'">
             <form @submit.prevent="changePassword()" class="space-y-3">
-              <h4 class="font-semibold text-[12px]" x-text="t('settings.profile.change_password')"></h4>
-              <p class="text-[11.5px] text-[var(--text-faint)]" x-text="t('settings.profile.password_hint')"></p>
+              <h4 class="font-semibold fs-sm" x-text="t('settings.profile.change_password')"></h4>
+              <p class="fs-xs text-[var(--text-faint)]" x-text="t('settings.profile.password_hint')"></p>
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.current_password')"></label>
-                  <input x-model="passwordForm.current" type="password" required autocomplete="current-password" class="w-full text-[12.5px]">
+                  <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.current_password')"></label>
+                  <input x-model="passwordForm.current" type="password" required autocomplete="current-password" class="w-full fs-sm">
                 </div>
                 <div>
-                  <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.new_password')"></label>
-                  <input x-model="passwordForm.next" type="password" required minlength="8" autocomplete="new-password" class="w-full text-[12.5px]">
+                  <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.new_password')"></label>
+                  <input x-model="passwordForm.next" type="password" required minlength="8" autocomplete="new-password" class="w-full fs-sm">
                 </div>
                 <div>
-                  <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.confirm_new_password')"></label>
-                  <input x-model="passwordForm.confirm" type="password" required minlength="8" autocomplete="new-password" class="w-full text-[12.5px]">
+                  <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.confirm_new_password')"></label>
+                  <input x-model="passwordForm.confirm" type="password" required minlength="8" autocomplete="new-password" class="w-full fs-sm">
                 </div>
               </div>
               <div x-show="passwordForm.next" class="pw-strength">
@@ -64,16 +64,16 @@
                 </ul>
               </div>
               <div>
-                <button type="submit" :disabled="passwordBusy || !passwordStrength.criteria.length8" class="btn btn-primary text-[12px]"
+                <button type="submit" :disabled="passwordBusy || !passwordStrength.criteria.length8" class="btn btn-primary fs-sm"
                         x-text="passwordBusy ? t('actions.saving') : t('settings.profile.change_password')"></button>
               </div>
             </form>
           </template>
           <template x-if="me && me.source === 'authentik'">
-            <div class="text-[12.5px] text-[var(--text-dim)] leading-relaxed" x-text="t('settings.profile.authentik_hint')"></div>
+            <div class="fs-sm text-[var(--text-dim)] leading-relaxed" x-text="t('settings.profile.authentik_hint')"></div>
           </template>
           <template x-if="me && me.source !== 'local' && me.source !== 'authentik'">
-            <div class="text-[12.5px] text-[var(--text-dim)]" x-text="t('settings.profile.api_token_hint')"></div>
+            <div class="fs-sm text-[var(--text-dim)]" x-text="t('settings.profile.api_token_hint')"></div>
           </template>
         </section>
 
@@ -87,23 +87,23 @@
                  x-show="me && me.source === 'local'">
           <div class="flex items-center gap-2 mb-4">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-lock"/></svg>
-            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.totp.title')"></h3>
+            <h3 class="font-semibold fs-md" x-text="t('settings.profile.totp.title')"></h3>
             <span x-show="totp.required" class="totp-required-pill" x-text="t('settings.profile.totp.required_pill')"></span>
           </div>
 
-          <p class="text-[11.5px] text-[var(--text-faint)] leading-relaxed mb-3"
+          <p class="fs-xs text-[var(--text-faint)] leading-relaxed mb-3"
              x-text="t('settings.profile.totp.intro')"></p>
 
           <template x-if="totp.loaded && !totp.allowed">
-            <div class="text-[12.5px] text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
+            <div class="fs-sm text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
                  x-text="t('settings.profile.totp.disabled_by_admin')"></div>
           </template>
 
           <template x-if="totp.loaded && totp.allowed && !totp.enabled && totpEnrolStage === 'idle'">
             <div class="space-y-3">
-              <div class="text-[12.5px] text-[var(--text-dim)]"
+              <div class="fs-sm text-[var(--text-dim)]"
                    x-text="t('settings.profile.totp.not_enabled_status')"></div>
-              <button @click="startTotpEnrol()" class="btn btn-primary text-[12px]"
+              <button @click="startTotpEnrol()" class="btn btn-primary fs-sm"
                       :disabled="totpEnrolBusy"
                       x-text="totpEnrolBusy ? t('actions.saving') : t('settings.profile.totp.enable_button')"></button>
             </div>
@@ -111,24 +111,24 @@
 
           <template x-if="totp.loaded && totp.allowed && totpEnrolStage === 'qr'">
             <div class="space-y-3">
-              <p class="text-[12px] text-[var(--text-dim)]"
+              <p class="fs-sm text-[var(--text-dim)]"
                  x-text="t('settings.profile.totp.qr_hint')"></p>
               <div id="totp-enrol-qr" class="totp-qr"></div>
               <div class="totp-secret-row">
                 <span x-text="t('settings.profile.totp.secret_label')"></span>
                 <code class="mono" x-text="totpEnrol.secret"></code>
               </div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1"
+              <label class="block fs-xs text-[var(--text-dim)] mb-1"
                      x-text="t('settings.profile.totp.verify_label')"></label>
               <input x-model="totpEnrol.code" type="text" inputmode="numeric"
                      autocomplete="one-time-code" maxlength="6"
-                     class="w-40 mono text-[13px]"
+                     class="w-40 mono fs-md"
                      :placeholder="t('settings.profile.totp.verify_placeholder')">
               <div class="flex items-center gap-2">
-                <button @click="confirmTotpEnrol()" class="btn btn-primary text-[12px]"
+                <button @click="confirmTotpEnrol()" class="btn btn-primary fs-sm"
                         :disabled="totpEnrolBusy"
                         x-text="totpEnrolBusy ? t('actions.saving') : t('settings.profile.totp.confirm_button')"></button>
-                <button @click="cancelTotpEnrol()" class="btn btn-ghost text-[12px]"
+                <button @click="cancelTotpEnrol()" class="btn btn-ghost fs-sm"
                         :disabled="totpEnrolBusy"
                         x-text="t('actions.cancel')"></button>
               </div>
@@ -137,9 +137,9 @@
 
           <template x-if="totpEnrolStage === 'reveal'">
             <div class="space-y-3">
-              <h4 class="font-semibold text-[12.5px]"
+              <h4 class="font-semibold fs-sm"
                   x-text="t('settings.profile.totp.reveal_title')"></h4>
-              <p class="text-[11.5px] text-[var(--warning)]"
+              <p class="fs-xs text-[var(--warning)]"
                  x-text="t('settings.profile.totp.reveal_warning')"></p>
               <div class="totp-codes-grid">
                 <template x-for="code in totpRevealCodes" :key="code">
@@ -147,9 +147,9 @@
                 </template>
               </div>
               <div class="flex items-center gap-2 flex-wrap">
-                <button @click="downloadBackupCodes()" class="btn btn-soft text-[12px]"
+                <button @click="downloadBackupCodes()" class="btn btn-soft fs-sm"
                         x-text="t('settings.profile.totp.download_codes')"></button>
-                <button @click="closeTotpReveal()" class="btn btn-primary text-[12px]"
+                <button @click="closeTotpReveal()" class="btn btn-primary fs-sm"
                         x-text="t('settings.profile.totp.reveal_done')"></button>
               </div>
             </div>
@@ -157,7 +157,7 @@
 
           <template x-if="totp.loaded && totp.allowed && totp.enabled && totpEnrolStage === 'idle'">
             <div class="space-y-4">
-              <div class="text-[12.5px] flex items-center gap-2">
+              <div class="fs-sm flex items-center gap-2">
                 <span class="pill pill-success"
                       x-text="t('settings.profile.totp.enabled_pill')"></span>
                 <span class="text-[var(--text-dim)]"
@@ -166,13 +166,13 @@
 
               <div>
                 <div class="flex items-center justify-between gap-2 mb-2">
-                  <h4 class="font-semibold text-[12.5px]"
+                  <h4 class="font-semibold fs-sm"
                       x-text="t('settings.profile.totp.backup_codes_title')"></h4>
-                  <button type="button" class="btn btn-ghost text-[11px]"
+                  <button type="button" class="btn btn-ghost fs-xs"
                           @click="totpCodesRevealed = !totpCodesRevealed"
                           x-text="totpCodesRevealed ? t('settings.profile.totp.hide') : t('settings.profile.totp.show')"></button>
                 </div>
-                <p class="text-[11px] text-[var(--text-faint)] mb-2"
+                <p class="fs-xs text-[var(--text-faint)] mb-2"
                    x-text="t('settings.profile.totp.backup_codes_hint')"></p>
                 <div class="totp-codes-grid">
                   <template x-for="(c, i) in (totp.backup_codes || [])" :key="i">
@@ -185,12 +185,12 @@
               </div>
 
               <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--border)]">
-                <button @click="regenerateTotpCodes()" class="btn btn-soft text-[12px]"
+                <button @click="regenerateTotpCodes()" class="btn btn-soft fs-sm"
                         x-text="t('settings.profile.totp.regenerate_button')"></button>
                 <button @click="disableTotpSelf()"
                         :disabled="totp.required || totpDisableBusy"
                         :title="totp.required ? t('settings.profile.totp.disable_blocked_title') : ''"
-                        class="btn btn-ghost text-[12px] text-danger"
+                        class="btn btn-ghost fs-sm text-danger"
                         x-text="t('settings.profile.totp.disable_button')"></button>
               </div>
             </div>
@@ -212,25 +212,25 @@
                  x-show="me && me.source === 'local'">
           <div class="flex items-center gap-2 mb-3">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-key"/></svg>
-            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.passkeys.title')"></h3>
+            <h3 class="font-semibold fs-md" x-text="t('settings.profile.passkeys.title')"></h3>
           </div>
-          <p class="text-[11.5px] text-[var(--text-faint)] leading-relaxed mb-3"
+          <p class="fs-xs text-[var(--text-faint)] leading-relaxed mb-3"
              x-text="t('settings.profile.passkeys.subtitle')"></p>
 
           <template x-if="passkeys.loaded && !passkeys.supported">
-            <div class="text-[12.5px] text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
+            <div class="fs-sm text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
                  x-text="t('settings.profile.passkeys.server_unsupported')"></div>
           </template>
 
           <template x-if="passkeys.loaded && passkeys.supported && !passkeyBrowserSupported()">
-            <div class="text-[12.5px] text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
+            <div class="fs-sm text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
                  x-text="t('settings.profile.passkeys.browser_unsupported')"></div>
           </template>
 
           <template x-if="passkeys.loaded && passkeys.supported">
             <div class="space-y-3">
               <template x-if="!passkeys.list.length">
-                <div class="text-[12.5px] text-[var(--text-dim)]"
+                <div class="fs-sm text-[var(--text-dim)]"
                      x-text="t('settings.profile.passkeys.list_empty')"></div>
               </template>
               <template x-if="passkeys.list.length">
@@ -270,7 +270,7 @@
                           </template>
                         </div>
                       </div>
-                      <button type="button" class="btn btn-ghost text-[11.5px] text-danger"
+                      <button type="button" class="btn btn-ghost fs-xs text-danger"
                               :disabled="passkeys.busy"
                               @click="revokePasskey(pk)"
                               x-text="t('settings.profile.passkeys.revoke_button')"></button>
@@ -287,15 +287,15 @@
                      stay listed + revocable; only the Add button hides
                      so the operator-side "I want to register a new
                      key" path is the one blocked. -->
-                <button type="button" class="btn btn-primary text-[12px]"
+                <button type="button" class="btn btn-primary fs-sm"
                         x-show="(me && me.passkeys && me.passkeys.allowed !== false)"
                         :disabled="passkeys.busy || !passkeyBrowserSupported()"
                         @click="addPasskey()"
                         x-text="passkeys.busy ? t('settings.profile.passkeys.adding') : t('settings.profile.passkeys.add_button')"></button>
                 <span x-show="me && me.passkeys && me.passkeys.allowed === false"
-                      class="text-[11px] text-[var(--text-faint)] italic"
+                      class="fs-xs text-[var(--text-faint)] italic"
                       x-text="t('settings.profile.passkeys.disabled_by_admin')"></span>
-                <span x-show="passkeys.busy" class="text-[11px] text-[var(--text-faint)]"
+                <span x-show="passkeys.busy" class="fs-xs text-[var(--text-faint)]"
                       x-text="t('settings.profile.passkeys.registering_hint')"></span>
               </div>
             </div>
@@ -314,9 +314,9 @@
                  x-show="me && me.source === 'authentik'">
           <div class="flex items-center gap-2 mb-2">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
-            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.totp.title')"></h3>
+            <h3 class="font-semibold fs-md" x-text="t('settings.profile.totp.title')"></h3>
           </div>
-          <p class="text-[12.5px] text-[var(--text-dim)]"
+          <p class="fs-sm text-[var(--text-dim)]"
              x-text="t('settings.profile.totp.authentik_hint')"></p>
         </section>
       </section>

@@ -8,10 +8,10 @@
             <div>
               <div class="flex items-center gap-2 mb-2">
                 <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
-                <h3 class="font-semibold text-[13px]"
+                <h3 class="font-semibold fs-md"
                     x-text="t('admin.config.totp.title')"></h3>
               </div>
-              <p class="text-[11.5px] text-[var(--text-faint)] mb-3"
+              <p class="fs-xs text-[var(--text-faint)] mb-3"
                  x-text="t('admin.config.totp.subtitle')"></p>
             </div>
             <span class="chip"
@@ -20,12 +20,12 @@
           </div>
 
           <div class="space-y-3" x-show="settings">
-            <label class="flex items-center gap-2 text-[12.5px]">
+            <label class="flex items-center gap-2 fs-sm">
               <input type="checkbox" x-model="settings.totp_allowed"
                      :disabled="!isAdmin()">
               <span x-text="t('admin.config.totp.allowed_label')"></span>
             </label>
-            <p class="text-[11px] text-[var(--text-faint)] -mt-1 ms-6"
+            <p class="fs-xs text-[var(--text-faint)] -mt-1 ms-6"
                x-text="t('admin.config.totp.allowed_hint')"></p>
 
             <!-- Passkey master toggle. Mirrors `totp_allowed`
@@ -34,46 +34,46 @@
                  methods list, but existing enrolments stay listed
                  + revocable from Profile so users aren't locked out
                  of cleanup. -->
-            <label class="flex items-center gap-2 text-[12.5px] pt-2 border-t border-[var(--border)] mt-2">
+            <label class="flex items-center gap-2 fs-sm pt-2 border-t border-[var(--border)] mt-2">
               <input type="checkbox" x-model="settings.passkeys_allowed"
                      :disabled="!isAdmin()">
               <span x-text="t('admin.config.totp.passkeys_allowed_label')"></span>
             </label>
-            <p class="text-[11px] text-[var(--text-faint)] -mt-1 ms-6"
+            <p class="fs-xs text-[var(--text-faint)] -mt-1 ms-6"
                x-text="t('admin.config.totp.passkeys_allowed_hint')"></p>
 
-            <label class="flex items-center gap-2 text-[12.5px]">
+            <label class="flex items-center gap-2 fs-sm">
               <input type="checkbox" x-model="settings.totp_required_for_admins"
                      :disabled="!isAdmin() || !settings.totp_allowed">
               <span x-text="t('admin.config.totp.required_admins_label')"></span>
             </label>
-            <label class="flex items-center gap-2 text-[12.5px]">
+            <label class="flex items-center gap-2 fs-sm">
               <input type="checkbox" x-model="settings.totp_required_for_users"
                      :disabled="!isAdmin() || !settings.totp_allowed">
               <span x-text="t('admin.config.totp.required_users_label')"></span>
             </label>
-            <p class="text-[11px] text-[var(--text-faint)] -mt-1 ms-6"
+            <p class="fs-xs text-[var(--text-faint)] -mt-1 ms-6"
                x-text="t('admin.config.totp.required_hint')"></p>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
               <label class="block">
-                <span class="block text-[11px] text-[var(--text-dim)] mb-1"
+                <span class="block fs-xs text-[var(--text-dim)] mb-1"
                       x-text="t('admin.config.totp.max_failures_label')"></span>
                 <input type="number" min="3" max="20" step="1"
                        x-model.number="settings.totp_lockout_max_failures"
                        :disabled="!isAdmin() || !settings.totp_allowed"
-                       class="w-32 mono text-[12.5px]">
-                <span class="block text-[10.5px] text-[var(--text-faint)] mt-1"
+                       class="w-32 mono fs-sm">
+                <span class="block fs-2xs text-[var(--text-faint)] mt-1"
                       x-text="t('admin.config.totp.max_failures_hint')"></span>
               </label>
               <label class="block">
-                <span class="block text-[11px] text-[var(--text-dim)] mb-1"
+                <span class="block fs-xs text-[var(--text-dim)] mb-1"
                       x-text="t('admin.config.totp.lockout_minutes_label')"></span>
                 <input type="number" min="1" max="1440" step="1"
                        x-model.number="settings.totp_lockout_minutes"
                        :disabled="!isAdmin() || !settings.totp_allowed"
-                       class="w-32 mono text-[12.5px]">
-                <span class="block text-[10.5px] text-[var(--text-faint)] mt-1"
+                       class="w-32 mono fs-sm">
+                <span class="block fs-2xs text-[var(--text-faint)] mt-1"
                       x-text="t('admin.config.totp.lockout_minutes_hint')"></span>
               </label>
             </div>
@@ -82,12 +82,12 @@
               <button x-show="isAdmin()" @click="saveTotpPolicy()"
                       :disabled="totpPolicySaving"
                       :class="totpPolicyDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                      class="btn btn-primary text-[12px]">
+                      class="btn btn-primary fs-sm">
                 <span x-show="!totpPolicySaving" x-text="t('actions.save')"></span>
                 <span x-show="totpPolicySaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
               </button>
               <span x-show="totpPolicyDirty()"
-                    class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
+                    class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
                     :title="t('common.unsaved_title')">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
                 <span class="unsaved-flash" x-text="t('common.unsaved')"></span>

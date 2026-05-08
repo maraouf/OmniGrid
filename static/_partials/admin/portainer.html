@@ -11,9 +11,9 @@
                 <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
                   <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-portainer"/>
                 </svg>
-                <h3 class="font-semibold text-[13px]" x-text="t('settings.portainer.connection_title')"></h3>
+                <h3 class="font-semibold fs-md" x-text="t('settings.portainer.connection_title')"></h3>
               </div>
-              <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.connection_desc')"></p>
+              <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.connection_desc')"></p>
             </div>
             <span x-show="portainerStatus" class="chip"
                   :class="portainerStatus && portainerStatus.configured ? 'pill-ok' : 'pill-muted'"
@@ -26,27 +26,27 @@
                  spam) without erasing the stored URL or API key.
                  Saves with the rest of the form via the Save button
                  below — no auto-save on change. -->
-            <label class="flex items-center gap-2 text-[12.5px] cursor-pointer select-none">
+            <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
               <input type="checkbox" x-model="settings.portainer_enabled"
                      @change="markPortainerFormDirty()"
                      :disabled="isReadonly()">
               <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
-              <span class="text-[11px] text-[var(--text-faint)]"
+              <span class="fs-xs text-[var(--text-faint)]"
                     x-text="settings.portainer_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
             </label>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.url_label')"></label>
+              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.url_label')"></label>
               <input x-model="portainerForm.url" type="url"
                      @input="markPortainerFormDirty()"
                      :disabled="isReadonly() || !settings.portainer_enabled"
-                     :placeholder="t('settings.portainer.url_placeholder')" class="w-full mono text-[12.5px]">
+                     :placeholder="t('settings.portainer.url_placeholder')" class="w-full mono fs-sm">
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+              <label class="block fs-xs text-[var(--text-dim)] mb-1">
                 <span x-text="t('settings.portainer.api_key_label')"></span>
               </label>
               <span x-show="portainerStatus && portainerStatus.api_key_set"
-                    class="block text-[11px] text-[var(--success)] mb-1"
+                    class="block fs-xs text-[var(--success)] mb-1"
                     x-text="t('settings.secret_input.saved_hint')"></span>
               <div class="secret-input-row">
                 <input x-model="portainerForm.api_key" type="password"
@@ -54,25 +54,25 @@
                        :disabled="isReadonly() || !settings.portainer_enabled"
                        :placeholder="(portainerStatus && portainerStatus.api_key_set) ? t('settings.secret_input.placeholder_keep') : t('settings.portainer.api_key_placeholder')"
                        autocomplete="new-password"
-                       class="w-full mono text-[12.5px]">
+                       class="w-full mono fs-sm">
                 <button type="button"
                         x-show="portainerStatus && portainerStatus.api_key_set && isAdmin()"
                         @click="clearPortainerApiKey()"
                         :disabled="!settings.portainer_enabled"
-                        class="btn btn-ghost text-[11.5px] secret-input-clear"
+                        class="btn btn-ghost fs-xs secret-input-clear"
                         x-text="t('settings.host_stats.clear_secret_label')"></button>
               </div>
-              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-text="t('settings.portainer.api_key_hint')"></p>
+              <p class="fs-xs text-[var(--text-faint)] mt-1" x-text="t('settings.portainer.api_key_hint')"></p>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.endpoint_id')"></label>
+                <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.endpoint_id')"></label>
                 <input x-model.number="portainerForm.endpoint_id" type="number" min="1"
                        @input="markPortainerFormDirty()"
                        :disabled="isReadonly() || !settings.portainer_enabled"
-                       class="w-full mono text-[12.5px]">
+                       class="w-full mono fs-sm">
               </div>
-              <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mt-5">
+              <label class="flex items-center gap-2 fs-sm cursor-pointer mt-5">
                 <input type="checkbox" :checked="portainerForm.verify_tls"
                        @change="portainerForm.verify_tls = $event.target.checked; markPortainerFormDirty()"
                        :disabled="isReadonly() || !settings.portainer_enabled">
@@ -90,13 +90,13 @@
                  grid, gate `:disabled` on the master switch, fire
                  `markPortainerFormDirty()` on input. -->
             <div class="pt-2 border-t border-dashed border-[var(--border)] mt-1">
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.public_title')"></label>
-              <p class="text-[11px] text-[var(--text-faint)] mb-2" x-text="t('settings.portainer.public_desc')"></p>
+              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.public_title')"></label>
+              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('settings.portainer.public_desc')"></p>
               <input x-model="settings.portainer_public_url" type="url"
                      @input="markPortainerFormDirty()"
                      :disabled="isReadonly() || !settings.portainer_enabled"
                      :placeholder="t('settings.portainer.public_placeholder')"
-                     class="w-full mono text-[12.5px]">
+                     class="w-full mono fs-sm">
             </div>
             <!-- Swarm autoheal action — chosen action for the
                  `swarm_agent_health` schedule kind when it detects an
@@ -108,9 +108,9 @@
                  `restart` additionally spawns a do_restart_swarm_agent
                  op subject to the cooldown tunable. -->
             <div class="pt-2 border-t border-dashed border-[var(--border)] mt-1">
-              <label class="block text-[11px] font-medium mb-1"
+              <label class="block fs-xs font-medium mb-1"
                      x-text="t('settings.portainer.swarm_autoheal_label') || 'Swarm autoheal action'"></label>
-              <p class="text-[11px] text-[var(--text-faint)] mb-2"
+              <p class="fs-xs text-[var(--text-faint)] mb-2"
                  x-text="t('settings.portainer.swarm_autoheal_hint') || 'When the swarm_agent_health schedule kind detects an unhealthy Portainer agent, what should happen? Notify-only fires the existing notification event. Auto-restart additionally spawns a do_restart_swarm_agent op subject to the cooldown tunable.'"></p>
               <select x-model="settings.swarm_autoheal_action"
                       @change="markPortainerFormDirty()"
@@ -133,14 +133,14 @@
                  bootstrap-done latch ensures a deleted-on-purpose
                  row stays deleted across restarts regardless. -->
             <div class="pt-2 border-t border-dashed border-[var(--border)] mt-1">
-              <label class="inline-flex items-center gap-2 text-[12px] font-medium cursor-pointer">
+              <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
                 <input type="checkbox"
                        x-model="settings.swarm_autoheal_bootstrap_enabled"
                        @change="markPortainerFormDirty()"
                        :disabled="isReadonly() || !settings.portainer_enabled">
                 <span x-text="t('settings.portainer.swarm_autoheal_bootstrap_label') || 'Auto-create default swarm_agent_health schedule'"></span>
               </label>
-              <p class="text-[11px] text-[var(--text-faint)] mt-1"
+              <p class="fs-xs text-[var(--text-faint)] mt-1"
                  x-text="t('settings.portainer.swarm_autoheal_bootstrap_hint') || 'On first boot, when Portainer is configured AND no equivalent row exists, OmniGrid auto-creates a 5-minute swarm_agent_health schedule so the autoheal action fires without manual setup. Disable this BEFORE the first boot if you prefer to manage the schedule yourself. Once a schedule exists (auto or manual), this toggle has no further effect — deleting the auto-created row leaves it deleted.'"></p>
             </div>
             <div x-show="isAdmin()" class="flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
@@ -154,13 +154,13 @@
                       :disabled="portainerSaving || !canSavePortainer()"
                       :class="portainerDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                       :title="!canSavePortainer() ? t('settings.portainer.save_requires_test') : ''"
-                      class="btn btn-primary text-[12px]">
+                      class="btn btn-primary fs-sm">
                 <span x-show="!portainerSaving" x-text="t('settings.portainer.save_button')"></span>
                 <span x-show="portainerSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
               </button>
               <button @click="testPortainerConnection()"
                       :disabled="!settings.portainer_enabled"
-                      class="btn btn-soft text-[12px]" x-text="t('settings.portainer.test_button')"></button>
+                      class="btn btn-soft fs-sm" x-text="t('settings.portainer.test_button')"></button>
               <!-- Last successful Test-connection timestamp. Stamped
                    on every passing test, persisted across reloads via
                    localStorage so the operator always sees when the
@@ -168,10 +168,10 @@
                    admin tab — Portainer / OIDC / Beszel / Pulse /
                    Webmin / SNMP / Ping / Asset Inventory. -->
               <span x-show="lastTestSuccessLabel('portainer')"
-                    class="text-[11.5px] text-[var(--text-faint)]"
+                    class="fs-xs text-[var(--text-faint)]"
                     x-text="lastTestSuccessLabel('portainer')"></span>
               <span x-show="portainerDirty()"
-                    class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+                    class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
                 <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
               </span>
@@ -183,9 +183,9 @@
                  narrow viewports). Mirrors the Authentik OIDC layout
                  — both reminders now wrap consistently. -->
             <div x-show="settings.portainer_enabled && !canSavePortainer()"
-                 class="text-[11.5px] text-[var(--text-faint)] -mt-1"
+                 class="fs-xs text-[var(--text-faint)] -mt-1"
                  x-text="t('settings.portainer.save_requires_test')"></div>
-            <div x-show="portainerTestResult" class="text-[12px] rounded-md px-3 py-2"
+            <div x-show="portainerTestResult" class="fs-sm rounded-md px-3 py-2"
                  :class="portainerTestResult && portainerTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
               <template x-if="portainerTestResult && portainerTestResult.pending">
                 <span x-text="t('loading.testing')"></span>

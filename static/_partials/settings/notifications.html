@@ -1,9 +1,9 @@
       <section x-show="settingsSection === 'notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-center gap-2 mb-1">
           <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-bell"/></svg>
-          <h3 class="font-semibold text-[13px]" x-text="t('profile.notifications.title')"></h3>
+          <h3 class="font-semibold fs-md" x-text="t('profile.notifications.title')"></h3>
         </div>
-        <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('profile.notifications.subtitle_per_medium')"></p>
+        <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('profile.notifications.subtitle_per_medium')"></p>
 
         <!-- ============== CATEGORISED NOTIFICATIONS PANEL ==========
              Replaces the flat per-event matrix with three collapsible
@@ -36,7 +36,7 @@
             <input type="text"
                    x-model="notifySearchQuery"
                    :placeholder="t('profile.notifications.search_placeholder') || 'Search events…'"
-                   class="w-full py-1.5 text-[12px]"
+                   class="w-full py-1.5 fs-sm"
                    style="padding-inline-start: 2.25rem; padding-inline-end: 2rem;"
                    :aria-label="t('profile.notifications.search_placeholder') || 'Search events'">
             <button type="button"
@@ -47,11 +47,11 @@
           </div>
           <button type="button"
                   @click="expandAllNotifyCategories(true)"
-                  class="btn btn-ghost text-[11.5px]"
+                  class="btn btn-ghost fs-xs"
                   x-text="t('profile.notifications.expand_all') || 'Expand all'"></button>
           <button type="button"
                   @click="expandAllNotifyCategories(false)"
-                  class="btn btn-ghost text-[11.5px]"
+                  class="btn btn-ghost fs-xs"
                   x-text="t('profile.notifications.collapse_all') || 'Collapse all'"></button>
         </div>
 
@@ -84,9 +84,9 @@
                     <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + cat.icon"/>
                   </svg>
                   <div class="flex flex-col min-w-0 flex-1 text-start">
-                    <span class="text-[12.5px] font-semibold text-[var(--text)]"
+                    <span class="fs-sm font-semibold text-[var(--text)]"
                           x-text="t(cat.label_key)"></span>
-                    <span class="text-[10.5px] text-[var(--text-faint)] truncate"
+                    <span class="fs-2xs text-[var(--text-faint)] truncate"
                           x-text="t(cat.desc_key)"></span>
                   </div>
                   <span class="notify-cat-count"
@@ -144,17 +144,17 @@
                      the expanded body. -->
                 <div class="notify-grid notify-grid-body"
                      :style="'grid-template-columns: minmax(0, 1fr) ' + notifyMediumNames().map(() => 'auto').join(' ') + ' auto'">
-                  <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider pb-1.5 border-b border-[var(--border)]"
+                  <div class="fs-2xs text-[var(--text-faint)] uppercase tracking-wider pb-1.5 border-b border-[var(--border)]"
                        x-text="t('profile.notifications.column_event')"></div>
                   <template x-for="m in notifyMediumNames()" :key="cat.id + '_hdr_' + m">
-                    <div class="text-[10.5px] uppercase tracking-wider pb-1.5 border-b border-[var(--border)] text-center"
+                    <div class="fs-2xs uppercase tracking-wider pb-1.5 border-b border-[var(--border)] text-center"
                          :class="notifyMediumIsGloballyEnabled(m) ? 'text-[var(--text-dim)]' : 'text-[var(--text-faint)] opacity-60'"
                          :title="notifyMediumIsGloballyEnabled(m) ? t('profile.notifications.medium_column_hint') : t('profile.notifications.medium_globally_disabled')">
                       <span x-text="t('admin.notifications.medium_' + m)"></span>
                       <svg x-show="!notifyMediumIsGloballyEnabled(m)" width="10" height="10" class="opacity-70 ms-1 inline-block" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
                     </div>
                   </template>
-                  <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider pb-1.5 border-b border-[var(--border)] text-center"
+                  <div class="fs-2xs text-[var(--text-faint)] uppercase tracking-wider pb-1.5 border-b border-[var(--border)] text-center"
                        x-text="t('profile.notifications.column_all')"></div>
                   <!-- Operations category renders as paired groups
                        (one operation header + success / failure
@@ -165,13 +165,13 @@
                     <template x-for="grp in notifyCategoryFilteredGroups(cat)" :key="cat.id + '_grp_' + grp.label">
                       <div class="contents">
                         <!-- Operation header row, spans every grid column. -->
-                        <div class="py-1.5 mt-1 text-[11.5px] font-semibold text-[var(--text)] uppercase tracking-wider"
+                        <div class="py-1.5 mt-1 fs-xs font-semibold text-[var(--text)] uppercase tracking-wider"
                              style="grid-column: 1 / -1; border-top: 1px solid var(--border);"
                              x-text="t('admin.notifications.events.' + grp.label)"></div>
                         <!-- Two sub-rows: success then failure. -->
                         <template x-for="kind in ['success', 'failure']" :key="cat.id + '_grp_' + grp.label + '_' + kind">
                           <div class="contents">
-                            <div class="py-1.5 ps-3 text-[12px] flex items-center gap-1.5 min-w-0">
+                            <div class="py-1.5 ps-3 fs-sm flex items-center gap-1.5 min-w-0">
                               <span class="text-[var(--text-faint)]" aria-hidden="true">↳</span>
                               <span x-text="t('admin.notifications.events.' + kind)"
                                     :class="kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
@@ -223,7 +223,7 @@
                   <template x-if="!cat.groups">
                     <template x-for="row in notifyCategoryFilteredRows(cat)" :key="cat.id + '_row_' + row.key">
                       <div class="contents">
-                        <div class="py-1.5 text-[12px] text-[var(--text)] flex items-center gap-2 min-w-0">
+                        <div class="py-1.5 fs-sm text-[var(--text)] flex items-center gap-2 min-w-0">
                           <span x-text="t('admin.notifications.events.' + row.label)"
                                 :title="t('admin.notifications.events.' + row.label)"
                                 class="text-[var(--text-dim)] truncate"></span>
@@ -279,7 +279,7 @@
           </template>
           <!-- Empty-state when no category has any matching row. -->
           <div x-show="notifySearchQuery && notifyCategories().every(c => notifyCategoryFilteredRows(c).length === 0)"
-               class="text-[11.5px] text-[var(--text-faint)] italic py-3 text-center"
+               class="fs-xs text-[var(--text-faint)] italic py-3 text-center"
                x-text="t('profile.notifications.search_no_match', { query: notifySearchQuery })"></div>
         </div>
 
@@ -289,13 +289,13 @@
              disabled (the backend would 400 such an opt-in anyway). -->
         <div class="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-[var(--border)]">
           <button type="button" @click="setAllUserNotifyEvents(true)"
-                  class="btn btn-soft text-[11.5px]"
+                  class="btn btn-soft fs-xs"
                   x-text="t('admin.notifications.events.enable_all')"></button>
           <button type="button" @click="setAllUserNotifyEvents(false)"
-                  class="btn btn-soft text-[11.5px]"
+                  class="btn btn-soft fs-xs"
                   x-text="t('admin.notifications.events.disable_all')"></button>
           <button type="button" @click="setUserNotifyEventsErrorsOnly()"
-                  class="btn btn-soft text-[11.5px]"
+                  class="btn btn-soft fs-xs"
                   x-text="t('admin.notifications.events.errors_only')"></button>
         </div>
 
@@ -305,7 +305,7 @@
              Apprise in one click instead of clicking 12+ checkboxes.
              Operates on profileForm.notify_events; skips events the
              admin has globally disabled. -->
-        <div class="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-[var(--border)] text-[11.5px]">
+        <div class="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-[var(--border)] fs-xs">
           <span class="text-[var(--text-dim)] me-1"
                 x-text="t('admin.notifications.events.bulk_pattern_label')"></span>
           <span class="text-[var(--text-faint)]"
@@ -337,10 +337,10 @@
         <div class="flex items-center gap-3 flex-wrap mt-4 pt-4 border-t border-[var(--border)]">
           <button @click="saveProfile()" :disabled="profileBusy"
                   :class="profileDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                  class="btn btn-primary text-[12px]"
+                  class="btn btn-primary fs-sm"
                   x-text="profileBusy ? t('actions.saving') : t('actions.save_changes')"></button>
           <span x-show="profileDirty()"
-                class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
+                class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
                 :title="t('common.unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
@@ -350,12 +350,12 @@
 
       <!-- Portainer / Host stats / OIDC / Notifications moved to Admin. -->
       <section x-show="false" style="display:none">
-        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.host_stats.title')"></h3>
-        <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.host_stats.desc')"></p>
+        <h3 class="font-semibold fs-md mb-2" x-text="t('settings.host_stats.title')"></h3>
+        <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('settings.host_stats.desc')"></p>
 
-        <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+        <label class="block fs-xs text-[var(--text-faint)] mb-1"
                x-text="t('settings.host_stats.source_label')"></label>
-        <div class="flex flex-wrap gap-4 mb-4 text-[12px] text-[var(--text-dim)]">
+        <div class="flex flex-wrap gap-4 mb-4 fs-sm text-[var(--text-dim)]">
           <label class="inline-flex items-center gap-2">
             <input type="radio" x-model="settings.host_stats_source" value="none" :disabled="isReadonly()">
             <span x-text="t('settings.host_stats.source_none')"></span>
@@ -373,23 +373,23 @@
         <!-- node-exporter config -->
         <div x-show="hasHostStatsSource('node_exporter')" class="space-y-3">
           <div>
-            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+            <label class="block fs-xs text-[var(--text-faint)] mb-1"
                    x-text="t('settings.host_stats.url_label')"></label>
             <input x-model="settings.node_exporter_url_template" type="text"
                    :disabled="isReadonly()"
-                   class="w-full mono text-[11.5px]"
+                   class="w-full mono fs-xs"
                    :placeholder="t('settings.host_stats.url_placeholder')">
-            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+            <p class="fs-2xs text-[var(--text-faint)] mt-1"
                x-text="t('settings.host_stats.url_hint')"></p>
           </div>
           <div>
-            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+            <label class="block fs-xs text-[var(--text-faint)] mb-1"
                    x-text="t('settings.host_stats.overrides_label')"></label>
             <textarea x-model="settings.node_exporter_overrides_json"
                       :disabled="isReadonly()" rows="5"
-                      class="w-full mono text-[11.5px]"
+                      class="w-full mono fs-xs"
                       :placeholder='`{\n  "host-id": "http://192.X.X.X:9100/metrics"\n}`'></textarea>
-            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+            <p class="fs-2xs text-[var(--text-faint)] mt-1"
                x-text="t('settings.host_stats.overrides_hint')"></p>
           </div>
         </div>
@@ -397,38 +397,38 @@
         <!-- Beszel config -->
         <div x-show="hasHostStatsSource('beszel')" class="space-y-3">
           <div>
-            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+            <label class="block fs-xs text-[var(--text-faint)] mb-1"
                    x-text="t('settings.host_stats.beszel_url_label')"></label>
             <input x-model="settings.beszel_hub_url" type="url"
                    :disabled="isReadonly()"
-                   class="w-full mono text-[11.5px]"
+                   class="w-full mono fs-xs"
                    :placeholder="t('settings.host_stats.beszel_url_placeholder')">
-            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+            <p class="fs-2xs text-[var(--text-faint)] mt-1"
                x-text="t('settings.host_stats.beszel_url_hint')"></p>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
             <div>
-              <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+              <label class="block fs-xs text-[var(--text-faint)] mb-1"
                      x-text="t('settings.host_stats.beszel_identity_label')"></label>
               <input x-model="settings.beszel_identity" type="text"
                      :disabled="isReadonly()"
-                     class="w-full text-[11.5px]"
+                     class="w-full fs-xs"
                      :placeholder="t('settings.host_stats.beszel_identity_placeholder')">
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+              <label class="block fs-xs text-[var(--text-faint)] mb-1">
                 <span x-text="t('settings.host_stats.beszel_password_label')"></span>
               </label>
-              <span x-show="settings.beszel_password_set" class="block text-[11px] text-[var(--success)] mb-1"
+              <span x-show="settings.beszel_password_set" class="block fs-xs text-[var(--success)] mb-1"
                     x-text="t('settings.secret_input.saved_hint')"></span>
               <input x-model="settings.beszel_password" type="password"
                      :disabled="isReadonly()"
                      autocomplete="new-password"
-                     class="w-full text-[11.5px]"
+                     class="w-full fs-xs"
                      :placeholder="settings.beszel_password_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.beszel_password_placeholder')">
             </div>
           </div>
-          <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
+          <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)]">
             <input type="checkbox" x-model="settings.beszel_verify_tls" :disabled="isReadonly()">
             <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
           </label>
@@ -441,7 +441,7 @@
                Grid columns are absolute — first column always grows,
                second column always hugs the button content. -->
           <div class="grid grid-cols-[1fr_auto] items-center gap-2">
-            <span class="text-[11.5px] min-w-0"
+            <span class="fs-xs min-w-0"
                   :class="beszelTestResult && !beszelTestResult.pending
                           ? (beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]')
                           : 'text-[var(--text-faint)]'"
@@ -450,15 +450,15 @@
                           : ''"></span>
             <button x-show="isAdmin()" @click="testBeszelConnection()"
                     :disabled="beszelTestResult && beszelTestResult.pending"
-                    class="btn btn-soft text-[12px] justify-self-end"
+                    class="btn btn-soft fs-sm justify-self-end"
                     x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
           </div>
-          <p class="text-[10.5px] text-[var(--text-faint)]"
+          <p class="fs-2xs text-[var(--text-faint)]"
              x-text="t('settings.host_stats.beszel_naming_hint')"></p>
         </div>
 
         <button x-show="isAdmin()" @click="saveHostStats()"
-                class="btn btn-primary text-[12px] mt-4"
+                class="btn btn-primary fs-sm mt-4"
                 x-text="t('actions.save')"></button>
       </section>
 
