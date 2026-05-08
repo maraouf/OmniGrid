@@ -1710,11 +1710,21 @@ def log_ai_outcome(*, kind: str, provider: str, model: str,
         return
 
     s = int(status) if status else 0
-    transient = s in (429, 502, 503, 504)
+    # Transient bucket MUST agree with `_with_retry` /
+    # `ask_provider_with_fallback`'s gates so the operator-visible
+    # log severity matches what the system actually did. HTTP=0 is
+    # the "network error / timeout / DNS fail" sentinel that the
+    # retry path now treats as transient (CHANGELOG entry for
+    # #1167); the log classifier diverged before this fix and
+    # ERROR-stamped outcomes the system already retried + recovered
+    # from. Now: HTTP=0 OR 429/502/503/504 → WARN; everything else
+    # (4xx auth/model errors, 5xx that aren't transient) → ERROR.
+    transient = s in (0, 429, 502, 503, 504)
     if transient:
         # Word "warning" + no "failed/error" → classifier picks WARN.
+        why = "upstream-overloaded (transient, retry later)" if s != 0 else "network/timeout (transient, retry later)"
         print(f"[ai] {kind} warning — provider={provider} model={model} "
-              f"HTTP={s} upstream-overloaded (transient, retry later){tail}")
+              f"HTTP={s} {why}{tail}")
     else:
         truncated = (detail or "")[:200].replace("\n", " ").strip() or "(no detail)"
         # Word "failed" → classifier picks ERROR.
@@ -1805,6 +1815,12 @@ def record_ai_call(
                 events_json = _json.dumps(events_payload, ensure_ascii=False)
             except (TypeError, ValueError):
                 events_json = "{}"
+            # Defence-in-depth assert — raw INSERT bypasses `new_op`,
+            # so the OP_TYPES validator wouldn't otherwise fire. A
+            # typo'd `kind` (e.g. record_ai_call(kind="paletteX"))
+            # would otherwise land `ai_paletteX` silently in history.
+            from logic.ops import assert_op_type as _assert_op_type
+            _assert_op_type(f"ai_{kind}")
             c.execute(
                 "INSERT INTO history ("
                 "  ts, op_type, target_kind, target_name, target_id,"

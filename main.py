@@ -2775,6 +2775,18 @@ class SettingsIn(BaseModel):
     # System event — fires when host_metrics_sampler auto-pauses
     # a host after the configured failure window. Default ON.
     notify_event_host_paused: Optional[str] = None
+    # Port-scan provider — fires when a scan reveals a new open port
+    # not in the previous scan AND not in the host's curated services.
+    # Defaults OFF (NOTIFY_EVENT_DEFAULTS) so a freshly-enabled scanner
+    # doesn't flood the operator with first-run notifications.
+    notify_event_port_scan_new_port: Optional[str] = None
+    # TOTP audit-row INSERT failure — fires WARNING when the credential
+    # change persisted but the audit row didn't (operator sees missing
+    # History trail otherwise).
+    notify_event_totp_audit_log_failed: Optional[str] = None
+    # Drawer auto-fix — Portainer-API VXLAN overlay cleanup events.
+    notify_event_overlay_cleanup_success: Optional[str] = None
+    notify_event_overlay_cleanup_failure: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-medium master switches. The dispatcher in `logic/ops.py:notify`
     # fans out to every enabled medium; flipping one of these false
@@ -2862,6 +2874,14 @@ async def api_get_settings(request: Request):
         # System event — fires when host_metrics_sampler auto-
         # pauses a host after the failure window. Default ON.
         "notify_event_host_paused":               get_setting_bool("notify_event_host_paused", True),
+        # Port-scan provider — default OFF so first-run scanner doesn't
+        # flood. Operators flip on after triaging the initial baseline.
+        "notify_event_port_scan_new_port":        get_setting_bool("notify_event_port_scan_new_port", False),
+        # TOTP audit-row INSERT failure — warn when audit trail missing.
+        "notify_event_totp_audit_log_failed":     get_setting_bool("notify_event_totp_audit_log_failed", True),
+        # Drawer auto-fix — VXLAN overlay cleanup outcomes.
+        "notify_event_overlay_cleanup_success":   get_setting_bool("notify_event_overlay_cleanup_success", True),
+        "notify_event_overlay_cleanup_failure":   get_setting_bool("notify_event_overlay_cleanup_failure", True),
         # Per-medium master switches. Defaults from
         # NOTIFY_MEDIUM_DEFAULTS (both ON for back-compat); operators
         # flip individually from Admin → Notifications.
@@ -2954,13 +2974,21 @@ async def api_get_settings(request: Request):
         "ai": {
             "enabled":         (get_setting("ai_enabled", "false") or "false").lower() == "true",
             "active_provider": (get_setting("ai_active_provider", "") or "claude"),
-            "max_tokens":      int(get_setting("ai_max_tokens", "1024") or "1024"),
+            # max_tokens + fallback_max_depth are TUNABLES (DB > env >
+            # default with bounds-clamp). /api/me reads them via
+            # `tuning_int(...)` too, so the two endpoints agree on the
+            # same value for the same effective deploy state. Pre-fix
+            # this read via `get_setting("ai_max_tokens", ...)` while
+            # the consumers + /api/me read via `tuning_int(...)` — same
+            # field, two DB keys, /api/settings and /api/me silently
+            # diverged.
+            "max_tokens":      tuning.tuning_int("tuning_ai_max_tokens"),
             # Provider fallback chain config — opt-in, off by default so
             # existing deploys don't suddenly start cost-shifting traffic
             # to alternate providers without operator awareness.
             "fallback_enabled":   (get_setting("ai_fallback_enabled", "false") or "false").lower() == "true",
             "fallback_order":     get_setting("ai_fallback_order", "") or "",
-            "fallback_max_depth": int(get_setting("ai_fallback_max_depth", "1") or "1"),
+            "fallback_max_depth": tuning.tuning_int("tuning_ai_fallback_max_depth"),
             "providers": {
                 name: {
                     "enabled":     (get_setting(f"ai_provider_{name}_enabled", "false") or "false").lower() == "true",
@@ -3467,34 +3495,16 @@ async def _api_set_settings_inner(s, request, _portainer):
                 detail="port_scan_udp_default_ports must be CSV/range syntax (e.g. '53,67,123,161,5353')",
             )
         set_setting("port_scan_udp_default_ports", raw)
-    if s.port_scan_default_timeout_seconds is not None:
-        try:
-            t = int(s.port_scan_default_timeout_seconds)
-        except (TypeError, ValueError):
-            raise HTTPException(
-                status_code=400,
-                detail="port_scan_default_timeout_seconds must be an integer",
-            )
-        if not (1 <= t <= 30):
-            raise HTTPException(
-                status_code=400,
-                detail="port_scan_default_timeout_seconds must be 1-30",
-            )
-        set_setting("port_scan_default_timeout_seconds", str(t))
-    if s.port_scan_default_concurrency is not None:
-        try:
-            c = int(s.port_scan_default_concurrency)
-        except (TypeError, ValueError):
-            raise HTTPException(
-                status_code=400,
-                detail="port_scan_default_concurrency must be an integer",
-            )
-        if not (1 <= c <= 256):
-            raise HTTPException(
-                status_code=400,
-                detail="port_scan_default_concurrency must be 1-256",
-            )
-        set_setting("port_scan_default_concurrency", str(c))
+    # NOTE: legacy `port_scan_default_timeout_seconds` /
+    # `port_scan_default_concurrency` plain-key write paths were
+    # removed. They were dead code — every consumer reads via
+    # `tuning_int("tuning_port_scan_default_timeout_seconds")` /
+    # `tuning_int("tuning_port_scan_default_concurrency")` and the
+    # SPA's port_scan partial binds to the TUNABLES form. The legacy
+    # keys remain on `SettingsIn` only to gracefully ignore old POST
+    # bodies; no `set_setting` writes here means the values silently
+    # land nowhere, matching what the consumers were already seeing.
+    # Per CLAUDE.md "Plain-settings escape hatch is a drift class".
     # SNMP. Mirror the webmin / beszel / pulse persistence
     # contract: community / version / port / aliases round-trip in the
     # clear; v3 user is also clear text; the two v3 keys are write-only
@@ -4028,16 +4038,16 @@ async def _api_set_settings_inner(s, request, _portainer):
                 f"ai_active_provider must be one of {','.join(_AI_PROVIDER_NAMES)}",
             )
         set_setting("ai_active_provider", active)
-    if s.ai_max_tokens is not None:
-        # Clamp to a sensible range so a typo'd zero / negative / huge value
-        # can't render every AI call useless. Upper bound 32k matches the
-        # most generous current provider's context-window default.
-        try:
-            mt = int(s.ai_max_tokens)
-        except (TypeError, ValueError):
-            mt = 1024
-        mt = max(64, min(32000, mt))
-        set_setting("ai_max_tokens", str(mt))
+    # NOTE: legacy `ai_max_tokens` / `ai_fallback_max_depth` plain-key
+    # write paths were removed. They were dead code — every consumer
+    # reads via `tuning_int("tuning_ai_max_tokens")` /
+    # `tuning_int("tuning_ai_fallback_max_depth")` and the SPA's AI
+    # Integration partial binds to the TUNABLES form. Per CLAUDE.md
+    # "Plain-settings escape hatch is a drift class" — numeric
+    # operator-tunable values must flow through TUNABLES, not via
+    # `get_setting` / `set_setting`. Fields remain on `SettingsIn`
+    # so old POST bodies don't 422; the values silently land nowhere
+    # which matches what the consumers were already seeing.
     if s.ai_fallback_enabled is not None:
         set_setting("ai_fallback_enabled", "true" if s.ai_fallback_enabled else "false")
     if s.ai_fallback_order is not None:
@@ -4051,13 +4061,6 @@ async def _api_set_settings_inner(s, request, _portainer):
             if p in valid and p not in seen:
                 cleaned.append(p); seen.add(p)
         set_setting("ai_fallback_order", ",".join(cleaned))
-    if s.ai_fallback_max_depth is not None:
-        try:
-            d = int(s.ai_fallback_max_depth)
-        except (TypeError, ValueError):
-            d = 1
-        d = max(1, min(2, d))
-        set_setting("ai_fallback_max_depth", str(d))
     for _ai_name in _AI_PROVIDER_NAMES:
         # enabled
         _v = getattr(s, f"ai_provider_{_ai_name}_enabled", None)
@@ -4742,11 +4745,28 @@ async def api_ai_palette(
         from logic import logs as _logs
         _log_hours = tuning.tuning_int("tuning_ai_log_context_hours")
         _log_limit = tuning.tuning_int("tuning_ai_log_context_lines")
-        ctx["recent_logs"] = _logs.recent_lines_window(
+        _raw_logs = _logs.recent_lines_window(
             hours=_log_hours,
             levels=["error", "warn"],
             limit=_log_limit,
         )
+        # SEC-MED — redact common secret patterns (Bearer tokens,
+        # password / api_key / token-shaped values, AWS access-key
+        # IDs) BEFORE shipping log text to the third-party LLM. The
+        # log buffer can carry sensitive values from misformatted
+        # log lines (e.g. an upstream that prints `Bearer abc123` in
+        # an error trace), and the AI palette ships these to an
+        # external service. Admin → Logs continues to show the raw
+        # text — only the outbound AI-bound path is redacted. Per
+        # CLAUDE.md "Operator-private hostnames" / data-handling
+        # rules, this is defence-in-depth — operator-owned creds
+        # SHOULDN'T appear in logs in the first place, but a typo'd
+        # provider library can leak them, and we shouldn't propagate
+        # the leak to the LLM.
+        for entry in _raw_logs:
+            if isinstance(entry, dict) and entry.get("text"):
+                entry["text"] = _logs.redact_secrets(entry["text"])
+        ctx["recent_logs"] = _raw_logs
         ctx["recent_logs_window_hours"] = _log_hours
     except Exception:  # noqa: BLE001
         pass
@@ -16271,6 +16291,12 @@ async def api_admin_disable_totp(
         auth.clear_user_totp(c, user_id)
         # Audit row -- mirrors the ssh_run pattern above.
         try:
+            # Defence-in-depth assert — this raw INSERT bypasses the
+            # `new_op` write path so the OP_TYPES validator wouldn't
+            # otherwise fire. CLAUDE.md "Direct INSERT INTO history
+            # bypasses assert_op_type" rule applies.
+            from logic.ops import assert_op_type as _assert_op_type
+            _assert_op_type("totp_admin_disabled")
             c.execute(
                 "INSERT INTO history "
                 "(ts, op_type, target_kind, target_name, target_id, "
@@ -16288,7 +16314,32 @@ async def api_admin_disable_totp(
                 ),
             )
         except Exception as e:
+            # BUG-LOW from code review 2026-05-08-2: defensive log +
+            # continue is correct (don't roll back the credential
+            # change just because the audit row failed), but a silent
+            # `print` to stderr meant the operator looking at History
+            # saw no record of the change. Escalate to a notification
+            # so the operator sees the missing audit trail in-app +
+            # Apprise. The credential change ITSELF persisted via
+            # `auth.disable_totp` at line ~16266 — the notification
+            # carries the disabled-target + the SQL failure detail.
             print(f"[totp] audit-log insert failed: {e}")
+            try:
+                from logic.ops import notify as _notify
+                await _notify(
+                    f"⚠ TOTP audit-row missing for {target.username}",
+                    f"2FA was disabled for {target.username} by {admin.username}, "
+                    f"but the History audit-row INSERT failed: {e!r}. "
+                    f"The credential change DID persist; only the audit "
+                    f"trail is missing.",
+                    "warning",
+                    event="totp_audit_log_failed",
+                    actor_username=admin.username,
+                    target_kind="auth",
+                    target_id=str(user_id),
+                )
+            except Exception as _nerr:  # noqa: BLE001
+                print(f"[totp] audit-failure notification ALSO failed: {_nerr}")
     print(f"[totp] {target.username} disabled BY ADMIN ({admin.username})")
     return {"ok": True}
 
@@ -16330,6 +16381,10 @@ async def api_admin_totp_force(
             return {"ok": True, "force_required": bool(body.force), "no_change": True}
         auth.set_user_totp_force_required(c, user_id, bool(body.force))
         try:
+            # Defence-in-depth assert — raw INSERT bypasses `new_op`,
+            # so the OP_TYPES validator wouldn't otherwise fire.
+            from logic.ops import assert_op_type as _assert_op_type
+            _assert_op_type("totp_force_set")
             c.execute(
                 "INSERT INTO history "
                 "(ts, op_type, target_kind, target_name, target_id, "
@@ -16350,7 +16405,28 @@ async def api_admin_totp_force(
                 ),
             )
         except Exception as e:
+            # Same escalation as totp_admin_disabled — surface the
+            # audit-row failure to the operator via in-app notification
+            # so they know the History trail is missing for this
+            # admin action even though the credential change itself
+            # persisted.
             print(f"[totp] audit-log insert failed: {e}")
+            try:
+                from logic.ops import notify as _notify
+                await _notify(
+                    f"⚠ TOTP force-set audit-row missing for {target.username}",
+                    f"TOTP force-required was {'enabled' if body.force else 'cleared'} "
+                    f"for {target.username} by {admin.username}, but the History "
+                    f"audit-row INSERT failed: {e!r}. The flag DID persist; "
+                    f"only the audit trail is missing.",
+                    "warning",
+                    event="totp_audit_log_failed",
+                    actor_username=admin.username,
+                    target_kind="auth",
+                    target_id=str(user_id),
+                )
+            except Exception as _nerr:  # noqa: BLE001
+                print(f"[totp] audit-failure notification ALSO failed: {_nerr}")
     print(
         f"[totp] {target.username} force-2FA "
         f"{'ENABLED' if body.force else 'CLEARED'} BY ADMIN ({admin.username})"

@@ -240,6 +240,58 @@ def recent_lines(*, levels: Optional[Iterable[str]] = None,
     return out
 
 
+_SECRET_PATTERNS: tuple = (
+    # Authorization: Bearer <token> — the canonical OAuth2 / token
+    # header shape. Match case-insensitive on the keyword + any
+    # subsequent token characters (alphanumeric / `.` / `-` / `_` /
+    # `+` / `/` for base64-padded values, plus `=` so JWTs don't
+    # leak partials).
+    (r"(?i)(bearer\s+)([A-Za-z0-9._\-+/=]{6,})",
+     r"\1[REDACTED]"),
+    # password=<value>, password: <value>, password = <value>
+    (r"(?i)(password\s*[:=]\s*)([^\s,;'\"&]+)",
+     r"\1[REDACTED]"),
+    # api_key / apikey / token / secret / x-api-key / authorization
+    # — the cluster of names that downstream tools use.
+    (r"(?i)((?:api[_-]?key|apikey|token|secret|x-api-key|authorization)\s*[:=]\s*)([^\s,;'\"&]+)",
+     r"\1[REDACTED]"),
+    # AWS-style access keys (AKIA...) and secret keys (40-char base64).
+    (r"\b(AKIA[0-9A-Z]{16})\b", r"[REDACTED-AWS-AKID]"),
+)
+
+
+def redact_secrets(text: str) -> str:
+    """Replace common secret patterns in ``text`` with [REDACTED].
+
+    Used by callers that ship log text outside the operator's trust
+    boundary — primarily the AI palette which sends `recent_logs` to
+    a third-party LLM. Admin → Logs and other in-app readers see the
+    raw text; only the outbound-shipping path applies redaction.
+
+    Patterns covered: ``Bearer <token>``, ``password=<v>``,
+    ``api_key=<v>`` / ``apikey=<v>`` / ``token=<v>`` / ``secret=<v>`` /
+    ``x-api-key=<v>``, AWS access-key IDs (AKIA...). Each match
+    leaves the keyword in place so the operator can still see WHAT
+    was redacted (e.g. ``password=[REDACTED]`` makes "the password
+    field WAS in this line" visible without exposing the value).
+
+    The list is intentionally narrow — false-positive redactions in
+    log lines that get sent to the AI degrade the AI's ability to
+    diagnose real issues. We only redact patterns that are
+    unambiguously credential-shaped.
+    """
+    if not text:
+        return text or ""
+    import re as _re
+    out = text
+    for pat, repl in _SECRET_PATTERNS:
+        try:
+            out = _re.sub(pat, repl, out)
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
 def recent_lines_window(*, hours: int = 24,
                         levels: Optional[Iterable[str]] = None,
                         limit: int = 200) -> list[dict]:

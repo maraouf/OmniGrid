@@ -931,6 +931,7 @@
       "api_key_placeholder": "Paste a provider API key",
       "base_url_label": "Base URL (optional)",
       "base_url_hint": "Override the provider's default API host — leave blank for the canonical endpoint. Useful for self-hosted proxies or compatibility shims.",
+      "base_url_http_warning": "Cleartext: API key will be sent unencrypted over HTTP. Use https:// unless this is a same-host service.",
       "test_button": "Test connection",
       "testing": "Testing…",
       "test_ok": "Connection OK",
