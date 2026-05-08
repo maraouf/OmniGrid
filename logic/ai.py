@@ -242,11 +242,23 @@ async def _with_retry(call_factory, *, provider: str, model: str) -> dict:
     t0 = _time.monotonic()
     out = await call_factory()
     elapsed_ms = (_time.monotonic() - t0) * 1000.0
-    # Only consider retry on a non-OK transient-overload outcome.
-    if not (isinstance(out, dict) and not out.get("ok")
-            and out.get("status") in transient_statuses):
+    # Retry-eligible: transient-overload HTTP statuses (429 / 502 /
+    # 503 / 504) OR a `transient: True` flag set by the timeout /
+    # network-error branches in `ask_provider`. Pre-fix only the
+    # status-based check ran, so timeouts (status=0 with the
+    # transient flag) skipped retry entirely — defeating the whole
+    # point of `tuning_ai_retry_*` for the most common failure mode.
+    is_transient_status = (
+        isinstance(out, dict) and not out.get("ok")
+        and out.get("status") in transient_statuses
+    )
+    is_transient_flag = (
+        isinstance(out, dict) and not out.get("ok")
+        and bool(out.get("transient"))
+    )
+    if not (is_transient_status or is_transient_flag):
         return out
-    status = out.get("status")
+    status = out.get("status") or "TIMEOUT"
     if elapsed_ms >= first_max_ms:
         # Slow first attempt — log + propagate without retrying.
         # Word "warning" + no "fail/error" tokens → classifier picks WARN.
@@ -635,14 +647,28 @@ async def ask_provider(
     try:
         out = await _with_retry(_do_call, provider=p, model=(model or _DEFAULT_MODELS.get(p, "")))
     except httpx.TimeoutException:
+        # `transient: True` flag tells `_with_retry` (one level above)
+        # AND the fallback wrapper that this is a retry-eligible
+        # failure even though `status` is 0. Pre-fix the 0 status
+        # made retry + fallback skip entirely — defeating the whole
+        # point of a configured fallback chain when the provider's
+        # API was slow.
         out = {"ok": False, "status": 0,
                "detail": f"Request timed out after {timeout:.0f}s — the provider's API may be slow.",
-               "provider": p}
+               "provider": p, "transient": True}
     except httpx.RequestError as e:
+        # Same `transient` flag — network errors (DNS, connection
+        # refused, TLS handshake failure mid-flight) are retry-
+        # eligible: the upstream is briefly unavailable but a
+        # second attempt or a different provider may succeed.
         out = {"ok": False, "status": 0,
                "detail": f"Network error: {type(e).__name__}: {e}",
-               "provider": p}
+               "provider": p, "transient": True}
     except Exception as e:  # noqa: BLE001
+        # Generic exceptions are NOT marked transient — they're
+        # usually code bugs (NameError / TypeError / JSON decode
+        # failure) that retrying can't help. Fallback would just
+        # double-charge for the same broken request.
         out = {"ok": False, "status": 0,
                "detail": f"{type(e).__name__}: {e}",
                "provider": p}
@@ -746,7 +772,17 @@ async def ask_provider_with_fallback(
         primary_out["fallback_used"] = False
         primary_out["fallback_chain"] = history
         return primary_out
-    if primary_status not in _FALLBACK_RETRY_STATUSES:
+    # Eligible for fallback when the primary returned a transient-
+    # overload HTTP status OR when the call timed out / hit a network
+    # error (`transient: True` flag set by `ask_provider`'s exception
+    # branches). Pre-fix timeouts skipped the fallback chain entirely
+    # because their status was 0, not 429/502/503/504 — defeating the
+    # configured fallback for the most common failure mode.
+    is_transient_primary = (
+        primary_status in _FALLBACK_RETRY_STATUSES
+        or bool(primary_out.get("transient"))
+    )
+    if not is_transient_primary:
         primary_out["fallback_used"] = False
         primary_out["fallback_chain"] = history
         return primary_out
@@ -891,6 +927,34 @@ PALETTE_SYSTEM_PROMPT: str = (
     "fine (\"webserver (qotom)\"). Hosts WITHOUT an `asset` sub-"
     "object only match on `id` / `label` (asset inventory not "
     "configured for that host yet).\n\n"
+    "HOST IDENTITY — MULTIPLE NAMES PER HOST. The same physical "
+    "machine can carry SEVERAL operator-recognisable names; you must "
+    "match across ALL of them, not just `id` / `label`. The host JSON "
+    "may include any of these in addition to `id` / `label`:\n"
+    " - `host_hostname` — kernel-reported hostname (uname -n). When "
+    "the user pastes `df -h`, `hostname`, or any shell prompt like "
+    "`pi@raspberry4tm02:~$`, match that hostname back to "
+    "`host_hostname` to identify the curated host. The curated `id` "
+    "and `host_hostname` OFTEN DIVERGE (id `adguard2` ↔ kernel "
+    "hostname `raspberry4tm02`) because operators use roles / aliases "
+    "for `id` while the machine reports its real name. NEVER assume "
+    "id == hostname.\n"
+    " - `beszel_name` / `pulse_name` / `webmin_name` / `snmp_name` — "
+    "per-provider name aliases the operator typed in Admin → Hosts. "
+    "May or may not match the kernel hostname.\n"
+    " - `vendor` / `model` / `serial` — DMI hardware identity. "
+    "Useful when the user describes the hardware (\"the Pi 4\" / "
+    "\"the R730xd\").\n"
+    " - `platform` / `kernel` / `arch` — `uname -a` output. Useful "
+    "when the user describes the OS family (\"the FreeBSD one\" / "
+    "\"the ARM box\").\n"
+    "Workflow when the user pastes shell output: SCAN every line for "
+    "hostnames / mount sizes / kernel versions; cross-reference "
+    "against the host JSON's identity fields above; name the matched "
+    "host using its curated `id` with the matched alias in parens "
+    "for clarity (e.g. \"adguard2 (kernel hostname raspberry4tm02, "
+    "939 GB root)\"). When NOTHING in the JSON matches, say so "
+    "explicitly — don't guess.\n\n"
     "OMNIGRID VOCABULARY. \"Hosts\" in OmniGrid means the curated "
     "machines listed in Admin → Hosts (monitored by Beszel / Pulse / "
     "node-exporter / Webmin / SNMP / Ping). \"Nodes\" means Docker "

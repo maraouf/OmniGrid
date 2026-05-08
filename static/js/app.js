@@ -116,6 +116,17 @@ const CURATED_REFRESH_FIELDS = new Set([
   'host_disk_read_bps', 'host_disk_write_bps',
   // Identity / runtime.
   'host_platform', 'host_os', 'host_kernel', 'host_arch',
+  // Kernel-reported hostname (uname -n) — distinct from curated id.
+  // Surfaced by node-exporter / SNMP / Webmin so the AI palette
+  // can match user-pasted `df -h` / `hostname` output back to a
+  // curated host. Without this in the whitelist the value would be
+  // collapsed to null on every poll's in-place reconcile.
+  'host_hostname',
+  // Hardware identity (DMI vendor / product / serial). Same purpose
+  // as `host_hostname` — surface the operator-recognisable name so
+  // the AI grounding matches across user descriptions ("the R730xd",
+  // "the Pi 4", etc).
+  'host_vendor', 'host_model', 'host_serial',
   'host_cpu_cores', 'host_cpu_model',
   'host_uptime_s', 'host_boot_ts',
   // Per-mount + per-NIC detail.
@@ -781,6 +792,16 @@ function app() {
     aiRecentSlashActions: [],    // FIFO of last 5 slash-action ids; persisted to ui_prefs.ai_recent_slash_actions. Only populated for ACTION kinds (not navigation), so "Open host:web01" can't pollute "Pause sampling" recents.
     aiSidebarIncidentChip: null, // {kind, host_id, title, query, ts} — proactive chip rendered above the input when an SSE host-failure / warning-notification event lands AND the sidebar is open. Newest wins (one at a time); click runs the prepared query, X dismisses. Cleared after the query fires so the chip doesn't linger after the operator engaged with it.
     aiSidebarMode: 'approval', // 'approval' (default — destructive actions render an inline-confirm chip) OR 'autonomous' (AI fires every action — including destructive — without prompting). Persisted to ui_prefs.ai_sidebar_mode so the choice follows the operator across browsers / machines. Read by `_runCommandPaletteAction`'s sidebar branch — if mode === 'autonomous', the destructive-confirm path is bypassed entirely and the action fires immediately.
+    // In-flight port-scan tracker — global keyed by host_id so the
+    // Scan-ports button can disable itself across the whole app
+    // (drawer / list row / AI palette dispatch) regardless of which
+    // host reference triggered the scan. Pre-fix this was created
+    // lazily inside `runPortScan` (`this._inFlightPortScans = this._inFlightPortScans || {}`)
+    // which made it non-reactive to Alpine — the `:disabled` binding
+    // never picked up the change. Declared at top level so Alpine's
+    // Proxy wraps it from the start. Cleared by the SSE
+    // `port_scan:completed` handler + 10 min hard timeout fallback.
+    _inFlightPortScans: {},
     // Bulk palette mode — entered via verb-prefix queries like
     // `pause: web*` or `resume: provider:beszel`. When active the
     // palette renders a chip strip of matched hosts + a single "Run
@@ -14965,6 +14986,39 @@ function app() {
           label: h.label || '',
           status: h.status || '',
         };
+        // Kernel-reported hostname (uname -n) — surfaced separately
+        // from the curated `id` because the two often DIVERGE: the
+        // curated id is typically a role / alias the operator typed
+        // in Admin → Hosts (e.g. `adguard2`), while `host_hostname`
+        // is what the machine actually calls itself (e.g.
+        // `raspberry4tm02`). When the user runs `hostname` or `df -h`
+        // on a node and pastes the output, the AI needs to be able
+        // to match BACK to the curated host. Populated by node-
+        // exporter, SNMP, and Webmin providers; empty when none of
+        // those run for this host.
+        if (h.host_hostname) out.host_hostname = String(h.host_hostname);
+        // Per-provider name aliases the user typed in Admin → Hosts.
+        // Surfaces alongside `host_hostname` so the AI can match
+        // against ANY of the names the operator might have used in
+        // a question or pasted shell output. Each is optional — only
+        // included when actually set.
+        if (h.beszel_name)  out.beszel_name  = String(h.beszel_name);
+        if (h.pulse_name)   out.pulse_name   = String(h.pulse_name);
+        if (h.webmin_name)  out.webmin_name  = String(h.webmin_name);
+        if (h.snmp_name)    out.snmp_name    = String(h.snmp_name);
+        // Hardware identity from DMI (system_vendor / product_name)
+        // — operator-recognisable strings like "Raspberry Pi 4
+        // Model B Rev 1.4" or "Dell PowerEdge R730xd". Useful when
+        // the user pastes `dmidecode` / `cat /sys/firmware/...`
+        // output and the AI needs to match by hardware.
+        if (h.host_vendor)  out.vendor  = String(h.host_vendor);
+        if (h.host_model)   out.model   = String(h.host_model);
+        if (h.host_serial)  out.serial  = String(h.host_serial);
+        // Platform / kernel — short strings the AI can correlate
+        // against `uname -a` output (`Linux raspberry4tm02 5.15...`).
+        if (h.host_platform) out.platform = String(h.host_platform);
+        if (h.host_kernel)   out.kernel   = String(h.host_kernel);
+        if (h.host_arch)     out.arch     = String(h.host_arch);
         // Uniform 1-decimal precision across cpu_pct / mem_pct / disk_pct
         // so the AI never reports "memory at 67%" while a chart shows
         // 67.4% (mixed-precision context confused operators on charts
@@ -20195,7 +20249,8 @@ function app() {
       // dispatches where the host arg may be a synthesised stub
       // rather than the live row reference). Either being set
       // means a scan is already running and we must short-circuit.
-      this._inFlightPortScans = this._inFlightPortScans || {};
+      // `_inFlightPortScans` is now declared as top-level reactive
+      // state (see the field declaration); no lazy-init needed.
       if (host._port_scan_running || this._inFlightPortScans[host.id]) {
         this.showToast(this.t('host_drawer.port_scan.scan_already_running', { host: host.id })
           || ('A scan is already running for ' + host.id + '.'), 'info');

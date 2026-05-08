@@ -12444,12 +12444,69 @@ async def _run_port_scan_async(
             )
             udp_scan = None
     except asyncio.TimeoutError:
+        # TCP scan timed out at the wall-clock budget. UDP scan
+        # may have completed already (UDP defaults are friendlier
+        # — 19 ports × 3 s / 8 concurrency ≈ 9 s) and `_run_port_scan_async`
+        # was about to merge results when the gather timed out.
+        # Pre-fix the timeout branch returned immediately with
+        # ZERO persistence — the host row's `last_port_scan_ts`
+        # never updated, the drawer kept showing "Last scanned 7h
+        # ago" indefinitely, and the partial UDP discovery was
+        # discarded. Now we salvage what we have: run the UDP scan
+        # SYNCHRONOUSLY (its own short budget capped it already)
+        # and persist its open ports under a new scan_id so the
+        # drawer at least surfaces the UDP-only findings AND the
+        # timestamp updates so the user sees the scan attempt happened.
         print(
             f"[port_scan] failed host_id={hid!r} target={target!r} "
             f"reason=timeout (>{max_seconds}s budget) scan_id={scan_id}"
         )
+        partial_udp_open: list[dict] = []
+        if udp_enabled:
+            try:
+                from logic import port_scanner_udp as _ps_udp
+                udp_partial = await asyncio.wait_for(
+                    _ps_udp.udp_scan_host(
+                        target,
+                        udp_ports_list,
+                        timeout_s=float(udp_timeout_s),
+                        concurrency=int(udp_concurrency),
+                        snmp_community=str(snmp_community),
+                    ),
+                    timeout=30.0,  # bounded recovery — never block long
+                )
+                partial_udp_open = _ps_udp.open_udp_ports_only(udp_partial)
+                print(
+                    f"[port_scan] timeout-salvage host_id={hid!r} "
+                    f"udp_open={len(partial_udp_open)} scan_id={scan_id}"
+                )
+            except Exception as e:  # noqa: BLE001
+                print(
+                    f"[port_scan] timeout-salvage failed host_id={hid!r} "
+                    f"reason={type(e).__name__}: {e} scan_id={scan_id}"
+                )
         try:
             with db_conn() as c:
+                # Persist whatever UDP results we recovered so the
+                # row's `last_port_scan_ts` advances. Each row carries
+                # the same scan_id so the History detail viewer groups
+                # them under the timed-out attempt.
+                for entry in partial_udp_open:
+                    c.execute(
+                        "INSERT INTO host_port_scans "
+                        "(ts, host_id, scan_id, port, service_hint, "
+                        " banner_excerpt, protocol) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            int(time.time()),
+                            hid,
+                            scan_id,
+                            int(entry.get("port") or 0),
+                            entry.get("service_hint") or "",
+                            entry.get("banner_excerpt") or "",
+                            "udp",
+                        ),
+                    )
                 c.execute(
                     "INSERT INTO history "
                     "(ts, op_type, target_kind, target_name, target_id, "
@@ -12463,8 +12520,13 @@ async def _run_port_scan_async(
                         hid,
                         "error",
                         float(max_seconds),
-                        json.dumps({"scan_id": scan_id, "target": target}),
-                        f"timeout (>{max_seconds}s budget)",
+                        json.dumps({
+                            "scan_id":           scan_id,
+                            "target":            target,
+                            "udp_open_partial":  len(partial_udp_open),
+                            "tcp_timeout":       True,
+                        }),
+                        f"timeout (>{max_seconds}s budget) — TCP scan exceeded budget; UDP partial results persisted ({len(partial_udp_open)} open)",
                         actor,
                     ),
                 )
@@ -12473,8 +12535,12 @@ async def _run_port_scan_async(
             print(f"[port_scan] history-insert failed after timeout for {hid}: {e}")
         try:
             _events.publish("port_scan:completed", {
-                "host_id": hid, "scan_id": scan_id, "ok": False,
-                "error": "timeout",
+                "host_id":     hid,
+                "scan_id":     scan_id,
+                "ok":          False,
+                "error":       "timeout",
+                "ports_open":  0,
+                "udp_open":    len(partial_udp_open),
             })
         except Exception:  # noqa: BLE001
             pass
