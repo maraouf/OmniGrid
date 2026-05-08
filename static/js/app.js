@@ -1853,7 +1853,11 @@ function app() {
                 for (const t of filtered) {
                   if (t && Array.isArray(t.host_ids) && t.host_ids.length > 0 && t.ts) {
                     for (const hid of t.host_ids) {
-                      this._populateAiSidebarHostChart(hid, t.ts);
+                      // Pass the saved `chart_kind` through so re-
+                      // hydrated turns render the same chart type
+                      // they originally requested. Absent / legacy
+                      // turns get '' which defaults to disk_projection.
+                      this._populateAiSidebarHostChart(hid, t.ts, t.chart_kind || '');
                     }
                   }
                 }
@@ -11524,6 +11528,7 @@ function app() {
         // `pending_action` / `cancelled` — the inline-confirm chip's
         // restore-after-reload contract needs them.
         host_ids:         Array.isArray(t.host_ids) ? t.host_ids.slice() : null,
+        chart_kind:       (typeof t.chart_kind === 'string' && t.chart_kind) ? t.chart_kind : null,
         pending_confirm:  !!t.pending_confirm,
         pending_action:   t.pending_action || null,
         cancelled:        !!t.cancelled,
@@ -11604,6 +11609,7 @@ function app() {
         tokens:           Number(t.tokens) || 0,
         error:            t.error || null,
         host_ids:         Array.isArray(t.host_ids) ? t.host_ids.slice() : null,
+        chart_kind:       (typeof t.chart_kind === 'string' && t.chart_kind) ? t.chart_kind : null,
         pending_confirm:  !!t.pending_confirm,
         pending_action:   t.pending_action || null,
         cancelled:        !!t.cancelled,
@@ -15809,6 +15815,7 @@ function app() {
               action_ran:       !!t.action_ran,
               slash:            !!t.slash,
               host_ids:         Array.isArray(t.host_ids) ? t.host_ids.slice() : null,
+              chart_kind:       (typeof t.chart_kind === 'string' && t.chart_kind) ? t.chart_kind : null,
               feedback:         t.feedback || null,
               error:            t.error || null,
               cancelled:        !!t.cancelled,
@@ -16888,20 +16895,15 @@ function app() {
     // AI sidebar version — same fetch + render pipeline as
     // `_populateAiHostChart` but scoped by turn ts so multi-turn
     // chats don't collide on the same `[data-disk-host=X]` element.
-    async _populateAiSidebarHostChart(hostId, turnTs) {
+    // ``chartKind`` (optional) drives the endpoint dispatch:
+    //   ""  / "disk_projection" → /api/hosts/{id}/disk-projection
+    //   "memory_history"        → /api/hosts/history?host_id={id}&hours=24, mp series
+    //   "cpu_history"           → /api/hosts/history?host_id={id}&hours=24, cp series
+    // Default kind is disk_projection for back-compat with legacy
+    // turns that pre-date the CHART: directive.
+    async _populateAiSidebarHostChart(hostId, turnTs, chartKind) {
       const safeAttr = String(hostId).replace(/[^A-Za-z0-9_.-]/g, '_');
-      // Outer shell is the stable `<div class="ai-resp-chart"
-      // data-disk-host data-turn-ts>` rendered by Alpine
-      // `<template x-for>`; populator writes to its inner
-      // `[data-chart-slot]` child which has NO Alpine binding so
-      // the SVG survives parent re-renders. Pre-fix populator
-      // wrote to the OUTER shell's innerHTML, which Alpine kept
-      // overwriting whenever bubble state updated.
       const outerSel = '[data-disk-host="' + safeAttr + '"][data-turn-ts="' + turnTs + '"]';
-      // Retry loop — on init hydration the shells render via Alpine
-      // x-for AFTER `aiConversation = filtered` triggers reactivity,
-      // which can take multiple ticks when restoring 50 turns. Wait
-      // up to ~3 s (15 × 200 ms) for the outer shell to appear.
       let outer = document.querySelector(outerSel);
       let waited = 0;
       while (!outer && waited < 3000) {
@@ -16911,6 +16913,29 @@ function app() {
       }
       if (!outer) return;
       const slot = outer.querySelector('[data-chart-slot]') || outer;
+      const kind = chartKind || 'disk_projection';
+      // Dispatch on chart_kind. Memory + CPU history charts share the
+      // same `/api/hosts/history` endpoint — they only differ on
+      // which series we plot (mp = memory percent, cp = cpu percent).
+      // Keep them in one branch with a small kind-aware renderer.
+      if (kind === 'memory_history' || kind === 'cpu_history') {
+        try {
+          const r = await fetch('/api/hosts/history?host_id='
+            + encodeURIComponent(hostId) + '&hours=24');
+          if (!r.ok) {
+            slot.innerHTML = this._renderHostHistoryInner(hostId, kind, null,
+              this.t('command_palette.ai.history_chart.error') || 'Could not load history');
+            return;
+          }
+          const data = await r.json();
+          slot.innerHTML = this._renderHostHistoryInner(hostId, kind, data, null);
+        } catch (e) {
+          slot.innerHTML = this._renderHostHistoryInner(hostId, kind, null,
+            e.message || String(e));
+        }
+        return;
+      }
+      // Default — disk projection (legacy + explicit "disk_projection").
       try {
         const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/disk-projection');
         if (!r.ok) {
@@ -16923,6 +16948,81 @@ function app() {
       } catch (e) {
         slot.innerHTML = this._renderDiskProjectionInner(hostId, null, e.message || String(e));
       }
+    },
+    // Memory / CPU history renderer — produces the same shell shape
+    // as `_renderDiskProjectionInner` (header + body) so the outer
+    // chart card is visually identical regardless of which kind the
+    // AI requested. Series points come from `/api/hosts/history`'s
+    // `data.points[]` with `cp` (cpu %) / `mp` (memory %) numeric
+    // fields. Renders a 320x80 SVG path scaled to [0..100] on the
+    // y-axis with 1h ticks on x. Empty / null data → "no history
+    // for the past 24h" message.
+    _renderHostHistoryInner(hostId, kind, data, errorMsg) {
+      const t = (k, fb) => this.t(k) || fb;
+      const esc = (s) => this._logEscape(s);
+      const hidEsc = esc(hostId);
+      const isMemory = kind === 'memory_history';
+      const titleKey = isMemory ? 'command_palette.ai.history_chart.title_memory'
+                                : 'command_palette.ai.history_chart.title_cpu';
+      const titleStr = t(titleKey, isMemory ? 'Memory · 24h' : 'CPU · 24h');
+      if (errorMsg) {
+        return ('<div class="ai-resp-chart-header">'
+          + '<span class="ai-resp-chart-title">' + hidEsc + ' — ' + esc(titleStr) + '</span>'
+          + '<span class="ai-resp-chart-status ai-resp-chart-status--error">'
+          + esc((t('command_palette.ai.history_chart.error', 'Could not load history')) + ': ' + errorMsg)
+          + '</span></div>'
+          + '<div class="ai-resp-chart-body"></div>');
+      }
+      const points = (data && Array.isArray(data.points)) ? data.points : [];
+      const fieldKey = isMemory ? 'mp' : 'cp';
+      const series = points
+        .map(p => ({ ts: Number(p && p.ts) || 0,
+                     v: Number(p && p[fieldKey]) }))
+        .filter(p => Number.isFinite(p.v) && p.ts > 0);
+      if (series.length < 2) {
+        return ('<div class="ai-resp-chart-header">'
+          + '<span class="ai-resp-chart-title">' + hidEsc + ' — ' + esc(titleStr) + '</span>'
+          + '<span class="ai-resp-chart-status">'
+          + esc(t('command_palette.ai.history_chart.empty', 'No history points in the past 24 h'))
+          + '</span></div>'
+          + '<div class="ai-resp-chart-body"></div>');
+      }
+      // Build a 320x80 SVG line path. Y axis is [0..100], inverted
+      // (0 at bottom, 100 at top — SVG y grows downward so we flip).
+      const W = 320, H = 80, PAD = 4;
+      const ts0 = series[0].ts, ts1 = series[series.length - 1].ts;
+      const tspan = Math.max(1, ts1 - ts0);
+      const xOf = (ts) => PAD + ((ts - ts0) / tspan) * (W - 2 * PAD);
+      const yOf = (v) => PAD + (1 - Math.max(0, Math.min(100, v)) / 100) * (H - 2 * PAD);
+      let path = '';
+      for (let i = 0; i < series.length; i++) {
+        const p = series[i];
+        path += (i === 0 ? 'M' : ' L') + xOf(p.ts).toFixed(1) + ' ' + yOf(p.v).toFixed(1);
+      }
+      // Latest value chip — operator's "what's it at right now" eye.
+      const latest = series[series.length - 1].v;
+      const latestStr = (Math.round(latest * 10) / 10).toFixed(1) + '%';
+      // 24h max + min for the operator's "spike vs flat" eye.
+      let vMax = -Infinity, vMin = Infinity;
+      for (const p of series) {
+        if (p.v > vMax) vMax = p.v;
+        if (p.v < vMin) vMin = p.v;
+      }
+      const rangeStr = (Math.round(vMin * 10) / 10).toFixed(1) + '%–'
+                     + (Math.round(vMax * 10) / 10).toFixed(1) + '%';
+      return ('<div class="ai-resp-chart-header">'
+        + '<span class="ai-resp-chart-title">' + hidEsc + ' — ' + esc(titleStr) + '</span>'
+        + '<span class="ai-resp-chart-status mono fs-2xs">'
+        + esc(latestStr + ' · ' + rangeStr)
+        + '</span>'
+        + '</div>'
+        + '<div class="ai-resp-chart-body">'
+        + '<svg viewBox="0 0 ' + W + ' ' + H + '" '
+        + 'preserveAspectRatio="none" width="100%" height="' + H + '" aria-hidden="true">'
+        + '<path d="' + path + '" fill="none" stroke="var(--primary)" '
+        + 'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+        + '</svg>'
+        + '</div>');
     },
     // Render shells for the sidebar — same look as the modal palette
     // shells but tagged with `data-turn-ts` so the populator can
