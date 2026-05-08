@@ -3084,7 +3084,15 @@
        Wrapped in a single-element x-for so the extracted markup
        keeps using `h.X` references without rewriting every binding. -->
   <template x-if="drawerHost">
-    <template x-for="h in [drawerHost]" :key="h.host">
+    <!-- Constant `:key` so swapping `drawerHost` from one host to another
+         (keyboard arrow nav, click another host while drawer is open,
+         dispatched-from-AI-palette) reuses the SAME DOM element and the
+         CSS slide-in animation does NOT replay. Pre-fix the key was
+         `h.host` and any drawerHost change tore down the entire drawer +
+         re-mounted it, producing a visible close-and-reopen flicker the
+         operator called out as wrong (services / stacks drawers stay
+         visibly open across content changes — the correct behaviour). -->
+    <template x-for="h in [drawerHost]" :key="'host-drawer-singleton'">
       <div>
             <!-- Slide animation lives on `.host-drawer` itself (CSS
                  `animation: slideIn .2s ease-out`). Don't add Alpine
@@ -8093,7 +8101,9 @@
         </svg>
       </button>
     </div>
-    <div id="og-ai-sidebar-log" class="ai-sidebar-log scrollbar">
+    <div id="og-ai-sidebar-log" class="ai-sidebar-log scrollbar"
+         role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"
+         @scroll="_onAiSidebarLogScroll($event)">
       <div x-show="aiConversation.length === 0"
            class="ai-sidebar-log-empty">
         <div>
@@ -8220,6 +8230,24 @@
         <span x-text="t('command_palette.ai.thinking_title')"></span>
       </div>
     </div>
+    <!-- Floating "↓ N new" pill — surfaces at the bottom-right of the
+         conversation log when the operator is reading prior turns
+         AND a new assistant turn arrives below the fold. Click jumps
+         to the latest turn (force=true bypasses the near-bottom gate)
+         and clears the unseen counter. The counter is auto-cleared
+         when the operator scrolls back near the bottom on their own. -->
+    <button type="button"
+            class="ai-sidebar-jump-latest"
+            x-show="aiSidebarUnseenCount > 0"
+            x-cloak
+            @click="jumpToLatestAiTurn()"
+            :title="t('ai_sidebar.jump_latest_title')"
+            :aria-label="t('ai_sidebar.jump_latest_title')">
+      <svg width="11" height="11" aria-hidden="true">
+        <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-arrow-down'"/>
+      </svg>
+      <span x-text="aiSidebarUnseenCount + ' ' + t('ai_sidebar.jump_latest_label')"></span>
+    </button>
     <!-- Slash-command picker — surfaces above the textarea when the
          input starts with `/`. Filters every command-palette action;
          click or Enter fires the action immediately (no AI round-trip,
@@ -8232,12 +8260,14 @@
         <span x-text="t('ai_sidebar.slash_header')"></span>
         <span class="text-[var(--text-faint)] mono ms-2" x-text="t('ai_sidebar.slash_hint')"></span>
       </div>
-      <div role="listbox">
+      <div role="listbox"
+           :aria-activedescendant="aiSidebarSlashOpen() && aiSidebarSlashResults().length ? ('ai-slash-row-' + aiSidebarSlashIdx) : null">
         <template x-for="(act, sIdx) in aiSidebarSlashResults()"
                   :key="act.kind + ':' + ((act.payload && act.payload.id) || act.label || sIdx)">
           <button type="button"
                   role="option"
                   tabindex="-1"
+                  :id="'ai-slash-row-' + sIdx"
                   :data-slash-row-idx="sIdx"
                   :aria-selected="aiSidebarSlashIdx === sIdx ? 'true' : 'false'"
                   class="cmdpal-row w-full text-start px-3 py-2 cursor-pointer flex items-center gap-3 border-b border-[var(--border)] last:border-0"

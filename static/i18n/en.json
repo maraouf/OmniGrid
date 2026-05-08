@@ -398,7 +398,9 @@
     "clear_search": "Clear search",
     "expand": "Expand",
     "collapse": "Collapse",
-    "prune_now": "Prune now"
+    "prune_now": "Prune now",
+    "copy": "Copy",
+    "failed_generic": "Failed"
   },
   "states": {
     "healthy": "healthy",
@@ -1727,6 +1729,8 @@
     "export_done_toast":"Conversation exported as {filename}",
     "export_failed_toast":"Export failed: {error}",
     "incident_chip_run_title": "Click to ask the AI assistant about this incident with a pre-filled investigation prompt.",
+    "jump_latest_label": "new",
+    "jump_latest_title": "New assistant turns arrived below — click to jump to the latest",
     "mode_label": "AI action mode",
     "mode_approval": "Approval",
     "mode_autonomous": "Autonomous",

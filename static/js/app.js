@@ -786,6 +786,12 @@ function app() {
     aiSidebarOpen: false,
     aiSidebarQuery: '',
     aiSidebarBusy: false,
+    // Count of assistant turns that arrived while the operator was
+    // scrolled up reading prior turns — drives the floating
+    // "↓ N new" pill at the bottom-right of the log so new arrivals
+    // never get missed silently. Cleared when the operator scrolls
+    // back near the bottom OR clicks the pill.
+    aiSidebarUnseenCount: 0,
     aiConversation: [],          // [{role, text, action?, job_id?, feedback?, ts, error?}]
     aiSidebarFeedbackBusy: {},   // turn-index → bool while POST /api/ai/feedback in flight
     aiSidebarSlashIdx: 0,        // selected index in the slash-command picker
@@ -1839,7 +1845,10 @@ function app() {
           const ph = (typeof this.t === 'function')
             ? this.t('ai_sidebar.input_placeholder')
             : 'Ask the AI...';
-          if (ph) el.placeholder = ph;
+          if (ph) {
+            el.placeholder = ph;
+            el.setAttribute('aria-label', ph);
+          }
         } catch (_) { /* ignore */ }
         // Reflect aiSidebarBusy onto the disabled attribute via a
         // $watch — fires only when the boolean transitions, NOT on
@@ -5164,7 +5173,8 @@ function app() {
           '<div class="ai-resp-code-block"' + langAttr + ' data-code="' + dataCode + '">'
             + '<button type="button" class="ai-resp-code-copy" '
               + 'onclick="window.__ogCopyAiCode(this)" '
-              + 'aria-label="Copy"><svg width="12" height="12" aria-hidden="true">'
+              + 'aria-label="' + this._logEscape(this.t('actions.copy') || 'Copy') + '">'
+              + '<svg width="12" height="12" aria-hidden="true">'
               + '<use href="/img/ui-sprite.svg#icon-copy"/></svg></button>'
             + '<pre class="ai-resp-pre scrollbar"><code>' + escBody + '</code></pre>'
           + '</div>'
@@ -12176,7 +12186,7 @@ function app() {
         await this.loadAiMemories();
       } catch (e) {
         if (typeof this.showToast === 'function') {
-          this.showToast((e && e.message) || 'Failed', 'error');
+          this.showToast((e && e.message) || this.t('actions.failed_generic') || 'Failed', 'error');
         }
       } finally {
         this.aiMemoryBusy = false;
@@ -12200,7 +12210,7 @@ function app() {
         }
       } catch (e) {
         if (typeof this.showToast === 'function') {
-          this.showToast((e && e.message) || 'Failed', 'error');
+          this.showToast((e && e.message) || this.t('actions.failed_generic') || 'Failed', 'error');
         }
       }
     },
@@ -14167,12 +14177,28 @@ function app() {
             // match the bucketed UI — operators saw arrows skip
             // hosts because the linear list jumped across
             // bucket boundaries unpredictably.
+            //
+            // Collapsed-group filter: hosts inside a collapsed
+            // parent group OR a collapsed sub-group are HIDDEN in
+            // the markup (the row's `x-show` gate combines both
+            // checks). Keyboard nav must skip those too — landing
+            // the drawer on an invisible host reads as "skipped"
+            // because the operator sees the drawer open with no
+            // matching row in view.
             let list = [];
             if (typeof this.groupedHosts === 'function') {
               try {
                 for (const bucket of (this.groupedHosts() || [])) {
+                  const parentName = bucket.group ? bucket.group.name : '';
+                  const parentCollapsed = this.isGroupCollapsed
+                    ? this.isGroupCollapsed(parentName) : false;
+                  if (parentCollapsed) continue;
                   for (const h of (bucket.hosts || [])) list.push(h);
                   for (const child of (bucket.children || [])) {
+                    const childName = child.group ? child.group.name : '';
+                    const childCollapsed = this.isGroupCollapsed
+                      ? this.isGroupCollapsed(childName) : false;
+                    if (childCollapsed) continue;
                     for (const h of (child.hosts || [])) list.push(h);
                   }
                 }
@@ -14192,7 +14218,33 @@ function app() {
               const next = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
               if (next >= 0 && next < list.length) {
                 e.preventDefault();
-                this.openHostDrawer(list[next]);
+                // Swap drawerHost in place. Calling `openHostDrawer`
+                // here would also kick off the heavy side-effects
+                // (history fetch, ping fetch, providerResumeBusy
+                // reset, drawer-history poll setup) that already ran
+                // when the operator FIRST opened the drawer. With
+                // the singleton-keyed template the DOM is reused on
+                // identity change, so the bound `h` updates without
+                // a remount. The 30s drawer-history poll covers the
+                // chart refresh for the new host.
+                this.drawerHost = list[next];
+                // Trigger a one-shot history fetch for the new host
+                // so the chart updates without waiting for the next
+                // 30s tick.
+                try {
+                  const newHost = list[next];
+                  const drawerKey = this.hostHistoryKey(newHost);
+                  if (drawerKey
+                      && (newHost.beszel_id || newHost.ne_url
+                          || newHost.pulse_name || newHost.webmin_name)) {
+                    const cached = this.hostHistory[drawerKey];
+                    const stale = !cached || !cached.loadedAt
+                      || (Date.now() - cached.loadedAt) > 30_000;
+                    if (stale) {
+                      this.loadHostHistory(newHost.beszel_id || '', newHost.id);
+                    }
+                  }
+                } catch (_) { /* best-effort; chart will catch up via poll */ }
               } else {
                 // Boundary — stop, no wrap. Eat the keystroke so it
                 // doesn't scroll the drawer body or the page.
@@ -14202,15 +14254,40 @@ function app() {
             }
           }
           if (this.drawerItem) {
-            const list = (this.sortedFiltered && this.sortedFiltered.length)
-              ? this.sortedFiltered
-              : (this.filteredItems || this.items || []);
+            // View-aware visible-order list. On Stacks view, items
+            // render INSIDE expanded stacks — `filteredStacks` walked
+            // in order, items of each EXPANDED stack interleaved.
+            // Items inside COLLAPSED stacks are hidden in the markup
+            // (`x-show="expanded.includes(stack.name)"`); the
+            // keyboard nav must skip those too — landing the drawer
+            // on a hidden item reads as "skipped" because the
+            // operator sees the drawer open with no matching row in
+            // view. On Services / Nodes views the flat
+            // `sortedFiltered` list IS the visible order.
+            let list = [];
+            if (this.view === 'stacks' && Array.isArray(this.filteredStacks)) {
+              try {
+                for (const stack of this.filteredStacks) {
+                  if (!stack) continue;
+                  if (!(this.expanded || []).includes(stack.name)) continue;
+                  for (const it of (stack.items || [])) list.push(it);
+                }
+              } catch (_) { /* fall through */ }
+            }
+            if (!list.length) {
+              list = (this.sortedFiltered && this.sortedFiltered.length)
+                ? this.sortedFiltered
+                : (this.filteredItems || this.items || []);
+            }
             const idx = list.findIndex(it => it && it.id === this.drawerItem.id);
             if (idx >= 0) {
               const next = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
               if (next >= 0 && next < list.length) {
                 e.preventDefault();
-                this.openDrawer(list[next]);
+                // In-place swap (not openDrawer) so the drawer DOM
+                // doesn't tear down between presses — same pattern
+                // as the host-drawer arrow nav.
+                this.drawerItem = list[next];
               } else {
                 e.preventDefault();
               }
@@ -15787,11 +15864,55 @@ function app() {
         this.persistAiConversation();
       }
     },
-    _scrollAiSidebarToBottom() {
+    _scrollAiSidebarToBottom(opts) {
+      // Auto-scroll honours the user's manual scroll position when the
+      // operator has paged up to read prior turns. The "force" flag is
+      // for explicit user actions (open drawer, click jump-to-latest
+      // pill, click Send) that should override the read-mode and snap
+      // to the freshest turn.
+      const force = !!(opts && opts.force);
       this.$nextTick(() => {
         const el = document.getElementById('og-ai-sidebar-log');
-        if (el) el.scrollTop = el.scrollHeight;
+        if (!el) return;
+        if (!force) {
+          // Only auto-scroll when the operator is near the bottom
+          // already — typical chat-app convention. 60px gives a
+          // small "I'm reading the last few" buffer; anything past
+          // that and the operator is intentionally scrolled up.
+          const distFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
+          if (distFromBottom > 60) {
+            // Operator is reading prior turns — don't yank the view.
+            // New content has landed below the fold; bump the unseen
+            // counter so the floating "↓ N new" pill becomes visible.
+            this.aiSidebarUnseenCount = (this.aiSidebarUnseenCount || 0) + 1;
+            return;
+          }
+        }
+        el.scrollTop = el.scrollHeight;
+        // Reaching the bottom clears the unseen-count badge.
+        if (this.aiSidebarUnseenCount > 0) {
+          this.aiSidebarUnseenCount = 0;
+        }
       });
+    },
+    // Bound from the log's @scroll handler — when the operator scrolls
+    // back to the bottom on their own, clear the unseen counter so the
+    // jump-to-latest pill disappears without needing a click.
+    _onAiSidebarLogScroll(ev) {
+      try {
+        const el = ev && ev.target;
+        if (!el) return;
+        const distFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
+        if (distFromBottom <= 60 && this.aiSidebarUnseenCount > 0) {
+          this.aiSidebarUnseenCount = 0;
+        }
+      } catch (_) { /* ignore */ }
+    },
+    // Click handler for the floating "↓ N new" pill — snaps to bottom
+    // (force=true bypasses the near-bottom gate) and clears the counter.
+    jumpToLatestAiTurn() {
+      this.aiSidebarUnseenCount = 0;
+      this._scrollAiSidebarToBottom({ force: true });
     },
     async submitAiFeedback(turnIdx, rating) {
       const turn = this.aiConversation[turnIdx];

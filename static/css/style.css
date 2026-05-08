@@ -3921,6 +3921,34 @@ details summary::-webkit-details-marker {
     font-size: var(--fs-sm);
     font-style: italic;
 }
+/* Floating "↓ N new" pill — bottom-right of the AI sidebar log,
+   shown only when the operator is scrolled up AND new assistant
+   turns have arrived below the fold. Click jumps to bottom and
+   clears the unseen counter. Z-index sits above the log content
+   but below the slash-picker / input-row stack. */
+.ai-sidebar-jump-latest {
+    position: absolute;
+    inset-inline-end: var(--s-4);
+    bottom: 110px;
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-2) var(--s-4);
+    border: 1px solid var(--primary);
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--text-on-primary);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    box-shadow: var(--ai-shadow-launcher);
+    cursor: pointer;
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+.ai-sidebar-jump-latest:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--ai-shadow-drawer);
+}
 
 /* HOSTS BULK ACTION BAR — sticky at the bottom of the viewport when
    one or more hosts are selected. Mirrors the items bulk bar pattern
