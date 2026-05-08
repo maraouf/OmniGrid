@@ -906,28 +906,18 @@
                   </div>
                 </td>
                 <td>
-                  <span x-show="stack.offline>0" class="pill pill-error"
-                        :title="(stack.updates_offline > 0)
-                          ? t('chips.off_with_stale_digest_title', { count: stack.updates_offline })
-                          : ''"
-                        x-text="stack.offline + ' ' + t('chips.off_suffix')
-                                + ((stack.updates_offline > 0) ? '*' : '')"></span>
-                  <span x-show="stack.degraded>0" class="pill pill-degraded ms-1" x-text="stack.degraded"></span>
+                  <!-- Stack-header Health column intentionally empty.
+                       Operator preference: keep failure / offline /
+                       degraded indicators on the per-service rows
+                       (where the affected service actually is) and
+                       leave the stack-header row clean. Updates stay
+                       on the next column — no priority, no collision
+                       because the two signals never share a row. -->
                 </td>
                 <td>
-                  <!-- Failed-service priority rule: when a stack has
-                       offline OR degraded service(s), the red pill in
-                       the Health column already shows the count, so
-                       suppress the updates / errors / unknowns chips
-                       here to avoid showing two competing numbers per
-                       stack. Operator: "failed takes priority, so you
-                       don't show 2 numbers". -->
-                  <span x-show="stack.updates>0 && !(stack.offline>0 || stack.degraded>0)"
-                        class="pill pill-update" x-text="stack.updates + ' ' + t('chips.upd_suffix')"></span>
-                  <span x-show="stack.errors>0 && !(stack.offline>0 || stack.degraded>0)"
-                        class="pill pill-error ms-1" x-text="stack.errors + ' ' + t('chips.err_suffix')"></span>
-                  <span x-show="stack.unknowns>0 && !(stack.offline>0 || stack.degraded>0)"
-                        class="pill pill-unknown ms-1" x-text="stack.unknowns + ' ' + t('chips.unknown_short')"></span>
+                  <span x-show="stack.updates>0" class="pill pill-update" x-text="stack.updates + ' ' + t('chips.upd_suffix')"></span>
+                  <span x-show="stack.errors>0" class="pill pill-error ms-1" x-text="stack.errors + ' ' + t('chips.err_suffix')"></span>
+                  <span x-show="stack.unknowns>0" class="pill pill-unknown ms-1" x-text="stack.unknowns + ' ' + t('chips.unknown_short')"></span>
                 </td>
                 <td class="hidden lg:table-cell">
                   <span x-show="stack.uptodate > 0" class="pill pill-ok text-[10.5px]">

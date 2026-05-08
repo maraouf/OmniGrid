@@ -28,7 +28,15 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Added
 
-- Stacks view — failed-service priority rule. When a stack has at least one offline / degraded service AND a stack update available, the red `offline` / amber `degraded` pills in the Health column take priority and the `updates` / `errors` / `unknowns` chips in the Updates column hide. Operator gets ONE clear signal per stack instead of two competing numbers.
+- Stacks view — failure indicator moved to per-service rows; stack-header row shows ONLY the updates count. Replaces the earlier priority-rule iteration. The aggregate offline + degraded pills on the stack-header Health column are gone; each service row already renders its own `pill-offline` / `pill-degraded` so the signal lands on the specific affected service when the stack is expanded. No priority logic, no collision because the two signals never share a row.
+
+### Fixed
+
+- Webmin sub-section — always-dirty regression. With Webmin master toggle off and no edits, the section's Save stayed amber. Root cause: `_webminSectionPlainKeys()` included `webmin_aliases` (a dict, edited per-host elsewhere — not in this sub-tab) while the host_stats baseline JSON-snapshot doesn't carry it, so the diff loop's `String({}) !== String('')` flagged dirty unconditionally. Removed `webmin_aliases` from the plain-keys list — aliases ride per-host save paths, not the Webmin sub-tab.
+
+### Changed
+
+- Notifications retention + page-size tunable headers + the Portainer "Auto-create default swarm_agent_health schedule" checkbox now match the canonical visual pattern used in Settings → Host stats → SNMP / Portainer (`text-[11px] font-medium` on tunable labels, `inline-flex items-center gap-2 text-[12px] font-medium` on checkbox labels). Visual-only refactor; no behaviour changes.
 
 ### Fixed
 
