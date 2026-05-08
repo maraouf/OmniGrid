@@ -1616,6 +1616,51 @@ async def _gather_impl() -> None:
                     "err": st.get("Err"),
                 })
 
+            # `task_error` + `task_history` — surface task-level failures
+            # so the SPA can render them in the item drawer without making
+            # the user SSH into the manager and run `docker service ps
+            # --no-trunc`. Common failure modes: VXLAN sandbox-join
+            # errors after a network reconfig, image pull failures,
+            # placement constraint mismatches, mounted-volume errors.
+            #
+            # `task_error` is the most-recent non-empty `Status.Err` from
+            # any failed/rejected task, picked by `Status.Timestamp` so
+            # the freshest error wins. `task_history` captures up to the
+            # last 10 failed attempts (timestamp + state + node + err)
+            # so the user can see whether the failure is sticky
+            # (same error every retry → root-cause is environmental,
+            # e.g. missing secret) vs flapping (different errors each
+            # time → likely a network / scheduling race).
+            failed_tasks = []
+            for t in svc_tasks:
+                st = t.get("Status") or {}
+                err = (st.get("Err") or "").strip()
+                state = (st.get("State") or "").lower()
+                # Surface tasks in genuinely-failed states OR with a
+                # non-empty Err string. State 'rejected' / 'failed' /
+                # 'orphaned' are unambiguous; 'shutdown' often carries
+                # a benign error (replaced by newer task) but the
+                # `DesiredState=shutdown` filter already excluded
+                # those above for the placements list — we keep them
+                # here when Err is non-empty because a shutdown-with-
+                # error is the operator-relevant signal.
+                if not err and state not in ("rejected", "failed", "orphaned"):
+                    continue
+                ts_raw = st.get("Timestamp") or t.get("CreatedAt") or ""
+                failed_tasks.append({
+                    "node":      node_map.get(t.get("NodeID"), "?"),
+                    "state":     st.get("State"),
+                    "err":       err,
+                    "ts":        ts_raw,
+                    "ts_epoch":  _parse_docker_ts(ts_raw) or 0,
+                })
+            failed_tasks.sort(key=lambda x: x.get("ts_epoch") or 0, reverse=True)
+            task_history = failed_tasks[:10]
+            task_error = next(
+                (ft["err"] for ft in failed_tasks if ft.get("err")),
+                "",
+            )
+
             if desired == 0:
                 health = "offline"
             elif running == 0:
@@ -1637,6 +1682,8 @@ async def _gather_impl() -> None:
                 "stack_id": stack["Id"] if stack else None,
                 "replicas": {"desired": desired, "running": running},
                 "placements": placements,
+                "task_error":   task_error,
+                "task_history": task_history,
                 "health": health,
                 "state": "running" if running > 0 else "stopped",
                 "removable": False,

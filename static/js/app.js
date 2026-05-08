@@ -208,6 +208,56 @@ const CURATED_REFRESH_FIELDS = new Set([
   'detected_ports', 'last_port_scan_ts',
 ]);
 
+// Copy handler for the AI fenced-code-block copy button. Lives on
+// `window` because the button is rendered via `x-html` (string-built
+// markup) so it can't bind a method via Alpine's `@click`. The
+// `data-code` attribute carries the JSON-encoded raw block body —
+// JSON-decoding survives HTML-entity round-tripping that would
+// otherwise corrupt the original whitespace / quote characters.
+// Falls back to legacy `document.execCommand('copy')` when the
+// async clipboard API isn't available (older browsers / iframes
+// without the clipboard permission).
+window.__ogCopyAiCode = function (btn) {
+  if (!btn) return;
+  const wrapper = btn.closest('.ai-resp-code-block');
+  if (!wrapper) return;
+  let body = '';
+  try {
+    body = JSON.parse(wrapper.dataset.code || '""');
+  } catch (_) {
+    body = wrapper.dataset.code || '';
+  }
+  const flashCopied = () => {
+    btn.classList.add('ai-resp-code-copy--copied');
+    setTimeout(() => btn.classList.remove('ai-resp-code-copy--copied'), 1200);
+  };
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(body).then(flashCopied).catch(() => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = body;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        flashCopied();
+      } catch (_) { /* clipboard not available — silently no-op */ }
+    });
+  } else {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = body;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      flashCopied();
+    } catch (_) {}
+  }
+};
+
 function app() {
   return {
     // i18n reactive state. `lang` is watched to trigger Alpine re-renders
@@ -4243,7 +4293,28 @@ function app() {
     // already-escaped HTML, safe to inject via swal `html:` payload.
     _renderAiAnswerMd(text) {
       if (!text) return '';
-      let s = this._logEscape(text);
+      // Three-pass parser:
+      //   1. Extract fenced code blocks (```...```) BEFORE escaping or
+      //      inline replacements run. The block body is HTML-escaped
+      //      and stashed under a placeholder token; inline / list
+      //      processing in pass 2 must not touch the placeholder.
+      //   2. Escape + run inline (bold, inline-code) + list / line-break
+      //      handling on the placeholder-stitched text.
+      //   3. Substitute placeholders back with the final `<pre><code>`
+      //      markup PLUS a "Copy" button bound to the block content.
+      //
+      // Fenced blocks accept an optional language hint after the
+      // opening ``` (`bash`, `js`, `yaml`, etc.). The hint is
+      // surfaced as `data-language` on the <pre> so a future syntax
+      // highlighter can hook in; today the CSS just renders mono.
+      const blocks = [];
+      const FENCE_RE = /```([a-zA-Z0-9_+\-.]*)\n([\s\S]*?)\n?```/g;
+      let withPlaceholders = text.replace(FENCE_RE, (_m, lang, body) => {
+        const idx = blocks.length;
+        blocks.push({ lang: (lang || '').toLowerCase(), body: body || '' });
+        return ' FENCED_CODE_BLOCK_' + idx + ' ';
+      });
+      let s = this._logEscape(withPlaceholders);
       // Inline replacements first so they apply across line groupings.
       s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
       s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
@@ -4254,6 +4325,16 @@ function app() {
         if (listKind) { parts.push('</' + listKind + '>'); listKind = null; }
       };
       for (const line of lines) {
+        // Lines that ARE the fenced-block placeholder pass through
+        // unwrapped — no <br>, no list match, no enclosing paragraph.
+        // That keeps the block as its own visual unit when surrounded
+        // by prose and prevents the trailing <br> from injecting an
+        // extra blank line under the <pre>.
+        if (/^ FENCED_CODE_BLOCK_\d+ $/.test(line.trim())) {
+          closeList();
+          parts.push(line.trim());
+          continue;
+        }
         const ulMatch = /^\s*[*-]\s+(.+)$/.exec(line);
         const olMatch = /^\s*(\d+)\.\s+(.+)$/.exec(line);
         if (ulMatch) {
@@ -4274,7 +4355,35 @@ function app() {
         }
       }
       closeList();
-      return parts.join('').replace(/<br>$/, '');
+      let html = parts.join('').replace(/<br>$/, '');
+      // Substitute fenced-block placeholders back. Body is escaped here
+      // (NOT in pass 1 — escaping pre-replace would corrupt the
+      // placeholder regex match). The block element carries
+      // `data-code` with the raw body so the copy button can put
+      // the original text on the clipboard without re-decoding HTML
+      // entities. data-code is JSON-encoded then HTML-escaped to
+      // survive the attribute parser; the copy handler reads via
+      // dataset and JSON.parse.
+      html = html.replace(/ FENCED_CODE_BLOCK_(\d+) /g, (_m, idxStr) => {
+        const idx = parseInt(idxStr, 10);
+        const blk = blocks[idx];
+        if (!blk) return '';
+        const escBody = this._logEscape(blk.body);
+        const dataCode = this._logEscape(JSON.stringify(blk.body));
+        const langAttr = blk.lang
+          ? ' data-language="' + this._logEscape(blk.lang) + '"'
+          : '';
+        return (
+          '<div class="ai-resp-code-block"' + langAttr + ' data-code="' + dataCode + '">'
+            + '<button type="button" class="ai-resp-code-copy" '
+              + 'onclick="window.__ogCopyAiCode(this)" '
+              + 'aria-label="Copy"><svg width="12" height="12" aria-hidden="true">'
+              + '<use href="/img/ui-sprite.svg#icon-copy"/></svg></button>'
+            + '<pre class="ai-resp-pre"><code>' + escBody + '</code></pre>'
+          + '</div>'
+        );
+      });
+      return html;
     },
     // Wrap recognised tags like [webmin] / [beszel] in coloured
     // spans. Returns safe HTML (already escaped) for x-html. Tag
@@ -12467,6 +12576,54 @@ function app() {
     nodeSummary(item) {
       const ns = (item.placements || []).map(p => p.node).filter(n => n && n !== '?');
       return [...new Set(ns)].join(', ');
+    },
+
+    // Match a Swarm task-error string against known patterns and
+    // return localised remediation guidance (HTML-escaped). Returns
+    // empty string when the error doesn't match a known pattern —
+    // the drawer's known-issue panel hides itself when this returns
+    // empty. Add new patterns by adding a `[regex, i18nKey]` pair
+    // to the matcher table; the body text lives in the i18n bundle
+    // so it can be translated and edited without touching JS.
+    taskErrorKnownIssue(errText) {
+      if (!errText || typeof errText !== 'string') return '';
+      // Patterns ordered most-specific first. Each entry's i18n key
+      // points at a body string under `drawer.task_error_known_issue_*`
+      // in en.json. The body is rendered via `x-html` so simple
+      // inline markup (<code>, <kbd>, <strong>) renders cleanly —
+      // values come from the trusted i18n bundle so no XSS surface.
+      const matchers = [
+        // Docker Swarm overlay-network VXLAN bug — kernel keeps the
+        // vx-NNNNNN-XXXX interface from a previous task and the new
+        // task can't recreate it. Fix: rm + recreate the network on
+        // the affected node, or restart Docker on that node.
+        [/(network sandbox join failed|subnet sandbox join failed|error creating vxlan interface|file exists)/i,
+         'task_error_known_issue_vxlan'],
+        // Image pull failure — registry auth, network, missing tag.
+        [/(no such image|manifest unknown|pull access denied|requested access to the resource is denied|toomanyrequests)/i,
+         'task_error_known_issue_image_pull'],
+        // Mount errors — bind path missing on the node, NFS down,
+        // permission denied on the mount target.
+        [/(invalid mount config|mount path .* does not exist|failed to create new os mount|permission denied .* mount)/i,
+         'task_error_known_issue_mount'],
+        // Placement constraint mismatch — service constraints can't
+        // be satisfied (no eligible node).
+        [/(no suitable node|no nodes available that match all .* constraints)/i,
+         'task_error_known_issue_placement'],
+        // Resource limits — node out of memory / CPU / disk.
+        [/(insufficient resources|no resources available|no node has enough memory)/i,
+         'task_error_known_issue_resources'],
+      ];
+      for (const [rx, key] of matchers) {
+        if (rx.test(errText)) {
+          const body = this.t('drawer.' + key);
+          // i18n returns the key itself when missing — treat that
+          // as no-blurb so the panel collapses cleanly rather than
+          // showing the raw key string.
+          if (body && body !== 'drawer.' + key) return body;
+        }
+      }
+      return '';
     },
     uptimeFor(item) {
       // Services: Swarm reports ISO-8601 `updated` — last spec change, a good

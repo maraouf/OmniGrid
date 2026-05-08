@@ -7468,6 +7468,55 @@
                 </template>
               </div>
             </div>
+
+            <!-- Recent task errors — surfaces task.Status.Err so the
+                 user doesn't have to SSH into the manager and run
+                 `docker service ps --no-trunc`. Only renders when at
+                 least one failed task carries an Err string. The
+                 latest error is shown prominently; the full failure
+                 history (up to 10) collapses behind a Show/Hide
+                 toggle so a sticky-error service doesn't spam the
+                 drawer. Known-issue blurbs (VXLAN sandbox-join
+                 pattern, image-pull pattern, mount pattern) render
+                 a Help link with the SSH-fixable command when the
+                 error matches. -->
+            <div x-show="drawerItem.task_error && drawerItem.task_error.length"
+                 class="mt-2 p-2 rounded border"
+                 :style="'background: var(--surface-2); border-color: var(--danger);'">
+              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider mb-1" x-text="t('drawer.task_error_label')"></div>
+              <div class="mono text-[11.5px] text-[var(--danger)] whitespace-pre-wrap break-all" x-text="drawerItem.task_error"></div>
+              <div x-show="taskErrorKnownIssue(drawerItem.task_error)"
+                   class="mt-2 text-[11px]"
+                   :style="'color: var(--text-dim);'">
+                <div class="font-semibold mb-1"
+                     x-text="t('drawer.task_error_known_issue_label')"></div>
+                <div x-html="taskErrorKnownIssue(drawerItem.task_error)"></div>
+              </div>
+              <div x-show="(drawerItem.task_history || []).length > 1"
+                   class="mt-2">
+                <button type="button"
+                        class="text-[11px] text-[var(--text-dim)] hover:text-[var(--text)]"
+                        @click="drawerItem._show_task_history = !drawerItem._show_task_history">
+                  <span x-show="!drawerItem._show_task_history"
+                        x-text="t('drawer.task_history_show', { count: (drawerItem.task_history || []).length })"></span>
+                  <span x-show="drawerItem._show_task_history"
+                        x-text="t('drawer.task_history_hide')"></span>
+                </button>
+                <div x-show="drawerItem._show_task_history" class="mt-2 space-y-1">
+                  <template x-for="(h, idx) in (drawerItem.task_history || [])" :key="idx">
+                    <div class="text-[11px] mono p-1 rounded"
+                         :style="'background: var(--surface);'">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-[var(--text-faint)]" x-text="h.ts || '—'"></span>
+                        <span class="pill pill-error text-[10px]" x-text="h.state || '?'"></span>
+                        <span class="text-[var(--text-faint)]" x-text="h.node || '?'"></span>
+                      </div>
+                      <div x-show="h.err" class="mt-1 whitespace-pre-wrap break-all text-[var(--text-dim)]" x-text="h.err"></div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
             <div x-show="drawerItem.current_digest">
               <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider flex justify-between">
                 <span x-text="t('drawer.local_digest')"></span>
@@ -7973,10 +8022,27 @@
       </div>
       <template x-for="(turn, idx) in aiConversation" :key="idx">
         <div class="ai-turn" :class="turn.role === 'user' ? 'ai-turn-user' : 'ai-turn-assistant'">
-          <div x-show="turn.text || turn.error"
+          <!--
+            Bubble rendering — assistant turns render via `x-html` so
+            fenced code blocks (```...```), bold (**…**), inline code
+            (`…`), and ul/ol lists from `_renderAiAnswerMd` produce
+            real DOM. User turns + error turns stay on `x-text` (no
+            markdown processing — what the user typed renders verbatim,
+            and error strings come from the backend with no markdown
+            contract). The XSS surface is `_logEscape` inside the
+            renderer — every body string is escaped before any inline
+            replacement runs, and fenced-block bodies are escaped
+            again before the placeholder substitution. The data-code
+            attribute on the copy button is JSON-encoded so newlines /
+            quotes survive round-tripping through the HTML attr parser.
+          -->
+          <div x-show="(turn.text || turn.error) && (turn.role === 'user' || turn.error)"
                class="ai-bubble"
-               :class="turn.role === 'user' ? 'ai-bubble-user' : (turn.error ? 'ai-bubble-error' : 'ai-bubble-assistant')"
+               :class="turn.role === 'user' ? 'ai-bubble-user' : 'ai-bubble-error'"
                x-text="turn.error ? t('ai_sidebar.error_label', { error: turn.error }) : turn.text"></div>
+          <div x-show="turn.text && turn.role !== 'user' && !turn.error"
+               class="ai-bubble ai-bubble-assistant"
+               x-html="_renderAiAnswerMd(turn.text)"></div>
           <!-- Pending inline confirmation — destructive action awaits
                operator's Yes / Cancel click in-conversation. Replaces
                the SweetAlert popup that the modal palette uses. -->
