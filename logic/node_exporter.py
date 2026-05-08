@@ -373,6 +373,7 @@ def parse_exporter_text(text: str) -> dict:
     uname_sysname = ""
     uname_machine = ""
     uname_release = ""
+    uname_nodename = ""
     cpu_labels: set[str] = set()
     # CPU-seconds counters for %CPU derivation. Sum across all
     # CPUs, ALL modes for total; only mode=idle for idle. The sampler
@@ -449,6 +450,15 @@ def parse_exporter_text(text: str) -> dict:
             uname_sysname = labels.get("sysname") or uname_sysname
             uname_machine = labels.get("machine") or uname_machine
             uname_release = labels.get("release") or uname_release
+            # `nodename` is the kernel-reported hostname (what `uname -n`
+            # / `hostname` returns). Distinct from the user's curated
+            # `host.id` / `host.label` — typically the actual machine
+            # name (e.g. `raspberry4tm02`) while the curated id might
+            # be a role / alias (e.g. `adguard2`). Surfaced as
+            # `host_hostname` so SSH-target resolution + AI grounding
+            # can match against either form. Aligns with SNMP +
+            # Webmin which already emit `host_hostname`.
+            uname_nodename = labels.get("nodename") or uname_nodename
         elif name == "node_load1":
             load_1m = value
         elif name == "node_load5":
@@ -614,6 +624,10 @@ def parse_exporter_text(text: str) -> dict:
         "host_kernel":    uname_release,
         "host_arch":      arch,
         "host_platform":  uname_sysname,   # "Linux" / "FreeBSD" / ...
+        # Kernel-reported hostname (uname -n). Surfaced so SSH targets
+        # + AI grounding match on the actual machine name, not just
+        # the curated id / label. SNMP + Webmin emit the same field.
+        "host_hostname":  uname_nodename,
         "host_cores":     len(cpu_labels),
         # Load averages — gauge copies of /proc/loadavg (Linux) or
         # getloadavg(3) (FreeBSD). Zero-values mean "collector didn't
