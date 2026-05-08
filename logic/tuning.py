@@ -487,6 +487,26 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # ~3-5 paragraphs of prose. Range 16..16384.
     "tuning_ai_max_tokens": ("AI_MAX_TOKENS", 1024, 16, 16384),
 
+    # AI log-context window — how many hours of persistent log files
+    # the AI palette injects as context per call. Default 168 (7 days).
+    # Pre-fix the AI saw only the in-memory ring buffer's most-recent
+    # 30 error+warn lines, which on a busy fleet covers minutes
+    # rather than days — operators got "I don't have access to the
+    # full 24-hour history" replies. Reads from the persistent log
+    # files via `logic.logs.recent_lines_window(hours=N)`. Range
+    # 1..720 (30 days max). Higher windows pull more lines into the
+    # prompt; the per-call cap (`tuning_ai_log_context_lines`) bounds
+    # the actual token cost.
+    "tuning_ai_log_context_hours": ("AI_LOG_CONTEXT_HOURS", 168, 1, 720),
+
+    # AI log-context cap — maximum number of error+warn lines the
+    # AI palette injects per call. Default 200 — comfortable for a
+    # week's worth of signal on a moderately-busy fleet without
+    # ballooning the prompt. Newest-last so the AI sees the most
+    # recent issues even when the cap trims older lines. Range
+    # 10..2000.
+    "tuning_ai_log_context_lines": ("AI_LOG_CONTEXT_LINES", 200, 10, 2000),
+
     # AI provider fallback chain depth — when the active provider returns
     # a transient-overload status, try this many backup providers before
     # surfacing the failure. Default 1 (try ONE backup); 2 tolerates a

@@ -1571,20 +1571,43 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
         recent_logs = ctx.get("recent_logs") if isinstance(ctx.get("recent_logs"), list) else None
         if recent_logs:
             log_lines = []
-            for entry in recent_logs[-50:]:
+            # Cap at the last 200 lines from the supplied window. The
+            # backend's tunable already enforces an absolute cap; this
+            # second slice is defence-in-depth for token budget.
+            for entry in recent_logs[-200:]:
                 if not isinstance(entry, dict):
                     continue
                 lvl = (entry.get("level") or "").upper()
                 txt = (entry.get("text") or "").strip()
+                ts = entry.get("ts")
                 if not txt:
                     continue
                 if len(txt) > 200:
                     txt = txt[:200] + "…"
-                log_lines.append(f"{lvl:<7} {txt}")
+                # Prefix each line with the ISO date+hour so the AI
+                # can reason about WHEN issues occurred (e.g. "this
+                # has been recurring every hour for 3 days" vs
+                # "this fired once 10 minutes ago"). 16 chars =
+                # YYYY-MM-DDTHH:MM — minute precision keeps the
+                # token cost low while preserving cluster info.
+                ts_prefix = ""
+                if isinstance(ts, (int, float)) and ts > 0:
+                    try:
+                        from datetime import datetime as _dt, timezone as _tz
+                        ts_prefix = _dt.fromtimestamp(ts, tz=_tz.utc).strftime("%Y-%m-%dT%H:%MZ ")
+                    except Exception:  # noqa: BLE001
+                        ts_prefix = ""
+                log_lines.append(f"{ts_prefix}{lvl:<7} {txt}")
             if log_lines:
+                window_hours = ctx.get("recent_logs_window_hours") or 0
+                window_label = (
+                    f"(past {int(window_hours)} hours; full log at Admin → Logs)"
+                    if isinstance(window_hours, (int, float)) and window_hours > 0
+                    else "(full log at Admin → Logs)"
+                )
                 parts.append(
-                    "Recent log signals (last error / warn lines from the "
-                    "in-process buffer; full log at Admin → Logs):\n"
+                    f"Recent log signals — error / warn lines {window_label}, "
+                    f"timestamped UTC newest-last:\n"
                     + "\n".join(log_lines)
                 )
     return "\n".join(p for p in parts if p)

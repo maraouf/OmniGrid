@@ -96,6 +96,11 @@ OP_TYPES: frozenset[str] = frozenset({
     "restart_container",
     "remove_container",
     "restart_swarm_agent",
+    # Drawer auto-fix — Portainer-API path that removes a stale
+    # overlay network (matched by failing-subnet) and force-updates
+    # the affected service so Docker recreates the overlay + a fresh
+    # VXLAN interface. SSH-free.
+    "cleanup_overlay_network",
     # Bulk host-state ops (api_hosts_bulk_*).
     "hosts_bulk_pause",
     "hosts_bulk_resume",

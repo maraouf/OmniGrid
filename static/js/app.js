@@ -1281,6 +1281,11 @@ function app() {
       // `me.client_config.ai_conversation_export_enabled`; SPA hides
       // the export buttons in the AI sidebar header when false.
       'tuning_ai_conversation_export_enabled',
+      // AI log-context window + cap — render in Admin → AI Integration
+      // alongside the rest of the AI form, NOT the generic Process
+      // tunables.
+      'tuning_ai_log_context_hours',
+      'tuning_ai_log_context_lines',
       // Port-scan tunables — rendered in Admin → Port Scan, NOT
       // the generic Config form. Each routes through TUNABLES so
       // the operator can adjust without redeploy.
@@ -11971,6 +11976,10 @@ function app() {
         // AI Integration partial so they belong on the AI Save.
         'tuning_ai_sidebar_width_px',
         'tuning_ai_conversation_export_enabled',
+        // Log-context window + cap — how many hours / lines of
+        // persistent logs the palette injects per call.
+        'tuning_ai_log_context_hours',
+        'tuning_ai_log_context_lines',
       ];
     },
     async saveAiSettings() {
@@ -13558,8 +13567,22 @@ function app() {
       if (!this.isAdmin || typeof this.isAdmin !== 'function' || !this.isAdmin()) return [];
       const err = String(item.task_error);
       const out = [];
-      // VXLAN sandbox-join — softest fix is force-restart; if that
-      // fails, the SSH terminal escalation is the canonical path.
+      // VXLAN sandbox-join — three-tier fix progression:
+      //   (1) force-restart (lowest blast radius — sometimes the
+      //       kernel clears the stale interface between attempts).
+      //   (2) cleanup_overlay_network via Portainer API — finds the
+      //       overlay network matching the failing subnet, verifies
+      //       no other containers are using it, and removes it.
+      //       Docker recreates the network + vxlan with a fresh id
+      //       when the service is force-updated immediately after.
+      //       SSH-free; safe when the network is single-stack
+      //       (`nebula-sync_default`-style "one stack one network"
+      //       compose deploys). Surfaced ABOVE the SSH escalation
+      //       so the operator sees "try this first" ordering.
+      //   (3) ssh_fix_node — kernel-level `ip link delete` for the
+      //       orphan-vxlan case where Docker no longer owns the
+      //       interface. Only path that handles a truly orphaned
+      //       vxlan (vs a network-tracked one).
       if (/(network sandbox join failed|subnet sandbox join failed|error creating vxlan interface|file exists)/i.test(err)
           && item.type === 'service' && item.raw_id) {
         out.push({
@@ -13571,6 +13594,24 @@ function app() {
                 || 'Issues a force-update on this service. Sometimes the kernel cleans up the stale VXLAN interface between task attempts; safe first try.',
           danger: false,
         });
+        // Parse the failing subnet from the error so the cleanup
+        // action can target the right overlay network. Match
+        // `for "10.90.24.0/24"` (with quotes) OR the bare CIDR.
+        const subnetMatch = err.match(/(\d+\.\d+\.\d+\.\d+\/\d+)/);
+        const failingSubnet = subnetMatch ? subnetMatch[1] : '';
+        if (failingSubnet) {
+          out.push({
+            id: 'cleanup-overlay-network',
+            label: this.t('drawer.task_error_action_cleanup_overlay', { subnet: failingSubnet })
+                   || ('Cleanup stale overlay network (' + failingSubnet + ')'),
+            kind: 'cleanup_overlay_network',
+            subnet: failingSubnet,
+            service_id: item.raw_id,
+            help: this.t('drawer.task_error_action_cleanup_overlay_help')
+                  || 'Uses the Portainer API to find the overlay network matching the failing subnet, verifies no other containers are using it, and removes it. Docker recreates the network + a fresh VXLAN interface when the service is force-updated immediately after. No SSH required. Safe for single-stack overlay networks (the typical compose-deploy pattern); aborts cleanly when the network is shared.',
+            danger: true,
+          });
+        }
         // Find the failing node from the task_history. The most-recent
         // failed task's node is the right SSH target. Skip the SSH
         // button when no node info is available OR when no curated
@@ -13684,6 +13725,30 @@ function app() {
           // automatically when they close the terminal.
           this.drawerItem = null;
           this.openHostTerminal(host);
+        } else if (action.kind === 'cleanup_overlay_network') {
+          // Portainer-API-only path: backend resolves the network
+          // matching the subnet, verifies it's safe to remove, then
+          // removes + force-updates the affected service.
+          const r = await fetch('/api/cleanup-overlay-network', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              subnet:     action.subnet,
+              service_id: action.service_id,
+            }),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok || !j.ok) {
+            const friendly = (j && j.detail) || ((typeof this._friendlyHttpError === 'function')
+              ? this._friendlyHttpError(r.status, '', 'drawer')
+              : ('HTTP ' + r.status));
+            this.showToast(this.t('drawer.task_error_cleanup_overlay_failed', { error: friendly })
+              || ('Cleanup failed: ' + friendly), 'error');
+            return;
+          }
+          this.showToast(this.t('drawer.task_error_cleanup_overlay_done', { network: j.network_name || '' })
+            || ('Removed overlay ' + (j.network_name || '') + ' and force-updated the service. Watch for the new task to come up.'), 'success');
+          if (typeof this.refresh === 'function') this.refresh();
         }
       } catch (e) {
         const msg = (e && e.message) ? e.message : String(e);

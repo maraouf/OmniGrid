@@ -1155,6 +1155,14 @@
           "label": "Fallback chain max depth",
           "help": "When the active AI provider returns a transient-overload status (HTTP 429 / 502 / 503 / 504) OR times out, walk this many backup providers from the operator-defined fallback chain before surfacing the failure. Default 1 (try ONE backup); 2 tolerates a multi-provider outage at the cost of doubling user-perceived latency on a true outage. Range 0..3 (0 effectively disables the fallback chain even when the master toggle is on)."
         },
+        "tuning_ai_log_context_hours": {
+          "label": "Log context window (hours)",
+          "help": "How many hours of persistent log files the AI palette injects into the per-call context. Default 168 (7 days). Pre-fix the AI saw only the in-memory ring buffer's last 30 lines — minutes of coverage on a busy fleet, leading to replies like 'I don't have access to the full 24-hour history'. Reads from the persistent log files via `recent_lines_window(hours=N)`, filtered to error+warn lines, capped at the line-count limit below. Lower this if your fleet writes heavy logs and you want to bound the prompt token cost; raise to 720 (30 days) if your fleet is quiet and you want longer historical context. Range 1..720."
+        },
+        "tuning_ai_log_context_lines": {
+          "label": "Log context max lines",
+          "help": "Hard upper bound on the number of error+warn log lines injected per AI palette call, newest-last so the most recent issues survive trimming when the window contains more lines than this cap. Default 200 — comfortable for a week's worth of signal on a moderately-busy fleet without ballooning the prompt. Lower to 50-100 if costs are a concern; raise to 500-1000 only when you've confirmed the prompt budget can absorb it (logs >200 chars are also truncated per-line). Range 10..2000."
+        },
         "tuning_backup_retention_count": {
           "label": "Backup retention count",
           "help": "Number of recent backup zips to keep on disk under `/app/data/backups/`. The `backup` schedule kind purges older files once this count is exceeded. Default 0 = keep ALL backups (back-compat with pre-existing deploys). Operator typically wants 7-30 to bound disk growth on a daily schedule. Range 0..1000."
@@ -1676,7 +1684,11 @@
     "task_error_restart_queued": "Force-restart queued. Watch the row for the new task to come up; the error should clear automatically when it does.",
     "task_error_restart_failed": "Restart failed: {error}",
     "task_error_ssh_no_host": "No curated host matches \"{node}\" — add it under Admin → Hosts (or set its `id` to the node's hostname) to enable the SSH-fix button.",
-    "task_error_dispatch_failed": "Auto-fix failed: {error}"
+    "task_error_dispatch_failed": "Auto-fix failed: {error}",
+    "task_error_action_cleanup_overlay": "Cleanup stale overlay network ({subnet})",
+    "task_error_action_cleanup_overlay_help": "Uses the Portainer API to find the overlay network matching the failing subnet, verifies no other containers are using it, removes it, then force-updates the service. Docker recreates the overlay + a fresh VXLAN interface when the new task lands. SSH-free; safe for single-stack overlay networks (the typical compose-deploy pattern). Aborts cleanly when the network is shared with another stack.",
+    "task_error_cleanup_overlay_done": "Overlay {network} removed and service force-updated. Watch for the new task to come up.",
+    "task_error_cleanup_overlay_failed": "Cleanup failed: {error}"
   },
   "swarm_agent_banner": {
     "title": "Portainer agent unreachable on {count} Swarm node(s)",
@@ -2171,6 +2183,7 @@
     "prune_notifications": "prune notifications",
     "swarm_agent_health": "swarm agent health",
     "restart_swarm_agent": "restart swarm agent",
+    "cleanup_overlay_network": "cleanup overlay network",
     "totp_admin_disabled": "TOTP admin-disabled",
     "totp_force_set": "TOTP force-set",
     "hosts_bulk_pause": "hosts bulk pause",
