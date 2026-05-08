@@ -10726,21 +10726,44 @@ function app() {
               // mental DNS gymnastics. When the alias DOES match a
               // literal hostname the operator typed, surface it
               // alongside the IP via "<alias> (<ip>)" so they can
-              // still recognise the host. Falls back cleanly when
-              // resolved_ip is null (rare — getaddrinfo failed).
+              // still recognise the host.
+              //
+              // DNS-failure path: when `resolved_ip` is null the alias
+              // did NOT resolve via the container's resolver chain
+              // (search-domain miss, no /etc/hosts entry, no mDNS).
+              // Pre-fix the toast read "Found 0 open ports on
+              // router5g" which is technically true but misleading —
+              // the per-port probes all failed with `socket.gaierror`,
+              // not "everything's firewalled". Switch the toast tone +
+              // body to surface the DNS failure explicitly so the
+              // operator knows to set `ping.host` / `ssh.host` to a
+              // reachable address.
               const _resolvedIp = payload.resolved_ip || '';
               const _target = payload.target || hostId;
-              const _toastHost = (_resolvedIp && _resolvedIp !== _target)
-                ? (_target + ' (' + _resolvedIp + ')')
-                : (_resolvedIp || _target);
-              const i18nKey = payload.is_first_scan
-                ? 'host_drawer.port_scan.scan_complete_body_first'
-                : 'host_drawer.port_scan.scan_complete_body';
-              this.showToast(this.t(i18nKey, {
-                host:       _toastHost,
-                open_count: openCount,
-                new_count:  0,  // diff happens server-side via notify path
-              }), 'success');
+              const _dnsFailed = !_resolvedIp;
+              if (_dnsFailed && openCount === 0 && !payload.udp_open) {
+                // Genuine DNS failure — alias didn't resolve and no
+                // port reported open. Use the dedicated DNS-fail
+                // toast so the operator sees an actionable hint
+                // instead of a misleading "0 open ports" success.
+                this.showToast(this.t('host_drawer.port_scan.scan_dns_failed', {
+                  host: _target,
+                }) || ('DNS lookup failed for ' + _target
+                       + ' — set ping.host or ssh.host in Admin → Hosts to a reachable address.'),
+                  'error');
+              } else {
+                const _toastHost = (_resolvedIp && _resolvedIp !== _target)
+                  ? (_target + ' (' + _resolvedIp + ')')
+                  : (_resolvedIp || _target);
+                const i18nKey = payload.is_first_scan
+                  ? 'host_drawer.port_scan.scan_complete_body_first'
+                  : 'host_drawer.port_scan.scan_complete_body';
+                this.showToast(this.t(i18nKey, {
+                  host:       _toastHost,
+                  open_count: openCount,
+                  new_count:  0,  // diff happens server-side via notify path
+                }), 'success');
+              }
             } else {
               const _resolvedIpErr = payload.resolved_ip || '';
               const _targetErr = payload.target || hostId;
@@ -15984,6 +16007,13 @@ function app() {
         // Validated against the curated host id set server-side, so
         // we trust the array as-is here.
         const hostIds = Array.isArray(j.hosts) ? j.hosts.slice(0, 8) : [];
+        // Optional chart_kind directive from the AI ("memory_history",
+        // "cpu_history", or absent → defaults to disk_projection per
+        // the original protocol). Drives the populator's endpoint
+        // dispatch downstream so the chart shell renders the kind
+        // the operator asked for.
+        const chartKind = (typeof j.chart_kind === 'string' && j.chart_kind)
+          ? j.chart_kind : '';
         // Surface AI-emitted memories. `memories_saved` is the list
         // the backend already persisted via /api/ai/palette; the SPA
         // toasts each one so the operator sees the self-improvement
@@ -16040,6 +16070,12 @@ function app() {
           action_label:     actionDesc ? (actionDesc.label || actionId) : null,
           action_ran:       false,
           host_ids:         hostIds,
+          // Persisted on the turn so re-hydration after a reload
+          // (loadAiConversation walks each saved turn and re-fires
+          // the populator) picks the right chart kind without a
+          // round-trip to the AI. Defaults to "disk_projection" via
+          // the populator when absent — preserves legacy turns.
+          chart_kind:       chartKind,
           ts:               Date.now(),
         };
         this.aiConversation.push(turn);
@@ -16049,7 +16085,7 @@ function app() {
         if (hostIds.length > 0) {
           this.$nextTick(() => {
             for (const hid of hostIds) {
-              this._populateAiSidebarHostChart(hid, turn.ts);
+              this._populateAiSidebarHostChart(hid, turn.ts, chartKind);
             }
           });
         }
@@ -17551,6 +17587,13 @@ function app() {
           // version / port / v3 keys for THIS host.
           if (!row.snmp || typeof row.snmp !== 'object') row.snmp = {};
           if (typeof row.snmp_name !== 'string') row.snmp_name = '';
+          // Dedicated probe target — defaults to "" so Alpine's
+          // x-model has something concrete to bind to on first render
+          // (avoids the "row.address is undefined" reactive flicker
+          // when the operator types into the field before the API
+          // response shape settles). Same defensive idiom used for
+          // every other free-text field on the row.
+          if (typeof row.address !== 'string') row.address = '';
           // Hydrate the per-host mount-exclusion textarea from the
           // persisted `snmp.exclude_mounts` array. The editor binds
           // a virtual `exclude_mounts_text` field (one path per
@@ -19490,6 +19533,12 @@ function app() {
           snmp:          snmpOut,
           url:           (h.url || '').trim(),
           icon:          (h.icon || '').trim(),
+          // Dedicated probe target — hostname OR IP. Used as the
+          // default by port-scan / ping / SNMP / SSH when no
+          // provider-specific override is set. Independent of any
+          // provider so disabling SNMP / ping / SSH never leaves the
+          // other probes without a target. Backend caps at 64 chars.
+          address:       (h.address || '').trim(),
           ssh:           sshOut,
           ping:          pingOut,
           enabled:       h.enabled !== false,

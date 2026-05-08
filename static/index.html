@@ -4316,10 +4316,10 @@
                     </h4>
                     <button type="button"
                             x-show="me && me.role === 'admin'"
-                            :disabled="!!(h._port_scan_running) || !!((_inFlightPortScans || {})[h.id])"
+                            :disabled="!!(h._port_scan_running) || !!((_inFlightPortScans || {})[h.id]) || !((h.address || '').trim())"
                             @click="runPortScan(h)"
                             class="btn btn-ghost fs-xs flex items-center gap-1"
-                            :title="t('host_drawer.port_scan.scan_button_title')">
+                            :title="!((h.address || '').trim()) ? (t('host_drawer.port_scan.address_required_title') || 'Set Hostname or IP in Admin → Hosts to enable port scanning.') : t('host_drawer.port_scan.scan_button_title')">
                       <svg width="11" height="11"
                            :class="(h._port_scan_running || ((_inFlightPortScans || {})[h.id])) ? 'spin-md' : ''"
                            aria-hidden="true">
@@ -4328,6 +4328,20 @@
                       <span x-text="(h._port_scan_running || ((_inFlightPortScans || {})[h.id])) ? t('host_drawer.port_scan.scanning') : t('host_drawer.port_scan.scan_button')"></span>
                     </button>
                   </div>
+                  <!-- Address-required banner — port scan is disabled
+                       until the operator sets the dedicated probe
+                       target in Admin → Hosts. Shown above the rest
+                       of the card body so the operator's first read
+                       is "why is the button disabled" rather than
+                       missing port chips. -->
+                  <template x-if="me && me.role === 'admin' && !((h.address || '').trim())">
+                    <div class="rounded border border-[var(--warning)] bg-[var(--surface-2)] p-2 mb-3 fs-xs flex items-start gap-2">
+                      <svg width="13" height="13" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true">
+                        <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-alert-triangle'"/>
+                      </svg>
+                      <span x-text="t('host_drawer.port_scan.address_required_body') || 'Set Hostname or IP for this host in Admin → Hosts to enable port scanning. Without it, the scanner would target the host id (often unresolvable) and produce misleading results.'"></span>
+                    </div>
+                  </template>
                   <template x-if="!h.last_port_scan_ts && me && me.role === 'admin'">
                     <div class="text-[var(--text-faint)] fs-xs mb-2"
                          x-text="t('host_drawer.port_scan.no_scans_yet')"></div>

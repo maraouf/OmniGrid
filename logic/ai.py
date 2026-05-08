@@ -1149,34 +1149,47 @@ PALETTE_SYSTEM_PROMPT: str = (
     "ACTION: refresh\\n"
     "ACTION: cleanup_stopped'\n"
     "If no action fits, omit the ACTION line entirely.\n\n"
-    "HOSTS PROTOCOL — emit a `HOSTS: <id1>, <id2>, <id3>` line ONLY "
-    "when the operator's question is specifically about DISK USAGE / "
-    "STORAGE EXHAUSTION / DISK CAPACITY for named hosts. Trigger "
-    "phrases: 'low on disk', 'out of disk space', 'running out of "
-    "storage', 'disk fill', 'disk usage', 'disk projection', 'when "
-    "will X run out', 'top hosts by disk'. The SPA picks up the "
-    "HOSTS line, strips it from the visible text, and renders inline "
-    "DISK-PROJECTION charts (historical disk-used % + linear-"
-    "projection forecast of when the disk fills up) for each host "
-    "below the answer. The chart is ONLY meaningful for disk "
-    "questions — rendering it next to a logs / CPU / memory / "
-    "network / port-scan / general-status answer is a UX bug "
-    "(confuses the operator with an unrelated chart). DO NOT emit "
-    "HOSTS for: log questions ('any errors?', 'which hosts have "
-    "warnings?'), CPU questions, memory questions, network "
-    "questions, port-scan questions, status questions ('which hosts "
-    "are down?', 'which are paused?'), or any question that lists "
-    "hosts but doesn't ask about disk. When in doubt, OMIT the "
-    "HOSTS line — the prose answer alone is correct; the chart is "
-    "an opt-in enrichment for disk queries only. When you do emit "
-    "HOSTS, list each host's curated `id` field — NOT its label, "
-    "alias, or display name — in the order they appear in your "
-    "prose. Maximum 8 ids. Use ONLY ids that appear in the supplied "
-    "'Hosts:' context block — never invent ids the SPA doesn't know "
-    "about. The HOSTS line and the ACTION line are INDEPENDENT — "
-    "both can appear (HOSTS first, then ACTION). Example reply: "
-    "'Top 3 hosts low on disk: 1. nas01 — 92% used, 2. db02 — 88%, "
-    "3. cache03 — 85%.\\nHOSTS: nas01, db02, cache03'"
+    "HOSTS PROTOCOL — emit a `HOSTS: <id1>, <id2>, <id3>` line when "
+    "the operator's question can be enriched by an INLINE CHART for "
+    "the named hosts. Pair it with a `CHART: <kind>` line on the "
+    "next line to pick the chart type. SUPPORTED KINDS:\n"
+    " - `disk_projection` (default — emitted when CHART: is omitted) "
+    "for DISK USAGE / STORAGE EXHAUSTION / DISK CAPACITY questions. "
+    "Trigger phrases: 'low on disk', 'out of disk space', 'running "
+    "out of storage', 'disk fill', 'disk usage', 'disk projection', "
+    "'when will X run out', 'top hosts by disk'. Renders historical "
+    "disk-used % + linear-projection forecast of when the disk fills "
+    "up.\n"
+    " - `memory_history` for MEMORY USAGE TIME-SERIES questions. "
+    "Trigger phrases: 'memory graph', 'show ram usage over time', "
+    "'memory usage in the past 24 hours', 'plot memory for X', "
+    "'memory chart'. Renders memory-used % over the last 24 hours "
+    "for each named host.\n"
+    " - `cpu_history` for CPU USAGE TIME-SERIES questions. Trigger "
+    "phrases: 'cpu graph', 'show cpu usage over time', 'plot cpu "
+    "for X'. Same shape as memory_history but for cpu_percent.\n"
+    "The SPA picks up the HOSTS + CHART lines, strips them from the "
+    "visible text, and renders the requested inline charts for each "
+    "host below the answer. EMIT THE CHART KIND THAT MATCHES THE "
+    "QUESTION — rendering a disk projection next to a memory question "
+    "is a UX bug. DO NOT emit HOSTS at all for: log questions ('any "
+    "errors?', 'which hosts have warnings?'), network questions, "
+    "port-scan questions, general-status questions ('which hosts are "
+    "down?', 'which are paused?'), or any question that lists hosts "
+    "but doesn't ask about disk / memory / CPU time-series. When in "
+    "doubt, OMIT the HOSTS line — the prose answer alone is correct; "
+    "the chart is an opt-in enrichment. When you do emit HOSTS, list "
+    "each host's curated `id` field — NOT its label, alias, or "
+    "display name — in the order they appear in your prose. Maximum "
+    "8 ids. Use ONLY ids that appear in the supplied 'Hosts:' "
+    "context block — never invent ids the SPA doesn't know about. "
+    "The HOSTS / CHART lines and the ACTION line are INDEPENDENT — "
+    "all can appear (HOSTS first, then CHART, then ACTION). "
+    "Example DISK reply: 'Top 3 hosts low on disk: 1. nas01 — 92% "
+    "used, 2. db02 — 88%, 3. cache03 — 85%.\\nHOSTS: nas01, db02, "
+    "cache03'. Example MEMORY-CHART reply: 'Here is opnsense's "
+    "memory usage over the past 24 hours.\\nHOSTS: opnsense\\nCHART: "
+    "memory_history'."
 )
 
 
@@ -1328,6 +1341,50 @@ def parse_palette_hosts(text: str, known_ids: set[str] | None = None) -> tuple[l
             break
     cleaned_text = text[: m.start()].rstrip()
     return cleaned_ids, cleaned_text
+
+
+_VALID_CHART_KINDS: frozenset[str] = frozenset({
+    "disk_projection",   # default — historical disk-used % + linear forecast
+    "memory_history",    # mem-used % time-series, last 24 h
+    "cpu_history",       # cpu_percent time-series, last 24 h
+})
+
+
+def parse_palette_chart_kind(text: str) -> tuple[str, str]:
+    """Extract the optional `CHART: <kind>` trailer from a palette
+    response. Returns ``(chart_kind, cleaned_text)``.
+
+    Pairs with :func:`parse_palette_hosts` — when the AI emits BOTH
+    HOSTS + CHART, the SPA renders the requested chart kind for each
+    listed host instead of the default disk-projection. When CHART is
+    omitted (or unrecognised), the caller defaults to
+    `disk_projection` for back-compat with existing AI training.
+
+    Validation: the value must be one of `_VALID_CHART_KINDS`. An
+    invalid kind (typo, hallucinated kind) is silently dropped — the
+    SPA falls back to the default rather than rendering an empty
+    "unknown chart" shell.
+
+    Tolerant matcher mirrors `parse_palette_hosts`: matches end-of-line
+    or anywhere-mid-body with optional surrounding whitespace /
+    backticks / asterisks. Strips the matched line from the cleaned
+    text whether or not the kind is recognised, so a typo'd CHART:
+    line never leaks into the visible answer.
+    """
+    if not text:
+        return "", text or ""
+    import re as _re
+    m = _re.search(
+        r"(?:^|\n)[\s`*]*CHART\s*:\s*([A-Za-z_][A-Za-z0-9_]*)[\s`.*]*$",
+        text, _re.IGNORECASE | _re.MULTILINE,
+    )
+    if not m:
+        return "", text
+    raw = m.group(1).strip().lower()
+    cleaned_text = text[: m.start()].rstrip()
+    if raw in _VALID_CHART_KINDS:
+        return raw, cleaned_text
+    return "", cleaned_text
 
 
 def parse_palette_action_hosts(text: str, known_ids: set[str] | None = None) -> tuple[list[str], str]:

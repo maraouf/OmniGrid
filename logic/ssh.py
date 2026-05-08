@@ -515,17 +515,26 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     # Target hostname resolution priority:
     # 1. per-host ssh.host override (operator pasted the full FQDN)
     # 2. per-host ssh.fqdn (alias for 1)
-    # 3. record.id + ssh_fqdn_suffix (global suffix; ".example.com" →
+    # 3. curated `address` field (dedicated probe target — same field
+    #    port-scan / ping / SNMP fall back to. Lets the operator set
+    #    ONE address that every probe uses; SSH inherits it as the
+    #    default when no SSH-specific override is set)
+    # 4. record.id + ssh_fqdn_suffix (global suffix; ".example.com" →
     #    "webserver" becomes "webserver.example.com")
-    # 4. record.id as-is
+    # 5. asset-inventory canonical FQDN
+    # 6. record.id as-is
     # We only append the suffix when the id has no dot — ids that
     # already contain a dot are treated as already-fully-qualified.
     ssh_host_override = (per_host.get("host") or per_host.get("fqdn") or "").strip()
+    curated_address = (record.get("address") or "").strip()
     base_id = record.get("id") or ""
     host_resolution_path: str
     if ssh_host_override:
         resolved["host"] = ssh_host_override
         host_resolution_path = "per_host_override"
+    elif curated_address:
+        resolved["host"] = curated_address
+        host_resolution_path = "curated_address"
     else:
         suffix = (g.get("fqdn_suffix") or "").strip()
         if base_id and "." not in base_id and suffix:
