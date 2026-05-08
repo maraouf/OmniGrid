@@ -132,22 +132,6 @@
               <input type="checkbox" x-model="headerClockEnabled">
               <span x-text="t('topbar_widgets.show_clock')"></span>
             </label>
-            <!-- AI sidebar launcher visibility — keyboard-only operators
-                 who don't use the AI sidebar can hide the floating
-                 launcher button so it isn't in their Tab cycle on every
-                 page load. Cmd-K (Ctrl-K) still opens the sidebar
-                 regardless. Persisted to ui_prefs.ai_sidebar_launcher_hidden
-                 so the choice follows the operator across browsers. -->
-            <label class="flex items-center gap-2 fs-sm"
-                   x-show="aiSidebarSurfaceEnabled()">
-              <input type="checkbox"
-                     :checked="aiSidebarLauncherHidden"
-                     @change="setAiSidebarLauncherHidden($event.target.checked)">
-              <span x-text="t('topbar_widgets.hide_ai_launcher')"></span>
-            </label>
-            <p x-show="aiSidebarSurfaceEnabled() && aiSidebarLauncherHidden"
-               class="fs-3xs text-[var(--text-faint)] -mt-2 ms-6"
-               x-text="t('topbar_widgets.hide_ai_launcher_hint')"></p>
             <!-- Weather toggle hidden entirely when the admin
                  hasn't configured Open-Meteo upstream — there's no
                  endpoint to call, so the feature isn't available
@@ -185,13 +169,40 @@
             <div x-show="headerWeatherEnabled && weather && weather.error"
                  class="fs-xs text-[var(--danger)]"
                  x-text="t('topbar_widgets.fetch_failed', { error: (weather && weather.error) || '' })"></div>
+            <!-- AI preferences sub-section — visually separated from
+                 the topbar widgets above (clock + weather) but shares
+                 the SAME Save button below to avoid two Save buttons
+                 on one card. Hidden entirely when the AI feature is
+                 globally disabled (no provider configured), since
+                 there's nothing to opt out of in that state. -->
+            <template x-if="aiSidebarSurfaceEnabled()">
+              <div>
+                <hr class="border-[var(--border)] my-4">
+                <div class="flex items-center gap-2 mb-3">
+                  <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sparkles"/>
+                  </svg>
+                  <h3 class="font-semibold fs-md" x-text="t('settings.ai_prefs.title')"></h3>
+                </div>
+                <label class="flex items-center gap-2 fs-sm">
+                  <input type="checkbox" x-model="aiSidebarLauncherHiddenDraft">
+                  <span x-text="t('topbar_widgets.hide_ai_launcher')"></span>
+                </label>
+                <p x-show="aiSidebarLauncherHiddenDraft"
+                   class="fs-3xs text-[var(--text-faint)] mt-1 ms-6"
+                   x-text="t('topbar_widgets.hide_ai_launcher_hint')"></p>
+              </div>
+            </template>
             <!-- Save button — toggling the checkboxes / typing in the
                  lat/lon/label fields ONLY marks the form dirty. Save
                  commits to localStorage AND syncs to /api/me/ui-prefs
                  for cross-device persistence. Same dirty-pattern as
                  the rest of the admin tabs (Profile / Apprise / OIDC
                  / etc.) — amber ring + "Unsaved" indicator while
-                 dirty, both clear after save. -->
+                 dirty, both clear after save. The Save button covers
+                 BOTH the topbar widgets above AND the AI preferences
+                 sub-section — all fields ride one dirty-tracker
+                 (`headerPrefsDirty`) and one save handler. -->
             <div class="pt-2 border-t border-[var(--border)] mt-3 flex items-center gap-3 flex-wrap">
               <button type="button"
                       @click="saveHeaderPrefs()"

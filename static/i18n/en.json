@@ -669,6 +669,9 @@
       "description": "Choose the interface language. Direction (LTR/RTL) follows the language automatically. Additional language files can be dropped into the static/i18n/ directory.",
       "label": "Language"
     },
+    "ai_prefs": {
+      "title": "AI preferences"
+    },
     "profile": {
       "account": "Account",
       "username": "Username",
@@ -1182,6 +1185,10 @@
         "tuning_hosts_parallel_fetch": {
           "label": "Hosts fan-out concurrency",
           "help": "Cap on the SPA's PARALLEL /api/hosts/one/{id} calls during a Hosts-tab load / refresh. The SPA fetches the curated host list first (fast skeleton), then fans out per-host probes with this concurrency. Lower it if a slow Webmin / unreachable node-exporter saturates NPM's upstream pool — symptom is 504s on UNRELATED static-asset requests (icons, fonts) because their requests queue behind the slow per-host probes. Raise it on a beefy NPM + manager with many hosts so the Hosts tab paints fully in fewer wall-clock seconds. Default 6. Takes effect on the next /api/me round-trip."
+        },
+        "tuning_hosts_idle_fill_interval_seconds": {
+          "label": "Hosts idle-time progressive fill (seconds)",
+          "help": "Cadence at which the Hosts view trickle-fills off-screen rows in the background while you're idle at the top of the page. Without this, scroll-driven lazy load only fetches what's currently in the viewport — if you stay at the top, the rows below stay un-loaded, and when you finally scroll, every off-screen row spinners up at once. With this set, one not-yet-loaded host is enqueued every N seconds into the SAME shared refresh queue the IntersectionObserver feeds, so by the time you scroll the data is already there. Skips when the tab is hidden, when a host drawer is open, when active scrolling is happening (the IO observer's burst-coalescer takes over), and once every host has loaded. Backend pressure stays bounded by the existing `tuning_hosts_parallel_fetch` worker cap — the trickle never exceeds your fan-out limit. Set 0 to disable entirely (scroll-only lazy load — pre-feature behaviour); 1-2 for fast pre-warm on small fleets; default 3 for an invisible-on-the-backend trickle. Range 0..30. Takes effect on the next /api/me round-trip."
         },
         "tuning_ai_sidebar_width_px": {
           "label": "AI sidebar width (px)",

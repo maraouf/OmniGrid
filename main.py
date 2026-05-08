@@ -13071,6 +13071,7 @@ async def _run_port_scan_async(
                 "host_id":     hid,
                 "scan_id":     scan_id,
                 "ok":          False,
+                "target":      target,
                 "error":       "timeout",
                 "ports_open":  0,
                 "udp_open":    len(partial_udp_open),
@@ -13086,7 +13087,8 @@ async def _run_port_scan_async(
         try:
             _events.publish("port_scan:completed", {
                 "host_id": hid, "scan_id": scan_id, "ok": False,
-                "error": f"{type(e).__name__}: {e}",
+                "target":  target,
+                "error":   f"{type(e).__name__}: {e}",
             })
         except Exception:  # noqa: BLE001
             pass
