@@ -4898,6 +4898,18 @@ async def api_ai_palette(
         out["hosts"] = host_ids
     text = cleaned_text
 
+    # Optional `CHART: <kind>` trailer pairs with HOSTS:. When omitted
+    # OR unrecognised, the SPA defaults to `disk_projection` for back-
+    # compat with the original behaviour. Recognised kinds:
+    # `disk_projection` / `memory_history` / `cpu_history`. Strips the
+    # CHART: line from `text` whether or not we keep the kind so it
+    # never leaks into the visible prose.
+    chart_kind, cleaned_text = _ai.parse_palette_chart_kind(text)
+    if chart_kind:
+        out["text"] = cleaned_text
+        out["chart_kind"] = chart_kind
+    text = cleaned_text
+
     # Split the optional `ACTION_HOSTS: <id1>, <id2>, ...` trailer
     # off too. Distinct from HOSTS: above — ACTION_HOSTS targets
     # specifically for the action(s) emitted in this turn, NOT the
@@ -7140,9 +7152,20 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
         # resolves a target. The previous bare-`h["id"]` fallthrough fanned
         # out probes to every host on fleet-enable, ~all-but-mapped of which
         # timed out. Resolution chain: alias > snmp_name > SKIP.
+        # Resolution chain for the SNMP probe target:
+        #   1. snmp_aliases[h["id"]]   — global Docker-hostname → SNMP-target map
+        #   2. h["snmp_name"]          — per-host SNMP-specific target override
+        #   3. h["address"]            — curated dedicated probe target (used by
+        #                                 port-scan + ping + SSH too — single
+        #                                 source of truth for "the LAN address
+        #                                 of this host" so disabling other
+        #                                 providers doesn't leave SNMP without
+        #                                 a target)
+        #   4. ""                      — SKIP (no target → no probe)
         snmp_target = (
             (state.get("snmp_aliases") or {}).get(h["id"])
             or (h.get("snmp_name") or "").strip()
+            or (h.get("address") or "").strip()
             or ""
         )
         # Per-(snmp, host) auto-pause short-circuit. When the
@@ -7860,26 +7883,31 @@ def _resolve_ping_target(h: dict) -> Optional[str]:
     is often a label like "ftth" that doesn't resolve via DNS).
 
     Resolution chain (FIRST non-empty wins):
-      1. `ping.host` (per-host override on the row)
-      2. `ssh.fqdn` (per-host SSH FQDN — most curated rows have this)
-      3. `ssh.host` (alternate SSH-target spelling, legacy)
-      4. `h.id` (last-resort fallback)
+      1. `address` (curated dedicated probe target — independent of
+         any provider, operator-set as "the LAN address for this host")
+      2. `ping.host` (per-host override on the ping provider)
+      3. `ssh.fqdn` (per-host SSH FQDN — most curated rows have this)
+      4. `ssh.host` (alternate SSH-target spelling, legacy)
+      5. `h.id` (last-resort fallback)
 
     The curated `url` field is DELIBERATELY excluded — it carries the
     clickable web-UI link the operator wants to surface on the host
-    card (e.g. `https://app.plex.tv` for a Plex media-server card).
-    Probing that hostname would target the PUBLIC service relay
-    instead of the LAN host the row represents — wrong data AND
-    a privacy concern. If the operator wants the probe to hit a
-    different address than the host id, they set ``ping.host``
-    explicitly.
+    card. Probing it would target the public service relay instead of
+    the LAN host (wrong data + privacy concern).
+
+    The `address` field is the canonical dedicated probe target —
+    independent of any provider so disabling SNMP / ping / SSH never
+    leaves the other probes without a target. Operators set it in
+    Admin → Hosts. If left blank, the chain falls through to provider-
+    specific overrides then the bare host_id.
     """
     ping_cfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
     if not bool(ping_cfg.get("enabled", False)):
         return None
     ssh_cfg = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
     candidate = (
-        (ping_cfg.get("host") or "").strip()
+        (h.get("address") or "").strip()
+        or (ping_cfg.get("host") or "").strip()
         or (ssh_cfg.get("fqdn") or "").strip()
         or (ssh_cfg.get("host") or "").strip()
         or (h.get("id") or "").strip()
@@ -8018,6 +8046,11 @@ def _shape_host_api_row(
         "snmp_enabled":    bool((h.get("snmp") or {}).get("enabled", False)),
         "url":             h.get("url") or "",
         "icon":            h.get("icon") or "",
+        # Dedicated probe target — surfaced on the API row so the SPA
+        # can gate the host-drawer port-scan button on "address is
+        # set". Empty value = port-scan disabled with helper toast
+        # asking the operator to set it in Admin → Hosts.
+        "address":         h.get("address") or "",
         "providers":       providers_hit or [],
         "status":          host_status,
         # Raw per-provider status surfaced so the SPA's `providerStates(h)`
@@ -8791,6 +8824,17 @@ def _load_hosts_config() -> list[dict]:
             # today; captured so the Hosts drawer can display it and
             # a future group-filter iteration can parse it.
             "ip":          (h.get("ip") or "").strip()[:64],
+            # Dedicated probe target — hostname OR IP that every probe
+            # path falls back to when its provider-specific override is
+            # empty (port-scan / ping / SNMP / SSH). Independent of any
+            # provider so disabling SNMP / ping / SSH never leaves the
+            # other probes without a target. Distinct from the legacy
+            # `ip` field above (which is display-only metadata, often
+            # carrying CIDR / subnet notation that's not a connect()
+            # target). Free-text, max 64 chars; accepts an IP literal
+            # (`192.168.1.50`) OR a hostname (`opnsense.home.lan`) the
+            # OmniGrid container's resolver can reach.
+            "address":     (h.get("address") or "").strip()[:64],
             # Per-host SSH override sub-dict. Optional user / port /
             # disabled / host override — the key material itself lives
             # in the GLOBAL ssh_default_private_key setting (V1 scope:
@@ -9228,6 +9272,10 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             "custom_number": _coerce_int(h.get("custom_number")),
             # Free-text IP — see _load_hosts_config for rationale.
             "ip":            (h.get("ip") or "").strip()[:64],
+            # Dedicated probe target — hostname OR IP. Used as fallback
+            # by port-scan / ping / SNMP / SSH when no provider-specific
+            # override is set. See _load_hosts_config for full rationale.
+            "address":       (h.get("address") or "").strip()[:64],
             # Per-host SSH override block — see _clean_host_ssh for
             # the shape contract. {} when no override is set.
             "ssh":           _clean_host_ssh(h.get("ssh")),
@@ -10411,7 +10459,8 @@ async def api_hosts_debug(
             ping_cfg = (record.get("ping") or {}) if isinstance(record.get("ping"), dict) else {}
             ssh_cfg = (record.get("ssh") or {}) if isinstance(record.get("ssh"), dict) else {}
             target = (
-                (ping_cfg.get("host") or "").strip()
+                (record.get("address") or "").strip()
+                or (ping_cfg.get("host") or "").strip()
                 or (ssh_cfg.get("fqdn") or "").strip()
                 or (ssh_cfg.get("host") or "").strip()
                 or record["id"]
@@ -13341,19 +13390,26 @@ async def api_hosts_port_scan(
                    f"Enable it in Admin → Hosts.",
         )
     # Resolve the scan target. Resolution chain (FIRST non-empty wins):
+    # curated `address` field (dedicated, provider-independent) →
     # per-host `ping.host` override → `ssh.fqdn` → `ssh.host` → bare
     # host_id. The curated `url` field is DELIBERATELY excluded —
     # it carries the clickable web-UI link the operator wants to
-    # surface on the host card (e.g. `https://app.plex.tv` for a
-    # Plex media-server card). Probing that hostname would target
-    # the PUBLIC service relay instead of the LAN host the row
-    # represents — wrong data AND a privacy concern. If the operator
-    # wants the scan to hit a different address than the host id,
-    # they set `ping.host` (or `ssh.host`) explicitly.
+    # surface on the host card. Probing that would target the public
+    # service relay instead of the LAN host (wrong data + privacy).
+    #
+    # The `address` field is the canonical dedicated probe target.
+    # User-flagged: provider fields (snmp_name / ping.host / ssh.host)
+    # can all be DISABLED independently — relying on any of them as
+    # the primary probe target leaves port-scan broken when a provider
+    # is turned off. The `address` field is independent of any
+    # provider and survives provider toggles. Operators set it in
+    # Admin → Hosts. If left blank, the chain falls through to
+    # provider-specific overrides then the bare host_id.
     ssh_cfg = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
     ping_cfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
     target = (
-        (ping_cfg.get("host") or "").strip()
+        (h.get("address") or "").strip()
+        or (ping_cfg.get("host") or "").strip()
         or (ssh_cfg.get("fqdn") or "").strip()
         or (ssh_cfg.get("host") or "").strip()
         or hid

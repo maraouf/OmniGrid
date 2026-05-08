@@ -392,6 +392,26 @@
                   </div>
                 </div>
               </div>
+              <!-- Hostname or IP — the dedicated probe target. Used as
+                   the default by port-scan / ping / SNMP / SSH when no
+                   provider-specific override is set. Independent of any
+                   provider so disabling SNMP / ping / SSH never leaves
+                   the other probes without a target. Free-text up to
+                   64 chars; accepts an IP literal (`192.168.1.50`) OR
+                   a hostname (`opnsense.home.lan`) the OmniGrid
+                   container's resolver can reach. -->
+              <div class="mt-3">
+                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                  <span x-text="t('admin_hosts.row.address_label')"></span>
+                  <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                        x-text="t('admin_hosts.row.address_hint')"></span>
+                </label>
+                <input type="text" x-model="row.address" :disabled="isReadonly()"
+                       @input="markHostRowDirty(idx)"
+                       class="w-full mono fs-sm py-1.5"
+                       maxlength="64"
+                       :placeholder="t('admin_hosts.row.address_placeholder')">
+              </div>
               <!-- ========== Providers block ==========
                    Per-host provider name mappings. Each field hides
                    when its global provider is disabled in Settings →
