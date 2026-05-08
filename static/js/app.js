@@ -5166,7 +5166,7 @@ function app() {
               + 'onclick="window.__ogCopyAiCode(this)" '
               + 'aria-label="Copy"><svg width="12" height="12" aria-hidden="true">'
               + '<use href="/img/ui-sprite.svg#icon-copy"/></svg></button>'
-            + '<pre class="ai-resp-pre"><code>' + escBody + '</code></pre>'
+            + '<pre class="ai-resp-pre scrollbar"><code>' + escBody + '</code></pre>'
           + '</div>'
         );
       });
@@ -14123,6 +14123,74 @@ function app() {
         }
         if (el && typeof el.blur === 'function') el.blur();
         return;
+      }
+
+      // Drawer arrow-key navigation — Left / Right step through the
+      // currently-VISIBLE filtered list, no wrap. Fires BEFORE the
+      // body-focused gate so the operator can press arrows while
+      // focus lives anywhere inside the drawer (close button, tab
+      // strip, etc.) — but ONLY when a drawer is open AND no
+      // modifier is held AND not key-repeat (the user-input guards
+      // for normal typing don't apply here because no text-input has
+      // focus when the drawer's outermost element is focused; Alpine
+      // re-targets clicks on the drawer body to the drawer root).
+      // Filter-respecting: `filteredHosts()` for the host drawer,
+      // `filteredItems` for the service / container drawer. Boundaries
+      // stop (no wrap) so the operator gets a clear "end of list"
+      // signal when they hit the edge.
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+          && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+          && !e.repeat && !e.isComposing) {
+        // Skip if focus is in a real text input — the operator is
+        // editing text inside the drawer (e.g. the SSH command
+        // textarea, the AI sidebar input, an admin-form field).
+        const inText = !!target && (
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          (target.getAttribute && (
+            target.getAttribute('contenteditable') === 'true' ||
+            target.getAttribute('contenteditable') === '' ||
+            target.getAttribute('role') === 'textbox'
+          )) ||
+          (target.closest && target.closest(
+            'input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"]'
+          ))
+        );
+        if (!inText) {
+          if (this.drawerHost) {
+            const list = (typeof this.filteredHosts === 'function')
+              ? this.filteredHosts() : (this.hosts || []);
+            const idx = list.findIndex(h => h && h.id === this.drawerHost.id);
+            if (idx >= 0) {
+              const next = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
+              if (next >= 0 && next < list.length) {
+                e.preventDefault();
+                this.openHostDrawer(list[next]);
+              } else {
+                // Boundary — stop, no wrap. Eat the keystroke so it
+                // doesn't scroll the drawer body or the page.
+                e.preventDefault();
+              }
+              return;
+            }
+          }
+          if (this.drawerItem) {
+            const list = (this.sortedFiltered && this.sortedFiltered.length)
+              ? this.sortedFiltered
+              : (this.filteredItems || this.items || []);
+            const idx = list.findIndex(it => it && it.id === this.drawerItem.id);
+            if (idx >= 0) {
+              const next = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
+              if (next >= 0 && next < list.length) {
+                e.preventDefault();
+                this.openDrawer(list[next]);
+              } else {
+                e.preventDefault();
+              }
+              return;
+            }
+          }
+        }
       }
 
       // Cmd+K / Ctrl+K palette toggle is owned by the capture-phase

@@ -8432,7 +8432,7 @@
                 <span class="text-[10.5px] text-[var(--text-faint)]"
                       x-text="t('command_palette.bulk.dsl_hint')"></span>
               </div>
-              <div class="cmdpal-bulk-chips">
+              <div class="cmdpal-bulk-chips scrollbar">
                 <template x-for="h in (commandPaletteBulkState() && commandPaletteBulkState().matched) || []"
                           :key="h.id || h.host">
                   <button type="button"

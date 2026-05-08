@@ -97,6 +97,29 @@
     --pill-offline-bg: rgba(100, 116, 139, .12);
     --pill-offline-br: rgba(100, 116, 139, .25);
     --pill-offline-fg: #94a3b8;
+    /* Warning pill — amber. Used by `.ai-resp-chart-stale` +
+       `.ai-resp-chart-confidence--medium` + a few drawer hint
+       chips. Resolved values picked so the chip reads against
+       both surface-2 and surface-3 backgrounds; `.fg` is the
+       canonical amber text colour, `.br` is `.fg` at ~25%
+       opacity, `.bg` matches the existing `--pill-update-bg`
+       weight. */
+    --pill-warning-bg: rgba(245, 158, 11, .12);
+    --pill-warning-br: rgba(245, 158, 11, .25);
+    --pill-warning-fg: #fbbf24;
+    /* AI sidebar drawer width — runtime-tunable via the
+       `tuning_ai_sidebar_width_px` TUNABLE; consumed inside the
+       `.ai-sidebar-drawer` ruleset via `var(--ai-sidebar-width,
+       460px)`. Declared on :root for IDE awareness + fail-loud
+       if a future consumer drops the fallback. */
+    --ai-sidebar-width: 460px;
+    /* Floating launcher + sidebar drawer shadows. Pre-fix the
+       AI sidebar block hard-coded rgba(0,0,0,.25) / rgba(0,0,0,.35)
+       inline; tokenising matches the rest of the stylesheet's
+       no-raw-rgba-outside-:root rule and lets the dark / light
+       theme blocks set theme-appropriate weights independently. */
+    --ai-shadow-launcher: 0 4px 12px rgba(0, 0, 0, .35);
+    --ai-shadow-drawer:   0 0 24px rgba(0, 0, 0, .25);
     /* Metric chart swatches — matched to Beszel's palette so the
        Hosts view reads familiar. */
     /* Matches Beszel's default palette so the two dashboards feel
@@ -381,6 +404,14 @@
     --pill-offline-bg: rgba(100, 116, 139, .08);
     --pill-offline-br: rgba(100, 116, 139, .25);
     --pill-offline-fg:;
+    /* Warning pill — amber, light-theme tuned darker for contrast. */
+    --pill-warning-bg: rgba(217, 119, 6, .10);
+    --pill-warning-br: rgba(217, 119, 6, .30);
+    --pill-warning-fg: #b45309;
+    /* AI sidebar drawer width + shadows — see :root[dark] for rationale. */
+    --ai-sidebar-width: 460px;
+    --ai-shadow-launcher: 0 4px 12px rgba(0, 0, 0, .15);
+    --ai-shadow-drawer:   0 0 24px rgba(0, 0, 0, .10);
     --pill-degraded-bg: rgba(217, 119, 6, .10);
     --pill-degraded-br: rgba(217, 119, 6, .30);
     --pill-degraded-fg: #b45309;
@@ -2044,9 +2075,9 @@ details summary::-webkit-details-marker {
    palette to match the chip's UX semantics. */
 .ai-resp-chart-stale {
     font-size: var(--fs-2xs);
-    color: var(--pill-warning-fg, var(--warning));
-    background: var(--pill-warning-bg, transparent);
-    border: 1px solid var(--pill-warning-br, var(--warning));
+    color: var(--pill-warning-fg);
+    background: var(--pill-warning-bg);
+    border: 1px solid var(--pill-warning-br);
     border-radius: var(--r-sm);
     padding: 0 var(--s-2);
     line-height: 1.4;
@@ -2054,12 +2085,12 @@ details summary::-webkit-details-marker {
     letter-spacing: 0.05em;
 }
 .ai-resp-chart-confidence--high {
-    background: var(--pill-ok-bg, var(--surface));
+    background: var(--pill-ok-bg);
     color: var(--success);
     border-color: var(--success);
 }
 .ai-resp-chart-confidence--medium {
-    background: var(--pill-warning-bg, var(--surface));
+    background: var(--pill-warning-bg);
     color: var(--warning);
     border-color: var(--warning);
 }
@@ -3499,14 +3530,14 @@ details summary::-webkit-details-marker {
     transform: translateY(-50%);
     z-index: 35;
     background: var(--primary);
-    color: var(--text-on-primary, #fff);
+    color: var(--text-on-primary);
     border: 0;
     border-radius: 0 var(--r-lg) var(--r-lg) 0;
     width: 32px;
     height: 56px;
     padding: 0;
     cursor: pointer;
-    box-shadow: 2px 0 8px rgba(0, 0, 0, .25);
+    box-shadow: var(--ai-shadow-launcher);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3524,13 +3555,13 @@ details summary::-webkit-details-marker {
     left: auto;
     right: 0;
     border-radius: var(--r-lg) 0 0 var(--r-lg);
-    box-shadow: -2px 0 8px rgba(0, 0, 0, .25);
+    box-shadow: var(--ai-shadow-launcher);
 }
 .ai-sidebar-backdrop {
     position: fixed;
     inset: 0;
     z-index: 39;
-    background: var(--backdrop, rgba(0, 0, 0, .35));
+    background: var(--backdrop);
     cursor: pointer;
 }
 .ai-sidebar-drawer {
@@ -3545,12 +3576,12 @@ details summary::-webkit-details-marker {
        lands during the brief window before /api/me hydrates AND when
        the operator hasn't customised the knob. Mobile layout below
        overrides to 100vw regardless. */
-    width: var(--ai-sidebar-width, 480px);
+    width: var(--ai-sidebar-width);
     max-width: 100vw;
     z-index: 40;
     background: var(--surface);
     border-inline-end: 1px solid var(--border);
-    box-shadow: 4px 0 16px rgba(0, 0, 0, .25);
+    box-shadow: var(--ai-shadow-drawer);
     display: flex;
     flex-direction: column;
     transform: translateX(-100%);
@@ -3565,7 +3596,7 @@ details summary::-webkit-details-marker {
     border-inline-end: 0;
     border-inline-start: 1px solid var(--border);
     transform: translateX(100%);
-    box-shadow: -4px 0 16px rgba(0, 0, 0, .25);
+    box-shadow: var(--ai-shadow-drawer);
 }
 [dir="rtl"] .ai-sidebar-drawer.open {
     transform: translateX(0);
@@ -3605,7 +3636,7 @@ details summary::-webkit-details-marker {
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     /* Match the Send button's height so the row reads aligned. */
-    padding: 4px 22px 4px 8px;
+    padding: var(--s-2) 22px var(--s-2) var(--s-4);
     line-height: 1.4;
     font-family: inherit;
     font-weight: 500;
@@ -3682,7 +3713,7 @@ details summary::-webkit-details-marker {
 }
 .ai-bubble-user {
     background: var(--primary);
-    color: var(--text-on-primary, #fff);
+    color: var(--text-on-primary);
     border-bottom-right-radius: 4px;
 }
 [dir="rtl"] .ai-bubble-user {
@@ -3714,7 +3745,7 @@ details summary::-webkit-details-marker {
        no longer requires sharp eyes to scan model + tokens + ms. */
     font-size: var(--fs-xs) !important;
     color: var(--text-dim);
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     line-height: 1.25;
 }
 .ai-bubble-action {
@@ -3748,7 +3779,7 @@ details summary::-webkit-details-marker {
     gap: 6px;
     margin-top: 4px;
     padding: 4px 8px;
-    background: var(--pill-warning-bg, var(--surface-3));
+    background: var(--pill-warning-bg);
     color: var(--pill-warning-fg, var(--warning));
     border: 1px solid var(--pill-warning-br, var(--warning));
     border-radius: var(--r-sm);
@@ -3773,7 +3804,7 @@ details summary::-webkit-details-marker {
 }
 .ai-confirm-btn-yes {
     background: var(--danger);
-    color: var(--text-on-primary, #fff);
+    color: var(--text-on-primary);
     border-color: var(--danger);
 }
 .ai-confirm-btn-yes:hover {
@@ -5015,11 +5046,11 @@ details summary::-webkit-details-marker {
 }
 
 /* Offline / down-services counter — same shape as `.nav-update-badge`
-   but red. Surfaced on the Stacks AND Services topbar nav buttons
-   when `counts.offline > 0` so the operator sees the at-a-glance
-   failure count regardless of which view they have open. Token
-   family is `--pill-offline-*` (matches the per-row offline pills
-   in the table so the visual mapping carries through). */
+   but RED (uses the `--pill-error-*` token family). The
+   `--pill-offline-*` family is grey/slate (designed for muted
+   "offline" pills inside the table where the row's status pill
+   already carries the colour) — the topbar badge needs the strong
+   red signal so the at-a-glance failure count actually pops. */
 .nav-offline-badge {
     display: inline-flex;
     align-items: center;
@@ -5028,9 +5059,9 @@ details summary::-webkit-details-marker {
     height: 18px;
     padding: 0 var(--s-3);
     border-radius: var(--r-md);
-    background: var(--pill-offline-bg);
-    color: var(--pill-offline-fg);
-    border: 1px solid var(--pill-offline-br);
+    background: var(--pill-error-bg);
+    color: var(--pill-error-fg);
+    border: 1px solid var(--pill-error-br);
     font-size: var(--fs-2xs);
     font-weight: 700;
     line-height: 1;
