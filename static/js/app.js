@@ -798,6 +798,7 @@ function app() {
     aiRecentSlashActions: [],    // FIFO of last 5 slash-action ids; persisted to ui_prefs.ai_recent_slash_actions. Only populated for ACTION kinds (not navigation), so "Open host:web01" can't pollute "Pause sampling" recents.
     aiSidebarIncidentChip: null, // {kind, host_id, title, query, ts} — proactive chip rendered above the input when an SSE host-failure / warning-notification event lands AND the sidebar is open. Newest wins (one at a time); click runs the prepared query, X dismisses. Cleared after the query fires so the chip doesn't linger after the operator engaged with it.
     aiSidebarLauncherHidden: false, // Operator preference; hides the floating AI launcher. Cmd-K still opens the sidebar. Persisted to ui_prefs.ai_sidebar_launcher_hidden.
+    aiSidebarLauncherHiddenDraft: false, // Draft value for the Settings → Profile checkbox. Marked dirty when it diverges from `aiSidebarLauncherHidden`; Save commits via `setAiSidebarLauncherHidden(draft)`. Hydrated alongside the live value.
     aiSidebarMode: 'approval', // 'approval' (default — destructive actions render an inline-confirm chip) OR 'autonomous' (AI fires every action — including destructive — without prompting). Persisted to ui_prefs.ai_sidebar_mode so the choice follows the operator across browsers / machines. Read by `_runCommandPaletteAction`'s sidebar branch — if mode === 'autonomous', the destructive-confirm path is bypassed entirely and the action fires immediately.
     // In-flight port-scan tracker — global keyed by host_id so the
     // Scan-ports button can disable itself across the whole app
@@ -1784,6 +1785,12 @@ function app() {
           try {
             const hidden = m && m.ui_prefs && m.ui_prefs.ai_sidebar_launcher_hidden;
             this.aiSidebarLauncherHidden = !!hidden;
+            // Sync the draft so the Settings → Profile checkbox starts
+            // un-dirty after hydration. Without this, the checkbox
+            // would render with the saved value but `headerPrefsDirty()`
+            // would return true on the very first render because the
+            // draft default differs from the just-loaded value.
+            this.aiSidebarLauncherHiddenDraft = !!hidden;
           } catch (_) {}
           // AI assistant conversation history — restore from
           // ui_prefs.ai_conversation so a hard reload (or moving to a
@@ -6225,6 +6232,14 @@ function app() {
         lat:   this.headerWeatherLat == null ? '' : String(this.headerWeatherLat),
         lon:   this.headerWeatherLon == null ? '' : String(this.headerWeatherLon),
         label: this.headerWeatherLabel || '',
+        // AI launcher visibility participates in the dirty/save flow
+        // so toggling the checkbox marks the form dirty (amber ring +
+        // "Unsaved" pulse-dot) and reverting it back to the original
+        // un-marks it. Save is what commits the change to
+        // ui_prefs.ai_sidebar_launcher_hidden — auto-save was the
+        // pre-fix behaviour and didn't fit the rest of the form's
+        // explicit-save model.
+        aiLauncherHidden: !!this.aiSidebarLauncherHiddenDraft,
       });
     },
     headerPrefsDirty() {
@@ -6265,6 +6280,16 @@ function app() {
       // Re-fetch with the new settings immediately rather than waiting
       // for the 10-min tick. Also flushes weather to null when disabled.
       this.loadHeaderWeather();
+      // Commit the AI-launcher draft (Settings → Profile checkbox)
+      // through its existing PATCH helper. The draft is what the
+      // checkbox binds to via x-model; save flips the live value
+      // and persists to `ui_prefs.ai_sidebar_launcher_hidden`. Done
+      // AFTER the snapshot re-baseline above so the dirty-flag
+      // clears cleanly post-save.
+      if (this.aiSidebarLauncherHiddenDraft !== this.aiSidebarLauncherHidden) {
+        try { this.setAiSidebarLauncherHidden(!!this.aiSidebarLauncherHiddenDraft); }
+        catch (_) {}
+      }
       // Toast confirmation — per-browser preferences auto-save on
       // change, but operators coming from the per-user Profile section
       // expect a visual "saved" signal.
@@ -10688,17 +10713,27 @@ function app() {
               // scan ever. Backend signals via `is_first_scan` in the
               // SSE payload (only true when no prior scan_id row
               // exists in `host_port_scans` for this host).
+              // Surface the actual scan TARGET (resolved hostname /
+              // IP / `ping.host` override) in the completion toast,
+              // not the host display label. User-flagged: a toast
+              // reading "Found 3 open ports on ftth (0 new since last
+              // scan)" is misleading when "ftth" doesn't resolve via
+              // DNS — the operator can't tell what was actually
+              // probed. The SSE payload carries `target` from the
+              // backend's resolution chain (ping.host → ssh.fqdn →
+              // ssh.host → host_id); fall back to host_id only when
+              // the field is missing for some reason.
               const i18nKey = payload.is_first_scan
                 ? 'host_drawer.port_scan.scan_complete_body_first'
                 : 'host_drawer.port_scan.scan_complete_body';
               this.showToast(this.t(i18nKey, {
-                host:       hostId,
+                host:       payload.target || hostId,
                 open_count: openCount,
                 new_count:  0,  // diff happens server-side via notify path
               }), 'success');
             } else {
               this.showToast(this.t('host_drawer.port_scan.scan_failed_body', {
-                host:  hostId,
+                host:  payload.target || hostId,
                 error: payload.error || 'unknown',
               }), 'error');
             }
@@ -16356,6 +16391,12 @@ function app() {
       const next = !!hidden;
       if (next === this.aiSidebarLauncherHidden) return;
       this.aiSidebarLauncherHidden = next;
+      // Keep the draft in sync so the dirty-tracker (compared via
+      // `_headerPrefsSnapshot`) doesn't keep reporting dirty after
+      // the live value updates. Also covers the case where the
+      // helper is invoked from outside the form (e.g. a future
+      // keyboard shortcut or admin-tool action).
+      this.aiSidebarLauncherHiddenDraft = next;
       if (!this.me || !this.me.id || this.me.id < 0) return;
       try {
         await fetch('/api/me/ui-prefs', {
@@ -21896,10 +21937,16 @@ function app() {
         }
         // Legacy synchronous path — kept for forward compatibility
         // with older backends. Refresh + summary toast as before.
+        // Surfaces the actual scan target (from `data.target`) in
+        // the toast for the same reason the SSE-driven completion
+        // path does: the host id can be a friendly alias that
+        // doesn't resolve via DNS (`ftth` etc.), and the operator
+        // needs to know what the probe actually hit.
         await this.refreshHostRow(host.id, { force: true });
         const openCount = (data && data.open_count) || 0;
         const newCount = (data && data.new_count) || 0;
-        this.showToast(this.t('host_drawer.port_scan.scan_complete_body', { host: host.id, open_count: openCount, new_count: newCount }), 'success');
+        const target = (data && data.target) || host.id;
+        this.showToast(this.t('host_drawer.port_scan.scan_complete_body', { host: target, open_count: openCount, new_count: newCount }), 'success');
       } catch (e) {
         // `e` here is typically a TypeError ("Failed to fetch") for
         // network drops or browser-side aborts. Surface a friendly
