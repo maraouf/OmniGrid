@@ -12578,6 +12578,166 @@ function app() {
       return [...new Set(ns)].join(', ');
     },
 
+    // Auto-fix actions surfaced in the known-issue panel below the
+    // remediation prose. Each action descriptor: { id, label, kind,
+    // help, danger? }. `kind` drives the dispatcher in
+    // `runTaskErrorAutoFix`:
+    //   - 'restart_service' → POST /api/restart/service/{id}; calls
+    //     the existing Swarm-friendly force-update path. Lowest blast
+    //     radius — sometimes clears transient kernel state without
+    //     touching the network or daemon.
+    //   - 'ssh_fix_node' → opens the SSH terminal modal targeted at
+    //     the failing node (resolved from `task_history[0].node`)
+    //     so the user can run the surgical fix (`ip link delete
+    //     vx-...` or `systemctl restart docker`) under the existing
+    //     destructive-confirm gate. Falls back to a toast when no
+    //     curated host matches the node hostname.
+    //
+    // Returns [] when the error doesn't match a known pattern OR
+    // when the user is read-only (the markup also gates on
+    // `isAdmin()`, but defence-in-depth here keeps a future caller
+    // honest).
+    taskErrorAutoFixActions(item) {
+      if (!item || !item.task_error) return [];
+      if (!this.isAdmin || typeof this.isAdmin !== 'function' || !this.isAdmin()) return [];
+      const err = String(item.task_error);
+      const out = [];
+      // VXLAN sandbox-join — softest fix is force-restart; if that
+      // fails, the SSH terminal escalation is the canonical path.
+      if (/(network sandbox join failed|subnet sandbox join failed|error creating vxlan interface|file exists)/i.test(err)
+          && item.type === 'service' && item.raw_id) {
+        out.push({
+          id: 'force-restart-service',
+          label: this.t('drawer.task_error_action_force_restart')
+                 || 'Force-restart service',
+          kind: 'restart_service',
+          help: this.t('drawer.task_error_action_force_restart_help')
+                || 'Issues a force-update on this service. Sometimes the kernel cleans up the stale VXLAN interface between task attempts; safe first try.',
+          danger: false,
+        });
+        // Find the failing node from the task_history. The most-recent
+        // failed task's node is the right SSH target. Skip the SSH
+        // button when no node info is available OR when no curated
+        // host matches the hostname.
+        const failingNode = (Array.isArray(item.task_history) && item.task_history[0])
+          ? item.task_history[0].node
+          : '';
+        if (failingNode && this._findHostByNodeName(failingNode)) {
+          out.push({
+            id: 'ssh-fix-vxlan',
+            label: this.t('drawer.task_error_action_ssh_fix', { node: failingNode })
+                   || ('Open SSH terminal on ' + failingNode),
+            kind: 'ssh_fix_node',
+            node: failingNode,
+            help: this.t('drawer.task_error_action_ssh_fix_help')
+                  || 'Opens an SSH terminal on the failing node so you can run `ip -d link show type vxlan` and `sudo ip link delete vx-XXXXXX` to remove the leftover interface, or `sudo systemctl restart docker` as a last resort.',
+            danger: true,
+          });
+        }
+      }
+      // Image-pull failures — force-restart can sometimes pick up a
+      // transient registry hiccup; for sticky failures the user has
+      // to fix credentials / tag, which is out of scope for an auto.
+      else if (/(no such image|manifest unknown|pull access denied|requested access to the resource is denied|toomanyrequests)/i.test(err)
+               && item.type === 'service' && item.raw_id) {
+        out.push({
+          id: 'force-restart-service',
+          label: this.t('drawer.task_error_action_force_restart')
+                 || 'Force-restart service',
+          kind: 'restart_service',
+          help: 'Retry the pull. Useful for transient registry hiccups; sticky pull-failures need a credential / tag fix.',
+          danger: false,
+        });
+      }
+      return out;
+    },
+
+    // Resolve a Swarm node hostname to a curated host row so the SSH
+    // terminal can target it. Tries (in order): exact id match, exact
+    // host match, prefix match (so `dockerpve` matches
+    // `dockerpve.home.lan`). Returns null when nothing matches.
+    _findHostByNodeName(nodeName) {
+      if (!nodeName || !Array.isArray(this.hosts)) return null;
+      const needle = String(nodeName).trim().toLowerCase();
+      if (!needle) return null;
+      const exactId = this.hosts.find(h => h && (h.id || '').toLowerCase() === needle);
+      if (exactId) return exactId;
+      const exactHost = this.hosts.find(h => h && (h.host || '').toLowerCase() === needle);
+      if (exactHost) return exactHost;
+      // Prefix match — the node hostname's first label often equals
+      // the curated id's first label. Both sides split on '.' and
+      // compared so `dockerpve` ↔ `dockerpve.home.lan`.
+      const stem = needle.split('.')[0];
+      const stemMatch = this.hosts.find(h => {
+        const hid = (h && h.id || '').toLowerCase().split('.')[0];
+        const hh = (h && h.host || '').toLowerCase().split('.')[0];
+        return stem && (hid === stem || hh === stem);
+      });
+      return stemMatch || null;
+    },
+
+    // Dispatcher for the known-issue panel's auto-fix buttons. Each
+    // kind maps to a specific click path; failures surface as a
+    // toast. `_auto_fix_running` flag on the item drives the
+    // button's spinner / disabled state so the user can't double-click.
+    async runTaskErrorAutoFix(item, action) {
+      if (!item || !action || !action.kind) return;
+      if (item._auto_fix_running) return;
+      // Destructive actions confirm via SweetAlert before firing.
+      if (action.danger) {
+        const ok = await this.confirmDialog({
+          title: this.t('drawer.task_error_confirm_title') || 'Run this fix?',
+          html:  action.help || '',
+          confirmText: this.t('actions.continue') || 'Continue',
+          cancelText:  this.t('actions.cancel')   || 'Cancel',
+          icon:        'warning',
+        });
+        if (!ok) return;
+      }
+      item._auto_fix_running = true;
+      try {
+        if (action.kind === 'restart_service') {
+          const r = await fetch('/api/restart/service/' + encodeURIComponent(item.raw_id), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          });
+          if (!r.ok) {
+            const txt = await r.text().catch(() => '');
+            const friendly = (typeof this._friendlyHttpError === 'function')
+              ? this._friendlyHttpError(r.status, txt, 'drawer')
+              : ('HTTP ' + r.status);
+            this.showToast(this.t('drawer.task_error_restart_failed', { error: friendly })
+              || ('Restart failed: ' + friendly), 'error');
+            return;
+          }
+          this.showToast(this.t('drawer.task_error_restart_queued')
+            || 'Force-restart queued. Watch the row for the new task to come up; the error should clear automatically when it does.', 'success');
+          // Refresh items so the operation banner appears + the
+          // task_error / task_history fields reflect the new attempt.
+          if (typeof this.refresh === 'function') this.refresh();
+        } else if (action.kind === 'ssh_fix_node') {
+          const host = this._findHostByNodeName(action.node || '');
+          if (!host) {
+            this.showToast(this.t('drawer.task_error_ssh_no_host', { node: action.node })
+              || ('No curated host matches "' + action.node + '" — add it under Admin → Hosts to enable the SSH-fix button.'), 'error');
+            return;
+          }
+          // Close the item drawer so the terminal modal isn't
+          // stacked on top of it; the user comes back to the drawer
+          // automatically when they close the terminal.
+          this.drawerItem = null;
+          this.openHostTerminal(host);
+        }
+      } catch (e) {
+        const msg = (e && e.message) ? e.message : String(e);
+        this.showToast(this.t('drawer.task_error_dispatch_failed', { error: msg })
+          || ('Auto-fix failed: ' + msg), 'error');
+      } finally {
+        item._auto_fix_running = false;
+      }
+    },
+
     // Match a Swarm task-error string against known patterns and
     // return localised remediation guidance (HTML-escaped). Returns
     // empty string when the error doesn't match a known pattern —
