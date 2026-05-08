@@ -924,6 +924,22 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
     # `EXTRA_FILESYSTEMS=` configured.
     efs_raw = stats.get("efs") if isinstance(stats.get("efs"), dict) else None
     disk_pct_efs: float | None = None
+    # Always-on probe-entry diagnostic — prints once per extract_stats
+    # call so the operator can verify the deployed image carries this
+    # code. Pre-fix the deployment has NO `[beszel] extract-stats` log
+    # line whatsoever; post-fix every Beszel host probe emits one. If
+    # the operator sees the chip showing pre-fix values AND no
+    # `[beszel] extract-stats` line, the running container is on the
+    # pre-fix image and a redeploy is the answer.
+    try:
+        _hk = (info.get("h") or info.get("host") or "?")
+        _efs_keys = list(efs_raw.keys()) if efs_raw else []
+        print(
+            f"[beszel] extract-stats {_hk}: stats.d={_num(stats.get('d')):.1f} GiB "
+            f"efs_keys={_efs_keys}"
+        )
+    except Exception:  # noqa: BLE001
+        pass
     if efs_raw:
         efs_total_gib = 0.0
         efs_used_gib = 0.0

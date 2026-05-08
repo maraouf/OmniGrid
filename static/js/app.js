@@ -1827,6 +1827,34 @@ function app() {
       this.$nextTick(() => {
         const el = document.getElementById('og-ai-sidebar-input');
         if (!el) return;
+        // Iteration 4 — also moved the placeholder + disabled
+        // bindings + keydown handler off the Alpine attribute path
+        // so the textarea is FULLY outside Alpine's reactivity until
+        // the 300 ms throttle fires. Pre-fix even with `x-model`
+        // gone, the `:placeholder` / `:disabled` / `@keydown`
+        // bindings caused Alpine to do work per keystroke on the
+        // 1900-binding-site page — visible as typing lag for some
+        // operators. The vanilla equivalents below sidestep that.
+        try {
+          const ph = (typeof this.t === 'function')
+            ? this.t('ai_sidebar.input_placeholder')
+            : 'Ask the AI...';
+          if (ph) el.placeholder = ph;
+        } catch (_) { /* ignore */ }
+        // Reflect aiSidebarBusy onto the disabled attribute via a
+        // $watch — fires only when the boolean transitions, NOT on
+        // every keystroke. Initial sync covers the page-load case.
+        el.disabled = !!this.aiSidebarBusy;
+        this.$watch('aiSidebarBusy', (v) => { try { el.disabled = !!v; } catch (_) {} });
+        // Vanilla keydown listener — replaces the Alpine `@keydown`
+        // binding. Bound so `this` inside the handler refers to the
+        // Alpine component. We dispatch into the same
+        // `aiSidebarHandleKeydown` so the slash-picker / Enter /
+        // Esc / arrow-up flows are unchanged.
+        const onKey = (ev) => {
+          try { this.aiSidebarHandleKeydown(ev); } catch (_) { /* ignore */ }
+        };
+        el.addEventListener('keydown', onKey);
         let pendingTimer = null;
         const flushSoon = () => {
           if (pendingTimer) return;  // already scheduled
