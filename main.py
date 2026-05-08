@@ -1657,7 +1657,7 @@ async def api_swarm_restart_agent(
     """
     # Provisional target_id / target_name — discover_swarm_agent_service
     # fills in the real values as part of the op's logged steps.
-    op = new_op("swarm_agent_restart", "", "<portainer-agent>",
+    op = new_op("restart_swarm_agent", "", "<portainer-agent>",
                 actor=_actor_from(request))
     bg.add_task(_do_restart_swarm_agent, op)
     return {"op_id": op.id}
@@ -2171,7 +2171,7 @@ class SettingsIn(BaseModel):
     pulse_token: Optional[str] = None
     pulse_verify_tls: Optional[bool] = None
     # Docker hostname → Pulse node name. Separate from beszel_aliases
-    # because Pulse uses PVE node names (``pve-1``, ``dockerpve``) which
+    # because Pulse uses PVE node names (e.g. ``pve-1``, ``host01``) which
     # tend to differ from Beszel hostnames.
     pulse_aliases: Optional[dict] = None
     # Webmin — fourth host-stats provider. Each target host runs its
@@ -4101,7 +4101,11 @@ def _resolve_ai_fallback_chain(active: str) -> tuple[bool, list[str], dict[str, 
     enabled = get_setting_bool("ai_fallback_enabled", False)
     raw_order = (get_setting("ai_fallback_order", "") or "").strip()
     try:
-        max_depth = int(get_setting("ai_fallback_max_depth", "1") or "1")
+        # AI fallback-chain depth is now a TUNABLE (DB > env > default
+        # with bounds clamp). Legacy `ai_fallback_max_depth` plain-
+        # settings row still hydrates the form for parity; the actual
+        # ask_provider_with_fallback call reads via tuning_int.
+        max_depth = tuning.tuning_int("tuning_ai_fallback_max_depth")
     except (TypeError, ValueError):
         max_depth = 1
     max_depth = max(1, min(2, max_depth))
@@ -4544,8 +4548,12 @@ async def api_ai_palette(
     except Exception:  # noqa: BLE001
         pass
 
+    # AI output-token cap is now a TUNABLE (DB > env > default with
+    # bounds clamp). Legacy `ai_max_tokens` plain-settings row still
+    # consulted by the writer for form-hydration parity, but the
+    # actual call envelope reads via tuning_int.
     try:
-        max_toks = int(get_setting("ai_max_tokens", "1024") or "1024")
+        max_toks = tuning.tuning_int("tuning_ai_max_tokens")
     except (TypeError, ValueError):
         max_toks = 1024
     max_toks = max(64, min(32000, max_toks))
@@ -4748,8 +4756,12 @@ async def api_ai_host_filter(
         raise HTTPException(400, "query is required")
     ctx = body.context if isinstance(body.context, dict) else {}
 
+    # AI output-token cap is now a TUNABLE (DB > env > default with
+    # bounds clamp). Legacy `ai_max_tokens` plain-settings row still
+    # consulted by the writer for form-hydration parity, but the
+    # actual call envelope reads via tuning_int.
     try:
-        max_toks = int(get_setting("ai_max_tokens", "1024") or "1024")
+        max_toks = tuning.tuning_int("tuning_ai_max_tokens")
     except (TypeError, ValueError):
         max_toks = 1024
     max_toks = max(64, min(32000, max_toks))
@@ -8115,8 +8127,8 @@ async def api_hosts_list(force: bool = False):
     # Load every snapshot once per request — cheap (single SQLite read,
     # ~ms) and amortised across the N curated rows. Build a dict keyed
     # by host id so `apply_host_snapshot_fallback`'s short-hostname
-    # tolerance kicks in if the snapshot was keyed by `dockerpve` while
-    # the curated id is `dockerpve.example.com` (or vice versa).
+    # tolerance kicks in if the snapshot was keyed by `host01` while
+    # the curated id is `host01.example.com` (or vice versa).
     snapshots = {}
     try:
         snapshots = _load_snaps() or {}
@@ -8436,8 +8448,9 @@ def _clean_host_ssh(raw: Any) -> dict:
     # New `enabled` flag. ONLY explicit `enabled: true` writes
     # the flag through; everything else (absent, false, legacy
     # `disabled` field) leaves the row in the new "OFF until opted in"
-    # default. The schema migration in `logic/migrations.py:#001`
-    # handles legacy data on first boot — DO NOT add a defensive
+    # default. The schema migration in `logic/migrations.py` (the
+    # numbered SSH opt-in flip) handles legacy data on first boot —
+    # DO NOT add a defensive
     # `disabled` fallback here: the writer runs on
     # every save, not just at import, and any "fall back to enabled
     # when not explicitly disabled" branch would re-enable rows the
@@ -10708,10 +10721,13 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
                 stop_event.set()
 
         async def heartbeat():
-            """WS ping every 25s so idle proxies don't drop us."""
+            """WS ping cadence (TUNABLE — `tuning_ssh_ws_heartbeat_seconds`)
+            so idle proxies don't drop us. Resolved per-iteration so an
+            Admin → Config save takes effect on the NEXT tick without a
+            terminal reconnect."""
             try:
                 while not stop_event.is_set():
-                    await asyncio.sleep(25)
+                    await asyncio.sleep(tuning.tuning_int("tuning_ssh_ws_heartbeat_seconds"))
                     if stop_event.is_set():
                         break
                     try:
@@ -12487,11 +12503,63 @@ async def _run_port_scan_async(
                 )
         try:
             with db_conn() as c:
-                # Persist whatever UDP results we recovered so the
-                # row's `last_port_scan_ts` advances. Each row carries
-                # the same scan_id so the History detail viewer groups
-                # them under the timed-out attempt.
+                # Carry forward the PREVIOUS scan's open ports under
+                # the new scan_id BEFORE adding the recovered UDP
+                # findings. Pre-fix the chip strip read the latest
+                # scan_id and saw ONLY the recovered UDP rows — the
+                # earlier TCP discovery (22 / 80 / 443 / etc.) silently
+                # disappeared because the new scan replaced the old.
+                # Now the new scan_id inherits every row from the
+                # most-recent prior scan; the recovered UDP rows then
+                # extend / dedupe over that baseline so a sticky
+                # listener stays visible AND a freshly-found one
+                # surfaces. `(port, protocol)` tuple deduping prevents
+                # double-rows when the same UDP/161 was already in
+                # the previous scan.
+                prev_head = c.execute(
+                    "SELECT scan_id FROM host_port_scans "
+                    "WHERE host_id = ? AND scan_id != ? "
+                    "GROUP BY scan_id ORDER BY MAX(ts) DESC LIMIT 1",
+                    (hid, scan_id),
+                ).fetchone()
+                carried_keys: set[tuple[int, str]] = set()
+                if prev_head and prev_head["scan_id"]:
+                    prev_rows = c.execute(
+                        "SELECT port, service_hint, banner_excerpt, protocol "
+                        "FROM host_port_scans WHERE scan_id = ?",
+                        (prev_head["scan_id"],),
+                    ).fetchall()
+                    for r in prev_rows:
+                        proto = r["protocol"] or "tcp"
+                        port_n = int(r["port"])
+                        carried_keys.add((port_n, proto))
+                        c.execute(
+                            "INSERT INTO host_port_scans "
+                            "(ts, host_id, scan_id, port, service_hint, "
+                            " banner_excerpt, protocol) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                int(time.time()),
+                                hid,
+                                scan_id,
+                                port_n,
+                                r["service_hint"] or "",
+                                r["banner_excerpt"] or "",
+                                proto,
+                            ),
+                        )
+                    print(
+                        f"[port_scan] timeout-salvage carried-forward "
+                        f"host_id={hid!r} from-scan={prev_head['scan_id']!r} "
+                        f"rows={len(prev_rows)}"
+                    )
+                # Now add the recovered UDP findings, skipping ones
+                # already present in the carried-forward set so the
+                # row count stays clean.
                 for entry in partial_udp_open:
+                    port_n = int(entry.get("port") or 0)
+                    if (port_n, "udp") in carried_keys:
+                        continue
                     c.execute(
                         "INSERT INTO host_port_scans "
                         "(ts, host_id, scan_id, port, service_hint, "
@@ -12501,7 +12569,7 @@ async def _run_port_scan_async(
                             int(time.time()),
                             hid,
                             scan_id,
-                            int(entry.get("port") or 0),
+                            port_n,
                             entry.get("service_hint") or "",
                             entry.get("banner_excerpt") or "",
                             "udp",
@@ -14571,7 +14639,7 @@ async def api_me(request: Request):
             "ai": {
                 "enabled":         get_setting_bool("ai_enabled", False),
                 "active_provider": (get_setting("ai_active_provider", "") or "").strip().lower(),
-                "max_tokens":      int(get_setting("ai_max_tokens", "1024") or "1024"),
+                "max_tokens":      tuning.tuning_int("tuning_ai_max_tokens"),
                 # Canonical provider list — the SPA's `aiProviderNames`
                 # reads from this so adding a fifth provider is a
                 # one-line edit to `logic.ai.SUPPORTED_PROVIDERS` and
@@ -15937,8 +16005,11 @@ async def api_create_backup(_admin: auth.User = Depends(auth.require_admin)):
     # Retention — surfaced to the operator in the response so they can
     # see what got pruned without re-listing. Zero/empty setting means
     # "keep all", which is the safe default for a fresh install.
+    # `backup_retention_count` is now a TUNABLE (DB > env > default
+    # with bounds clamp); legacy plain-settings row still hydrates
+    # the form for parity.
     try:
-        keep = int(get_setting("backup_retention_count", "0") or "0")
+        keep = tuning.tuning_int("tuning_backup_retention_count")
     except (TypeError, ValueError):
         keep = 0
     pruned = backups.prune_backups(keep) if keep > 0 else []

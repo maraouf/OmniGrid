@@ -864,6 +864,10 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     "test_beszel",
     "test_pulse",
     "test_webmin",
+    "test_snmp",
+    "test_ping",
+    "test_asset_inventory",
+    "test_apprise",
 })
 
 
@@ -896,7 +900,7 @@ PALETTE_SYSTEM_PROMPT: str = (
     "  Top 3 hosts low on disk:\n"
     "  1. nas01 — 92% used (8 GB free of 100 GB)\n"
     "  2. web03 — 87% used (52 GB free of 400 GB)\n"
-    "  3. dockerpve — 76% used (240 GB free of 1.0 TB)\n"
+    "  3. host01 — 76% used (240 GB free of 1.0 TB)\n"
     "Use the EXACT id/label from the JSON. When the data shows nothing "
     "of concern, say so explicitly (e.g. \"no host above 80% disk — "
     "you're fine\").\n\n"
@@ -1088,6 +1092,10 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - test_beszel — re-test the Beszel hub connection. Navigates to Admin → Providers → Beszel and kicks the probe. Synonyms: 'test beszel', 'check beszel'.\n"
     " - test_pulse — re-test the Pulse connection. Navigates to Admin → Providers → Pulse and kicks the probe. Synonyms: 'test pulse', 'check pulse'.\n"
     " - test_webmin — re-test the Webmin connection. Navigates to Admin → Providers → Webmin and kicks the probe. Synonyms: 'test webmin', 'check webmin'.\n"
+    " - test_snmp — re-test the SNMP host-stats provider against the host's configured target. Navigates to Admin → Hosts and kicks the per-row test. Synonyms: 'test snmp', 'check snmp'.\n"
+    " - test_ping — re-test the Ping host-stats provider for the host. Navigates to Admin → Hosts and kicks the per-row test. Synonyms: 'test ping', 'check reachability'.\n"
+    " - test_asset_inventory — refresh + verify the upstream asset-inventory connection. Navigates to Admin → Asset Inventory and kicks the probe. Synonyms: 'test asset inventory', 'check assets'.\n"
+    " - test_apprise — send a test notification through every enabled medium so the operator confirms Apprise / in-app delivery is working. Synonyms: 'test notification', 'send test', 'test apprise'.\n"
     "Example single-action reply: 'I'll mark every notification as read for you.\\n"
     "ACTION: mark_all_notifications_read'\n"
     "Example multi-action reply (\"refresh and cleanup\"): 'Refreshing the dashboard, then opening the cleanup confirm.\\n"

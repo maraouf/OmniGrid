@@ -1201,7 +1201,7 @@
         },
         "tuning_node_exporter_probe_timeout_seconds": {
           "label": "node-exporter probe timeout (seconds)",
-          "help": "HTTP timeout on every node-exporter scrape, applied uniformly across the legacy /api/hosts fleet probe, the per-host /api/hosts/one probe, the /api/hosts/debug endpoint, AND the lifespan host_metrics_sampler. Lower it on a network where node-exporter usually responds in milliseconds and you want fast-fail on broken hosts; raise it for nodes with deliberately slow exporters or saturated metrics endpoints. Default 10 seconds. Pre-#540 the sampler used 15s while the request-path used 10s — drift that's now closed."
+          "help": "HTTP timeout on every node-exporter scrape, applied uniformly across the legacy /api/hosts fleet probe, the per-host /api/hosts/one probe, the /api/hosts/debug endpoint, AND the lifespan host_metrics_sampler. Lower it on a network where node-exporter usually responds in milliseconds and you want fast-fail on broken hosts; raise it for nodes with deliberately slow exporters or saturated metrics endpoints. Default 10 seconds. The sampler and the request-path used to drift on this knob (sampler 15s vs request-path 10s); both now read this single tunable."
         },
         "tuning_sse_idle_threshold_seconds": {
           "label": "SSE freshness threshold (seconds)",
@@ -1305,7 +1305,7 @@
         },
         "tuning_snmp_unreachable_cooldown_seconds": {
           "label": "SNMP unreachable cool-down (seconds)",
-          "help": "After a single SNMP probe times out, the per-(host, port) probe arms a cool-down — subsequent ticks skip that pair until the cool-down expires. UDP timeouts are slower to detect than auth-failure 401s, so SNMP arms after one strike (Webmin / SSH wait for two consecutive 401s before arming). Cuts wire traffic against permanently-unreachable devices without removing them from the chart entirely. Default 300 seconds (5 minutes). Lower for fast-recovery detection on flaky links; raise to suppress probes against a host that's been down for hours. Pre-#678 this shared the auth-failure cool-down knob with Webmin / SSH; now dedicated so operators can tune SNMP independently. Range 30..3600."
+          "help": "After a single SNMP probe times out, the per-(host, port) probe arms a cool-down — subsequent ticks skip that pair until the cool-down expires. UDP timeouts are slower to detect than auth-failure 401s, so SNMP arms after one strike (Webmin / SSH wait for two consecutive 401s before arming). Cuts wire traffic against permanently-unreachable devices without removing them from the chart entirely. Default 300 seconds (5 minutes). Lower for fast-recovery detection on flaky links; raise to suppress probes against a host that's been down for hours. SNMP used to share the auth-failure cool-down knob with Webmin / SSH; this dedicated tunable lets you tune SNMP independently. Range 30..3600."
         },
         "tuning_snmp_sample_interval_seconds": {
           "label": "SNMP sample interval (seconds)",
@@ -1749,6 +1749,10 @@
       "test_beszel":          "Force re-test Beszel hub",
       "test_pulse":           "Force re-test Pulse",
       "test_webmin":          "Force re-test Webmin",
+      "test_snmp":            "Force re-test SNMP",
+      "test_ping":            "Force re-test Ping",
+      "test_asset_inventory": "Force re-test asset inventory",
+      "test_apprise":         "Send a test notification",
       "theme_dark":           "Switch theme to dark",
       "theme_light":          "Switch theme to light",
       "theme_auto":           "Switch theme to auto (system)",
@@ -2759,6 +2763,7 @@
     "intro": "When a schedule says \"Daily @ 01:00\", which clock does \"01:00\" refer to? Leave blank to use the container's clock (typically UTC). Fill in to pin to your local wall time so \"01:00\" means 01:00 at your location.",
     "tz_label": "Timezone (IANA name)",
     "tz_placeholder": "e.g. Africa/Cairo",
+    "tz_utc_label": "UTC",
     "tz_hint_prefix": "Full list: ",
     "tz_hint_link": "IANA tz database",
     "tz_hint_suffix": ". Invalid names fail the save with a 400.",

@@ -1148,9 +1148,9 @@ function app() {
     // walk `_allTuningKeys()` (the union) so save round-trips ALL
     // tunable keys, not just the ones rendered in the generic form.
     // Without this list those relocated keys would be invisible to
-    // form-seed + dirty-track + POST — caught by operator after
-    // shipping #550 (Log retention card was reading empty + Save was
-    // a no-op).
+    // form-seed + dirty-track + POST — caught after shipping the
+    // Log-retention card relocation (the card was reading empty and
+    // Save was a no-op until the relocated key was added here).
     // Per-provider knob lists (partial DRY). Single source
     // of truth for which tunables render in each provider's admin panel
     // — adding a new knob is one entry here instead of editing each
@@ -6552,6 +6552,50 @@ function app() {
         this.webminTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
+
+    // Wrapper for the AI-palette dispatcher — kicks `/api/asset-inventory/test`
+    // and surfaces the outcome via toast. Shape mirrors the other
+    // test-* methods (`testWebminConnection` / `testBeszelConnection`)
+    // so the palette dispatcher can call any of them uniformly via
+    // `typeof this.testXConnection === 'function'`. The Admin →
+    // Asset Inventory tab also has an inline button bound to the
+    // same endpoint; this wrapper exists so the AI palette can fire
+    // the test without forcing the user to navigate to that tab
+    // first.
+    async testAssetInventoryConnection() {
+      try {
+        const r = await fetch('/api/asset-inventory/test', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (j && j.ok) {
+          this.recordTestSuccess && this.recordTestSuccess('asset_inventory');
+          this.showToast(j.detail || this.t('toasts_extra.test_result_ok'), 'success');
+        } else {
+          this.showToast(j.detail || this.t('toasts_extra.test_result_failed'), 'error');
+        }
+      } catch (e) {
+        this.showToast(this.t('toasts.network_error'), 'error');
+      }
+    },
+
+    // Wrapper — fires `/api/notify-test` so an admin can verify
+    // Apprise / in-app delivery from the AI palette. Same uniform
+    // shape as `testAssetInventoryConnection`. Backend POSTs a
+    // dummy notification through every enabled medium and returns
+    // per-medium ok / detail.
+    async testApprise() {
+      try {
+        const r = await fetch('/api/notify-test', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok) {
+          this.showToast(j.detail || this.t('toasts_extra.test_result_ok'), 'success');
+        } else {
+          this.showToast(j.detail || this.t('toasts_extra.test_result_failed'), 'error');
+        }
+      } catch (e) {
+        this.showToast(this.t('toasts.network_error'), 'error');
+      }
+    },
+
     // list of curated hosts that have ping enabled. Pulled from
     // the in-memory `hostsConfig` (loaded by the Hosts admin tab) so
     // the picker stays in sync with the row-level toggles without an
@@ -12675,8 +12719,8 @@ function app() {
 
     // Resolve a Swarm node hostname to a curated host row so the SSH
     // terminal can target it. Tries (in order): exact id match, exact
-    // host match, prefix match (so `dockerpve` matches
-    // `dockerpve.home.lan`). Returns null when nothing matches.
+    // host match, prefix match (so `host01` matches
+    // `host01.example.com`). Returns null when nothing matches.
     _findHostByNodeName(nodeName) {
       if (!nodeName || !Array.isArray(this.hosts)) return null;
       const needle = String(nodeName).trim().toLowerCase();
@@ -12687,7 +12731,7 @@ function app() {
       if (exactHost) return exactHost;
       // Prefix match — the node hostname's first label often equals
       // the curated id's first label. Both sides split on '.' and
-      // compared so `dockerpve` ↔ `dockerpve.home.lan`.
+      // compared so `host01` ↔ `host01.example.com`.
       const stem = needle.split('.')[0];
       const stemMatch = this.hosts.find(h => {
         const hid = (h && h.id || '').toLowerCase().split('.')[0];
@@ -13320,6 +13364,30 @@ function app() {
           label: t('command_palette.action.test_webmin', 'Force re-test Webmin'),
           verbs: ['test', 'webmin'],
           run:   () => { this.testWebminConnection(); this.view = 'admin'; this.setAdminTab && this.setAdminTab('host_stats'); }
+        }] : []),
+        ...(typeof this.testSnmpConnection === 'function' ? [{
+          id: 'test-snmp',
+          label: t('command_palette.action.test_snmp', 'Force re-test SNMP'),
+          verbs: ['test', 'snmp', 'check', 'snmpwalk'],
+          run:   () => { this.testSnmpConnection(); this.view = 'admin'; this.setAdminTab && this.setAdminTab('host_stats'); }
+        }] : []),
+        ...(typeof this.testPingConnection === 'function' ? [{
+          id: 'test-ping',
+          label: t('command_palette.action.test_ping', 'Force re-test Ping'),
+          verbs: ['test', 'ping', 'reachability', 'icmp'],
+          run:   () => { this.testPingConnection(); this.view = 'admin'; this.setAdminTab && this.setAdminTab('host_stats'); }
+        }] : []),
+        ...(typeof this.testAssetInventoryConnection === 'function' ? [{
+          id: 'test-asset-inventory',
+          label: t('command_palette.action.test_asset_inventory', 'Force re-test asset inventory'),
+          verbs: ['test', 'asset', 'assets', 'inventory'],
+          run:   () => { this.testAssetInventoryConnection(); this.view = 'admin'; this.setAdminTab && this.setAdminTab('assets'); }
+        }] : []),
+        ...(typeof this.testApprise === 'function' ? [{
+          id: 'test-apprise',
+          label: t('command_palette.action.test_apprise', 'Send a test notification'),
+          verbs: ['test', 'apprise', 'notification', 'notify'],
+          run:   () => { this.testApprise(); this.view = 'admin'; this.setAdminTab && this.setAdminTab('notifications'); }
         }] : []),
 
         // Theme

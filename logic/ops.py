@@ -57,6 +57,86 @@ from logic.db import db_conn, get_setting, get_setting_bool
 MAX_OPS = 50
 
 
+# ---------------------------------------------------------------------------
+# Canonical op_type registry — single source of truth for every value that
+# can land in `history.op_type`. Each new writer (whether via `new_op` or a
+# direct `INSERT INTO history`) MUST emit one of these literals; the
+# `assert_op_type` validator below is called by `new_op` to catch typos /
+# divergent names at write time.
+#
+# Why: the 2026-05-08 audit caught a `swarm_agent_restart` (API path) vs
+# `restart_swarm_agent` (schedules path) drift that an audit-time check
+# would have prevented. Centralising the names here makes the drift
+# impossible — a fresh writer either uses an existing literal or trips the
+# assert + has to add the literal here first (forcing a thought about i18n
+# parity and audit coverage in the same edit).
+#
+# Adding a new op_type is a four-step contract:
+#   1. Add the literal here.
+#   2. Add `history.op_types.<name>` to `static/i18n/en.json` so the
+#      History tab can label it.
+#   3. Add the entry to the SPA's history `op_type` filter dropdown
+#      (`static/js/app.js:historyOpTypeFilter` array).
+#   4. Audit grep before shipping:
+#      ```
+#      grep -rohE 'op_type\s*=\s*"[a-z_]+"|new_op\("[a-z_]+"|started, "[a-z_]+",' main.py logic/ \
+#        | sed -E 's/.*"([a-z_]+)".*/\1/' | sort -u
+#      ```
+#      Diff against this set; any missing name is a write-site that bypassed
+#      the registry and needs adding.
+#
+# Out of scope: renaming any existing op_type literals — back-compat with
+# the on-disk `history` table preserves shipped names. New names go through
+# this registry; legacy names stay until the next MAJOR.
+OP_TYPES: frozenset[str] = frozenset({
+    # Item write-ops (Operation-backed; admin write-routes).
+    "update_stack",
+    "update_container",
+    "restart_service",
+    "restart_container",
+    "remove_container",
+    "restart_swarm_agent",
+    # Bulk host-state ops (api_hosts_bulk_*).
+    "hosts_bulk_pause",
+    "hosts_bulk_resume",
+    # SSH surfaces.
+    "ssh_run",
+    "ssh_terminal",
+    # Port-scan provider.
+    "port_scan",
+    # Schedule kinds (each `_run_<kind>` runner stamps history with the
+    # kind's name).
+    "prune_node",
+    "prune_all_nodes",
+    "gather_refresh",
+    "backup",
+    "asset_inventory_refresh",
+    "prune_logs",
+    "prune_notifications",
+    "swarm_agent_health",
+    # AI surfaces — kind is dynamic in the call site (`f"ai_{kind}"`); the
+    # values that actually fire today are the two below. Adding a new AI
+    # kind requires a new literal here AND in the i18n + filter dropdown.
+    "ai_palette",
+    "ai_host_filter",
+})
+
+
+def assert_op_type(op_type: str) -> None:
+    """Validate that `op_type` is in the canonical registry. Logs a WARN
+    line for unknown values rather than raising, so a typo in a new
+    writer is operator-visible (Admin → Logs) without crashing the
+    request — the row still lands in `history` so the audit trail is
+    complete; only the i18n label / filter row are missing.
+    """
+    if not op_type or op_type in OP_TYPES:
+        return
+    print(
+        f"[ops] warning — unknown op_type {op_type!r} written to history; "
+        f"add to logic.ops.OP_TYPES + static/i18n/en.json:history.op_types"
+    )
+
+
 # Single source of truth for notification event names + per-event default
 # state. Mirrored into the DB by `api_get_settings` so the admin form has
 # a value to render; consulted directly here so a fresh deploy (where the
@@ -707,6 +787,11 @@ ops_order: list[str] = []
 
 def new_op(op_type: str, target_id: str, target_name: str,
            target_stack: Optional[str] = None, actor: str = "ui") -> Operation:
+    # Validate against the canonical registry — logs a WARN line when
+    # `op_type` isn't recognised. Doesn't raise (so existing behaviour
+    # is back-compat); the WARN surfaces in Admin → Logs so a new
+    # writer with a typo is operator-visible.
+    assert_op_type(op_type)
     op = Operation(op_type, target_id, target_name,
                    target_stack=target_stack, actor=actor)
     ops[op.id] = op

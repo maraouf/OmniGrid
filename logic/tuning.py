@@ -476,6 +476,43 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # retry won't help (just doubles the user's wait). Default 5000ms
     # = 5s. Range 100..60000.
     "tuning_ai_retry_first_attempt_max_ms": ("AI_RETRY_FIRST_ATTEMPT_MAX_MS", 5000, 100, 60000),
+
+    # ----- AI provider call envelope ----------------------------------------
+
+    # Max output tokens per AI request. The provider caps actual usage;
+    # this is the budget we ASK FOR. Lower for cost-sensitive deployments
+    # (Claude Opus runs ~$0.075 per 1k output tokens at default rate-card);
+    # raise for long-form palette responses that include disk-projection
+    # narratives or multi-step diagnostic guidance. Default 1024 fits
+    # ~3-5 paragraphs of prose. Range 16..16384.
+    "tuning_ai_max_tokens": ("AI_MAX_TOKENS", 1024, 16, 16384),
+
+    # AI provider fallback chain depth — when the active provider returns
+    # a transient-overload status, try this many backup providers before
+    # surfacing the failure. Default 1 (try ONE backup); 2 tolerates a
+    # multi-provider outage at the cost of doubling user-perceived
+    # latency on a true outage. Range 0..3 (0 effectively disables the
+    # fallback chain even when the master toggle is on).
+    "tuning_ai_fallback_max_depth": ("AI_FALLBACK_MAX_DEPTH", 1, 0, 3),
+
+    # ----- Backups ----------------------------------------------------------
+
+    # Number of recent backup zips to keep on disk (under
+    # /app/data/backups/). The `backup` schedule kind purges older files
+    # once this count is exceeded. Default 0 = keep ALL backups (back-
+    # compat with pre-existing deploys). Operator typically wants 7-30
+    # to bound disk growth on a daily schedule. Range 0..1000.
+    "tuning_backup_retention_count": ("BACKUP_RETENTION_COUNT", 0, 0, 1000),
+
+    # ----- SSH WebSocket ----------------------------------------------------
+
+    # Heartbeat cadence (seconds) for the SSH terminal WebSocket — server-
+    # side ping interval that keeps the connection alive past idle-
+    # timeouts in NPM / openresty. Default 25 seconds (under the typical
+    # 30 s `proxy_read_timeout`). Lower if your proxy has a tight idle
+    # timeout (some defaults are 15 s); raise on long-lived sessions to
+    # cut traffic. Range 5..120.
+    "tuning_ssh_ws_heartbeat_seconds": ("SSH_WS_HEARTBEAT_SECONDS", 25, 5, 120),
 }
 
 
