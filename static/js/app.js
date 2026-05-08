@@ -7213,13 +7213,44 @@ function app() {
     _wrapOrphanPasswordFields() {
       const inputs = document.querySelectorAll('input[type="password"]');
       for (const input of inputs) {
-        if (input.closest('form')) continue;
-        const form = document.createElement('form');
-        form.style.display = 'contents';
-        form.setAttribute('onsubmit', 'return false');
-        form.dataset.passwordWrap = '1';
-        input.parentNode.insertBefore(form, input);
-        form.appendChild(input);
+        let form = input.closest('form');
+        if (!form) {
+          form = document.createElement('form');
+          form.style.display = 'contents';
+          form.setAttribute('onsubmit', 'return false');
+          form.dataset.passwordWrap = '1';
+          input.parentNode.insertBefore(form, input);
+          form.appendChild(input);
+        }
+        // Chrome / Edge fire `[DOM] Password forms should have
+        // (optionally hidden) username fields for accessibility`
+        // for every password input that lives in a form WITHOUT a
+        // matching username field — password managers + AT need
+        // an account identifier paired with the secret. The login
+        // page already has explicit username + password inputs;
+        // every OTHER password field in the SPA (Beszel password,
+        // Webmin password, OIDC client_secret, Portainer api_key,
+        // SSH passphrase, SNMP v3 keys, etc.) is for a SERVICE
+        // credential, not a personal login — so there's no real
+        // username to pair. Inject ONE hidden disabled username
+        // input per form to satisfy the heuristic; disabled keeps
+        // it out of the form's submitted-fields set so it can't
+        // accidentally leak into a future POST. Idempotent —
+        // re-runs of this helper find the existing field and skip.
+        if (form.dataset.usernameInjected === '1') continue;
+        if (form.querySelector('input[autocomplete="username"]')) {
+          form.dataset.usernameInjected = '1';
+          continue;
+        }
+        const u = document.createElement('input');
+        u.type = 'text';
+        u.name = 'username';
+        u.autocomplete = 'username';
+        u.disabled = true;
+        u.setAttribute('aria-hidden', 'true');
+        u.style.display = 'none';
+        form.insertBefore(u, input);
+        form.dataset.usernameInjected = '1';
       }
     },
     // Returns the formatted "Last connected: <relative time>" label
@@ -14162,6 +14193,16 @@ function app() {
       if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight')
           && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
           && !e.repeat && !e.isComposing) {
+        // Single-fire sentinel — diagnostic proved two `[drawer-nav]`
+        // events per single ArrowRight keypress (handler invoked
+        // twice, advancing drawerItem by 2 instead of 1, producing
+        // the visible "skipping every-other entry" pattern). Stamp
+        // the event the FIRST time we handle it so a second handler
+        // run on the same event bails out cleanly. The sentinel
+        // strategy mirrors `_cmdpal_handled` for Cmd-K which had
+        // the identical double-fire problem.
+        if (e._drawer_nav_handled) return;
+        e._drawer_nav_handled = true;
         // Skip if focus is in a real text input — the operator is
         // editing text inside the drawer (e.g. the SSH command
         // textarea, the AI sidebar input, an admin-form field).
@@ -14241,22 +14282,6 @@ function app() {
               list = dedupedH;
             }
             const idx = list.findIndex(h => h && h.id === this.drawerHost.id);
-            // Diagnostic — temporary. Mirrors the service-drawer
-            // log so the user can paste console output for the
-            // host-drawer skipping pattern too.
-            try {
-              if (window.console && console.log) {
-                console.log('[drawer-nav-hosts]', {
-                  key: e.key,
-                  drawerHostId: this.drawerHost.id,
-                  drawerHostName: this.drawerHost.host || this.drawerHost.label,
-                  idx,
-                  listLen: list.length,
-                  listIds: list.map(h => h && h.id),
-                  listNames: list.map(h => h && (h.host || h.label || h.id)),
-                });
-              }
-            } catch (_) { /* ignore */ }
             if (idx >= 0) {
               const next = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
               if (next >= 0 && next < list.length) {
@@ -14341,29 +14366,6 @@ function app() {
               list = deduped;
             }
             const idx = list.findIndex(it => it && it.id === this.drawerItem.id);
-            // Diagnostic — temporary. The user reported arrow nav
-            // skipping every-other service (1→3→5 pattern). The
-            // dedupe pass should have collapsed any duplicate ids,
-            // but the bug persisted, suggesting the list itself is
-            // in a different order than what the user sees. This
-            // log dumps the resolved list, the resolved index, the
-            // computed next index, and the current drawerItem id so
-            // the user can paste the console output and I can see
-            // the actual data flowing through. Remove once diagnosed.
-            try {
-              if (window.console && console.log) {
-                console.log('[drawer-nav]', {
-                  view: this.view,
-                  key: e.key,
-                  drawerItemId: this.drawerItem.id,
-                  drawerItemName: this.drawerItem.name,
-                  idx,
-                  listLen: list.length,
-                  listIds: list.map(it => it && it.id),
-                  listNames: list.map(it => it && it.name),
-                });
-              }
-            } catch (_) { /* ignore */ }
             if (idx >= 0) {
               const next = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
               if (next >= 0 && next < list.length) {
