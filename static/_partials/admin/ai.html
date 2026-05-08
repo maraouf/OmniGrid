@@ -758,11 +758,13 @@
              that are stale / wrong. Memories are injected into the
              palette system prompt on every call so the AI accumulates
              knowledge over time. -->
-        <section class="space-y-3">
-          <div>
-            <h3 class="text-[14px] font-semibold mb-1" x-text="t('ai_memory.title')"></h3>
-            <p class="fs-xs text-[var(--text-faint)]" x-text="t('ai_memory.subtitle')"></p>
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 space-y-3">
+          <div class="flex items-center gap-2 mb-1">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-tag"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('ai_memory.title')"></h3>
           </div>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
+             x-text="t('ai_memory.subtitle')"></p>
           <div class="flex items-stretch gap-2">
             <input type="text"
                    x-model="aiMemoryAddText"

@@ -140,22 +140,6 @@
               </div>
             </template>
           </div>
-          <!-- Section-owned Save: posts ONLY node-exporter's plain
-               settings + the NE probe-timeout tunable. Per the
-               section-saves-its-own-tunables convention. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
-            <button type="button"
-                    @click="saveNeSection()"
-                    :disabled="isReadonly() || hostStatsSaving"
-                    :class="neSectionDirty() ? 'btn-dirty' : ''"
-                    class="btn btn-primary text-[12px]"
-                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
-            <span x-show="neSectionDirty() && !hostStatsSaving"
-                  class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
-              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
-              <span x-text="t('admin.actions.unsaved')"></span>
-            </span>
-          </div>
           <!-- Per-provider chip colour — operator-customisable
                override that flows into the row-chip + drawer-chip
                render via `providerChipStyle`. Empty means "use the
@@ -185,6 +169,21 @@
                   x-text="t('settings.host_stats.chip_color_preview')"></span>
             <p class="basis-full text-[10.5px] text-[var(--text-faint)]"
                x-text="t('settings.host_stats.chip_color_hint')"></p>
+          </div>
+          <!-- Section-owned Save at the END of the sub-tab. Posts only
+               NE's plain settings + the NE probe-timeout tunable. -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+            <button type="button"
+                    @click="saveNeSection()"
+                    :disabled="isReadonly() || hostStatsSaving"
+                    :class="neSectionDirty() ? 'btn-dirty' : ''"
+                    class="btn btn-primary text-[12px]"
+                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
+            <span x-show="neSectionDirty() && !hostStatsSaving"
+                  class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
+              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
+              <span x-text="t('admin.actions.unsaved')"></span>
+            </span>
           </div>
         </div>
         <div x-show="hostStatsTab === 'beszel'" class="space-y-3" role="tabpanel" id="provider-tabpanel-beszel" aria-labelledby="provider-tab-beszel" :class="!hasHostStatsSource('beszel') ? 'opacity-60' : ''">
@@ -589,22 +588,6 @@
               </div>
             </template>
           </div>
-          <!-- Section-owned Save: posts ONLY Webmin's plain settings
-               + the four Webmin tunables. Per the section-saves-its
-               -own-tunables convention. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
-            <button type="button"
-                    @click="saveWebminSection()"
-                    :disabled="isReadonly() || hostStatsSaving"
-                    :class="webminSectionDirty() ? 'btn-dirty' : ''"
-                    class="btn btn-primary text-[12px]"
-                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
-            <span x-show="webminSectionDirty() && !hostStatsSaving"
-                  class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
-              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
-              <span x-text="t('admin.actions.unsaved')"></span>
-            </span>
-          </div>
           <!-- Per-provider chip colour. -->
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
@@ -631,6 +614,21 @@
                   x-text="t('settings.host_stats.chip_color_preview')"></span>
             <p class="basis-full text-[10.5px] text-[var(--text-faint)]"
                x-text="t('settings.host_stats.chip_color_hint')"></p>
+          </div>
+          <!-- Section-owned Save at the END of the sub-tab. Posts only
+               Webmin's plain settings + the four Webmin tunables. -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+            <button type="button"
+                    @click="saveWebminSection()"
+                    :disabled="isReadonly() || hostStatsSaving"
+                    :class="webminSectionDirty() ? 'btn-dirty' : ''"
+                    class="btn btn-primary text-[12px]"
+                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
+            <span x-show="webminSectionDirty() && !hostStatsSaving"
+                  class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
+              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
+              <span x-text="t('admin.actions.unsaved')"></span>
+            </span>
           </div>
         </div>
 
@@ -745,22 +743,6 @@
               </div>
             </template>
           </div>
-          <!-- Section-owned Save: posts ONLY Ping's plain settings +
-               the five Ping tunables. Per the section-saves-its-own
-               -tunables convention. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
-            <button type="button"
-                    @click="savePingSection()"
-                    :disabled="isReadonly() || hostStatsSaving"
-                    :class="pingSectionDirty() ? 'btn-dirty' : ''"
-                    class="btn btn-primary text-[12px]"
-                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
-            <span x-show="pingSectionDirty() && !hostStatsSaving"
-                  class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
-              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
-              <span x-text="t('admin.actions.unsaved')"></span>
-            </span>
-          </div>
           <!-- Per-provider chip colour. -->
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
@@ -787,6 +769,21 @@
                   x-text="t('settings.host_stats.chip_color_preview')"></span>
             <p class="basis-full text-[10.5px] text-[var(--text-faint)]"
                x-text="t('settings.host_stats.chip_color_hint')"></p>
+          </div>
+          <!-- Section-owned Save at the END of the sub-tab. Posts only
+               Ping's plain settings + the five Ping tunables. -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+            <button type="button"
+                    @click="savePingSection()"
+                    :disabled="isReadonly() || hostStatsSaving"
+                    :class="pingSectionDirty() ? 'btn-dirty' : ''"
+                    class="btn btn-primary text-[12px]"
+                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
+            <span x-show="pingSectionDirty() && !hostStatsSaving"
+                  class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
+              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
+              <span x-text="t('admin.actions.unsaved')"></span>
+            </span>
           </div>
         </div>
         <!-- SNMP provider. Sixth host-stats provider for
@@ -988,23 +985,6 @@
             </template>
           </div>
 
-          <!-- Section-owned Save: posts ONLY SNMP's plain settings +
-               every SNMP tunable rendered above. Per the section
-               -saves-its-own-tunables convention. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
-            <button type="button"
-                    @click="saveSnmpSection()"
-                    :disabled="isReadonly() || hostStatsSaving"
-                    :class="snmpSectionDirty() ? 'btn-dirty' : ''"
-                    class="btn btn-primary text-[12px]"
-                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
-            <span x-show="snmpSectionDirty() && !hostStatsSaving"
-                  class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
-              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
-              <span x-text="t('admin.actions.unsaved')"></span>
-            </span>
-          </div>
-
           <!-- Per-provider chip colour. -->
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
@@ -1032,6 +1012,22 @@
             <p class="basis-full text-[10.5px] text-[var(--text-faint)]"
                x-text="t('settings.host_stats.chip_color_hint')"></p>
           </div>
+          <!-- Section-owned Save at the END of the sub-tab. Posts only
+               SNMP's plain settings + every SNMP tunable rendered
+               above. -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+            <button type="button"
+                    @click="saveSnmpSection()"
+                    :disabled="isReadonly() || hostStatsSaving"
+                    :class="snmpSectionDirty() ? 'btn-dirty' : ''"
+                    class="btn btn-primary text-[12px]"
+                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
+            <span x-show="snmpSectionDirty() && !hostStatsSaving"
+                  class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
+              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
+              <span x-text="t('admin.actions.unsaved')"></span>
+            </span>
+          </div>
         </div>
 
         <!-- Port Scan was previously rendered here as a 7th provider
@@ -1046,12 +1042,16 @@
              commits, so dirty-tracking + saveHostStats() round-trip
              unchanged. See `static/_partials/admin/port_scan.html`. -->
 
-        <!-- Save + unsaved-changes indicator. Same visual treatment as
-             the Admin → Hosts editor so the two match: amber ring on
-             the Save button when dirty, animated amber dot + label
-             next to it. `hostStatsDirty()` compares the live settings
-             against a baseline captured on loadSettings / save. -->
-        <div class="mt-4 flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
+        <!-- Global Save row — kept ONLY for sub-tabs that don't yet
+             own their section save (Beszel, Pulse). NE / Webmin / Ping
+             / SNMP each render their own Save at the end of their
+             sub-tab; rendering this global Save under those tabs gave
+             two Save buttons and confused users. Hidden via
+             `hostStatsTab` membership in the section-owned set so the
+             expected behaviour ("one Save button at the end of the
+             tab I'm on") holds across every sub-tab. -->
+        <div x-show="hostStatsTab === 'beszel' || hostStatsTab === 'pulse'"
+             class="mt-4 flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
           <button x-show="isAdmin()" @click="saveHostStats()"
                   :disabled="hostStatsSaving"
                   :class="hostStatsDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
