@@ -1265,6 +1265,12 @@ function app() {
       'tuning_ai_retry_enabled',
       'tuning_ai_retry_backoff_ms',
       'tuning_ai_retry_first_attempt_max_ms',
+      // AI output-token cap + fallback-chain depth — rendered under
+      // Admin → AI Integration alongside the existing "Max response
+      // tokens" / "Fallback max depth" form fields. Backend reads
+      // via `tuning_int(...)` per-call.
+      'tuning_ai_max_tokens',
+      'tuning_ai_fallback_max_depth',
       // AI sidebar drawer width — also rendered under Admin → AI
       // Integration (NOT the generic Process tunables form) per user
       // preference: it's an AI-feature UI control, not a generic
@@ -1287,6 +1293,12 @@ function app() {
       // generic tuning form so the bounds-chips UI lights up.
       'tuning_port_scan_udp_default_timeout_seconds',
       'tuning_port_scan_udp_default_concurrency',
+      // Backup retention count — rendered under Admin → Backups
+      // (form field "Keep N most recent backups"). 0 = keep all.
+      'tuning_backup_retention_count',
+      // SSH WebSocket heartbeat cadence — rendered under Admin →
+      // SSH alongside the other SSH knobs.
+      'tuning_ssh_ws_heartbeat_seconds',
     ],
     tuningForm: {},
     tuningEffective: {},
