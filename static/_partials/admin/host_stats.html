@@ -178,11 +178,11 @@
                     :disabled="isReadonly() || hostStatsSaving"
                     :class="neSectionDirty() ? 'btn-dirty' : ''"
                     class="btn btn-primary text-[12px]"
-                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
+                    x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
             <span x-show="neSectionDirty() && !hostStatsSaving"
                   class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
               <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
-              <span x-text="t('admin.actions.unsaved')"></span>
+              <span x-text="t('common.unsaved')"></span>
             </span>
           </div>
         </div>
@@ -623,11 +623,11 @@
                     :disabled="isReadonly() || hostStatsSaving"
                     :class="webminSectionDirty() ? 'btn-dirty' : ''"
                     class="btn btn-primary text-[12px]"
-                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
+                    x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
             <span x-show="webminSectionDirty() && !hostStatsSaving"
                   class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
               <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
-              <span x-text="t('admin.actions.unsaved')"></span>
+              <span x-text="t('common.unsaved')"></span>
             </span>
           </div>
         </div>
@@ -778,11 +778,11 @@
                     :disabled="isReadonly() || hostStatsSaving"
                     :class="pingSectionDirty() ? 'btn-dirty' : ''"
                     class="btn btn-primary text-[12px]"
-                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
+                    x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
             <span x-show="pingSectionDirty() && !hostStatsSaving"
                   class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
               <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
-              <span x-text="t('admin.actions.unsaved')"></span>
+              <span x-text="t('common.unsaved')"></span>
             </span>
           </div>
         </div>
@@ -1021,11 +1021,11 @@
                     :disabled="isReadonly() || hostStatsSaving"
                     :class="snmpSectionDirty() ? 'btn-dirty' : ''"
                     class="btn btn-primary text-[12px]"
-                    x-text="hostStatsSaving ? t('admin.actions.saving') : t('admin.actions.save')"></button>
+                    x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
             <span x-show="snmpSectionDirty() && !hostStatsSaving"
                   class="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
               <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
-              <span x-text="t('admin.actions.unsaved')"></span>
+              <span x-text="t('common.unsaved')"></span>
             </span>
           </div>
         </div>
