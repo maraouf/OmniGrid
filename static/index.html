@@ -8289,11 +8289,22 @@
         `aiSidebarHandleKeydown` read `e.target.value` directly so
         they never depend on the throttled state.
       -->
-      <textarea id="og-ai-sidebar-input"
-                @keydown="aiSidebarHandleKeydown($event)"
-                :placeholder="t('ai_sidebar.input_placeholder')"
-                :disabled="aiSidebarBusy"
-                rows="2"></textarea>
+      <!-- Iteration 4: ALL Alpine bindings removed from the textarea.
+           Every binding (`:placeholder`, `:disabled`, `@keydown`) was
+           pulled because Alpine's reactivity processed the binding-
+           expression on every event the element fired — even with
+           x-model gone, the cumulative cost of evaluating these
+           expressions per keystroke on a 1900-binding-site page
+           registered as visible lag for some operators. The vanilla
+           `init()` block now (1) sets `placeholder` directly via
+           DOM, (2) toggles `disabled` via a `$watch` on
+           `aiSidebarBusy`, (3) attaches a vanilla `keydown`
+           listener that calls `aiSidebarHandleKeydown` with `this`
+           bound to the Alpine component. Net effect: typing into
+           this textarea does NOT trip Alpine's reactivity at all
+           until the 300 ms throttle fires (or the operator presses
+           Enter / blurs / clicks Send). -->
+      <textarea id="og-ai-sidebar-input" rows="2"></textarea>
       <div class="ai-sidebar-input-actions">
         <button type="button"
                 @click="sendAiSidebarMessage()"
