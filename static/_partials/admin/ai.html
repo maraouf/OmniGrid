@@ -406,7 +406,13 @@
                 <label class="block fs-xs text-[var(--text-dim)] mb-1"
                        x-text="t('admin.ai.fallback.max_depth_label')"></label>
                 <div class="flex flex-wrap items-center gap-2">
-                  <select x-model.number="settings.ai_fallback_max_depth"
+                  <!-- Bound to the TUNABLES form, NOT
+                       `settings.ai_fallback_max_depth` (legacy plain
+                       key). Pre-fix the operator's edit persisted to
+                       the legacy key but every consumer reads
+                       `tuning_int("tuning_ai_fallback_max_depth")`,
+                       so the choice silently no-op'd. -->
+                  <select x-model.number="tuningForm['tuning_ai_fallback_max_depth']"
                           @change="markAiFormDirty()"
                           :disabled="isReadonly() || !settings.ai_enabled"
                           class="fs-sm w-20">
@@ -756,6 +762,22 @@
                            :placeholder="aiProviderBaseUrlPlaceholder(name)"
                            class="w-full mono fs-sm">
                     <p class="fs-3xs text-[var(--text-faint)] mt-1" x-text="t('admin.ai.base_url_hint')"></p>
+                    <!-- Cleartext-credentials warning — fires when the
+                         operator's base_url uses http:// (not https://).
+                         The api_key gets sent in the Authorization
+                         header on every request; over plain HTTP that
+                         means it's readable on the wire. Operator owns
+                         the URL choice (same trust model as Portainer /
+                         OIDC base URLs), so this is a hint not a hard
+                         gate — the value still saves. Per CLAUDE.md
+                         "Operator-private hostnames" + the SEC-LOW
+                         finding from the 2026-05-08-2 code review. -->
+                    <p x-show="(aiForm.providers[name].base_url || '').toLowerCase().startsWith('http://')"
+                       class="fs-3xs text-[var(--warning)] mt-1 inline-flex items-center gap-1"
+                       x-cloak>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
+                      <span x-text="t('admin.ai.base_url_http_warning') || 'Cleartext: API key will be sent unencrypted over HTTP. Use https:// unless this is a same-host service.'"></span>
+                    </p>
                   </div>
                   <!-- Test connection — uses the saved api_key when the
                        password input is blank (lets admins re-test after

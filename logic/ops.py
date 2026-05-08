@@ -124,6 +124,15 @@ OP_TYPES: frozenset[str] = frozenset({
     # kind requires a new literal here AND in the i18n + filter dropdown.
     "ai_palette",
     "ai_host_filter",
+    # TOTP admin actions — written via raw SQL INSERT in
+    # api_admin_user_disable_totp / api_admin_user_force_totp_set. Both
+    # bypass `new_op` because they don't spawn an Operation; they're
+    # audit-only history rows. The names are still under the registry
+    # so the assert_op_type validator catches typos AND the History tab
+    # filter / i18n bundle pick them up consistently with everything
+    # else.
+    "totp_admin_disabled",
+    "totp_force_set",
 })
 
 
@@ -172,6 +181,20 @@ NOTIFY_EVENT_NAMES = (
     # Default OFF so a freshly-enabled scanner doesn't flood the
     # operator with first-run notifications for every existing port.
     "port_scan_new_port",
+    # TOTP audit-row INSERT failure — when an admin disables / force
+    # -sets a user's TOTP enrolment but the audit-history row INSERT
+    # fails (SQLite locked, FK violation, etc.). Defensive log +
+    # continue is correct for the credential change itself, but the
+    # operator looking at History sees no record of the change.
+    # Fires WARNING severity so the operator knows the audit trail
+    # is missing AND can manually note the change.
+    "totp_audit_log_failed",
+    # Drawer auto-fix — Portainer-API VXLAN overlay cleanup events
+    # (success / failure variants). Fires when the operator clicks
+    # the "Cleanup stale overlay network" button on a service's
+    # task-error remediation panel.
+    "overlay_cleanup_success",
+    "overlay_cleanup_failure",
 )
 NOTIFY_EVENT_DEFAULTS = {
     name: (False if name in ("user_login", "port_scan_new_port") else True)
@@ -382,6 +405,18 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
     # (http-alt) is now listening on host01").
     "port_scan_new_port": {
         "title": "🔍 New open port on {name}",
+        "body":  "{message}",
+    },
+    "totp_audit_log_failed": {
+        "title": "TOTP audit-row missing for {name}",
+        "body":  "{message}",
+    },
+    "overlay_cleanup_success": {
+        "title": "Stale overlay cleaned: {name}",
+        "body":  "{message}",
+    },
+    "overlay_cleanup_failure": {
+        "title": "Overlay cleanup failed: {name}",
         "body":  "{message}",
     },
 }

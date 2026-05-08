@@ -2807,6 +2807,11 @@
           <option value="ai_host_filter">ai_host_filter</option>
           <option value="swarm_agent_health">swarm_agent_health</option>
           <option value="restart_swarm_agent">restart_swarm_agent</option>
+          <option value="cleanup_overlay_network">cleanup_overlay_network</option>
+          <option value="hosts_bulk_pause">hosts_bulk_pause</option>
+          <option value="hosts_bulk_resume">hosts_bulk_resume</option>
+          <option value="totp_admin_disabled">totp_admin_disabled</option>
+          <option value="totp_force_set">totp_force_set</option>
         </select>
         <select x-model="historyFilters.stack" @change="historyApplyFilter()" class="text-[12px] min-w-[150px]">
           <option value="" x-text="t('history.all_stacks')"></option>

@@ -3518,8 +3518,13 @@ function app() {
         // port-scan provider — on-demand TCP scanner. Master toggle
         // + global defaults; per-host overrides live on
         // `hosts_config[].port_scan` and ride `saveHostsConfig`.
+        // `port_scan_default_timeout` / `port_scan_default_concurrency`
+        // legacy plain keys are GONE — they were tracked here despite
+        // never being bound in any partial (the UI binds to
+        // `tuningForm['tuning_port_scan_default_*']`). Removing them
+        // from the pick array eliminates the perpetually-`undefined`
+        // baseline entries that masked real dirty-state changes.
         'port_scan_enabled', 'port_scan_default_ports',
-        'port_scan_default_timeout', 'port_scan_default_concurrency',
         // Port-scan UDP companion (Stage 2). Secondary toggle nested
         // under the master `port_scan_enabled`; default UDP ports +
         // tunables follow the same dirty-tracker contract.
@@ -3698,20 +3703,14 @@ function app() {
       if (this.settings.port_scan_udp_default_ports !== undefined) {
         payload.port_scan_udp_default_ports = String(this.settings.port_scan_udp_default_ports || '').trim();
       }
-      if (this.settings.port_scan_default_timeout !== undefined
-          && this.settings.port_scan_default_timeout !== '') {
-        const t = parseInt(this.settings.port_scan_default_timeout, 10);
-        if (Number.isFinite(t) && t >= 1 && t <= 30) {
-          payload.port_scan_default_timeout_seconds = t;
-        }
-      }
-      if (this.settings.port_scan_default_concurrency !== undefined
-          && this.settings.port_scan_default_concurrency !== '') {
-        const c = parseInt(this.settings.port_scan_default_concurrency, 10);
-        if (Number.isFinite(c) && c >= 1 && c <= 256) {
-          payload.port_scan_default_concurrency = c;
-        }
-      }
+      // NOTE: legacy `port_scan_default_timeout_seconds` /
+      // `port_scan_default_concurrency` POST branches GONE — the form
+      // never wrote to `settings.port_scan_default_timeout` /
+      // `settings.port_scan_default_concurrency` (the UI binds to
+      // `tuningForm['tuning_port_scan_default_*']`), so these
+      // branches were dead code. Backend's matching write paths were
+      // also removed in the same audit fix. Per CLAUDE.md "Plain
+      // -settings escape hatch is a drift class".
       // SNMP provider. Defaults always round-trip (so the
       // operator's saved community / version / port survive an
       // enable/disable cycle). v3 keys follow the keep-current-if-blank
@@ -8315,6 +8314,10 @@ function app() {
       'notify_event_prune_failure',
       'notify_event_user_login',
       'notify_event_host_paused',
+      'notify_event_port_scan_new_port',
+      'notify_event_totp_audit_log_failed',
+      'notify_event_overlay_cleanup_success',
+      'notify_event_overlay_cleanup_failure',
     ],
     // Per-medium master switches. Mirrors `NOTIFY_MEDIUM_NAMES` in
     // logic/ops.py. Adding a third medium adds one entry here +
