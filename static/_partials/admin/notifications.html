@@ -239,7 +239,7 @@
                    :min="(tuningEffective['tuning_notification_retention_days'] || {}).min"
                    :max="(tuningEffective['tuning_notification_retention_days'] || {}).max"
                    :disabled="!isAdmin() || tuningSaving"
-                   class="w-44 mono text-[12.5px]">
+                   class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
@@ -288,7 +288,7 @@
                    :min="(tuningEffective['tuning_notification_page_size'] || {}).min"
                    :max="(tuningEffective['tuning_notification_page_size'] || {}).max"
                    :disabled="!isAdmin() || tuningSaving"
-                   class="w-44 mono text-[12.5px]">
+                   class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"

@@ -676,15 +676,15 @@ async def _snmp_get(engine, auth, target, oids: list[str]) -> dict[str, object]:
             *(ObjectType(ObjectIdentity(o)) for o in oids),
         )
     except (asyncio.CancelledError, KeyboardInterrupt):
-        # MED-005 — never swallow cancellation. Lifespan shutdown
-        # depends on it propagating up the await chain so the loop
-        # task cancels cleanly.
+        # Never swallow cancellation. Lifespan shutdown depends on it
+        # propagating up the await chain so the loop task cancels
+        # cleanly.
         raise
     except Exception as e:
-        # MED-005 — log the exception type so debugging "host returned
-        # no data" doesn't have to start with "is this a real network
-        # issue or a code bug?". One line per error site is fine —
-        # each call site is bounded by the gather's per-OID concurrency.
+        # Log the exception type so debugging "host returned no data"
+        # doesn't have to start with "is this a real network issue or
+        # a code bug?". One line per error site is fine — each call
+        # site is bounded by the gather's per-OID concurrency.
         print(f"[snmp] WARN GET error against {target} oids={oids}: "
               f"{type(e).__name__}: {e}")
         return {}
@@ -786,12 +786,12 @@ async def _snmp_walk(engine, auth, target, base_oid: str,
                 # we don't walk the entire MIB under lex-mode-True.
                 break
     except (asyncio.CancelledError, KeyboardInterrupt):
-        # MED-005 — same cancellation contract as _snmp_get.
+        # Same cancellation contract as _snmp_get — never swallow.
         raise
     except Exception as e:
-        # MED-005 — log the exception type so a misformatted OID or
-        # pysnmp internal bug shows up as a code-bug signal instead of
-        # a network-failure signal.
+        # Log the exception type so a misformatted OID or pysnmp
+        # internal bug shows up as a code-bug signal instead of a
+        # network-failure signal.
         print(f"[snmp] WARN WALK error on {base_oid} against {target}: "
               f"{type(e).__name__}: {e}")
     return out
