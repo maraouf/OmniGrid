@@ -1650,7 +1650,17 @@
     "task_error_known_issue_image_pull": "The image couldn't be pulled. Common causes: registry credentials missing or expired, the tag doesn't exist, Docker Hub rate-limit hit (use authenticated pulls or a mirror), or a transient registry outage. Verify <code>docker pull &lt;image&gt;</code> works manually on the manager; if it fails the same way, fix the registry config in OmniGrid's Admin → Portainer or set <code>DOCKERHUB_USER</code>/<code>DOCKERHUB_TOKEN</code> in <code>.env</code>.",
     "task_error_known_issue_mount": "A bind-mount or volume the service expects is missing on the node where the task scheduled. Check that the mount source path exists on the node, that NFS/SMB shares are mounted, and that filesystem permissions allow Docker to access them. For host-path binds, the path must exist BEFORE the service starts (Docker won't create it).",
     "task_error_known_issue_placement": "No node satisfies the service's placement constraints. Common causes: a constraint references a label that no node has, a <code>node.role==manager</code> constraint with no manager available, or the constraint syntax is wrong. Inspect with <code>docker service inspect &lt;svc&gt; --format '&#123;&#123;.Spec.TaskTemplate.Placement.Constraints&#125;&#125;'</code> and <code>docker node ls --format '&#123;&#123;.Hostname&#125;&#125; &#123;&#123;.Status.State&#125;&#125; &#123;&#123;.ManagerStatus.Reachability&#125;&#125;'</code>.",
-    "task_error_known_issue_resources": "The node ran out of memory, CPU, or disk for the service's reservations. Either lower the service's resource reservations (<code>docker service update --reserve-memory 0 &lt;svc&gt;</code>), free up resources on the node, or add another node to the swarm to spread the load."
+    "task_error_known_issue_resources": "The node ran out of memory, CPU, or disk for the service's reservations. Either lower the service's resource reservations (<code>docker service update --reserve-memory 0 &lt;svc&gt;</code>), free up resources on the node, or add another node to the swarm to spread the load.",
+    "task_error_running": "Running…",
+    "task_error_action_force_restart": "Force-restart service",
+    "task_error_action_force_restart_help": "Issues a force-update on this service. Sometimes the kernel cleans up the stale VXLAN interface between task attempts; safe first try.",
+    "task_error_action_ssh_fix": "Open SSH terminal on {node}",
+    "task_error_action_ssh_fix_help": "Opens an SSH terminal on the failing node so you can run <code>ip -d link show type vxlan</code> to identify the leftover interface, then <code>sudo ip link delete vx-XXXXXX-YYYY</code> to remove it. As a last resort <code>sudo systemctl restart docker</code> clears all leftover interfaces but disrupts every running container on that node.",
+    "task_error_confirm_title": "Run this fix?",
+    "task_error_restart_queued": "Force-restart queued. Watch the row for the new task to come up; the error should clear automatically when it does.",
+    "task_error_restart_failed": "Restart failed: {error}",
+    "task_error_ssh_no_host": "No curated host matches \"{node}\" — add it under Admin → Hosts (or set its `id` to the node's hostname) to enable the SSH-fix button.",
+    "task_error_dispatch_failed": "Auto-fix failed: {error}"
   },
   "swarm_agent_banner": {
     "title": "Portainer agent unreachable on {count} Swarm node(s)",
