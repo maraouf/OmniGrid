@@ -14241,6 +14241,22 @@ function app() {
               list = dedupedH;
             }
             const idx = list.findIndex(h => h && h.id === this.drawerHost.id);
+            // Diagnostic — temporary. Mirrors the service-drawer
+            // log so the user can paste console output for the
+            // host-drawer skipping pattern too.
+            try {
+              if (window.console && console.log) {
+                console.log('[drawer-nav-hosts]', {
+                  key: e.key,
+                  drawerHostId: this.drawerHost.id,
+                  drawerHostName: this.drawerHost.host || this.drawerHost.label,
+                  idx,
+                  listLen: list.length,
+                  listIds: list.map(h => h && h.id),
+                  listNames: list.map(h => h && (h.host || h.label || h.id)),
+                });
+              }
+            } catch (_) { /* ignore */ }
             if (idx >= 0) {
               const next = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
               if (next >= 0 && next < list.length) {
@@ -14325,6 +14341,29 @@ function app() {
               list = deduped;
             }
             const idx = list.findIndex(it => it && it.id === this.drawerItem.id);
+            // Diagnostic — temporary. The user reported arrow nav
+            // skipping every-other service (1→3→5 pattern). The
+            // dedupe pass should have collapsed any duplicate ids,
+            // but the bug persisted, suggesting the list itself is
+            // in a different order than what the user sees. This
+            // log dumps the resolved list, the resolved index, the
+            // computed next index, and the current drawerItem id so
+            // the user can paste the console output and I can see
+            // the actual data flowing through. Remove once diagnosed.
+            try {
+              if (window.console && console.log) {
+                console.log('[drawer-nav]', {
+                  view: this.view,
+                  key: e.key,
+                  drawerItemId: this.drawerItem.id,
+                  drawerItemName: this.drawerItem.name,
+                  idx,
+                  listLen: list.length,
+                  listIds: list.map(it => it && it.id),
+                  listNames: list.map(it => it && it.name),
+                });
+              }
+            } catch (_) { /* ignore */ }
             if (idx >= 0) {
               const next = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
               if (next >= 0 && next < list.length) {
