@@ -1639,11 +1639,14 @@ async def _gather_impl() -> None:
                 # Surface tasks in genuinely-failed states OR with a
                 # non-empty Err string. State 'rejected' / 'failed' /
                 # 'orphaned' are unambiguous; 'shutdown' often carries
-                # a benign error (replaced by newer task) but the
-                # `DesiredState=shutdown` filter already excluded
-                # those above for the placements list — we keep them
-                # here when Err is non-empty because a shutdown-with-
-                # error is the operator-relevant signal.
+                # a benign error (replaced by newer task during a
+                # service-update rolling restart — exit 255 from
+                # SIGKILL is the canonical pattern). Keep shutdown
+                # tasks in the history so the operator can drill into
+                # them via "Show recent failed attempts", but flag
+                # them so the "Latest task error" headline computation
+                # below can prefer a real failure over a benign
+                # shutdown-replacement record.
                 if not err and state not in ("rejected", "failed", "orphaned"):
                     continue
                 ts_raw = st.get("Timestamp") or t.get("CreatedAt") or ""
@@ -1653,11 +1656,23 @@ async def _gather_impl() -> None:
                     "err":       err,
                     "ts":        ts_raw,
                     "ts_epoch":  _parse_docker_ts(ts_raw) or 0,
+                    # Mark shutdown-with-err records as benign so the
+                    # SPA's headline "Latest task error" panel doesn't
+                    # alarm on rolling-update shutdowns when the
+                    # current task is running healthy.
+                    "benign":    state == "shutdown",
                 })
             failed_tasks.sort(key=lambda x: x.get("ts_epoch") or 0, reverse=True)
             task_history = failed_tasks[:10]
+            # `task_error` is the headline failure surfaced in the
+            # drawer. Prefer a NON-benign failure (rejected / failed
+            # / orphaned, or shutdown-with-err only when EVERY entry
+            # is benign — meaning we have nothing more meaningful).
+            # This suppresses the "Latest task error: non-zero exit
+            # (255)" headline on healthy services that recently
+            # rolled a service-update.
             task_error = next(
-                (ft["err"] for ft in failed_tasks if ft.get("err")),
+                (ft["err"] for ft in failed_tasks if ft.get("err") and not ft.get("benign")),
                 "",
             )
 
