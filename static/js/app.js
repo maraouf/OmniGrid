@@ -10480,9 +10480,19 @@ function app() {
           if (this._inFlightPortScans && this._inFlightPortScans[hostId]) {
             delete this._inFlightPortScans[hostId];
             if (payload.ok) {
-              this.showToast(this.t('host_drawer.port_scan.scan_complete_body', {
+              const openCount = (payload.ports_open || 0) + (payload.udp_open || 0);
+              // First-scan toast hides the "(N new since last scan)"
+              // suffix because there is no last scan to diff against —
+              // the parenthetical is misleading on the host's first
+              // scan ever. Backend signals via `is_first_scan` in the
+              // SSE payload (only true when no prior scan_id row
+              // exists in `host_port_scans` for this host).
+              const i18nKey = payload.is_first_scan
+                ? 'host_drawer.port_scan.scan_complete_body_first'
+                : 'host_drawer.port_scan.scan_complete_body';
+              this.showToast(this.t(i18nKey, {
                 host:       hostId,
-                open_count: (payload.ports_open || 0) + (payload.udp_open || 0),
+                open_count: openCount,
                 new_count:  0,  // diff happens server-side via notify path
               }), 'success');
             } else {

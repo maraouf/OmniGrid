@@ -13023,6 +13023,7 @@ async def _run_port_scan_async(
             f"scan_id={scan_id}"
         )
     prev_open_ports: set[tuple[int, str]] = set()
+    is_first_scan = True  # default-true; flipped to False if a prior scan_id row exists
     try:
         with db_conn() as c:
             prev_head = c.execute(
@@ -13032,6 +13033,7 @@ async def _run_port_scan_async(
                 (hid, scan_id),
             ).fetchone()
             if prev_head and prev_head["scan_id"]:
+                is_first_scan = False
                 prev_rows = c.execute(
                     "SELECT port, protocol FROM host_port_scans WHERE scan_id = ?",
                     (prev_head["scan_id"],),
@@ -13166,6 +13168,12 @@ async def _run_port_scan_async(
             "udp_open":     len(udp_open_entries),
             "duration_ms":  duration_ms,
             "error":        scan.get("error") or None,
+            # Lets the SPA pick a "first scan" vs "diff vs prior scan"
+            # toast wording. True when this is the host's very first
+            # scan (no prior scan_id rows in host_port_scans). Saves
+            # the SPA from showing "(0 new since last scan)" when
+            # there IS no last scan.
+            "is_first_scan": bool(is_first_scan),
         })
     except Exception:  # noqa: BLE001
         pass
