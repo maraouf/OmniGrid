@@ -21750,9 +21750,28 @@ function app() {
           // this tab kicked it off (and can show a completion toast
           // even when the drawer has since closed).
           this._inFlightPortScans[host.id] = data.scan_id || true;
-          this.showToast(this.t('host_drawer.port_scan.scan_queued_body', {
-            host: host.id, target: data.target || host.id,
-          }) || ('Port scan queued for ' + host.id + ' — results will appear when complete.'), 'info');
+          // Display: "<label> (<scan-target>)" so the operator sees the
+          // actual address being probed BEFORE results land — guards
+          // against the "scanning the public URL instead of my LAN
+          // host" misconception that prompted dropping the `host.url`
+          // fallback from the resolution chain. When the resolved
+          // target matches the id (the common case), drop the redundant
+          // parenthetical so the toast reads cleanly.
+          const _label = this.hostDisplayName(host) || host.id;
+          const _target = (data.target || host.id || '').toString();
+          const _bodyVars = (_target && _target !== _label && _target !== host.id)
+            ? { host: _label, target: _target }
+            : { host: _label, target: _target };
+          const _i18nKey = (_target && _target !== _label && _target !== host.id)
+            ? 'host_drawer.port_scan.scan_queued_body'
+            : 'host_drawer.port_scan.scan_queued_body_nohost';
+          this.showToast(
+            this.t(_i18nKey, _bodyVars)
+              || ('Port scan queued for ' + _label
+                  + (_target && _target !== _label ? ' (' + _target + ')' : '')
+                  + ' — results will appear when complete.'),
+            'info',
+          );
           // Polling fallback at 60 s — refreshes the host row in case
           // SSE is dropped. Doesn't clear the spinner yet (SSE may
           // still land); the hard timeout below handles that case.
