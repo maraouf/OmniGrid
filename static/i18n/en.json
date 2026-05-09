@@ -1992,6 +1992,7 @@
       "bulk_update": "Bulk update",
       "bulk_restart": "Bulk restart",
       "bulk_remove": "Bulk remove",
+      "bulk_cleanup": "Cleanup all stopped / failed containers",
       "expand_all": "Expand all stacks",
       "collapse_all": "Collapse all stacks",
       "command_palette": "Command palette"

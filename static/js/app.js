@@ -14329,19 +14329,45 @@ function app() {
       // Titles + labels resolve through t() so the entire help modal
       // translates in place. Keys + run handlers stay the same across
       // languages — shortcut bindings are locale-independent.
+      //
+      // CONVENTION (post-migration, 2026-05-09): every binding requires
+      // Cmd/Ctrl (matches the Cmd-K palette pattern) so a bare typed
+      // character — `/`, `1`, `?`, `r`, `t`, etc. — never fires a
+      // shortcut by accident from an input or focused element. Bulk
+      // operations layer Shift on top (Cmd/Ctrl+Shift+<key>) to
+      // distinguish destructive bulk actions from single-item / nav
+      // actions. The display column uses the literal modifier list
+      // (`['Cmd/Ctrl', 'K']` etc.); the matcher in `handleHotkey`
+      // reads the LAST element as the character key and the
+      // preceding elements as modifiers (matched via `e.ctrlKey ||
+      // e.metaKey` for Cmd/Ctrl + `e.shiftKey` for Shift).
+      //
+      // Browser-default collisions accepted (preventDefault'd):
+      //  - Cmd/Ctrl+1..5 (browser tab-switch — overridden for view nav)
+      //  - Cmd/Ctrl+R (browser refresh — overridden; Cmd/Ctrl+Shift+R
+      //    overrides hard-refresh similarly)
+      //  - Cmd/Ctrl+Shift+T (browser reopen-closed-tab — overridden
+      //    for bulk restart)
+      //  - Cmd/Ctrl+Shift+D (browser bookmark-page — overridden for
+      //    bulk remove)
+      // Cmd/Ctrl+A (browser select-all) is INTENTIONALLY NOT BOUND —
+      // operators select-all-text in inputs frequently; the previous
+      // bare `a` "select all visible" binding migrated to Cmd/Ctrl+I
+      // (I = "items" / "available updates") to preserve text-edit
+      // ergonomics.
       const _t = (k) => this.t(k);
       return [
         {
           title: _t('hotkeys.groups.navigate'),
           items: [
-            { keys: ['/'],       label: _t('hotkeys.items.focus_search'),   run: () => this.$refs.searchBox?.focus() },
-            { keys: ['1'],       label: _t('hotkeys.items.view_stacks'),    run: () => this.view = 'stacks' },
-            { keys: ['2'],       label: _t('hotkeys.items.view_services'),  run: () => this.view = 'services' },
-            { keys: ['3'],       label: _t('hotkeys.items.view_nodes'),     run: () => this.view = 'nodes' },
-            { keys: ['4'],       label: _t('hotkeys.items.view_hosts'),     run: () => this.view = 'hosts' },
-            { keys: ['5'],       label: _t('hotkeys.items.view_history'),   run: () => this.view = 'history' },
-            { keys: ['?'],       label: _t('hotkeys.items.show_help'),       run: () => this.showHotkeys = true },
-            { keys: ['n'],       label: _t('hotkeys.items.notifications'),   run: () => this.openNotificationsPopup() },
+            { keys: ['Cmd/Ctrl', '/'], label: _t('hotkeys.items.focus_search'),   run: () => this.$refs.searchBox?.focus() },
+            { keys: ['Cmd/Ctrl', '1'], label: _t('hotkeys.items.view_stacks'),    run: () => this.view = 'stacks' },
+            { keys: ['Cmd/Ctrl', '2'], label: _t('hotkeys.items.view_services'),  run: () => this.view = 'services' },
+            { keys: ['Cmd/Ctrl', '3'], label: _t('hotkeys.items.view_nodes'),     run: () => this.view = 'nodes' },
+            { keys: ['Cmd/Ctrl', '4'], label: _t('hotkeys.items.view_hosts'),     run: () => this.view = 'hosts' },
+            { keys: ['Cmd/Ctrl', '5'], label: _t('hotkeys.items.view_history'),   run: () => this.view = 'history' },
+            { keys: ['Cmd/Ctrl', 'Shift', '/'], label: _t('hotkeys.items.show_help'),       run: () => this.showHotkeys = true },
+            { keys: ['Cmd/Ctrl', 'B'], label: _t('hotkeys.items.notifications'),   run: () => this.openNotificationsPopup() },
             { keys: ['Cmd/Ctrl', 'K'], label: _t('hotkeys.items.command_palette'), run: () => this.openCommandPalette() },
             { keys: ['Esc'],     label: _t('hotkeys.items.close_clear'),     run: null, note: _t('hotkeys.items.close_clear_note') },
           ],
@@ -14349,32 +14375,36 @@ function app() {
         {
           title: _t('hotkeys.groups.refresh_theme'),
           items: [
-            { keys: ['r'],        label: _t('hotkeys.items.refresh_cached'), run: () => this.refresh(false) },
-            { keys: ['R'],        label: _t('hotkeys.items.refresh_force'),  run: () => this.refresh(true) },
-            { keys: ['t'],        label: _t('hotkeys.items.cycle_theme'),    run: () => this.cycleTheme() },
+            { keys: ['Cmd/Ctrl', 'R'],          label: _t('hotkeys.items.refresh_cached'), run: () => this.refresh(false) },
+            { keys: ['Cmd/Ctrl', 'Shift', 'R'], label: _t('hotkeys.items.refresh_force'),  run: () => this.refresh(true) },
+            { keys: ['Cmd/Ctrl', 'J'],          label: _t('hotkeys.items.cycle_theme'),    run: () => this.cycleTheme() },
           ],
         },
         {
           title: _t('hotkeys.groups.selection'),
           items: [
-            { keys: ['a'], label: _t('hotkeys.items.select_all_visible'), run: () => this.selectAllVisible() },
-            { keys: ['u'], label: _t('hotkeys.items.select_updates'),     run: () => this.selectUpdatesOnly() },
-            { keys: ['x'], label: _t('hotkeys.items.clear_selection'),    run: () => this.clearSelection() },
+            { keys: ['Cmd/Ctrl', 'I'], label: _t('hotkeys.items.select_all_visible'), run: () => this.selectAllVisible() },
+            { keys: ['Cmd/Ctrl', 'U'], label: _t('hotkeys.items.select_updates'),     run: () => this.selectUpdatesOnly() },
+            { keys: ['Cmd/Ctrl', '.'], label: _t('hotkeys.items.clear_selection'),    run: () => this.clearSelection() },
           ],
         },
         {
           title: _t('hotkeys.groups.bulk'),
           items: [
-            { keys: ['Shift', 'U'], label: _t('hotkeys.items.bulk_update'),  run: () => this.selectionUpdatable().length && this.bulkUpdate() },
-            { keys: ['Shift', 'T'], label: _t('hotkeys.items.bulk_restart'), run: () => this.selectionRestartable().length && this.bulkRestart() },
-            { keys: ['Shift', 'D'], label: _t('hotkeys.items.bulk_remove'),  run: () => this.selectionRemovable().length && this.bulkRemove() },
+            { keys: ['Cmd/Ctrl', 'Shift', 'U'], label: _t('hotkeys.items.bulk_update'),  run: () => this.selectionUpdatable().length && this.bulkUpdate() },
+            { keys: ['Cmd/Ctrl', 'Shift', 'T'], label: _t('hotkeys.items.bulk_restart'), run: () => this.selectionRestartable().length && this.bulkRestart() },
+            { keys: ['Cmd/Ctrl', 'Shift', 'D'], label: _t('hotkeys.items.bulk_remove'),  run: () => this.selectionRemovable().length && this.bulkRemove() },
+            // NEW: Cleanup all stopped/failed/orphaned containers — the
+            // topbar red Cleanup button. L = "cLeanup" (collision-free
+            // in browsers; not used by any common system shortcut).
+            { keys: ['Cmd/Ctrl', 'Shift', 'L'], label: _t('hotkeys.items.bulk_cleanup'), run: () => (typeof this.bulkRemoveAll === 'function') && this.bulkRemoveAll() },
           ],
         },
         {
           title: _t('hotkeys.groups.stacks_view'),
           items: [
-            { keys: ['e'], label: _t('hotkeys.items.expand_all'),    run: () => this.expandAllStacks() },
-            { keys: ['c'], label: _t('hotkeys.items.collapse_all'),  run: () => this.collapseAllStacks() },
+            { keys: ['Cmd/Ctrl', 'E'],          label: _t('hotkeys.items.expand_all'),    run: () => this.expandAllStacks() },
+            { keys: ['Cmd/Ctrl', 'Shift', 'E'], label: _t('hotkeys.items.collapse_all'),  run: () => this.collapseAllStacks() },
           ],
         },
       ];
@@ -14637,49 +14667,55 @@ function app() {
       // element, so the toggle works from inputs / drawers / any
       // interactive area.
       // Browser / OS combos — never intercept.
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // Post-migration: every binding REQUIRES Cmd/Ctrl. Bail on Alt
+      // (system / accessibility shortcuts) but NOT on Ctrl/Meta — the
+      // matcher loop below explicitly checks for them. Pre-fix this
+      // bailed on any modifier, which made the entire catalog
+      // unreachable; the bare-key matching that followed was the
+      // legacy path. The Cmd-K palette already uses the capture-phase
+      // listener (`_cmdpal_handled`) and lands here as a no-op.
+      if (e.altKey) return;
       // Key repeat (holding a key) or IME composition — user is
       // typing, never a hotkey.
       if (e.repeat || e.isComposing) return;
 
-      // Hotkeys fire ONLY when focus is on <body> / <html> (i.e.
-      // nothing interactive has focus). This is stricter than the
-      // old "not in an INPUT" check and catches: focused buttons
-      // with number labels, focused custom role=textbox / combobox,
-      // Alpine-managed wrappers that re-target events, and DevTools
-      // focus edge cases. The result: typing digits in any form
-      // field — including the newly-added asset-inventory number
-      // inputs and the Admin → Hosts custom_number editor — never
-      // switches views.
-      const bodyFocused = !active
-        || active === document.body
-        || active === document.documentElement;
-      // Also skip if the EVENT TARGET is a known interactive element,
-      // as a second line of defense against re-targeted events.
-      const interactiveTags = ['INPUT','TEXTAREA','SELECT','BUTTON'];
-      const targetTag = target && target.tagName;
-      const targetIsInteractive = !!target && (
-        interactiveTags.includes(targetTag) ||
-        target.isContentEditable ||
-        target.getAttribute && (
-          target.getAttribute('contenteditable') === 'true' ||
-          target.getAttribute('role') === 'textbox' ||
-          target.getAttribute('role') === 'combobox'
-        ) ||
-        (target.closest && target.closest(
-          'input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"], [role="combobox"]'
-        ))
-      );
-      if (!bodyFocused || targetIsInteractive) return;
+      // Cmd/Ctrl shortcuts fire from ANYWHERE — including inside
+      // inputs and textareas — because the modifier means the
+      // operator made the explicit "this is a shortcut" choice. The
+      // old body-focused gate was needed when bare keys (`/`, `1`,
+      // `r`) could collide with typing; with mandatory Cmd/Ctrl the
+      // gate is redundant and harmful (operators editing a search
+      // filter would have to click out before pressing Cmd/Ctrl+K
+      // / Cmd/Ctrl+1 / etc.). One conscious exception: Cmd/Ctrl+A
+      // is INTENTIONALLY NOT BOUND in the catalog so it falls
+      // through to the browser's native select-all-text behaviour
+      // inside text fields.
 
-      // Walk the catalog once, match on key (case-sensitive to distinguish
-      // lowercase vs Shift+letter).
+      // Walk the catalog once, match on (modifiers + key).
       for (const group of this.hotkeyGroups()) {
         for (const entry of group.items) {
           if (!entry.run) continue;
-          const char = entry.keys[entry.keys.length - 1];
-          if (char === 'Esc') continue;
-          if (e.key === char) {
+          if (!Array.isArray(entry.keys) || entry.keys.length === 0) continue;
+          const last = entry.keys[entry.keys.length - 1];
+          if (last === 'Esc') continue;
+          // Modifiers: every key in `entry.keys` except the last is
+          // a modifier name. `Cmd/Ctrl` matches `e.ctrlKey ||
+          // e.metaKey`; `Shift` matches `e.shiftKey`. Strict match —
+          // an entry that DOESN'T list Shift requires `e.shiftKey ===
+          // false` so Cmd/Ctrl+E doesn't accidentally match
+          // Cmd/Ctrl+Shift+E (collapse-all vs expand-all).
+          const mods = entry.keys.slice(0, -1);
+          const wantsCtrl  = mods.includes('Cmd/Ctrl');
+          const wantsShift = mods.includes('Shift');
+          if (wantsCtrl !== (e.ctrlKey || e.metaKey)) continue;
+          if (wantsShift !== e.shiftKey) continue;
+          // Key match — case-insensitive for letters because
+          // `e.key` returns 'r' OR 'R' depending on Shift state, and
+          // we already gated Shift above. Period / slash / digits
+          // are case-insensitive naturally.
+          const want = String(last).toLowerCase();
+          const got  = String(e.key || '').toLowerCase();
+          if (want === got) {
             e.preventDefault();
             entry.run();
             return;

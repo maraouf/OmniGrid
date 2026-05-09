@@ -750,8 +750,24 @@ select:disabled {
     cursor: not-allowed;
 }
 
+/* Search inputs match the symmetric padding of every other input by
+   default; sites that overlay an absolutely-positioned icon at the
+   start (see #topbar-search below) opt into the 36 px reserved slot
+   per-instance instead of the global rule baking in indent that
+   most consumers don't want. Pre-fix, this rule had a hardcoded
+   36 px left-pad that left placeholder text visibly indented in
+   sibling-icon and no-icon search inputs (logs filter, history
+   filter, schedules queue search, etc.). */
 input[type="search"] {
-    padding: var(--s-4) var(--s-5) var(--s-4) 36px;
+    padding: var(--s-4) var(--s-5);
+}
+
+/* Topbar search has an absolutely-positioned `<svg>` overlay at
+   `start-3` (~12 px from start); reserve 36 px so the placeholder
+   text clears the icon. Logical-property `padding-inline-start`
+   so RTL flips automatically. */
+#topbar-search {
+    padding-inline-start: 36px;
 }
 
 /* Calendar-picker + number-stepper icons: inherit currentColor so they
