@@ -16011,13 +16011,32 @@ function app() {
         // Validated against the curated host id set server-side, so
         // we trust the array as-is here.
         const hostIds = Array.isArray(j.hosts) ? j.hosts.slice(0, 8) : [];
-        // Optional chart_kind directive from the AI ("memory_history",
-        // "cpu_history", or absent → defaults to disk_projection per
-        // the original protocol). Drives the populator's endpoint
-        // dispatch downstream so the chart shell renders the kind
-        // the operator asked for.
-        const chartKind = (typeof j.chart_kind === 'string' && j.chart_kind)
+        // chart_kind dispatch — picks which chart the SPA renders
+        // alongside the assistant's answer. Resolution chain:
+        //   1. AI's explicit `CHART:` directive → server-side parser
+        //      cleans + validates → arrives in `j.chart_kind`.
+        //   2. SPA-side heuristic from the user's question text —
+        //      Gemini repeatedly omits the CHART: line for memory /
+        //      CPU questions even with the prompt's MANDATORY hard
+        //      rule, so we infer the kind from the user's words
+        //      when the AI also returned `hosts` but no chart_kind.
+        //      memory / ram / mem → memory_history; cpu / load /
+        //      processor → cpu_history; disk / storage / space →
+        //      disk_projection. No match → empty (default disk).
+        //   3. Empty falls through to disk_projection in the
+        //      populator (legacy default).
+        let chartKind = (typeof j.chart_kind === 'string' && j.chart_kind)
           ? j.chart_kind : '';
+        if (!chartKind && hostIds.length > 0) {
+          const _qLower = String(q || '').toLowerCase();
+          if (/\b(memory|ram|mem)\b/.test(_qLower)) {
+            chartKind = 'memory_history';
+          } else if (/\b(cpu|load|processor)\b/.test(_qLower)) {
+            chartKind = 'cpu_history';
+          } else if (/\b(disk|storage|space|capacity)\b/.test(_qLower)) {
+            chartKind = 'disk_projection';
+          }
+        }
         // Surface AI-emitted memories. `memories_saved` is the list
         // the backend already persisted via /api/ai/palette; the SPA
         // toasts each one so the operator sees the self-improvement
@@ -16710,6 +16729,31 @@ function app() {
         if (h.sampling_paused) out.paused = true;
         if (Array.isArray(h.providers) && h.providers.length) {
           out.providers = h.providers.slice(0, 6);
+        }
+        // Per-host services summary — total + failed counts +
+        // names of the failed services. Pre-fix the AI saw zero
+        // service-state context, so questions like "any failed
+        // services?" returned "No services are reported as failed"
+        // even when `host.services.failed_names` carried entries
+        // like `forgejo-mcp` / `mcp-auth-proxy`. Beszel agent path
+        // populates this via systemd_services collection; non-Beszel
+        // hosts get `{total: 0, failed: 0, failed_names: []}` and
+        // the field is omitted when total is 0 (no signal to ship).
+        if (h.services && typeof h.services === 'object'
+            && Number(h.services.total) > 0) {
+          const svc = {
+            total:  Number(h.services.total) || 0,
+            failed: Number(h.services.failed) || 0,
+          };
+          if (Array.isArray(h.services.failed_names)
+              && h.services.failed_names.length) {
+            // Cap at 16 names so a runaway-failing fleet doesn't
+            // balloon the AI prompt; first 16 is enough for the
+            // AI to surface specifics in the answer.
+            svc.failed_names = h.services.failed_names
+              .slice(0, 16).map(String);
+          }
+          out.services = svc;
         }
         // Asset-inventory aliases — surface vendor / model / serial
         // / display-name fields from the curated asset record so the
