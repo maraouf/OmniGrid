@@ -789,144 +789,226 @@ async def probe_pulse(
             vid = g.get(id_key)
             if vid not in (None, "", 0):
                 _add(str(vid), stats)
+    # Pulse v4 `hosts` array — Pulse-agent-tracked Linux hosts (NOT
+    # PVE guests). Operator-confirmed: real curated hosts (e.g.
+    # `debian13monitoring`) are tracked here, not in `vms`. Walked
+    # separately from the generic `_harvest` because (a) these have
+    # a different schema than PVE guests/nodes; (b) extract via
+    # `extract_pulse_host_stats` instead of `extract_guest_stats`
+    # which assumes PVE shape and would return zeros.
+    pulse_hosts_arr = state.get("hosts") or []
+    pulse_hosts_added = 0
+    if isinstance(pulse_hosts_arr, list):
+        for ph in pulse_hosts_arr:
+            if not isinstance(ph, dict):
+                continue
+            stats = extract_pulse_host_stats(ph)
+            # Identity keys: prefer the agent-reported `host`
+            # (operator's curated `pulse_name` typically matches
+            # this), then `hostname`, then `name`. Each non-empty
+            # alias gets registered so lookup is forgiving.
+            keys_added = []
+            for alt in ("host", "hostname", "name"):
+                v = (ph.get(alt) or "").strip() if isinstance(ph.get(alt), str) else ""
+                if v and v not in keys_added:
+                    _add(v, stats)
+                    keys_added.append(v)
+            # Also register under the host's id (often a UUID-ish
+            # string) so curated mappings using the id resolve.
+            host_id = ph.get("id")
+            if host_id and isinstance(host_id, str) and host_id.strip():
+                if host_id.strip() not in keys_added:
+                    _add(host_id.strip(), stats)
+                    keys_added.append(host_id.strip())
+            stats["pulse_name"] = keys_added[0] if keys_added else ""
+            if keys_added:
+                pulse_hosts_added += 1
+    print(f"[pulse] probe: pulse_hosts_array_added={pulse_hosts_added} "
+          f"(of {len(pulse_hosts_arr) if isinstance(pulse_hosts_arr, list) else 0} entries in state.hosts)")
+
+    # Pulse v4 `dockerHosts` array — Docker daemons (separate from
+    # the `containers` array which is per-container PVE LXCs).
+    # Schema is similar to `hosts` but uses `cpuUsagePercent` /
+    # `totalMemoryBytes` / `cpus` instead of `cpuUsage` / `memory.total`
+    # / `cpuCount`. extract_pulse_host_stats handles both via the
+    # multi-path probes.
+    pulse_docker_hosts_arr = state.get("dockerHosts") or []
+    pulse_docker_hosts_added = 0
+    if isinstance(pulse_docker_hosts_arr, list):
+        for dh in pulse_docker_hosts_arr:
+            if not isinstance(dh, dict):
+                continue
+            stats = extract_pulse_host_stats(dh)
+            stats["pulse_kind"] = "docker_host"  # distinguishable from plain "host"
+            keys_added = []
+            for alt in ("hostname", "displayName", "name"):
+                v = (dh.get(alt) or "").strip() if isinstance(dh.get(alt), str) else ""
+                if v and v not in keys_added:
+                    _add(v, stats)
+                    keys_added.append(v)
+            host_id = dh.get("id") or dh.get("agentId") or dh.get("machineId")
+            if host_id and isinstance(host_id, str) and host_id.strip():
+                if host_id.strip() not in keys_added:
+                    _add(host_id.strip(), stats)
+                    keys_added.append(host_id.strip())
+            stats["pulse_name"] = keys_added[0] if keys_added else ""
+            if keys_added:
+                pulse_docker_hosts_added += 1
+    print(f"[pulse] probe: pulse_docker_hosts_added={pulse_docker_hosts_added} "
+          f"(of {len(pulse_docker_hosts_arr) if isinstance(pulse_docker_hosts_arr, list) else 0} entries in state.dockerHosts)")
     print(f"[pulse] probe: indexed keys={sorted(out.keys())}")
     return {"hosts": out, "error": None}
 
 
 def extract_pulse_host_stats(host: dict) -> dict:
-    """Shape one Pulse v4 ``hosts[*]`` record into ``host_*`` fields.
+    """Shape one Pulse v4 ``hosts[*]`` or ``dockerHosts[*]`` record
+    into ``host_*`` fields.
 
     Distinct from :func:`extract_guest_stats` (PVE LXC/VM in the
-    ``vms`` array) and :func:`extract_node_stats` (PVE hypervisor in
-    the ``nodes`` array). Pulse v4 added a top-level ``hosts`` array
-    for Pulse-agent-tracked Linux hosts (NOT running under Proxmox).
-    Operator-confirmed: 21 of their 22 curated `pulse_name` mappings
-    point at entries here, NOT at PVE guests.
+    ``vms`` / ``containers`` arrays — uses ``cpu`` / ``maxmem`` /
+    ``maxdisk`` shape) and :func:`extract_node_stats` (PVE
+    hypervisor in the ``nodes`` array). Pulse v4 added top-level
+    ``hosts`` (Pulse-agent-tracked Linux + Windows hosts) and
+    ``dockerHosts`` (Docker daemons) arrays. Both share a similar
+    object shape but the field names differ:
 
-    Schema is best-effort because Pulse's published API is sparse on
-    the `hosts` shape. We defensively read multiple plausible field
-    paths and use the first non-zero / non-empty hit per field. The
-    paths walked:
-      - cpu:        ``cpu`` (top), ``info.cpu``, ``stats.cpu`` —
-                    treat as 0..1 fraction OR 0..100 percent based
-                    on magnitude (a value > 1.5 is assumed to
-                    already be a percentage).
-      - mem total:  ``maxmem``, ``memTotal``, ``mem.total``,
-                    ``memory.total``, ``info.m`` (GiB convention),
-                    ``stats.m`` (GiB).
-      - mem used:   ``mem``, ``memUsed``, ``mem.used``,
-                    ``memory.used``, ``info.mu`` (GiB),
-                    ``stats.mu`` (GiB).
-      - disk total: ``maxdisk``, ``diskTotal``, ``disk.total``,
-                    ``info.d`` (GiB), ``stats.d`` (GiB).
-      - disk used:  ``disk``, ``diskUsed``, ``disk.used``,
-                    ``info.du`` (GiB), ``stats.du`` (GiB).
-      - uptime:     ``uptime``, ``info.u`` (seconds).
-      - hostname:   ``host``, ``hostname``, ``name``.
+    * ``hosts[*]``: ``cpuUsage`` (0..100 %, NOT fraction),
+      ``memory.{total,used,free,usage}``, ``disks[].{total,used}``,
+      ``diskIO[].{readBytes,writeBytes}``,
+      ``networkInterfaces[].{rxBytes,txBytes}``,
+      ``uptimeSeconds``, ``cpuCount``, ``status`` ("online"),
+      ``hostname``, ``displayName``, ``osName``, ``osVersion``,
+      ``kernelVersion``, ``architecture``, ``platform``,
+      ``agentVersion``, ``loadAverage``.
+    * ``dockerHosts[*]``: ``cpuUsagePercent`` (different field
+      name!), ``totalMemoryBytes`` (alongside ``memory.total``),
+      ``cpus`` (count), ``runtimeVersion``,
+      otherwise mostly the same shape.
 
-    GiB-vs-bytes detection: any nested-stats value where the key
-    equals ``m`` / ``mu`` / ``d`` / ``du`` is assumed to be GiB
-    (Beszel-style tier; sub-1000 magnitudes); top-level ``mem`` /
-    ``maxmem`` / ``disk`` / ``maxdisk`` go through ``_value_is_gib``
-    like guest/node extraction.
-
-    Empty record OR record where every probe path yields 0/empty →
-    returns the same skeleton as `extract_guest_stats` with all
-    `host_*` fields at 0 / "" so the merge layer can still see the
-    `pulse_*` identity fields.
+    Defensive multi-path probing covers both schemas. Returns a
+    skeleton with `host_*` keys populated (or 0 / "" when missing).
     """
     if not isinstance(host, dict):
         host = {}
-    gib = 1024 ** 3
+
+    def _walk(path_keys):
+        """Walk a path of dict keys + list indexes through the host
+        record. Returns the value or None on any miss."""
+        cursor = host
+        for k in path_keys:
+            if isinstance(k, int) and isinstance(cursor, list):
+                if k < 0 or k >= len(cursor):
+                    return None
+                cursor = cursor[k]
+            elif isinstance(cursor, dict) and k in cursor:
+                cursor = cursor[k]
+            else:
+                return None
+        return cursor
 
     def _first_non_zero(*paths):
-        """Walk ``paths`` (each a list of dotted keys), return first
-        non-zero numeric value found via ``host.<path>`` traversal.
-        Skips None / "" / 0. Returns 0 when nothing matches."""
         for path_keys in paths:
-            cursor = host
-            ok = True
-            for k in path_keys:
-                if isinstance(cursor, dict) and k in cursor:
-                    cursor = cursor[k]
-                else:
-                    ok = False
-                    break
-            if not ok:
+            cursor = _walk(path_keys)
+            if cursor is None:
                 continue
             v = _num(cursor)
             if v != 0:
                 return v
         return 0.0
 
-    # CPU — accept either fraction (0..1) or percent (0..100).
-    raw_cpu = _first_non_zero(["cpu"], ["info", "cpu"], ["stats", "cpu"])
-    cpu_pct = raw_cpu * 100 if 0 < raw_cpu <= 1.5 else raw_cpu
-
-    # Memory — top-level (bytes) first, then nested (GiB convention).
-    mem_max = _first_non_zero(
-        ["maxmem"], ["memTotal"], ["mem", "total"], ["memory", "total"],
-    )
-    if mem_max == 0:
-        # Try Beszel-style nested GiB paths.
-        nested_mem_max = _first_non_zero(["info", "m"], ["stats", "m"])
-        if nested_mem_max:
-            mem_max = nested_mem_max * gib
-    elif _value_is_gib(mem_max, _current_probe_base_url):
-        mem_max = mem_max * gib
-
-    mem_used = _first_non_zero(
-        ["mem"], ["memUsed"], ["mem", "used"], ["memory", "used"],
-    )
-    if mem_used == 0:
-        nested_mem_used = _first_non_zero(["info", "mu"], ["stats", "mu"])
-        if nested_mem_used:
-            mem_used = nested_mem_used * gib
-    elif _value_is_gib(mem_used, _current_probe_base_url):
-        mem_used = mem_used * gib
-
-    # Disk — same multi-path probe.
-    disk_max = _first_non_zero(
-        ["maxdisk"], ["diskTotal"], ["disk", "total"],
-    )
-    if disk_max == 0:
-        nested_disk_max = _first_non_zero(["info", "d"], ["stats", "d"])
-        if nested_disk_max:
-            disk_max = nested_disk_max * gib
-    elif _value_is_gib(disk_max, _current_probe_base_url):
-        disk_max = disk_max * gib
-
-    disk_used = _first_non_zero(
-        ["disk"], ["diskUsed"], ["disk", "used"],
-    )
-    if disk_used == 0:
-        nested_disk_used = _first_non_zero(["info", "du"], ["stats", "du"])
-        if nested_disk_used:
-            disk_used = nested_disk_used * gib
-    elif _value_is_gib(disk_used, _current_probe_base_url):
-        disk_used = disk_used * gib
-
-    uptime = int(_first_non_zero(["uptime"], ["info", "u"]))
-    host_boot_ts = (time.time() - uptime) if uptime > 0 else None
-
-    # Identity fields — not summed, just first non-empty string.
-    def _first_str(*keys):
-        for k in keys:
-            v = host.get(k)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
+    def _first_str(*paths):
+        for path_keys in paths:
+            cursor = _walk(path_keys)
+            if isinstance(cursor, str) and cursor.strip():
+                return cursor.strip()
         return ""
 
-    hostname = _first_str("host", "hostname", "name")
+    # CPU% — Pulse v4 emits as percent (0..100) under multiple
+    # field names depending on whether it's a Linux/Windows host
+    # (`cpuUsage`) or a Docker host (`cpuUsagePercent`). PVE-style
+    # nested fallbacks (`info.cpu`, `stats.cpu`) only kick in if
+    # neither v4 path matched.
+    raw_cpu = _first_non_zero(["cpuUsage"], ["cpuUsagePercent"],
+                              ["cpu"], ["info", "cpu"], ["stats", "cpu"])
+    # If the value sneaks in as a 0..1 fraction (PVE-style legacy),
+    # promote to percent. Anything > 1.5 is already a percent.
+    cpu_pct = raw_cpu * 100 if 0 < raw_cpu <= 1.5 else raw_cpu
 
-    # Mem-percent + disk-percent — prefer pre-computed if Pulse
-    # supplies one (avoids rounding drift); else compute from totals.
-    mem_pct = _first_non_zero(["info", "mp"], ["stats", "mp"])
+    # Memory — Pulse v4 nests under `memory` (bytes) AND emits
+    # `totalMemoryBytes` as a top-level fallback on dockerHosts.
+    mem_max = _first_non_zero(
+        ["memory", "total"], ["totalMemoryBytes"],
+        ["maxmem"], ["memTotal"], ["mem", "total"],
+    )
+    mem_used = _first_non_zero(
+        ["memory", "used"], ["mem"], ["memUsed"], ["mem", "used"],
+    )
+    # Free is sometimes the only path provided; derive used from total-free.
+    if mem_used == 0 and mem_max > 0:
+        mem_free = _first_non_zero(["memory", "free"])
+        if mem_free > 0 and mem_free < mem_max:
+            mem_used = mem_max - mem_free
+
+    # Disk — Pulse v4's `disks[]` is an array; first entry is the
+    # primary mount. PVE-style top-level `maxdisk` / `disk.total`
+    # fallbacks for legacy schemas.
+    disk_max = _first_non_zero(
+        ["disks", 0, "total"], ["maxdisk"], ["diskTotal"], ["disk", "total"],
+    )
+    disk_used = _first_non_zero(
+        ["disks", 0, "used"], ["disk"], ["diskUsed"], ["disk", "used"],
+    )
+
+    # Uptime — Pulse v4 uses `uptimeSeconds` (long form). PVE-style
+    # `uptime` is the legacy fallback.
+    uptime = int(_first_non_zero(["uptimeSeconds"], ["uptime"], ["info", "u"]))
+    host_boot_ts = (time.time() - uptime) if uptime > 0 else None
+
+    # Cores — `cpuCount` (Linux/Windows hosts), `cpus` (Docker hosts).
+    cores = int(_first_non_zero(["cpuCount"], ["cpus"], ["info", "t"]))
+
+    # Identity / metadata — first non-empty string across plausible paths.
+    hostname = _first_str(["hostname"], ["displayName"], ["host"], ["name"])
+    platform = _first_str(["platform"], ["osName"]) or "Linux"
+    osname = _first_str(["osName"], ["osVersion"], ["os"])
+    kernel = _first_str(["kernelVersion"], ["kernel"])
+    arch = _first_str(["architecture"], ["arch"])
+    agent = _first_str(["agentVersion"], ["agent"], ["dockerVersion"], ["runtimeVersion"])
+
+    # Mem / disk percent — pre-computed if Pulse supplies, else derive.
+    mem_pct = _first_non_zero(["memory", "usage"])
     if mem_pct == 0 and mem_max > 0:
         mem_pct = (mem_used / mem_max) * 100
-    disk_pct = _first_non_zero(["info", "dp"], ["stats", "dp"])
+    disk_pct = _first_non_zero(["disks", 0, "usage"])
     if disk_pct == 0 and disk_max > 0:
         disk_pct = (disk_used / disk_max) * 100
+
+    # Network counter aggregates (sum across non-loopback interfaces).
+    # Used by the host-net rate fallback path. v4 emits `rxBytes` /
+    # `txBytes` per-iface (camelCase).
+    rx_total = 0
+    tx_total = 0
+    nis = host.get("networkInterfaces") if isinstance(host, dict) else None
+    if isinstance(nis, list):
+        for ni in nis:
+            if not isinstance(ni, dict):
+                continue
+            name = str(ni.get("name") or "").lower()
+            # Skip loopback / docker bridges to align with the
+            # node-exporter convention used by host_net_sampler.
+            if (name.startswith("lo") or name.startswith("docker")
+                    or name.startswith("br-") or name.startswith("veth")
+                    or name.startswith("cni") or name.startswith("flannel")
+                    or name.startswith("vmnet") or name.startswith("vEthernet")):
+                continue
+            rx_total += int(_num(ni.get("rxBytes")))
+            tx_total += int(_num(ni.get("txBytes")))
+
+    # Load average — Pulse hosts emit a 3-element array.
+    la = host.get("loadAverage")
+    load_1m = float(la[0]) if isinstance(la, list) and len(la) > 0 else 0.0
+    load_5m = float(la[1]) if isinstance(la, list) and len(la) > 1 else 0.0
+    load_15m = float(la[2]) if isinstance(la, list) and len(la) > 2 else 0.0
 
     return {
         "host_mem_total":    int(mem_max),
@@ -940,16 +1022,21 @@ def extract_pulse_host_stats(host: dict) -> dict:
         "host_cpu_percent":  cpu_pct,
         "host_mem_percent":  mem_pct,
         "host_disk_percent": disk_pct,
-        "host_cores":        int(_first_non_zero(["cpus"], ["info", "t"], ["stats", "cpus"])),
-        "host_platform":     "Linux",
-        "host_agent":        _first_str("agent", "version"),
-        "host_kernel":       _first_str("kernel"),
-        "host_arch":         "",
-        "host_os":           _first_str("os", "osName"),
+        "host_cores":        cores,
+        "host_platform":     platform,
+        "host_agent":        agent,
+        "host_kernel":       kernel,
+        "host_arch":         _normalize_arch(arch) if arch else "",
+        "host_os":           osname,
+        "host_load_1m":      load_1m,
+        "host_load_5m":      load_5m,
+        "host_load_15m":     load_15m,
+        "host_net_rx_total_bytes": rx_total if rx_total > 0 else None,
+        "host_net_tx_total_bytes": tx_total if tx_total > 0 else None,
         "mounts":            [],
         "network_ifaces":    [],
         "exporter_error":    None,
-        "pulse_status":      _first_str("status") or "unknown",
+        "pulse_status":      _first_str(["status"]) or "unknown",
         "pulse_kind":        "host",
         "pulse_vmid":        0,
         "pulse_node":        "",

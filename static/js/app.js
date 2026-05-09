@@ -22048,8 +22048,11 @@ function app() {
             }
             // SNMP prefetch — independent of Beszel / NE so a host with
             // ALL three providers gets both series loaded in parallel
-            // and the helper picks whichever lands first.
-            if (h.snmp_enabled && typeof this.loadHostSnmpHistory === 'function') {
+            // and the helper picks whichever lands first. Loose gate
+            // via `_snmpHasProbeTarget` so hosts with the sampler
+            // running but no per-host UI checkbox ticked still
+            // prefetch.
+            if (this._snmpHasProbeTarget(h) && typeof this.loadHostSnmpHistory === 'function') {
               const snmpCached = this.hostSnmpHistory && this.hostSnmpHistory[h.id];
               if (!snmpCached
                   || !Array.isArray(snmpCached.points)
@@ -22400,7 +22403,7 @@ function app() {
             try { this.loadHostHistory(host.beszel_id || '', host.id); } catch {}
           }
         }
-        if (host.snmp_enabled && typeof this.loadHostSnmpHistory === 'function') {
+        if (this._snmpHasProbeTarget(host) && typeof this.loadHostSnmpHistory === 'function') {
           const snmpCached = this.hostSnmpHistory && this.hostSnmpHistory[host.id];
           if (!snmpCached
               || !Array.isArray(snmpCached.points)
@@ -22561,7 +22564,7 @@ function app() {
           // probe just landed and `snmp_enabled` is reliably set,
           // kick off the SNMP history fetch immediately if the
           // cache is still empty / sparse.
-          if (row.snmp_enabled === true && typeof this.loadHostSnmpHistory === 'function') {
+          if (this._snmpHasProbeTarget(row) && typeof this.loadHostSnmpHistory === 'function') {
             const snmpCached = this.hostSnmpHistory && this.hostSnmpHistory[row.id];
             if (!snmpCached
                 || !Array.isArray(snmpCached.points)
@@ -23331,6 +23334,60 @@ function app() {
         window.prompt(promptHead, text);
       }
     },
+    // Copy ALL debug panes for one host into a single multi-section
+    // payload, headed by host_id + ts. Each section is `## <label>`
+    // followed by a fenced JSON block, joined by blank lines so the
+    // operator can paste a complete bug report into chat / issue
+    // tracker without clicking the per-pane copy button N times.
+    // Operator-requested: "I copy a lot of panes when debugging
+    // issues together — one button to grab them all".
+    async copyAllDebug(hostId) {
+      const dbg = this.hostsDebug && this.hostsDebug[hostId];
+      if (!dbg) {
+        this.showToast(this.t('toasts_extra.nothing_to_copy'), 'warning');
+        return;
+      }
+      const sections = [];
+      // Header line — host_id + capture timestamp so the recipient
+      // can correlate against logs / SSE events.
+      const ts = new Date().toISOString();
+      sections.push(`# OmniGrid host debug — ${hostId} — ${ts}`);
+      // Sections in the same canonical order the panes render.
+      const blocks = [
+        ['Active providers', dbg.active_providers],
+        ['Counters & state', dbg.counters],
+        ['Samples in window', (dbg.counters || {}).samples_in_window],
+        ['Failure state', (dbg.counters || {}).failure_state],
+        ['Provider pause state', (dbg.counters || {}).provider_pause_state],
+        ['Tunables', (dbg.counters || {}).tunables],
+        ['Merged host', dbg.merged],
+        ['Raw · Pulse', (dbg.providers_raw || {}).pulse],
+        ['Raw · Beszel', (dbg.providers_raw || {}).beszel],
+        ['Raw · Node-exporter', (dbg.providers_raw || {}).node_exporter],
+        ['Raw · Webmin', (dbg.providers_raw || {}).webmin],
+        ['Raw · Ping', (dbg.providers_raw || {}).ping],
+        ['Raw · SNMP', (dbg.providers_raw || {}).snmp],
+      ];
+      for (const [label, value] of blocks) {
+        if (value === undefined || value === null) continue;
+        // Skip empty objects/arrays — keeps the payload tight.
+        if (typeof value === 'object'
+            && !Array.isArray(value)
+            && Object.keys(value).length === 0) continue;
+        if (Array.isArray(value) && value.length === 0) continue;
+        const body = this.fmtDebugJson(value);
+        if (!body) continue;
+        sections.push(`## ${label}\n\`\`\`json\n${body}\n\`\`\``);
+      }
+      const payload = sections.join('\n\n');
+      try {
+        await navigator.clipboard.writeText(payload);
+        this.showToast(this.t('toasts_extra.copied_all_debug', { count: sections.length - 1 }), 'success');
+      } catch (_) {
+        const promptHead = this.t('debug_panel.copy_all_prompt_fallback');
+        window.prompt(promptHead, payload);
+      }
+    },
     // Filtered view for the Hosts table — search matches host id,
     // label, platform, OS, kernel, and provider names so an operator
     // can find a host by whatever field they remember. Sort order:
@@ -24025,20 +24082,27 @@ function app() {
       // instead of waiting 10-20s for the fresh SNMP probe to land.
       // Gated only on `host.snmp_enabled` (curated config) so non-
       // SNMP hosts still skip the fetch.
-      if (host.snmp_enabled && _cacheStale(this.hostSnmpHistory[host.id])) {
+      // SNMP history fetches — gate is loose: any host with an SNMP
+      // probe target (snmp_name OR address OR explicit enable flag)
+      // gets the fetch. Sampler-side enable is sufficient — the
+      // SPA's `snmp_enabled` flag was the curated-UI toggle, NOT
+      // the operational source-of-truth. Operator-confirmed: every
+      // SNMP-tracked host whose per-host UI checkbox wasn't ticked
+      // showed the "Collecting data" placeholder forever despite
+      // `host_snmp_iface_samples` having fresh rows. Same loose
+      // gate now covers per-host CPU/Mem/Disk history AND per-iface
+      // throughput AND Dell temperature probes — and the same
+      // `_snmpHasProbeTarget(host)` helper is used at every other
+      // SNMP-fetch site (drawer prefetch, IntersectionObserver
+      // prefetch, per-row probe-arrival kick) so the gate is
+      // uniform across the SPA.
+      if (this._snmpHasProbeTarget(host) && _cacheStale(this.hostSnmpHistory[host.id])) {
         this.loadHostSnmpHistory(host.id, this.hostHistoryRange || 1);
       }
-      // per-interface SNMP history powers the per-port
-      // throughput chart on switches / routers. Same gate + cadence
-      // as the per-host SNMP history call above.
-      if (host.snmp_enabled && _cacheStale(this.hostSnmpIfaceHistory[host.id])) {
+      if (this._snmpHasProbeTarget(host) && _cacheStale(this.hostSnmpIfaceHistory[host.id])) {
         this.loadHostSnmpIfaceHistory(host.id, this.hostHistoryRange || 1);
       }
-      // Per-temperature-probe history powers the multi-line
-      // temperature chart card on Dell server hosts.
-      // Same gate + cadence; non-Dell hosts get an empty `probes`
-      // object back so the chart card stays hidden cleanly.
-      if (host.snmp_enabled && _cacheStale(this.hostSnmpTempHistory[host.id])) {
+      if (this._snmpHasProbeTarget(host) && _cacheStale(this.hostSnmpTempHistory[host.id])) {
         this.loadHostSnmpTempHistory(host.id, this.hostHistoryRange || 1);
       }
       // Dedicated drawer-history poll — keeps the chart series +
@@ -24192,6 +24256,26 @@ function app() {
           probes: prev.probes || {}, loadedAt: prev.loadedAt || 0,
         };
       }
+    },
+    // Loose SNMP-target gate — true when the curated host has
+    // ANY SNMP probe target, regardless of the per-host UI checkbox
+    // state. The SPA's `snmp_enabled` flag is the curated-UI toggle;
+    // the operational sampler runs whenever `snmp_name` or `address`
+    // resolves a target. Pre-fix every SNMP-fetch site checked the
+    // strict UI flag → SNMP-tracked hosts whose UI checkbox wasn't
+    // ticked never had their history fetched → "Collecting data"
+    // placeholder forever despite fresh `host_snmp_iface_samples`
+    // rows. Used by the host-list polling loop, drawer-open prefetch,
+    // IntersectionObserver lazy-fetch, and per-row probe-arrival
+    // kicker — single source of truth so the gate stays consistent.
+    _snmpHasProbeTarget(host) {
+      if (!host) return false;
+      if (host.snmp_enabled) return true;
+      const name = (host.snmp_name || '').trim();
+      if (name) return true;
+      const addr = (host.address || '').trim();
+      if (addr) return true;
+      return false;
     },
     // Per-interface SNMP counter history. One entry per host,
     // each storing { ifaces: { ifname: [points] }, loading, error,
@@ -24537,14 +24621,14 @@ function app() {
       if ((h.host_cpu_per_core || []).length > 0
           || h.host_load_1m || h.host_load_5m || h.host_load_15m
           || h.host_mem_buffers || h.host_mem_cached) return true;
-      // Final fallback: any SNMP-enabled host opens the grid so the
+      // Final fallback: any SNMP-targeted host opens the grid so the
       // chart cards mount immediately on drawer-open. Each card's own
       // x-show still gates on data presence — empty cards just render
       // their "Collecting data..." placeholder until samples accumulate.
-      // Pre-fix the grid stayed hidden until the first SNMP probe
-      // populated host_* fields (10-20s window after drawer-open),
-      // making the host look chart-less when it would soon have data.
-      if (h.snmp_enabled === true) return true;
+      // Loose gate (`_snmpHasProbeTarget`) so hosts whose sampler is
+      // running via `snmp_name` / `address` but whose per-host UI
+      // checkbox isn't ticked still mount the grid.
+      if (this._snmpHasProbeTarget(h)) return true;
       return false;
     },
     // Detect a reboot in the SNMP uptime history. Walks the
