@@ -2447,6 +2447,7 @@
       "source_load_avg": "1m / 5m / 15m load averages. Source: Beszel agent only (system_stats.la). Not surfaced by the node-exporter sampler today.",
       "source_bandwidth": "Combined bandwidth (rx + tx). Same source as Network — Beszel or node-exporter.",
       "source_swap": "Swap usage % and used GiB. Source: Beszel agent only (system_stats.s / .su). Not surfaced by the node-exporter sampler today.",
+      "ups_battery": "UPS Battery",
       "ping": "Ping",
       "ping_rtt": "RTT",
       "ping_down": "Unreachable",
@@ -2826,7 +2827,9 @@
       "range_1h_aria": "Last 1 hour",
       "range_6h_aria": "Last 6 hours",
       "range_24h_aria": "Last 24 hours",
-      "range_7d_aria": "Last 7 days"
+      "range_7d_aria": "Last 7 days",
+      "cached_pill": "Cached",
+      "cached_pill_title": "Provider unreachable — chart line is bounded by the last successful sampler tick. Cached providers: {providers}."
     }
   },
   "debug_panel": {
