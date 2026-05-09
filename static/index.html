@@ -5749,6 +5749,40 @@
                      not stacked — operators want to see absolute per-
                      port throughput. Hidden when fewer than 2 ticks
                      of iface history exist. -->
+                <!-- Defensive auto-kick for SNMP iface history. Same
+                     shape as the ping-card x-effect — if the cache is
+                     missing or has < 2 points and the host has an SNMP
+                     probe target, fire a fresh fetch. Catches cases
+                     where the drawer-open path's fetch silently failed
+                     (HTTP error short-circuit, sampler tick race) so
+                     the chart self-heals without requiring the user
+                     to close + re-open the drawer. Per-host debounce
+                     via `_snmpIfaceChartKickedFor` Set (cleared after
+                     30s) so the effect doesn't loop on every reactive
+                     re-evaluation. -->
+                <template x-effect="(() => {
+                  try {
+                    if (!this._snmpHasProbeTarget(h)) return;
+                    const cache = this.hostSnmpIfaceHistory && this.hostSnmpIfaceHistory[h.id];
+                    const ifaces = (cache && cache.ifaces) || {};
+                    let pointCount = 0;
+                    for (const k of Object.keys(ifaces)) {
+                      const arr = Array.isArray(ifaces[k]) ? ifaces[k] : [];
+                      if (arr.length > pointCount) pointCount = arr.length;
+                    }
+                    if (pointCount >= 2) return;
+                    if (cache && cache.loading) return;
+                    this._snmpIfaceChartKickedFor = this._snmpIfaceChartKickedFor || new Set();
+                    if (this._snmpIfaceChartKickedFor.has(h.id)) return;
+                    this._snmpIfaceChartKickedFor.add(h.id);
+                    setTimeout(() => {
+                      try { this._snmpIfaceChartKickedFor && this._snmpIfaceChartKickedFor.delete(h.id); } catch (_) {}
+                    }, 30000);
+                    if (typeof this.loadHostSnmpIfaceHistory === 'function') {
+                      this.loadHostSnmpIfaceHistory(h.id, this.hostHistoryRange || 1);
+                    }
+                  } catch (_) {}
+                })()"></template>
                 <div class="metric-card md:col-span-2 lg:col-span-3"
                      x-show="snmpHasIfaceHistory(h.id) || (h.network_ifaces && h.network_ifaces.length > 0)">
                   <div class="metric-card-head">

@@ -24544,23 +24544,36 @@ function app() {
           `/api/hosts/${encodeURIComponent(hostId)}/snmp/iface_history?hours=${h}`
         );
         if (!r.ok) {
+          // Stamp loadedAt even on failure so the staleness check
+          // doesn't fire a thundering retry on every poll cycle —
+          // pre-fix the cache stayed at loadedAt:0 forever, every
+          // _cacheStale check returned true, the polling loop would
+          // re-fetch every cycle even though every fetch was 5xx.
+          // Visible in console so debugging is possible.
+          console.warn('[snmp] loadHostSnmpIfaceHistory ' + hostId + ' HTTP ' + r.status);
           this.hostSnmpIfaceHistory[hostId] = {
             loading: false, error: `HTTP ${r.status}`,
-            ifaces: prev.ifaces || {}, loadedAt: prev.loadedAt || 0,
+            ifaces: prev.ifaces || {}, loadedAt: Date.now(),
           };
           return;
         }
         const d = await r.json();
+        const ifaces = (d.ifaces && typeof d.ifaces === 'object') ? d.ifaces : {};
+        const ifaceCount = Object.keys(ifaces).length;
+        if (ifaceCount === 0) {
+          console.warn('[snmp] loadHostSnmpIfaceHistory ' + hostId + ' returned empty ifaces (sampler may not have written yet, or backend response shape mismatch)');
+        }
         this.hostSnmpIfaceHistory[hostId] = {
           loading: false,
           error: d.error || '',
-          ifaces: (d.ifaces && typeof d.ifaces === 'object') ? d.ifaces : {},
+          ifaces,
           loadedAt: Date.now(),
         };
       } catch (e) {
+        console.warn('[snmp] loadHostSnmpIfaceHistory ' + hostId + ' fetch threw:', e);
         this.hostSnmpIfaceHistory[hostId] = {
           loading: false, error: String(e),
-          ifaces: prev.ifaces || {}, loadedAt: prev.loadedAt || 0,
+          ifaces: prev.ifaces || {}, loadedAt: Date.now(),
         };
       }
     },
