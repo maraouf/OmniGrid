@@ -77,34 +77,28 @@ def _curated_ping_hosts() -> list[dict]:
         hid = (row.get("id") or "").strip()
         if not hid:
             continue
-        # SSH FQDN suffix or per-host ssh.fqdn override SHOULD shape the
-        # probe target so an `id` like "router-01" + global suffix
-        # `.example.com` resolves correctly. We deliberately keep this
-        # simple in V1 — operators with non-DNS-resolvable ids set
-        # `ssh.fqdn` per-host and we use that.
         ssh_cfg = row.get("ssh") if isinstance(row.get("ssh"), dict) else {}
-        # Target resolution fallback chain — pick the FIRST non-empty
-        # candidate. Many curated rows have a bare-hostname `id` (e.g.
-        # "ftth") that doesn't resolve from inside the OmniGrid
-        # container's DNS namespace, but the same row carries a
-        # reachable address in `ssh.fqdn`, the per-host service `url`,
-        # or (less commonly) an explicit `ping.host` override. Without
-        # a fallback chain those rows ping into the void and produce
-        # no samples at all (operator-reported via the ftth host).
+        # Target resolution chain — MUST mirror the canonical chain
+        # documented in CLAUDE.md and used by `_resolve_ping_target`
+        # in `main.py`, the on-demand port-scan resolver, the SNMP
+        # `_merge_one_host` block, and `logic/ssh.py:resolve_ssh_params`:
+        #   address → ping.host → ssh.fqdn → ssh.host → host_id
+        # Pre-fix the sampler-side chain (a) didn't include the
+        # curated `address` field at all, AND (b) still consulted the
+        # row's `url` field as a fallback (parsed via urlparse). The
+        # `url` fallback was deliberately removed from every other
+        # probe site when #1211 landed because it carries the operator-
+        # facing clickable web-UI link (often a public service relay
+        # behind NPM / Cloudflare), not a LAN-reachable probe target —
+        # using it for ping samples produced misleading RTTs against
+        # the wrong host. The bare `host_id` stays as a last resort
+        # for legacy rows that never populated any of the above.
         ping_host_override = (ping_cfg.get("host") or "").strip()
-        url_host = ""
-        url_raw = (row.get("url") or "").strip()
-        if url_raw:
-            try:
-                from urllib.parse import urlparse as _urlparse
-                url_host = (_urlparse(url_raw).hostname or "").strip()
-            except (ValueError, TypeError):
-                url_host = ""
         host_target = (
-            ping_host_override
+            (row.get("address") or "").strip()
+            or ping_host_override
             or (ssh_cfg.get("fqdn") or "").strip()
             or (ssh_cfg.get("host") or "").strip()
-            or url_host
             or hid
         )
         port_override = ping_cfg.get("port")

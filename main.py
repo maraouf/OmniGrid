@@ -9390,7 +9390,22 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
         if (h.get("ne_url")       or "").strip(): configured.add("node_exporter")
         if (h.get("webmin_name")  or "").strip(): configured.add("webmin")
         if bool((h.get("ping") or {}).get("enabled", False)): configured.add("ping")
-        if (h.get("snmp_name")    or "").strip() and (
+        # SNMP: configured when EITHER `snmp_name` OR the shared
+        # `address` field is set AND `snmp.enabled === True`. MUST stay
+        # in lock-step with `logic/host_metrics_sampler.py:_host_provider_config`
+        # AND the canonical resolver chain (aliases → snmp_name →
+        # address → SKIP) used by `_merge_one_host` and the live
+        # sampler. Pre-fix the gate required `snmp_name` non-empty,
+        # so a host that cleared `snmp_name` intending to use the
+        # shared `address` field had its `host_failure_state` +
+        # `host_provider_last_ok` rows DELETED by this sweep on every
+        # `hosts_config` save AND on every container restart — actively
+        # destroying state instead of just skipping it.
+        snmp_target_present = (
+            (h.get("snmp_name") or "").strip()
+            or (h.get("address") or "").strip()
+        )
+        if snmp_target_present and (
             isinstance(h.get("snmp"), dict) and h["snmp"].get("enabled") is True
         ):
             configured.add("snmp")
@@ -13651,9 +13666,23 @@ async def api_ping_test(
     if h is None:
         raise HTTPException(404, f"Host not found: {hid}")
     # Resolve the probe target the same way the sampler does so the
-    # test result reflects what the sampler will actually probe.
+    # test result reflects what the sampler will actually probe. Chain:
+    # `address → ping.host → ssh.fqdn → ssh.host → id`. Pre-fix this
+    # used `ssh.fqdn → ssh.host → id` only — it skipped BOTH the
+    # curated `address` field (the canonical dedicated probe target)
+    # AND the per-host `ping.host` override, so a host that pinged
+    # successfully via the live sampler reported "Test failed" here
+    # because the test connect()ed to an unrelated `ssh.host` (or the
+    # bare `id`, often unresolvable).
     ssh_cfg = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
-    target = (ssh_cfg.get("fqdn") or ssh_cfg.get("host") or hid).strip() or hid
+    pcfg_for_target = h.get("ping") if isinstance(h.get("ping"), dict) else {}
+    target = (
+        (h.get("address") or "").strip()
+        or (pcfg_for_target.get("host") or "").strip()
+        or (ssh_cfg.get("fqdn") or "").strip()
+        or (ssh_cfg.get("host") or "").strip()
+        or hid
+    )
     pcfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
     default_port = int(get_setting("ping_default_port", "443") or "443") or 443
     port = body.port if body.port is not None else (pcfg.get("port") or default_port)

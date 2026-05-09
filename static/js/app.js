@@ -7613,11 +7613,14 @@ function app() {
       const rows = Array.isArray(this.hostsConfig) ? this.hostsConfig : [];
       return rows
         .filter(h => h && h.enabled !== false && h.id
-                     && (h.snmp_name || '').trim()
                      // explicit opt-in: SNMP probes only run
                      // when the operator checks the per-host enable
                      // box. Default-OFF mirrors ping.enabled.
-                     && !!(h.snmp && h.snmp.enabled === true))
+                     && !!(h.snmp && h.snmp.enabled === true)
+                     // Same canonical chain (snmp_name → address) the
+                     // live sampler uses — a host with `address` set
+                     // and `snmp_name` blank IS valid SNMP target.
+                     && ((h.snmp_name || '').trim() || (h.address || '').trim()))
         .map(h => ({ id: h.id, label: this.hostDisplayName(h) || h.id }));
     },
     // / SNMP test widget. UX-unified with the Ping test
@@ -7636,7 +7639,13 @@ function app() {
       }
       const row = (Array.isArray(this.hostsConfig) ? this.hostsConfig : [])
         .find(h => h && h.id === hid);
-      const target = ((row && row.snmp_name) || hid).trim();
+      // Resolver chain mirrors the live sampler / `_merge_one_host`:
+      // snmp_name → address → host_id (last-resort, rarely useful).
+      const target = (
+        ((row && row.snmp_name) || '').trim()
+        || ((row && row.address) || '').trim()
+        || hid
+      ).trim();
       // Per-row overrides — only forwarded when the operator actually
       // set them on this row; blanks fall through to the global
       // defaults server-side.
@@ -12971,7 +12980,11 @@ function app() {
         out.push(name);
       };
       push('pulse',         !!trim(h.pulse_name));
-      push('snmp',          !!trim(h.snmp_name) && h.snmp_enabled === true);
+      // SNMP: enabled + EITHER snmp_name OR address — same canonical
+      // chain (aliases → snmp_name → address → SKIP) as the live
+      // sampler / `_merge_one_host` / `rowHasProviderMapping`.
+      push('snmp',          h.snmp_enabled === true
+                            && (!!trim(h.snmp_name) || !!trim(h.address)));
       push('beszel',        !!trim(h.beszel_name));
       push('node_exporter', !!trim(h.ne_url));
       push('webmin',        !!trim(h.webmin_name));
