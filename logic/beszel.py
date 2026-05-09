@@ -1208,6 +1208,15 @@ async def probe_hub(
         svc_records_for_system = services_by_system.get(rec_id) or []
         if svc_records_for_system:
             stats["host_services"] = _services_summary(svc_records_for_system)
+            # Raw per-unit list for downstream consumers that need the
+            # full detail (the lifespan `host_beszel_sampler` writes
+            # one row per unit into `host_beszel_services`, which
+            # surfaces the per-service drawer chip + the AI palette
+            # context's failed-unit names). Same shape Beszel returns
+            # — `{name, state, sub, system, ...}` — so the consumer
+            # can also `_services_summary(stats["host_services_raw"])`
+            # if it just wants the rolled summary again.
+            stats["host_services_raw"] = svc_records_for_system
             services_match_count += 1
         mounts = stats.get("mounts") or []
         if mounts:

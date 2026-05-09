@@ -1371,6 +1371,22 @@
           "label": "Beszel auto-pause threshold (rounds)",
           "help": "After this many consecutive rounds where the Beszel hub fetch SUCCEEDED but this specific host was missing from the hub map (or reported status=down/paused), the (beszel, host) pair is marked auto-paused — subsequent merges are SKIPPED until the operator clicks Resume on the Beszel chip in the host drawer. Hub-level outages (entire hub fetch fails) do NOT count toward the threshold so a single hub blip doesn't cascade-pause every host. Default 5. Set 0 to disable. Range 0..50."
         },
+        "tuning_beszel_probe_timeout_seconds": {
+          "label": "Beszel probe timeout (seconds)",
+          "help": "Wall-clock timeout on each Beszel hub fetch (`probe_hub` — covers `systems` + `system_stats` + `systemd_services` collections). Caps how long ONE tick can wait on a stuck PocketBase before giving up. Lower (5–10s) for fast-fail on a flaky hub; raise (30–60s) for slow remote hubs reachable over a WAN link. Range 1..120. Default 15."
+        },
+        "tuning_beszel_sample_interval_seconds": {
+          "label": "Beszel sampler interval (seconds)",
+          "help": "Cadence at which the lifespan `host_beszel_sampler` writes one row per Beszel-tracked host into the local `host_beszel_samples` table. 0 = use the global `tuning_stats_sample_interval_seconds` (default 300s) — same fallback Pulse / Webmin samplers use, keeps the four samplers ticking on the same heartbeat. Distinct knob exists so a fleet with a noisy / large Beszel hub can throttle Beszel sampling independently. Range 0..3600. Default 0 (= inherit)."
+        },
+        "tuning_beszel_host_cache_ttl_seconds": {
+          "label": "Beszel per-host success cache TTL (seconds)",
+          "help": "How long a SUCCESSFUL per-host Beszel probe (run during `_merge_one_host`) is cached before the next call re-fetches. Burst refreshes (SPA fan-out, drawer reopens) within the window skip the hub fetch and reuse the last known-good stats. Default 30 seconds. Lower for live-feeling drawer reopens; raise to cut hub load on large fleets. Pairs with the failure-cache TTL — a fresh failure on a previously-cached success drops the success entry immediately."
+        },
+        "tuning_beszel_host_fail_cache_ttl_seconds": {
+          "label": "Beszel per-host failure cache TTL (seconds)",
+          "help": "How long a FAILED per-host Beszel probe is cached so a SPA fan-out burst doesn't re-burn N parallel hub fetches against an unreachable hub. Default 5 seconds — tight enough that recovery is felt within one Hosts-tab refresh cycle, long enough to dedupe a fan-out burst. Operators with a flapping Beszel hub may want 30s+ to suppress spam."
+        },
         "tuning_pulse_failure_pause_rounds": {
           "label": "Pulse auto-pause threshold (rounds)",
           "help": "After this many consecutive rounds where the Pulse hub fetch SUCCEEDED but this specific host was missing from the hub map (or reported status=down/paused/unreachable), the (pulse, host) pair is marked auto-paused — subsequent merges are SKIPPED until the operator clicks Resume on the Pulse chip. Hub-level outages don't count. Default 5. Set 0 to disable. Range 0..50."
@@ -2839,7 +2855,10 @@
       "col_newest": "Newest",
       "col_newest_age": "Newest age",
       "col_median_gap": "Median gap",
-      "label_node_exporter": "NE / Pulse / Webmin (host_metrics)",
+      "label_node_exporter": "node-exporter (host_metrics)",
+      "label_pulse": "Pulse (host_pulse)",
+      "label_webmin": "Webmin (host_webmin)",
+      "label_beszel": "Beszel (host_beszel)",
       "label_snmp": "SNMP",
       "label_snmp_iface": "SNMP per-iface",
       "label_host_net": "host_net (NE counters)",

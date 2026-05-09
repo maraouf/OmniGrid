@@ -422,6 +422,28 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # the threshold, so a brief hub blip can't cascade-pause every host.
     # 0 = disabled. Range 0..50.
     "tuning_beszel_failure_pause_rounds": ("BESZEL_FAILURE_PAUSE_ROUNDS", 5, 0, 50),
+    # Beszel hub probe timeout (seconds). Caps `probe_hub` (full hub
+    # crawl: systems + system_stats + systemd_services collections).
+    # Lower for fast-fail on a stuck hub; raise for slow remote hubs.
+    # Range 1..120. Default 15.
+    "tuning_beszel_probe_timeout_seconds": ("BESZEL_PROBE_TIMEOUT_SECONDS", 15, 1, 120),
+    # Beszel sampler tick cadence (seconds). 0 = use the global
+    # `tuning_stats_sample_interval_seconds` (legacy / inherited
+    # cadence — same fallback Pulse / Webmin samplers use).
+    # Distinct knob exists so a fleet with a noisy / large Beszel hub
+    # can throttle Beszel sampling independently of NE / Pulse /
+    # Webmin. Range 0..3600.
+    "tuning_beszel_sample_interval_seconds": ("BESZEL_SAMPLE_INTERVAL_SECONDS", 0, 0, 3600),
+    # Beszel per-host probe success cache TTL (seconds). Mirrors
+    # `tuning_webmin_host_cache_ttl_seconds`. Successful per-host
+    # `_merge_one_host` Beszel reads cache for this many seconds so
+    # SPA fan-out bursts don't re-probe. Default 30.
+    "tuning_beszel_host_cache_ttl_seconds": ("BESZEL_HOST_CACHE_TTL_SECONDS", 30, 0, 300),
+    # Beszel per-host failure cache TTL (seconds). Mirrors
+    # `tuning_webmin_host_fail_cache_ttl_seconds`. Failed per-host
+    # Beszel reads cache for this many seconds so a fan-out burst
+    # doesn't re-burn N parallel hub fetches. Default 5.
+    "tuning_beszel_host_fail_cache_ttl_seconds": ("BESZEL_HOST_FAIL_CACHE_TTL_SECONDS", 5, 0, 300),
     # Pulse per-host auto-pause threshold. Same hub-based contract as
     # Beszel — only counts when hub fetch succeeded but the host wasn't
     # found OR Pulse reported the host status as down. 0 = disabled.
