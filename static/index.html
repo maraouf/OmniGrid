@@ -145,7 +145,7 @@
 <div x-data="app()" x-init="init()" x-cloak
      class="flex flex-col min-h-screen og-app-shell"
      :class="aiSidebarPinned ? 'og-app-shell--ai-pinned' : ''"
-     x-effect="_applyDrawerScrollLock(drawerHost, drawerItem, drawerNode, aiSidebarOpen)">
+     x-effect="_applyDrawerScrollLock(drawerHost, drawerItem, drawerNode, aiSidebarOpen, aiSidebarPinned)">
 
   <!-- ================== TOPBAR ================== -->
   <!-- On mobile (<sm), the <header> itself becomes a flex-wrap container
@@ -5253,6 +5253,26 @@
                       x-show="hostHistoryFreshness(h) && !hostHistoryRangeBusy"
                       :title="hostHistoryFreshnessAbsolute(h)"
                       x-text="hostHistoryFreshness(h)"></span>
+                <!-- "Cached" pill — fires when the host is in stale
+                     snapshot-fallback state (provider unreachable).
+                     Charts continue to render historical data from the
+                     local sample tables even when the upstream provider
+                     is down (the local-store IS the cached chart data
+                     source; backend reads from it regardless of provider
+                     status), but the operator needs an explicit signal
+                     that the line they're looking at is bounded by the
+                     last successful sampler tick rather than reflecting
+                     live activity. The drawer-level stale banner above
+                     conveys this for the merged scalar values; this
+                     pill mirrors it at the chart-strip level so the
+                     operator's eye doesn't have to bounce between the
+                     banner and the charts to triage. Tooltip lists the
+                     specific cached providers via the same
+                     `staleProviders` helper the banner uses. -->
+                <span x-show="isStale(h) && !hostHistoryRangeBusy"
+                      class="chip pill-warning fs-2xs px-1.5 py-0 ms-1"
+                      :title="t('host_drawer.charts.cached_pill_title', { providers: staleProviders(h).map(n => providerDisplayName(n)).join(', ') || '—' })"
+                      x-text="t('host_drawer.charts.cached_pill')"></span>
                 <!-- Refreshing spinner shown while the picker's
                      underlying loaders are in flight.
                      Pre-fix the buttons just disabled silently with no

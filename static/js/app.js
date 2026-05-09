@@ -14829,7 +14829,6 @@ function app() {
             : (String(last).toLowerCase() === String(e.key || '').toLowerCase());
           if (matched) {
             e.preventDefault();
-            try { console.debug('[hotkey] match', { keys: entry.keys, code: e.code, key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey }); } catch (_) {}
             entry.run();
             return;
           }
@@ -18181,7 +18180,7 @@ function app() {
     // passed in so Alpine's effect tracker registers reads of all
     // three; without that an IIFE wrapping the same logic might
     // miss the dependency tracking.
-    _applyDrawerScrollLock(host, item, node, sidebar) {
+    _applyDrawerScrollLock(host, item, node, sidebar, sidebarPinned) {
       // `sidebar` is `aiSidebarOpen` — added so opening the AI Assistant
       // drawer ALSO locks the body scroll. Pre-fix the AI sidebar slid
       // in over a still-scrollable page beneath; the cascade was scoped
@@ -18190,7 +18189,14 @@ function app() {
       // do NOT compute `aiSidebarOpen` inside the function body, that
       // breaks Alpine's dependency tracking and the lock fires once
       // then goes silent.
-      const lock = !!(host || item || node || sidebar);
+      // `sidebarPinned` is `aiSidebarPinned` — when the AI sidebar is
+      // pinned (split-pane mode), it's NOT a modal overlay anymore;
+      // the operator wants to interact with the rest of the page
+      // (scroll, click buttons, open drawers) WHILE the sidebar stays
+      // docked. So `sidebar=true && sidebarPinned=true` does NOT
+      // contribute to the lock — only the modal classic-drawer state
+      // (host / item / node) plus an UNPINNED open sidebar count.
+      const lock = !!(host || item || node || (sidebar && !sidebarPinned));
       const html = document.documentElement;
       const body = document.body;
       if (lock) {
@@ -24523,21 +24529,24 @@ function app() {
     // kicker — single source of truth so the gate stays consistent.
     _snmpHasProbeTarget(host) {
       if (!host) return false;
-      // Strict SNMP intent only — `snmp_enabled === true` (curated UI
-      // toggle) OR `snmp_name` (explicit per-host SNMP target alias).
-      // The bare `address` field is NOT enough on its own because
-      // `address` is a generic per-host probe target ALSO used by
-      // ping-only hosts; matching bare `address` here trips
-      // `hostHasSnmpCharts(h)` for ping-only hosts, which renders the
-      // SNMP warming-up banner under the Ping chart even though the
-      // host has no SNMP target wired. The sampler-side resolver
-      // chain (`aliases → snmp_name → address → SKIP`) is the place
-      // that legitimately walks `address`; it only does so AFTER
-      // confirming SNMP is otherwise opted-in for the host.
-      if (host.snmp_enabled) return true;
-      const name = (host.snmp_name || '').trim();
-      if (name) return true;
-      return false;
+      // Strict opt-in only — `snmp_enabled === true` is the SINGLE
+      // source of truth for "SNMP is active for this host". The bare
+      // `snmp_name` fallback was dropped because operators commonly
+      // set `snmp_name` as a placeholder / future-use field on hosts
+      // that don't actually have SNMP wired (e.g. an NVR with no
+      // SNMP service running but a curated `snmp_name` value left
+      // over from migration). The legacy backend coerces
+      // `snmp_enabled` to true for any row that has `snmp_name`
+      // set on first boot, so existing enrolments keep working
+      // without operator action; newly-added hosts where the
+      // operator HASN'T explicitly ticked the SNMP checkbox stay
+      // skipped here as intended. Same opt-in rigour as
+      // `hosts_config[].ssh.enabled` and `hosts_config[].ping.enabled`.
+      // Bare `address` is also explicitly excluded — `address` is a
+      // generic per-host probe target ALSO used by ping-only hosts;
+      // matching it here trips `hostHasSnmpCharts(h)` for non-SNMP
+      // hosts which renders the SNMP warming-up banner spuriously.
+      return host.snmp_enabled === true;
     },
     // Per-interface SNMP counter history. One entry per host,
     // each storing { ifaces: { ifname: [points] }, loading, error,
