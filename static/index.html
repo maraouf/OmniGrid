@@ -5198,7 +5198,7 @@
                    routers — no Beszel/NE so the original gate hid the
                    picker even though SNMP charts were rendering below). -->
               <div class="mt-4 flex items-center gap-2 flex-wrap"
-                   x-show="((h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) && h.status === 'up' && (h.providers || []).length > 0) || h.ping_enabled || hostHasSnmpCharts(h)">
+                   x-show="((h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) && (h.status === 'up' || isStale(h) || chartFreshness(h)) && ((h.providers || []).length > 0 || isStale(h) || chartFreshness(h))) || h.ping_enabled || hostHasSnmpCharts(h)">
                 <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/></svg>
                 <!-- Buttons disabled while the picker's underlying
                      loaders are in flight. Prevents the operator
@@ -5257,8 +5257,7 @@
                      default sampler cadence). Hidden while the range
                      picker is reloading. -->
                 <span x-show="chartFreshness(h) && !hostHistoryRangeBusy"
-                      class="fs-2xs italic inline-flex items-center gap-1"
-                      :class="chartFreshness(h) && chartFreshness(h).stale ? 'text-[var(--warning)]' : 'text-[var(--text-faint)]'"
+                      class="fs-2xs italic inline-flex items-center gap-1 text-[var(--warning)]"
                       :title="t('host_drawer.charts.last_sample_title')">
                   <svg width="10" height="10" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/></svg>
                   <span x-text="chartFreshness(h) ? t('host_drawer.charts.last_sample', { age: chartFreshness(h).label }) : ''"></span>
@@ -6178,7 +6177,7 @@
               </div>
 
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-                   x-show="(h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) && h.status === 'up' && (h.providers || []).length > 0"
+                   x-show="(h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) && (h.status === 'up' || isStale(h) || chartFreshness(h))"
                    :class="hostHistoryRangeBusy ? 'charts-refreshing' : ''">
                 <!-- CPU % — hidden for ping-only hosts. The
                      grid wrapper now opens for ping_enabled too so the
@@ -6355,7 +6354,7 @@
                    B/s gauges. The wrapper's gate no longer carries
                    `|| h.ping_enabled` for that reason. -->
               <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"
-                   x-show="(h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) && h.status === 'up' && (h.providers || []).length > 0">
+                   x-show="(h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) && (h.status === 'up' || isStale(h) || chartFreshness(h))">
 
                 <!-- ====== Network (combined In + Out) ======
                      Two polylines on one SVG, shared y-axis via
