@@ -6281,13 +6281,28 @@ body.login {
 /* "Samples in window" debug table — dedicated panel that surfaces
    per-series sample counts within the chart's selected time window.
    Compact monospace shape so each row reads as a one-glance unit;
-   header + cells get tight padding so the whole panel fits five
-   series on a typical drawer width without horizontal scroll. */
+   header + cells get tight padding so the whole panel fits the per-
+   provider rows on a typical drawer width without horizontal scroll.
+   Outer wrapper inherits the same height + scroll discipline as the
+   `<pre class="host-debug-json">` blocks in sibling boxes so the
+   panel doesn't push the rest of the grid off-screen on narrow
+   viewports. */
+.host-debug-table-wrap {
+    margin: 0;
+    padding: 0;
+    max-height: 320px;
+    overflow: auto;
+    /* Same cushion as `.host-debug-json` so the wrap aligns visually
+       with the JSON blocks in the other boxes. */
+    background: transparent;
+}
 .host-debug-table {
     width: 100%;
     border-collapse: collapse;
     margin: 0;
     color: var(--text-dim);
+    font-size: var(--fs-xs);
+    line-height: 1.45;
 }
 .host-debug-table th,
 .host-debug-table td {
@@ -6300,6 +6315,11 @@ body.login {
     font-weight: 600;
     border-bottom-color: var(--border-bright);
     background: var(--surface-2);
+    /* Sticky header — keeps the column labels visible while the
+       body scrolls inside the 320px-cap wrapper. */
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 .host-debug-table tbody tr:last-child td {
     border-bottom: none;
