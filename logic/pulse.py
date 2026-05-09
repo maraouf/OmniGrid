@@ -596,35 +596,30 @@ async def probe_pulse(
     nodes = state.get("nodes") or []
 
     def _looks_like_guest(item) -> bool:
-        """Heuristic — a dict with a ``vmid`` or ``id`` AND the
-        running-guest fingerprint (``cpu`` + ``maxmem``).
+        """Heuristic — a dict with a ``vmid`` or ``id`` and one of the
+        PVE-style status keys looks like a guest record regardless of
+        which array we found it in.
 
-        Pre-fix this accepted ANY item with ``(type, status, maxmem,
-        maxdisk, cpu, uptime, node)`` — too loose. Pulse state
-        contains backup records (`pveBackups` / `pbsBackups` / etc.)
-        and storage records (`local-lvm` / `proxmox-local` / etc.)
-        which share the vmid + type + status + node marker fields
-        with real guests. They got harvested as guests, then
-        ``extract_guest_stats(record)`` returned all-zero ``host_*``
-        fields because backups/storage have no ``mem`` / ``maxmem``
-        / ``cpu``. Worse, ``_add(name, stats)`` then OVERWROTE the
-        real guest's rich stats under colliding keys (last-write-
-        wins), so the sampler's ``host_pulse_samples`` table stayed
-        empty and the request-path's pulse_kind / pulse_vmid /
-        pulse_node fields read as empty even when Pulse actually
-        knew the guest.
-
-        New gate requires BOTH ``cpu`` (live load) AND ``maxmem``
-        (capacity). Real running guests always have both. Stopped
-        guests have ``cpu=0`` (still present as the key) +
-        ``maxmem`` (capacity unchanged when stopped). Storage
-        records have neither. Backup records have neither.
+        REVERTED on 2026-05-09 from a tighter ``cpu + maxmem``
+        requirement. The tightening correctly excluded backup /
+        storage records but ALSO excluded Docker container records
+        from Pulse v4's ``containers`` / ``dockerHosts`` arrays
+        (which lack the PVE-guest cpu/maxmem fingerprint). Operators
+        whose curated `pulse_name` mapped to a Docker container saw
+        every Pulse probe miss → 5 consecutive failures → fleet-wide
+        auto-pause cascade. Net behaviour with this looser gate:
+        non-guest records still get harvested + extracted as empty
+        host_* fields (chart shows zero) but the lookup HITS so the
+        host doesn't auto-pause. Proper fix tracked separately:
+        teach extract_guest_stats to handle Docker container shape.
         """
         if not isinstance(item, dict):
             return False
         if item.get("vmid") in (None, "", 0) and not item.get("id"):
             return False
-        return ("cpu" in item) and ("maxmem" in item)
+        # A few marker fields PVE guest records always carry.
+        marks = ("type", "status", "maxmem", "maxdisk", "cpu", "uptime", "node")
+        return any(m in item for m in marks)
 
     def _harvest(container, inherited_node: str = "") -> list:
         """Walk any object/dict/list and collect anything that looks
@@ -679,6 +674,27 @@ async def probe_pulse(
 
     print(f"[pulse] probe: state top-level keys={sorted(state.keys())} "
           f"nodes={len(nodes)} guests={len(guests)}")
+    # Schema-discovery diagnostic for Pulse v4's `hosts` / `containers`
+    # top-level arrays. Operator confirmed `debian13monitoring`-style
+    # entries are HOSTS (Pulse-agent-tracked Linux hosts), not PVE
+    # guests. Currently `extract_guest_stats` is shaped for PVE-guest
+    # schema (cpu top-level / mem / maxmem / disk / maxdisk) and reads
+    # zeros from Pulse hosts records because their schema is different.
+    # This dump captures hosts[0] + containers[0] sample shapes so we
+    # can write a proper extractor.
+    import json as _dbg_json
+    for top_key in ("hosts", "containers", "dockerHosts"):
+        arr = state.get(top_key) or []
+        if isinstance(arr, list) and arr:
+            sample = arr[0] or {}
+            if isinstance(sample, dict):
+                print(f"[pulse] probe: state.{top_key}[0] fields={sorted(sample.keys())} "
+                      f"count={len(arr)}")
+                try:
+                    raw = _dbg_json.dumps(sample, default=str)[:1200]
+                except Exception:
+                    raw = repr(sample)[:1200]
+                print(f"[pulse] probe: state.{top_key}[0] RAW={raw}")
     # Dump the raw shape of the first node + guest so operators can
     # see what fields Pulse actually emits.
     if nodes:
