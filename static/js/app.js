@@ -2239,43 +2239,35 @@ function app() {
         document.title = this.t('app.name');
       });
       window.addEventListener('keydown', (e) => this.handleHotkey(e));
-      // Capture-phase pre-empt for Cmd-K / Ctrl-K / Ctrl-/ — runs
-      // BEFORE browser UI shortcuts (Chrome's omnibox-search Ctrl+K)
-      // AND before the bubble-phase handleHotkey above. Without this,
+      // Capture-phase pre-empt for Cmd-K / Ctrl-K — runs BEFORE
+      // browser UI shortcuts (Chrome's omnibox-search Ctrl+K) AND
+      // before the bubble-phase handleHotkey above. Without this,
       // some browsers consume the keystroke or focus the address bar
       // before the page-level handler ever sees the event. Capture
       // phase is the only reliable way to claim a hotkey that
       // collides with a browser default. Stops at handleHotkey if
       // matched so the bubble-phase handler doesn't try to fire it
       // a second time. All other keys fall through untouched.
+      //
+      // Operator-validated rule (2026-05-09): we do NOT use
+      // capture-phase intercept to claim browser-default
+      // shortcuts (Cmd+R reload / Cmd+Shift+R hard-reload / Cmd+T
+      // new-tab / etc.) — instead we pick alternate keys that
+      // don't collide. Cmd+K is the one allowed exception because
+      // it has no browser-default action on Mac and the SPA's AI
+      // sidebar is the canonical "Cmd+K opens it" affordance
+      // matching every other modern app (Linear, Notion, etc.).
       window.addEventListener('keydown', (e) => {
-        // Cmd/Ctrl+K opens the AI sidebar. Cmd/Ctrl+/ was ALSO bound
-        // here historically (legacy palette combo) but was dropped on
-        // 2026-05-09 because the migrated hotkey catalog now uses
-        // Cmd/Ctrl+/ for "focus search" and the capture-phase
-        // intercept here would eat it before the bubble-phase
-        // handleHotkey could see it.
         const cmdMod = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
         const isPaletteCombo = cmdMod && (
           e.key === 'k' || e.key === 'K' || e.code === 'KeyK'
         );
         if (!isPaletteCombo) return;
-        // Single-fire sentinel — operator-reported diagnostic
-        // showed `was=true` on first Ctrl+K press, meaning the
-        // toggle had run TWICE per press (once flipping false→true
-        // then immediately true→false, leaving the modal hidden).
-        // Likely cause: the bubble-phase `handleHotkey` also
-        // matched the same combo and re-toggled. Stamp the event
-        // so any subsequent listener bails out cleanly.
         if (e._cmdpal_handled) return;
         e._cmdpal_handled = true;
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        // Cmd-K / Ctrl-K now opens the AI Assistant sidebar (the
-        // conversational drawer that replaced the modal palette). The
-        // legacy palette modal stays in code as a programmatic option
-        // but is no longer the primary keyboard target.
         if (this.aiSidebarOpen) this.closeAiSidebar();
         else this.openAiSidebar();
       }, { capture: true });

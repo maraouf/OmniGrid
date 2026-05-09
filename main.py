@@ -11681,48 +11681,54 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
     if not sid:
         return {"series": [], "error": "system_id or host_id required"}
 
-    # Local-first: if `host_beszel_samples` covers the requested window
-    # for this host, prefer it over the hub fetch. Beszel was previously
-    # read-through-only (every chart query hit the PocketBase hub) which
-    # caused visible "chart cuts" the moment the hub's `1m` tier aged
-    # out (~1h retention). The lifespan `host_beszel_sampler` now writes
-    # one row per host per tick into `host_beszel_samples` inside
-    # OmniGrid's own retention window (default 7d), so we read THAT.
-    # Hub fetch stays as the back-compat path for two cases:
-    #   1. The host's curated `id` is empty (legacy callers passing
-    #      only system_id with no host_id).
-    #   2. The local table doesn't yet cover the window because the
-    #      sampler is still warming up (fresh deploy / just-enabled
-    #      provider) — `local_oldest_ts` is later than the requested
-    #      `since_ts`, so older points only exist hub-side.
-    if hid:
-        from logic import host_beszel_sampler as _hbs
+    # Beszel chart series — LOCAL ONLY.
+    #
+    # Architectural alignment with every other provider (Pulse /
+    # Webmin / NE / SNMP / Ping): charts read exclusively from the
+    # local sample table. The lifespan `host_beszel_sampler` is the
+    # ETL — it reads from the Beszel hub on its tick cadence and
+    # writes to `host_beszel_samples`. The chart endpoint never
+    # touches the hub; it just queries the local DB.
+    #
+    # Trade-offs explicitly accepted with this design:
+    #   1. Granularity. Local sampler ticks every
+    #      `tuning_stats_sample_interval_seconds` (default 300s = 5
+    #      min); hub's `1m` aggregation tier had 1-minute samples.
+    #      Result: a 1h chart shows ~12 points (local) instead of 60
+    #      (hub). Operator can lower the sampler interval to 60s for
+    #      1m granularity at the cost of 5x DB writes — change via
+    #      `tuning_beszel_sample_interval_seconds` (per-Beszel
+    #      override) OR `tuning_stats_sample_interval_seconds` (the
+    #      global fallback).
+    #   2. Warm-up gap. A fresh deploy / fresh provider enable means
+    #      `host_beszel_samples` is empty until the sampler ticks
+    #      enough times to fill the requested window. Charts show
+    #      the partial range that local covers (no hub fallback).
+    #      Same behaviour as Pulse / Webmin / NE / SNMP / Ping local-
+    #      only paths — operator-validated as the right design over
+    #      the live-hub-fetch fallback (which created visible chart
+    #      cuts when the hub's `1m` aggregator lagged independently
+    #      of the agent's pushes).
+    #   3. Long-range windows (> `tuning_stats_history_days`,
+    #      default 7). Local retention is bounded; the hub had
+    #      higher-tier aggregations (`120m`) with longer history.
+    #      For windows beyond the local retention, the chart returns
+    #      empty. If long-range becomes a real ask, reintroduce the
+    #      hub fetch as an opt-in for windows > local retention.
+    #      `logic/beszel.py:fetch_system_history` is kept in-tree as
+    #      dead code for that future need.
+    if not hid:
+        return {"series": [], "error": "host_id required for Beszel local-only path"}
+    from logic import host_beszel_sampler as _hbs
+    try:
         local_series = _hbs.history_series(hid, h)
-        if local_series:
-            since_ts = int(time.time() - h * 3600)
-            local_oldest = int(local_series[0]["t"])
-            # Coverage cushion: 5 minutes of slack so a sampler that
-            # ticked at since_ts + 4min still serves local. Hub fetch
-            # only fires when the local table genuinely doesn't reach
-            # back to the requested window.
-            if local_oldest <= since_ts + 300:
-                return {
-                    "series":  local_series,
-                    "source":  "beszel_local",
-                    "error":   None,
-                }
-
-    from logic import beszel as _beszel
-    hub_url = get_setting("beszel_hub_url", "") or ""
-    ident = get_setting("beszel_identity", "") or ""
-    passw = get_setting("beszel_password", "") or ""
-    verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
-    if not (hub_url and ident and passw):
-        return {"series": [], "error": "Beszel not configured"}
-    return await _beszel.fetch_system_history(
-        hub_url, ident, passw, sid, hours=h, verify_tls=verify,
-        host_id=(hid or None),
-    )
+    except Exception as e:  # noqa: BLE001
+        return {"series": [], "error": f"host_beszel_sampler: {e}"}
+    return {
+        "series":  local_series,
+        "source":  "beszel_local",
+        "error":   None,
+    }
 
 
 @app.get("/api/hosts/{host_id}/ping/history")
