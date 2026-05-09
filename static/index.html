@@ -6982,6 +6982,60 @@
                                the raw provider JSON. The wide-column
                                span keeps the failure_state object
                                readable on its own row. -->
+                          <!-- Samples in window — dedicated table-shaped
+                               panel keyed off the chart range picker. Shows
+                               per-table sample counts within the SELECTED
+                               window (1h / 6h / 24h / 7d) plus the median
+                               gap between consecutive samples + the age
+                               of the newest sample. The diagnostic for
+                               "why is the past-hour chart cut?" — operator
+                               can see at a glance whether the sampler has
+                               been ticking on cadence (median_gap_s ≈
+                               sampler interval) or skipping (median_gap_s
+                               >> interval, count below expected). -->
+                          <section class="host-debug-box host-debug-box--wide"
+                                   x-show="hostsDebug[h.id].counters
+                                           && hostsDebug[h.id].counters.samples_in_window">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--rendered"
+                                    x-text="t('debug_panel.labels.samples_in_window')"></span>
+                              <span class="host-debug-hint"
+                                    x-text="t('debug_panel.hints.samples_in_window', { hours: (hostsDebug[h.id].counters.samples_in_window.hours || 1) })"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].counters.samples_in_window, 'debug_panel.labels.samples_in_window')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.samples_in_window')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
+                              </button>
+                            </header>
+                            <table class="host-debug-table mono fs-2xs"
+                                   :aria-label="t('debug_panel.labels.samples_in_window')">
+                              <thead>
+                                <tr>
+                                  <th class="text-start" x-text="t('debug_panel.samples_table.col_table')"></th>
+                                  <th class="text-end"   x-text="t('debug_panel.samples_table.col_count')"></th>
+                                  <th class="text-end"   x-text="t('debug_panel.samples_table.col_oldest')"></th>
+                                  <th class="text-end"   x-text="t('debug_panel.samples_table.col_newest')"></th>
+                                  <th class="text-end"   x-text="t('debug_panel.samples_table.col_newest_age')"></th>
+                                  <th class="text-end"   x-text="t('debug_panel.samples_table.col_median_gap')"></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <template x-for="row in samplesWindowRows(hostsDebug[h.id].counters.samples_in_window)" :key="row.table">
+                                  <tr>
+                                    <td class="text-start" x-text="row.label"></td>
+                                    <td class="text-end" x-text="row.count.toLocaleString()"
+                                        :class="row.count === 0 ? 'text-[var(--danger)]' : ''"></td>
+                                    <td class="text-end" x-text="row.oldest_str"></td>
+                                    <td class="text-end" x-text="row.newest_str"></td>
+                                    <td class="text-end" x-text="row.newest_age_str"
+                                        :class="row.newest_age_warn ? 'text-[var(--warning)]' : ''"></td>
+                                    <td class="text-end" x-text="row.median_gap_str"></td>
+                                  </tr>
+                                </template>
+                              </tbody>
+                            </table>
+                          </section>
                           <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(hostsDebug[h.id].counters)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.counters')"></span>
