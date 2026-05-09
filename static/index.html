@@ -4561,7 +4561,7 @@
                           <li class="server-health-row">
                             <span class="server-health-row-name" x-text="row.name"></span>
                             <span class="server-health-row-value">
-                              <span x-show="row.rpm" x-text="row.rpm + ' ' + t('host_drawer.server_health.rpm')"></span>
+                              <span x-show="row.rpm" x-text="Number(row.rpm).toLocaleString() + ' ' + t('host_drawer.server_health.rpm')"></span>
                               <span x-show="!row.rpm" class="text-[var(--text-faint)]">—</span>
                             </span>
                             <span class="chip fs-3xs" :class="dellHealthPillClass(row.status)"
@@ -4613,7 +4613,7 @@
                           <li class="server-health-row">
                             <span class="server-health-row-name" x-text="row.name"></span>
                             <span class="server-health-row-value">
-                              <span x-show="row.watts" x-text="(+row.watts || 0).toFixed(0) + ' W'"></span>
+                              <span x-show="row.watts" x-text="Math.round(+row.watts || 0).toLocaleString() + ' W'"></span>
                               <span x-show="!row.watts" class="text-[var(--text-faint)]">—</span>
                             </span>
                             <span class="chip fs-3xs" :class="dellHealthPillClass(row.status)"

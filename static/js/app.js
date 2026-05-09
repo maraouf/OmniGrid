@@ -12882,8 +12882,19 @@ function app() {
       // healthy, hit on this host = ok, mapped-but-no-hit = failing.
       // SNMP doesn't carry its own self-status field (unlike
       // beszel_status) so the badStatus check no-ops by passing null.
-      add('snmp',          !!(h.snmp_name && String(h.snmp_name).trim()
-                              && h.snmp_enabled === true), null);
+      // SNMP target resolution chain at the backend is
+      // `snmp_aliases → snmp_name → address → SKIP`, so the chip
+      // should render whenever SNMP is enabled AND ANY valid target
+      // exists — `snmp_name` (provider-specific override) OR the
+      // curated `address` field (the dedicated probe target user
+      // configures once and shares across port-scan / ping / SSH).
+      // Pre-fix the chip vanished when the user cleared `snmp_name`
+      // intending to inherit from `address`, even though the backend
+      // probe still ran successfully.
+      add('snmp', !!(h.snmp_enabled === true
+                     && ((h.snmp_name && String(h.snmp_name).trim())
+                         || (h.address && String(h.address).trim()))),
+          null);
       return out;
     },
     // Stale-marker helpers for the UI.
@@ -22586,10 +22597,22 @@ function app() {
     // toolbar count badge.
     hostHasAgent(h) {
       if (!h) return false;
-      // SNMP gates on `snmp_enabled === true` per       // opt-in contract; the bare `snmp_name` is no longer enough.
+      // SNMP gates on `snmp_enabled === true` per opt-in contract.
+      // Counts as having an agent when EITHER `snmp_name` (provider-
+      // specific override) is set OR the curated `address` field is
+      // set — backend SNMP resolver falls back to `address` when
+      // `snmp_name` is empty (chain: aliases → snmp_name → address
+      // → SKIP). Pre-fix this gated only on snmp_name, so clearing
+      // it (intending to inherit address) made the host appear
+      // un-agented in the Hosts page filter + count even though
+      // SNMP was actively probing.
+      const hasSnmpTarget = h.snmp_enabled === true && (
+        (h.snmp_name && String(h.snmp_name).trim())
+        || (h.address && String(h.address).trim())
+      );
       return !!(h.beszel_name || h.pulse_name || h.ne_url
                 || h.webmin_name || h.ping_enabled
-                || (h.snmp_name && h.snmp_enabled === true));
+                || hasSnmpTarget);
     },
     // Telemetry = any provider that contributes CPU / Memory / Disk
     // gauges. Ping is reachability + latency only; a ping-only host
