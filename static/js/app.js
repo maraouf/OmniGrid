@@ -813,6 +813,7 @@ function app() {
     aiSidebarLauncherHidden: false, // Operator preference; hides the floating AI launcher. Cmd-K still opens the sidebar. Persisted to ui_prefs.ai_sidebar_launcher_hidden.
     aiSidebarLauncherHiddenDraft: false, // Draft value for the Settings → Profile checkbox. Marked dirty when it diverges from `aiSidebarLauncherHidden`; Save commits via `setAiSidebarLauncherHidden(draft)`. Hydrated alongside the live value.
     aiSidebarMode: 'approval', // 'approval' (default — destructive actions render an inline-confirm chip) OR 'autonomous' (AI fires every action — including destructive — without prompting). Persisted to ui_prefs.ai_sidebar_mode so the choice follows the operator across browsers / machines. Read by `_runCommandPaletteAction`'s sidebar branch — if mode === 'autonomous', the destructive-confirm path is bypassed entirely and the action fires immediately.
+    aiSidebarPinned: false,      // Pin-to-dock mode — sidebar becomes a permanent left-edge split instead of slide-out overlay. Body gets `padding-inline-start: var(--ai-sidebar-width)` via the `body.ai-pinned` class so main view shrinks; backdrop is hidden (no overlay needed). Persisted to ui_prefs.ai_sidebar_pinned. Toggled via the 📌 Pin button in the sidebar header AND by `togglePinAiSidebar()`. Mobile (max-width: 480px) ignores pin (sidebar is 100vw — pinning would hide all content). When pinned, `openAiSidebar()` is implicit (sidebar is always open) and `closeAiSidebar()` un-pins as a side effect.
     // In-flight port-scan tracker — global keyed by host_id so the
     // Scan-ports button can disable itself across the whole app
     // (drawer / list row / AI palette dispatch) regardless of which
@@ -1830,6 +1831,21 @@ function app() {
             // draft default differs from the just-loaded value.
             this.aiSidebarLauncherHiddenDraft = !!hidden;
           } catch (_) {}
+          // ui_prefs.ai_sidebar_pinned — pin-to-dock mode. When true,
+          // the sidebar opens automatically AND stays docked as a
+          // left-edge split (body padding shrinks main view).
+          // Persisted across browsers / machines so the operator's
+          // workspace layout survives a fresh login.
+          try {
+            const pinned = m && m.ui_prefs && m.ui_prefs.ai_sidebar_pinned;
+            this.aiSidebarPinned = !!pinned;
+            // When pinned at hydration, force the sidebar open. The
+            // CSS `.ai-sidebar-drawer.pinned` rule makes it always
+            // visible regardless of the `.open` class, but we also
+            // flip the state so reads of `aiSidebarOpen` elsewhere
+            // (focus trap, ESC handler) stay consistent.
+            if (this.aiSidebarPinned) this.aiSidebarOpen = true;
+          } catch (_) {}
           // AI assistant conversation history — restore from
           // ui_prefs.ai_conversation so a hard reload (or moving to a
           // different browser / machine) doesn't drop the chat. The
@@ -2268,8 +2284,48 @@ function app() {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        if (this.aiSidebarOpen) this.closeAiSidebar();
-        else this.openAiSidebar();
+        // Long-press discoverability: hold Cmd-K (or Ctrl-K) for
+        // >500ms to surface the keyboard-shortcuts overlay (reuses
+        // the existing `showHotkeys` modal that the dedicated
+        // Cmd+Shift+/ binding opens). Quick tap = AI sidebar
+        // toggle (existing behaviour).
+        //
+        // Implementation: on keydown, schedule a 500ms timer that
+        // flips `showHotkeys=true`. On keyup, cancel the timer; if
+        // it hadn't fired yet, the press was short → toggle AI
+        // sidebar. If it DID fire, the overlay is already up so we
+        // do nothing on keyup. Skip the entire dance on key-repeat
+        // (operator holding Cmd while tapping K repeatedly).
+        if (e.repeat) return;
+        if (this._cmdkLongPressTimer) {
+          try { clearTimeout(this._cmdkLongPressTimer); } catch (_) {}
+          this._cmdkLongPressTimer = null;
+        }
+        let firedLong = false;
+        this._cmdkLongPressTimer = setTimeout(() => {
+          firedLong = true;
+          this._cmdkLongPressTimer = null;
+          try { this.showHotkeys = true; } catch (_) {}
+        }, 500);
+        const onUp = (up) => {
+          // Match the same combo on release. Some keyboards report
+          // `e.key` as 'k'/'K' depending on Shift state at release;
+          // we already gated Shift out on keydown so this is a
+          // belt-and-braces check.
+          if (up.code !== 'KeyK' && up.key !== 'k' && up.key !== 'K') return;
+          window.removeEventListener('keyup', onUp, { capture: true });
+          if (this._cmdkLongPressTimer) {
+            try { clearTimeout(this._cmdkLongPressTimer); } catch (_) {}
+            this._cmdkLongPressTimer = null;
+          }
+          if (!firedLong) {
+            // Short press — original AI sidebar toggle.
+            if (this.aiSidebarOpen) this.closeAiSidebar();
+            else this.openAiSidebar();
+          }
+          // firedLong=true → overlay already open, leave it alone.
+        };
+        window.addEventListener('keyup', onUp, { capture: true });
       }, { capture: true });
       // (Diagnostic `window.__omnigridOpenPalette` escape hatch
       //  removed — the palette is verified working in production
@@ -14339,14 +14395,14 @@ function app() {
       // preceding elements as modifiers (matched via `e.ctrlKey ||
       // e.metaKey` for Cmd/Ctrl + `e.shiftKey` for Shift).
       //
-      // Browser-default collisions accepted (preventDefault'd):
-      //  - Cmd/Ctrl+1..5 (browser tab-switch — overridden for view nav)
-      //  - Cmd/Ctrl+R (browser refresh — overridden; Cmd/Ctrl+Shift+R
-      //    overrides hard-refresh similarly)
-      //  - Cmd/Ctrl+Shift+T (browser reopen-closed-tab — overridden
-      //    for bulk restart)
-      //  - Cmd/Ctrl+Shift+D (browser bookmark-page — overridden for
-      //    bulk remove)
+      // Operator-validated rule (2026-05-09): we DO NOT claim
+      // browser-default keys via capture-phase intercept; instead
+      // we pick alternate non-colliding keys. Mac browsers handle
+      // some Cmd combos at a level the page can't preventDefault:
+      // Cmd+R / Cmd+Shift+R (reload) and Cmd+Shift+L / Cmd+J (some
+      // OS or Chrome feature) silently fail. Picks below avoid
+      // those.
+      //
       // Cmd/Ctrl+A (browser select-all) is INTENTIONALLY NOT BOUND —
       // operators select-all-text in inputs frequently; the previous
       // bare `a` "select all visible" binding migrated to Cmd/Ctrl+I
@@ -14372,9 +14428,15 @@ function app() {
         {
           title: _t('hotkeys.groups.refresh_theme'),
           items: [
-            { keys: ['Cmd/Ctrl', 'R'],          label: _t('hotkeys.items.refresh_cached'), run: () => this.refresh(false) },
-            { keys: ['Cmd/Ctrl', 'Shift', 'R'], label: _t('hotkeys.items.refresh_force'),  run: () => this.refresh(true) },
-            { keys: ['Cmd/Ctrl', 'J'],          label: _t('hotkeys.items.cycle_theme'),    run: () => this.cycleTheme() },
+            // Cmd/Ctrl+R is browser reload — uninterceptable on Mac.
+            // Cmd/Ctrl+; (semicolon) is collision-free.
+            { keys: ['Cmd/Ctrl', ';'],          label: _t('hotkeys.items.refresh_cached'), run: () => this.refresh(false) },
+            // Cmd/Ctrl+Shift+R is browser hard-reload — same story.
+            { keys: ['Cmd/Ctrl', 'Shift', ';'], label: _t('hotkeys.items.refresh_force'),  run: () => this.refresh(true) },
+            // Cmd/Ctrl+J is Chrome "Downloads" on Mac; Cmd+, is
+            // typically the macOS app-preferences shortcut but is
+            // browser-free for keystrokes delivered to the page.
+            { keys: ['Cmd/Ctrl', ','],          label: _t('hotkeys.items.cycle_theme'),    run: () => this.cycleTheme() },
           ],
         },
         {
@@ -14391,10 +14453,17 @@ function app() {
             { keys: ['Cmd/Ctrl', 'Shift', 'U'], label: _t('hotkeys.items.bulk_update'),  run: () => this.selectionUpdatable().length && this.bulkUpdate() },
             { keys: ['Cmd/Ctrl', 'Shift', 'T'], label: _t('hotkeys.items.bulk_restart'), run: () => this.selectionRestartable().length && this.bulkRestart() },
             { keys: ['Cmd/Ctrl', 'Shift', 'D'], label: _t('hotkeys.items.bulk_remove'),  run: () => this.selectionRemovable().length && this.bulkRemove() },
-            // NEW: Cleanup all stopped/failed/orphaned containers — the
-            // topbar red Cleanup button. L = "cLeanup" (collision-free
-            // in browsers; not used by any common system shortcut).
-            { keys: ['Cmd/Ctrl', 'Shift', 'L'], label: _t('hotkeys.items.bulk_cleanup'), run: () => (typeof this.bulkRemoveAll === 'function') && this.bulkRemoveAll() },
+            // Cleanup all stopped/failed/orphaned containers — the
+            // topbar red Cleanup button. Operator-confirmed Mac
+            // shortcut Cmd+Shift+L is intercepted by an OS-level
+            // binding (couldn't reach the page); swapped to
+            // Cmd+Shift+, (comma) — collision-free on every major
+            // platform, keeps the bulk = Cmd+Shift+<key> pattern
+            // that distinguishes destructive bulk from single-item
+            // / nav actions. Cmd+. (period) is reserved for
+            // clear-selection (universal "abort current action"
+            // convention).
+            { keys: ['Cmd/Ctrl', 'Shift', ','], label: _t('hotkeys.items.bulk_cleanup'), run: () => (typeof this.bulkRemoveAll === 'function') && this.bulkRemoveAll() },
           ],
         },
         {
@@ -16660,6 +16729,32 @@ function app() {
       } catch (e) {
         if (window.console && console.warn) {
           console.warn('[ai_sidebar_mode] persist failed:', e);
+        }
+      }
+    },
+    // Toggle the AI sidebar's pin-to-dock mode. When pinned, the
+    // sidebar becomes a left-edge split (main view shrinks via
+    // `body.ai-pinned` CSS class) instead of an overlay drawer.
+    // Persisted to ui_prefs.ai_sidebar_pinned. Mobile (max-width:
+    // 480px) ignores pin via the CSS @media override (sidebar is
+    // 100vw — pinning would hide all content).
+    //
+    // Side effect: pinning forces the sidebar open; un-pinning
+    // does NOT close it (operator can still close via X / Esc).
+    async togglePinAiSidebar() {
+      const next = !this.aiSidebarPinned;
+      this.aiSidebarPinned = next;
+      if (next) this.aiSidebarOpen = true;  // implicit open when pinning
+      if (!this.me || !this.me.id || this.me.id < 0) return;
+      try {
+        await fetch('/api/me/ui-prefs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefs: { ai_sidebar_pinned: next } }),
+        });
+      } catch (e) {
+        if (window.console && console.warn) {
+          console.warn('[ai_sidebar_pinned] persist failed:', e);
         }
       }
     },

@@ -793,6 +793,170 @@ async def probe_pulse(
     return {"hosts": out, "error": None}
 
 
+def extract_pulse_host_stats(host: dict) -> dict:
+    """Shape one Pulse v4 ``hosts[*]`` record into ``host_*`` fields.
+
+    Distinct from :func:`extract_guest_stats` (PVE LXC/VM in the
+    ``vms`` array) and :func:`extract_node_stats` (PVE hypervisor in
+    the ``nodes`` array). Pulse v4 added a top-level ``hosts`` array
+    for Pulse-agent-tracked Linux hosts (NOT running under Proxmox).
+    Operator-confirmed: 21 of their 22 curated `pulse_name` mappings
+    point at entries here, NOT at PVE guests.
+
+    Schema is best-effort because Pulse's published API is sparse on
+    the `hosts` shape. We defensively read multiple plausible field
+    paths and use the first non-zero / non-empty hit per field. The
+    paths walked:
+      - cpu:        ``cpu`` (top), ``info.cpu``, ``stats.cpu`` —
+                    treat as 0..1 fraction OR 0..100 percent based
+                    on magnitude (a value > 1.5 is assumed to
+                    already be a percentage).
+      - mem total:  ``maxmem``, ``memTotal``, ``mem.total``,
+                    ``memory.total``, ``info.m`` (GiB convention),
+                    ``stats.m`` (GiB).
+      - mem used:   ``mem``, ``memUsed``, ``mem.used``,
+                    ``memory.used``, ``info.mu`` (GiB),
+                    ``stats.mu`` (GiB).
+      - disk total: ``maxdisk``, ``diskTotal``, ``disk.total``,
+                    ``info.d`` (GiB), ``stats.d`` (GiB).
+      - disk used:  ``disk``, ``diskUsed``, ``disk.used``,
+                    ``info.du`` (GiB), ``stats.du`` (GiB).
+      - uptime:     ``uptime``, ``info.u`` (seconds).
+      - hostname:   ``host``, ``hostname``, ``name``.
+
+    GiB-vs-bytes detection: any nested-stats value where the key
+    equals ``m`` / ``mu`` / ``d`` / ``du`` is assumed to be GiB
+    (Beszel-style tier; sub-1000 magnitudes); top-level ``mem`` /
+    ``maxmem`` / ``disk`` / ``maxdisk`` go through ``_value_is_gib``
+    like guest/node extraction.
+
+    Empty record OR record where every probe path yields 0/empty →
+    returns the same skeleton as `extract_guest_stats` with all
+    `host_*` fields at 0 / "" so the merge layer can still see the
+    `pulse_*` identity fields.
+    """
+    if not isinstance(host, dict):
+        host = {}
+    gib = 1024 ** 3
+
+    def _first_non_zero(*paths):
+        """Walk ``paths`` (each a list of dotted keys), return first
+        non-zero numeric value found via ``host.<path>`` traversal.
+        Skips None / "" / 0. Returns 0 when nothing matches."""
+        for path_keys in paths:
+            cursor = host
+            ok = True
+            for k in path_keys:
+                if isinstance(cursor, dict) and k in cursor:
+                    cursor = cursor[k]
+                else:
+                    ok = False
+                    break
+            if not ok:
+                continue
+            v = _num(cursor)
+            if v != 0:
+                return v
+        return 0.0
+
+    # CPU — accept either fraction (0..1) or percent (0..100).
+    raw_cpu = _first_non_zero(["cpu"], ["info", "cpu"], ["stats", "cpu"])
+    cpu_pct = raw_cpu * 100 if 0 < raw_cpu <= 1.5 else raw_cpu
+
+    # Memory — top-level (bytes) first, then nested (GiB convention).
+    mem_max = _first_non_zero(
+        ["maxmem"], ["memTotal"], ["mem", "total"], ["memory", "total"],
+    )
+    if mem_max == 0:
+        # Try Beszel-style nested GiB paths.
+        nested_mem_max = _first_non_zero(["info", "m"], ["stats", "m"])
+        if nested_mem_max:
+            mem_max = nested_mem_max * gib
+    elif _value_is_gib(mem_max, _current_probe_base_url):
+        mem_max = mem_max * gib
+
+    mem_used = _first_non_zero(
+        ["mem"], ["memUsed"], ["mem", "used"], ["memory", "used"],
+    )
+    if mem_used == 0:
+        nested_mem_used = _first_non_zero(["info", "mu"], ["stats", "mu"])
+        if nested_mem_used:
+            mem_used = nested_mem_used * gib
+    elif _value_is_gib(mem_used, _current_probe_base_url):
+        mem_used = mem_used * gib
+
+    # Disk — same multi-path probe.
+    disk_max = _first_non_zero(
+        ["maxdisk"], ["diskTotal"], ["disk", "total"],
+    )
+    if disk_max == 0:
+        nested_disk_max = _first_non_zero(["info", "d"], ["stats", "d"])
+        if nested_disk_max:
+            disk_max = nested_disk_max * gib
+    elif _value_is_gib(disk_max, _current_probe_base_url):
+        disk_max = disk_max * gib
+
+    disk_used = _first_non_zero(
+        ["disk"], ["diskUsed"], ["disk", "used"],
+    )
+    if disk_used == 0:
+        nested_disk_used = _first_non_zero(["info", "du"], ["stats", "du"])
+        if nested_disk_used:
+            disk_used = nested_disk_used * gib
+    elif _value_is_gib(disk_used, _current_probe_base_url):
+        disk_used = disk_used * gib
+
+    uptime = int(_first_non_zero(["uptime"], ["info", "u"]))
+    host_boot_ts = (time.time() - uptime) if uptime > 0 else None
+
+    # Identity fields — not summed, just first non-empty string.
+    def _first_str(*keys):
+        for k in keys:
+            v = host.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        return ""
+
+    hostname = _first_str("host", "hostname", "name")
+
+    # Mem-percent + disk-percent — prefer pre-computed if Pulse
+    # supplies one (avoids rounding drift); else compute from totals.
+    mem_pct = _first_non_zero(["info", "mp"], ["stats", "mp"])
+    if mem_pct == 0 and mem_max > 0:
+        mem_pct = (mem_used / mem_max) * 100
+    disk_pct = _first_non_zero(["info", "dp"], ["stats", "dp"])
+    if disk_pct == 0 and disk_max > 0:
+        disk_pct = (disk_used / disk_max) * 100
+
+    return {
+        "host_mem_total":    int(mem_max),
+        "host_mem_used":     int(mem_used),
+        "host_mem_avail":    max(0, int(mem_max - mem_used)),
+        "host_disk_total":   int(disk_max),
+        "host_disk_used":    int(disk_used),
+        "host_disk_free":    max(0, int(disk_max - disk_used)),
+        "host_uptime_s":     uptime,
+        "host_boot_ts":      host_boot_ts,
+        "host_cpu_percent":  cpu_pct,
+        "host_mem_percent":  mem_pct,
+        "host_disk_percent": disk_pct,
+        "host_cores":        int(_first_non_zero(["cpus"], ["info", "t"], ["stats", "cpus"])),
+        "host_platform":     "Linux",
+        "host_agent":        _first_str("agent", "version"),
+        "host_kernel":       _first_str("kernel"),
+        "host_arch":         "",
+        "host_os":           _first_str("os", "osName"),
+        "mounts":            [],
+        "network_ifaces":    [],
+        "exporter_error":    None,
+        "pulse_status":      _first_str("status") or "unknown",
+        "pulse_kind":        "host",
+        "pulse_vmid":        0,
+        "pulse_node":        "",
+        "pulse_hostname":    hostname,
+    }
+
+
 def lookup(pulse_hosts: dict, needle: str) -> Optional[dict]:
     """Find a Pulse host record by name, tolerating case + whitespace.
 
