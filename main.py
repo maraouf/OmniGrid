@@ -9739,6 +9739,28 @@ async def api_hosts_test(
                 snmp_target = str(sn_aliases.get(row_id, "") or "").strip()
         except ValueError:
             snmp_target = ""
+    # Mirror the live resolver chain — fall through to the curated
+    # `address` field when neither body.snmp_target/_name nor the alias
+    # map produced a target. Without this, an SNMP-enabled host that
+    # left `snmp_name` blank in favour of the shared `address` field
+    # tested as "skipped (not set)" even though the live sampler /
+    # `_merge_one_host` chain probes it correctly via `address`. Only
+    # consult the curated row when the body explicitly didn't include
+    # an `address` key — operators editing a row with `address`
+    # cleared in the UI shouldn't see the OLD persisted address used
+    # as the test target.
+    if not snmp_target and row_id:
+        body_address = (body.get("address") or "").strip()
+        if body_address:
+            snmp_target = body_address
+        else:
+            try:
+                curated = _load_hosts_config()
+                row = next((r for r in curated if r.get("id") == row_id), None)
+                if row:
+                    snmp_target = (row.get("address") or "").strip()
+            except Exception:
+                pass
     snmp_community = (body.get("snmp_community") or "").strip()
     snmp_version = (body.get("snmp_version") or "").strip().lower()
     try:
