@@ -3638,28 +3638,49 @@ details summary::-webkit-details-marker {
     transition: none;
     box-shadow: none;
 }
-/* `body.ai-pinned` retained as a hook for any future absolutely-
-   positioned overlay that needs to know about the dock state — the
-   actual layout shift happens on the SPA wrapper one level down (see
-   `.og-app-shell--ai-pinned` below). */
-/* Pinned-mode wrapper rule — true split-pane. Uses BOTH
-   `margin-inline-start` AND explicit `width: calc(100vw - <var>)`
-   instead of plain `padding-inline-start`. Padding-only was
-   inconsistent across browsers + Tailwind v4 preflight when the
-   wrapper has nested `position: sticky` topbar children + a
-   max-width: 100vw rule on body. Margin pushes the entire wrapper
-   externally (no box-sizing edge cases); the explicit width
-   constraint ensures the wrapper SHRINKS to fit the remaining
-   viewport instead of staying 100vw wide and overflowing under the
-   sidebar. The sidebar at `position: fixed; left: 0; width: var(...)`
-   then sits visually adjacent to the shrunken wrapper rather than on
-   top of it. min-width: 0 lets flex children shrink below their
-   intrinsic content width when the operator narrows the viewport. */
-.og-app-shell--ai-pinned {
-    margin-inline-start: var(--ai-sidebar-width, 480px);
-    width: calc(100vw - var(--ai-sidebar-width, 480px));
-    max-width: calc(100vw - var(--ai-sidebar-width, 480px));
-    min-width: 0;
+/* Pinned-mode TRUE split-pane via body-level flex layout.
+   Earlier attempts (body padding, then wrapper margin + explicit
+   calc() width) didn't reliably reflow the layout — Tailwind v4's
+   layer cascade + `body { max-width: 100vw, overflow-x: clip }` +
+   the wrapper's `flex flex-col min-h-screen` Tailwind utilities
+   collectively forced the wrapper to grow to its natural content
+   width, which then got clipped at body's right edge so the
+   right portion of the page disappeared.
+   New approach: when `body.ai-pinned` is set, body becomes a
+   flex row container. The sidebar is pulled OUT of its
+   `position: fixed` (overridden via `.ai-sidebar-drawer.pinned` +
+   `body.ai-pinned` two-class selector) into normal flex flow as a
+   fixed-width flex item with `order: -1` so it always appears
+   first regardless of DOM order. The app-shell wrapper takes
+   `flex: 1` and shrinks gracefully to fit the remaining width.
+   Other body children (skip-link via `position: absolute`,
+   backdrop hidden by x-show when pinned, hidden templates) sit
+   alongside without disrupting because they're either out-of-flow
+   or display:none. */
+body.ai-pinned {
+    display: flex !important;
+    flex-direction: row;
+    align-items: stretch;
+    min-height: 100vh;
+}
+body.ai-pinned > .ai-sidebar-drawer.pinned {
+    position: relative !important;
+    inset: auto !important;
+    transform: none !important;
+    width: var(--ai-sidebar-width, 480px) !important;
+    flex: 0 0 var(--ai-sidebar-width, 480px) !important;
+    align-self: stretch;
+    height: auto;
+    min-height: 100vh;
+    order: -1;
+    box-shadow: none;
+}
+body.ai-pinned > .og-app-shell--ai-pinned {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    width: auto !important;
+    max-width: none !important;
+    margin-inline-start: 0 !important;
 }
 [dir="rtl"] .ai-sidebar-drawer {
     left: auto;
@@ -3681,12 +3702,22 @@ details summary::-webkit-details-marker {
         width: 100vw;
     }
     /* Pin-to-dock is meaningless on phones — sidebar is 100vw,
-       pinning would hide all main content. Force-disable the wrapper
-       padding so the operator can still see the rest of the SPA
-       even if their saved pref is `pinned: true` on a desktop login.
-       The Pin button itself is hidden via x-show on mobile. */
-    .og-app-shell--ai-pinned {
-        padding-inline-start: 0;
+       pinning would hide all main content. Force-disable the body
+       flex layout so the wrapper renders as a normal block taking
+       the full viewport width, even if the operator's saved pref is
+       `pinned: true` on a desktop login. The Pin button itself is
+       hidden via x-show on mobile. */
+    body.ai-pinned {
+        display: block !important;
+    }
+    body.ai-pinned > .ai-sidebar-drawer.pinned {
+        position: fixed !important;
+        flex: none !important;
+        order: 0;
+    }
+    body.ai-pinned > .og-app-shell--ai-pinned {
+        flex: none !important;
+        margin-inline-start: 0 !important;
     }
 }
 .ai-sidebar-header {
