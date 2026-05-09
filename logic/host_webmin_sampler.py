@@ -262,14 +262,28 @@ async def host_webmin_sampler_loop() -> None:
                     results = []
                 now = time.time()
                 rows: list[tuple] = []
+                probed_ok = 0
                 for h, res in zip(hosts, results):
                     if isinstance(res, BaseException) or not isinstance(res, dict):
                         continue
+                    probed_ok += 1
                     row = _shape_row_for_db(h["id"], res, now)
                     if row is not None:
                         rows.append(row)
                 if rows:
                     await _persist_tick(rows)
+                # Per-tick visibility — same shape as the Pulse +
+                # Beszel samplers. Webmin is per-host (not hub-batch)
+                # so the columns describe `probed=K` (probes that
+                # returned a usable dict) instead of `looked_up=K`
+                # (lookups that hit the hub map). `wrote=L` after the
+                # `_shape_row_for_db` skip-empty gate. `interval` is
+                # the resolved cadence in seconds.
+                print(
+                    f"[host_webmin_sampler] tick: curated={len(hosts)} "
+                    f"probed={probed_ok} wrote={len(rows)} "
+                    f"interval={interval}s"
+                )
                 if (now - last_prune) > 3600:
                     await _prune_old_rows()
                     last_prune = now
