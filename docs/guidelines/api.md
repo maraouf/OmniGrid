@@ -204,6 +204,7 @@ type:
 | `notification:created` | A new in-app notification row was inserted by the `app` notification medium. | `{id, ts, event, severity, title, body, actor, target_kind, target_id, unread_count}` — payload carries a self-contained snapshot so the SPA can prepend without an extra round-trip; `unread_count` is the canonical count post-insert. |
 | `notification:read` | One notification row (or all unread, when `bulk=true`) was marked read. | `{id?, read_at, unread_count, bulk?}` — `id=null + bulk=true` means a `read-all` fired. Originating tab self-filters via `client_id`. |
 | `notification:deleted` | One notification row was deleted (admin scrub or schedule prune). | `{id, unread_count}` — originating tab self-filters via `client_id`. |
+| `port_scan:completed` | A per-host port scan (on-demand `POST /api/hosts/{id}/port-scan` OR a `port_scan_refresh` schedule fire) finished. | `{host_id, scan_id, target, ports_count, new_ports?}` — hint only; consumers refetch via `GET /api/history/port-scan/{scan_id}/ports` for the full per-port detail. The on-demand POST returns `{scan_id, status: "queued"}` immediately and the SPA waits on this event. |
 | `:overflow` | Synthetic — the per-subscriber queue dropped events. | `{}` — react with a one-shot REST refresh. |
 | `reconnect` | Synthetic — server hit the SSE max-lifetime cap (default 6 h, tunable via `tuning_sse_max_lifetime_seconds`) and is asking the client to re-upgrade so the auth middleware fires again. | `{}` — `EventSource` reconnects automatically; bespoke clients should drop the connection and reopen. |
 
@@ -564,6 +565,197 @@ the `swarm_agent_restart_success` / `swarm_agent_restart_failure` notification e
 (per-node) and `prune_all_nodes` (fan-out across every visible hostname) wrap this
 operation for cron-like usage — see [`scheduler.md`](scheduler.md).
 
+### Port scan (admin-only)
+
+OmniGrid scans a curated host's TCP / UDP service surface from the host drawer's "Port
+scan" button OR on a schedule (`port_scan_refresh` kind — see
+[`scheduler.md`](scheduler.md)). The on-demand endpoint resolves the target via the
+canonical chain `address → ping.host → ssh.fqdn → ssh.host → host_id`, validates the
+master toggle + per-host opt-in, spawns a fire-and-forget asyncio task, and returns
+`{scan_id, status: "queued"}` immediately so reverse-proxy `proxy_read_timeout` settings
+(NPM defaults to 60 s) don't trip on long scans up to `tuning_port_scan_max_seconds`
+(default 120 s). Completion fires `port_scan:completed` over SSE; the persisted detail
+is read via `GET /api/history/port-scan/{scan_id}/ports`.
+
+```bash
+# Trigger an on-demand TCP scan of host01 (defaults to the curated `address` field +
+# the operator's TCP port CSV from Admin → Providers → Port Scan).
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' -d '{}' \
+  https://omnigrid.example.com/api/hosts/host01/port-scan | jq
+# → {"scan_id":"<uuid>","status":"queued","target":"192.X.X.X","ports_count":<n>}
+
+# Override the default ports + concurrency + add UDP companion (Stage 2)
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"ports":"22,80,443,8080","timeout_s":3,"concurrency":16,"udp":true,"udp_ports":"53,123,161"}' \
+  https://omnigrid.example.com/api/hosts/host01/port-scan | jq
+
+# After SSE port_scan:completed lands, fetch the per-port detail
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  https://omnigrid.example.com/api/history/port-scan/<scan_id>/ports | jq
+# → {"ports":[{"port":22,"protocol":"tcp","service_hint":"ssh","banner_excerpt":"SSH-2.0-OpenSSH_..."}, …]}
+```
+
+### Per-(provider, host) resume
+
+`POST /api/hosts/{id}/resume-sampling` clears WHOLE-host auto-pause markers (used by
+`host_metrics_sampler`'s permanent-fail window). Auto-pause from `record_provider_outcome`
+is keyed `<provider>:<host_id>`; clear ONE provider at a time:
+
+```bash
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  https://omnigrid.example.com/api/hosts/host01/provider/snmp/resume | jq
+# Provider must be one of: snmp / webmin / beszel / pulse / node_exporter / ping
+```
+
+### Bulk host actions (admin-only)
+
+Four endpoints accept `{host_ids: [...]}` plus action-specific params and apply atomically
+across the matched hosts. Each affected host publishes the SAME SSE events the per-host
+endpoint would (`host:failure_state_changed` for pause / resume), so other tabs catch up
+within one event frame. Originating tab self-filters via `client_id`.
+
+```bash
+# Pause sampling for a list of hosts
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"host_ids":["host01","host02"]}' \
+  https://omnigrid.example.com/api/hosts/bulk/pause | jq
+
+# Resume sampling
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"host_ids":["host01","host02"]}' \
+  https://omnigrid.example.com/api/hosts/bulk/resume | jq
+
+# Apply / replace SNMP vendor whitelist on multiple hosts
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"host_ids":["host01","host02"],"vendors":["dell","ucd"]}' \
+  https://omnigrid.example.com/api/hosts/bulk/snmp_vendors | jq
+
+# Apply per-host SNMP tunables (walk concurrency, wall-clock budget)
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"host_ids":["host01"],"walk_concurrency":8,"wall_clock_budget_seconds":120}' \
+  https://omnigrid.example.com/api/hosts/bulk/snmp_tunables | jq
+```
+
+Each bulk action writes a single audit-trail history row (`op_type=hosts_bulk_pause` /
+`hosts_bulk_resume` / etc.) so the Timeline tab shows the action as one event rather than
+N per-host rows.
+
+### AI palette + memory (admin-only)
+
+The AI integration ships an Admin → AI tab with master toggle, per-provider configs
+(Claude / Gemini / ChatGPT / DeepSeek), usage dashboard, and a per-deployment memory
+store. Calls are gated on the master toggle + the active-provider toggle; every successful
+or errored call records to `ai_jobs` with token + cost + latency aggregates.
+
+```bash
+# Send a natural-language prompt to the AI palette. Body shape: {query, context?}.
+# Returns {ok, provider, model, response_time_ms, tokens, answer, actions?, dsl?, …}.
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"which hosts have low disk?"}' \
+  https://omnigrid.example.com/api/ai/palette | jq
+
+# Bulk-translate a verb-leading phrase into a Phase 1 DSL string the SPA can review
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"pause every host with low disk"}' \
+  https://omnigrid.example.com/api/ai/host-filter | jq
+# → {"ok":true,"dsl":"pause: host01 host05 host09","explanation":"…"}
+
+# Per-call feedback (operator clicks 👍 / 👎 in the AI sidebar)
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"job_id":12345,"score":1,"comment":""}' \
+  https://omnigrid.example.com/api/ai/feedback | jq
+
+# AI memory CRUD — durable lessons the AI has learned about THIS deployment
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  https://omnigrid.example.com/api/ai/memory | jq
+# → {"ok":true,"memories":[{"id":1,"ts":…,"text":"…","source":"ai"|"operator","actor":"…"}, …]}
+
+# Add a memory manually (source defaults to 'operator')
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"This deployment runs OPNsense at 192.X.X.1 — never SSH to it"}' \
+  https://omnigrid.example.com/api/ai/memory | jq
+
+# Delete one memory by id
+curl -sS -H "Authorization: Bearer $TOKEN" -X DELETE \
+  https://omnigrid.example.com/api/ai/memory/123 | jq
+
+# Forget by exact text match — used when the AI emits MEMORY-FORGET: <text>
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"<exact memory body to delete>"}' \
+  https://omnigrid.example.com/api/ai/memory/forget | jq
+```
+
+The AI emits two directives the SPA parses out of every reply: `MEMORY: <one-line lesson>`
+appends to `ai_memory` (after operator confirm); `MEMORY-FORGET: <exact text>` deletes the
+matching row. Memory injects into every subsequent palette call's system prompt so
+knowledge accumulates across sessions.
+
+Admin-only dashboard endpoints for the Admin → AI tab:
+
+```bash
+# Aggregate dashboard (windowed call counts, token / cost totals, per-provider breakdown)
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  "https://omnigrid.example.com/api/admin/ai/dashboard?window=24h" | jq
+
+# Per-call log (paginated, filterable by provider / kind / status)
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  "https://omnigrid.example.com/api/admin/ai/jobs?limit=50&provider=claude" | jq
+
+# Probe one provider's credentials + chosen model (uses persisted settings when body empty)
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' -d '{}' \
+  https://omnigrid.example.com/api/admin/ai/claude/test | jq
+# Provider must be one of: claude / gemini / chatgpt / deepseek
+```
+
+### Per-host telemetry detail endpoints
+
+Beyond `/api/hosts/history` (the canonical per-host time-series), several admin-only
+endpoints surface deeper provider-specific detail used by the host drawer:
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET`  | `/api/hosts/{id}/beszel/services` | Per-(host, systemd unit) snapshot from `host_beszel_services` (failed units first). |
+| `GET`  | `/api/hosts/{id}/snmp/history?hours=N` | SNMP-derived host samples (CPU / memory / disk / uptime). |
+| `GET`  | `/api/hosts/{id}/snmp/iface_history?hours=N` | Per-interface throughput counters (top-5 by current rate). |
+| `GET`  | `/api/hosts/{id}/snmp/temp_history?hours=N` | Per-temperature-probe sensor readings (ENTITY-SENSOR-MIB). |
+| `GET`  | `/api/hosts/{id}/disk-projection?days_ahead=N` | Linear regression on `host_disk_used` across the configured window — projects "days until full" with a confidence band. |
+| `GET`  | `/api/hosts/{id}/triage` | Inline similar-incident grouping for host failures (read from `host_failure_events`). |
+| `GET`  | `/api/hosts/{id}/timeline?hours=N` | Unified per-host event timeline (state changes + sampler errors + bulk-action audit rows). |
+| `GET`  | `/api/hosts/debug?id=<host>&since_hours=N` | Raw provider payloads + counters block (samples-in-window, failure_state, provider_pause_state, full live tunables map) — the operator's "why is this host's chart cut?" diagnostic. |
+
+### Cleanup overlay network (admin-only)
+
+`POST /api/cleanup-overlay-network` is the Portainer-API-only path for stale VXLAN
+overlays — used by the drawer task-error auto-fix descriptor `cleanup-overlay-network`.
+Body shape `{network_id?: str, service_id?: str, cidr?: str}`; the handler parses the
+failing CIDR from `task_error` when `cidr` is supplied, walks
+`/docker/networks?filters={"driver":["overlay"]}` for a subnet match, verifies no live
+containers reference the network, then deletes it + force-updates the named service so
+Docker recreates the overlay (and a fresh VXLAN interface) on the new task. SSH-free;
+aborts cleanly when the network is shared. Returns `{op_id}`; success / failure fires
+`overlay_cleanup_success` / `overlay_cleanup_failure` notification events.
+
+### Re-authentication (admin-only step-up)
+
+`POST /api/admin/reauth` accepts `{password}` for local users and re-validates the
+caller's credentials against the live password hash. Used as a step-up gate for
+high-stakes admin operations (TOTP disable / force-set, bulk host pause, etc.) that
+shouldn't trust the existing session alone. SSO users (no local password) bypass via
+the `_user_has_local_password` check; the SPA's typed-hostname confirm is the fallback
+gate for them. Body returns `{ok: bool, detail?}`.
+
 ### Version
 
 ```bash
@@ -582,7 +774,8 @@ for the full operator workflow.
 
 Each integration has a `/test` endpoint that fires one synchronous probe with
 the given (or saved) credentials. Useful for CI-style health-checking your
-OmniGrid deploy. Six provider tests today:
+OmniGrid deploy. Seven integration probes today (six host-stats providers +
+OIDC):
 
 ```bash
 for E in portainer beszel pulse webmin ping snmp oidc; do
@@ -597,8 +790,10 @@ done
 
 Sending an empty `{}` body falls back to the persisted settings — handy for
 nightly health checks. Send `{url, api_key, ...}` to test unsaved values. The
-asset-inventory token has its own probe at `POST /api/asset-inventory/test`
-following the same shape.
+asset-inventory token has its own probe at `POST /api/asset-inventory/test`,
+and each AI provider has its own probe at `POST /api/admin/ai/{provider}/test`
+(`provider` ∈ `claude` / `gemini` / `chatgpt` / `deepseek`) following the same
+shape.
 
 ## Error handling
 

@@ -298,6 +298,81 @@ RATE_LIMIT_LOCKOUT_SECONDS=900
 STAT_BAR_WARN_PCT=60
 STAT_BAR_CRIT_PCT=85
 
+# In-app notifications page size for the Notifications popup. Default 25;
+# range 5..200. Surfaced via /api/me's `client_config.notifications_page_size`
+# so a Save in Admin → Config takes effect on the next round-trip.
+NOTIFICATION_PAGE_SIZE=25
+
+# Idle-time progressive fill for the Hosts view. When the operator stays at
+# the top of the list without scrolling, a background ticker enqueues one
+# not-yet-loaded row every N seconds into the same fan-out worker pool the
+# IntersectionObserver uses. 0 disables; 1-2 for fast pre-warm on small
+# fleets; 3 (default) for an invisible trickle. Range 0..30.
+HOSTS_IDLE_FILL_INTERVAL_SECONDS=3
+
+# Swarm-agent autoheal cool-down (minutes). When the `swarm_agent_health`
+# schedule kind fires the `restart` action, this many minutes must elapse
+# before a follow-up restart can fire — protects against a thrashing agent
+# pinning the manager in a restart loop. Persisted across container restarts
+# via the `swarm_autoheal_last_restart_ts` setting. Notify-mode bypasses.
+SWARM_AUTOHEAL_COOLDOWN_MINUTES=30
+
+# Port-scan refresh schedule knobs (consumed by the `port_scan_refresh`
+# schedule kind — see docs/guidelines/scheduler.md). max_hosts_per_tick
+# caps how many hosts one fire scans (oldest-scanned-first); min_age_seconds
+# is the minimum elapsed time since a host's previous scan before it's
+# eligible again; per_host_concurrency caps how many hosts the runner
+# scans IN PARALLEL within ONE tick (the per-host scan itself still uses
+# `PORT_SCAN_DEFAULT_CONCURRENCY` for its internal port-probe parallelism).
+PORT_SCAN_SCHEDULE_MAX_HOSTS_PER_TICK=5
+PORT_SCAN_SCHEDULE_MIN_AGE_SECONDS=1800
+PORT_SCAN_SCHEDULE_PER_HOST_CONCURRENCY=1
+
+# Per-vendor SNMP walk-concurrency overrides. When `active_vendors`
+# auto-detect resolves to EXACTLY ONE vendor AND no per-host override is set
+# AND the vendor's tunable is non-zero, the resolver picks the vendor-specific
+# default instead of the generic SNMP_PER_HOST_WALK_CONCURRENCY. 0 = disabled
+# (fall through to the generic). Range 0..16. APC excluded — single-GET probe.
+SNMP_WALK_CONCURRENCY_DELL=0
+SNMP_WALK_CONCURRENCY_CISCO=0
+SNMP_WALK_CONCURRENCY_SYNOLOGY=0
+SNMP_WALK_CONCURRENCY_UCD=0
+SNMP_WALK_CONCURRENCY_PRINTER=0
+
+# Webmin sampler outer wall-clock budget (seconds). Caps one full
+# `host_webmin_sampler` tick when fanning out across all curated hosts with
+# `webmin_name` set. 0 (default) = auto-derive from per-host probe timeout
+# × N hosts capped at 5 min. Range 0..600.
+WEBMIN_SAMPLER_BUDGET_SECONDS=0
+
+# AI integration — provider call envelope + log-context window + retry +
+# fallback chain depth. Output-token cap (16..16384) is what we ASK FOR;
+# providers cap actual usage. Log-context hours / lines bound how much of
+# the persistent log files the AI palette injects per call. Retry knobs
+# control transient-overload recovery (HTTP 429 / 502 / 503 / 504).
+# Fallback depth tries up to N backup providers when the active one is
+# overloaded. All are integers; AI_RETRY_ENABLED + AI_CONVERSATION_EXPORT_ENABLED
+# are 0/1 booleans (TUNABLES is integer-only).
+AI_MAX_TOKENS=1024
+AI_LOG_CONTEXT_HOURS=168
+AI_LOG_CONTEXT_LINES=200
+AI_RETRY_ENABLED=1
+AI_RETRY_BACKOFF_MS=2000
+AI_RETRY_FIRST_ATTEMPT_MAX_MS=5000
+AI_FALLBACK_MAX_DEPTH=1
+
+# Backup retention count — how many backup zips under /app/data/backups/
+# the `backup` schedule kind keeps after a successful create. 0 (default)
+# = keep ALL backups (back-compat). Operator typically wants 7-30 to bound
+# disk growth on a daily schedule. Range 0..1000.
+BACKUP_RETENTION_COUNT=0
+
+# SSH terminal WebSocket heartbeat (seconds). Server-side ping interval
+# that keeps the WSS connection alive past idle-timeouts in NPM /
+# openresty. Default 25 (under typical 30s `proxy_read_timeout`); raise
+# on long-lived sessions to cut traffic. Range 5..120.
+SSH_WS_HEARTBEAT_SECONDS=25
+
 # Docker Hub auth — optional, avoids anonymous rate limits.
 # DOCKERHUB_USER=
 # DOCKERHUB_TOKEN=
@@ -478,6 +553,27 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `RATE_LIMIT_LOCKOUT_SECONDS`      | Runtime     | `900`                | Login rate-limit lockout duration.                                               |
 | `STAT_BAR_WARN_PCT`               | Runtime     | `60`                 | Stat-bar amber-threshold percentage (Hosts view CPU/Mem/Disk bars). Range 30..90; must be ≤ `STAT_BAR_CRIT_PCT`. |
 | `STAT_BAR_CRIT_PCT`               | Runtime     | `85`                 | Stat-bar red-threshold percentage. Range 50..99.                                 |
+| `NOTIFICATION_PAGE_SIZE`          | Runtime     | `25`                 | In-app notifications popup page size. Range 5..200. Surfaced via `client_config.notifications_page_size`. |
+| `HOSTS_IDLE_FILL_INTERVAL_SECONDS` | Runtime    | `3`                  | Idle-time progressive fill cadence for the Hosts view (0 = disabled). Range 0..30. |
+| `SWARM_AUTOHEAL_COOLDOWN_MINUTES` | Runtime     | `30`                 | Cool-down (minutes) between consecutive `swarm_agent_health` `restart` actions. Persisted across container restarts via `swarm_autoheal_last_restart_ts`. Range 1..1440. |
+| `PORT_SCAN_SCHEDULE_MAX_HOSTS_PER_TICK` | Runtime | `5`                | `port_scan_refresh` runner cap — max hosts touched per tick (oldest-scanned-first). Range 1..50. |
+| `PORT_SCAN_SCHEDULE_MIN_AGE_SECONDS` | Runtime  | `1800`               | `port_scan_refresh` runner — min age (s) of a host's previous scan before re-eligible. Range 60..86400. |
+| `PORT_SCAN_SCHEDULE_PER_HOST_CONCURRENCY` | Runtime | `1`              | `port_scan_refresh` runner — host-level parallelism within ONE tick (per-host scan still uses `PORT_SCAN_DEFAULT_CONCURRENCY`). Range 1..4. |
+| `SNMP_WALK_CONCURRENCY_DELL`      | Runtime     | `0`                  | Per-vendor SNMP walk-concurrency override. 0 = disabled (fall through to `SNMP_PER_HOST_WALK_CONCURRENCY`). Range 0..16. |
+| `SNMP_WALK_CONCURRENCY_CISCO`     | Runtime     | `0`                  | Per-vendor SNMP walk-concurrency override (Cisco). Range 0..16. |
+| `SNMP_WALK_CONCURRENCY_SYNOLOGY`  | Runtime     | `0`                  | Per-vendor SNMP walk-concurrency override (Synology). Range 0..16. |
+| `SNMP_WALK_CONCURRENCY_UCD`       | Runtime     | `0`                  | Per-vendor SNMP walk-concurrency override (UCD-SNMP / Linux net-snmp). Range 0..16. |
+| `SNMP_WALK_CONCURRENCY_PRINTER`   | Runtime     | `0`                  | Per-vendor SNMP walk-concurrency override (Printer-MIB). Range 0..16. |
+| `WEBMIN_SAMPLER_BUDGET_SECONDS`   | Runtime     | `0`                  | Outer wall-clock budget for one full `host_webmin_sampler` tick. 0 = auto-derive (probe timeout × N hosts, capped at 5 min). Range 0..600. |
+| `AI_MAX_TOKENS`                   | Runtime     | `1024`               | Max output tokens per AI request (the budget we ASK FOR; provider caps actual). Range 16..16384. |
+| `AI_LOG_CONTEXT_HOURS`            | Runtime     | `168`                | How many hours of persistent log files the AI palette injects as context per call. Range 1..720. |
+| `AI_LOG_CONTEXT_LINES`            | Runtime     | `200`                | Maximum error+warn lines the AI palette injects per call. Range 10..2000. |
+| `AI_RETRY_ENABLED`                | Runtime     | `1`                  | Auto-retry AI calls once on HTTP 429 / 502 / 503 / 504. 0/1. |
+| `AI_RETRY_BACKOFF_MS`             | Runtime     | `2000`               | Backoff (ms) before the AI retry attempt. Range 0..30000. |
+| `AI_RETRY_FIRST_ATTEMPT_MAX_MS`   | Runtime     | `5000`               | First-attempt-max-duration gate — retry only fires when the first attempt resolved in < this many ms. Range 100..60000. |
+| `AI_FALLBACK_MAX_DEPTH`           | Runtime     | `1`                  | AI provider fallback chain depth — number of backup providers tried on transient overload. Range 0..3 (0 disables the chain). |
+| `BACKUP_RETENTION_COUNT`          | Runtime     | `0`                  | Number of recent backup zips the `backup` schedule kind keeps after a successful create (0 = keep all). Range 0..1000. |
+| `SSH_WS_HEARTBEAT_SECONDS`        | Runtime     | `25`                 | SSH terminal WebSocket server-ping cadence (seconds). Keeps the WSS connection alive past upstream proxy idle timers. Range 5..120. |
 | `DOCKERHUB_USER`                  | Optional    | unset                | Docker Hub auth (avoid anonymous rate limits).                                  |
 | `DOCKERHUB_TOKEN`                 | Optional    | unset                | Paired with `DOCKERHUB_USER`.                                                   |
 | `SESSION_SECRET`                  | Auth        | auto-generated       | HMAC key for session cookies. Set explicitly in prod.                           |
