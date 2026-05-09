@@ -142,7 +142,9 @@
 
 <!-- ICON SYMBOL LIBRARY moved to static/img/ui-sprite.svg (2026-05-03) — every <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-..."/> reference resolves through that same-origin file. Preload <link> in the <head> kicks off the fetch in parallel with the HTML parse. Adding a new icon: edit static/img/ui-sprite.svg, NOT this file. -->
 
-<div x-data="app()" x-init="init()" x-cloak class="flex flex-col min-h-screen"
+<div x-data="app()" x-init="init()" x-cloak
+     class="flex flex-col min-h-screen og-app-shell"
+     :class="aiSidebarPinned ? 'og-app-shell--ai-pinned' : ''"
      x-effect="_applyDrawerScrollLock(drawerHost, drawerItem, drawerNode, aiSidebarOpen)">
 
   <!-- ================== TOPBAR ================== -->

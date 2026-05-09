@@ -17558,17 +17558,20 @@ function app() {
       const rangeStr = (Math.round(vMin * 10) / 10).toFixed(1) + '%–'
                      + (Math.round(vMax * 10) / 10).toFixed(1) + '%';
       // Y-axis: gridlines + labels at 0 / 50 / 100. User-flagged
-      // "very light dotted gridlines so the user can read the chart
-      // better" — `stroke-dasharray="1,3"` (1px dash, 3px gap) reads
-      // as dotted; `opacity="0.4"` softens the existing `--border`
-      // colour so the gridline is a hint, not a competing line.
+      // wanting visible-but-subtle dotted gridlines. First pass at
+      // opacity 0.4 + `1,3` dasharray was too faint to see on dark
+      // surfaces; bumped to opacity 0.85 + `2,3` dasharray (2px dash,
+      // 3px gap — still reads as dotted but the dashes carry actual
+      // pixel weight) and switched the colour to `var(--text-faint)`
+      // which has more contrast against the chart-card background
+      // than `var(--border)`.
       const yTicks = [0, 50, 100];
       let yAxis = '';
       for (const v of yTicks) {
         const y = yOf(v).toFixed(1);
         yAxis += '<line x1="' + PAD_L + '" x2="' + (W - PAD_R)
               +  '" y1="' + y + '" y2="' + y
-              +  '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="1,3" opacity="0.4"/>';
+              +  '" stroke="var(--text-faint)" stroke-width="0.6" stroke-dasharray="2,3" opacity="0.85"/>';
         // label aligned right of the gridline's left edge
         yAxis += '<text x="' + (PAD_L - 4) + '" y="' + y
               +  '" fill="var(--text-faint)" font-size="9" '
@@ -17618,7 +17621,7 @@ function app() {
         if (tick.frac > 0) {
           xAxis += '<line x1="' + x + '" x2="' + x
                 +  '" y1="' + PAD_T.toFixed(1) + '" y2="' + baseY
-                +  '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="1,3" opacity="0.4"/>';
+                +  '" stroke="var(--text-faint)" stroke-width="0.6" stroke-dasharray="2,3" opacity="0.85"/>';
         }
         // Tick mark below the baseline.
         xAxis += '<line x1="' + x + '" x2="' + x
