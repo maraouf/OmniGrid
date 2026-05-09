@@ -209,21 +209,30 @@ async def host_webmin_sampler_loop() -> None:
     an active provider OR no curated host has a `webmin_url` set."""
     print("[host_webmin_sampler] lifespan started")
     last_prune = 0.0
+    iter_count = 0
     try:
         while True:
             interval = max(30, int(tuning.tuning_int("tuning_stats_sample_interval_seconds")) or 300)
+            iter_count += 1
+            active_set = _active_providers()
+            print(
+                f"[host_webmin_sampler] iter {iter_count}: "
+                f"active={sorted(active_set)} interval={interval}s"
+            )
             try:
-                if "webmin" not in _active_providers():
+                if "webmin" not in active_set:
+                    print(f"[host_webmin_sampler] iter {iter_count} skip: webmin not in active")
                     await asyncio.sleep(interval)
                     continue
                 hosts = _curated_webmin_hosts()
                 if not hosts:
+                    print(f"[host_webmin_sampler] iter {iter_count} skip: no curated webmin hosts")
                     await asyncio.sleep(interval)
                     continue
                 user = (get_setting("webmin_user", "") or "").strip()
                 password = (get_setting("webmin_password", "") or "").strip()
                 if not user or not password:
-                    # Webmin needs creds; nothing to probe.
+                    print(f"[host_webmin_sampler] iter {iter_count} skip: missing creds")
                     await asyncio.sleep(interval)
                     continue
                 verify_tls = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"

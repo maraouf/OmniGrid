@@ -346,6 +346,7 @@ async def host_beszel_sampler_loop() -> None:
     """
     print("[host_beszel_sampler] lifespan started")
     last_prune = 0.0
+    iter_count = 0
     try:
         while True:
             # Beszel-specific cadence wins when set; falls back to
@@ -357,12 +358,24 @@ async def host_beszel_sampler_loop() -> None:
             interval = (besz_interval if besz_interval > 0
                         else int(tuning.tuning_int("tuning_stats_sample_interval_seconds"))) or 300
             interval = max(30, interval)
+            iter_count += 1
+            # Unconditional per-iteration log — fires BEFORE the
+            # active / curated gates so silent-sleep paths are
+            # visible. Distinguishes "sampler not running" from
+            # "sampler running but gated".
+            active_set = _active_providers()
+            print(
+                f"[host_beszel_sampler] iter {iter_count}: "
+                f"active={sorted(active_set)} interval={interval}s"
+            )
             try:
-                if "beszel" not in _active_providers():
+                if "beszel" not in active_set:
+                    print(f"[host_beszel_sampler] iter {iter_count} skip: beszel not in active")
                     await asyncio.sleep(interval)
                     continue
                 hosts = _curated_beszel_hosts()
                 if not hosts:
+                    print(f"[host_beszel_sampler] iter {iter_count} skip: no curated beszel hosts")
                     await asyncio.sleep(interval)
                     continue
                 hub_map = await _probe_one_tick()

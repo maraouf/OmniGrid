@@ -17387,11 +17387,23 @@ function app() {
       let xAxis = '<line x1="' + PAD_L + '" x2="' + (W - PAD_R)
                 + '" y1="' + baseY + '" y2="' + baseY
                 + '" stroke="var(--border)" stroke-width="0.5"/>';
-      const xTicks = [
-        { frac: 0.0, ts: ts0 },
-        { frac: 0.5, ts: ts0 + tspan / 2 },
-        { frac: 1.0, ts: ts1 },
-      ];
+      // 7 evenly-spaced ticks across the window. Pre-fix the chart
+      // had only 3 (start / mid / end) which on a 24h memory chart
+      // read as just `-24h / -12h / now` — operators scanning the
+      // line couldn't pin a peak / trough to a specific time without
+      // mental arithmetic. 7 ticks at 4-hour resolution on a 24h
+      // window (`-24h / -20h / -16h / -12h / -8h / -4h / now`) keeps
+      // each tick label readable at font-size=9 (~30-40px wide) with
+      // ~54px between ticks on the 324px-wide plot area. The end-tick
+      // anchor is `end` so the `now` label hugs the right edge; start
+      // is `start` so `-24h` doesn't overhang the left padding;
+      // middle ticks center on their gridline.
+      const X_TICKS = 7;
+      const xTicks = [];
+      for (let i = 0; i < X_TICKS; i++) {
+        const frac = i / (X_TICKS - 1);
+        xTicks.push({ frac, ts: ts0 + tspan * frac });
+      }
       const fmtRel = (ts) => {
         const ago = Math.max(0, ts1 - ts);
         if (ago < 60) return 'now';
