@@ -11739,6 +11739,44 @@ async def api_hosts_ping_history(
     return {"points": rows, "error": None}
 
 
+@app.get("/api/hosts/{host_id}/beszel/services")
+async def api_hosts_beszel_services(
+    host_id: str,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Per-unit Beszel systemd-services snapshot for one curated host.
+
+    Surfaces the data the lifespan ``host_beszel_sampler`` writes
+    into ``host_beszel_services``: one row per (host, unit) pair with
+    ``state`` (systemd ActiveState enum: 0=active, 1=reloading,
+    2=inactive, 3=failed, 4=activating, 5=deactivating), ``sub_state``
+    (systemd SubState enum), ``last_seen_ts`` (most recent tick that
+    observed the unit), and ``last_change_ts`` (most recent tick where
+    the state value changed — drives "failed since 2h ago" copy in
+    the drawer without keeping a transition log).
+
+    Returns ``{services: [...], error: None}``. Failed units come
+    first (state=3), then alphabetical by unit name. Hosts that have
+    never been Beszel-probed OR whose Beszel agent doesn't track
+    systemd units return an empty list.
+
+    Distinct from the rolled summary on ``host.services`` (total /
+    failed count / failed_names) which the host API row already
+    carries — this endpoint is for the drawer's per-unit detail
+    pane + the AI palette's "what's the state of nginx on web01?"
+    questions.
+    """
+    hid = (host_id or "").strip()
+    if not hid:
+        raise HTTPException(400, "host_id required")
+    from logic import host_beszel_sampler as _hbs
+    try:
+        services = _hbs.services_for_host(hid)
+    except Exception as e:  # noqa: BLE001
+        return {"services": [], "error": f"host_beszel_services: {e}"}
+    return {"services": services, "error": None}
+
+
 @app.get("/api/hosts/{host_id}/snmp/history")
 async def api_hosts_snmp_history(
     host_id: str, hours: int = 1,
