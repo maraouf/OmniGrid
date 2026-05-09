@@ -233,6 +233,24 @@ SNMP_FAILURE_PAUSE_ROUNDS=5
 WEBMIN_FAILURE_PAUSE_ROUNDS=5
 BESZEL_FAILURE_PAUSE_ROUNDS=5
 PULSE_FAILURE_PAUSE_ROUNDS=5
+# Beszel hub probe timeout. Caps `probe_hub` (systems + system_stats +
+# systemd_services collections) wall-clock. Lower for fast-fail on a
+# stuck hub; raise for slow remote hubs. Range 1..120. Default 15.
+BESZEL_PROBE_TIMEOUT_SECONDS=15
+# Beszel sampler tick cadence (seconds). 0 = inherit the global
+# `STATS_SAMPLE_INTERVAL_SECONDS` (same fallback Pulse / Webmin
+# samplers use). Distinct knob exists so a fleet with a noisy / large
+# Beszel hub can throttle Beszel sampling independently. Range
+# 0..3600. Default 0 (inherit).
+BESZEL_SAMPLE_INTERVAL_SECONDS=0
+# Beszel per-host probe success cache TTL. Mirrors the Webmin pair —
+# successful per-host `_merge_one_host` Beszel reads cache for this
+# many seconds so SPA fan-out bursts skip the hub fetch. Default 30.
+BESZEL_HOST_CACHE_TTL_SECONDS=30
+# Beszel per-host failure cache TTL. Failed per-host Beszel reads
+# cache for this many seconds so a fan-out burst doesn't re-burn N
+# parallel hub fetches against an unreachable hub. Default 5.
+BESZEL_HOST_FAIL_CACHE_TTL_SECONDS=5
 # Per-fetch timeout for the Pulse `/api/state` hub call. Bounds the
 # sampler tick wall-clock and the synchronous probe path. Default 15s.
 PULSE_PROBE_TIMEOUT_SECONDS=15
@@ -435,6 +453,10 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `SNMP_FAILURE_PAUSE_ROUNDS`       | Runtime     | `5`                  | Per-(snmp, host) auto-pause threshold. After N consecutive failed sampler rounds, the chip flips to Paused and probes stop until manual Resume. 0 = disabled. |
 | `WEBMIN_FAILURE_PAUSE_ROUNDS`     | Runtime     | `5`                  | Per-(webmin, host) auto-pause threshold. Cool-down responses don't count toward the threshold; only real probe failures do. 0 = disabled. |
 | `BESZEL_FAILURE_PAUSE_ROUNDS`     | Runtime     | `5`                  | Per-(beszel, host) auto-pause threshold. Hub-fetch-OK gate so a global hub outage doesn't cascade-pause every host. 0 = disabled. |
+| `BESZEL_PROBE_TIMEOUT_SECONDS`    | Runtime     | `15`                 | Wall-clock timeout for `probe_hub` (systems + system_stats + systemd_services). Range 1..120. |
+| `BESZEL_SAMPLE_INTERVAL_SECONDS`  | Runtime     | `0`                  | Beszel sampler tick cadence in seconds. 0 = inherit `STATS_SAMPLE_INTERVAL_SECONDS`. Range 0..3600. |
+| `BESZEL_HOST_CACHE_TTL_SECONDS`   | Runtime     | `30`                 | Per-host probe success cache TTL (mirrors Webmin). Range 0..300. |
+| `BESZEL_HOST_FAIL_CACHE_TTL_SECONDS` | Runtime  | `5`                  | Per-host probe failure cache TTL (mirrors Webmin). Range 0..300. |
 | `PULSE_FAILURE_PAUSE_ROUNDS`      | Runtime     | `5`                  | Per-(pulse, host) auto-pause threshold. Same hub-fetch-OK contract as Beszel. 0 = disabled. |
 | `PULSE_PROBE_TIMEOUT_SECONDS`     | Runtime     | `15`                 | Per-fetch timeout for Pulse `/api/state` hub probe. Bounds sampler tick wall-clock + sync probe path. Range 1..120. |
 | `WEBMIN_PROBE_TIMEOUT_SECONDS`    | Runtime     | `8`                  | Per-host probe timeout for the Webmin Miniserv sampler. Range 1..120. |
