@@ -4352,7 +4352,7 @@
                           </tr>
                         </thead>
                         <tbody>
-                          <template x-for="svc in (hostsBeszelServices[h.id].services || [])" :key="svc.name">
+                          <template x-for="svc in ((hostsBeszelServices[h.id] || {}).services || [])" :key="svc.name">
                             <tr>
                               <td class="text-start">
                                 <span class="chip"
