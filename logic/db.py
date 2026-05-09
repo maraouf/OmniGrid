@@ -385,10 +385,23 @@ def curated_snmp_hosts() -> list[dict]:
         # Caller may resolve `snmp_aliases[hid]` to override snmp_name —
         # we leave that lookup to the consumer so this helper stays
         # narrow-scoped (matches CLAUDE.md's "logic/db.py is the
-        # I/O-free shape layer" rule).
+        # I/O-free shape layer" rule). The shared `address` field
+        # rides along so `_probe_one_snmp` can fall through to it
+        # via the canonical chain `aliases → snmp_name → address →
+        # SKIP`. Pre-fix this loader emitted only `id` / `snmp_name` /
+        # `snmp`, so address-only SNMP hosts (snmp.enabled=true with
+        # snmp_name blank, address populated) appeared in the output
+        # but `_probe_one_snmp(host).get("address")` returned None →
+        # resolver fell through to "" → sampler returned early on
+        # `if not snmp_target` → host_snmp_samples never wrote.
+        # Caught when an operator's debug panel showed `last_ok_ts=43s
+        # ago` (per-host probe path stamping success) but
+        # `host_snmp_samples.newest_ts=8.7h ago` — the sampler path
+        # was the silent half.
         out.append({
             "id":        hid,
             "snmp_name": snmp_name,
+            "address":   (row.get("address") or "").strip(),
             "snmp":      dict(snmp_cfg),
         })
     return out

@@ -1177,6 +1177,10 @@ function app() {
         'tuning_node_exporter_failure_pause_rounds',
       ],
       beszel: [
+        'tuning_beszel_probe_timeout_seconds',
+        'tuning_beszel_sample_interval_seconds',
+        'tuning_beszel_host_cache_ttl_seconds',
+        'tuning_beszel_host_fail_cache_ttl_seconds',
         'tuning_beszel_failure_pause_rounds',
       ],
       pulse: [
@@ -1254,6 +1258,10 @@ function app() {
       // doesn't cascade-pause every host. Ping default 0 because
       // alive=False is the data, not a fault.
       'tuning_beszel_failure_pause_rounds',
+      'tuning_beszel_probe_timeout_seconds',
+      'tuning_beszel_sample_interval_seconds',
+      'tuning_beszel_host_cache_ttl_seconds',
+      'tuning_beszel_host_fail_cache_ttl_seconds',
       'tuning_pulse_failure_pause_rounds',
       'tuning_pulse_probe_timeout_seconds',
       'tuning_webmin_probe_timeout_seconds',
@@ -16036,6 +16044,42 @@ function app() {
           try { await this.loadHosts(); } catch (_) { /* fall through */ }
         }
       }
+      // Pre-fetch sampler-health diagnostic for any host directly
+      // named in the user's question. Lets the AI see the
+      // samples_in_window block (per-table count, median gap, newest
+      // age) for the host being asked about — the canonical "why is
+      // chart X cut" diagnostic. Bounded by `MAX_PREFETCH` so a
+      // question naming 50 hosts doesn't fan out 50 backend calls;
+      // the AI can still ask follow-up questions for the rest.
+      // Keyword-gated to avoid pre-fetching on every question — only
+      // when the user is plausibly asking a chart / data / sampler
+      // question (matches a small whitelist of trigger words). Pre-
+      // fetch fires in parallel; failures decay silently to "no
+      // sampler_health data" — fmtHost gates on cache presence.
+      try {
+        const lc = q.toLowerCase();
+        const isDiag = /\b(chart|cut|missing|empty|silent|paused|stale|sampler|sample|points?|gap|history|drift|stop|stopped|ticks?)\b/.test(lc);
+        if (isDiag) {
+          const MAX_PREFETCH = 5;
+          // Resolve hosts mentioned by name in the question — match
+          // against id / label / beszel_name / pulse_name / etc.
+          // Lowest-cost: substring match on the lowercased question.
+          const candidates = (this.hosts || [])
+            .filter(h => h && h.id)
+            .filter(h => {
+              const aliases = [h.id, h.label, h.beszel_name, h.pulse_name,
+                               h.webmin_name, h.snmp_name, h.host_hostname]
+                .filter(Boolean).map(s => String(s).toLowerCase());
+              return aliases.some(a => a && lc.indexOf(a) >= 0);
+            })
+            .slice(0, MAX_PREFETCH);
+          if (candidates.length && typeof this.loadHostDebug === 'function') {
+            await Promise.allSettled(
+              candidates.map(h => this.loadHostDebug(h.id).catch(() => null))
+            );
+          }
+        }
+      } catch (_) { /* never block the question on prefetch */ }
       const ctx = this._buildAiPaletteContext();
       try {
         const r = await fetch('/api/ai/palette', {
@@ -16815,6 +16859,65 @@ function app() {
             }
             if (paused.length)  out.provider_paused  = paused;
             if (failing.length) out.provider_failing = failing;
+          }
+          // Per-host debug surface — pulled from the
+          // /api/hosts/debug counters block when cached in
+          // `hostsDebug[h.id]`. The pre-fetch loop above triggers
+          // the load for hosts named in a chart-diagnosis question;
+          // hosts whose debug was never loaded ship no debug
+          // section. Three sub-blocks attached:
+          //
+          //   sampler_health — per-table samples_in_window summary
+          //     (count / newest_age_s / median_gap_s). Diagnoses
+          //     "why is X chart cut".
+          //
+          //   tunables — full live-resolved tunable map for
+          //     probe-behaviour-affecting knobs. Lets the AI answer
+          //     "what's the SNMP cool-down?" / "is auto-pause
+          //     enabled for Pulse?" / "what's the sample interval"
+          //     using ACTUAL current values, not training-data
+          //     guesses.
+          //
+          //   failure / pause state — drives "is host paused?" /
+          //     "how many failures has SNMP had?" answers.
+          const dbg = (this.hostsDebug || {})[h.id];
+          const counters = dbg && dbg.counters;
+          if (counters && typeof counters === 'object') {
+            const win = counters.samples_in_window;
+            if (win && typeof win === 'object') {
+              const sh = { hours: +(win.hours || 1) };
+              for (const [k, blob] of Object.entries(win)) {
+                if (!blob || typeof blob !== 'object' || k === 'hours' || k === 'since_ts') continue;
+                if (!('count' in blob)) continue;
+                sh[k] = {
+                  count: +blob.count || 0,
+                  newest_age_s: blob.newest_age_s == null ? null : +blob.newest_age_s,
+                  median_gap_s: blob.median_gap_s == null ? null : +blob.median_gap_s,
+                };
+              }
+              out.sampler_health = sh;
+            }
+            if (counters.tunables && typeof counters.tunables === 'object') {
+              // Pass the full map verbatim — small (~36 keys, ints)
+              // and the AI may need to answer questions about any
+              // of them. Capping keys would create surprise gaps
+              // ("the AI doesn't know about X tunable") that defeat
+              // the purpose.
+              out.tunables = { ...counters.tunables };
+            }
+            if (counters.failure_state && typeof counters.failure_state === 'object') {
+              out.failure_state = counters.failure_state;
+            }
+            if (counters.provider_pause_state && typeof counters.provider_pause_state === 'object') {
+              // Already partially captured via `provider_paused` /
+              // `provider_failing` above (those use the row-level
+              // `h.provider_pause_state`). Surfacing the full
+              // counters version here gives the AI per-provider
+              // detail like `last_ok_ts`, `first_failure_ts`,
+              // `paused_at` so it can answer "when did SNMP last
+              // succeed on opnsense?" precisely.
+              out.provider_pause_full = counters.provider_pause_state;
+            }
           }
         } catch (_) {}
         // Per-host services summary — total + failed counts +
@@ -22749,7 +22852,15 @@ function app() {
       // etc.) are correct but not great. The label resolves through
       // i18n so non-en locales translate; falls back to a short form.
       const tables = [
+        // Order: NE first (most common signal), then per-provider
+        // local tables, then SNMP, then ping. Every entry is a local
+        // table now — Beszel was the read-through-only outlier; it
+        // gained `host_beszel_samples` so it slots into the same
+        // shape the others use.
         ['host_metrics_samples',    'samples_table.label_node_exporter'],
+        ['host_beszel_samples',     'samples_table.label_beszel'],
+        ['host_pulse_samples',      'samples_table.label_pulse'],
+        ['host_webmin_samples',     'samples_table.label_webmin'],
         ['host_snmp_samples',       'samples_table.label_snmp'],
         ['host_snmp_iface_samples', 'samples_table.label_snmp_iface'],
         ['host_net_samples',        'samples_table.label_host_net'],

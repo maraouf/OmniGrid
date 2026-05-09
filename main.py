@@ -428,6 +428,21 @@ async def _lifespan(app: FastAPI):
         _host_webmin_sampler.host_webmin_sampler_loop(),
         name="host-webmin-sampler",
     )
+    # Beszel local-store sampler — closes the read-through-only gap
+    # for Beszel charts. Pre-fix Beszel was the only host-stats
+    # provider without its own local SQLite table; every chart query
+    # hit the PocketBase hub directly, so when the hub's `1m`
+    # aggregation tier aged out (~1h retention) the data was gone
+    # and OmniGrid had no fallback. The sampler writes one row per
+    # Beszel-tracked host per tick into `host_beszel_samples` —
+    # same canonical "every provider has its own local store" shape
+    # as Pulse / Webmin / NE / SNMP / Ping. Same lifespan-only +
+    # skip-don't-synthesize discipline.
+    from logic import host_beszel_sampler as _host_beszel_sampler
+    host_beszel_sampler = asyncio.create_task(
+        _host_beszel_sampler.host_beszel_sampler_loop(),
+        name="host-beszel-sampler",
+    )
     # Persistent-log pruner — sweeps /app/data/logs/ once per
     # hour, deletes any omnigrid-YYYY-MM-DD.log older than the
     # operator-tunable retention window.
@@ -437,7 +452,7 @@ async def _lifespan(app: FastAPI):
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (log_pruner, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
+        for task in (log_pruner, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
             task.cancel()
             try:
                 await task
@@ -667,6 +682,73 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_pulse_samples_host_ts
             ON host_pulse_samples(host_id, ts DESC);
+
+        -- Beszel-only history. Same shape as host_pulse_samples; the
+        -- separate table is the canonical "every provider has its own
+        -- local store" pattern — pre-fix Beszel was the read-through-
+        -- only outlier (every chart query hit the PocketBase hub
+        -- directly), so when the hub's `1m` aggregation tier aged out
+        -- (~1h retention) the data was gone and OmniGrid had no local
+        -- cache to fall back on. Drove visible chart "cuts" at the
+        -- head of any window > 1h. With this table + the lifespan
+        -- `host_beszel_sampler` writing one row per host per tick,
+        -- Beszel data lives in OmniGrid's own retention window
+        -- (default 7d) regardless of hub-side retention.
+        CREATE TABLE IF NOT EXISTS host_beszel_samples (
+            ts             INTEGER NOT NULL,
+            host_id        TEXT    NOT NULL,
+            cpu_percent    REAL,
+            mem_total      INTEGER,
+            mem_used       INTEGER,
+            disk_total     INTEGER,
+            disk_used      INTEGER,
+            net_rx_bps     REAL,
+            net_tx_bps     REAL,
+            -- Beszel chart-extras: per-tick captures of fields beyond
+            -- the basic CPU/Mem/Disk/Net set the other samplers
+            -- carry. Beszel agents expose load avg / swap / temps /
+            -- GPUs out of the box; preserving them in the local table
+            -- means the host drawer's Load / Swap / Temperature /
+            -- GPU chart cards keep working when the hub ages out
+            -- (same chart-cut class the basic samples columns
+            -- prevent for CPU/Mem/Disk/Net). Variable-shape payloads
+            -- (temperatures dict, GPUs list) ride as JSON TEXT —
+            -- mirrors the SNMP sampler's `cpu_per_core` blob pattern;
+            -- callers parse on read.
+            load_1m            REAL,
+            load_5m            REAL,
+            load_15m           REAL,
+            swap_percent       REAL,
+            swap_used          REAL,
+            bandwidth          REAL,
+            containers         INTEGER,
+            temperatures_json  TEXT,
+            gpus_json          TEXT,
+            PRIMARY KEY (ts, host_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_beszel_samples_host_ts
+            ON host_beszel_samples(host_id, ts DESC);
+
+        -- Beszel per-host systemd unit table — one row per
+        -- (host_id, service_name) tuple, snapshot of the latest
+        -- observed state. Sampler UPSERTs on every tick so an
+        -- operator can answer "which units are currently failed
+        -- on web01?" without round-tripping to the Beszel hub. The
+        -- per-row `last_seen_ts` lets the SPA detect units that
+        -- have aged out (Beszel agent stopped tracking the unit).
+        -- `last_change_ts` lets the drawer surface "failed since
+        -- 2h ago" without scanning a transition log.
+        CREATE TABLE IF NOT EXISTS host_beszel_services (
+            host_id         TEXT    NOT NULL,
+            service_name    TEXT    NOT NULL,
+            state           INTEGER,
+            sub_state       INTEGER,
+            last_seen_ts    INTEGER NOT NULL,
+            last_change_ts  INTEGER NOT NULL,
+            PRIMARY KEY (host_id, service_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_beszel_services_host_state
+            ON host_beszel_services(host_id, state);
 
         -- Webmin-only history. Same shape as host_pulse_samples;
         -- separate table so a host with both Webmin AND NE doesn't
@@ -2753,6 +2835,10 @@ class SettingsIn(BaseModel):
     tuning_snmp_failure_pause_rounds: Optional[str] = None
     tuning_webmin_failure_pause_rounds: Optional[str] = None
     tuning_beszel_failure_pause_rounds: Optional[str] = None
+    tuning_beszel_probe_timeout_seconds: Optional[str] = None
+    tuning_beszel_sample_interval_seconds: Optional[str] = None
+    tuning_beszel_host_cache_ttl_seconds: Optional[str] = None
+    tuning_beszel_host_fail_cache_ttl_seconds: Optional[str] = None
     tuning_pulse_failure_pause_rounds: Optional[str] = None
     tuning_pulse_probe_timeout_seconds: Optional[str] = None
     tuning_webmin_probe_timeout_seconds: Optional[str] = None
@@ -10753,6 +10839,13 @@ async def api_hosts_debug(
                 "host_snmp_samples", "host_snmp_iface_samples",
                 "host_metrics_samples", "ping_samples",
                 "host_net_samples",
+                # Pulse / Webmin / Beszel each write to their own
+                # per-provider sample tables. Beszel was added under
+                # the "every host-stats provider must have a local
+                # sample store" rule — pre-fix it was the read-
+                # through-only outlier and chart cuts followed.
+                "host_pulse_samples", "host_webmin_samples",
+                "host_beszel_samples",
             ):
                 try:
                     row = c.execute(
@@ -10808,68 +10901,29 @@ async def api_hosts_debug(
                 }
     except Exception as e:
         samples_in_window["_db_error"] = str(e)
+
     counters["samples_in_window"] = samples_in_window
 
-    # Tunables that affect this host's probe behaviour. Surfaced so
-    # operators don't have to cross-reference Admin → Config to see
-    # "what's the failure-pause threshold for SNMP?". Read live from
-    # the resolver so a recent edit is reflected. Audit-grouped by
-    # provider so a missing knob in one provider's section is easier
-    # to spot at a glance during reviews — keep new tunables in the
-    # matching block when adding.
-    from logic.tuning import tuning_int as _tuning_int
-    tuning_keys = [
-        # Global / shared sampler cadence + retention.
-        "tuning_stats_sample_interval_seconds",
-        "tuning_stats_history_days",
-        "tuning_host_permanent_fail_window_seconds",
-        "tuning_host_provider_cache_ttl_seconds",
-        "tuning_host_snapshots_cache_ttl_seconds",
-        "tuning_host_metrics_probe_concurrency",
-        "tuning_auth_failure_cooldown_seconds",
-        # SNMP — sampler / probe / cache / vendor-walk knobs.
-        "tuning_snmp_sample_interval_seconds",
-        "tuning_snmp_probe_timeout_seconds",
-        "tuning_snmp_wall_clock_budget_seconds",
-        "tuning_snmp_concurrency",
-        "tuning_snmp_per_host_walk_concurrency",
-        "tuning_snmp_failure_pause_rounds",
-        "tuning_snmp_host_cache_ttl_seconds",
-        "tuning_snmp_host_fail_cache_ttl_seconds",
-        "tuning_snmp_unreachable_cooldown_seconds",
-        "tuning_snmp_walk_concurrency_dell",
-        "tuning_snmp_walk_concurrency_cisco",
-        "tuning_snmp_walk_concurrency_synology",
-        "tuning_snmp_walk_concurrency_printer",
-        "tuning_snmp_walk_concurrency_ucd",
-        # Webmin — probe budget + cache + auto-pause.
-        "tuning_webmin_probe_timeout_seconds",
-        "tuning_webmin_probe_budget_seconds",
-        "tuning_webmin_sampler_budget_seconds",
-        "tuning_webmin_host_cache_ttl_seconds",
-        "tuning_webmin_host_fail_cache_ttl_seconds",
-        "tuning_webmin_failure_pause_rounds",
-        # Beszel — probe + auto-pause.
-        "tuning_beszel_failure_pause_rounds",
-        # Pulse — probe + auto-pause.
-        "tuning_pulse_probe_timeout_seconds",
-        "tuning_pulse_failure_pause_rounds",
-        # node-exporter — probe + auto-pause.
-        "tuning_node_exporter_probe_timeout_seconds",
-        "tuning_node_exporter_failure_pause_rounds",
-        # Ping — sampler / probe / cooldown / auto-pause.
-        "tuning_ping_interval_seconds",
-        "tuning_ping_concurrency",
-        "tuning_ping_probe_timeout_seconds",
-        "tuning_ping_cooldown_seconds",
-        "tuning_ping_failure_pause_rounds",
-    ]
+    # EVERY tunable, surfaced live-resolved. Pre-fix this was an
+    # explicit list of ~36 keys grouped by provider — discoverable but
+    # incomplete: port-scan / SSH / AI / config tunables weren't
+    # included, so an operator asking the AI "what's the AI fallback
+    # max depth?" or "what's the SSH WS heartbeat?" got a non-answer
+    # because the value never reached the AI palette context.
+    # Reading the canonical TUNABLES table verbatim makes the panel
+    # exhaustive: providers (Beszel / Pulse / NE / Webmin / SNMP /
+    # Ping) + port-scan + SSH + AI integration + config knobs all
+    # appear automatically. Adding a new tunable requires a single
+    # entry in `logic/tuning.py:TUNABLES` and it's surfaced here on
+    # the next request — no list-edit drift class.
+    from logic.tuning import tuning_int as _tuning_int, TUNABLES as _TUNABLES
     counters["tunables"] = {}
-    for key in tuning_keys:
+    for key in _TUNABLES.keys():
         try:
             counters["tunables"][key] = _tuning_int(key)
         except Exception:
-            # Knob may not exist on older deploys; skip silently.
+            # Bounds-clamp / DB error; skip silently rather than
+            # poisoning the whole tunables map for one bad knob.
             pass
 
     return {
@@ -11612,6 +11666,37 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
 
     if not sid:
         return {"series": [], "error": "system_id or host_id required"}
+
+    # Local-first: if `host_beszel_samples` covers the requested window
+    # for this host, prefer it over the hub fetch. Beszel was previously
+    # read-through-only (every chart query hit the PocketBase hub) which
+    # caused visible "chart cuts" the moment the hub's `1m` tier aged
+    # out (~1h retention). The lifespan `host_beszel_sampler` now writes
+    # one row per host per tick into `host_beszel_samples` inside
+    # OmniGrid's own retention window (default 7d), so we read THAT.
+    # Hub fetch stays as the back-compat path for two cases:
+    #   1. The host's curated `id` is empty (legacy callers passing
+    #      only system_id with no host_id).
+    #   2. The local table doesn't yet cover the window because the
+    #      sampler is still warming up (fresh deploy / just-enabled
+    #      provider) — `local_oldest_ts` is later than the requested
+    #      `since_ts`, so older points only exist hub-side.
+    if hid:
+        from logic import host_beszel_sampler as _hbs
+        local_series = _hbs.history_series(hid, h)
+        if local_series:
+            since_ts = int(time.time() - h * 3600)
+            local_oldest = int(local_series[0]["t"])
+            # Coverage cushion: 5 minutes of slack so a sampler that
+            # ticked at since_ts + 4min still serves local. Hub fetch
+            # only fires when the local table genuinely doesn't reach
+            # back to the requested window.
+            if local_oldest <= since_ts + 300:
+                return {
+                    "series":  local_series,
+                    "source":  "beszel_local",
+                    "error":   None,
+                }
 
     from logic import beszel as _beszel
     hub_url = get_setting("beszel_hub_url", "") or ""
