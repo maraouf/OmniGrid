@@ -1312,6 +1312,14 @@ function app() {
       // generic tuning form so the bounds-chips UI lights up.
       'tuning_port_scan_udp_default_timeout_seconds',
       'tuning_port_scan_udp_default_concurrency',
+      // Scheduled port-scan refresh — knobs for the
+      // `port_scan_refresh` schedule kind. Consumed by the runner
+      // in logic/schedules.py at fire time. Surfaced from Admin →
+      // Port Scan via the generic tuning form so the bounds-chips
+      // UI lights up.
+      'tuning_port_scan_schedule_max_hosts_per_tick',
+      'tuning_port_scan_schedule_min_age_seconds',
+      'tuning_port_scan_schedule_per_host_concurrency',
       // Backup retention count — rendered under Admin → Backups
       // (form field "Keep N most recent backups"). 0 = keep all.
       'tuning_backup_retention_count',
@@ -1457,7 +1465,7 @@ function app() {
     scheduleQueueSearch: '',
     _scheduleQueueSearchTimer: null,
     scheduleQueueTotalPages: 1,
-    scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh', 'backup', 'asset_inventory_refresh', 'prune_logs', 'prune_notifications', 'swarm_agent_health'],
+    scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh', 'backup', 'asset_inventory_refresh', 'prune_logs', 'prune_notifications', 'swarm_agent_health', 'port_scan_refresh'],
     scheduleMinInterval: 60,
     scheduleBusy: false,
     // Create form. `params_text` is a raw JSON textarea — we parse on submit
@@ -4002,6 +4010,13 @@ function app() {
         'tuning_port_scan_banner_read_seconds',
         'tuning_port_scan_udp_default_timeout_seconds',
         'tuning_port_scan_udp_default_concurrency',
+        // Scheduled port-scan refresh — knobs feeding
+        // logic.schedules._run_port_scan_refresh. Section-saved here
+        // alongside the on-demand tunables so the operator dirty-edits
+        // them in the SAME admin tab where the master toggle lives.
+        'tuning_port_scan_schedule_max_hosts_per_tick',
+        'tuning_port_scan_schedule_min_age_seconds',
+        'tuning_port_scan_schedule_per_host_concurrency',
       ];
     },
     _portScanSectionPlainKeys() {
@@ -16972,8 +16987,24 @@ function app() {
       // Keep them in one branch with a small kind-aware renderer.
       if (kind === 'memory_history' || kind === 'cpu_history') {
         try {
-          const r = await fetch('/api/hosts/history?host_id='
-            + encodeURIComponent(hostId) + '&hours=24');
+          // Match the drawer's loadHostHistory contract — pass BOTH
+          // `system_id` (the host's beszel_id, when known) AND
+          // `host_id`. Pre-fix only `host_id` was sent, which made
+          // `/api/hosts/history` take the NE-only branch in
+          // `api_hosts_history`. Beszel-monitored hosts (like
+          // opnsense) have their CPU/Mem time-series in the Beszel
+          // collection — the NE branch returned an empty series and
+          // the AI chart rendered "No history points in the past 24
+          // h". Looking up beszel_id from `this.hosts` mirrors what
+          // every drawer chart helper does.
+          const _hostRow = (this.hosts || []).find(h => h && h.id === hostId);
+          const _beszelId = (_hostRow && _hostRow.beszel_id) || '';
+          const _qs = new URLSearchParams({
+            host_id: hostId,
+            hours: '24',
+          });
+          if (_beszelId) _qs.set('system_id', _beszelId);
+          const r = await fetch('/api/hosts/history?' + _qs.toString());
           if (!r.ok) {
             slot.innerHTML = this._renderHostHistoryInner(hostId, kind, null,
               this.t('command_palette.ai.history_chart.error') || 'Could not load history');

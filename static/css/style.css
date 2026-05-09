@@ -4742,6 +4742,22 @@ details summary::-webkit-details-marker {
 /* ---------------------------------------------------------------------------
    SweetAlert2 theming
    --------------------------------------------------------------------------- */
+
+/* When a SweetAlert popup opens, SwAl's default behaviour adds
+   `padding-right: <scrollbar-width>` to the body to compensate for
+   the scrollbar disappearing under `overflow: hidden`. But our body
+   already has `scrollbar-gutter: stable` (reserves the gutter
+   permanently so admin tabs don't jump as content height changes),
+   so SwAl's compensation stacks ON TOP of the reserved gutter and
+   the page visibly shifts ~15px right when ANY confirm dialog
+   opens. Cancel the compensation — `scrollbar-gutter: stable` is
+   handling the layout-stability story, SwAl doesn't need to.
+   Also drop the `padding-right` SwAl injects on `<html>` for the
+   same reason. */
+body.swal2-shown,
+html.swal2-shown {
+    padding-right: 0 !important;
+}
 .swal2-popup {
     background: var(--surface) !important;
     color: var(--text) !important;

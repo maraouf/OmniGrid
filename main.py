@@ -2686,6 +2686,11 @@ class SettingsIn(BaseModel):
     # Port-scan UDP companion (Stage 2).
     tuning_port_scan_udp_default_timeout_seconds: Optional[str] = None
     tuning_port_scan_udp_default_concurrency: Optional[str] = None
+    # Scheduled port-scan refresh () — three knobs feed
+    # `logic.schedules._run_port_scan_refresh`.
+    tuning_port_scan_schedule_max_hosts_per_tick: Optional[str] = None
+    tuning_port_scan_schedule_min_age_seconds: Optional[str] = None
+    tuning_port_scan_schedule_per_host_concurrency: Optional[str] = None
     # / SSE heartbeat cadence + connection lifetime cap.
     tuning_sse_heartbeat_seconds: Optional[str] = None
     tuning_sse_max_lifetime_seconds: Optional[str] = None

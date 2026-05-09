@@ -1579,6 +1579,359 @@ async def _run_swarm_agent_health(
     return op_id, task  # type: ignore[return-value]
 
 
+async def _run_port_scan_refresh(
+    params: dict,
+) -> tuple[str, Awaitable[tuple[int, str]]]:
+    """Periodically re-scan port-scan-enabled hosts whose last scan is
+    older than ``tuning_port_scan_schedule_min_age_seconds``.
+
+    Each fire picks at most ``tuning_port_scan_schedule_max_hosts_per_tick``
+    hosts (oldest-scanned-first), and runs them through the SAME scan
+    helper the on-demand admin path uses (``main._run_port_scan_async``)
+    so persistence + SSE + new-port notify all behave identically. The
+    only difference is the actor stamp (``scheduler`` instead of the
+    admin's username) and that the schedule fires the runner — there
+    is no separate code path for "scheduled vs manual" scans.
+
+    Concurrency:
+
+      * Within ONE fire, ``tuning_port_scan_schedule_per_host_concurrency``
+        caps how many hosts run in parallel (default 1 = strictly
+        sequential).
+      * ACROSS fires, the existing scheduler ``_is_previous_run_active``
+        gate prevents overlap — a frequent ticker (every 2 minutes)
+        whose previous fire is still in flight skips silently rather
+        than stacking.
+
+    Skip rules (audit-trail visible in the history row's ``events`` JSON):
+
+      * Master toggle off (``port_scan_enabled = false``) → no-op,
+        ``status='success'``, ``selected=0``, ``skipped_master=True``.
+        We don't error because the schedule itself is still operating
+        correctly; an admin temporarily disabling port scan shouldn't
+        spam every fire with red.
+      * Per-host ``hosts_config[].port_scan.enabled`` not true → skipped.
+      * Curated ``address`` field empty → skipped (a scan against
+        a bare host_id would target an unresolvable alias).
+      * Whole-host paused (``host_failure_state.paused_at`` set with
+        no resolved_at) → skipped, honouring the auto-pause contract.
+      * Last scan younger than ``min_age_seconds`` → skipped.
+
+    No ops.py Operation — like ``_run_gather_refresh`` /
+    ``_run_prune_logs``, this kind writes its own history row when
+    done. Each individual host scan also writes ITS OWN
+    ``op_type='port_scan'`` history row from inside
+    ``_run_port_scan_async``, so the History tab shows BOTH the
+    aggregate ``port_scan_refresh`` row AND the per-host scan rows.
+    """
+    op_id = "sched-" + secrets.token_hex(4)
+
+    async def runner() -> tuple[int, str]:
+        # Late-import main to avoid the circular dependency
+        # (main.py imports logic.schedules at module load).
+        import main as _main
+        from logic import tuning as _tuning_mod
+        from logic.db import get_setting_bool
+
+        started = time.time()
+        status = "success"
+        err: Optional[str] = None
+        selected: list[str] = []
+        skipped: dict[str, list[str]] = {
+            "disabled":  [], "no_address": [],
+            "paused":    [], "too_recent":   [],
+        }
+        first_skip_reason = ""
+
+        try:
+            if not get_setting_bool("port_scan_enabled", False):
+                first_skip_reason = "master_toggle_off"
+                duration = int(time.time() - started)
+                _record_history_row(
+                    op_id, started, duration, "success",
+                    None, "0 selected (master toggle off)",
+                    {
+                        "selected":          [],
+                        "skipped_master":    True,
+                        "skipped":           skipped,
+                    },
+                )
+                print(
+                    "[scheduler] port_scan_refresh skipped — master toggle off"
+                )
+                return (duration, "success")
+
+            max_hosts = _tuning_mod.tuning_int(
+                "tuning_port_scan_schedule_max_hosts_per_tick"
+            )
+            min_age = _tuning_mod.tuning_int(
+                "tuning_port_scan_schedule_min_age_seconds"
+            )
+            per_host_conc = _tuning_mod.tuning_int(
+                "tuning_port_scan_schedule_per_host_concurrency"
+            )
+
+            # 1. Read curated host list — source of truth for "which
+            #    hosts are eligible for scanning right now".
+            curated = _main._load_hosts_config()
+            now_ts = int(time.time())
+
+            # 2. Per-host last-scan-ts map (one DB read for the whole
+            #    fleet). Hosts with no scan rows return None and are
+            #    treated as MAX-age (always eligible — the schedule's
+            #    "spread out the first crawl" behaviour).
+            with db_conn() as c:
+                rows = c.execute(
+                    "SELECT host_id, MAX(ts) AS last_ts "
+                    "FROM host_port_scans GROUP BY host_id"
+                ).fetchall()
+            last_scan_map = {
+                str(r["host_id"]): int(r["last_ts"] or 0) for r in rows
+            }
+
+            # 3. Whole-host pause map. Mirrors the
+            #    `host_failure_state.paused_at IS NOT NULL AND resolved_at
+            #    IS NULL` predicate the resume endpoint uses; bare host_id
+            #    keys (the per-provider prefixed keys are read by
+            #    record_provider_outcome elsewhere).
+            paused_ids: set[str] = set()
+            try:
+                with db_conn() as c:
+                    paused_rows = c.execute(
+                        "SELECT host_id FROM host_failure_state "
+                        "WHERE paused_at IS NOT NULL AND resolved_at IS NULL "
+                        "AND host_id NOT LIKE '%:%'"
+                    ).fetchall()
+                paused_ids = {str(r["host_id"]) for r in paused_rows}
+            except Exception:  # noqa: BLE001
+                # Schema drift defence — first-deploy / pre-migration
+                # path returns empty pause set rather than crashing the
+                # whole tick. The runner still proceeds; ALL hosts are
+                # treated as un-paused.
+                pass
+
+            # 4. Build the eligible-pool. Order by last-scan-ts ascending
+            #    so hosts that have NEVER been scanned (last_ts=0) come
+            #    first, then progressively newer.
+            eligible: list[tuple[int, dict]] = []
+            for h in curated:
+                hid = str(h.get("id") or "").strip()
+                if not hid:
+                    continue
+                ps_cfg = h.get("port_scan") if isinstance(h.get("port_scan"), dict) else {}
+                # Per-host opt-in REQUIRED — the master toggle gates the
+                # provider as a whole, this gates the SPECIFIC host. This
+                # mirrors the on-demand path's gate (api_hosts_port_scan
+                # raises 400 when this is False).
+                if not ps_cfg or ps_cfg.get("enabled") is not True:
+                    skipped["disabled"].append(hid)
+                    continue
+                # Address check — the schedule only scans hosts with an
+                # explicit address set, since scanning a bare host_id
+                # against an unresolvable alias produces misleading
+                # results (the user might think the firewall blocked
+                # everything when actually DNS failed). The on-demand
+                # path falls through to the host_id as a last-resort
+                # target, but the schedule is more conservative.
+                if not (h.get("address") or "").strip():
+                    skipped["no_address"].append(hid)
+                    continue
+                if hid in paused_ids:
+                    skipped["paused"].append(hid)
+                    continue
+                last_ts = last_scan_map.get(hid, 0)
+                if last_ts and (now_ts - last_ts) < min_age:
+                    skipped["too_recent"].append(hid)
+                    continue
+                eligible.append((last_ts, h))
+
+            eligible.sort(key=lambda t: t[0])  # oldest-first
+            picks = [h for _ts, h in eligible[:max_hosts]]
+
+            print(
+                f"[scheduler] port_scan_refresh fire — selected={len(picks)} "
+                f"max_per_tick={max_hosts} min_age_s={min_age} "
+                f"per_host_conc={per_host_conc} "
+                f"skipped_disabled={len(skipped['disabled'])} "
+                f"skipped_no_address={len(skipped['no_address'])} "
+                f"skipped_paused={len(skipped['paused'])} "
+                f"skipped_too_recent={len(skipped['too_recent'])}"
+            )
+
+            if not picks:
+                duration = int(time.time() - started)
+                _record_history_row(
+                    op_id, started, duration, "success",
+                    None, "0 selected (nothing eligible)",
+                    {
+                        "selected":  [],
+                        "skipped":   skipped,
+                        "max_hosts": max_hosts,
+                        "min_age":   min_age,
+                    },
+                )
+                return (duration, "success")
+
+            # 5. Fire scans. Each call into _run_port_scan_async runs the
+            #    full scan inline (no fire-and-forget) so we can wait for
+            #    the whole tick to settle and stamp an aggregate history
+            #    row. Per-host concurrency caps in-flight scans within
+            #    THIS tick. The scan internals have their own asyncio
+            #    semaphore on probe-level concurrency
+            #    (tuning_port_scan_default_concurrency) so we don't
+            #    double-cap.
+            sem = asyncio.Semaphore(max(1, per_host_conc))
+            from logic import port_scanner as _ps
+            from logic.db import get_setting
+
+            async def _scan_one(h: dict) -> str:
+                hid = str(h["id"])
+                ps_cfg = h.get("port_scan") if isinstance(h.get("port_scan"), dict) else {}
+                target = (
+                    (h.get("address") or "").strip()
+                    or hid
+                )
+                ports_csv = (
+                    (ps_cfg.get("ports") or "").strip()
+                    or (get_setting("port_scan_default_ports", "") or "").strip()
+                )
+                ports_list = (
+                    _ps.parse_port_csv(ports_csv) if ports_csv
+                    else list(_ps.DEFAULT_PORTS)
+                )
+                timeout_s = (
+                    ps_cfg.get("timeout_s")
+                    if ps_cfg.get("timeout_s") is not None
+                    else _tuning_mod.tuning_int(
+                        "tuning_port_scan_default_timeout_seconds"
+                    )
+                )
+                concurrency = (
+                    ps_cfg.get("concurrency")
+                    if ps_cfg.get("concurrency") is not None
+                    else _tuning_mod.tuning_int(
+                        "tuning_port_scan_default_concurrency"
+                    )
+                )
+                # Schedule never enables UDP — UDP probes are louder and
+                # operators who want UDP can run an on-demand scan from
+                # the host drawer. Per-host UDP-on schedule support can
+                # land in Stage 2 if the user asks for it.
+                udp_enabled = False
+                max_seconds = _tuning_mod.tuning_int(
+                    "tuning_port_scan_max_seconds"
+                )
+                snmp_cfg = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
+                snmp_community = (
+                    snmp_cfg.get("community")
+                    or get_setting("snmp_default_community", "")
+                    or "public"
+                )
+                import uuid as _uuid
+                scan_id = str(_uuid.uuid4())
+                async with sem:
+                    await _main._run_port_scan_async(
+                        hid=hid,
+                        target=target,
+                        ports_list=ports_list,
+                        timeout_s=int(timeout_s),
+                        concurrency=int(concurrency),
+                        banner_grab=False,
+                        udp_enabled=False,
+                        udp_ports_list=[],
+                        udp_timeout_s=0,
+                        udp_concurrency=0,
+                        snmp_community=str(snmp_community),
+                        max_seconds=int(max_seconds),
+                        scan_id=scan_id,
+                        started=time.time(),
+                        h=h,
+                        actor=SCHEDULER_ACTOR,
+                    )
+                return hid
+
+            scan_results = await asyncio.gather(
+                *[_scan_one(h) for h in picks],
+                return_exceptions=True,
+            )
+            for h, r in zip(picks, scan_results):
+                if isinstance(r, Exception):
+                    print(
+                        f"[scheduler] port_scan_refresh per-host scan failed "
+                        f"host_id={h.get('id')!r} error={type(r).__name__}: {r}"
+                    )
+                else:
+                    selected.append(h["id"])
+
+        except Exception as e:  # noqa: BLE001
+            status = "error"
+            err = str(e)
+            print(f"[scheduler] port_scan_refresh failed: {e}")
+
+        duration = int(time.time() - started)
+        # Aggregate history row — covers the WHOLE tick. Per-host scans
+        # also wrote individual `op_type=port_scan` rows from inside
+        # _run_port_scan_async, so the operator sees both: the tick
+        # summary at the top, and one row per scan below it.
+        target_name = f"{len(selected)} host(s) scanned"
+        events_payload = {
+            "selected":           selected,
+            "skipped":            skipped,
+            "skipped_first":      first_skip_reason or None,
+        }
+        _record_history_row(
+            op_id, started, duration, status,
+            err, target_name, events_payload,
+        )
+        return (duration, status)
+
+    task = asyncio.create_task(runner())
+    return op_id, task  # type: ignore[return-value]
+
+
+def _record_history_row(
+    op_id:        str,
+    started:      float,
+    duration:     int,
+    status:       str,
+    err:          Optional[str],
+    target_name:  str,
+    events:       dict,
+) -> None:
+    """Shared history-row writer for the port_scan_refresh tick.
+
+    Same shape as the gather_refresh / prune_logs / asset_inventory_refresh
+    direct INSERT pattern — the runner doesn't go through ops.py because
+    it has no per-target Operation context (each fire scans a BATCH of
+    hosts, the per-host scans have their own port_scan rows).
+    """
+    # Honour the canonical op_type registry rule — direct `INSERT INTO
+    # history` paths must validate explicitly because they bypass
+    # `new_op`. A typo here would silently land in the DB and surface
+    # as untranslated raw text in the History tab.
+    _ops.assert_op_type("port_scan_refresh")
+    try:
+        events_json = json.dumps(events, ensure_ascii=False)
+    except (TypeError, ValueError):
+        events_json = "{}"
+    try:
+        with db_conn() as c:
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, ?, 'schedule', ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    started, "port_scan_refresh",
+                    target_name, op_id, None,
+                    status, duration,
+                    events_json, err, SCHEDULER_ACTOR,
+                ),
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] port_scan_refresh history write failed: {e}")
+
+
 SCHEDULE_KINDS: dict[str, KindRunner] = {
     "prune_node":                _run_prune_node,
     "prune_all_nodes":           _run_prune_all_nodes,
@@ -1588,6 +1941,7 @@ SCHEDULE_KINDS: dict[str, KindRunner] = {
     "prune_logs":                _run_prune_logs,
     "prune_notifications":       _run_prune_notifications,
     "swarm_agent_health":        _run_swarm_agent_health,
+    "port_scan_refresh":         _run_port_scan_refresh,
 }
 
 

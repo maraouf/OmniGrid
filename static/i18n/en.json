@@ -1223,6 +1223,18 @@
           "label": "UDP probe concurrency",
           "help": "Parallel UDP probes per scan. Friendlier than TCP's default (32) because UDP traffic is more conspicuous on the network and some services (Asterisk SIP, IPMI BMC) log every datagram they receive. Lower for quiet scans; raise for fast LAN sweeps. Per-host overrides on Admin → Hosts win. Range 1..64. Default 8."
         },
+        "tuning_port_scan_schedule_max_hosts_per_tick": {
+          "label": "Scheduled refresh — max hosts per tick",
+          "help": "Hard ceiling on how many hosts the `port_scan_refresh` schedule kind touches per fire. The runner picks oldest-scanned-first up to this count; the remainder defer to the next fire. Default 5 — keeps a single tick bounded so a fleet of 100 hosts doesn't fan out 100 simultaneous scans the moment a *every-15-minutes* schedule fires for the first time. Lower for very small ticks on slow links; raise on a fast LAN with a small-fleet schedule. Range 1..50. Pairs with the schedule's interval — together they determine the cycle time to cover the whole fleet (interval × ceil(fleet_size / max_hosts_per_tick))."
+        },
+        "tuning_port_scan_schedule_min_age_seconds": {
+          "label": "Scheduled refresh — minimum age before re-scan (seconds)",
+          "help": "A host's previous scan must be at least this old before the scheduled runner picks it again. Defence-in-depth against an aggressive every-2-min schedule re-scanning hosts that completed seconds ago — the runner skips any host whose `MAX(host_port_scans.ts)` is younger than this. Default 1800 (30 minutes). Lower for fast-changing fleets where you want the minimum gap close to zero; raise to widen the gap regardless of how often the schedule itself fires. Range 60..86400."
+        },
+        "tuning_port_scan_schedule_per_host_concurrency": {
+          "label": "Scheduled refresh — per-host concurrency",
+          "help": "How many hosts the scheduled runner scans IN PARALLEL within one fire. Default 1 — strictly sequential to keep load low (one host at a time). Raise to 2-4 on quiet networks where the operator wants the tick to complete faster; the per-host scan itself still uses `Probe concurrency` above for its internal port-probe parallelism. Range 1..4."
+        },
         "tuning_sse_heartbeat_seconds": {
           "label": "SSE heartbeat cadence (seconds)",
           "help": "How often the /api/events stream emits a `: keepalive` comment so an idle reverse proxy (NPM / Cloudflare / Traefik) doesn't drop the connection on its own idle-keepalive timer. Lower this if your proxy has a tight idle timeout (some defaults are 30s); raise it to cut comment-traffic on long-lived tabs. Default 25 seconds. Takes effect on the NEXT SSE reconnect — already-open connections keep their old cadence until they cycle (every 6h via the lifetime cap, OR after a network drop)."
@@ -1501,7 +1513,8 @@
         "asset_inventory_refresh": "Refresh asset inventory",
         "prune_logs": "Prune log files",
         "prune_notifications": "Prune notifications",
-        "swarm_agent_health": "Swarm agent health check"
+        "swarm_agent_health": "Swarm agent health check",
+        "port_scan_refresh": "Refresh open ports (port scan)"
       },
       "run_at_label": "Run at (optional)",
       "run_at_placeholder": "HH:MM — leave empty to use interval",
@@ -2208,6 +2221,7 @@
     "prune_logs": "prune logs",
     "prune_notifications": "prune notifications",
     "swarm_agent_health": "swarm agent health",
+    "port_scan_refresh": "port scan refresh",
     "restart_swarm_agent": "restart swarm agent",
     "cleanup_overlay_network": "cleanup overlay network",
     "totp_admin_disabled": "TOTP admin-disabled",
@@ -3213,7 +3227,9 @@
     "udp_master_toggle_label": "UDP scanning enabled",
     "udp_master_toggle_help": "Run UDP probes alongside the TCP scan when this is on. UDP uses per-protocol templates (DNS 53, DHCP 67, NTP 123, SNMP 161, mDNS 5353, etc.) so well-known services reply with a real datagram instead of being marked open-filtered. Disabled by default — UDP traffic is more conspicuous on the network and some services log every probe. Requires the master Port-scan toggle.",
     "udp_default_ports_label": "UDP default ports",
-    "udp_default_ports_hint": "CSV / range syntax (e.g. \"53,67,69,123,137,161,500,514,520,623,1900,5353\"). When blank, the scanner uses a built-in list of common UDP services. Range 1..11000."
+    "udp_default_ports_hint": "CSV / range syntax (e.g. \"53,67,69,123,137,161,500,514,520,623,1900,5353\"). When blank, the scanner uses a built-in list of common UDP services. Range 1..11000.",
+    "schedule_section_title": "Scheduled refresh",
+    "schedule_section_intro": "Knobs for the `port_scan_refresh` schedule kind. Create a schedule from Admin → Schedules with kind `port_scan_refresh` and the cron-style cadence you want; these knobs only shape HOW MUCH work each fire does. Default cadence in the schedule editor is every 15 minutes; the three knobs below tune host-batch size, minimum age before re-scan, and per-host parallelism."
   },
   "admin_ssh": {
     "title": "SSH",
