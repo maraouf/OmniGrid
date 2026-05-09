@@ -36,7 +36,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **Schedules** — cron-like recurring jobs (cache refresh / `docker system prune` per-node or fan-out / SQLite+avatars backup / asset-inventory refresh) with skip-if-running guards and audited history.
 
 ### Host telemetry & inventory
-- **Curated host list** — operator-defined inventory under Admin → Hosts; each row maps to one or more provider-specific identifiers.
+- **Curated host list** — operator-defined inventory under Admin → Hosts; each row maps to one or more provider-specific identifiers PLUS a dedicated `address` field that's the canonical provider-independent probe target (port-scan, ping, SNMP, SSH all resolve to it before falling through to provider-specific aliases).
 - **Six monitoring providers** (any combination): Beszel Hub (Pocketbase), Pulse (Proxmox), Prometheus node-exporter (Linux + FreeBSD), Webmin / Miniserv, Ping (TCP-connect or ICMP echo for reachability + RTT), SNMP (v2c / v3 USM for managed switches / routers / UPSes / printers). Cross-provider fallback merges stats with a "most-specific wins" rule + per-host snapshots so a flaky agent doesn't blank the chart. Per-provider chip colour customisable in Settings → Providers.
 - **Time-series charts** — CPU / Memory / Disk usage / Disk I/O (Linux + FreeBSD `node_devstat_*`) / Network In/Out / Bandwidth / Load 1m/5m/15m (rendered as % of cores) / Swap / Temperature (per-sensor lines from `stats.t`) / GPU Power / GPU Usage / GPU VRAM (NVIDIA / AMD via Beszel `stats.g`), with 1h / 6h / 24h / 7d range picker, dynamic unit chips that lock to one family (legend + Y-axis + chip stay aligned across magnitudes), permanently-flat charts auto-hide after a 1 h soak, and a live "Updated Xs ago" freshness label.
 - **Switch / managed-gear telemetry** (SNMP) — total throughput line chart, per-port throughput multi-line chart (top 5 by current rate, solid in / dashed out), per-port utilization line chart (% of link capacity from `ifHighSpeed`), uptime trend with reboot detection, hardware inventory rows from `entPhysicalTable` (model / serial / firmware), printer toner / ink supplies + lifetime page count headline + console message via Printer-MIB.
@@ -46,9 +46,13 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 ### Operations & access
 - **Interactive SSH terminal** — admin-only xterm.js modal over WSS to a backend asyncssh PTY. PTY-forced (so sudo doesn't silently no-op), full audit row per session.
 - **One-shot SSH runner** — admin-audited dry-run-by-default runner with destructive-pattern guard (typed-hostname confirm for `rm` / `dd` / `reboot` / etc.) and per-(host, user) 5-min cool-down on auth failure.
-- **Audit log** — every operation (updates, restarts, ssh runs, schedule fires, backups) persisted to SQLite with full event log. Filterable + CSV / JSON export.
-- **Backups** — DB + avatars snapshot zips via SQLite's online `.backup()` API. Browseable + restorable from the Admin → Backups page.
-- **Notifications (in-app + Apprise)** — every write op + scheduled-job completion fires through TWO mediums in parallel: an SQLite-backed in-app store (Notifications popup behind the user-avatar dropdown, severity / event / unread filters, mark-read, retention via the `prune_notifications` schedule kind) and the existing Apprise webhook fan-out. Per-medium master toggles + per-event admin gates + per-user opt-in/out.
+- **Port scanner** (TCP + optional UDP companion) — on-demand from the host drawer OR scheduled via the `port_scan_refresh` kind. Runs as a fire-and-forget asyncio task so reverse-proxy `proxy_read_timeout` settings don't trip on long scans; emits `port_scan:completed` over SSE; per-port detail + banner-grab persists to `host_port_scans`. Per-host opt-in via `hosts_config[].port_scan = {enabled}`.
+- **AI assistant** — multi-provider (Claude / Gemini / ChatGPT / DeepSeek) palette + multi-turn sidebar with persistent chat history, inline charts (`memory_history` / `cpu_history` / `disk_projection`), per-deployment memory store (`MEMORY:` / `MEMORY-FORGET:` directives), structured `ACTION:` directives the SPA dispatches inline, fallback chain on transient overload, retry-once-on-429/502/503/504 gate, per-call cost / latency / token-usage dashboard, log-context window (default 7 days of error+warn lines, secret-redacted before injection). Admin-only.
+- **Auto-fix action buttons in drawers** — when a Swarm task error matches a known pattern (VXLAN sandbox-join, image-pull failure, etc.), the drawer surfaces one-click "Auto-fix" actions (Portainer-API-only when possible, falling back to SSH-with-pre-loaded-command). Destructive actions gate on a SweetAlert confirm + spinner overlay.
+- **Bulk host actions** — pause / resume sampling, apply SNMP vendor whitelist, apply per-host SNMP tunables across N hosts in one POST. Each affected host fires its usual SSE event so other tabs catch up within one frame.
+- **Audit log** — every operation (updates, restarts, ssh runs, schedule fires, backups, AI calls, port scans) persisted to SQLite with full event log. Filterable + CSV / JSON export. Timeline tab gives a unified per-host event view (state changes + sampler errors + bulk-action audit rows).
+- **Backups** — DB + avatars snapshot zips via SQLite's online `.backup()` API. Browseable + restorable from the Admin → Backups page. Operator-tunable retention via `tuning_backup_retention_count` (0 = keep all; 7-30 typical).
+- **Notifications (in-app + Apprise)** — every write op + scheduled-job completion fires through TWO mediums in parallel: an SQLite-backed in-app store (Notifications popup behind the user-avatar dropdown, severity / event / unread filters, mark-read, retention via the `prune_notifications` schedule kind) and the existing Apprise webhook fan-out. Per-medium master toggles + per-event admin gates + per-user opt-in/out. Admin-only template editor for per-event title + body overrides with curated `{name}` / `{type}` / `{actor}` / `{host}` / `{time}` / `{error}` / `{status}` placeholder whitelist.
 - **Prometheus `/metrics`** — gather stats, op counts, cache age, host-stats provider health.
 
 ### Auth & UX
@@ -215,7 +219,19 @@ GET    /api/hosts/{host_id}/ping/history?hours=...              ping reachabilit
 GET / POST                   /api/hosts/config                   list / replace `hosts_config`
 GET                          /api/hosts/discover                 probe each provider for available host names
 POST                         /api/hosts/test                     per-row validation (provider names + URLs)
-POST                         /api/hosts/{host_id}/resume-sampling  clear a host's auto-pause marker
+POST                         /api/hosts/{host_id}/resume-sampling                clear a host's whole-host auto-pause marker
+POST                         /api/hosts/{host_id}/provider/{provider}/resume     clear ONE per-(provider, host) auto-pause marker
+POST                         /api/hosts/bulk/{pause,resume}      bulk pause / resume sampling across host_ids
+POST                         /api/hosts/bulk/{snmp_vendors,snmp_tunables}  apply per-host SNMP overrides across host_ids
+GET                          /api/hosts/{host_id}/snmp/history?hours=N           per-host SNMP samples (CPU / mem / disk / uptime)
+GET                          /api/hosts/{host_id}/snmp/iface_history?hours=N     per-interface throughput (top-5 by rate)
+GET                          /api/hosts/{host_id}/snmp/temp_history?hours=N      per-temperature-probe sensors
+GET                          /api/hosts/{host_id}/disk-projection?days_ahead=N   linear-regression "days until full" with confidence band
+GET                          /api/hosts/{host_id}/triage                         similar-incident grouping for failures
+GET                          /api/hosts/{host_id}/timeline?hours=N               unified per-host event timeline
+GET                          /api/hosts/{host_id}/beszel/services                per-(host, systemd unit) snapshot from the Beszel agent
+POST                         /api/hosts/{host_id}/port-scan                       on-demand TCP / UDP scan → {scan_id, status:"queued"}
+GET                          /api/history/port-scan/{scan_id}/ports               per-port detail for one scan
 
 # Auth / users / sessions / tokens / TOTP
 POST   /api/local-auth/login               username + password → og_session OR {totp_required, challenge_token}
@@ -268,6 +284,28 @@ GET                           /api/notifications                     paginated l
 POST                          /api/notifications/{id}/read           mark one row read
 POST                          /api/notifications/read-all            mark every unread row read
 DELETE                        /api/notifications/{id}                delete one row (admin)
+
+# Notification templates (admin-only — title + body overrides per event)
+GET                           /api/admin/notify-templates            list every event with current + default state
+POST                          /api/admin/notify-templates/{event}    save title + body (empty = reset to default)
+POST                          /api/admin/notify-templates/{event}/preview   render against sample placeholders
+POST                          /api/admin/notify-templates/{event}/test      fire a real notification through every enabled medium
+
+# AI integration (admin-only)
+GET                           /api/admin/ai/dashboard?window=24h     aggregate token / cost / pass-rate dashboard
+GET                           /api/admin/ai/jobs?limit=50            per-call log (filterable by provider / kind / status)
+POST                          /api/admin/ai/{provider}/test          probe one provider's credentials + chosen model
+POST                          /api/ai/palette                        natural-language palette query → answer / actions
+POST                          /api/ai/host-filter                    bulk-translate a verb-leading phrase → Phase 1 DSL
+POST                          /api/ai/feedback                       per-call 👍 / 👎 from the AI sidebar
+GET / POST / DELETE          /api/ai/memory[/{id}]                  AI memory CRUD (durable per-deployment lessons)
+POST                          /api/ai/memory/forget                  delete by exact-text match (`MEMORY-FORGET:` directive)
+
+# Cleanup overlay network (Portainer-API-only path for stale VXLAN overlays)
+POST                          /api/cleanup-overlay-network           {network_id?, service_id?, cidr?} → {op_id}
+
+# Re-authentication (admin step-up gate)
+POST                          /api/admin/reauth                      {password} → {ok}
 
 # Health / metrics / version
 GET    /api/healthz                        always 200 if alive
