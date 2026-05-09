@@ -390,7 +390,23 @@ def _host_provider_config() -> dict[str, set[str]]:
                     if (h.get("webmin_name")  or "").strip(): configured.add("webmin")
                     if bool((h.get("ping") or {}).get("enabled", False)):
                         configured.add("ping")
-                    if (h.get("snmp_name") or "").strip() and (
+                    # SNMP is configured when EITHER `snmp_name` OR the
+                    # shared `address` field is non-empty AND `snmp.enabled`
+                    # is True. Mirrors the resolver chain in
+                    # `_probe_one_snmp` and `_merge_one_host` (aliases →
+                    # snmp_name → address → SKIP). Pre-fix this only
+                    # checked `snmp_name`, so a host that cleared
+                    # `snmp_name` intending to use the shared `address`
+                    # was incorrectly treated as "SNMP not configured" —
+                    # `record_provider_outcome`'s defensive guard then
+                    # refused to record failures AND deleted any pre-
+                    # existing failure-state + last_ok rows for that host,
+                    # making the chip subtitle "Updated Xm ago" disappear.
+                    snmp_target_present = (
+                        (h.get("snmp_name") or "").strip()
+                        or (h.get("address") or "").strip()
+                    )
+                    if snmp_target_present and (
                         isinstance(h.get("snmp"), dict) and h["snmp"].get("enabled") is True
                     ):
                         configured.add("snmp")
@@ -897,9 +913,25 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                 aliases = {}
         except ValueError:
             aliases = {}
+        # Resolution chain MUST mirror the on-demand path
+        # (`api_hosts_port_scan` for port scan, `_merge_one_host` for
+        # the SNMP-via-merge path): aliases → snmp_name → address →
+        # SKIP. Pre-fix the sampler stopped at `snmp_name` and never
+        # consulted the curated `address` field, so hosts that
+        # cleared `snmp_name` intending to inherit from the shared
+        # `address` (the documented contract from #1211) silently
+        # stopped being probed by the sampler — `_probe_one_snmp`
+        # returned early on `if not snmp_target` and the per-tick
+        # `host_snmp_samples` row never landed. Drawer charts went
+        # flat at the moment the operator cleared `snmp_name` and
+        # stayed flat forever (until manually reverted). NE hosts
+        # were unaffected because `_probe_one` reads `ne_url`
+        # directly. Fix: fall through to `address` when both alias
+        # and snmp_name are empty.
         snmp_target = (
             aliases.get(hid)
             or (host.get("snmp_name") or "").strip()
+            or (host.get("address") or "").strip()
             or ""
         )
         if not snmp_target:

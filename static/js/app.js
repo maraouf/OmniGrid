@@ -17100,13 +17100,26 @@ function app() {
           + '</span></div>'
           + '<div class="ai-resp-chart-body"></div>');
       }
-      // Build a 320x80 SVG line path. Y axis is [0..100], inverted
-      // (0 at bottom, 100 at top — SVG y grows downward so we flip).
-      const W = 320, H = 80, PAD = 4;
+      // Build a 360x140 SVG line chart with explicit axes. Y axis
+      // labels on the left (0/50/100 with horizontal gridlines); X
+      // axis labels on the bottom (start/mid/end relative to now,
+      // formatted as "-Nh" so the user reads "-24h … now" left→right).
+      // Pre-fix the chart had no axes — line drew correctly but
+      // operators couldn't tell what value the line was at OR how
+      // much of the past 24h it covered. Removed `preserveAspectRatio
+      // ="none"` so axis text doesn't distort when the SVG resizes
+      // to its container width.
+      const W = 360, H = 140;
+      const PAD_L = 30;   // left padding for Y-axis labels (3 chars + gap)
+      const PAD_R = 6;
+      const PAD_T = 6;
+      const PAD_B = 22;   // bottom padding for X-axis labels (one line + gap)
+      const plotW = W - PAD_L - PAD_R;
+      const plotH = H - PAD_T - PAD_B;
       const ts0 = series[0].ts, ts1 = series[series.length - 1].ts;
       const tspan = Math.max(1, ts1 - ts0);
-      const xOf = (ts) => PAD + ((ts - ts0) / tspan) * (W - 2 * PAD);
-      const yOf = (v) => PAD + (1 - Math.max(0, Math.min(100, v)) / 100) * (H - 2 * PAD);
+      const xOf = (ts) => PAD_L + ((ts - ts0) / tspan) * plotW;
+      const yOf = (v)  => PAD_T + (1 - Math.max(0, Math.min(100, v)) / 100) * plotH;
       let path = '';
       for (let i = 0; i < series.length; i++) {
         const p = series[i];
@@ -17123,6 +17136,59 @@ function app() {
       }
       const rangeStr = (Math.round(vMin * 10) / 10).toFixed(1) + '%–'
                      + (Math.round(vMax * 10) / 10).toFixed(1) + '%';
+      // Y-axis: gridlines + labels at 0 / 50 / 100.
+      const yTicks = [0, 50, 100];
+      let yAxis = '';
+      for (const v of yTicks) {
+        const y = yOf(v).toFixed(1);
+        // gridline (subtle, dashed)
+        yAxis += '<line x1="' + PAD_L + '" x2="' + (W - PAD_R)
+              +  '" y1="' + y + '" y2="' + y
+              +  '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+        // label aligned right of the gridline's left edge
+        yAxis += '<text x="' + (PAD_L - 4) + '" y="' + y
+              +  '" fill="var(--text-faint)" font-size="9" '
+              +  'text-anchor="end" dominant-baseline="middle" '
+              +  'font-family="var(--font-mono, monospace)">' + v + '</text>';
+      }
+      // X-axis baseline + 3 time ticks (start / mid / end), labelled
+      // relative to "now" so the user reads "-24h" / "-12h" / "now"
+      // left to right. Uses ts1 (last sample) as "now" so even if the
+      // sampler is a few minutes behind real wall-clock, the axis
+      // matches what the line actually plots.
+      const baseY = (PAD_T + plotH).toFixed(1);
+      let xAxis = '<line x1="' + PAD_L + '" x2="' + (W - PAD_R)
+                + '" y1="' + baseY + '" y2="' + baseY
+                + '" stroke="var(--border)" stroke-width="0.5"/>';
+      const xTicks = [
+        { frac: 0.0, ts: ts0 },
+        { frac: 0.5, ts: ts0 + tspan / 2 },
+        { frac: 1.0, ts: ts1 },
+      ];
+      const fmtRel = (ts) => {
+        const ago = Math.max(0, ts1 - ts);
+        if (ago < 60) return 'now';
+        const hours = ago / 3600;
+        if (hours < 1) return '-' + Math.round(ago / 60) + 'm';
+        return '-' + (Math.round(hours * 10) / 10).toFixed(hours < 10 ? 1 : 0) + 'h';
+      };
+      for (const tick of xTicks) {
+        const x = xOf(tick.ts).toFixed(1);
+        xAxis += '<line x1="' + x + '" x2="' + x
+              +  '" y1="' + baseY + '" y2="' + (parseFloat(baseY) + 3).toFixed(1)
+              +  '" stroke="var(--border)" stroke-width="0.5"/>';
+        const anchor = tick.frac === 0 ? 'start' : (tick.frac === 1 ? 'end' : 'middle');
+        xAxis += '<text x="' + x + '" y="' + (parseFloat(baseY) + 14).toFixed(1)
+              +  '" fill="var(--text-faint)" font-size="9" '
+              +  'text-anchor="' + anchor + '" '
+              +  'font-family="var(--font-mono, monospace)">'
+              +  esc(fmtRel(tick.ts)) + '</text>';
+      }
+      // Y-axis unit hint top-left (small "%").
+      const yUnit = '<text x="' + (PAD_L - 4) + '" y="' + (PAD_T - 1).toFixed(1)
+                  + '" fill="var(--text-faint)" font-size="8" '
+                  + 'text-anchor="end" dominant-baseline="hanging" '
+                  + 'font-family="var(--font-mono, monospace)">%</text>';
       return ('<div class="ai-resp-chart-header">'
         + '<span class="ai-resp-chart-title">' + hidEsc + ' — ' + esc(titleStr) + '</span>'
         + '<span class="ai-resp-chart-status mono fs-2xs">'
@@ -17131,7 +17197,8 @@ function app() {
         + '</div>'
         + '<div class="ai-resp-chart-body">'
         + '<svg viewBox="0 0 ' + W + ' ' + H + '" '
-        + 'preserveAspectRatio="none" width="100%" height="' + H + '" aria-hidden="true">'
+        + 'width="100%" height="' + H + '" aria-hidden="true">'
+        + yAxis + xAxis + yUnit
         + '<path d="' + path + '" fill="none" stroke="var(--primary)" '
         + 'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
         + '</svg>'
@@ -18322,12 +18389,18 @@ function app() {
     // Admin → Hosts editor.
     rowHasProviderMapping(row) {
       if (!row) return false;
-      // SNMP gating mirrors ping's explicit opt-in: probe
-      // only when `snmp.enabled === true`. Default-OFF (no fallback
-      // to "snmp_name set means enabled") so a fresh row with the
-      // checkbox unchecked doesn't claim a provider mapping.
-      const snmpActive = !!(row.snmp_name || '').trim()
-        && !!(row.snmp && row.snmp.enabled === true);
+      // SNMP gating mirrors ping's explicit opt-in: probe only when
+      // `snmp.enabled === true`. The probe target falls through the
+      // canonical resolver chain (aliases → snmp_name → address →
+      // SKIP), so the gate must accept EITHER an explicit `snmp_name`
+      // OR the shared `address` field. Pre-fix only `snmp_name` was
+      // checked, so a host with `snmp.enabled=true` + `address`
+      // populated + `snmp_name` blank reported "no provider mapping"
+      // and the Test Providers button stayed disabled even though
+      // the live sampler would have probed it correctly via the
+      // address fallback.
+      const snmpActive = !!(row.snmp && row.snmp.enabled === true)
+        && !!((row.snmp_name || '').trim() || (row.address || '').trim());
       return !!(
         (row.beszel_name || '').trim() ||
         (row.pulse_name  || '').trim() ||
@@ -18367,7 +18440,19 @@ function app() {
             // per-row test reflects the SAME providers the live probe
             // chain runs. Without this, SNMP-only rows reported "all
             // skipped" + ping-only rows skipped their reachability check.
+            // `snmp_target` carries the resolver-chain result so the
+            // backend hits the same target the live sampler /
+            // _merge_one_host would (snmp_name → address fallback).
+            // `snmp_name` is kept for legacy back-compat on the
+            // backend's body parsing.
             snmp_name:   (row.snmp_name   || '').trim(),
+            snmp_target: ((row.snmp_name || '').trim() || (row.address || '').trim()),
+            // Send the row's IN-FORM address so the backend's resolver
+            // fallback uses what's currently in the editor — operators
+            // editing a row may have changed `address` without saving;
+            // the test should reflect what's about to be saved, not
+            // the stale persisted value.
+            address:     (row.address || '').trim(),
             // Per-host SNMP overrides (community / version / port /
             // v3 / walk_concurrency / vendors / wall_clock_budget).
             // Each is forwarded only when set so blanks fall through
