@@ -2555,6 +2555,22 @@
       "bios_version": "BIOS / firmware",
       "serial": "Serial"
     },
+    "beszel_services": {
+      "show": "Show services",
+      "hide": "Hide services",
+      "loading": "Loading services…",
+      "error": "Failed to load services: {error}",
+      "empty": "No tracked systemd units for this host yet.",
+      "col_state": "State",
+      "col_name": "Unit",
+      "col_changed": "Changed",
+      "state_active": "Active",
+      "state_reloading": "Reloading",
+      "state_inactive": "Inactive",
+      "state_failed": "Failed",
+      "state_activating": "Activating",
+      "state_deactivating": "Deactivating"
+    },
     "hardware": {
       "heading": "Hardware",
       "cpu": "CPU",

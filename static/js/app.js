@@ -598,6 +598,19 @@ function app() {
     // the normal hosts-view cadence stays cheap.
     hostsDebug: {},
     hostsDebugLoading: {},   // {host_id: true} while the fetch is in flight
+    // Per-host Beszel service detail cache. Populated by
+    // `loadHostBeszelServices(host_id)` which hits
+    // `/api/hosts/{id}/beszel/services` and stores the per-unit list
+    // ({name, state, sub_state, last_seen_ts, last_change_ts}). Used
+    // by the AI palette context (fmtHost surfaces `services_detail`
+    // so the AI can answer "what's the state of nginx on web01?")
+    // AND by the host-drawer per-service detail pane.
+    hostsBeszelServices: {},
+    hostsBeszelServicesLoading: {},
+    // Per-host open / closed state for the drawer's per-unit Beszel
+    // services detail pane. Toggled by `toggleHostBeszelServices`;
+    // first open lazy-loads the data.
+    hostBeszelServicesOpen: {},
     hostsDebugOpen: {},      // {host_id: true} = panel is expanded
     // Per-host expand/collapse state for high-count Server health
     // sub-sections (Physical disks / Voltages). Default-collapsed when
@@ -16067,7 +16080,15 @@ function app() {
       // sampler_health data" — fmtHost gates on cache presence.
       try {
         const lc = q.toLowerCase();
-        const isDiag = /\b(chart|cut|missing|empty|silent|paused|stale|sampler|sample|points?|gap|history|drift|stop|stopped|ticks?)\b/.test(lc);
+        // Diagnosis keywords trigger the per-host debug + per-service
+        // detail pre-fetch. Two clusters:
+        //   chart-diagnosis (chart / cut / missing / sampler / etc.)
+        //     — drives "why is X chart cut" investigations.
+        //   service-diagnosis (service / unit / failed / running /
+        //   nginx / systemd / etc.) — drives "what's failing on X"
+        //     investigations and pulls the new
+        //     /api/hosts/{id}/beszel/services endpoint into context.
+        const isDiag = /\b(chart|cut|missing|empty|silent|paused|stale|sampler|sample|points?|gap|history|drift|stop|stopped|ticks?|services?|units?|failed|running|systemd|daemons?)\b/.test(lc);
         if (isDiag) {
           const MAX_PREFETCH = 5;
           // Resolve hosts mentioned by name in the question — match
@@ -16085,6 +16106,19 @@ function app() {
           if (candidates.length && typeof this.loadHostDebug === 'function') {
             await Promise.allSettled(
               candidates.map(h => this.loadHostDebug(h.id).catch(() => null))
+            );
+          }
+          // Per-service Beszel detail pre-fetch — runs in parallel
+          // with the debug fetch above so the AI sees `services_detail`
+          // (per-unit state + last_change_ts) for hosts named in
+          // service-diagnosis questions. Skips hosts without
+          // beszel_id since the endpoint only carries data for
+          // Beszel-tracked hosts.
+          if (candidates.length && typeof this.loadHostBeszelServices === 'function') {
+            await Promise.allSettled(
+              candidates
+                .filter(h => h.beszel_id)
+                .map(h => this.loadHostBeszelServices(h.id).catch(() => null))
             );
           }
         }
@@ -16917,7 +16951,27 @@ function app() {
             if (counters.failure_state && typeof counters.failure_state === 'object') {
               out.failure_state = counters.failure_state;
             }
-            if (counters.provider_pause_state && typeof counters.provider_pause_state === 'object') {
+            // Per-unit Beszel services detail from the cached
+          // `hostsBeszelServices[h.id]` (populated by the AI sidebar
+          // pre-fetch when the question contains service-related
+          // keywords, OR by the drawer per-service pane). Cap at 32
+          // entries to bound prompt size while still letting the AI
+          // surface specifics on common cases. Failed units come
+          // first per the endpoint's sort, so the cap preserves
+          // signal — failed units always make the cut even on a
+          // host with hundreds of healthy units.
+          const svcCache = (this.hostsBeszelServices || {})[h.id];
+          if (svcCache && Array.isArray(svcCache.services) && svcCache.services.length) {
+            out.services_detail = svcCache.services.slice(0, 32).map(s => ({
+              name:           String(s.name || ''),
+              state:          (s.state == null ? null : +s.state),
+              sub_state:      (s.sub_state == null ? null : +s.sub_state),
+              last_change_age_s: (s.last_change_ts
+                ? Math.max(0, Math.round(Date.now() / 1000 - +s.last_change_ts))
+                : null),
+            }));
+          }
+          if (counters.provider_pause_state && typeof counters.provider_pause_state === 'object') {
               // Already partially captured via `provider_paused` /
               // `provider_failing` above (those use the row-level
               // `h.provider_pause_state`). Surfacing the full
@@ -22836,6 +22890,100 @@ function app() {
       } finally {
         this.hostsDebugLoading = { ...this.hostsDebugLoading, [hostId]: false };
       }
+    },
+    // Per-host Beszel services lazy-loader. Hits
+    // `/api/hosts/{id}/beszel/services` and caches the per-unit
+    // snapshot in `hostsBeszelServices[host_id]`. Used by the AI
+    // palette pre-fetch (when the question contains service-related
+    // keywords) and by the host-drawer per-service pane.
+    async loadHostBeszelServices(hostId) {
+      if (!hostId) return;
+      this.hostsBeszelServicesLoading = {
+        ...this.hostsBeszelServicesLoading, [hostId]: true,
+      };
+      try {
+        const r = await fetch(
+          '/api/hosts/' + encodeURIComponent(hostId) + '/beszel/services'
+        );
+        if (!r.ok) {
+          this.hostsBeszelServices = {
+            ...this.hostsBeszelServices,
+            [hostId]: { error: `HTTP ${r.status}`, services: [] },
+          };
+          return;
+        }
+        const d = await r.json();
+        this.hostsBeszelServices = {
+          ...this.hostsBeszelServices,
+          [hostId]: {
+            services: Array.isArray(d.services) ? d.services : [],
+            error: d.error || '',
+            loadedAt: Date.now(),
+          },
+        };
+      } catch (e) {
+        this.hostsBeszelServices = {
+          ...this.hostsBeszelServices,
+          [hostId]: { error: String(e), services: [] },
+        };
+      } finally {
+        this.hostsBeszelServicesLoading = {
+          ...this.hostsBeszelServicesLoading, [hostId]: false,
+        };
+      }
+    },
+    // Drawer per-unit pane — toggle open/closed. First open lazy-
+    // loads the data via `loadHostBeszelServices`. Subsequent
+    // opens reuse the cached snapshot; the cache invalidates only
+    // when the operator explicitly re-fetches (rare; the data
+    // moves slowly compared to chart cadence).
+    async toggleHostBeszelServices(hostId) {
+      if (!hostId) return;
+      const open = !this.hostBeszelServicesOpen[hostId];
+      this.hostBeszelServicesOpen = { ...this.hostBeszelServicesOpen, [hostId]: open };
+      if (open) {
+        if (!this.hostsBeszelServices[hostId]
+            && !this.hostsBeszelServicesLoading[hostId]) {
+          await this.loadHostBeszelServices(hostId);
+        }
+      }
+    },
+    // Map systemd ActiveState int → human label. Uses i18n keys with
+    // a capitalisation fallback so future Beszel agents that report
+    // a state value we haven't translated yet still render readably.
+    beszelServiceStateLabel(state) {
+      const map = {
+        0: 'active', 1: 'reloading', 2: 'inactive',
+        3: 'failed', 4: 'activating', 5: 'deactivating',
+      };
+      const slug = map[+state];
+      if (slug) {
+        const key = 'host_drawer.beszel_services.state_' + slug;
+        const tr = this.t(key);
+        if (tr && tr !== key) return tr;
+        return slug.charAt(0).toUpperCase() + slug.slice(1);
+      }
+      return state == null ? '—' : String(state);
+    },
+    // Pill colour class — failed = red, active = green, inactive +
+    // transitional states = muted. Matches the existing pill
+    // taxonomy (pill-error / pill-ok / pill-muted) used elsewhere
+    // in the drawer.
+    beszelServicePillClass(state) {
+      const s = +state;
+      if (s === 3) return 'pill-error';   // failed
+      if (s === 0) return 'pill-ok';      // active
+      return 'pill-muted';                // everything else (inactive, transitional)
+    },
+    // Relative-age formatter for "last_change_ts" — same shape as
+    // the samples-in-window panel's age helper. Inputs: seconds
+    // (number). Outputs: "30s" / "5m" / "2.3h" / "1.2d".
+    relativeAge(seconds) {
+      const n = Math.max(0, Math.round(+seconds || 0));
+      if (n < 60)    return n + 's';
+      if (n < 3600)  return Math.round(n / 60) + 'm';
+      if (n < 86400) return (n / 3600).toFixed(1) + 'h';
+      return (n / 86400).toFixed(1) + 'd';
     },
     // Pretty-print JSON for the Debug panel's <pre> blocks. Empty
     // payloads return "" — the panel wrapper x-show's on truthy data
