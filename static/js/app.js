@@ -23334,6 +23334,132 @@ function app() {
         window.prompt(promptHead, text);
       }
     },
+    // Build a single dict that aggregates every chart cache the SPA
+    // currently holds for one host: main hostHistory series (Beszel /
+    // NE / Pulse path), ping history (separate `ping:<id>` namespace),
+    // SNMP host-level history, SNMP per-iface throughput history, and
+    // SNMP per-temperature-probe history. Each leaf carries the raw
+    // points array PLUS a small summary block (count, oldest_ts,
+    // newest_ts, newest_age_s) so the operator can spot "this chart is
+    // empty" / "this chart is stale" / "this chart's points are
+    // bunched in the past 5 min" at a glance without scrolling 1000+
+    // points.
+    //
+    // Returns an empty object when nothing is cached — `hasDebugData`
+    // is the gate the new "Chart data" section uses to hide cleanly
+    // for hosts whose drawer hasn't fetched any chart yet.
+    //
+    // Consumed by:
+    // (a) the new "Chart data" host-debug-box section in static/index.html
+    // (b) `copyAllDebug` so the bundled paste-into-issue payload
+    //     includes every signal a chart-related bug needs.
+    chartDataBundle(host) {
+      if (!host) return {};
+      const out = {};
+      const nowS = Math.floor(Date.now() / 1000);
+      const summarise = (label, entry, pointsKey) => {
+        if (!entry) return;
+        const points = entry[pointsKey] || entry.series || entry.points || [];
+        const arr = Array.isArray(points) ? points : [];
+        const tField = (arr[0] && (arr[0].t || arr[0].ts)) ? (arr[0].t ? 't' : 'ts') : 't';
+        const oldest = arr.length ? Number(arr[0][tField]) : null;
+        const newest = arr.length ? Number(arr[arr.length - 1][tField]) : null;
+        out[label] = {
+          summary: {
+            count: arr.length,
+            oldest_ts: oldest,
+            newest_ts: newest,
+            newest_age_s: (newest != null && Number.isFinite(newest)) ? (nowS - newest) : null,
+            loaded_at_ms: entry.loadedAt || null,
+            error: entry.error || null,
+            range_hours: this.hostHistoryRange || null,
+          },
+          // Full points array — verbose intentionally; the chart
+          // bug under investigation usually sits in the data shape
+          // (missing field, wrong key, drift), not in the summary.
+          points: arr,
+        };
+      };
+      // Main host history (Beszel / NE / Pulse aggregated path) —
+      // shared cache slot keyed by `hostHistoryKey(h)` (beszel_id || id).
+      try {
+        const key = this.hostHistoryKey ? this.hostHistoryKey(host) : (host.beszel_id || host.id || '');
+        if (key && this.hostHistory && this.hostHistory[key]) {
+          summarise('main_history', this.hostHistory[key], 'series');
+        }
+      } catch (_) {}
+      // Ping latency history — separate namespace `ping:<id>`.
+      try {
+        const pingKey = this.hostPingHistoryKey ? this.hostPingHistoryKey(host) : ('ping:' + (host.id || ''));
+        if (pingKey && this.hostHistory && this.hostHistory[pingKey]) {
+          summarise('ping_history', this.hostHistory[pingKey], 'series');
+        }
+      } catch (_) {}
+      // SNMP per-host history (CPU / Mem / Disk / uptime).
+      try {
+        if (this.hostSnmpHistory && this.hostSnmpHistory[host.id]) {
+          summarise('snmp_history', this.hostSnmpHistory[host.id], 'points');
+        }
+      } catch (_) {}
+      // SNMP per-iface throughput history. The cache value is a
+      // dict of `{iface_name: {points: [...]}}`; emit each iface as
+      // its own sub-key so summary counts per iface are visible.
+      try {
+        const ifaceCache = this.hostSnmpIfaceHistory && this.hostSnmpIfaceHistory[host.id];
+        if (ifaceCache && typeof ifaceCache === 'object') {
+          const ifaces = {};
+          for (const [name, entry] of Object.entries(ifaceCache)) {
+            if (!entry) continue;
+            const pts = entry.points || entry.series || [];
+            const arr = Array.isArray(pts) ? pts : [];
+            const oldest = arr.length ? Number(arr[0].ts || arr[0].t) : null;
+            const newest = arr.length ? Number(arr[arr.length - 1].ts || arr[arr.length - 1].t) : null;
+            ifaces[name] = {
+              summary: {
+                count: arr.length,
+                oldest_ts: oldest,
+                newest_ts: newest,
+                newest_age_s: (newest != null && Number.isFinite(newest)) ? (nowS - newest) : null,
+                error: entry.error || null,
+              },
+              points: arr,
+            };
+          }
+          if (Object.keys(ifaces).length) {
+            out.snmp_iface_history = ifaces;
+          }
+        }
+      } catch (_) {}
+      // SNMP per-temperature-probe history (Dell hardware probes,
+      // chassis sensors, etc.). Same dict-of-probes shape as iface.
+      try {
+        const tempCache = this.hostSnmpTempHistory && this.hostSnmpTempHistory[host.id];
+        if (tempCache && typeof tempCache === 'object') {
+          const probes = {};
+          for (const [name, entry] of Object.entries(tempCache)) {
+            if (!entry) continue;
+            const pts = entry.points || entry.series || [];
+            const arr = Array.isArray(pts) ? pts : [];
+            const oldest = arr.length ? Number(arr[0].ts || arr[0].t) : null;
+            const newest = arr.length ? Number(arr[arr.length - 1].ts || arr[arr.length - 1].t) : null;
+            probes[name] = {
+              summary: {
+                count: arr.length,
+                oldest_ts: oldest,
+                newest_ts: newest,
+                newest_age_s: (newest != null && Number.isFinite(newest)) ? (nowS - newest) : null,
+                error: entry.error || null,
+              },
+              points: arr,
+            };
+          }
+          if (Object.keys(probes).length) {
+            out.snmp_temp_history = probes;
+          }
+        }
+      } catch (_) {}
+      return out;
+    },
     // Copy ALL debug panes for one host into a single multi-section
     // payload, headed by host_id + ts. Each section is `## <label>`
     // followed by a fenced JSON block, joined by blank lines so the
@@ -23352,6 +23478,13 @@ function app() {
       // can correlate against logs / SSE events.
       const ts = new Date().toISOString();
       sections.push(`# OmniGrid host debug — ${hostId} — ${ts}`);
+      // Resolve the host record from the in-memory list so the
+      // chart-data bundle can use the same cache-key helpers the
+      // drawer chart cards use. Falls through to a synthetic
+      // `{id: hostId}` when the host isn't in `this.hosts` (e.g.
+      // operator opened debug for a host that's been removed).
+      const host = (this.hosts || []).find(h => h && h.id === hostId) || { id: hostId };
+      const charts = this.chartDataBundle(host);
       // Sections in the same canonical order the panes render.
       const blocks = [
         ['Active providers', dbg.active_providers],
@@ -23367,6 +23500,10 @@ function app() {
         ['Raw · Webmin', (dbg.providers_raw || {}).webmin],
         ['Raw · Ping', (dbg.providers_raw || {}).ping],
         ['Raw · SNMP', (dbg.providers_raw || {}).snmp],
+        // Chart data — main history, ping, SNMP host / iface / temps.
+        // Last so the verbose points blob doesn't push narrow panes
+        // off-screen in the paste preview.
+        ['Chart data', charts],
       ];
       for (const [label, value] of blocks) {
         if (value === undefined || value === null) continue;

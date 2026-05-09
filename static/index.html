@@ -7036,30 +7036,34 @@
                               <span class="host-debug-tag host-debug-tag--warn" x-text="t('debug_panel.none')"></span>
                             </template>
                           </div>
-                          <!-- Copy ALL debug panes at once. Operator
-                               request: pasting issue reports usually
-                               needs counters + samples_in_window +
-                               failure_state + every providers_raw
-                               block in one shot, instead of clicking
-                               the per-pane copy button N times.
-                               Pre-Refresh placement so the action
-                               row reads left→right as "copy first,
-                               then refresh if you need newer data". -->
-                          <button type="button" class="btn btn-ghost fs-xs inline-flex items-center gap-1"
-                                  @click="copyAllDebug(h.id)"
-                                  :disabled="!hostsDebug[h.id]"
-                                  :title="t('debug_panel.copy_all_title')">
-                            <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
-                            <span x-text="t('debug_panel.copy_all')"></span>
-                          </button>
-                          <button type="button" class="btn btn-ghost fs-xs inline-flex items-center gap-1"
-                                  @click="loadHostDebug(h.id)"
-                                  :disabled="!!hostsDebugLoading[h.id]"
-                                  :title="t('debug_panel.refresh_title')">
-                            <svg width="14" height="14" aria-hidden="true"
-                                 :class="hostsDebugLoading[h.id] ? 'spin-md' : ''"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/></svg>
-                            <span x-text="t('debug_panel.refresh')"></span>
-                          </button>
+                          <!-- Copy ALL debug panes + Refresh grouped as one
+                               flex child so the toolbar's space-between
+                               places the meta strip on the left and the
+                               action cluster on the right. Pre-fix the
+                               toolbar had three children → space-between
+                               pushed the middle (Copy all) to center,
+                               which read visually as "centered, not
+                               grouped with Refresh". Pre-Refresh source
+                               order keeps the action row reading
+                               left→right as "copy first, then refresh
+                               if you need newer data". -->
+                          <div class="host-debug-toolbar-actions">
+                            <button type="button" class="btn btn-ghost fs-xs inline-flex items-center gap-1"
+                                    @click="copyAllDebug(h.id)"
+                                    :disabled="!hostsDebug[h.id]"
+                                    :title="t('debug_panel.copy_all_title')">
+                              <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
+                              <span x-text="t('debug_panel.copy_all')"></span>
+                            </button>
+                            <button type="button" class="btn btn-ghost fs-xs inline-flex items-center gap-1"
+                                    @click="loadHostDebug(h.id)"
+                                    :disabled="!!hostsDebugLoading[h.id]"
+                                    :title="t('debug_panel.refresh_title')">
+                              <svg width="14" height="14" aria-hidden="true"
+                                   :class="hostsDebugLoading[h.id] ? 'spin-md' : ''"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/></svg>
+                              <span x-text="t('debug_panel.refresh')"></span>
+                            </button>
+                          </div>
                         </div>
                         <!-- Five columns wrap to two rows on narrow
                              viewports. Each block is independently
@@ -7315,6 +7319,36 @@
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(assetForHost(h))"></pre>
+                          </section>
+                          <!-- Chart data — every cached time-series the
+                               drawer's chart cards bind to. Includes the
+                               main hostHistory series (CPU / Mem / Disk /
+                               Net / Load / Swap / Temps / GPUs as a
+                               unified shape per provider), ping latency
+                               history (separate `ping:<id>` namespace),
+                               SNMP host-level history, SNMP per-iface
+                               throughput history (one entry per iface),
+                               and SNMP per-temperature-probe history.
+                               Each leaf carries a small `summary` block
+                               (count / oldest_ts / newest_ts /
+                               newest_age_s) for at-a-glance triage PLUS
+                               the full points array so chart-shape bugs
+                               (missing field, wrong key, drift) are
+                               directly inspectable. Last in the grid
+                               because the points blob can be large
+                               (24h × 12 points/h × ~25 fields). -->
+                          <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(chartDataBundle(h))">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.chart_data')"></span>
+                              <span class="host-debug-hint" x-text="t('debug_panel.hints.chart_data')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(chartDataBundle(h), 'debug_panel.labels.chart_data')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.chart_data')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(chartDataBundle(h))"></pre>
                           </section>
                         </div>
                       </div>
