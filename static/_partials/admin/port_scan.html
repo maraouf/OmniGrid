@@ -40,6 +40,17 @@
         <p class="fs-2xs text-[var(--text-faint)] mt-3"
            x-text="t('settings.host_stats.port_scan.section_desc')"></p>
 
+        <!-- TCP section header — groups the default-port CSV + the
+             four TCP tunables (timeout / concurrency / outer budget /
+             banner-grab) under a clearly-labelled section so the
+             surrounding UDP + Scheduled-refresh blocks visually
+             separate. -->
+        <hr class="my-4 border-[var(--border)]">
+        <h4 class="fs-sm font-medium mt-3 mb-1"
+            x-text="t('admin_port_scan.tcp_section_title')"></h4>
+        <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug max-w-[720px]"
+           x-text="t('admin_port_scan.tcp_section_intro')"></p>
+
         <div class="mt-3">
           <label class="block fs-xs text-[var(--text-faint)] mb-1"
                  x-text="t('settings.host_stats.port_scan.default_ports_label')"></label>
@@ -212,7 +223,12 @@
              default — UDP is more conspicuous on the network and the
              probe templates trigger logged events on some services
              (Asterisk SIP, IPMI BMC). -->
-        <div class="mt-5 pt-3 border-t border-dashed border-[var(--border)]">
+        <hr class="my-4 border-[var(--border)]">
+        <h4 class="fs-sm font-medium mt-3 mb-1"
+            x-text="t('admin_port_scan.udp_section_title')"></h4>
+        <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug max-w-[720px]"
+           x-text="t('admin_port_scan.udp_section_intro')"></p>
+        <div class="mt-3">
           <div class="flex items-center justify-between gap-2">
             <label class="inline-flex items-center gap-2 fs-sm font-medium">
               <input type="checkbox"

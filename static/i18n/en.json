@@ -3228,6 +3228,10 @@
     "udp_master_toggle_help": "Run UDP probes alongside the TCP scan when this is on. UDP uses per-protocol templates (DNS 53, DHCP 67, NTP 123, SNMP 161, mDNS 5353, etc.) so well-known services reply with a real datagram instead of being marked open-filtered. Disabled by default — UDP traffic is more conspicuous on the network and some services log every probe. Requires the master Port-scan toggle.",
     "udp_default_ports_label": "UDP default ports",
     "udp_default_ports_hint": "CSV / range syntax (e.g. \"53,67,69,123,137,161,500,514,520,623,1900,5353\"). When blank, the scanner uses a built-in list of common UDP services. Range 1..11000.",
+    "tcp_section_title": "TCP",
+    "tcp_section_intro": "TCP-connect scan defaults. Each port gets a real handshake — closed ports are indistinguishable from filtered. Default-ports CSV is the fallback when a host has no per-host override; the four tunables shape per-port timeout, parallel probe count, the outer wall-clock budget for a single scan, and the banner-grab read window when banner-grab is enabled.",
+    "udp_section_title": "UDP",
+    "udp_section_intro": "UDP scan defaults (Stage 2). UDP probes run in parallel with TCP when enabled; closed ports are indistinguishable from open-filtered without per-protocol templates, so the scanner uses well-known protocol-specific payloads (DNS 53, DHCP 67, NTP 123, SNMP 161, mDNS 5353, etc.) where supported. Off by default — UDP traffic is more conspicuous on the network and triggers logged events on some services.",
     "schedule_section_title": "Scheduled refresh",
     "schedule_section_intro": "Knobs for the `port_scan_refresh` schedule kind. Create a schedule from Admin → Schedules with kind `port_scan_refresh` and the cron-style cadence you want; these knobs only shape HOW MUCH work each fire does. Default cadence in the schedule editor is every 15 minutes; the three knobs below tune host-batch size, minimum age before re-scan, and per-host parallelism."
   },

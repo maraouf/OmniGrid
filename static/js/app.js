@@ -17011,6 +17011,27 @@ function app() {
             return;
           }
           const data = await r.json();
+          // User-flagged: when there are no usable history points,
+          // don't draw an empty chart shell — remove the outer
+          // element entirely so the AI response reads cleanly without
+          // a visible "No history points in the past 24 h" placeholder.
+          // The conversation-text answer already states the current
+          // value ("memory usage is 79%"); a blank chart card under
+          // it is noise rather than signal. Same field shape the
+          // renderer uses below — keep the predicate in lock-step
+          // with `_renderHostHistoryInner`'s extraction.
+          const isMemoryKind = kind === 'memory_history';
+          const _seriesPreview = (data && Array.isArray(data.series)) ? data.series : [];
+          const _fieldKey = isMemoryKind ? 'mp' : 'cpu';
+          const _usable = _seriesPreview.filter(p => {
+            const v = Number(p && p[_fieldKey]);
+            const ts = Number(p && p.t) || 0;
+            return Number.isFinite(v) && ts > 0;
+          });
+          if (_usable.length < 2) {
+            try { outer.remove(); } catch (_) {}
+            return;
+          }
           slot.innerHTML = this._renderHostHistoryInner(hostId, kind, data, null);
         } catch (e) {
           slot.innerHTML = this._renderHostHistoryInner(hostId, kind, null,
@@ -17056,10 +17077,19 @@ function app() {
           + '</span></div>'
           + '<div class="ai-resp-chart-body"></div>');
       }
-      const points = (data && Array.isArray(data.points)) ? data.points : [];
-      const fieldKey = isMemory ? 'mp' : 'cp';
-      const series = points
-        .map(p => ({ ts: Number(p && p.ts) || 0,
+      // Backend returns `{series: [...], error: ...}` (the same shape
+      // both Beszel's `fetch_system_history` and the NE sampler's
+      // `history_series` produce). Each row's keys: `t` (epoch
+      // seconds), `cpu` (0..100), `mp` (memory percent 0..100).
+      // Pre-fix the renderer read `data.points[].ts` + `cp`, which
+      // matched neither shape — every response decoded to an empty
+      // series and the chart rendered "No history points in the past
+      // 24 h" regardless of whether the API returned data. Fixed
+      // alongside the system_id fix in `_populateAiSidebarHostChart`.
+      const rawSeries = (data && Array.isArray(data.series)) ? data.series : [];
+      const fieldKey = isMemory ? 'mp' : 'cpu';
+      const series = rawSeries
+        .map(p => ({ ts: Number(p && p.t) || 0,
                      v: Number(p && p[fieldKey]) }))
         .filter(p => Number.isFinite(p.v) && p.ts > 0);
       if (series.length < 2) {
