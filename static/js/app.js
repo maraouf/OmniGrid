@@ -14664,23 +14664,15 @@ function app() {
                 // a remount. The 30s drawer-history poll covers the
                 // chart refresh for the new host.
                 this.drawerHost = list[next];
-                // Trigger a one-shot history fetch for the new host
-                // so the chart updates without waiting for the next
-                // 30s tick.
-                try {
-                  const newHost = list[next];
-                  const drawerKey = this.hostHistoryKey(newHost);
-                  if (drawerKey
-                      && (newHost.beszel_id || newHost.ne_url
-                          || newHost.pulse_name || newHost.webmin_name)) {
-                    const cached = this.hostHistory[drawerKey];
-                    const stale = !cached || !cached.loadedAt
-                      || (Date.now() - cached.loadedAt) > 30_000;
-                    if (stale) {
-                      this.loadHostHistory(newHost.beszel_id || '', newHost.id);
-                    }
-                  }
-                } catch (_) { /* best-effort; chart will catch up via poll */ }
+                // Per-host chart fetches via the shared helper —
+                // mirrors openHostDrawer. Pre-fix this block only
+                // kicked `loadHostHistory`, leaving ping / SNMP host
+                // / SNMP iface / SNMP temp caches stale-or-empty for
+                // the new host so charts sat on "Collecting data"
+                // until the next 30s drawer-poll tick or 60s SSE
+                // sample event. The helper bundles every fetch with
+                // its empty-cache + stale-cache guards.
+                this._kickPerHostChartFetches(list[next]);
               } else {
                 // Boundary — stop, no wrap. Eat the keystroke so it
                 // doesn't scroll the drawer body or the page.
@@ -14842,17 +14834,6 @@ function app() {
             return;
           }
         }
-      }
-      // Diagnostic — Cmd/Ctrl-modified keystroke that didn't match
-      // any catalog entry. Helps operators triage "why didn't my
-      // shortcut fire?" — DevTools console shows e.code / e.key /
-      // modifier state so we can tell whether the keystroke reached
-      // the page at all (if NOTHING logs, the OS / browser
-      // intercepted before delivery; if THIS logs but no `[hotkey]
-      // match` follows, the catalog has no entry for that combo).
-      // No output for unmodified keys (avoids spam from typing).
-      if ((e.ctrlKey || e.metaKey) && !e.repeat) {
-        try { console.debug('[hotkey] no-match', { code: e.code, key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey }); } catch (_) {}
       }
     },
 
@@ -24222,6 +24203,90 @@ function app() {
       }
       this.openHostDrawer(host);
     },
+    // Fire every per-host chart fetch the drawer needs for a single
+    // host, with empty-cache + stale-cache guards. Shared between
+    // `openHostDrawer` (initial drawer mount) and the arrow-key host
+    // nav handler (in-place drawerHost swap that deliberately skips
+    // openHostDrawer to avoid replaying the slide-in animation).
+    // Pre-fix the arrow-nav handler only kicked `loadHostHistory`,
+    // leaving ping / SNMP host / SNMP iface / SNMP temp caches stale-
+    // or-empty for the new host so charts sat on "Collecting data"
+    // until the next 30s drawer-poll tick or 60s SSE sample event.
+    // Both call sites now go through this single helper so adding a
+    // new per-host load helper (e.g. for a future provider) means
+    // editing ONE place instead of two divergent blocks.
+    //
+    // Stale-cache contract: `_cacheStale` returns true when
+    // loadedAt > 30s old OR cache is undefined. Empty-cache bypass
+    // (`series.length < 2`) ALSO triggers refetch — covers the case
+    // where a previous-session HTTP error stamped loadedAt without
+    // populating the cache, leaving an "operationally empty but
+    // timestamp-fresh" entry the stale check skipped.
+    _kickPerHostChartFetches(host) {
+      if (!host) return;
+      try {
+        const _stale = (entry) => !entry || !entry.loadedAt
+          || (Date.now() - entry.loadedAt) > 30_000;
+        const _seriesLen = (entry, field) => {
+          if (!entry) return 0;
+          const arr = entry[field];
+          return Array.isArray(arr) ? arr.length : 0;
+        };
+        // Beszel / NE / Pulse / Webmin main history.
+        const drawerKey = this.hostHistoryKey(host);
+        if (drawerKey
+            && (host.beszel_id || host.ne_url
+                || host.pulse_name || host.webmin_name)) {
+          const cached = this.hostHistory[drawerKey];
+          if (_seriesLen(cached, 'series') < 2 || _stale(cached)) {
+            this.loadHostHistory(host.beszel_id || '', host.id);
+          }
+        }
+        // Ping latency.
+        const pingKey = this.hostPingHistoryKey(host);
+        if (pingKey && host.ping_enabled) {
+          const pcache = this.hostHistory[pingKey];
+          if (_seriesLen(pcache, 'series') < 2 || _stale(pcache)) {
+            this.loadHostPingHistory(host.id);
+          }
+        }
+        // SNMP per-host (CPU / Mem / Disk / load) + per-iface
+        // throughput + per-temperature-probe history. All three
+        // gated on the same `_snmpHasProbeTarget` predicate.
+        if (this._snmpHasProbeTarget(host)) {
+          const sh = this.hostSnmpHistory[host.id];
+          if (_seriesLen(sh, 'points') < 2 || _stale(sh)) {
+            if (typeof this.loadHostSnmpHistory === 'function') {
+              this.loadHostSnmpHistory(host.id, this.hostHistoryRange || 1);
+            }
+          }
+          const ih = this.hostSnmpIfaceHistory[host.id];
+          const ifaces = (ih && ih.ifaces && typeof ih.ifaces === 'object') ? ih.ifaces : {};
+          let ihMax = 0;
+          for (const k of Object.keys(ifaces)) {
+            const a = Array.isArray(ifaces[k]) ? ifaces[k] : [];
+            if (a.length > ihMax) ihMax = a.length;
+          }
+          if (ihMax < 2 || _stale(ih)) {
+            if (typeof this.loadHostSnmpIfaceHistory === 'function') {
+              this.loadHostSnmpIfaceHistory(host.id, this.hostHistoryRange || 1);
+            }
+          }
+          const th = this.hostSnmpTempHistory[host.id];
+          const probes = (th && th.probes && typeof th.probes === 'object') ? th.probes : {};
+          let thMax = 0;
+          for (const k of Object.keys(probes)) {
+            const a = Array.isArray(probes[k]) ? probes[k] : [];
+            if (a.length > thMax) thMax = a.length;
+          }
+          if (thMax < 2 || _stale(th)) {
+            if (typeof this.loadHostSnmpTempHistory === 'function') {
+              this.loadHostSnmpTempHistory(host.id, this.hostHistoryRange || 1);
+            }
+          }
+        }
+      } catch (_) { /* best-effort; charts catch up via drawer-poll timer */ }
+    },
     openHostDrawer(host) {
       if (!host) return;
       this.drawerHost = host;
@@ -24249,66 +24314,17 @@ function app() {
       // forever. The 30s safety timer in resumeHostSampling closes
       // the same window from the other end.
       if (host._resumeBusy) host._resumeBusy = false;
-      // Load history once per (host, range). Subsequent re-opens of
-      // the same host reuse the cached series until the range picker
-      // forces a refetch. Same logic the legacy inline-expansion used.
-      // Stale-cache guard. Pre-fix the gate was just `!hostHistory[key]`
-      // — a previously-cached series fetched at an earlier "now" stayed
-      // on the chart even after the operator had been away for an hour,
-      // so the unified time-domain (which anchors on Date.now() at
-      // render time) clamped every cached point to the left edge and
-      // operators saw the chart cropped from the right. The dedicated
-      // 30s drawer-history poll eventually corrects it, but the first
-      // ~30s after reopening showed stale-positioned data. Re-fetch
-      // when the cache is older than 30s OR missing entirely; under
-      // that threshold the cached data is fresh enough to keep.
-      const HISTORY_STALE_MS = 30_000;
-      const _cacheStale = (entry) => !entry || !entry.loadedAt
-        || (Date.now() - entry.loadedAt) > HISTORY_STALE_MS;
-      const drawerKey = this.hostHistoryKey(host);
-      if (drawerKey && (host.beszel_id || host.ne_url || host.pulse_name || host.webmin_name)
-          && _cacheStale(this.hostHistory[drawerKey])) {
-        this.loadHostHistory(host.beszel_id || '', host.id);
-      }
-      // ping history is a separate fetch (different endpoint,
-      // different key namespace). Only loads when the host has opted
-      // in via per-host `ping_enabled`; the chart card itself is
-      // hidden via `x-show="h.ping_enabled"` for non-opted hosts.
-      const pingKey = this.hostPingHistoryKey(host);
-      if (pingKey && host.ping_enabled && _cacheStale(this.hostHistory[pingKey])) {
-        this.loadHostPingHistory(host.id);
-      }
-      // / SNMP history (separate endpoint, separate state
-      // map). Load EAGERLY when the host has SNMP enabled, BEFORE the
-      // live probe completes — the host_snmp_samples table already
-      // carries previous samples written by the sampler, so charts
-      // can render the last-known series within ~100ms HTTP RTT
-      // instead of waiting 10-20s for the fresh SNMP probe to land.
-      // Gated only on `host.snmp_enabled` (curated config) so non-
-      // SNMP hosts still skip the fetch.
-      // SNMP history fetches — gate is loose: any host with an SNMP
-      // probe target (snmp_name OR address OR explicit enable flag)
-      // gets the fetch. Sampler-side enable is sufficient — the
-      // SPA's `snmp_enabled` flag was the curated-UI toggle, NOT
-      // the operational source-of-truth. Operator-confirmed: every
-      // SNMP-tracked host whose per-host UI checkbox wasn't ticked
-      // showed the "Collecting data" placeholder forever despite
-      // `host_snmp_iface_samples` having fresh rows. Same loose
-      // gate now covers per-host CPU/Mem/Disk history AND per-iface
-      // throughput AND Dell temperature probes — and the same
-      // `_snmpHasProbeTarget(host)` helper is used at every other
-      // SNMP-fetch site (drawer prefetch, IntersectionObserver
-      // prefetch, per-row probe-arrival kick) so the gate is
-      // uniform across the SPA.
-      if (this._snmpHasProbeTarget(host) && _cacheStale(this.hostSnmpHistory[host.id])) {
-        this.loadHostSnmpHistory(host.id, this.hostHistoryRange || 1);
-      }
-      if (this._snmpHasProbeTarget(host) && _cacheStale(this.hostSnmpIfaceHistory[host.id])) {
-        this.loadHostSnmpIfaceHistory(host.id, this.hostHistoryRange || 1);
-      }
-      if (this._snmpHasProbeTarget(host) && _cacheStale(this.hostSnmpTempHistory[host.id])) {
-        this.loadHostSnmpTempHistory(host.id, this.hostHistoryRange || 1);
-      }
+      // Per-host chart fetches — main hostHistory + ping + SNMP host
+      // / iface / temp. Single shared helper used by both the initial
+      // drawer mount (here) AND the arrow-key host nav handler at
+      // `handleHotkey` so adding a new per-host load helper means
+      // editing ONE place instead of two divergent blocks. Each fetch
+      // inside the helper is guarded by stale-cache + empty-cache
+      // checks so re-opening the same host within 30s reuses the
+      // cached series; an "operationally empty but timestamp-fresh"
+      // entry (previous-session HTTP error stamped loadedAt without
+      // populating data) still triggers a fresh fetch.
+      this._kickPerHostChartFetches(host);
       // Dedicated drawer-history poll — keeps the chart series +
       // the `Updated Xs ago` freshness label in sync regardless of
       // whether the operator has the host-list poll enabled (when
