@@ -1940,6 +1940,18 @@ function app() {
       this.$watch('hostHistoryRange', v => {
         try { localStorage.setItem('hostHistoryRange', String(v)); } catch (_) {}
         this.persistHostHistoryRange(v);
+        // Re-fetch host-debug for any host whose debug panel is
+        // currently open — the `samples_in_window` block is keyed
+        // off the chart range, so flipping 1h → 24h needs a fresh
+        // fetch to surface the right counts. Cheap fan-out: typically
+        // only ONE drawer is open, so this is at most a single call.
+        try {
+          for (const hid of Object.keys(this.hostsDebugOpen || {})) {
+            if (this.hostsDebugOpen[hid] && !this.hostsDebugLoading[hid]) {
+              this.loadHostDebug(hid).catch(() => {});
+            }
+          }
+        } catch (_) {}
       });
       // AI-sidebar textarea — vanilla input listener that throttles
       // `aiSidebarQuery` updates to once every ~300 ms. Pre-fix the
@@ -16769,6 +16781,42 @@ function app() {
         if (Array.isArray(h.providers) && h.providers.length) {
           out.providers = h.providers.slice(0, 6);
         }
+        // Probe-health diagnostic for the AI — answers "why is
+        // this host's chart cut / showing collecting data?". Three
+        // signals: (1) `_stale_age_s` — how old the snapshot fallback
+        // markers are (>0 means at least one host_* field came from
+        // snapshot, the live providers haven't refreshed it yet);
+        // (2) `provider_pause` — list of providers in auto-pause
+        // (those samplers won't tick again until manually resumed);
+        // (3) `provider_failing` — providers that ARE configured but
+        // their last probe didn't succeed (chip is red). Surfacing
+        // these on every host record lets the AI cross-reference a
+        // chart-empty question with the actual root cause without
+        // a separate fetch.
+        try {
+          const stale = (h._stale_fields && h._stale_fields.length) ? h._stale_fields : null;
+          const staleTs = +(h._stale_ts || 0);
+          if (stale && staleTs) {
+            out._stale_fields = stale.slice(0, 8).map(String);
+            out._stale_age_s  = Math.max(0, Math.round(Date.now() / 1000 - staleTs));
+          }
+          // Per-provider pause / last-ok summary (shape from
+          // `_shape_host_api_row.provider_pause_state`).
+          const pps = h.provider_pause_state;
+          if (pps && typeof pps === 'object') {
+            const paused = [];
+            const failing = [];
+            for (const [name, state] of Object.entries(pps)) {
+              if (!state || typeof state !== 'object') continue;
+              if (state.paused) paused.push(name);
+              else if (state.consecutive_failures && +state.consecutive_failures > 0) {
+                failing.push(name + '(' + state.consecutive_failures + ')');
+              }
+            }
+            if (paused.length)  out.provider_paused  = paused;
+            if (failing.length) out.provider_failing = failing;
+          }
+        } catch (_) {}
         // Per-host services summary — total + failed counts +
         // names of the failed services. Pre-fix the AI saw zero
         // service-state context, so questions like "any failed
@@ -22647,7 +22695,17 @@ function app() {
       if (!hostId) return;
       this.hostsDebugLoading = { ...this.hostsDebugLoading, [hostId]: true };
       try {
-        const r = await fetch('/api/hosts/debug?id=' + encodeURIComponent(hostId));
+        // Pass `since_hours` so the backend's `samples_in_window`
+        // block matches the chart range picker. Operator selecting
+        // "1h" sees how many samples landed in the past hour for
+        // each time-series table — the diagnostic for "why is the
+        // past-hour chart cut?". Falls through to 1 when the
+        // picker hasn't hydrated yet.
+        const sinceHours = Math.max(1, Math.min(168, +this.hostHistoryRange || 1));
+        const r = await fetch(
+          '/api/hosts/debug?id=' + encodeURIComponent(hostId)
+          + '&since_hours=' + sinceHours
+        );
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));
           this.hostsDebug = {
@@ -22675,6 +22733,92 @@ function app() {
       if (v === null || v === undefined) return '';
       try { return JSON.stringify(v, null, 2); }
       catch { return String(v); }
+    },
+    // Pretty-shape the `counters.samples_in_window` block for the
+    // dedicated debug panel. Backend returns:
+    //   { hours, since_ts, host_snmp_samples: {count, newest_ts,
+    //     oldest_ts, median_gap_s, newest_age_s}, host_metrics_samples,
+    //     host_snmp_iface_samples, ping_samples, host_net_samples }
+    // We project to a list of rows so the template can `x-for` it.
+    // Rows whose host doesn't even have ANY sample for that table
+    // are still emitted (count=0) so the operator can SEE the
+    // missing-data signal — this is the diagnostic.
+    samplesWindowRows(win) {
+      if (!win || typeof win !== 'object') return [];
+      // Friendly labels — the raw table names (`host_snmp_samples`
+      // etc.) are correct but not great. The label resolves through
+      // i18n so non-en locales translate; falls back to a short form.
+      const tables = [
+        ['host_metrics_samples',    'samples_table.label_node_exporter'],
+        ['host_snmp_samples',       'samples_table.label_snmp'],
+        ['host_snmp_iface_samples', 'samples_table.label_snmp_iface'],
+        ['host_net_samples',        'samples_table.label_host_net'],
+        ['ping_samples',            'samples_table.label_ping'],
+      ];
+      const fmtTs = (ts) => {
+        if (ts == null) return '—';
+        try {
+          const d = new Date(ts * 1000);
+          // Same format as the X-axis ticks elsewhere in the app:
+          // local "HH:MM:SS" so the operator can match against the
+          // chart's time axis without mental conversion.
+          return d.toLocaleString(undefined, {
+            month:  'short', day: '2-digit',
+            hour:   '2-digit', minute: '2-digit', second: '2-digit',
+          });
+        } catch { return String(ts); }
+      };
+      const fmtAge = (s) => {
+        if (s == null) return '—';
+        const n = Math.max(0, Math.round(+s || 0));
+        if (n < 60)   return n + 's';
+        if (n < 3600) return Math.round(n / 60) + 'm';
+        if (n < 86400) return (n / 3600).toFixed(1) + 'h';
+        return (n / 86400).toFixed(1) + 'd';
+      };
+      const fmtGap = (s) => {
+        if (s == null) return '—';
+        const n = Math.max(0, Math.round(+s || 0));
+        if (n < 60)  return n + 's';
+        return Math.round(n / 60) + 'm ' + (n % 60) + 's';
+      };
+      const winHours = +(win.hours || 1);
+      // Newest-age warning threshold — flag when the newest sample
+      // is OLDER than the window itself (sampler hasn't ticked AT
+      // ALL during the selected window — the canonical "chart cut"
+      // signal). The threshold is `winHours * 3600`s.
+      const ageWarnThreshold = winHours * 3600;
+      const out = [];
+      for (const [key, labelKey] of tables) {
+        const blob = win[key];
+        if (!blob || typeof blob !== 'object') continue;
+        if (blob._error) {
+          out.push({
+            table: key,
+            label: this.t(labelKey) || key,
+            count: 0,
+            oldest_str: '—',
+            newest_str: '—',
+            newest_age_str: '—',
+            newest_age_warn: false,
+            median_gap_str: this.t('debug_panel.samples_table.error') || ('error: ' + blob._error),
+          });
+          continue;
+        }
+        const count = +blob.count || 0;
+        const ageS = blob.newest_age_s;
+        out.push({
+          table: key,
+          label: this.t(labelKey) || key,
+          count,
+          oldest_str: count > 0 ? fmtTs(blob.oldest_ts) : '—',
+          newest_str: count > 0 ? fmtTs(blob.newest_ts) : '—',
+          newest_age_str: count > 0 ? fmtAge(ageS) : '—',
+          newest_age_warn: count > 0 && ageS != null && +ageS > ageWarnThreshold,
+          median_gap_str: count >= 2 ? fmtGap(blob.median_gap_s) : '—',
+        });
+      }
+      return out;
     },
     // "Is this debug payload worth rendering?" — wrapper x-show for
     // each box in the grid. null / undefined → false (hide); empty

@@ -6278,6 +6278,33 @@ body.login {
     word-break: normal;
 }
 
+/* "Samples in window" debug table — dedicated panel that surfaces
+   per-series sample counts within the chart's selected time window.
+   Compact monospace shape so each row reads as a one-glance unit;
+   header + cells get tight padding so the whole panel fits five
+   series on a typical drawer width without horizontal scroll. */
+.host-debug-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+    color: var(--text-dim);
+}
+.host-debug-table th,
+.host-debug-table td {
+    padding: var(--s-2) var(--s-3);
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+.host-debug-table thead th {
+    color: var(--text-faint);
+    font-weight: 600;
+    border-bottom-color: var(--border-bright);
+    background: var(--surface-2);
+}
+.host-debug-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
 /* SSH runner — stderr pane tinted with the danger token so bad output
    is visually distinct from stdout without shouting. Stays tokenised
    per CLAUDE.md's "no hardcoded colours outside :root" rule. */

@@ -10105,6 +10105,7 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
 @app.get("/api/hosts/debug")
 async def api_hosts_debug(
     id: str = "",
+    since_hours: int = 1,
     _u: auth.User = Depends(auth.require_admin),
 ):
     """Admin-only diagnostic: raw provider responses + normalized
@@ -10184,9 +10185,17 @@ async def api_hosts_debug(
             # `record.snmp.enabled === true` is required. Hosts without
             # SNMP enrolled leave snmp_task as None, the panel hides
             # the slot.
+            # Canonical SNMP resolver chain — matches the live sampler /
+            # `_merge_one_host` / `api_hosts_test` paths:
+            # `aliases → snmp_name → address → SKIP`. Pre-fix this
+            # debug-side kickoff stopped at `snmp_name` and never
+            # consulted the curated `address` field, so address-only
+            # SNMP hosts had no providers_raw.snmp output in /api/hosts/debug
+            # even though the live sampler probed them correctly.
             target_kick = (
                 sn_aliases_kick.get(record["id"])
                 or (record.get("snmp_name") or "").strip()
+                or (record.get("address") or "").strip()
                 or ""
             )
             enabled_kick = row_snmp_kick.get("enabled") is True
@@ -10608,16 +10617,21 @@ async def api_hosts_debug(
         or (p == "webmin"        and (record.get("webmin_name") or "").strip())
         or (p == "ping"          and bool((record.get("ping") or {}).get("enabled", False)))
         # SNMP is "active for this host" only when (a) the operator has
-        # mapped a target (alias OR per-row snmp_name) AND (b) the per-row
-        # `snmp.enabled === True` opt-in flag is set. The probe-side gate
-        # in `_merge_one_host` requires both — pre-fix the debug panel
-        # showed SNMP as active even when the operator had explicitly
-        # disabled it for the row, contradicting what the actual probe
-        # would do.
+        # mapped a probe target (alias OR per-row `snmp_name` OR the
+        # shared `address` field) AND (b) the per-row `snmp.enabled
+        # === True` opt-in flag is set. The probe-side gate in
+        # `_merge_one_host` uses the canonical `aliases → snmp_name →
+        # address → SKIP` chain — this gate must accept the same
+        # alternatives or the debug panel will hide SNMP rows for
+        # address-only hosts even when the live sampler probes them
+        # successfully.
         or (p == "snmp" and bool(
-            ((record.get("snmp_name") or "").strip())
-            and isinstance(record.get("snmp"), dict)
+            isinstance(record.get("snmp"), dict)
             and record["snmp"].get("enabled") is True
+            and (
+                (record.get("snmp_name") or "").strip()
+                or (record.get("address") or "").strip()
+            )
         ))
     )
     # Per-host counters — operator-requested addition. Surfaces
@@ -10716,28 +10730,139 @@ async def api_hosts_debug(
     except Exception as e:
         counters["_db_error"] = str(e)
 
+    # ---- Samples in window — per-time-range diagnostic. -----------
+    # Operator-flagged: charts can show "cut" data in the past hour
+    # (gaps in the polyline, missing buckets at the head / tail).
+    # The counters above show TOTAL row counts since the host's first
+    # sample — not useful when diagnosing "why is the past hour
+    # missing data?". This block answers exactly that question:
+    # for each time-series table, how many rows landed within the
+    # `since_hours` window, what's the most-recent / oldest
+    # timestamp inside it, and the median gap between consecutive
+    # samples (lets the operator see whether the sampler's been
+    # ticking on cadence or skipping). Window mirrors the chart
+    # range picker (1 / 6 / 24 / 168 hours) so the SPA passes the
+    # same value the user has selected and the count matches
+    # what's plotted.
+    window_hours = max(1, min(168, int(since_hours or 1)))
+    since_ts = int(time.time() - window_hours * 3600)
+    samples_in_window: dict = {"hours": window_hours, "since_ts": since_ts}
+    try:
+        with db_conn() as c:
+            for table in (
+                "host_snmp_samples", "host_snmp_iface_samples",
+                "host_metrics_samples", "ping_samples",
+                "host_net_samples",
+            ):
+                try:
+                    row = c.execute(
+                        f"SELECT COUNT(*), MIN(ts), MAX(ts) "
+                        f"FROM {table} WHERE host_id = ? AND ts >= ?",
+                        (id, since_ts),
+                    ).fetchone()
+                except Exception as e:
+                    samples_in_window[table] = {"_error": str(e)}
+                    continue
+                count = int(row[0] or 0)
+                oldest = int(row[1]) if row[1] is not None else None
+                newest = int(row[2]) if row[2] is not None else None
+                # Median gap between consecutive samples — a flat
+                # cadence sampler should produce a near-constant gap
+                # (~5 min for `host_metrics_samples`, ~1 min for
+                # `ping_samples`, etc.). A median gap >> the
+                # configured interval flags a sampler that's been
+                # skipping ticks; a median gap == the interval is
+                # healthy. SQLite doesn't have a built-in median, so
+                # we lift up to 200 timestamps and compute it Python-
+                # side. Cap at 200 to bound the read for a 7-day
+                # ping window which can carry ~10000 rows.
+                gaps_median: Optional[int] = None
+                if count >= 2:
+                    try:
+                        ts_rows = c.execute(
+                            f"SELECT ts FROM {table} "
+                            f"WHERE host_id = ? AND ts >= ? "
+                            f"ORDER BY ts ASC LIMIT 200",
+                            (id, since_ts),
+                        ).fetchall()
+                        ts_list = [int(r[0]) for r in ts_rows]
+                        gaps = [b - a for a, b in zip(ts_list, ts_list[1:])]
+                        if gaps:
+                            gaps.sort()
+                            mid = len(gaps) // 2
+                            gaps_median = (
+                                gaps[mid] if len(gaps) % 2 == 1
+                                else (gaps[mid - 1] + gaps[mid]) // 2
+                            )
+                    except Exception:
+                        gaps_median = None
+                samples_in_window[table] = {
+                    "count":         count,
+                    "newest_ts":     newest,
+                    "oldest_ts":     oldest,
+                    "median_gap_s":  gaps_median,
+                    "newest_age_s": (
+                        int(time.time() - newest) if newest is not None
+                        else None
+                    ),
+                }
+    except Exception as e:
+        samples_in_window["_db_error"] = str(e)
+    counters["samples_in_window"] = samples_in_window
+
     # Tunables that affect this host's probe behaviour. Surfaced so
     # operators don't have to cross-reference Admin → Config to see
     # "what's the failure-pause threshold for SNMP?". Read live from
-    # the resolver so a recent edit is reflected.
+    # the resolver so a recent edit is reflected. Audit-grouped by
+    # provider so a missing knob in one provider's section is easier
+    # to spot at a glance during reviews — keep new tunables in the
+    # matching block when adding.
     from logic.tuning import tuning_int as _tuning_int
     tuning_keys = [
-        "tuning_snmp_failure_pause_rounds",
-        "tuning_webmin_failure_pause_rounds",
-        "tuning_beszel_failure_pause_rounds",
-        "tuning_pulse_failure_pause_rounds",
-        "tuning_pulse_probe_timeout_seconds",
-        "tuning_webmin_probe_timeout_seconds",
-        "tuning_node_exporter_failure_pause_rounds",
-        "tuning_ping_failure_pause_rounds",
-        "tuning_snmp_sample_interval_seconds",
+        # Global / shared sampler cadence + retention.
         "tuning_stats_sample_interval_seconds",
         "tuning_stats_history_days",
-        "tuning_snmp_probe_timeout_seconds",
-        "tuning_snmp_concurrency",
         "tuning_host_permanent_fail_window_seconds",
-        "tuning_webmin_host_cache_ttl_seconds",
+        "tuning_host_provider_cache_ttl_seconds",
+        "tuning_host_snapshots_cache_ttl_seconds",
+        "tuning_host_metrics_probe_concurrency",
+        "tuning_auth_failure_cooldown_seconds",
+        # SNMP — sampler / probe / cache / vendor-walk knobs.
+        "tuning_snmp_sample_interval_seconds",
+        "tuning_snmp_probe_timeout_seconds",
+        "tuning_snmp_wall_clock_budget_seconds",
+        "tuning_snmp_concurrency",
+        "tuning_snmp_per_host_walk_concurrency",
+        "tuning_snmp_failure_pause_rounds",
         "tuning_snmp_host_cache_ttl_seconds",
+        "tuning_snmp_host_fail_cache_ttl_seconds",
+        "tuning_snmp_unreachable_cooldown_seconds",
+        "tuning_snmp_walk_concurrency_dell",
+        "tuning_snmp_walk_concurrency_cisco",
+        "tuning_snmp_walk_concurrency_synology",
+        "tuning_snmp_walk_concurrency_printer",
+        "tuning_snmp_walk_concurrency_ucd",
+        # Webmin — probe budget + cache + auto-pause.
+        "tuning_webmin_probe_timeout_seconds",
+        "tuning_webmin_probe_budget_seconds",
+        "tuning_webmin_sampler_budget_seconds",
+        "tuning_webmin_host_cache_ttl_seconds",
+        "tuning_webmin_host_fail_cache_ttl_seconds",
+        "tuning_webmin_failure_pause_rounds",
+        # Beszel — probe + auto-pause.
+        "tuning_beszel_failure_pause_rounds",
+        # Pulse — probe + auto-pause.
+        "tuning_pulse_probe_timeout_seconds",
+        "tuning_pulse_failure_pause_rounds",
+        # node-exporter — probe + auto-pause.
+        "tuning_node_exporter_probe_timeout_seconds",
+        "tuning_node_exporter_failure_pause_rounds",
+        # Ping — sampler / probe / cooldown / auto-pause.
+        "tuning_ping_interval_seconds",
+        "tuning_ping_concurrency",
+        "tuning_ping_probe_timeout_seconds",
+        "tuning_ping_cooldown_seconds",
+        "tuning_ping_failure_pause_rounds",
     ]
     counters["tunables"] = {}
     for key in tuning_keys:

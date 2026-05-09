@@ -2822,13 +2822,29 @@
       "merged": "Merged (best-of)",
       "rendered": "Rendered (/api/hosts)",
       "counters": "Counters & state",
+      "samples_in_window": "Samples in window",
       "asset_raw": "Asset · Raw",
       "asset_shape": "Asset · Shape"
     },
     "hints": {
       "merged": "after _merge_best",
       "rendered": "what the UI sees",
-      "counters": "failure-state, per-provider pauses, sample row counts, tunables"
+      "counters": "failure-state, per-provider pauses, sample row counts, tunables",
+      "samples_in_window": "matches the chart range picker · last {hours}h · written rows + freshness + median sampler gap"
+    },
+    "samples_table": {
+      "col_table": "Series",
+      "col_count": "Count",
+      "col_oldest": "Oldest",
+      "col_newest": "Newest",
+      "col_newest_age": "Newest age",
+      "col_median_gap": "Median gap",
+      "label_node_exporter": "NE / Pulse / Webmin (host_metrics)",
+      "label_snmp": "SNMP",
+      "label_snmp_iface": "SNMP per-iface",
+      "label_host_net": "host_net (NE counters)",
+      "label_ping": "Ping",
+      "error": "error"
     }
   },
   "topbar_widgets": {
