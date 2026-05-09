@@ -21,7 +21,7 @@ Step-by-step runbooks for each integration / subsystem.
 | [`guidelines/deploy.md`](guidelines/deploy.md) | Production deploy via the CI pipeline (image-build + registry push + force-update). Runner setup, deploy-key rotation, version-bump model, manual rollback, reverse-proxy timeouts, troubleshooting. |
 | [`guidelines/env_example.md`](guidelines/env_example.md) | Every supported `.env` key with defaults, scope, and migration notes. |
 | [`guidelines/metrics_guide.md`](guidelines/metrics_guide.md) | Prometheus `/metrics` schema + Grafana dashboard import notes. |
-| [`guidelines/scheduler.md`](guidelines/scheduler.md) | Scheduler kinds (`gather_refresh` / `prune_node` / `prune_all_nodes` / `backup` / `asset_inventory_refresh` / `prune_logs`), endpoints, safety properties. |
+| [`guidelines/scheduler.md`](guidelines/scheduler.md) | Scheduler kinds (`gather_refresh` / `prune_node` / `prune_all_nodes` / `backup` / `asset_inventory_refresh` / `prune_logs` / `prune_notifications` / `swarm_agent_health` / `port_scan_refresh`), endpoints, safety properties. |
 | [`guidelines/beszel_agent.md`](guidelines/beszel_agent.md) | Beszel agent install + the `EXTRA_FILESYSTEMS` / `NICS` env knobs OmniGrid relies on. |
 | [`guidelines/api.md`](guidelines/api.md) | **OmniGrid HTTP API** — auth modes, common workflows, error shapes, stability contract. |
 | [`guidelines/api_services.md`](guidelines/api_services.md) | OmniGrid's outbound integrations (Asset API, Apprise, Open-Meteo). |

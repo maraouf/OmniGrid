@@ -7083,35 +7083,7 @@
                                 <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
                               </button>
                             </header>
-                            <div class="host-debug-table-wrap scrollbar">
-                              <table class="host-debug-table mono"
-                                     :aria-label="t('debug_panel.labels.samples_in_window')">
-                                <thead>
-                                  <tr>
-                                    <th class="text-start" x-text="t('debug_panel.samples_table.col_table')"></th>
-                                    <th class="text-end"   x-text="t('debug_panel.samples_table.col_count')"></th>
-                                    <th class="text-end"   x-text="t('debug_panel.samples_table.col_oldest')"></th>
-                                    <th class="text-end"   x-text="t('debug_panel.samples_table.col_newest')"></th>
-                                    <th class="text-end"   x-text="t('debug_panel.samples_table.col_newest_age')"></th>
-                                    <th class="text-end"   x-text="t('debug_panel.samples_table.col_median_gap')"></th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  <template x-for="row in samplesWindowRows(hostsDebug[h.id].counters.samples_in_window)" :key="row.table">
-                                    <tr>
-                                      <td class="text-start" x-text="row.label"></td>
-                                      <td class="text-end" x-text="row.count.toLocaleString()"
-                                          :class="row.count === 0 ? 'text-[var(--danger)]' : ''"></td>
-                                      <td class="text-end" x-text="row.oldest_str"></td>
-                                      <td class="text-end" x-text="row.newest_str"></td>
-                                      <td class="text-end" x-text="row.newest_age_str"
-                                          :class="row.newest_age_warn ? 'text-[var(--warning)]' : ''"></td>
-                                      <td class="text-end" x-text="row.median_gap_str"></td>
-                                    </tr>
-                                  </template>
-                                </tbody>
-                              </table>
-                            </div>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].counters.samples_in_window)"></pre>
                           </section>
                           <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(hostsDebug[h.id].counters)">
                             <header class="host-debug-box-head">
