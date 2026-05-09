@@ -163,6 +163,21 @@ def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
         or (nr_bps is not None) or (ns_bps is not None)
     )
     if not has_signal:
+        # Diagnostic — operator chasing "wrote=0 even though looked_up>0"
+        # needs to see WHICH field came back null for which host. The
+        # tick summary's `wrote=0` only tells us the gate fired; this
+        # per-host trace tells us why. Throttled at the sampler tick
+        # cadence (~5 min) so safe to print verbatim. Lists the first
+        # 12 stats keys + first 3 sample values so we can tell whether
+        # extract_guest_stats produced the host_* prefix at all.
+        sample_keys = sorted(stats.keys())[:12] if isinstance(stats, dict) else []
+        print(
+            f"[host_pulse_sampler] skip-empty {host_id}: "
+            f"cpu={cpu!r} mem_total={mem_total!r} mem_used={mem_used!r} "
+            f"disk_total={disk_total!r} disk_used={disk_used!r} "
+            f"rx={rx_total!r} tx={tx_total!r} "
+            f"stats_keys={sample_keys}"
+        )
         return None
     return (
         int(now), host_id,

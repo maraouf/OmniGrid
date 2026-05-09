@@ -2249,10 +2249,15 @@ function app() {
       // matched so the bubble-phase handler doesn't try to fire it
       // a second time. All other keys fall through untouched.
       window.addEventListener('keydown', (e) => {
+        // Cmd/Ctrl+K opens the AI sidebar. Cmd/Ctrl+/ was ALSO bound
+        // here historically (legacy palette combo) but was dropped on
+        // 2026-05-09 because the migrated hotkey catalog now uses
+        // Cmd/Ctrl+/ for "focus search" and the capture-phase
+        // intercept here would eat it before the bubble-phase
+        // handleHotkey could see it.
         const cmdMod = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
         const isPaletteCombo = cmdMod && (
-          e.key === 'k' || e.key === 'K' || e.code === 'KeyK' ||
-          e.key === '/' || e.code === 'Slash'
+          e.key === 'k' || e.key === 'K' || e.code === 'KeyK'
         );
         if (!isPaletteCombo) return;
         // Single-fire sentinel — operator-reported diagnostic
@@ -14691,7 +14696,31 @@ function app() {
       // through to the browser's native select-all-text behaviour
       // inside text fields.
 
-      // Walk the catalog once, match on (modifiers + key).
+      // Map a catalog character key (e.g. '/', '1', 'r') to its
+      // physical `e.code` value. `e.code` is keyboard-layout-
+      // independent and NOT mangled by Shift — pressing Shift+/
+      // produces `e.key === '?'` on US keyboards but `e.code` stays
+      // 'Slash' regardless. Pre-2026-05-09 the matcher compared
+      // `e.key.toLowerCase()` which silently broke every
+      // Cmd/Ctrl+Shift+<symbol> binding (Cmd/Ctrl+Shift+/ for help
+      // never matched because '/' !== '?'). This mapper plus an
+      // `e.code` comparison fixes the family. Returns null for keys
+      // we don't have a code mapping for (caller falls back to
+      // `e.key.toLowerCase()`).
+      const _hotkeyCharToCode = (ch) => {
+        if (!ch) return null;
+        if (/^[a-zA-Z]$/.test(ch)) return 'Key' + ch.toUpperCase();
+        if (/^[0-9]$/.test(ch)) return 'Digit' + ch;
+        const map = {
+          '/': 'Slash', '.': 'Period', ',': 'Comma',
+          ';': 'Semicolon', "'": 'Quote', '\\': 'Backslash',
+          '[': 'BracketLeft', ']': 'BracketRight',
+          '-': 'Minus', '=': 'Equal', '`': 'Backquote',
+        };
+        return map[ch] || null;
+      };
+
+      // Walk the catalog once, match on (modifiers + physical key).
       for (const group of this.hotkeyGroups()) {
         for (const entry of group.items) {
           if (!entry.run) continue;
@@ -14709,13 +14738,14 @@ function app() {
           const wantsShift = mods.includes('Shift');
           if (wantsCtrl !== (e.ctrlKey || e.metaKey)) continue;
           if (wantsShift !== e.shiftKey) continue;
-          // Key match — case-insensitive for letters because
-          // `e.key` returns 'r' OR 'R' depending on Shift state, and
-          // we already gated Shift above. Period / slash / digits
-          // are case-insensitive naturally.
-          const want = String(last).toLowerCase();
-          const got  = String(e.key || '').toLowerCase();
-          if (want === got) {
+          // Prefer e.code (physical key, Shift-independent). Fall
+          // back to e.key.toLowerCase() when no code mapping exists
+          // (rare — only obscure punctuation).
+          const wantCode = _hotkeyCharToCode(last);
+          const matched = wantCode
+            ? (e.code === wantCode)
+            : (String(last).toLowerCase() === String(e.key || '').toLowerCase());
+          if (matched) {
             e.preventDefault();
             entry.run();
             return;
