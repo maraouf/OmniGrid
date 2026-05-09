@@ -5243,33 +5243,33 @@
                           @click="setHostHistoryRange(168)"
                           x-text="t('host_drawer.charts.range_7d')"></button>
                 </div>
-                <!-- Subtle data-freshness hint — only shows after
-                     the first successful fetch. Ticks every 30s via the
-                     shared `hostHistoryNow` timer in init() so the
-                     "Xm ago" label stays current without re-fetching.
-                     Hidden while the picker is reloading so the
-                     spinner below is the only indicator. -->
-                <span class="fs-2xs italic text-[var(--text-faint)]"
-                      x-show="hostHistoryFreshness(h) && !hostHistoryRangeBusy"
-                      :title="hostHistoryFreshnessAbsolute(h)"
-                      x-text="hostHistoryFreshness(h)"></span>
-                <!-- "Cached" pill — fires when the host is in stale
-                     snapshot-fallback state (provider unreachable).
-                     Charts continue to render historical data from the
-                     local sample tables even when the upstream provider
-                     is down (the local-store IS the cached chart data
-                     source; backend reads from it regardless of provider
-                     status), but the operator needs an explicit signal
-                     that the line they're looking at is bounded by the
-                     last successful sampler tick rather than reflecting
-                     live activity. The drawer-level stale banner above
-                     conveys this for the merged scalar values; this
-                     pill mirrors it at the chart-strip level so the
-                     operator's eye doesn't have to bounce between the
-                     banner and the charts to triage. Tooltip lists the
-                     specific cached providers via the same
-                     `staleProviders` helper the banner uses. -->
-                <span x-show="isStale(h) && !hostHistoryRangeBusy"
+                <!-- Unified chart-data freshness label. Replaces the
+                     pair of (a) `hostHistoryFreshness` ("Updated Xs
+                     ago", reading the FETCH time, not the data) and
+                     (b) the SNMP-specific freshness banner that used
+                     to live below the Ping chart. Now one generic
+                     "Last sample Xm ago" works for ALL provider
+                     charts (Beszel / NE / Pulse / Webmin / SNMP host /
+                     SNMP iface / SNMP temp / Ping) — the helper
+                     `chartFreshness(h)` walks every chart cache and
+                     returns the age of the newest sample across all
+                     of them. Goes amber when stale (> 10 min, ≈ 2×
+                     default sampler cadence). Hidden while the range
+                     picker is reloading. -->
+                <span x-show="chartFreshness(h) && !hostHistoryRangeBusy"
+                      class="fs-2xs italic inline-flex items-center gap-1"
+                      :class="chartFreshness(h) && chartFreshness(h).stale ? 'text-[var(--warning)]' : 'text-[var(--text-faint)]'"
+                      :title="t('host_drawer.charts.last_sample_title')">
+                  <svg width="10" height="10" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/></svg>
+                  <span x-text="chartFreshness(h) ? t('host_drawer.charts.last_sample', { age: chartFreshness(h).label }) : ''"></span>
+                </span>
+                <!-- "Cached" pill — fires when the chart's own data
+                     is genuinely stale (newest sample > ~2× sampler
+                     cadence old). Specifically answers "is the chart
+                     line going to update in the next sampler tick or
+                     is it frozen?". Tooltip lists the cached providers
+                     via `staleProviders` for context. -->
+                <span x-show="isHostChartStale(h) && !hostHistoryRangeBusy"
                       class="chip pill-warning fs-2xs px-1.5 py-0 ms-1"
                       :title="t('host_drawer.charts.cached_pill_title', { providers: staleProviders(h).map(n => providerDisplayName(n)).join(', ') || '—' })"
                       x-text="t('host_drawer.charts.cached_pill')"></span>
@@ -5431,24 +5431,12 @@
                    averages (3 lines), memory stacked layers. Each
                    card individually gates so a host that returns ONLY
                    per-core CPU + no load avg still gets the CPU card. -->
-              <!-- Freshness banner for the SNMP chart section.
-                   When the displayed data came from `host_snmp_samples`
-                   (loaded from the table while the live probe is in
-                   flight or pending), surface "Updated Xs ago" so the
-                   operator can tell the chart isn't real-time. Goes
-                   amber after 10 minutes (2× sampler cadence). -->
-              <div x-show="hostHasSnmpCharts(h) && snmpHistoryFreshness(h)"
-                   class="mt-3 fs-xs flex items-center gap-2 text-[var(--warning)]">
-                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/></svg>
-                <span x-text="snmpHistoryFreshness(h)
-                                ? t('host_drawer.snmp_charts.freshness', { age: snmpHistoryFreshness(h).label })
-                                : ''"></span>
-                <span x-show="hostSnmpHistory[h.id] && hostSnmpHistory[h.id].loading"
-                      class="ms-1 inline-flex items-center gap-1 text-[var(--text-faint)]">
-                  <span class="spin"></span>
-                  <span x-text="t('host_drawer.snmp_charts.refreshing')"></span>
-                </span>
-              </div>
+              <!-- (SNMP freshness banner moved to the chart-strip
+                   header, see the inline-flex span next to the Cached
+                   pill above. Keeping the comment block here as a
+                   pointer for future agents who'll grep for "SNMP
+                   freshness banner" expecting to find it in this
+                   neighbourhood.) -->
               <!-- "Collecting first samples" hint when the
                    sampler hasn't accumulated 2+ samples yet. SNMP just
                    enabled? Live legend values (CPU%, Load avg, Mem

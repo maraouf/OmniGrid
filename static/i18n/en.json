@@ -2829,7 +2829,9 @@
       "range_24h_aria": "Last 24 hours",
       "range_7d_aria": "Last 7 days",
       "cached_pill": "Cached",
-      "cached_pill_title": "Provider unreachable — chart line is bounded by the last successful sampler tick. Cached providers: {providers}."
+      "cached_pill_title": "Provider unreachable — chart line is bounded by the last successful sampler tick. Cached providers: {providers}.",
+      "last_sample": "Last sample {age} ago",
+      "last_sample_title": "Age of the most recent data point across every chart cache for this host (Beszel / NE / Pulse / Webmin / SNMP / Ping). Amber after 10 min — sampler may have stalled."
     }
   },
   "debug_panel": {

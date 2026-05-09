@@ -25948,6 +25948,108 @@ function app() {
         count: Math.floor(ageS / 3600),
       });
     },
+    // Generic chart-data freshness — works for ALL provider chart
+    // caches, not just SNMP. Returns `{age_s, label, stale}` derived
+    // from the MOST RECENT sample timestamp across every chart cache
+    // the host might have populated: main `hostHistory[key].series`
+    // (Beszel / NE / Pulse / Webmin), ping `hostHistory[ping:id]`,
+    // SNMP host `hostSnmpHistory[id].points`, SNMP per-iface
+    // `hostSnmpIfaceHistory[id].ifaces[*]`, SNMP per-temperature-probe
+    // `hostSnmpTempHistory[id].probes[*]`. Used by the chart-strip
+    // header's freshness label so the operator sees ONE unified
+    // "Last sample Xm ago" signal regardless of which provider is
+    // backing the charts. Pre-fix the strip showed two separate
+    // labels — `hostHistoryFreshness` (which reads `loadedAt`, the
+    // FETCH time, not the data) AND a SNMP-specific freshness banner
+    // — which split the operator's attention and confused them when
+    // they disagreed (fetch time fresh but data old, or vice versa).
+    //
+    // Returns null when no chart cache has any data (chart's own
+    // "Collecting data" placeholder handles that signal).
+    chartFreshness(h) {
+      if (!h) return null;
+      let maxTs = 0;
+      const collectFromSeries = (entry, field) => {
+        if (!entry) return;
+        const arr = (entry && Array.isArray(entry[field])) ? entry[field] : [];
+        if (!arr.length) return;
+        const last = arr[arr.length - 1];
+        const ts = Number((last && (last.t || last.ts)) || 0);
+        if (ts > maxTs) maxTs = ts;
+      };
+      try {
+        const mainKey = this.hostHistoryKey ? this.hostHistoryKey(h) : '';
+        if (mainKey && this.hostHistory) collectFromSeries(this.hostHistory[mainKey], 'series');
+        const pingKey = this.hostPingHistoryKey ? this.hostPingHistoryKey(h) : '';
+        if (pingKey && this.hostHistory) collectFromSeries(this.hostHistory[pingKey], 'series');
+        if (this.hostSnmpHistory) collectFromSeries(this.hostSnmpHistory[h.id], 'points');
+        const ih = this.hostSnmpIfaceHistory && this.hostSnmpIfaceHistory[h.id];
+        if (ih && ih.ifaces && typeof ih.ifaces === 'object') {
+          for (const k of Object.keys(ih.ifaces)) {
+            const arr = Array.isArray(ih.ifaces[k]) ? ih.ifaces[k] : [];
+            if (!arr.length) continue;
+            const ts = Number((arr[arr.length - 1] || {}).ts || (arr[arr.length - 1] || {}).t || 0);
+            if (ts > maxTs) maxTs = ts;
+          }
+        }
+        const th = this.hostSnmpTempHistory && this.hostSnmpTempHistory[h.id];
+        if (th && th.probes && typeof th.probes === 'object') {
+          for (const k of Object.keys(th.probes)) {
+            const arr = Array.isArray(th.probes[k]) ? th.probes[k] : [];
+            if (!arr.length) continue;
+            const ts = Number((arr[arr.length - 1] || {}).ts || (arr[arr.length - 1] || {}).t || 0);
+            if (ts > maxTs) maxTs = ts;
+          }
+        }
+      } catch (_) { /* defensive */ }
+      if (!maxTs) return null;
+      const nowS = (this.hostHistoryNow || Date.now()) / 1000;
+      const ageS = Math.max(0, Math.round(nowS - maxTs));
+      let label;
+      if (ageS < 60) label = ageS + 's';
+      else if (ageS < 3600) label = Math.round(ageS / 60) + 'm';
+      else label = Math.round(ageS / 3600) + 'h';
+      return { age_s: ageS, label, stale: ageS > 600 };
+    },
+    // Decide whether to show the "Cached" pill on the chart strip.
+    // The pill claims the chart line is bounded by the last successful
+    // sampler tick — so the gate must check the CHART data's actual
+    // freshness, not the merged-host scalar stale state. Pre-fix the
+    // pill was gated on `isStale(h)`, which fires whenever ANY merged
+    // scalar field came from snapshot — including hosts where the
+    // sampler was still actively writing chart points but a different
+    // provider was down (e.g. Beszel sampler keeps writing, but NE
+    // went down so `host_kernel` is from snapshot). User-flagged: chart
+    // showing "Updated 25s ago" alongside "Cached" pill — confusing.
+    //
+    // True chart-stale signal: the newest sample timestamp in the
+    // primary hostHistory cache is older than ~2× the sampler cadence.
+    // Default sampler interval is 300s, so threshold 600s. Below that
+    // → sampler is still writing → chart is live → pill HIDDEN.
+    // Above → sampler has stopped → chart line is bounded by the last
+    // tick → pill VISIBLE.
+    //
+    // Empty cache (no data at all) returns false — the chart's own
+    // "Collecting data" placeholder handles that signal; the pill
+    // would be redundant noise on a host that hasn't loaded data yet.
+    isHostChartStale(h) {
+      if (!h) return false;
+      const key = this.hostHistoryKey ? this.hostHistoryKey(h) : '';
+      if (!key) return false;
+      const entry = this.hostHistory && this.hostHistory[key];
+      const series = (entry && Array.isArray(entry.series)) ? entry.series : [];
+      if (series.length < 2) return false;
+      const last = series[series.length - 1];
+      const newestSec = Number((last && (last.t || last.ts)) || 0);
+      if (!newestSec) return false;
+      // `hostHistoryNow` is the same 30s-ticked timer the freshness
+      // label reads — touching it here makes Alpine re-evaluate the
+      // gate on every tick so the pill flips on/off without operator
+      // action when the sampler stalls.
+      const nowMs = this.hostHistoryNow || Date.now();
+      const ageS = Math.max(0, (nowMs / 1000) - newestSec);
+      return ageS > 600;
+    },
     // absolute-time tooltip companion for the
     // relative "Updated Xs ago" label. Operators correlating a chart
     // anomaly with Grafana / Prometheus dashboards need a stable
