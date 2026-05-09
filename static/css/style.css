@@ -6248,6 +6248,19 @@ body.login {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    /* Uniform height across every sibling box in the debug grid. The
+       inner <pre class="host-debug-json"> caps at 320px and the
+       header is ~40px — so 360px is the natural max for a fully-
+       populated box. Setting it as the min-height makes lightly-
+       populated boxes (e.g. "Active providers" with 3 chips) match
+       the height of densely-populated ones (Counters / Samples in
+       window / Chart data) so the grid reads as a uniform tile
+       layout instead of jagged rows. Capping at the same value
+       prevents any single box from exceeding the row height when
+       its content somehow bypasses the inner-pre cap (defence in
+       depth — the inner cap normally holds). */
+    min-height: 360px;
+    max-height: 360px;
 }
 
 .host-debug-box--wide {

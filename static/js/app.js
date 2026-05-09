@@ -24407,11 +24407,20 @@ function app() {
     // kicker — single source of truth so the gate stays consistent.
     _snmpHasProbeTarget(host) {
       if (!host) return false;
+      // Strict SNMP intent only — `snmp_enabled === true` (curated UI
+      // toggle) OR `snmp_name` (explicit per-host SNMP target alias).
+      // The bare `address` field is NOT enough on its own because
+      // `address` is a generic per-host probe target ALSO used by
+      // ping-only hosts; matching bare `address` here trips
+      // `hostHasSnmpCharts(h)` for ping-only hosts, which renders the
+      // SNMP warming-up banner under the Ping chart even though the
+      // host has no SNMP target wired. The sampler-side resolver
+      // chain (`aliases → snmp_name → address → SKIP`) is the place
+      // that legitimately walks `address`; it only does so AFTER
+      // confirming SNMP is otherwise opted-in for the host.
       if (host.snmp_enabled) return true;
       const name = (host.snmp_name || '').trim();
       if (name) return true;
-      const addr = (host.address || '').trim();
-      if (addr) return true;
       return false;
     },
     // Per-interface SNMP counter history. One entry per host,
