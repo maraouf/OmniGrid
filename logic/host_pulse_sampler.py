@@ -225,6 +225,11 @@ async def host_pulse_sampler_loop() -> None:
                     continue
                 hub_map = await _probe_one_tick()
                 now = time.time()
+                # Visibility log — operators chasing "why are my
+                # host_pulse_samples count=0?" need to see whether
+                # the sampler IS ticking AND where the lookup falls
+                # off. Same shape as the host_beszel_sampler logging.
+                lookup_hits = 0
                 rows: list[tuple] = []
                 for h in hosts:
                     hid = h["id"]
@@ -232,11 +237,22 @@ async def host_pulse_sampler_loop() -> None:
                     stats = _pulse.lookup(hub_map, pname) if hub_map else None
                     if not isinstance(stats, dict):
                         continue
+                    lookup_hits += 1
                     row = _shape_row_for_db(hid, stats, now)
                     if row is not None:
                         rows.append(row)
                 if rows:
                     await _persist_tick(rows)
+                # One-line tick summary — same shape as the
+                # host_beszel_sampler. Lets operators confirm the
+                # sampler is alive AND see where hosts fall on the
+                # lookup-vs-shape gate without instrumenting per-host.
+                print(
+                    f"[host_pulse_sampler] tick: curated={len(hosts)} "
+                    f"hub_keys={len(hub_map or {})} "
+                    f"looked_up={lookup_hits} wrote={len(rows)} "
+                    f"interval={interval}s"
+                )
                 # Hourly retention prune.
                 if (now - last_prune) > 3600:
                     await _prune_old_rows()

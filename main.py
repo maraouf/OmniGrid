@@ -10926,13 +10926,27 @@ async def api_hosts_debug(
             # poisoning the whole tunables map for one bad knob.
             pass
 
+    # Strip the sampler-internal `host_services_raw` blob from the
+    # merged dict before serialising. It's a 50-200-row systemd unit
+    # list that the lifespan `host_beszel_sampler` consumes once-per-
+    # tick and persists to `host_beszel_services`; downstream
+    # consumers (this debug response, `_shape_host_api_row`, the AI
+    # palette context) read the rolled summary or hit the dedicated
+    # /api/hosts/{id}/beszel/services endpoint instead. Leaving the
+    # raw list in the merged dict bloats the debug response by
+    # several KB on hosts with many tracked units AND risks accidental
+    # leak via any future code path that ships merged verbatim.
+    merged_for_debug = (
+        {k: v for k, v in merged.items() if k != "host_services_raw"}
+        if isinstance(merged, dict) else merged
+    )
     return {
         "host_record":          record,
         "active_providers":     host_active,
         "active_providers_global": sorted(active),
         "providers_raw":        providers_raw,
         "providers_normalized": providers_normalized,
-        "merged":               merged,
+        "merged":               merged_for_debug,
         "rendered":             rendered,
         "counters":             counters,
     }

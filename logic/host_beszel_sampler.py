@@ -367,6 +367,15 @@ async def host_beszel_sampler_loop() -> None:
                     continue
                 hub_map = await _probe_one_tick()
                 now = time.time()
+                # Visibility log — operators chasing "why are
+                # host_beszel_samples count=0 for my Beszel-enabled
+                # hosts?" need to see whether the sampler IS ticking
+                # AND how many hosts the per-tick lookup resolves.
+                # One line per tick is reasonable at the 5-min default
+                # cadence; if cadence ever drops to seconds we'd
+                # rate-limit this. `lookups` is decremented per skip
+                # so the operator can spot lookup-mismatch hosts.
+                lookup_hits = 0
                 rows: list[tuple] = []
                 for h in hosts:
                     hid = h["id"]
@@ -378,6 +387,7 @@ async def host_beszel_sampler_loop() -> None:
                     stats = _beszel.lookup(hub_map, bname) if hub_map else None
                     if not isinstance(stats, dict):
                         continue
+                    lookup_hits += 1
                     row = _shape_row_for_db(hid, stats, now)
                     if row is not None:
                         rows.append(row)
@@ -391,6 +401,21 @@ async def host_beszel_sampler_loop() -> None:
                         await _persist_services(hid, services_raw, now)
                 if rows:
                     await _persist_tick(rows)
+                # One-line tick summary so operators can confirm the
+                # sampler is alive AND see where each host fell on the
+                # lookup-vs-shape gate. `curated`=N hosts in the curated
+                # pulse-enabled list; `hub_keys`=N hub-side host keys;
+                # `looked_up`=N hosts that resolved via lookup;
+                # `wrote`=N rows persisted (post-shape gate). If
+                # `looked_up < curated`, lookup-key mismatch on the
+                # missing hosts; if `wrote < looked_up`, no signal in
+                # the matched stats dict.
+                print(
+                    f"[host_beszel_sampler] tick: curated={len(hosts)} "
+                    f"hub_keys={len(hub_map or {})} "
+                    f"looked_up={lookup_hits} wrote={len(rows)} "
+                    f"interval={interval}s"
+                )
                 if (now - last_prune) > 3600:
                     await _prune_old_rows()
                     last_prune = now

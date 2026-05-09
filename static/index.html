@@ -4288,9 +4288,84 @@
                         <div x-show="h.services.failed > 0"
                              class="fs-2xs text-[var(--danger)] mt-1 mono break-all"
                              x-text="(h.services.failed_names || []).join(', ')"></div>
+                        <!-- Per-unit detail toggle — lazy-loads
+                             `/api/hosts/{id}/beszel/services` on first
+                             open. Hidden for hosts whose summary
+                             reports zero units (already gated by the
+                             outer x-if). The detail pane shows every
+                             tracked unit with its state pill +
+                             last-change age, sorted with failed
+                             units first — matches the endpoint's
+                             server-side sort. -->
+                        <button type="button"
+                                @click.stop="toggleHostBeszelServices(h.id)"
+                                class="btn btn-ghost btn-xs fs-2xs ms-1 mt-1"
+                                :aria-expanded="!!hostBeszelServicesOpen[h.id]">
+                          <span x-text="hostBeszelServicesOpen[h.id] ? t('host_drawer.beszel_services.hide') : t('host_drawer.beszel_services.show')"></span>
+                        </button>
                       </dd>
                     </template>
                   </dl>
+                  <!-- Per-unit Beszel services detail pane. Renders
+                       below the dl when the user clicks "Show
+                       services" on the summary row. Each row: state
+                       pill (active green, failed red, others muted),
+                       unit name (mono), last-change age. Sticky
+                       header inside a scrollable cap (max 320px)
+                       so a host with 100+ units stays compact. -->
+                  <div x-show="hostBeszelServicesOpen[h.id] && (h.services || {}).total > 0"
+                       x-transition.opacity.duration.150ms
+                       class="mt-2"
+                       :data-host-section="'beszel-services-' + h.id">
+                    <template x-if="hostsBeszelServicesLoading[h.id]">
+                      <div class="fs-xs text-[var(--text-faint)] flex items-center gap-2 py-2">
+                        <span class="spin" aria-hidden="true"></span>
+                        <span x-text="t('host_drawer.beszel_services.loading')"></span>
+                      </div>
+                    </template>
+                    <template x-if="!hostsBeszelServicesLoading[h.id]
+                                    && hostsBeszelServices[h.id]
+                                    && hostsBeszelServices[h.id].error">
+                      <div class="fs-xs text-[var(--danger)] py-2"
+                           x-text="t('host_drawer.beszel_services.error', { error: hostsBeszelServices[h.id].error })"></div>
+                    </template>
+                    <template x-if="!hostsBeszelServicesLoading[h.id]
+                                    && hostsBeszelServices[h.id]
+                                    && !hostsBeszelServices[h.id].error
+                                    && (hostsBeszelServices[h.id].services || []).length === 0">
+                      <div class="fs-xs text-[var(--text-faint)] py-2"
+                           x-text="t('host_drawer.beszel_services.empty')"></div>
+                    </template>
+                    <div x-show="!hostsBeszelServicesLoading[h.id]
+                                 && hostsBeszelServices[h.id]
+                                 && !hostsBeszelServices[h.id].error
+                                 && (hostsBeszelServices[h.id].services || []).length > 0"
+                         class="host-debug-table-wrap scrollbar">
+                      <table class="host-debug-table mono">
+                        <thead>
+                          <tr>
+                            <th class="text-start" x-text="t('host_drawer.beszel_services.col_state')"></th>
+                            <th class="text-start" x-text="t('host_drawer.beszel_services.col_name')"></th>
+                            <th class="text-end"   x-text="t('host_drawer.beszel_services.col_changed')"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="svc in (hostsBeszelServices[h.id].services || [])" :key="svc.name">
+                            <tr>
+                              <td class="text-start">
+                                <span class="chip"
+                                      :class="beszelServicePillClass(svc.state)"
+                                      x-text="beszelServiceStateLabel(svc.state)"></span>
+                              </td>
+                              <td class="text-start" x-text="svc.name"></td>
+                              <td class="text-end fs-2xs text-[var(--text-faint)]"
+                                  x-text="svc.last_change_ts ? relativeAge(Date.now()/1000 - svc.last_change_ts) : '—'"></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </section>
 
                 <!-- PORT SCAN — on-demand TCP-connect scanner.
