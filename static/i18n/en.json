@@ -2842,6 +2842,9 @@
     "copy_aria": "Copy {label} to clipboard",
     "copy_default_label": "debug data",
     "copy_prompt_fallback": "Copy {label} (Cmd/Ctrl+C):",
+    "copy_all": "Copy all",
+    "copy_all_title": "Copy every debug pane in one block — for pasting into an issue or chat",
+    "copy_all_prompt_fallback": "Copy all debug panes (Cmd/Ctrl+C):",
     "error_prefix": "Error: {error}",
     "labels": {
       "raw_pulse": "Raw · Pulse",
@@ -3240,6 +3243,7 @@
   "toasts_extra": {
     "topbar_saved": "Topbar preferences saved",
     "copied": "Copied {label} to clipboard",
+    "copied_all_debug": "Copied {count} debug pane(s) to clipboard",
     "nothing_to_copy": "Nothing to copy",
     "save_failed_generic": "Save failed",
     "network_error_generic": "Network error",

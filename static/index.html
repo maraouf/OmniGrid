@@ -7036,6 +7036,22 @@
                               <span class="host-debug-tag host-debug-tag--warn" x-text="t('debug_panel.none')"></span>
                             </template>
                           </div>
+                          <!-- Copy ALL debug panes at once. Operator
+                               request: pasting issue reports usually
+                               needs counters + samples_in_window +
+                               failure_state + every providers_raw
+                               block in one shot, instead of clicking
+                               the per-pane copy button N times.
+                               Pre-Refresh placement so the action
+                               row reads left→right as "copy first,
+                               then refresh if you need newer data". -->
+                          <button type="button" class="btn btn-ghost fs-xs inline-flex items-center gap-1"
+                                  @click="copyAllDebug(h.id)"
+                                  :disabled="!hostsDebug[h.id]"
+                                  :title="t('debug_panel.copy_all_title')">
+                            <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
+                            <span x-text="t('debug_panel.copy_all')"></span>
+                          </button>
                           <button type="button" class="btn btn-ghost fs-xs inline-flex items-center gap-1"
                                   @click="loadHostDebug(h.id)"
                                   :disabled="!!hostsDebugLoading[h.id]"
