@@ -1638,35 +1638,68 @@ function app() {
       //   - every host already seen (nothing left to fill)
       try {
         let lastScrollTs = 0;
-        // Use the CAPTURE phase on document so the listener catches
-        // scroll events from EVERY scrollable container in the page,
-        // not just the top-level window. Scroll events do NOT bubble,
-        // so a `window.addEventListener('scroll')` listener silently
-        // misses scrolls inside table wrappers, drawer bodies, the
-        // hosts grid's `.scrollbar` element, etc. — operators
-        // scrolling those containers wouldn't update `lastScrollTs`,
-        // so the idle-fill ticker fired during active scrolling and
-        // competed with the IO observer's burst-coalescer for the
-        // same fetches. Capture-phase document listener fires on
-        // every scroll regardless of which element scrolled.
-        document.addEventListener('scroll', () => {
+        // Window-level scroll only. Earlier iteration tried capture-
+        // phase document listener (`{ capture: true }`) to catch
+        // scrolls inside ANY nested scroll container, but that picked
+        // up too much noise — drawer bodies / dropdowns / Alpine
+        // x-effect-driven minor scrolls all updated `lastScrollTs`,
+        // keeping the idle-fill gate blocked even when the operator
+        // wasn't actually scrolling the page. Window scroll covers
+        // the actual page-content scroll path which is what the gate
+        // is trying to debounce against. The Hosts page scrolls the
+        // body/window, not a nested container.
+        window.addEventListener('scroll', () => {
           lastScrollTs = Date.now();
-        }, { passive: true, capture: true });
+        }, { passive: true });
+        // First ~5 ticker fires log their gate evaluation to console
+        // so operators chasing "why isn't idle-fill working?" can see
+        // which gate is blocking without inspecting source. Bounded so
+        // the log doesn't spam over hours of usage.
+        let _idleDebugBudget = 5;
+        const _idleDebug = (reason, extra) => {
+          if (_idleDebugBudget <= 0) return;
+          _idleDebugBudget -= 1;
+          try { console.debug('[idle-fill]', reason, extra || ''); } catch (_) {}
+        };
         const idleFillTick = () => {
           try {
             const intervalSeconds = (this.me && this.me.client_config
               && Number(this.me.client_config.hosts_idle_fill_seconds)) || 0;
-            if (intervalSeconds <= 0) return;       // disabled
-            if (this.view !== 'hosts') return;       // wrong view
+            if (intervalSeconds <= 0) {
+              _idleDebug('skip: intervalSeconds<=0', { intervalSeconds });
+              return;
+            }
+            if (this.view !== 'hosts') {
+              _idleDebug('skip: wrong view', { view: this.view });
+              return;
+            }
             if (typeof document !== 'undefined'
-                && document.visibilityState === 'hidden') return;
-            if (this.drawerHost) return;            // drawer open
+                && document.visibilityState === 'hidden') {
+              _idleDebug('skip: tab hidden');
+              return;
+            }
+            if (this.drawerHost) {
+              _idleDebug('skip: drawer open', { id: this.drawerHost && this.drawerHost.id });
+              return;
+            }
             // Skip if the user is actively scrolling — let the IO
-            // observer's burst-coalescer own the queue. 1.5 s of
-            // post-scroll idle passes this gate.
-            if (Date.now() - lastScrollTs < 1500) return;
+            // observer's burst-coalescer own the queue. 500 ms of
+            // post-scroll idle passes this gate. Lowered from 1500 ms
+            // because operators sitting still on the page reported
+            // idle-fill never firing; ANY transient scroll (browser-
+            // back, Alpine x-effect-driven layout shift, anchor jump)
+            // would block it for a full 1.5 s, frequently long enough
+            // that the next ticker tick re-skips on the same residual.
+            const sinceScroll = Date.now() - lastScrollTs;
+            if (sinceScroll < 500) {
+              _idleDebug('skip: recent scroll', { sinceScrollMs: sinceScroll });
+              return;
+            }
             const hosts = this.hosts || [];
-            if (!hosts.length) return;
+            if (!hosts.length) {
+              _idleDebug('skip: no hosts loaded yet');
+              return;
+            }
             const seen = this._hostSeenIds || new Set();
             // Find the first host not yet seen + not currently
             // queued. `_hostRefreshQueue` is shared with the IO
@@ -1685,7 +1718,16 @@ function app() {
               nextId = id;
               break;
             }
-            if (!nextId) return;
+            if (!nextId) {
+              _idleDebug('skip: every host already seen / queued / pending', {
+                total: hosts.length,
+                seen: seen.size,
+                queued: queued.size,
+                obsPending: obsPending.size,
+              });
+              return;
+            }
+            _idleDebug('enqueueing host', { id: nextId, total: hosts.length, seen: seen.size });
             // Route through the shared queue so the worker cap
             // applies. The function name reads "lazy" but it IS
             // the canonical entry point used by every refresh

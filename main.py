@@ -7771,11 +7771,16 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                 providers_hit.append("ping")
 
     # Port-scan history fold-in — populate `merged.detected_ports`
-    # from `host_port_scans`. Helper handles the SELECT + shape; this
-    # call site bumps `providers_hit` when the host has any prior scan
-    # rows so `port_scan` shows in the providers list.
-    if _populate_detected_ports(h["id"], merged):
-        providers_hit.append("port_scan")
+    # from `host_port_scans`. Does NOT bump `providers_hit`: port-scan
+    # is a curated-config / on-demand surface, not a continuous
+    # monitoring provider, and the providers count below the host
+    # name on the drawer was reading "+1" on every host with prior
+    # scan rows because of an earlier inclusion of "port_scan" here.
+    # The detected-ports chip strip + the optional port_scan_refresh
+    # schedule kind are surfaced via their own UI paths; the merged-
+    # row `providers` array stays scoped to the live-telemetry
+    # providers (Beszel / NE / Pulse / Webmin / SNMP / Ping).
+    _populate_detected_ports(h["id"], merged)
 
     # Re-derive `host_mem_percent` and `host_disk_percent` from the
     # MERGED used + total values so the percent stays consistent with
@@ -9597,6 +9602,23 @@ async def api_hosts_resume_sampling(
                 (host_id,),
             )
             cleared = cur.rowcount or 0
+            # Append-only transition log so the host-drawer Timeline
+            # surfaces the manual-resume event alongside the automatic
+            # paused / recovered transitions the sampler writes. Same
+            # `recovered` kind (frontend already renders it green +
+            # check icon); actor field carries the user's username so
+            # the timeline distinguishes "sampler auto-cleared" from
+            # "user X clicked Resume" when present.
+            if cleared:
+                try:
+                    c.execute(
+                        "INSERT INTO host_failure_events "
+                        "(ts, host_id, provider, kind, error, actor) "
+                        "VALUES (?, ?, '', 'recovered', NULL, ?)",
+                        (time.time(), host_id, _u.username or "operator"),
+                    )
+                except Exception as ev_err:
+                    print(f"[hosts] resume-sampling: failure-event log write failed: {ev_err}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"resume-sampling failed: {e}")
     # also clear the SSH + Webmin auth cooldowns for
@@ -9702,6 +9724,20 @@ async def api_hosts_provider_resume(
                 (host_id, provider),
             )
             cleared = cur.rowcount or 0
+            # Append-only transition log so the host-drawer Timeline
+            # surfaces this manual-resume event. Mirrors the whole-host
+            # resume endpoint's logic; actor=username distinguishes from
+            # the sampler's automatic recovery writes.
+            if cleared:
+                try:
+                    c.execute(
+                        "INSERT INTO host_failure_events "
+                        "(ts, host_id, provider, kind, error, actor) "
+                        "VALUES (?, ?, ?, 'recovered', NULL, ?)",
+                        (time.time(), host_id, provider, _u.username or "operator"),
+                    )
+                except Exception as ev_err:
+                    print(f"[hosts] provider/{provider}/resume: failure-event log write failed: {ev_err}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"resume failed: {e}")
     # Provider-specific cool-down clears so the next probe doesn't hit
