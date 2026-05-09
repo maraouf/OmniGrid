@@ -1219,11 +1219,20 @@ function app() {
       ],
     },
     relocatedTuningKeys: [
-      'tuning_log_retention_days', // → Admin → Logs 
-      'tuning_webmin_probe_budget_seconds', // → Settings → Host stats → Webmin 
-      'tuning_node_exporter_probe_timeout_seconds', // → Settings → Host stats → NE 
-      'tuning_webmin_host_cache_ttl_seconds', // → Settings → Host stats → Webmin 
-      'tuning_webmin_host_fail_cache_ttl_seconds',// → Settings → Host stats → Webmin 
+      'tuning_log_retention_days', // → Admin → Logs
+      'tuning_webmin_probe_budget_seconds', // → Settings → Host stats → Webmin
+      'tuning_node_exporter_probe_timeout_seconds', // → Settings → Host stats → NE
+      'tuning_webmin_host_cache_ttl_seconds', // → Settings → Host stats → Webmin
+      'tuning_webmin_host_fail_cache_ttl_seconds',// → Settings → Host stats → Webmin
+      // Beszel section tunables — rendered in Settings → Host stats
+      // → Beszel via `_perProviderTuneKeys.beszel`. Listed here so
+      // saveHostStats picks them up alongside the other provider
+      // tunables instead of leaking them to the generic Admin →
+      // Config save path.
+      'tuning_beszel_probe_timeout_seconds',
+      'tuning_beszel_sample_interval_seconds',
+      'tuning_beszel_host_cache_ttl_seconds',
+      'tuning_beszel_host_fail_cache_ttl_seconds',
       // Ping provider tunables (rendered in Host stats → Ping).
       'tuning_ping_interval_seconds',
       'tuning_ping_concurrency',

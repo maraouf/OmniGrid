@@ -341,6 +341,52 @@ def curated_ping_hosts() -> list[dict]:
     return out
 
 
+def curated_beszel_hosts() -> list[dict]:
+    """Curated ``hosts_config`` rows opted-in for Beszel — one row per
+    enabled host whose ``beszel_name`` field resolves a target.
+
+    Mirrors :func:`curated_ne_hosts` / :func:`curated_ping_hosts` /
+    :func:`curated_snmp_hosts`. Public consumer interface — the
+    sampler module also keeps a local `_curated_beszel_hosts()` for
+    its own row-shape needs (parallel to how `host_pulse_sampler`
+    and `host_webmin_sampler` keep local helpers); both walk the
+    same `hosts_config` setting and apply the same gates, so the two
+    paths stay in lock-step.
+
+    Returns ``{id, beszel_name}`` per row. Caller resolves global
+    Beszel hub credentials so this helper stays I/O-free beyond the
+    one settings read.
+
+    Single source of truth for "which hosts is OmniGrid Beszel-
+    sampling right now" — consumed by future debug surfaces, count
+    badges, and external tooling that wants to enumerate Beszel-
+    tracked hosts without round-tripping through the sampler module.
+    """
+    import json as _json
+
+    raw = get_setting("hosts_config", "") or ""
+    if not raw.strip():
+        return []
+    try:
+        parsed = _json.loads(raw)
+    except ValueError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    out: list[dict] = []
+    for row in parsed:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("enabled", True):
+            continue
+        hid = (row.get("id") or "").strip()
+        bname = (row.get("beszel_name") or "").strip()
+        if not hid or not bname:
+            continue
+        out.append({"id": hid, "beszel_name": bname})
+    return out
+
+
 def curated_snmp_hosts() -> list[dict]:
     """Curated ``hosts_config`` rows opted-in for SNMP probing.
 
