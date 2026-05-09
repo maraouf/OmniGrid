@@ -5291,6 +5291,37 @@
                    same `x-show` the inner metric-card carries. -->
               <div class="mt-3 grid grid-cols-1 gap-4"
                    x-show="h.ping_enabled">
+                <!-- Defensive: if the ping cache is missing for an
+                     opted-in host (initial drawer-open fetch missed,
+                     SSE handler hadn't fired yet, transient HTTP
+                     error), kick a fresh fetch so the chart populates
+                     instead of staying stuck on "Collecting data".
+                     `<template x-effect>` runs once on mount and
+                     re-runs when the dependencies change. The cache-
+                     check is cheap; the fetch is gated on the same
+                     `ping_enabled` flag the card visibility uses, so
+                     non-opted hosts never trigger it. Once-per-mount
+                     via `_pingChartKickedFor` set so the effect
+                     doesn't loop on every reactive re-evaluation. -->
+                <template x-effect="(() => {
+                  try {
+                    if (!h.ping_enabled) return;
+                    const k = this.hostPingHistoryKey(h);
+                    if (!k) return;
+                    const cache = this.hostHistory && this.hostHistory[k];
+                    const seriesLen = cache && Array.isArray(cache.series) ? cache.series.length : 0;
+                    if (seriesLen >= 2) return;
+                    this._pingChartKickedFor = this._pingChartKickedFor || new Set();
+                    if (this._pingChartKickedFor.has(h.id)) return;
+                    this._pingChartKickedFor.add(h.id);
+                    setTimeout(() => {
+                      try { this._pingChartKickedFor && this._pingChartKickedFor.delete(h.id); } catch (_) {}
+                    }, 30000);
+                    if (typeof this.loadHostPingHistory === 'function') {
+                      this.loadHostPingHistory(h.id);
+                    }
+                  } catch (_) {}
+                })()"></template>
                 <div class="metric-card metric-card--ping"
                      x-show="h.ping_enabled"
                      :class="hostChartMax(hostPingHistoryKey(h), ['rtt']) === 0 ? 'metric-card--flat' : ''">
