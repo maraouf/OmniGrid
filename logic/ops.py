@@ -119,6 +119,7 @@ OP_TYPES: frozenset[str] = frozenset({
     "prune_logs",
     "prune_notifications",
     "swarm_agent_health",
+    "port_scan_refresh",
     # AI surfaces — kind is dynamic in the call site (`f"ai_{kind}"`); the
     # values that actually fire today are the two below. Adding a new AI
     # kind requires a new literal here AND in the i18n + filter dropdown.

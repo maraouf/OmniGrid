@@ -311,6 +311,128 @@
           </div>
         </div>
 
+        <!-- Scheduled refresh — knobs consumed by the
+             `port_scan_refresh` schedule kind in
+             `logic/schedules.py:_run_port_scan_refresh`.
+             Schedule itself is created from Admin → Schedules; these
+             three knobs only shape HOW MUCH work each fire does.
+             Disabled when the master toggle is off (the runner short-
+             circuits with a no-op anyway, but disabling matches the
+             existing TCP / UDP block behaviour). -->
+        <hr class="my-4 border-[var(--border)]">
+        <h4 class="fs-sm font-medium mt-3 mb-1"
+            x-text="t('admin_port_scan.schedule_section_title')"></h4>
+        <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug max-w-[720px]"
+           x-text="t('admin_port_scan.schedule_section_intro')"></p>
+
+        <div class="mt-3">
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.tuning_port_scan_schedule_max_hosts_per_tick.label')"></label>
+          <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
+             x-text="t('admin.config.fields.tuning_port_scan_schedule_max_hosts_per_tick.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_port_scan_schedule_max_hosts_per_tick']"
+                   :placeholder="tuningPlaceholder('tuning_port_scan_schedule_max_hosts_per_tick')"
+                   :min="(tuningEffective['tuning_port_scan_schedule_max_hosts_per_tick'] || {}).min"
+                   :max="(tuningEffective['tuning_port_scan_schedule_max_hosts_per_tick'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
+              <span class="bounds-chip bounds-chip--min"
+                    :title="t('admin.config.bounds.min_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_port_scan_schedule_max_hosts_per_tick'] || {}).min"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_port_scan_schedule_max_hosts_per_tick'] || {}).max"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                <span x-text="(tuningEffective['tuning_port_scan_schedule_max_hosts_per_tick'] || {}).default"></span>
+              </span>
+            </div>
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_port_scan_schedule_max_hosts_per_tick'] || {}).effective })"></span>
+          </div>
+        </div>
+
+        <div class="mt-3">
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.tuning_port_scan_schedule_min_age_seconds.label')"></label>
+          <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
+             x-text="t('admin.config.fields.tuning_port_scan_schedule_min_age_seconds.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_port_scan_schedule_min_age_seconds']"
+                   :placeholder="tuningPlaceholder('tuning_port_scan_schedule_min_age_seconds')"
+                   :min="(tuningEffective['tuning_port_scan_schedule_min_age_seconds'] || {}).min"
+                   :max="(tuningEffective['tuning_port_scan_schedule_min_age_seconds'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
+              <span class="bounds-chip bounds-chip--min"
+                    :title="t('admin.config.bounds.min_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_port_scan_schedule_min_age_seconds'] || {}).min"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_port_scan_schedule_min_age_seconds'] || {}).max"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                <span x-text="(tuningEffective['tuning_port_scan_schedule_min_age_seconds'] || {}).default"></span>
+              </span>
+            </div>
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_port_scan_schedule_min_age_seconds'] || {}).effective })"></span>
+          </div>
+        </div>
+
+        <div class="mt-3">
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.tuning_port_scan_schedule_per_host_concurrency.label')"></label>
+          <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
+             x-text="t('admin.config.fields.tuning_port_scan_schedule_per_host_concurrency.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_port_scan_schedule_per_host_concurrency']"
+                   :placeholder="tuningPlaceholder('tuning_port_scan_schedule_per_host_concurrency')"
+                   :min="(tuningEffective['tuning_port_scan_schedule_per_host_concurrency'] || {}).min"
+                   :max="(tuningEffective['tuning_port_scan_schedule_per_host_concurrency'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
+              <span class="bounds-chip bounds-chip--min"
+                    :title="t('admin.config.bounds.min_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_port_scan_schedule_per_host_concurrency'] || {}).min"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_port_scan_schedule_per_host_concurrency'] || {}).max"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                <span x-text="(tuningEffective['tuning_port_scan_schedule_per_host_concurrency'] || {}).default"></span>
+              </span>
+            </div>
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_port_scan_schedule_per_host_concurrency'] || {}).effective })"></span>
+          </div>
+        </div>
+
         <p class="fs-2xs text-[var(--text-faint)] italic mt-3"
            x-text="t('settings.host_stats.port_scan.on_demand_note')"></p>
 

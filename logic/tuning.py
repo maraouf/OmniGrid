@@ -183,6 +183,30 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # 32 because UDP probes are more visible to the target's IDS /
     # firewall logging.
     "tuning_port_scan_udp_default_concurrency": ("PORT_SCAN_UDP_DEFAULT_CONCURRENCY", 8, 1, 64),
+    # Scheduled port-scan refresh — knobs consumed by the
+    # `port_scan_refresh` schedule kind (`logic.schedules._run_port_scan_refresh`).
+    # All three drive the SAME runner; the schedule row's `interval_seconds`
+    # determines HOW OFTEN it fires, these knobs determine HOW MUCH
+    # work each fire does.
+    #   * max_hosts_per_tick — hard ceiling on hosts touched per fire.
+    #     The runner picks oldest-scanned-first up to this count; the
+    #     remainder defer to the next fire. 1..50, default 5.
+    #     Rationale: keeps each tick bounded so a fleet of 100 hosts
+    #     doesn't fan out 100 simultaneous scans the moment a *every-15-
+    #     minutes* schedule fires for the first time.
+    #   * min_age_seconds — minimum age of a host's last scan before
+    #     it's eligible for re-scan. Prevents a frequent tick (e.g.
+    #     every-2-min schedule on a small fleet) from re-scanning
+    #     hosts that completed seconds ago. 60..86400, default 1800.
+    #   * per_host_concurrency — how many hosts the runner scans IN
+    #     PARALLEL within one tick. 1..4, default 1 (strictly sequential
+    #     to keep load low). Raise on quiet networks where the operator
+    #     wants the tick to complete faster; the per-host scan itself
+    #     still uses `tuning_port_scan_default_concurrency` for its
+    #     internal port-probe parallelism.
+    "tuning_port_scan_schedule_max_hosts_per_tick": ("PORT_SCAN_SCHEDULE_MAX_HOSTS_PER_TICK", 5, 1, 50),
+    "tuning_port_scan_schedule_min_age_seconds":    ("PORT_SCAN_SCHEDULE_MIN_AGE_SECONDS", 1800, 60, 86400),
+    "tuning_port_scan_schedule_per_host_concurrency": ("PORT_SCAN_SCHEDULE_PER_HOST_CONCURRENCY", 1, 1, 4),
     # SSE heartbeat cadence (seconds). The /api/events stream
     # emits a `: keepalive\n\n` comment every N seconds so an idle NPM
     # / cloudflare proxy doesn't drop the connection on its own
