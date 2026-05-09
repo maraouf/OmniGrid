@@ -256,7 +256,7 @@
                     row.ne_url ? {name:'node_exporter', label:'node-exporter'} : null,
                     row.webmin_url ? {name:'webmin', label:'webmin'} : null,
                     (row.ping && row.ping.enabled) ? {name:'ping', label:'ping'} : null,
-                    (row.snmp && row.snmp.enabled === true && (row.snmp_name || '').trim()) ? {name:'snmp', label:'snmp'} : null,
+                    (row.snmp && row.snmp.enabled === true && ((row.snmp_name || '').trim() || (row.address || '').trim())) ? {name:'snmp', label:'snmp'} : null,
                   ].filter(Boolean)" :key="p.name">
                   <span class="provider-icon"
                         :style="providerIconStyle(p.name) + ' --provider-icon-size: 13px;'"
@@ -677,7 +677,7 @@
                            placeholder="192.X.X.10 or switch01.example.com">
                   </div>
                 </div>
-                <div x-show="!!(row.enabled && row.snmp && row.snmp.enabled === true) && !!(row.snmp_name && row.snmp_name.trim())"
+                <div x-show="!!(row.enabled && row.snmp && row.snmp.enabled === true) && !!((row.snmp_name && row.snmp_name.trim()) || (row.address && row.address.trim()))"
                      class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-3">
                   <div>
                     <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
