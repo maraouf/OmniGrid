@@ -7142,6 +7142,56 @@ def _publish_provider_probe_event(host_id: str, provider: str, kind: str,
               f"{host_id!r}/{provider!r}: {e}")
 
 
+def _populate_detected_ports(host_id: str, merged: dict) -> bool:
+    """Fill `merged.detected_ports[]` + `merged.last_port_scan_ts` from
+    the latest scan in `host_port_scans` for this host. Returns True
+    when at least one row was found (caller bumps `providers_hit`).
+
+    Reads UNCONDITIONALLY — port-scan history visibility is independent
+    of (a) the master `port_scan_enabled` toggle, (b) the per-host
+    `port_scan.enabled` flag, AND (c) the live-provider reachability
+    state of the host's other providers (Beszel / NE / Pulse / Webmin
+    / SNMP). Operator-flagged: "what was open last time we scanned"
+    must remain viewable on hosts where the providers are unreachable
+    AND on hosts where port-scanning has been disabled. Disabling the
+    toggle should stop NEW scans, not erase the historical view.
+
+    Used by both `_merge_one_host` (the live-provider path) and
+    `api_hosts_list` (the snapshot-only skeleton path) so detected
+    ports surface uniformly regardless of which endpoint the SPA
+    is hitting.
+    """
+    if not host_id:
+        return False
+    try:
+        with db_conn() as c:
+            head = c.execute(
+                "SELECT scan_id, MAX(ts) AS ts FROM host_port_scans "
+                "WHERE host_id = ? GROUP BY scan_id ORDER BY ts DESC LIMIT 1",
+                (host_id,),
+            ).fetchone()
+            if not head or not head["scan_id"]:
+                return False
+            rows = c.execute(
+                "SELECT port, service_hint, banner_excerpt, protocol "
+                "FROM host_port_scans WHERE scan_id = ? "
+                "ORDER BY protocol ASC, port ASC",
+                (head["scan_id"],),
+            ).fetchall()
+            merged["detected_ports"] = [{
+                "port":           int(r["port"]),
+                "protocol":       (r["protocol"] or "tcp"),
+                "service_hint":   r["service_hint"] or "",
+                "banner_excerpt": r["banner_excerpt"] or "",
+                "scanned_at":     int(head["ts"] or 0),
+            } for r in rows]
+            merged["last_port_scan_ts"] = int(head["ts"] or 0)
+            return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[port_scan] read failed for {host_id!r}: {e}")
+        return False
+
+
 async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                            client_id: str | None = None) -> tuple[dict, list[str]]:
     """Merge one curated host with provider data. Runs NE + Webmin
@@ -7720,43 +7770,12 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                 # instead of the red "down" the operator expected.
                 providers_hit.append("ping")
 
-    # Port-scan provider — read the LATEST scan's open-port rows
-    # from `host_port_scans` and stamp `host.detected_ports[]` on
-    # the merged dict so the host drawer's chip strip can render
-    # the diff against `hosts_config[].services[]`. Skipped when
-    # the master toggle is off OR no scan has run for this host.
-    # No `_merge_best` call — this is curated-config data, not
-    # telemetry; the SPA reads `host.detected_ports` directly.
-    if get_setting_bool("port_scan_enabled", False):
-        ps_cfg = h.get("port_scan") if isinstance(h.get("port_scan"), dict) else {}
-        ps_enabled = ps_cfg.get("enabled", True)  # inherits master when absent
-        if ps_enabled:
-            try:
-                with db_conn() as c:
-                    head = c.execute(
-                        "SELECT scan_id, MAX(ts) AS ts FROM host_port_scans "
-                        "WHERE host_id = ? GROUP BY scan_id ORDER BY ts DESC LIMIT 1",
-                        (h["id"],),
-                    ).fetchone()
-                    if head and head["scan_id"]:
-                        rows = c.execute(
-                            "SELECT port, service_hint, banner_excerpt, protocol "
-                            "FROM host_port_scans WHERE scan_id = ? "
-                            "ORDER BY protocol ASC, port ASC",
-                            (head["scan_id"],),
-                        ).fetchall()
-                        merged["detected_ports"] = [{
-                            "port":           int(r["port"]),
-                            "protocol":       (r["protocol"] or "tcp"),
-                            "service_hint":   r["service_hint"] or "",
-                            "banner_excerpt": r["banner_excerpt"] or "",
-                            "scanned_at":     int(head["ts"] or 0),
-                        } for r in rows]
-                        merged["last_port_scan_ts"] = int(head["ts"] or 0)
-                        if "detected_ports" in merged:
-                            providers_hit.append("port_scan")
-            except Exception as e:  # noqa: BLE001
-                print(f"[port_scan] read failed for {h.get('id')!r}: {e}")
+    # Port-scan history fold-in — populate `merged.detected_ports`
+    # from `host_port_scans`. Helper handles the SELECT + shape; this
+    # call site bumps `providers_hit` when the host has any prior scan
+    # rows so `port_scan` shows in the providers list.
+    if _populate_detected_ports(h["id"], merged):
+        providers_hit.append("port_scan")
 
     # Re-derive `host_mem_percent` and `host_disk_percent` from the
     # MERGED used + total values so the percent stays consistent with
@@ -8752,6 +8771,16 @@ async def api_hosts_list(force: bool = False):
             except Exception:
                 pass
             merged = container[h["id"]]
+        # Port-scan history fold-in — same call as `_merge_one_host`'s
+        # path so the LIST endpoint surfaces previously-scanned ports
+        # for hosts whose live providers are currently unreachable.
+        # Pre-fix the list endpoint shaped each row from snapshot only,
+        # never reading `host_port_scans`, so the host-drawer chip
+        # strip went empty on stale-provider hosts even though the
+        # scan rows were sitting in the DB. The /api/hosts/one/{id}
+        # path eventually populated detected_ports via _merge_one_host
+        # but the list endpoint is the SPA's primary skeleton paint.
+        _populate_detected_ports(h["id"], merged)
         # Providers list is empty for snapshot-only rows — the SPA's
         # stale-rendering pipeline cues off `_stale_fields` not the
         # providers list. The next `/api/hosts/one/{id}` refresh

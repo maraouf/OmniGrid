@@ -1638,9 +1638,20 @@ function app() {
       //   - every host already seen (nothing left to fill)
       try {
         let lastScrollTs = 0;
-        window.addEventListener('scroll', () => {
+        // Use the CAPTURE phase on document so the listener catches
+        // scroll events from EVERY scrollable container in the page,
+        // not just the top-level window. Scroll events do NOT bubble,
+        // so a `window.addEventListener('scroll')` listener silently
+        // misses scrolls inside table wrappers, drawer bodies, the
+        // hosts grid's `.scrollbar` element, etc. — operators
+        // scrolling those containers wouldn't update `lastScrollTs`,
+        // so the idle-fill ticker fired during active scrolling and
+        // competed with the IO observer's burst-coalescer for the
+        // same fetches. Capture-phase document listener fires on
+        // every scroll regardless of which element scrolled.
+        document.addEventListener('scroll', () => {
           lastScrollTs = Date.now();
-        }, { passive: true });
+        }, { passive: true, capture: true });
         const idleFillTick = () => {
           try {
             const intervalSeconds = (this.me && this.me.client_config
@@ -1675,18 +1686,31 @@ function app() {
               break;
             }
             if (!nextId) return;
-            // Mark seen NOW so a tight tick + slow worker pool can't
-            // re-enqueue the same id on the next tick. The IO
-            // observer's `_hostSeenIds.has(id) continue` gate also
-            // dedupes against scroll-triggered fetches.
-            seen.add(nextId);
-            this._hostSeenIds = seen;
             // Route through the shared queue so the worker cap
             // applies. The function name reads "lazy" but it IS
             // the canonical entry point used by every refresh
             // path including scroll-triggered ones.
-            try { this._enqueueHostRefresh(nextId); } catch (_) {}
-            try { this._ensureHostRefreshWorkers(); } catch (_) {}
+            //
+            // ORDER MATTERS: enqueue FIRST, mark seen AFTER. Pre-fix
+            // the flow was reversed (mark seen → enqueue), which meant
+            // a failure between the two — `_enqueueHostRefresh` errors,
+            // `refreshHostRow` 504-backoff, or network failure inside
+            // the worker — left the host permanently in `_hostSeenIds`
+            // with no data and no retry path until page reload. Now
+            // we only mark seen once the enqueue succeeds; failed
+            // enqueues fall through to the next idle-fill tick AND
+            // the IO observer's scroll-driven fetch path picks up
+            // the host whenever the operator scrolls past it.
+            let enqueued = false;
+            try {
+              this._enqueueHostRefresh(nextId);
+              enqueued = true;
+            } catch (_) { /* enqueue failed — leave host unseen for retry */ }
+            if (enqueued) {
+              seen.add(nextId);
+              this._hostSeenIds = seen;
+              try { this._ensureHostRefreshWorkers(); } catch (_) {}
+            }
           } catch (_) { /* never let the ticker throw */ }
         };
         // Run the ticker every 1 s; the gate inside compares
