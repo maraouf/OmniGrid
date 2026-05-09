@@ -11455,6 +11455,35 @@ function app() {
           this._pollWrap(this.loadHostPingHistory(this.drawerHost.id));
         }, pingMs);
       }
+      // SNMP iface / temp / host history follow the same picker
+      // cadence as the main history timer. Self-healing for the
+      // initial-fetch-empty case (sampler hadn't ticked yet, transient
+      // backend error). Off → no timer; otherwise (Live OR interval)
+      // re-fetch on tick. Same `_snmpHasProbeTarget` gate as every
+      // other SNMP fetch site so hosts with the sampler running via
+      // `snmp_name` but no curated UI checkbox ticked still self-heal.
+      if (this._drawerSnmpHistoryTimer) {
+        clearInterval(this._drawerSnmpHistoryTimer);
+        this._drawerSnmpHistoryTimer = null;
+      }
+      if (dh && this._snmpHasProbeTarget(dh) && seconds !== 0) {
+        const liveMode = seconds === -1;
+        const snmpMs = (liveMode ? 30 : seconds) * 1000;
+        this._drawerSnmpHistoryTimer = setInterval(() => {
+          if (!this.drawerHost) return;
+          if (!this._snmpHasProbeTarget(this.drawerHost)) return;
+          const hrs = this.hostHistoryRange || 1;
+          if (typeof this.loadHostSnmpHistory === 'function') {
+            this._pollWrap(this.loadHostSnmpHistory(this.drawerHost.id, hrs));
+          }
+          if (typeof this.loadHostSnmpIfaceHistory === 'function') {
+            this._pollWrap(this.loadHostSnmpIfaceHistory(this.drawerHost.id, hrs));
+          }
+          if (typeof this.loadHostSnmpTempHistory === 'function') {
+            this._pollWrap(this.loadHostSnmpTempHistory(this.drawerHost.id, hrs));
+          }
+        }, snmpMs);
+      }
       // Sparklines — Off kills the timer; Live / interval
       // modes restart at the 5min baseline (sparklines are coarse
       // 24h aggregates, the picker doesn't change their cadence).
@@ -17528,15 +17557,18 @@ function app() {
       }
       const rangeStr = (Math.round(vMin * 10) / 10).toFixed(1) + '%–'
                      + (Math.round(vMax * 10) / 10).toFixed(1) + '%';
-      // Y-axis: gridlines + labels at 0 / 50 / 100.
+      // Y-axis: gridlines + labels at 0 / 50 / 100. User-flagged
+      // "very light dotted gridlines so the user can read the chart
+      // better" — `stroke-dasharray="1,3"` (1px dash, 3px gap) reads
+      // as dotted; `opacity="0.4"` softens the existing `--border`
+      // colour so the gridline is a hint, not a competing line.
       const yTicks = [0, 50, 100];
       let yAxis = '';
       for (const v of yTicks) {
         const y = yOf(v).toFixed(1);
-        // gridline (subtle, dashed)
         yAxis += '<line x1="' + PAD_L + '" x2="' + (W - PAD_R)
               +  '" y1="' + y + '" y2="' + y
-              +  '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+              +  '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="1,3" opacity="0.4"/>';
         // label aligned right of the gridline's left edge
         yAxis += '<text x="' + (PAD_L - 4) + '" y="' + y
               +  '" fill="var(--text-faint)" font-size="9" '
@@ -17578,6 +17610,17 @@ function app() {
       };
       for (const tick of xTicks) {
         const x = xOf(tick.ts).toFixed(1);
+        // Vertical gridline from top of plot area down to the baseline
+        // — same dotted / faint shape as the Y-axis gridlines so the
+        // chart reads as a uniform grid. Skip the leftmost (frac=0)
+        // because it sits AT the Y-axis label column and would visually
+        // clash with the label itself.
+        if (tick.frac > 0) {
+          xAxis += '<line x1="' + x + '" x2="' + x
+                +  '" y1="' + PAD_T.toFixed(1) + '" y2="' + baseY
+                +  '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="1,3" opacity="0.4"/>';
+        }
+        // Tick mark below the baseline.
         xAxis += '<line x1="' + x + '" x2="' + x
               +  '" y1="' + baseY + '" y2="' + (parseFloat(baseY) + 3).toFixed(1)
               +  '" stroke="var(--border)" stroke-width="0.5"/>';
@@ -23401,16 +23444,21 @@ function app() {
           summarise('snmp_history', this.hostSnmpHistory[host.id], 'points');
         }
       } catch (_) {}
-      // SNMP per-iface throughput history. The cache value is a
-      // dict of `{iface_name: {points: [...]}}`; emit each iface as
-      // its own sub-key so summary counts per iface are visible.
+      // SNMP per-iface throughput history. Cache shape is
+      // `{loading, error, ifaces: {ifname: [points]}, loadedAt}` —
+      // walk `.ifaces` (NOT the cache root, that loop level only
+      // contains bookkeeping fields). The cache-level metadata
+      // (loading / error / loadedAt) lands in the OUTER `_cache_meta`
+      // key so a stuck-loading state or fetch error is visible at a
+      // glance even when no iface points have arrived yet. Emit the
+      // section even when ifaces is empty (`_cache_meta` carries the
+      // diagnostic signal).
       try {
         const ifaceCache = this.hostSnmpIfaceHistory && this.hostSnmpIfaceHistory[host.id];
         if (ifaceCache && typeof ifaceCache === 'object') {
+          const ifacesMap = (ifaceCache.ifaces && typeof ifaceCache.ifaces === 'object') ? ifaceCache.ifaces : {};
           const ifaces = {};
-          for (const [name, entry] of Object.entries(ifaceCache)) {
-            if (!entry) continue;
-            const pts = entry.points || entry.series || [];
+          for (const [name, pts] of Object.entries(ifacesMap)) {
             const arr = Array.isArray(pts) ? pts : [];
             const oldest = arr.length ? Number(arr[0].ts || arr[0].t) : null;
             const newest = arr.length ? Number(arr[arr.length - 1].ts || arr[arr.length - 1].t) : null;
@@ -23420,25 +23468,34 @@ function app() {
                 oldest_ts: oldest,
                 newest_ts: newest,
                 newest_age_s: (newest != null && Number.isFinite(newest)) ? (nowS - newest) : null,
-                error: entry.error || null,
               },
               points: arr,
             };
           }
-          if (Object.keys(ifaces).length) {
-            out.snmp_iface_history = ifaces;
-          }
+          out.snmp_iface_history = {
+            _cache_meta: {
+              loading: !!ifaceCache.loading,
+              error: ifaceCache.error || null,
+              loaded_at_ms: ifaceCache.loadedAt || null,
+              iface_count: Object.keys(ifaces).length,
+            },
+            ifaces,
+          };
         }
-      } catch (_) {}
+      } catch (e) {
+        out.snmp_iface_history = { _cache_meta: { error: 'chartDataBundle iface: ' + String(e) } };
+      }
       // SNMP per-temperature-probe history (Dell hardware probes,
-      // chassis sensors, etc.). Same dict-of-probes shape as iface.
+      // chassis sensors, etc.). Cache shape mirrors the iface cache:
+      // `{loading, error, probes: {probe_name: [points]}, loadedAt}`.
+      // Same `_cache_meta` shape for stuck-loading / fetch-error
+      // visibility.
       try {
         const tempCache = this.hostSnmpTempHistory && this.hostSnmpTempHistory[host.id];
         if (tempCache && typeof tempCache === 'object') {
+          const probesMap = (tempCache.probes && typeof tempCache.probes === 'object') ? tempCache.probes : {};
           const probes = {};
-          for (const [name, entry] of Object.entries(tempCache)) {
-            if (!entry) continue;
-            const pts = entry.points || entry.series || [];
+          for (const [name, pts] of Object.entries(probesMap)) {
             const arr = Array.isArray(pts) ? pts : [];
             const oldest = arr.length ? Number(arr[0].ts || arr[0].t) : null;
             const newest = arr.length ? Number(arr[arr.length - 1].ts || arr[arr.length - 1].t) : null;
@@ -23448,16 +23505,23 @@ function app() {
                 oldest_ts: oldest,
                 newest_ts: newest,
                 newest_age_s: (newest != null && Number.isFinite(newest)) ? (nowS - newest) : null,
-                error: entry.error || null,
               },
               points: arr,
             };
           }
-          if (Object.keys(probes).length) {
-            out.snmp_temp_history = probes;
-          }
+          out.snmp_temp_history = {
+            _cache_meta: {
+              loading: !!tempCache.loading,
+              error: tempCache.error || null,
+              loaded_at_ms: tempCache.loadedAt || null,
+              probe_count: Object.keys(probes).length,
+            },
+            probes,
+          };
         }
-      } catch (_) {}
+      } catch (e) {
+        out.snmp_temp_history = { _cache_meta: { error: 'chartDataBundle temp: ' + String(e) } };
+      }
       return out;
     },
     // Copy ALL debug panes for one host into a single multi-section
@@ -24279,6 +24343,35 @@ function app() {
           ));
         }, ms);
       }
+      // SNMP iface / temp history on the same drawer-poll cadence —
+      // self-heal for the case where the initial drawer-open fetch
+      // landed empty (sampler hadn't ticked yet, transient backend
+      // 5xx, etc.). Pre-fix the iface cache only refreshed on
+      // drawer-open + range-picker-click; if neither happened, charts
+      // stayed stuck at "Collecting data" indefinitely. Same gate as
+      // the drawer-open fetches (`_snmpHasProbeTarget`); only fires
+      // when the operator hasn't opted out via `refreshInterval=0`.
+      if (this._drawerSnmpHistoryTimer) {
+        clearInterval(this._drawerSnmpHistoryTimer);
+        this._drawerSnmpHistoryTimer = null;
+      }
+      if (!off && this._snmpHasProbeTarget(host)) {
+        const snmpMs = (live ? 30 : this.refreshInterval) * 1000;
+        this._drawerSnmpHistoryTimer = setInterval(() => {
+          if (!this.drawerHost) return;
+          if (!this._snmpHasProbeTarget(this.drawerHost)) return;
+          const hrs = this.hostHistoryRange || 1;
+          if (typeof this.loadHostSnmpHistory === 'function') {
+            this._pollWrap(this.loadHostSnmpHistory(this.drawerHost.id, hrs));
+          }
+          if (typeof this.loadHostSnmpIfaceHistory === 'function') {
+            this._pollWrap(this.loadHostSnmpIfaceHistory(this.drawerHost.id, hrs));
+          }
+          if (typeof this.loadHostSnmpTempHistory === 'function') {
+            this._pollWrap(this.loadHostSnmpTempHistory(this.drawerHost.id, hrs));
+          }
+        }, snmpMs);
+      }
       // ping history timer. Live mode is push-driven by the
       // host:ping_sampled SSE handler so no fallback timer needed
       // when SSE is healthy; for Off / interval modes the same
@@ -24312,6 +24405,10 @@ function app() {
       if (this._drawerPingTimer) {
         clearInterval(this._drawerPingTimer);
         this._drawerPingTimer = null;
+      }
+      if (this._drawerSnmpHistoryTimer) {
+        clearInterval(this._drawerSnmpHistoryTimer);
+        this._drawerSnmpHistoryTimer = null;
       }
     },
     // SNMP time-series state. Keyed per-host (no Beszel-id
@@ -26218,7 +26315,17 @@ function app() {
         // SNMP-only host left the SNMP chart cards stuck at the initial
         // 1h window. Re-fetch both SNMP series here so the picker drives
         // every chart card on the host uniformly.
-        if (this.drawerHost && this.drawerHost.snmp_enabled) {
+        // Loose gate via `_snmpHasProbeTarget` so hosts with the
+        // sampler running via `snmp_name` but no curated UI checkbox
+        // ticked (snmp_enabled=false) still re-fetch on range change.
+        // Pre-fix the gate was strict (`snmp_enabled` only), so a host
+        // whose drawer-open path populated the iface cache via the
+        // looser `_snmpHasProbeTarget` then clicked 6h/24h/7d would
+        // get the cache STAY at the initial 1h window. Same uniformity
+        // rule documented for the FIVE chart-fetch sites in heuristic
+        // covering #1239 — this is the SIXTH site that was missed in
+        // the original sweep.
+        if (this.drawerHost && this._snmpHasProbeTarget(this.drawerHost)) {
           if (typeof this.loadHostSnmpHistory === 'function') {
             tasks.push(this.loadHostSnmpHistory(this.drawerHost.id, hrs));
           }
