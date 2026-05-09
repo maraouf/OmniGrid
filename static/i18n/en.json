@@ -2864,13 +2864,15 @@
       "counters": "Counters & state",
       "samples_in_window": "Samples in window",
       "asset_raw": "Asset · Raw",
-      "asset_shape": "Asset · Shape"
+      "asset_shape": "Asset · Shape",
+      "chart_data": "Chart data"
     },
     "hints": {
       "merged": "after _merge_best",
       "rendered": "what the UI sees",
       "counters": "failure-state, per-provider pauses, sample row counts, tunables",
-      "samples_in_window": "matches the chart range picker · last {hours}h · written rows + freshness + median sampler gap"
+      "samples_in_window": "matches the chart range picker · last {hours}h · written rows + freshness + median sampler gap",
+      "chart_data": "every cached chart series for this host (main history + ping + SNMP host / iface / temps) · summary + full points for chart-shape triage"
     },
     "samples_table": {
       "col_table": "Series",

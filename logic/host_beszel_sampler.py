@@ -505,13 +505,37 @@ def history_series(host_id: str, hours: int) -> list[dict]:
     """Beszel-compatible series envelope so the SPA's chart helpers
     work against the local-table path with no branching.
 
-    Mirrors ``host_pulse_sampler.history_series``'s output shape
-    field-for-field.
+    Mirrors ``host_pulse_sampler.history_series``'s shape AND
+    ``logic/beszel.py:fetch_system_history``'s synthesised
+    aggregates per-point (``gpu_pwr`` / ``gpu_usage`` / ``gpu_vram_*`` /
+    ``temp_max`` / ``la*_pct``). The drawer chart cards bind to those
+    scalar keys directly (e.g. GPU Power Draw card reads ``gpu_pwr``,
+    NOT the per-GPU ``gpus`` array) — without the synthesis the chart
+    falls through to the "Collecting data" placeholder permanently
+    even when ``gpus`` carries valid per-tick data. The sampler stores
+    parsed payloads (``temps`` dict, ``gpus`` list) so the synthesis
+    is a pure read-time computation; no schema change required.
     """
     hours = max(1, min(168, int(hours or 1)))
     since = int(time.time() - hours * 3600)
     raw = recent_samples(host_id, since, limit=hours * 60)
     gib = 1024 ** 3
+    # Cores best-effort from host_snapshots — used to convert raw load
+    # averages (0.18 / 1.21 / etc.) into the chart's percent-of-cores
+    # variant. Falls back to 1 when the snapshot row is missing OR the
+    # field is absent; the chart's `la*_pct` series then equals the
+    # raw load value × 100, capped at 100. Read once per call (not
+    # per-point) — cores doesn't change inside the chart window.
+    cores = 1
+    try:
+        from logic.gather import load_host_snapshots as _load_snaps
+        _snaps = _load_snaps()
+        _snap = _snaps.get(host_id) or {}
+        _c = _snap.get("host_cores") or _snap.get("cores")
+        if _c:
+            cores = max(1, int(_c))
+    except Exception:  # noqa: BLE001
+        cores = 1
     series: list[dict] = []
     for r in raw:
         mem_total = r.get("mem_total") or 0
@@ -521,6 +545,49 @@ def history_series(host_id: str, hours: int) -> list[dict]:
         nr = r.get("net_rx_bps") or 0.0
         ns = r.get("net_tx_bps") or 0.0
         net = nr + ns
+        # GPU per-tick aggregates. Mirrors logic/beszel.py:fetch_system_history.
+        # `host_gpus` from the merged stats dict carries
+        # `{name, power_watts, usage_percent, vram_used_bytes,
+        # vram_total_bytes}` per GPU. Average power + usage across
+        # GPUs (so multi-GPU rigs render one tidy line per metric);
+        # sum vram for the combined-pressure view. Missing fields →
+        # 0 → chart hides on the existing `host_gpus.length > 0`
+        # outer gate, which is unaffected here.
+        gpus = r.get("gpus") or []
+        gpu_pwr_sum = 0.0
+        gpu_usage_sum = 0.0
+        gpu_vram_used_sum = 0
+        gpu_vram_total_sum = 0
+        gpu_n = 0
+        for _g in gpus:
+            if not isinstance(_g, dict):
+                continue
+            try: gpu_pwr_sum += float(_g.get("power_watts") or 0)
+            except (TypeError, ValueError): pass
+            try: gpu_usage_sum += float(_g.get("usage_percent") or 0)
+            except (TypeError, ValueError): pass
+            try: gpu_vram_used_sum += int(_g.get("vram_used_bytes") or 0)
+            except (TypeError, ValueError): pass
+            try: gpu_vram_total_sum += int(_g.get("vram_total_bytes") or 0)
+            except (TypeError, ValueError): pass
+            gpu_n += 1
+        gpu_pwr_avg = (gpu_pwr_sum / gpu_n) if gpu_n else 0.0
+        gpu_usage_avg = (gpu_usage_sum / gpu_n) if gpu_n else 0.0
+        gpu_vram_pct = (
+            (gpu_vram_used_sum / gpu_vram_total_sum * 100.0)
+            if gpu_vram_total_sum else 0.0
+        )
+        # Per-tick peak across temperature sensors — chart binds to
+        # the scalar `temp_max`; the full `temps` dict rides alongside
+        # for the legend display.
+        temps = r.get("temperatures") or {}
+        temp_max = 0.0
+        if isinstance(temps, dict) and temps:
+            try: temp_max = max(float(v) for v in temps.values() if v is not None)
+            except (TypeError, ValueError): temp_max = 0.0
+        la1_raw  = r.get("load_1m")  or 0.0
+        la5_raw  = r.get("load_5m")  or 0.0
+        la15_raw = r.get("load_15m") or 0.0
         series.append({
             "t":   r["ts"],
             "cpu": r.get("cpu_percent") or 0.0,
@@ -536,20 +603,32 @@ def history_series(host_id: str, hours: int) -> list[dict]:
             # via the existing `maxRaw > 0` gate).
             "dr":  0.0,
             "dw":  0.0,
-            # Load avg / swap from chart-extras; backfilled to 0 for
-            # rows written before the columns existed (the table is
-            # new this session, so practically every row HAS them).
-            "la1":  r.get("load_1m")  or 0.0,
-            "la5":  r.get("load_5m")  or 0.0,
-            "la15": r.get("load_15m") or 0.0,
+            # Load avg raw + percent-of-cores variants. Drawer Load
+            # chart prefers `la*_pct` (0..100 rendering) when present
+            # and falls back to raw `la*` otherwise.
+            "la1":  la1_raw,
+            "la5":  la5_raw,
+            "la15": la15_raw,
+            "la1_pct":  min(100.0, (la1_raw  / cores) * 100.0),
+            "la5_pct":  min(100.0, (la5_raw  / cores) * 100.0),
+            "la15_pct": min(100.0, (la15_raw / cores) * 100.0),
             "s":    r.get("swap_percent") or 0.0,
             "su":   r.get("swap_used")    or 0.0,
             # Temperatures / GPUs ride alongside as parsed payloads
             # so the SPA can render the dedicated chart cards
             # without a second fetch. Empty / null when the agent
             # didn't emit them.
-            "temps": r.get("temperatures") or {},
-            "gpus":  r.get("gpus") or [],
+            "temps": temps,
+            "gpus":  gpus,
+            # Synthesised aggregates the SPA chart cards bind to
+            # directly. Missing → 0 → chart shows "Collecting data"
+            # via the gate `hostChartMax(...) > 0`.
+            "temp_max":             temp_max,
+            "gpu_pwr":              gpu_pwr_avg,
+            "gpu_usage":            gpu_usage_avg,
+            "gpu_vram_pct":         gpu_vram_pct,
+            "gpu_vram_used_bytes":  gpu_vram_used_sum,
+            "gpu_vram_total_bytes": gpu_vram_total_sum,
         })
     return series
 
