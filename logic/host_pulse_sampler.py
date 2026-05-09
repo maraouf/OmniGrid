@@ -212,15 +212,31 @@ async def host_pulse_sampler_loop() -> None:
     """
     print("[host_pulse_sampler] lifespan started")
     last_prune = 0.0
+    iter_count = 0
     try:
         while True:
             interval = max(30, int(tuning.tuning_int("tuning_stats_sample_interval_seconds")) or 300)
+            iter_count += 1
+            # Unconditional per-iteration log — fires BEFORE the
+            # active / curated gates so silent-sleep paths are
+            # visible. Without this, a sampler that's silently
+            # bailing on the gates produces ZERO log output (the
+            # `tick:` summary only fires AFTER a successful probe),
+            # leaving operators unable to distinguish "sampler is
+            # alive but gated" from "sampler isn't running".
+            active_set = _active_providers()
+            print(
+                f"[host_pulse_sampler] iter {iter_count}: "
+                f"active={sorted(active_set)} interval={interval}s"
+            )
             try:
-                if "pulse" not in _active_providers():
+                if "pulse" not in active_set:
+                    print(f"[host_pulse_sampler] iter {iter_count} skip: pulse not in active")
                     await asyncio.sleep(interval)
                     continue
                 hosts = _curated_pulse_hosts()
                 if not hosts:
+                    print(f"[host_pulse_sampler] iter {iter_count} skip: no curated pulse hosts")
                     await asyncio.sleep(interval)
                     continue
                 hub_map = await _probe_one_tick()
