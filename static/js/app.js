@@ -14747,10 +14747,22 @@ function app() {
             : (String(last).toLowerCase() === String(e.key || '').toLowerCase());
           if (matched) {
             e.preventDefault();
+            try { console.debug('[hotkey] match', { keys: entry.keys, code: e.code, key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey }); } catch (_) {}
             entry.run();
             return;
           }
         }
+      }
+      // Diagnostic — Cmd/Ctrl-modified keystroke that didn't match
+      // any catalog entry. Helps operators triage "why didn't my
+      // shortcut fire?" — DevTools console shows e.code / e.key /
+      // modifier state so we can tell whether the keystroke reached
+      // the page at all (if NOTHING logs, the OS / browser
+      // intercepted before delivery; if THIS logs but no `[hotkey]
+      // match` follows, the catalog has no entry for that combo).
+      // No output for unmodified keys (avoids spam from typing).
+      if ((e.ctrlKey || e.metaKey) && !e.repeat) {
+        try { console.debug('[hotkey] no-match', { code: e.code, key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey }); } catch (_) {}
       }
     },
 
