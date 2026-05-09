@@ -8172,17 +8172,31 @@
   </button>
   <!-- Backdrop — click to dismiss. Sits below the drawer
        (z-39 vs z-40) so the drawer is always reachable. -->
-  <div x-show="aiSidebarOpen"
+  <!-- Backdrop — hidden when sidebar is pinned (no overlay needed
+       since the body shrinks via padding-inline-start). -->
+  <div x-show="aiSidebarOpen && !aiSidebarPinned"
        x-cloak
        @click="closeAiSidebar()"
        class="ai-sidebar-backdrop"
        aria-hidden="true"></div>
+  <!-- Reactive body-class wiring for pin-to-dock — adds
+       `body.ai-pinned` whenever the sidebar is pinned so the CSS
+       padding-inline-start rule shrinks main content. Same shape as
+       the `_applyDrawerScrollLock` pattern (effect that mutates
+       document-level state from a sidebar / drawer signal). -->
+  <template x-effect="(() => {
+    try {
+      if (this.aiSidebarPinned) document.body.classList.add('ai-pinned');
+      else document.body.classList.remove('ai-pinned');
+    } catch (_) {}
+  })()"></template>
   <!-- Drawer — slides in from the left. Always rendered so the
        slide-in transform animates; visibility controlled via the
-       `.open` class. -->
+       `.open` class. When pinned, `.pinned` overrides the slide
+       transform so the bar stays put. -->
   <aside class="ai-sidebar-drawer"
          id="og-ai-sidebar"
-         :class="aiSidebarOpen ? 'open' : ''"
+         :class="(aiSidebarOpen ? 'open' : '') + (aiSidebarPinned ? ' pinned' : '')"
          role="dialog" aria-modal="true"
          :aria-label="t('ai_sidebar.drawer_label')"
          :aria-hidden="aiSidebarOpen ? 'false' : 'true'"
@@ -8232,6 +8246,21 @@
           <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-trash'"/>
         </svg>
         <span x-text="t('ai_sidebar.clear')"></span>
+      </button>
+      <!-- Pin to dock — converts the slide-out drawer into a permanent
+           left-edge split (main view shrinks via `body.ai-pinned`).
+           Hidden on mobile (max-width: 480px) where a 100vw sidebar +
+           pin would hide all main content. Persisted across sessions
+           via `togglePinAiSidebar` → ui_prefs.ai_sidebar_pinned. -->
+      <button type="button"
+              @click="togglePinAiSidebar()"
+              class="btn btn-ghost fs-xs hidden sm:inline-flex"
+              :title="aiSidebarPinned ? t('ai_sidebar.unpin_title') : t('ai_sidebar.pin_title')"
+              :aria-label="aiSidebarPinned ? t('ai_sidebar.unpin') : t('ai_sidebar.pin')"
+              :aria-pressed="aiSidebarPinned ? 'true' : 'false'">
+        <svg width="14" height="14" aria-hidden="true">
+          <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + (aiSidebarPinned ? '#icon-pin-off' : '#icon-pin')"/>
+        </svg>
       </button>
       <button type="button"
               @click="closeAiSidebar()"
