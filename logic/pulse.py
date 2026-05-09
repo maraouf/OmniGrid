@@ -596,16 +596,35 @@ async def probe_pulse(
     nodes = state.get("nodes") or []
 
     def _looks_like_guest(item) -> bool:
-        """Heuristic — a dict with a ``vmid`` or ``id`` and one of the
-        PVE-style status keys looks like a guest record regardless of
-        which array we found it in."""
+        """Heuristic — a dict with a ``vmid`` or ``id`` AND the
+        running-guest fingerprint (``cpu`` + ``maxmem``).
+
+        Pre-fix this accepted ANY item with ``(type, status, maxmem,
+        maxdisk, cpu, uptime, node)`` — too loose. Pulse state
+        contains backup records (`pveBackups` / `pbsBackups` / etc.)
+        and storage records (`local-lvm` / `proxmox-local` / etc.)
+        which share the vmid + type + status + node marker fields
+        with real guests. They got harvested as guests, then
+        ``extract_guest_stats(record)`` returned all-zero ``host_*``
+        fields because backups/storage have no ``mem`` / ``maxmem``
+        / ``cpu``. Worse, ``_add(name, stats)`` then OVERWROTE the
+        real guest's rich stats under colliding keys (last-write-
+        wins), so the sampler's ``host_pulse_samples`` table stayed
+        empty and the request-path's pulse_kind / pulse_vmid /
+        pulse_node fields read as empty even when Pulse actually
+        knew the guest.
+
+        New gate requires BOTH ``cpu`` (live load) AND ``maxmem``
+        (capacity). Real running guests always have both. Stopped
+        guests have ``cpu=0`` (still present as the key) +
+        ``maxmem`` (capacity unchanged when stopped). Storage
+        records have neither. Backup records have neither.
+        """
         if not isinstance(item, dict):
             return False
         if item.get("vmid") in (None, "", 0) and not item.get("id"):
             return False
-        # A few marker fields PVE guest records always carry.
-        marks = ("type", "status", "maxmem", "maxdisk", "cpu", "uptime", "node")
-        return any(m in item for m in marks)
+        return ("cpu" in item) and ("maxmem" in item)
 
     def _harvest(container, inherited_node: str = "") -> list:
         """Walk any object/dict/list and collect anything that looks
