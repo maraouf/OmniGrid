@@ -8229,13 +8229,23 @@
        @click="closeAiSidebar()"
        class="ai-sidebar-backdrop"
        aria-hidden="true"></div>
-  <!-- Reactive body-class wiring for pin-to-dock — adds
+  <!-- Reactive body-class + CSS-var wiring for pin-to-dock — adds
        `body.ai-pinned` whenever the sidebar is pinned so the CSS
-       padding-inline-start rule shrinks main content. Same shape as
-       the `_applyDrawerScrollLock` pattern (effect that mutates
-       document-level state from a sidebar / drawer signal). -->
+       padding-inline-start rule shrinks main content. ALSO stamps
+       `--ai-sidebar-width` on document.body so the matching CSS rule
+       (`body.ai-pinned { padding-inline-start: var(--ai-sidebar-width) }`)
+       reads the operator's actual sidebar width — pre-fix the var was
+       set only as inline style on `<aside class="ai-sidebar-drawer">`,
+       which CSS variables do NOT cascade sideways from, so the body
+       rule always fell through to its 480px fallback. With a custom
+       width like 620px, the sidebar was 620px wide but the body
+       padding was 480px → 140px overlap → sidebar covered content.
+       Same shape as the `_applyDrawerScrollLock` pattern (effect that
+       mutates document-level state from a sidebar / drawer signal). -->
   <template x-effect="(() => {
     try {
+      const w = ((this.me && this.me.client_config && this.me.client_config.ai_sidebar_width_px) || 480);
+      document.body.style.setProperty('--ai-sidebar-width', w + 'px');
       if (this.aiSidebarPinned) document.body.classList.add('ai-pinned');
       else document.body.classList.remove('ai-pinned');
     } catch (_) {}
