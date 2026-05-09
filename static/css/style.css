@@ -535,6 +535,37 @@ body.drawer-scroll-lock {
     overflow: hidden !important;
 }
 
+/* Reserve space for the vertical scrollbar permanently on the
+   `html` element so content width stays constant whether the
+   scrollbar is visible (tall content) or hidden (short content),
+   AND survives modal opens that lock body scroll.
+   Pre-fix: the gutter lived on `body` instead of `html`. When
+   SweetAlert2 opens a confirm popup it sets `body { overflow:
+   hidden }` to lock the background scroll — but that turns body
+   into a non-scroll context, which makes `scrollbar-gutter:
+   stable` no-op (it only applies on scroll containers), AND SwAl
+   adds its own `padding-right: <scrollbar-width>` inline to
+   compensate. The two effects together produced a visible ~15 px
+   page-jump on every confirm popup AND on every drawer-scroll-
+   lock that flipped body overflow. Putting the gutter on `html`
+   sidesteps both: SwAl never modifies `<html>`, so the html-level
+   scroll context keeps its reserved gutter through any modal /
+   drawer / lock state. Supported in Chrome 94+, Firefox 97+,
+   Safari 16+. */
+html {
+    scrollbar-gutter: stable;
+}
+
+/* Cancel SwAl's `padding-right: <scrollbar-width>` compensation —
+   the html-level `scrollbar-gutter: stable` rule above already
+   reserves the gutter permanently, so SwAl's compensation would
+   stack on top and shift the page. Same reasoning for `<html>`
+   (some SwAl versions also stamp it there). */
+body.swal2-shown,
+html.swal2-shown {
+    padding-right: 0 !important;
+}
+
 html,
 body {
     background: var(--bg);
@@ -561,17 +592,6 @@ body {
        targets. */
     overflow-x: clip;
     max-width: 100vw;
-    /* Reserve space for the page's vertical scrollbar permanently so
-       content width stays constant whether the scrollbar is visible
-       (tall content like Admin → Notifications, Admin → Providers /
-       host stats) or hidden (short content like Admin → Sessions).
-       Pre-fix the page width visibly jumped by ~15px when switching
-       tabs because the body scrollbar appeared / disappeared with
-       content height, narrowing every "tall" tab. `scrollbar-gutter:
-       stable` reserves the gutter even when the scrollbar isn't
-       drawn, so width is stable across every admin tab. Supported in
-       Chrome 94+, Firefox 97+, Safari 16+. */
-    scrollbar-gutter: stable;
     /* Disable pinch-zoom + double-tap-zoom on touch devices. iOS Safari
        deliberately ignores the viewport `user-scalable=no` hint since
        iOS 10 (accessibility), so the meta tag alone isn't enough.
@@ -4743,21 +4763,10 @@ details summary::-webkit-details-marker {
    SweetAlert2 theming
    --------------------------------------------------------------------------- */
 
-/* When a SweetAlert popup opens, SwAl's default behaviour adds
-   `padding-right: <scrollbar-width>` to the body to compensate for
-   the scrollbar disappearing under `overflow: hidden`. But our body
-   already has `scrollbar-gutter: stable` (reserves the gutter
-   permanently so admin tabs don't jump as content height changes),
-   so SwAl's compensation stacks ON TOP of the reserved gutter and
-   the page visibly shifts ~15px right when ANY confirm dialog
-   opens. Cancel the compensation — `scrollbar-gutter: stable` is
-   handling the layout-stability story, SwAl doesn't need to.
-   Also drop the `padding-right` SwAl injects on `<html>` for the
-   same reason. */
-body.swal2-shown,
-html.swal2-shown {
-    padding-right: 0 !important;
-}
+/* SwAl page-jump compensation rule moved up to live alongside the
+   html-level `scrollbar-gutter: stable` declaration where the
+   anchoring story is clearest — see the comment block above the
+   `html { scrollbar-gutter: stable }` rule. */
 .swal2-popup {
     background: var(--surface) !important;
     color: var(--text) !important;
