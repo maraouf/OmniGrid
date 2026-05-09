@@ -371,6 +371,21 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
   | jq '.series | length'
 ```
 
+For the per-unit Beszel systemd-services snapshot of one host
+(state pill / sub_state / last_seen / last_change for every unit
+the agent tracks; failed units sorted first):
+
+```bash
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  https://omnigrid.example.com/api/hosts/host01/beszel/services \
+  | jq '.services[] | select(.state == 3)'
+```
+
+Hosts whose Beszel agent isn't tracking systemd units return an
+empty `services` array. The data is sourced from the local
+`host_beszel_services` table (UPSERTed by the lifespan
+`host_beszel_sampler` on every tick), not a live hub fetch.
+
 ### Schedules — cron-like jobs from the API
 
 ```bash

@@ -14,6 +14,49 @@ This runbook covers (1) — the `NICS=` piece specifically, since
 "Net In / Net Out chart is flat at zero" is the most common support
 ticket and it's always the same root cause.
 
+## Local sample store
+
+OmniGrid persists every Beszel-tracked host's stats to its own local
+SQLite tables — same canonical pattern Pulse / Webmin / NE / SNMP /
+Ping use. Two tables:
+
+- `host_beszel_samples` — per-tick CPU / memory / disk / net rates
+  PLUS chart-extras columns (`load_1m / 5m / 15m`, `swap_percent /
+  used`, `bandwidth`, `containers`, `temperatures_json`, `gpus_json`).
+  Written by the lifespan-managed `host_beszel_sampler` every
+  `BESZEL_SAMPLE_INTERVAL_SECONDS` (0 = inherit
+  `STATS_SAMPLE_INTERVAL_SECONDS`).
+- `host_beszel_services` — per-(host, service) snapshot of every
+  systemd unit the Beszel agent reports (state / sub_state /
+  last_seen_ts / last_change_ts). UPSERT on every tick; rows whose
+  `last_seen_ts` predates `STATS_HISTORY_DAYS` are pruned.
+
+`/api/hosts/history` prefers the local table when the requested
+window is covered; it falls back to a live PocketBase fetch only
+when the local table doesn't yet reach the requested window
+(fresh deploy, just-enabled provider).
+
+`GET /api/hosts/{host_id}/beszel/services` (admin-only) returns
+the full per-unit list for a host: `[{name, state, sub_state,
+last_seen_ts, last_change_ts}, …]` with failed units first. Used
+by the host-drawer per-service detail pane and the AI palette
+context for service-related questions.
+
+### Beszel section tunables
+
+Four knobs live in **Settings → Host stats → Beszel**:
+
+| Env var | Default | Range | Purpose |
+| --- | --- | --- | --- |
+| `BESZEL_PROBE_TIMEOUT_SECONDS`        | `15`    | `1..120`  | Wall-clock timeout on each `probe_hub` (systems + system_stats + systemd_services). |
+| `BESZEL_SAMPLE_INTERVAL_SECONDS`      | `0`     | `0..3600` | Sampler tick cadence. `0` = inherit `STATS_SAMPLE_INTERVAL_SECONDS`. |
+| `BESZEL_HOST_CACHE_TTL_SECONDS`       | `30`    | `0..300`  | Per-host probe success cache TTL (mirrors Webmin). |
+| `BESZEL_HOST_FAIL_CACHE_TTL_SECONDS`  | `5`     | `0..300`  | Per-host probe failure cache TTL (mirrors Webmin). |
+
+Each can also be set via the matching DB key `tuning_beszel_*` from
+Admin → Config; the DB value wins over the env var which wins over
+the code default (the standard three-tier resolver).
+
 ---
 
 ## Symptom
