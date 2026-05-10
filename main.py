@@ -16116,6 +16116,52 @@ async def api_upload_avatar(
 
 
 _AVATAR_SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+# Strict canonical-form regex for avatar filenames the upload path
+# emits (`u<int_id>.<ext>` where ext is one of the allowlist values
+# in `_AVATAR_EXT.values()`). Used by `_avatar_path_from_fname` to
+# parse the URL-segment into primitives (int + allowlisted string)
+# so the joined path has NO operator-controlled string taint flowing
+# into it — CodeQL's path-injection tracker is happier with primitive
+# rebuilding than with a regex-+-realpath sanitizer chain.
+_AVATAR_FNAME_CANONICAL = re.compile(r"^u(\d+)\.(png|jpg|jpeg|gif|webp)$")
+
+
+def _avatar_path_from_fname(fname: str) -> Optional[str]:
+    """Parse a strict canonical avatar URL segment (`u<id>.<ext>`)
+    and rebuild the on-disk path from PRIMITIVES — int user_id plus
+    an allowlisted extension string. Returns None when the input
+    doesn't match the canonical shape.
+
+    This is the CodeQL-friendly sanitizer for avatar serving: the
+    returned path is built from `_AVATAR_DIR` (constant) + an int
+    converted via `int()` (CodeQL drops the string-taint label on
+    type conversion) + a string drawn from a closed allowlist (the
+    second regex group can ONLY be one of the literal alternation
+    branches). Any non-canonical input — including all operator-
+    typed escapes, separators, ``..``, NUL bytes, etc. — fails the
+    regex up-front and returns None.
+    """
+    if not isinstance(fname, str) or not fname:
+        return None
+    m = _AVATAR_FNAME_CANONICAL.fullmatch(fname)
+    if not m:
+        return None
+    # int() conversion is the canonical taint-stripper for numeric
+    # operator input — CodeQL recognises it as a barrier.
+    try:
+        uid = int(m.group(1))
+    except (TypeError, ValueError):
+        return None
+    if uid <= 0:
+        return None
+    ext = m.group(2)
+    # Defence-in-depth: re-validate against the closed allowlist
+    # even though the regex above already enforces it. CodeQL sees
+    # `ext` as a regex group result; a `value in CONSTANT_SET` check
+    # is one of its sanitiser patterns.
+    if ext not in _AVATAR_EXT.values():
+        return None
+    return os.path.join(_AVATAR_DIR, f"u{uid}.{ext}")
 
 
 def _safe_avatar_path(name: str) -> Optional[str]:
@@ -16198,15 +16244,26 @@ async def api_clear_avatar(user: auth.User = Depends(auth.current_user)):
 @app.get("/api/avatars/{fname}")
 async def api_serve_avatar(fname: str, _user: auth.User = Depends(auth.current_user)):
     """Serve an uploaded avatar. Authed — avatars are user data, shouldn't
-    be browsable anonymously. Path-traversal-guarded: only basenames are
-    accepted, and the final path is re-rooted under `_AVATAR_DIR` via
-    `_safe_avatar_path` (realpath + prefix-confinement).
+    be browsable anonymously.
+
+    Path-traversal-guarded via `_avatar_path_from_fname` which parses
+    the URL segment into PRIMITIVES (int user_id + allowlisted ext
+    drawn from a closed regex-alternation set) and rebuilds the
+    on-disk path from those — no operator-controlled string flows
+    into the path-construction expression. Any non-canonical fname
+    (separators, `..`, NUL bytes, escape sequences, anything outside
+    the strict `u<int>.<ext>` shape) fails the regex up-front and
+    returns 404.
     """
-    full = _safe_avatar_path(fname)
+    full = _avatar_path_from_fname(fname)
     if not full or not os.path.isfile(full):
         raise HTTPException(status_code=404, detail="Not found")
-    # Derive content-type from the stored extension.
-    ext = fname.rsplit(".", 1)[-1].lower()
+    # Derive content-type from the parsed extension. We re-parse here
+    # rather than threading the ext through `_avatar_path_from_fname`
+    # so the function stays single-return-typed (path-or-None);
+    # parsing twice is cheap and keeps the API surface narrow.
+    m = _AVATAR_FNAME_CANONICAL.fullmatch(fname)
+    ext = m.group(2) if m else "octet-stream"
     ct = next((k for k, v in _AVATAR_EXT.items() if v == ext), "application/octet-stream")
     return FileResponse(full, media_type=ct)
 

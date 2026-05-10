@@ -28704,11 +28704,22 @@ function app() {
     _retagPopoverItemId: null,
     _retagDraft: '',
     _retagBusy: false,
+    // {left, top, width} — viewport coords for the fixed-position
+    // popover. Computed from the trigger button's rect at open time;
+    // recomputed on the same tick if the operator re-clicks. Using
+    // `position: fixed` (instead of `position: absolute`) escapes the
+    // drawer's `overflow: hidden`/`auto` clipping context that was
+    // cropping the popover when it landed near the drawer's bottom
+    // edge. Trade-off: scroll detaches the popover from the button —
+    // mitigated via the scroll-close listener wired in
+    // `openRetagPopover`.
+    _retagPopoverPos: null,
+    _retagScrollOff: null,
     isRetagPopoverOpen(item) {
       if (!item || !this._retagPopoverItemId) return false;
       return this._retagPopoverItemId === (item.raw_id || item.id);
     },
-    openRetagPopover(item) {
+    openRetagPopover(item, ev) {
       if (!item) return;
       const id = item.raw_id || item.id;
       // Toggle: clicking the same item's button closes the popover.
@@ -28719,6 +28730,60 @@ function app() {
       this._retagPopoverItemId = id;
       this._retagDraft = '';
       this._retagBusy = false;
+      // Anchor the fixed-position popover to the button's viewport
+      // rect. Defensive: when called without an event (e.g. the AI
+      // dispatch path), default to a centered viewport position so
+      // the panel still renders visibly.
+      let anchor = null;
+      if (ev && ev.currentTarget && typeof ev.currentTarget.getBoundingClientRect === 'function') {
+        anchor = ev.currentTarget.getBoundingClientRect();
+      }
+      if (anchor) {
+        // Position BELOW the button by default; flip to ABOVE when
+        // there isn't enough room (button near viewport bottom).
+        // Popover is ~260px tall once filled — use 220 as a soft
+        // threshold so the input is still in view.
+        const POPOVER_EST_HEIGHT = 220;
+        const flipUp = (window.innerHeight - anchor.bottom) < POPOVER_EST_HEIGHT
+                    && anchor.top > POPOVER_EST_HEIGHT;
+        const top = flipUp
+          ? Math.round(anchor.top - POPOVER_EST_HEIGHT - 4)
+          : Math.round(anchor.bottom + 4);
+        // Clamp horizontally so the popover never overflows the
+        // viewport edge. The CSS sets max-width: min(360px, 90vw),
+        // so we anchor to the button's left and let the panel grow
+        // rightward unless that would overflow.
+        const POPOVER_MAX_WIDTH = Math.min(360, window.innerWidth * 0.9);
+        let left = Math.round(anchor.left);
+        if (left + POPOVER_MAX_WIDTH > window.innerWidth - 8) {
+          left = Math.max(8, window.innerWidth - POPOVER_MAX_WIDTH - 8);
+        }
+        this._retagPopoverPos = {
+          left,
+          top,
+          width: Math.max(280, Math.round(anchor.width)),
+        };
+      } else {
+        // Fallback: center horizontally near the top of the viewport.
+        this._retagPopoverPos = {
+          left: Math.round(window.innerWidth / 2 - 160),
+          top:  120,
+          width: 320,
+        };
+      }
+      // Scroll-close: any scroll event on the page detaches the
+      // popover from the button (it's pinned to viewport coords),
+      // which looks broken. Close the popover instead. Capture-phase
+      // listener catches scrolls inside the drawer's overflow
+      // ancestor too.
+      if (this._retagScrollOff) { this._retagScrollOff(); this._retagScrollOff = null; }
+      const onScroll = () => this.closeRetagPopover();
+      window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+      window.addEventListener('resize', onScroll);
+      this._retagScrollOff = () => {
+        window.removeEventListener('scroll', onScroll, { capture: true });
+        window.removeEventListener('resize', onScroll);
+      };
       // Focus the input on the next render so the operator can type
       // immediately. Defensive: ref might not be mounted yet on a
       // newly-toggled popover — wait one tick.
@@ -28733,6 +28798,17 @@ function app() {
       this._retagPopoverItemId = null;
       this._retagDraft = '';
       this._retagBusy = false;
+      this._retagPopoverPos = null;
+      if (this._retagScrollOff) { this._retagScrollOff(); this._retagScrollOff = null; }
+    },
+    // Inline style emitter for the fixed-position popover. Reads
+    // `_retagPopoverPos` and produces the `left:` / `top:` / minwidth
+    // declarations the popover binds via `:style`. Returns an empty
+    // string when there's no position (popover closed).
+    _retagPopoverStyle() {
+      const p = this._retagPopoverPos;
+      if (!p) return '';
+      return 'left:' + p.left + 'px; top:' + p.top + 'px; min-width:' + p.width + 'px;';
     },
     // Submit the popover's draft tag. Hits the same backend retag
     // endpoint the original button used; the new `tag` body field
