@@ -87,7 +87,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 ```
 
 - **`main.py`** — FastAPI backend (routes + lifespan + orchestration). Aggregates data from Portainer (services, tasks, nodes, stacks, containers), resolves remote digests in parallel, runs background update + prune + restart jobs, fires the in-app notification store + Apprise webhooks.
-- **`logic/`** — modular business logic: `gather`, `stats`, `ops`, `auth`, `oidc`, `registry`, `portainer`, `beszel`, `pulse`, `node_exporter`, `webmin`, `ping` / `ping_sampler`, `snmp`, `host_metrics_sampler`, `host_net_sampler`, `schedules`, `backups`, `asset_inventory`, `events` (SSE bus), `tuning` (TUNABLES + 3-tier resolver), `merge`, `cooldown`, `migrations`, `webauthn_helper`, `totp`. The full philosophy + per-module summary is in [`CLAUDE.md`](CLAUDE.md).
+- **`logic/`** — modular business logic: `gather`, `stats`, `ops`, `auth`, `oidc`, `registry`, `portainer`, `beszel`, `pulse`, `node_exporter`, `webmin`, `ping` / `ping_sampler`, `snmp`, `host_metrics_sampler`, `host_net_sampler`, `schedules`, `backups`, `asset_inventory`, `events` (SSE bus), `tuning` (TUNABLES + 3-tier resolver), `merge`, `cooldown`, `migrations`, `webauthn_helper`, `totp`.
 - **`static/index.html` + `static/js/app.js` + `static/css/style.css`** — single-page Alpine.js + Tailwind UI; no build step.
 - **`/opt/omnigrid/data/omnigrid.db`** — SQLite. Holds history, ignores, settings, users, sessions, API tokens, WebAuthn credentials, schedules, in-app notifications, host snapshots, per-(provider, host) failure state, and the time-series tables (`stats_samples`, `host_metrics_samples`, `host_net_samples`, `host_snmp_samples`, `host_snmp_iface_samples`, `host_snmp_temp_samples`, `ping_samples`).
 

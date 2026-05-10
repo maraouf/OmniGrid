@@ -26,6 +26,10 @@ Items shipped to the live deploy via the daily PATCH cadence that are
 not yet rolled into a tagged `MINOR` release. The next MINOR cut renames
 this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
+### Changed
+
+- Brand icons refreshed for `5g` and `ftth` host slugs — both `static/img/icons/5g.svg` and `static/img/icons/ftth.svg` now carry the new marks supplied from the public icon CDN, embedded as base64 inside SVG wrappers per the brand-icon onboarding rule for PNG-only assets. Filenames + slugs unchanged so the existing keyword-scan resolver routes hosts labelled `5g` / `ftth` to the new marks without any HTML / JS wiring.
+
 ### Added
 
 - AI sidebar Pin-to-dock mode — converts the slide-out drawer into a permanent left-edge split-pane layout. New `aiSidebarPinned` state hydrated from `ui_prefs.ai_sidebar_pinned`; pin / unpin button in the sidebar header (icon swaps between `icon-pin` / `icon-pin-off`); hidden on mobile (sidebar is `100vw` there, pinning would obscure all content). When pinned, the body becomes a true two-column flex layout — sidebar `flex: 0 0 var(--ai-sidebar-width); order: -1`, app-shell `flex: 1 1 0`. Body scroll-lock is exempted in pinned mode so the rest of the SPA stays fully scrollable + interactive (pinned is NOT a modal). Backdrop hidden when pinned. New SVG sprite symbols `icon-pin` + `icon-pin-off`; new i18n keys `ai_sidebar.pin` / `pin_title` / `unpin` / `unpin_title`. Mobile media query reverts to `display: block` so a desktop-saved pref viewed on a phone doesn't break the layout.
