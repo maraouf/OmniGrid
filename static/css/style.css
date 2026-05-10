@@ -7077,9 +7077,14 @@ select.field-invalid {
    doesn't overflow the drawer's right edge on the rightmost
    action button. */
 .retag-popover {
-    position: absolute;
-    inset-inline-end: 0;
-    inset-block-start: calc(100% + var(--s-1));
+    /* Fixed positioning escapes the drawer's `overflow: hidden /
+       auto` clipping context that was cropping the popover when it
+       landed near the drawer's bottom edge. Coordinates come from
+       `_retagPopoverStyle()` in static/js/app.js (computed from the
+       trigger button's `getBoundingClientRect()` at open time). The
+       popover closes on scroll/resize so the visual disconnect from
+       the moving button never lingers. */
+    position: fixed;
     z-index: 50;
     min-width: 280px;
     max-width: min(360px, 90vw);

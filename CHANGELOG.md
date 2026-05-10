@@ -26,6 +26,10 @@ Items shipped to the live deploy via the daily PATCH cadence that are
 not yet rolled into a tagged `MINOR` release. The next MINOR cut renames
 this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
+### Security
+
+- Severed user-controlled string flow into the `/api/avatars/{fname}` path-construction expression to clear a CodeQL `py/path-injection` alert. New sanitizer `_avatar_path_from_fname` parses the URL segment via the strict canonical regex `^u(\d+)\.(png|jpg|jpeg|gif|webp)$` into PRIMITIVES (int user_id + allowlisted ext) and rebuilds the path from those — `int()` conversion is the canonical taint-stripper for numeric operator input, and the ext is drawn from a closed regex-alternation set. The four-layer `_safe_avatar_path` helper (regex + basename + commonpath) was already semantically correct but CodeQL's interprocedural taint tracker didn't fully accept it; the primitive-rebuild path is the canonical CodeQL-recognised sanitizer pattern. `_safe_avatar_path` is kept for the DB-stored-path use case in `api_clear_avatar`.
+
 ### Fixed
 
 - Container recreate (`_do_update_container`) was failing with `HTTP 400 {"message":"Invalid request payload","details":"EOF"}` against newer Portainer versions because the POST to `/containers/{id}/recreate?PullImage=true` sent no request body. Portainer's body-parser EOFs before reading anything when no JSON is provided. Fix: pass `json={}` to the httpx POST so a valid empty-JSON body is sent (httpx auto-sets `Content-Length` + `Content-Type: application/json`). The `?PullImage=true` query param continues to drive the actual recreate behaviour; the body is otherwise unused. Manager- and worker-resident standalone containers both benefit (worker also needed the agent-target routing fix that landed alongside the snapshot-on-worker-node fix).

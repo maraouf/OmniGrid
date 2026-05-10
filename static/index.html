@@ -7740,12 +7740,11 @@
                    pinned `2.0.0-dev` snapshot to the floating `2`
                    tag for v2-line patch updates without bumping to
                    `:latest` which still tracks v1). -->
-              <div class="relative inline-block"
-                   x-show="isAdmin() && canRetagToLatest(drawerItem)">
+              <div x-show="isAdmin() && canRetagToLatest(drawerItem)">
                 <button type="button"
-                        @click="openRetagPopover(drawerItem)"
+                        @click="openRetagPopover(drawerItem, $event)"
                         :disabled="isItemBusy(drawerItem)"
-                        :class="isRetagPopoverOpen(drawerItem) ? 'btn btn-primary justify-center fs-sm' : 'btn btn-soft justify-center fs-sm'"
+                        :class="isRetagPopoverOpen(drawerItem) ? 'w-full btn btn-primary justify-center fs-sm' : 'w-full btn btn-soft justify-center fs-sm'"
                         :title="t('drawer.retag_tag_title')"
                         :aria-expanded="isRetagPopoverOpen(drawerItem) ? 'true' : 'false'"
                         x-text="t('drawer.retag_tag')"></button>
@@ -7754,6 +7753,7 @@
                      @click.outside="closeRetagPopover()"
                      @keydown.escape.window="closeRetagPopover()"
                      class="retag-popover"
+                     :style="_retagPopoverStyle()"
                      role="dialog"
                      :aria-label="t('drawer.retag_tag_title')">
                   <div class="retag-popover-header" x-text="t('drawer.retag_tag_header')"></div>
