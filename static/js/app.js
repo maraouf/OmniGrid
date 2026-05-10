@@ -23055,6 +23055,35 @@ function app() {
       }).map(s => ({ port: Number(s.port), name: s.name || s.label || '' }));
     },
 
+    // True when asset inventory is enabled, an asset record exists
+    // for this host with at least one port defined, AND the detected
+    // port number is NOT in the asset's port-number list. Used to
+    // render a small round-exclamation marker on the port chip so
+    // the operator can spot scanned ports the asset inventory
+    // doesn't know about (either: undocumented service running on
+    // the host, or asset record needs updating). Returns false
+    // (suppressed) when: asset inventory disabled globally, no asset
+    // record for this host, OR the asset record has zero port
+    // definitions (nothing to compare against — flagging every
+    // port would be noise, not signal). Loose match by port number
+    // only — the asset's `protocol` field is informational; treating
+    // tcp/udp dual-stack on the same port as a mismatch would
+    // false-positive routinely.
+    portScanShouldFlag(host, port) {
+      if (!host || !port) return false;
+      const enabled = !this.settings || this.settings.asset_inventory_enabled !== false;
+      if (!enabled) return false;
+      if (typeof this.assetForHost !== 'function') return false;
+      const asset = this.assetForHost(host);
+      if (!asset || !Array.isArray(asset.ports) || asset.ports.length === 0) return false;
+      const portNum = Number(port.port);
+      if (!Number.isFinite(portNum) || portNum <= 0) return false;
+      for (const ap of asset.ports) {
+        if (Number(ap && ap.number) === portNum) return false;
+      }
+      return true;
+    },
+
     // Detected ports sorted by port-number ascending, regardless of
     // protocol — TCP and UDP interleave so the chip strip reads as
     // a numeric sequence (`22/tcp · 53/udp · 80/tcp · 443/tcp · …`)
@@ -23094,20 +23123,31 @@ function app() {
       return isUdp ? (base + ' chip--udp') : base;
     },
 
-    // Tooltip for a detected port chip.
+    // Tooltip for a detected port chip. Appends an "asset mismatch"
+    // line when the port isn't in the asset inventory's port list
+    // (see `portScanShouldFlag`). Two-line tooltip when both apply
+    // — operator gets the curated/unknown context AND the asset-
+    // mismatch context in one hover.
     portScanChipTitle(host, port) {
       if (!host || !port) return '';
       const curated = Array.isArray(host.services) ? host.services : [];
       const match = curated.find(s => Number(s && s.port) === Number(port.port));
       const proto = (port.protocol || 'tcp').toLowerCase();
       const portLabel = port.port + '/' + proto;
+      let head;
       if (match) {
-        return this.t('host_drawer.port_scan.chip_curated_title', {
+        head = this.t('host_drawer.port_scan.chip_curated_title', {
           name: match.name || match.label || '—',
           port: portLabel,
         });
+      } else {
+        head = this.t('host_drawer.port_scan.chip_unknown_title', { port: portLabel });
       }
-      return this.t('host_drawer.port_scan.chip_unknown_title', { port: portLabel });
+      if (this.portScanShouldFlag(host, port)) {
+        const tail = this.t('host_drawer.port_scan.chip_asset_mismatch_title');
+        return head + '\n' + tail;
+      }
+      return head;
     },
 
     // toggle a provider in the Hosts-toolbar filter set.

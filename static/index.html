@@ -1966,7 +1966,7 @@
                whichever direction is the writing flow). -->
           <div class="grow" aria-hidden="true"></div>
           <div class="flex items-center gap-2"
-               x-show="settings.beszel_hub_url || settings.pulse_url">
+               x-show="settings.beszel_hub_url || settings.pulse_url || (settings.portainer_enabled && settings.portainer_public_url)">
             <a :href="settings.beszel_hub_url || '#'" target="_blank" rel="noopener"
                x-show="settings.beszel_hub_url"
                class="btn btn-ghost fs-sm flex items-center gap-1.5"
@@ -1981,6 +1981,21 @@
                :title="t('hosts_extra.open_pulse_title')">
               <img src="/img/icons/pulse.svg" alt="" width="14" height="14" class="rounded-sm">
               <span x-text="t('hosts_extra.open_pulse')"></span>
+              <svg width="10" height="10" class="opacity-60" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-right"/></svg>
+            </a>
+            <!-- Portainer button — gated on BOTH the master toggle
+                 AND the public URL being configured. Disabled-or-no-
+                 URL hides the button cleanly so the cluster shrinks
+                 to whatever's actually reachable. Uses the existing
+                 portainer.svg brand icon (theme-aware via
+                 _themeIcon → portainer-dark.svg on dark theme,
+                 wired via the standard icon resolver). -->
+            <a :href="settings.portainer_public_url || '#'" target="_blank" rel="noopener"
+               x-show="settings.portainer_enabled && settings.portainer_public_url"
+               class="btn btn-ghost fs-sm flex items-center gap-1.5"
+               :title="t('hosts_extra.open_portainer_title')">
+              <img :src="_themeIcon('/img/icons/portainer.svg')" alt="" width="14" height="14" class="rounded-sm">
+              <span x-text="t('hosts_extra.open_portainer')"></span>
               <svg width="10" height="10" class="opacity-60" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-right"/></svg>
             </a>
           </div>
@@ -4441,9 +4456,24 @@
                            x-text="t('host_drawer.port_scan.detected_label', { count: (h.detected_ports || []).length })"></div>
                       <div class="flex flex-wrap gap-1.5">
                         <template x-for="p in sortedDetectedPorts(h)" :key="(p.protocol || 'tcp') + ':' + p.port">
-                          <span class="chip fs-xs mono"
+                          <span class="chip fs-xs mono inline-flex items-center"
                                 :class="portScanChipClass(h, p)"
                                 :title="portScanChipTitle(h, p)">
+                            <!-- Asset-vs-scan mismatch marker — round
+                                 exclamation icon prepended when the
+                                 detected port isn't in the host's
+                                 asset-inventory port list. Inherits
+                                 the chip's text colour via
+                                 `currentColor` so it visually matches
+                                 the pill (no separate colour). Only
+                                 renders when asset inventory is
+                                 enabled AND the asset has port defs;
+                                 see `portScanShouldFlag(h, p)`. -->
+                            <template x-if="portScanShouldFlag(h, p)">
+                              <svg width="11" height="11" class="me-1 flex-shrink-0" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-info"/>
+                              </svg>
+                            </template>
                             <span x-text="p.port + '/' + (p.protocol || 'tcp')"></span>
                             <span x-show="p.service_hint" class="ms-1 opacity-70"
                                   x-text="'· ' + p.service_hint"></span>
