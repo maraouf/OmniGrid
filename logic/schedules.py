@@ -1932,11 +1932,82 @@ def _record_history_row(
         print(f"[scheduler] port_scan_refresh history write failed: {e}")
 
 
+async def _run_config_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
+    """Snapshot current admin configuration to ``CONFIG_BACKUP_DIR``.
+
+    Mirrors ``_run_backup``'s shape (no per-target Operation; synth op_id
+    + history row at completion). Difference vs the full SQLite zip: this
+    snapshot is settings + schedules + ai_memory only — no users / no
+    sessions / no avatars / no time-series. Operators commit it to a
+    private git repo for change tracking; on a fresh deploy they re-apply
+    via Admin → Config backup → Import.
+
+    Retention is the operator-tunable
+    ``tuning_config_backup_retention_count`` (DB > env > default with
+    bounds clamp). 0 = unlimited (matches the backup-zip default).
+    """
+    op_id = "sched-" + secrets.token_hex(4)
+
+    async def runner() -> tuple[int, str]:
+        from logic import config_export as _cfg_export
+        started = time.time()
+        status = "success"
+        err: Optional[str] = None
+        snap_name: Optional[str] = None
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, _cfg_export.save_snapshot_to_disk,
+            )
+            snap_name = result.get("name")
+            print(f"[scheduler] config_backup created: {snap_name}")
+            try:
+                from logic.tuning import tuning_int as _tuning_int
+                keep = _tuning_int("tuning_config_backup_retention_count")
+            except (TypeError, ValueError):
+                keep = 0
+            if keep > 0:
+                pruned = await loop.run_in_executor(
+                    None, _cfg_export.prune_snapshots, keep,
+                )
+                if pruned:
+                    print(
+                        f"[scheduler] config_backup retention: pruned "
+                        f"{len(pruned)} older file(s), kept {keep} newest"
+                    )
+        except Exception as e:
+            status = "error"
+            err = str(e)
+            print(f"[scheduler] config_backup failed: {e}")
+        duration = int(time.time() - started)
+        try:
+            with db_conn() as c:
+                c.execute(
+                    "INSERT INTO history "
+                    "(ts, op_type, target_kind, target_name, target_id, "
+                    " target_stack, status, duration, events, error, actor) "
+                    "VALUES (?, ?, 'schedule', ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        started, "config_backup",
+                        snap_name or "config_backup", op_id, None,
+                        status, duration,
+                        "[]", err, SCHEDULER_ACTOR,
+                    ),
+                )
+        except Exception as e:
+            print(f"[scheduler] config_backup history write failed: {e}")
+        return (duration, status)
+
+    task = asyncio.create_task(runner())
+    return op_id, task  # type: ignore[return-value]
+
+
 SCHEDULE_KINDS: dict[str, KindRunner] = {
     "prune_node":                _run_prune_node,
     "prune_all_nodes":           _run_prune_all_nodes,
     "gather_refresh":            _run_gather_refresh,
     "backup":                    _run_backup,
+    "config_backup":             _run_config_backup,
     "asset_inventory_refresh":   _run_asset_inventory_refresh,
     "prune_logs":                _run_prune_logs,
     "prune_notifications":       _run_prune_notifications,

@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -879,6 +879,16 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     # open the drawer or name the item explicitly. Destructive — gates
     # behind the inline-confirm chip in approval mode.
     "retag_image",
+    # Schedule CRUD via AI palette.
+    # Each action consumes `ACTION_DATA: <json>` carrying the payload
+    # (name, kind, interval_seconds, etc.). The SPA dispatches to the
+    # SAME `/api/schedules` endpoints the Admin → Schedules table uses,
+    # so backend authorization + bounds-clamping + skip-if-running gates
+    # all apply. delete is the only destructive action — gates behind
+    # the inline-confirm chip in the AI sidebar.
+    "schedule_create",
+    "schedule_update",
+    "schedule_delete",
 })
 
 
@@ -1155,6 +1165,9 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - test_asset_inventory — refresh + verify the upstream asset-inventory connection. Navigates to Admin → Asset Inventory and kicks the probe. Synonyms: 'test asset inventory', 'check assets'.\n"
     " - test_apprise — send a test notification through every enabled medium so the operator confirms Apprise / in-app delivery is working. Synonyms: 'test notification', 'send test', 'test apprise'.\n"
     " - retag_image — switch a container or stack-managed item's image tag to a different floating tag (e.g. switch `komodo-core:2.0.0-dev` to `:2` for v2-line patch updates without bumping to `:latest`). Synonyms: 'switch tag', 'retag', 'pin to tag', 'change image tag', 'track tag'. ALWAYS pair with `ACTION_TAG: <new_tag>` (the destination tag — bare value, e.g. `2`, no leading `:`). When the operator names a specific item in the query (e.g. \"switch komodo-core to :2\"), ALSO emit `ACTION_ITEM: <name-or-id>` so the SPA targets that item directly; otherwise the SPA defaults to the open item drawer. Example reply: 'Switching komodo-core from :2.0.0-dev to :2.\\nACTION: retag_image\\nACTION_ITEM: komodo-core\\nACTION_TAG: 2'. (Destructive — recreates the container or redeploys the stack; operator confirms via the inline-confirm chip in the AI sidebar before it fires.)\n"
+    " - schedule_create — create a new recurring schedule. ALWAYS pair with `ACTION_DATA: {<json>}` carrying `{name, kind, interval_seconds, enabled?, params?, run_at_hhmm?, cadence_mode?, days_of_week?, day_of_month?}`. `kind` MUST be one of the registered schedule kinds (see Admin → Schedules → Kind dropdown for the canonical list). Example reply: 'Creating a daily 01:00 backup schedule.\\nACTION: schedule_create\\nACTION_DATA: {\"name\":\"nightly-backup\",\"kind\":\"backup\",\"interval_seconds\":86400,\"cadence_mode\":\"daily\",\"run_at_hhmm\":\"01:00\"}'. Non-destructive — fires immediately without an inline confirm.\n"
+    " - schedule_update — update an existing schedule's fields. ALWAYS pair with `ACTION_DATA: {<json>}` carrying `{id?: int, name?: str, ...changed fields}`. Either `id` OR `name` identifies the schedule; the rest are the fields to overwrite. Example reply: 'Bumping the gather refresh to every 10 minutes.\\nACTION: schedule_update\\nACTION_DATA: {\"name\":\"gather-refresh\",\"interval_seconds\":600}'. Non-destructive — fires immediately without an inline confirm.\n"
+    " - schedule_delete — delete an existing schedule. ALWAYS pair with `ACTION_DATA: {<json>}` carrying `{id?: int, name?: str}` to identify the schedule to remove. Example reply: 'Deleting the experimental schedule.\\nACTION: schedule_delete\\nACTION_DATA: {\"name\":\"experimental-prune\"}'. (DESTRUCTIVE — the operator confirms via the inline-confirm chip in the AI sidebar before the delete fires.)\n"
     "Example single-action reply: 'I'll mark every notification as read for you.\\n"
     "ACTION: mark_all_notifications_read'\n"
     "Example multi-action reply (\"refresh and cleanup\"): 'Refreshing the dashboard, then opening the cleanup confirm.\\n"
@@ -1553,6 +1566,44 @@ def parse_palette_action_item(text: str) -> tuple[str, str]:
     raw = m.group(1).strip().strip("`'\"*.,;").strip()
     cleaned_text = text[: m.start()].rstrip()
     return raw, cleaned_text
+
+
+def parse_palette_action_data(text: str) -> tuple[Optional[dict], str]:
+    """Extract the optional ``ACTION_DATA: {<json>}`` trailer from a
+    palette response. Returns ``(payload_dict_or_None, cleaned_text)``.
+
+    Used by parameterised actions whose payload is a JSON object
+    (currently `schedule_create` / `schedule_update` / `schedule_delete`
+    — others may follow). Distinct from `ACTION_TAG` / `ACTION_HOSTS`
+    / `ACTION_ITEM` which carry single-value strings; ACTION_DATA is
+    the structured-payload channel.
+
+    The matcher accepts JSON delimited by `{` / `}` braces with naive
+    brace-balancing — sufficient for one-line payloads the prompt
+    teaches the AI to emit. Validates via `json.loads`; invalid JSON
+    → returns None + cleans the directive line out of the text so
+    the SPA-side renderer doesn't surface the malformed payload as
+    prose.
+    """
+    if not text:
+        return None, text or ""
+    import json as _json
+    import re as _re
+    m = _re.search(
+        r"(?:^|\n)[\s`*]*ACTION_DATA\s*:\s*(\{.+?\})\s*$",
+        text, _re.IGNORECASE | _re.MULTILINE | _re.DOTALL,
+    )
+    if not m:
+        return None, text
+    raw = m.group(1).strip()
+    cleaned_text = text[: m.start()].rstrip()
+    try:
+        data = _json.loads(raw)
+    except _json.JSONDecodeError:
+        return None, cleaned_text
+    if not isinstance(data, dict):
+        return None, cleaned_text
+    return data, cleaned_text
 
 
 def parse_host_filter_response(text: str) -> tuple[str, str, str]:

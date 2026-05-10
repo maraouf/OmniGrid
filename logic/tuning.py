@@ -598,6 +598,13 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # compat with pre-existing deploys). Operator typically wants 7-30
     # to bound disk growth on a daily schedule. Range 0..1000.
     "tuning_backup_retention_count": ("BACKUP_RETENTION_COUNT", 0, 0, 1000),
+    # Settings-as-Code (config_backup schedule kind) retention. Same
+    # 0 = unlimited semantics as the backup-zip retention. Operators
+    # commit snapshots to git for change tracking; the on-disk
+    # rotation here keeps the data dir from filling with daily
+    # snapshots over years. Default 30 = roughly one month at daily
+    # cadence.
+    "tuning_config_backup_retention_count": ("CONFIG_BACKUP_RETENTION_COUNT", 30, 0, 1000),
 
     # ----- SSH WebSocket ----------------------------------------------------
 

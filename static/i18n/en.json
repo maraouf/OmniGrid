@@ -401,7 +401,9 @@
     "collapse": "Collapse",
     "prune_now": "Prune now",
     "copy": "Copy",
-    "failed_generic": "Failed"
+    "failed_generic": "Failed",
+    "download": "Download",
+    "restore": "Restore"
   },
   "states": {
     "healthy": "healthy",
@@ -901,6 +903,7 @@
       "ai": "AI Integration",
       "schedules": "Schedules",
       "backups": "Backups",
+      "config_backup": "Config backup",
       "logs": "Logs",
       "config": "Config",
       "debug": "Debug"
@@ -1200,6 +1203,10 @@
         "tuning_backup_retention_count": {
           "label": "Backup retention count",
           "help": "Number of recent backup zips to keep on disk under `/app/data/backups/`. The `backup` schedule kind purges older files once this count is exceeded. Default 0 = keep ALL backups (back-compat with pre-existing deploys). Operator typically wants 7-30 to bound disk growth on a daily schedule. Range 0..1000."
+        },
+        "tuning_config_backup_retention_count": {
+          "label": "Config-backup retention count",
+          "help": "Number of recent Settings-as-Code JSON snapshots to keep on disk under `/app/data/config_backups/`. The `config_backup` schedule kind purges older files once this count is exceeded. Default 30 = roughly one month at daily cadence. Set 0 = unlimited (back-compat with the backup-zip retention default). Range 0..1000."
         },
         "tuning_ssh_ws_heartbeat_seconds": {
           "label": "SSH WebSocket heartbeat (seconds)",
@@ -1713,6 +1720,29 @@
       "revoke_token_text": "Any client using \"{name}\" will start failing immediately.",
       "retention_label": "Keep last N backups",
       "retention_hint": "0 = keep all. Applies after each create (manual or scheduled); older .zip files are deleted oldest-first."
+    },
+    "config_backup": {
+      "export_title": "Export current configuration",
+      "export_desc": "Download every operator-tunable setting (incl. hosts, host_groups, schedules, notify_templates, tuning_* overrides, AI memory) as a single human-readable JSON file. Commit it to a private git repo for change tracking, or keep it as a one-file disaster-recovery seed for a fresh deploy.",
+      "download_button": "Download as JSON",
+      "save_to_disk_button": "Save to disk now",
+      "secret_note": "Secrets (API keys, passwords, tokens, private keys) are redacted to the literal string \"__OMITTED__\". On import, redacted entries are SKIPPED — your live secrets are preserved. Safe to commit the export to a private git repo.",
+      "import_title": "Import a configuration",
+      "import_desc": "Upload a previously-exported JSON file. Settings are upserted per-key; schedules and AI memory are REPLACED entirely. Operator confirms before anything writes.",
+      "upload_button": "Pick file…",
+      "import_warning": "⚠ Import OVERWRITES the schedules table and the AI memory table in full. Settings are merged per-key. Take a fresh export FIRST if you want a rollback point.",
+      "retention_title": "Saved-snapshot retention",
+      "saved_title": "Saved snapshots",
+      "saved_desc": "Files written by the `config_backup` schedule kind (or the manual \"Save to disk now\" button above). Download / restore / delete from here.",
+      "saved_empty": "No saved snapshots yet. Use \"Save to disk now\" or schedule a `config_backup` job in Admin → Schedules.",
+      "col_name": "Name",
+      "col_size": "Size",
+      "col_modified": "Modified",
+      "import_confirm_title": "Import configuration?",
+      "import_confirm_body": "<b>{name}</b><br><br>Settings will be merged per-key. Schedules and AI memory will be REPLACED entirely. Redacted secret entries are skipped — live secret values are preserved.",
+      "import_confirm_button": "Import",
+      "delete_confirm_title": "Delete saved snapshot?",
+      "delete_confirm_body": "<b>{name}</b><br><br>The file will be removed from the data volume. This can't be undone."
     }
   },
   "drawer": {
@@ -1905,6 +1935,12 @@
       "scan_ports_sub":               "On-demand TCP-connect scan against the open host drawer",
       "retag_image":                  "Switch image tag",
       "retag_image_sub":              "Switch this container/stack to a different floating tag (e.g. :latest, :2)",
+      "schedule_create":              "Create schedule",
+      "schedule_create_sub":          "Add a new recurring scheduled job",
+      "schedule_update":              "Update schedule",
+      "schedule_update_sub":          "Modify an existing scheduled job",
+      "schedule_delete":              "Delete schedule",
+      "schedule_delete_sub":          "Remove a scheduled job permanently",
       "destructive_confirm":  "This action affects live state — proceed?"
     },
     "bulk": {
@@ -3303,6 +3339,19 @@
     "copied": "Copied {label} to clipboard",
     "copied_all_debug": "Copied {count} debug pane(s) to clipboard",
     "nothing_to_copy": "Nothing to copy",
+    "config_backup_saved": "Config snapshot saved: {name}",
+    "config_backup_save_failed": "Save failed: {error}",
+    "config_backup_imported": "Imported: {settings} setting(s) applied, {schedules} schedule(s) replaced.",
+    "config_backup_import_failed": "Import failed: {error}",
+    "config_backup_invalid_json": "File isn't valid JSON: {error}",
+    "config_backup_deleted": "Deleted: {name}",
+    "config_backup_delete_failed": "Delete failed: {error}",
+    "schedule_created": "Schedule created: {name}",
+    "schedule_updated": "Schedule updated: {name}",
+    "schedule_deleted": "Schedule deleted: {name}",
+    "schedule_missing_fields": "Schedule needs at least name + kind + interval_seconds.",
+    "schedule_no_target": "Couldn't resolve schedule by id or name.",
+    "schedule_action_failed": "Schedule action failed: {error}",
     "save_failed_generic": "Save failed",
     "network_error_generic": "Network error",
     "language_load_failed": "Language load failed",
