@@ -16,7 +16,7 @@ Every `/api/*` route requires authentication. Three exceptions, all unauthentica
 | --- | --- |
 | `/api/healthz` | Liveness probe — always `200 {"status":"ok"}` if the process is alive. |
 | `/api/version` | Returns `{version}` (the live `MAJOR.MINOR.PATCH`) for the running deploy. |
-| `/metrics` | Prometheus exposition. (Treat as sensitive — operator stats; gate at the proxy if needed.) |
+| `/metrics` | Prometheus exposition. (Treat as sensitive — fleet stats; gate at the proxy if needed.) |
 
 For everything else, two auth modes:
 
@@ -108,9 +108,9 @@ every write route. UI-side role gating is a UX nicety only.
 ### Client config (`GET /api/me`)
 
 `/api/me` is auth-optional: unauthed callers get `{authenticated: false}`, authed callers get
-their identity plus a `client_config` object that surfaces the live values of every operator-
-tunable knob the SPA / dashboards need. Re-read it on a slow cadence (every page load, or as
-part of any auth handshake) to pick up Admin → Config edits without a SPA reload.
+their identity plus a `client_config` object that surfaces the live values of every
+admin-tunable knob the SPA / dashboards need. Re-read it on a slow cadence (every page load,
+or as part of any auth handshake) to pick up Admin → Config edits without a SPA reload.
 
 ```jsonc
 {
@@ -216,7 +216,7 @@ keyed on the payload's id field.
 ### Client guidance
 
 - **Browser SPA**: connects automatically — no opt-in. The toolbar status
-  pill ("Live" / "Polling") is the operator's cue. Polling resumes if the
+  pill ("Live" / "Polling") is the at-a-glance cue. Polling resumes if the
   stream drops for more than ~30s.
 - **Bearer-token machine clients**: stay on polling. Browser `EventSource`
   can't easily attach an `Authorization` header — the server accepts a
@@ -325,7 +325,7 @@ or force-fetch via `?force=true`.
 serve cached / snapshot data IMMEDIATELY when warm and kick the live
 refresh into a background `asyncio.create_task` (Fix A from the
 cold-load instant-paint work). Two response keys signal the in-flight
-state to operator scripts:
+state to scripted callers:
 
 - `cache_refreshing: bool` (on `/api/items`) — `true` when the in-memory
   `_cache` was served immediately because data was present, AND a
@@ -341,9 +341,9 @@ state to operator scripts:
   single-flight lock, so each row's eventual upgrade gets the fresh
   data without re-paying the probe cost.
 
-Operator scripts that need authoritative data should poll until both
-flags read `false` (or use `?force=true` to await a fresh gather
-synchronously — at the cost of the 10-30s cold-cache wall-clock).
+Scripts that need authoritative data should poll until both flags read
+`false` (or use `?force=true` to await a fresh gather synchronously —
+at the cost of the 10-30s cold-cache wall-clock).
 
 For full telemetry on one host (cached 10s server-side; per-host probe budget is 30s — beyond that the endpoint returns a 504 with `detail: "per-host probe budget exceeded (30s) for <id>"` so OmniGrid's explicit 504 always fires before NPM's generic 60s `proxy_read_timeout`):
 
@@ -504,7 +504,7 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X DELETE \
 
 Per-medium toggles (`notify_medium_app` / `notify_medium_apprise`) gate each delivery
 channel independently of the per-event toggles; both default ON. Retention is controlled
-by `tuning_notification_retention_days` (default 90) and the operator-creatable
+by `tuning_notification_retention_days` (default 90) and the admin-creatable
 `prune_notifications` schedule kind.
 
 ### Notification templates (admin-only)
@@ -579,7 +579,7 @@ is read via `GET /api/history/port-scan/{scan_id}/ports`.
 
 ```bash
 # Trigger an on-demand TCP scan of host01 (defaults to the curated `address` field +
-# the operator's TCP port CSV from Admin → Providers → Port Scan).
+# the configured TCP port CSV from Admin → Providers → Port Scan).
 curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
   -H 'Content-Type: application/json' -d '{}' \
   https://omnigrid.example.com/api/hosts/host01/port-scan | jq
@@ -668,7 +668,7 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
   https://omnigrid.example.com/api/ai/host-filter | jq
 # → {"ok":true,"dsl":"pause: host01 host05 host09","explanation":"…"}
 
-# Per-call feedback (operator clicks 👍 / 👎 in the AI sidebar)
+# Per-call feedback (user clicks 👍 / 👎 in the AI sidebar)
 curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
   -H 'Content-Type: application/json' \
   -d '{"job_id":12345,"score":1,"comment":""}' \
@@ -697,7 +697,7 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
 ```
 
 The AI emits two directives the SPA parses out of every reply: `MEMORY: <one-line lesson>`
-appends to `ai_memory` (after operator confirm); `MEMORY-FORGET: <exact text>` deletes the
+appends to `ai_memory` (after user confirm); `MEMORY-FORGET: <exact text>` deletes the
 matching row. Memory injects into every subsequent palette call's system prompt so
 knowledge accumulates across sessions.
 
@@ -733,7 +733,7 @@ endpoints surface deeper provider-specific detail used by the host drawer:
 | `GET`  | `/api/hosts/{id}/disk-projection?days_ahead=N` | Linear regression on `host_disk_used` across the configured window — projects "days until full" with a confidence band. |
 | `GET`  | `/api/hosts/{id}/triage` | Inline similar-incident grouping for host failures (read from `host_failure_events`). |
 | `GET`  | `/api/hosts/{id}/timeline?hours=N` | Unified per-host event timeline (state changes + sampler errors + bulk-action audit rows). |
-| `GET`  | `/api/hosts/debug?id=<host>&since_hours=N` | Raw provider payloads + counters block (samples-in-window, failure_state, provider_pause_state, full live tunables map) — the operator's "why is this host's chart cut?" diagnostic. |
+| `GET`  | `/api/hosts/debug?id=<host>&since_hours=N` | Raw provider payloads + counters block (samples-in-window, failure_state, provider_pause_state, full live tunables map) — the "why is this host's chart cut?" diagnostic. |
 
 ### Cleanup overlay network (admin-only)
 
@@ -768,7 +768,7 @@ alongside the deploy migration to image-build. Versions are now baked into the i
 at build time via the Dockerfile's `ARG VERSION`; durable MAJOR/MINOR seeds are done by
 editing the repo-root `VERSION.txt`, committing, and pushing — `deploy.yml`'s version
 resolver picks it up as the floor for the next PATCH bump. See `docs/RELEASE_PROCESS.md`
-for the full operator workflow.
+for the full release workflow.
 
 ### Probe-style "does my settings work?" endpoints
 
@@ -833,11 +833,11 @@ any of the "stable" routes break their contract.
 
 Only `/api/local-auth/login` is rate-limited today (5 failed attempts per
 IP per 15 minutes → 15-minute lockout). Bearer-authed routes have no
-per-IP / per-token limit; the operator runs OmniGrid as a single-replica
-service with in-process state, so abusive clients will hit the resource
-ceiling (memory / cache thrashing) before any explicit limit. Treat
-`/api/items` and `/api/stats` as "1 request every few seconds" — the SPA
-itself polls these on a 15s cadence.
+per-IP / per-token limit; OmniGrid runs as a single-replica service with
+in-process state, so abusive clients will hit the resource ceiling
+(memory / cache thrashing) before any explicit limit. Treat `/api/items`
+and `/api/stats` as "1 request every few seconds" — the SPA itself
+polls these on a 15s cadence.
 
 ## Going further
 

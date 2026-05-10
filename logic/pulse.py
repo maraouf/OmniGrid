@@ -675,9 +675,9 @@ async def probe_pulse(
     print(f"[pulse] probe: state top-level keys={sorted(state.keys())} "
           f"nodes={len(nodes)} guests={len(guests)}")
     # Schema-discovery diagnostic for Pulse v4's `hosts` / `containers`
-    # top-level arrays. Operator confirmed `debian13monitoring`-style
-    # entries are HOSTS (Pulse-agent-tracked Linux hosts), not PVE
-    # guests. Currently `extract_guest_stats` is shaped for PVE-guest
+    # top-level arrays. Pulse v4 hosts records (Pulse-agent-tracked Linux
+    # hosts, not PVE guests) live in this array. Currently
+    # `extract_guest_stats` is shaped for PVE-guest
     # schema (cpu top-level / mem / maxmem / disk / maxdisk) and reads
     # zeros from Pulse hosts records because their schema is different.
     # This dump captures hosts[0] + containers[0] sample shapes so we
@@ -790,9 +790,8 @@ async def probe_pulse(
             if vid not in (None, "", 0):
                 _add(str(vid), stats)
     # Pulse v4 `hosts` array — Pulse-agent-tracked Linux hosts (NOT
-    # PVE guests). Operator-confirmed: real curated hosts (e.g.
-    # `debian13monitoring`) are tracked here, not in `vms`. Walked
-    # separately from the generic `_harvest` because (a) these have
+    # PVE guests). Real curated hosts are tracked here, not in `vms`.
+    # Walked separately from the generic `_harvest` because (a) these have
     # a different schema than PVE guests/nodes; (b) extract via
     # `extract_pulse_host_stats` instead of `extract_guest_stats`
     # which assumes PVE shape and would return zeros.

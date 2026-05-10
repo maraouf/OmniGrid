@@ -12,7 +12,7 @@ before any `os.getenv()` runs. `docker-compose.yml` deliberately does NOT use Co
 to resolve a host-side path.
 
 This file is a curated reference for every key OmniGrid reads, with docs inline. When adding a
-new env var to `main.py` or the `logic/` modules, add it here too so operators and future-you
+new env var to `main.py` or the `logic/` modules, add it here too so admins and future-you
 can see the full surface in one place.
 
 A fresh deploy can boot with NO env vars at all — bootstrap admin via
@@ -60,7 +60,7 @@ DB_PATH=/app/data/omnigrid.db
 > which falls back to the code default. UI changes take effect on the
 > next consumer read (per-request for TTLs, per-tick for samplers — one
 > tick lag). The authoritative list of tunables lives in
-> `logic/tuning.py:TUNABLES`. **Strict rule:** every operator-tunable
+> `logic/tuning.py:TUNABLES`. **Strict rule:** every admin-tunable
 > value goes through TUNABLES — no hardcoded magic numbers in Python /
 > JS / HTML. Add new knobs there, not as code constants.
 
@@ -107,11 +107,11 @@ STATS_SAMPLE_INTERVAL_SECONDS=300
 
 # Permanent-fail window for the host_metrics_sampler. After this many
 # seconds of consecutive probe failures the sampler auto-pauses the host;
-# the operator resumes via POST /api/hosts/{id}/resume-sampling.
+# an admin clears it via POST /api/hosts/{id}/resume-sampling.
 HOST_PERMANENT_FAIL_WINDOW_SECONDS=900
 
 # Frontend /api/ops poll cadence in SECONDS (renamed from
-# OPS_POLL_INTERVAL_MS to a seconds-based name for operator-friendly
+# OPS_POLL_INTERVAL_MS to a seconds-based name for admin-friendly
 # UI). Backend multiplies × 1000 before delivering to the SPA's
 # setTimeout via /api/me's `client_config.ops_poll_ms`, so the
 # consumer contract is unchanged.
@@ -123,7 +123,7 @@ LOG_RETENTION_DAYS=7
 
 # In-app notifications retention (days). The `prune_notifications`
 # schedule kind sweeps rows from the `notifications` table older than
-# this. Default 90 — operators usually want a longer trail than logs
+# this. Default 90 — most deploys want a longer trail than logs
 # (7d) so quarterly review of "what happened" is possible without
 # exporting to an external store.
 NOTIFICATION_RETENTION_DAYS=90
@@ -221,7 +221,7 @@ SNMP_UNREACHABLE_COOLDOWN_SECONDS=300
 # Per-(provider, host) auto-pause threshold. After this many
 # consecutive failed sampler / probe rounds against a host, the
 # (provider, host) pair gets MARKED auto-paused — subsequent probes
-# are SKIPPED entirely until the operator clicks Resume on the
+# are SKIPPED entirely until an admin clicks Resume on the
 # provider chip in the host drawer. Distinct from any in-memory cool-
 # down (which throttles INDIVIDUAL failures); this is the higher-level
 # "this device is broken, stop probing it" signal. Default 5 ≈ 25 min
@@ -303,7 +303,7 @@ STAT_BAR_CRIT_PCT=85
 # so a Save in Admin → Config takes effect on the next round-trip.
 NOTIFICATION_PAGE_SIZE=25
 
-# Idle-time progressive fill for the Hosts view. When the operator stays at
+# Idle-time progressive fill for the Hosts view. When the user stays at
 # the top of the list without scrolling, a background ticker enqueues one
 # not-yet-loaded row every N seconds into the same fan-out worker pool the
 # IntersectionObserver uses. 0 disables; 1-2 for fast pre-warm on small
@@ -500,7 +500,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `STATS_UNTARGETED_TIMEOUT_SECONDS`| Runtime     | `10`                 | Per-container `/stats` timeout for the manager-local fallback path. Range 1..60. |
 | `SWARM_AGENT_UNHEALTHY_THRESHOLD` | Runtime     | `3`                  | Consecutive failed gather cycles before the unhealthy banner fires. Range 1..20. |
 | `HOST_PERMANENT_FAIL_WINDOW_SECONDS` | Runtime  | `900`                | host_metrics_sampler auto-pause window.                                          |
-| `OPS_POLL_INTERVAL_SECONDS`       | Runtime     | `2`                  | SPA's /api/ops poll cadence in seconds; multiplied × 1000 before delivery via `client_config.ops_poll_ms`. Renamed from the legacy `OPS_POLL_INTERVAL_MS` for operator-friendly admin UI. |
+| `OPS_POLL_INTERVAL_SECONDS`       | Runtime     | `2`                  | SPA's /api/ops poll cadence in seconds; multiplied × 1000 before delivery via `client_config.ops_poll_ms`. Renamed from the legacy `OPS_POLL_INTERVAL_MS` for admin-UI friendliness. |
 | `LOG_RETENTION_DAYS`              | Runtime     | `7`                  | Persistent-log retention.                                                        |
 | `NOTIFICATION_RETENTION_DAYS`     | Runtime     | `90`                 | In-app notifications retention. Drives the `prune_notifications` schedule kind. |
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | Runtime    | `5`                  | host_snapshots read-cache TTL.                                                   |

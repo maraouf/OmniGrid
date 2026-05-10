@@ -8957,7 +8957,7 @@ def _load_hosts_config() -> list[dict]:
             # `ip` field above (which is display-only metadata, often
             # carrying CIDR / subnet notation that's not a connect()
             # target). Free-text, max 64 chars; accepts an IP literal
-            # (`192.168.1.50`) OR a hostname (`opnsense.home.lan`) the
+            # (`192.X.X.X`) OR a hostname (`firewall.example.com`) the
             # OmniGrid container's resolver can reach.
             "address":     (h.get("address") or "").strip()[:64],
             # Per-host SSH override sub-dict. Optional user / port /

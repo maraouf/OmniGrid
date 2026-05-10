@@ -27,8 +27,8 @@ Backend wiring shipped with this endpoint:
 
 The dashboard JSON ships in two flavours — `docs/grafana_dashboard_omnigrid.example.json`
 (public-shippable, placeholder URLs, importable as-is) and `notes/grafana_dashboard_omnigrid.json`
-(operator-private working copy with live URLs). Either is ready to import; panels light up as
-soon as Prometheus starts scraping.
+(maintainer-private working copy with live URLs). Either is ready to import; panels light up
+as soon as Prometheus starts scraping.
 
 ## Port & URL matrix
 
@@ -75,6 +75,14 @@ PromQL expressions are hardcoded to them. All definitions live in `logic/metrics
 | --------------------------------------- | ---------- | --------------------------------------------------------------------------------------- |
 | `omnigrid_registry_latency_seconds`     | `registry` | Per-request registry HEAD/GET latency. Buckets `0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10`.     |
 | `omnigrid_gather_duration_seconds`      | (none)     | End-to-end `_gather()` runtime. Buckets `0.5, 1, 2, 5, 10, 30, 60, 120`.                |
+| `omnigrid_host_provider_lock_wait_seconds` | (none)  | Time spent waiting on `_host_provider_lock` before `_do_host_provider_probe` runs. Surfaces lock-contention latency on the per-host probe path: parallel `/api/hosts/one/{id}` callers wait here for the first caller's probe to populate the cache. Elevated p95 here (vs flat upstream latency) indicates contention rather than slow upstreams. Buckets `0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30`. |
+
+### SSE bus health
+
+| Metric                          | Labels  | Description                                                                                       |
+| ------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `omnigrid_events_subscribers`   | (none)  | Active SSE subscribers connected to `/api/events`. Read at scrape time via a custom collector.    |
+| `omnigrid_events_dropped`       | (none)  | Cumulative count of events dropped due to slow subscribers (per-subscriber queue overflow).       |
 
 ## Backend wiring (for the implementer)
 
@@ -260,7 +268,7 @@ You should see `HELP` / `TYPE` lines for the metrics listed above.
 1. Grafana → Connections → Data sources → Add data source → Prometheus. Set URL to
    `http://prometheus:9090` (or wherever Prometheus lives). Save & Test.
 2. Grafana → Dashboards → New → Import → Upload JSON file. Use
-   `docs/grafana_dashboard_omnigrid.example.json` (public copy) or the operator-private
+   `docs/grafana_dashboard_omnigrid.example.json` (public copy) or the maintainer-private
    `notes/grafana_dashboard_omnigrid.json` (live URLs). When prompted:
    - Name: leave as `OmniGrid — Fleet Status`.
    - UID: leave as `omnigrid-fleet` (or change to avoid collision).
@@ -309,7 +317,7 @@ You should see `HELP` / `TYPE` lines for the metrics listed above.
 
 - `docs/grafana_dashboard_omnigrid.example.json` — public-shippable Grafana
   dashboard template with placeholder URLs (importable as-is).
-- `notes/grafana_dashboard_omnigrid.json` — operator's working dashboard
+- `notes/grafana_dashboard_omnigrid.json` — maintainer's working dashboard
   with live URLs (kept under `notes/`, not shipped publicly).
 - `logic/metrics.py` — registry + metric objects + `populate_from_cache()` +
   `register_cache_age_collector()`.

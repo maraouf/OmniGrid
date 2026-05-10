@@ -1,6 +1,6 @@
 # OmniGrid documentation
 
-Operator-facing runbooks, integration guides, and visual reference. Everything
+Admin-facing runbooks, integration guides, and visual reference. Everything
 in this directory ships in the public repo.
 
 For the project overview and quick-start, see the
@@ -11,7 +11,7 @@ packagers) auto-detect it.
 
 ## Guidelines
 
-Step-by-step runbooks for each integration / subsystem.
+Step-by-step admin runbooks for each integration / subsystem.
 
 | File | Purpose |
 | --- | --- |
@@ -32,7 +32,7 @@ Step-by-step runbooks for each integration / subsystem.
 | File | Purpose |
 | --- | --- |
 | [`RELEASE_PROCESS.md`](RELEASE_PROCESS.md) | Per-digit SemVer semantics, daily PATCH cadence (CI auto-bump), periodic MINOR cuts, rare MAJOR breaking-change ritual. |
-| [`grafana_dashboard_omnigrid.example.json`](grafana_dashboard_omnigrid.example.json) | Importable Grafana dashboard template — public-facing copy with placeholder URLs. The operator's working dashboard with live URLs lives at `notes/grafana_dashboard_omnigrid.json` and is intentionally not in this directory. |
+| [`grafana_dashboard_omnigrid.example.json`](grafana_dashboard_omnigrid.example.json) | Importable Grafana dashboard template — public-facing copy with placeholder URLs. The maintainer's working dashboard with live URLs lives at `notes/grafana_dashboard_omnigrid.json` and is intentionally not in this directory. |
 
 ## Screenshots
 
@@ -43,15 +43,15 @@ walkthroughs). Add new screenshots here at sensible names (`hosts-view.png`,
 
 ## Conventions
 
-- **Public-shippable content only.** Anything operator-private (working
+- **Public-shippable content only.** Anything maintainer-private (working
   scratch notes, runner config, the `.claude/agent-memory/**` dirs, the
   deploy `.env`, the live Grafana dashboard) stays under `notes/` or is
   gitignored. The audit grep is documented in `CLAUDE.md`'s
   "Operator-private hostnames" convention bullet.
 - **Hostname / IP placeholders.** `*.example.com` (RFC 2606 reserved domain)
   for hostnames; `192.X.X.X` for IPs (chosen over the technically-valid RFC 5737
-  `192.0.2.x` because the operator prefers visually-obvious-as-non-real over
-  strict standards conformance).
+  `192.0.2.x` because visually-obvious-as-non-real beats strict standards
+  conformance for this project).
 - **Cross-links.** Internal cross-references between guideline files use
   relative paths within `docs/` (e.g. `guidelines/auth.md` → `auth.md`).
   Links from outside `docs/` (root README, CLAUDE.md, code docstrings) use

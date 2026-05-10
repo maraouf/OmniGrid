@@ -1,7 +1,7 @@
 # Contributing to OmniGrid
 
 Thanks for taking the time to look at OmniGrid. This file is the short
-on-ramp for outside contributors; operator-facing runbooks live under
+on-ramp for outside contributors; admin-facing runbooks live under
 [`docs/`](docs/).
 
 OmniGrid is a small project maintained as a homelab tool first and a
@@ -176,7 +176,7 @@ The non-obvious ones:
    description.
 5. **Don't bump `VERSION.txt` or the `[Unreleased]` heading.** PATCH
    bumps happen automatically on CI deploy; MINOR / MAJOR cuts are
-   operator-controlled per the [Release Process](docs/RELEASE_PROCESS.md).
+   maintainer-controlled per the [Release Process](docs/RELEASE_PROCESS.md).
 6. **Self-review your diff.** Skim the unified diff one final time
    before pushing — extra console logs, debug prints, commented-out
    code, half-finished comments tend to land in PRs that rush the
@@ -218,13 +218,13 @@ OmniGrid follows [Semantic Versioning](https://semver.org):
 
 - **PATCH** is bumped automatically on every successful CI deploy.
   Don't touch it.
-- **MINOR** is operator-controlled and is cut when accumulated PATCH
+- **MINOR** is maintainer-controlled and is cut when accumulated PATCH
   items feel release-worthy.
 - **MAJOR** is reserved for breaking changes (DB migrations that
   aren't forward-compatible, env var renames, `/api` contract
   breakage). Migration notes ship alongside MAJOR releases.
 
-The full operator runbook is in
+The full release runbook is in
 [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md).
 
 ## Security disclosure

@@ -15,7 +15,7 @@ A Portainer-native operations dashboard for Docker Swarm clusters **and the bare
 
 Built as a friendlier replacement for Diun Dash plus the tab-jumping between Portainer / Beszel / Grafana / SSH that homelab clusters tend to grow. Diun only **observes**; OmniGrid **acts**.
 
-📋 **Releases & changelog:** see [`CHANGELOG.md`](CHANGELOG.md) for the full per-version release notes (Keep a Changelog format). Per-version links jump to the matching milestone. The release cadence (PATCH on every deploy, periodic operator-cut MINORs) is documented in [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md).
+📋 **Releases & changelog:** see [`CHANGELOG.md`](CHANGELOG.md) for the full per-version release notes (Keep a Changelog format). Per-version links jump to the matching milestone. The release cadence (PATCH on every deploy, periodic manually-cut MINORs) is documented in [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md).
 
 <!-- Screenshots live under `docs/screenshots/` — see the gallery below
      for the full set. The hero shot is the Nodes view (Stacks grouped
@@ -36,12 +36,12 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **Schedules** — cron-like recurring jobs (cache refresh / `docker system prune` per-node or fan-out / SQLite+avatars backup / asset-inventory refresh) with skip-if-running guards and audited history.
 
 ### Host telemetry & inventory
-- **Curated host list** — operator-defined inventory under Admin → Hosts; each row maps to one or more provider-specific identifiers PLUS a dedicated `address` field that's the canonical provider-independent probe target (port-scan, ping, SNMP, SSH all resolve to it before falling through to provider-specific aliases).
+- **Curated host list** — admin-defined inventory under Admin → Hosts; each row maps to one or more provider-specific identifiers PLUS a dedicated `address` field that's the canonical provider-independent probe target (port-scan, ping, SNMP, SSH all resolve to it before falling through to provider-specific aliases).
 - **Six monitoring providers** (any combination): Beszel Hub (Pocketbase), Pulse (Proxmox), Prometheus node-exporter (Linux + FreeBSD), Webmin / Miniserv, Ping (TCP-connect or ICMP echo for reachability + RTT), SNMP (v2c / v3 USM for managed switches / routers / UPSes / printers). Cross-provider fallback merges stats with a "most-specific wins" rule + per-host snapshots so a flaky agent doesn't blank the chart. Per-provider chip colour customisable in Settings → Providers.
 - **Time-series charts** — CPU / Memory / Disk usage / Disk I/O (Linux + FreeBSD `node_devstat_*`) / Network In/Out / Bandwidth / Load 1m/5m/15m (rendered as % of cores) / Swap / Temperature (per-sensor lines from `stats.t`) / GPU Power / GPU Usage / GPU VRAM (NVIDIA / AMD via Beszel `stats.g`), with 1h / 6h / 24h / 7d range picker, dynamic unit chips that lock to one family (legend + Y-axis + chip stay aligned across magnitudes), permanently-flat charts auto-hide after a 1 h soak, and a live "Updated Xs ago" freshness label.
 - **Switch / managed-gear telemetry** (SNMP) — total throughput line chart, per-port throughput multi-line chart (top 5 by current rate, solid in / dashed out), per-port utilization line chart (% of link capacity from `ifHighSpeed`), uptime trend with reboot detection, hardware inventory rows from `entPhysicalTable` (model / serial / firmware), printer toner / ink supplies + lifetime page count headline + console message via Printer-MIB.
 - **Host drawer detail** — hardware (vendor / model / serial / OS / kernel / arch), network interfaces, mounted filesystems, package-update count, systemd service status, optional asset-inventory join (model / serial / location from a third-party asset API).
-- **Host groups** — operator-assigned `custom_number` ranges bucket curated hosts into collapsible sections (e.g. "Gateways 1-4", "VMs 100-199").
+- **Host groups** — admin-assigned `custom_number` ranges bucket curated hosts into collapsible sections (e.g. "Gateways 1-4", "VMs 100-199").
 
 ### Operations & access
 - **Interactive SSH terminal** — admin-only xterm.js modal over WSS to a backend asyncssh PTY. PTY-forced (so sudo doesn't silently no-op), full audit row per session.
@@ -51,7 +51,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **Auto-fix action buttons in drawers** — when a Swarm task error matches a known pattern (VXLAN sandbox-join, image-pull failure, etc.), the drawer surfaces one-click "Auto-fix" actions (Portainer-API-only when possible, falling back to SSH-with-pre-loaded-command). Destructive actions gate on a SweetAlert confirm + spinner overlay.
 - **Bulk host actions** — pause / resume sampling, apply SNMP vendor whitelist, apply per-host SNMP tunables across N hosts in one POST. Each affected host fires its usual SSE event so other tabs catch up within one frame.
 - **Audit log** — every operation (updates, restarts, ssh runs, schedule fires, backups, AI calls, port scans) persisted to SQLite with full event log. Filterable + CSV / JSON export. Timeline tab gives a unified per-host event view (state changes + sampler errors + bulk-action audit rows).
-- **Backups** — DB + avatars snapshot zips via SQLite's online `.backup()` API. Browseable + restorable from the Admin → Backups page. Operator-tunable retention via `tuning_backup_retention_count` (0 = keep all; 7-30 typical).
+- **Backups** — DB + avatars snapshot zips via SQLite's online `.backup()` API. Browseable + restorable from the Admin → Backups page. Tunable retention via `tuning_backup_retention_count` (0 = keep all; 7-30 typical).
 - **Notifications (in-app + Apprise)** — every write op + scheduled-job completion fires through TWO mediums in parallel: an SQLite-backed in-app store (Notifications popup behind the user-avatar dropdown, severity / event / unread filters, mark-read, retention via the `prune_notifications` schedule kind) and the existing Apprise webhook fan-out. Per-medium master toggles + per-event admin gates + per-user opt-in/out. Admin-only template editor for per-event title + body overrides with curated `{name}` / `{type}` / `{actor}` / `{host}` / `{time}` / `{error}` / `{status}` placeholder whitelist.
 - **Prometheus `/metrics`** — gather stats, op counts, cache age, host-stats provider health.
 
@@ -93,7 +93,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ## Deploy
 
-The canonical production deploy is the CI pipeline — push to `main`, the runner rsyncs the build context to the Swarm manager, builds the `omnigrid:<version>` image there, pushes to the configured registry, and force-updates the running stack. Full operator runbook (runner setup, deploy-key rotation, registry credentials, manual rollback) lives in [`docs/guidelines/deploy.md`](docs/guidelines/deploy.md).
+The canonical production deploy is the CI pipeline — push to `main`, the runner rsyncs the build context to the Swarm manager, builds the `omnigrid:<version>` image there, pushes to the configured registry, and force-updates the running stack. Full deploy runbook (runner setup, deploy-key rotation, registry credentials, manual rollback) lives in [`docs/guidelines/deploy.md`](docs/guidelines/deploy.md).
 
 For a one-off / manual stand-up:
 
@@ -174,13 +174,13 @@ Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain
 | `SNMP_UNREACHABLE_COOLDOWN_SECONDS` | `300` | SNMP-specific unreachable cool-down. Distinct from `AUTH_FAILURE_COOLDOWN_SECONDS` (no auth challenge to lock out against). |
 | `STAT_BAR_WARN_PCT` / `STAT_BAR_CRIT_PCT` | `60` / `85` | Hosts-view stat-bar amber / red threshold percentages. Edit live from Admin → Config; the SPA reads via `/api/me`'s `client_config.stat_bar_warn_pct`. |
 | `HOST_PERMANENT_FAIL_WINDOW_SECONDS` | `900` | `host_metrics_sampler` auto-pause window after consecutive probe failures. |
-| `OPS_POLL_INTERVAL_SECONDS` | `2` | SPA `/api/ops` poll cadence in seconds; multiplied × 1000 before delivery via `/api/me`'s `client_config.ops_poll_ms` (renamed from the legacy `OPS_POLL_INTERVAL_MS` for operator-friendly admin UI). |
+| `OPS_POLL_INTERVAL_SECONDS` | `2` | SPA `/api/ops` poll cadence in seconds; multiplied × 1000 before delivery via `/api/me`'s `client_config.ops_poll_ms` (renamed from the legacy `OPS_POLL_INTERVAL_MS` for admin-UI friendliness). |
 | `LOG_RETENTION_DAYS` | `7` | Persistent-log retention for `/app/data/logs/` (pruned hourly). |
 | `NOTIFICATION_RETENTION_DAYS` | `90` | In-app notifications retention in days. Drives the `prune_notifications` schedule kind. |
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | `5` | Read-side cache TTL on `host_snapshots` to collapse parallel `/api/hosts/one/{id}` reads (set 0 to disable). |
 | `HOSTS_PARALLEL_FETCH` | `6` | Concurrency cap on the SPA's `/api/hosts/one/{id}` fan-out (read on `/api/me` as `client_config.hosts_parallel_fetch`). |
 
-The authoritative table is [`logic/tuning.py:TUNABLES`](logic/tuning.py); the env-var names above are mirrored from there. Every operator-tunable value lives in `TUNABLES` — no hardcoded magic numbers in Python / JS / HTML. Add new knobs there, never as code constants.
+The authoritative table is [`logic/tuning.py:TUNABLES`](logic/tuning.py); the env-var names above are mirrored from there. Every tunable value lives in `TUNABLES` — no hardcoded magic numbers in Python / JS / HTML. Add new knobs there, never as code constants.
 
 OIDC has **no env vars** — every OIDC setting (issuer URL, client ID / secret, redirect URI, scopes, admin group, enable toggle) lives in the DB `settings` table and is edited from `Admin → Authentik OIDC`. See [`docs/guidelines/env_example.md`](docs/guidelines/env_example.md) for the full reference and [`docs/guidelines/authentik.md`](docs/guidelines/authentik.md) for the Authentik-side walkthrough.
 
@@ -320,10 +320,10 @@ Full schema for each endpoint lives in `main.py` — every route is decorated wi
 - **External stacks** (deployed via `docker stack deploy` CLI and then "discovered" by Portainer) have no compose file stored in Portainer → stack update returns HTTP 400. The Update button is disabled and the detail drawer explains this. Workaround: redeploy via CLI or use the Restart (no-pull) action.
 - **No live Docker events.** The ops panel polls the in-memory event log at 1.5s intervals — good enough for the "kicked off → succeeded / failed" loop, but not a real-time `docker events` stream.
 - **Single-replica only.** State (live ops dict, gather cache, host-stats cache) lives in-memory inside one process. Running multiple replicas would split this state across replicas; the compose placement constraint pins the service to a single manager node by default. Lifespan-managed background tasks (samplers, scheduler, drift watcher) follow the same single-replica invariant.
-- **SQLite-backed only (today).** The `DB_TYPE` env var scaffolds multi-database support but only `sqlite` is wired up. Postgres / MariaDB / MongoDB are on the roadmap for when an operator with an existing managed DB asks for it.
+- **SQLite-backed only (today).** The `DB_TYPE` env var scaffolds multi-database support but only `sqlite` is wired up. Postgres / MariaDB / MongoDB are on the roadmap for when a deployment with an existing managed DB needs them.
 - **Worker-node container ops require Portainer Edge agent.** Container-level write ops (recreate / restart / remove) are routed via `X-PortainerAgent-Target: <hostname>` so Portainer talks to the right Docker daemon. Stack and service ops use Portainer's Swarm-aware endpoints and don't need this.
 - **Time-series retention is bounded.** `STATS_HISTORY_DAYS` defaults to 7. Charts stop having data beyond that window. Bump the env var or push the data to a downstream Prometheus / VictoriaMetrics if you need long-term retention.
-- **Asset-inventory integration is operator-supplied.** OmniGrid joins host rows against an external asset API (model / serial / location). The API contract is documented in [`docs/guidelines/api_services.md`](docs/guidelines/api_services.md); without it the asset card simply doesn't render.
+- **Asset-inventory integration is admin-supplied.** OmniGrid joins host rows against an external asset API (model / serial / location). The API contract is documented in [`docs/guidelines/api_services.md`](docs/guidelines/api_services.md); without it the asset card simply doesn't render.
 
 ## Updating OmniGrid itself
 
@@ -343,7 +343,7 @@ Or, of course, use OmniGrid itself to update… itself. Fun thought.
 
 ## Documentation
 
-- [`docs/README.md`](docs/README.md) — index of operator runbooks (auth, OIDC,
+- [`docs/README.md`](docs/README.md) — index of admin runbooks (auth, OIDC,
   deploy, env reference, scheduler, metrics, npm updates, Beszel agent setup).
 - [`CHANGELOG.md`](CHANGELOG.md) — release notes per Keep a Changelog (root
   per convention so git hosts and packagers auto-detect it).

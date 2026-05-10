@@ -526,8 +526,8 @@ This repo is private (self-hosted Git), so `.env` is committed at the repo root 
 `main.py` / `logic/auth.py` and ships via the normal CI rsync pipeline to
 `/opt/omnigrid/app/.env` on the manager. After the image-build deploy migration the
 `.env` is no longer baked into the image — it rides a per-file bind mount declared in
-`docker-compose.yml` (`/opt/omnigrid/app/.env:/app/.env:ro`), so secrets stay operator-controlled
-on the host while the application code lives inside the image. `main.py`'s first lines load
+`docker-compose.yml` (`/opt/omnigrid/app/.env:/app/.env:ro`), so secrets stay host-controlled
+while the application code lives inside the image. `main.py`'s first lines load
 `/app/.env` via `python-dotenv` before any `os.getenv()` runs. Compose doesn't use `env_file:`
 — the app reads its own config file, same pattern as adguardhome-sync / many other stacks.
 
@@ -544,7 +544,7 @@ Why not the "gitignored, hand-managed on the server" pattern?
 
 - Keeps secrets in the same version control as the code that reads them, so schema changes +
   env changes land atomically.
-- CI ships a new `.env` on push — no out-of-band operator step.
+- CI ships a new `.env` on push — no out-of-band manual step.
 - Only viable because the repo is private. **Do NOT enable public mirroring.**
 
 What lives in `.env` (reference with inline docs: `docs/guidelines/env_example.md`):
@@ -585,8 +585,9 @@ Paste the output into `.env`, commit, push. Users re-authenticate.
 
 The deploy target is a Debian 13 VM (amd64, 16 GB / 100 GB) reachable at `pi@docker.example.com`.
 Image-build deploy — `/opt/omnigrid/app/` is the rsynced build context, NOT a runtime
-bind mount. The operator creates the directory tree once; every subsequent change ships via CI
-which rsyncs the build context, runs `docker build` on the manager, and rolls the new tag in.
+bind mount. The directory tree is created once on initial setup; every subsequent change
+ships via CI which rsyncs the build context, runs `docker build` on the manager, and
+rolls the new tag in.
 
 ```bash
 ssh pi@docker.example.com
