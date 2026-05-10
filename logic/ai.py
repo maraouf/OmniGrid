@@ -1787,6 +1787,51 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                         "multi-day questions like 'next 5 days' / 'this week' / 'tomorrow'):\n"
                         + "\n".join(lines)
                     )
+        # Backups summary — sqlite-zip backups (Admin → Backup) AND
+        # Settings-as-Code JSON snapshots (Admin → Config Backup).
+        # Operator-flagged: AI was answering "I don't have access to
+        # the history of backup jobs" when asked "what's the latest
+        # backup?". The SPA forwards the latest 5 of each list when
+        # available; render a compact summary the AI can answer
+        # freshness / count / latest-name questions from. When NEITHER
+        # list is present in ctx, the AI should say "no backups have
+        # been taken yet — create one via Admin → Backup or Admin →
+        # Config Backup" rather than refusing as off-topic.
+        backups = ctx.get("backups") if isinstance(ctx.get("backups"), dict) else None
+        if backups:
+            sqlite_list = backups.get("sqlite") if isinstance(backups.get("sqlite"), list) else []
+            config_list = backups.get("config") if isinstance(backups.get("config"), list) else []
+            sqlite_count = backups.get("sqlite_count") or len(sqlite_list)
+            config_count = backups.get("config_count") or len(config_list)
+            block_lines: list[str] = []
+            block_lines.append(
+                f"Backups summary (Admin → Backup + Admin → Config Backup):"
+            )
+            if sqlite_list:
+                latest = sqlite_list[0]
+                block_lines.append(
+                    f"  - SQLite backup zips ({sqlite_count} recent): latest = "
+                    f"`{latest.get('name', '?')}`, "
+                    f"size = {int(latest.get('size') or 0)} bytes, "
+                    f"mtime epoch = {int(latest.get('mtime') or 0)}"
+                )
+            else:
+                block_lines.append("  - SQLite backup zips: NONE listed (operator hasn't taken one yet, or the list isn't loaded).")
+            if config_list:
+                latest = config_list[0]
+                block_lines.append(
+                    f"  - Settings-as-Code snapshots ({config_count} recent): latest = "
+                    f"`{latest.get('name', '?')}`, "
+                    f"size = {int(latest.get('size') or 0)} bytes, "
+                    f"mtime epoch = {int(latest.get('mtime') or 0)}"
+                )
+            else:
+                block_lines.append("  - Settings-as-Code snapshots: NONE listed.")
+            block_lines.append(
+                "Use the mtime values to compute relative ages (now is the conversation timestamp). "
+                "Always cite the file name when answering 'what's the latest backup?' style questions."
+            )
+            parts.append("\n".join(block_lines))
         # Recent log signals — last N error/warn lines from the
         # in-process log ring buffer. Populated by the palette
         # endpoint via `logic.logs.recent_lines(levels=[error, warn])`

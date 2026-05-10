@@ -8,20 +8,22 @@
           <p class="fs-xs text-[var(--text-faint)] mb-3 max-w-[720px]"
              x-text="t('admin.debug.intro')"></p>
 
-          <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
-            <label class="flex items-start gap-3 cursor-pointer select-none">
-              <input type="checkbox"
-                     x-model="settings.debug_panel_enabled"
-                     :disabled="!isAdmin()"
-                     class="mt-0.5">
-              <span class="flex-1">
-                <span class="fs-md font-medium block"
-                      x-text="t('admin_hosts.debug_panel_toggle_label')"></span>
-                <span class="fs-xs text-[var(--text-faint)] block mt-0.5 leading-snug"
-                      x-text="t('admin_hosts.debug_panel_toggle_hint')"></span>
-              </span>
-            </label>
-          </div>
+          <!-- Master toggle — operator-flagged "remove the shadow box
+               behind the checkbox; not part of the page": dropped the
+               wrapper `border + bg-[var(--surface-2)] + p-3` so the
+               checkbox sits directly on the section background. -->
+          <label class="flex items-start gap-3 cursor-pointer select-none">
+            <input type="checkbox"
+                   x-model="settings.debug_panel_enabled"
+                   :disabled="!isAdmin()"
+                   class="mt-0.5">
+            <span class="flex-1">
+              <span class="fs-md font-medium block"
+                    x-text="t('admin_hosts.debug_panel_toggle_label')"></span>
+              <span class="fs-xs text-[var(--text-faint)] block mt-0.5 leading-snug"
+                    x-text="t('admin_hosts.debug_panel_toggle_hint')"></span>
+            </span>
+          </label>
 
           <!-- Save button + dirty indicator — same pattern as the
                other admin tabs (Apprise / OpenMeteo / Portainer / OIDC /

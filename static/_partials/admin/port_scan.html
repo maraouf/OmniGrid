@@ -1,4 +1,14 @@
-      <section x-show="adminTab==='port_scan'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+      <!-- Port Scan admin tab — one parent <div x-show> wrapping FOUR
+           sibling <section> cards so each subsystem (TCP scanner / UDP
+           scanner / Scheduled refresh) reads as a visually-distinct
+           box. Operator-flagged: TCP and UDP each have their own
+           master toggle, so they're independent subsystems and
+           deserve independent card chrome rather than `<hr>`-separated
+           regions inside one card. -->
+      <div x-show="adminTab==='port_scan'" class="space-y-4">
+
+      <!-- HEADER CARD: master toggle + intro -->
+      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <!-- Title row + Enabled/Disabled pill — matches Admin →
              SSH / Portainer / Notifications visual rhythm. Port Scan
              was originally filed under Admin → Providers but it isn't
@@ -39,15 +49,17 @@
 
         <p class="fs-2xs text-[var(--text-faint)] mt-3"
            x-text="t('settings.host_stats.port_scan.section_desc')"></p>
+      </section>
 
-        <!-- TCP section header — groups the default-port CSV + the
-             four TCP tunables (timeout / concurrency / outer budget /
-             banner-grab) under a clearly-labelled section so the
-             surrounding UDP + Scheduled-refresh blocks visually
-             separate. -->
-        <hr class="my-4 border-[var(--border)]">
-        <h4 class="fs-sm font-medium mt-3 mb-1"
-            x-text="t('admin_port_scan.tcp_section_title')"></h4>
+      <!-- TCP CARD: default-port CSV + the four TCP tunables
+           (timeout / concurrency / outer budget / banner-grab). -->
+      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
+          </svg>
+          <h3 class="font-semibold fs-md" x-text="t('admin_port_scan.tcp_section_title')"></h3>
+        </div>
         <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug max-w-[720px]"
            x-text="t('admin_port_scan.tcp_section_intro')"></p>
 
@@ -216,16 +228,22 @@
           </div>
         </div>
 
-        <!-- UDP companion (Stage 2). UDP scanning runs alongside TCP
+      </section>
+
+      <!-- UDP CARD (Stage 2). UDP scanning runs alongside TCP
              with its own probe templates per well-known port (DNS 53,
              DHCP 67, NTP 123, SNMP 161, mDNS 5353, etc.) so services
              that don't TCP-listen are still surfaced. Disabled by
              default — UDP is more conspicuous on the network and the
              probe templates trigger logged events on some services
              (Asterisk SIP, IPMI BMC). -->
-        <hr class="my-4 border-[var(--border)]">
-        <h4 class="fs-sm font-medium mt-3 mb-1"
-            x-text="t('admin_port_scan.udp_section_title')"></h4>
+      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
+          </svg>
+          <h3 class="font-semibold fs-md" x-text="t('admin_port_scan.udp_section_title')"></h3>
+        </div>
         <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug max-w-[720px]"
            x-text="t('admin_port_scan.udp_section_intro')"></p>
         <div class="mt-3">
@@ -327,17 +345,23 @@
           </div>
         </div>
 
-        <!-- Scheduled refresh — knobs consumed by the
-             `port_scan_refresh` schedule kind in
-             `logic/schedules.py:_run_port_scan_refresh`.
-             Schedule itself is created from Admin → Schedules; these
-             three knobs only shape HOW MUCH work each fire does.
-             Disabled when the master toggle is off (the runner short-
-             circuits with a no-op anyway, but disabling matches the
-             existing TCP / UDP block behaviour). -->
-        <hr class="my-4 border-[var(--border)]">
-        <h4 class="fs-sm font-medium mt-3 mb-1"
-            x-text="t('admin_port_scan.schedule_section_title')"></h4>
+      </section>
+
+      <!-- SCHEDULED REFRESH CARD — knobs consumed by the
+           `port_scan_refresh` schedule kind in
+           `logic/schedules.py:_run_port_scan_refresh`.
+           Schedule itself is created from Admin → Schedules; these
+           three knobs only shape HOW MUCH work each fire does.
+           Disabled when the master toggle is off (the runner short-
+           circuits with a no-op anyway, but disabling matches the
+           existing TCP / UDP block behaviour). -->
+      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-calendar"/>
+          </svg>
+          <h3 class="font-semibold fs-md" x-text="t('admin_port_scan.schedule_section_title')"></h3>
+        </div>
         <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug max-w-[720px]"
            x-text="t('admin_port_scan.schedule_section_intro')"></p>
 
@@ -473,3 +497,5 @@
           </span>
         </div>
       </section>
+
+      </div>
