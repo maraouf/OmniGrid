@@ -91,7 +91,7 @@
             </div>
             <button type="button"
                     @click="_runWithBusy('config_backup_saved', () => loadConfigBackupSaved())"
-                    :disabled="configBackupBusy"
+                    :disabled="configBackupBusy || _loadBusy.config_backup_saved"
                     :title="t('actions.reload')"
                     :aria-label="t('actions.reload')"
                     class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">

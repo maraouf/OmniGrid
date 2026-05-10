@@ -238,9 +238,45 @@
         "label": "Curated hosts",
         "sub": "{enabled} enabled in inventory"
       },
+      "host_groups": {
+        "label": "Host groups",
+        "sub": "Curated groupings of hosts in the Hosts view"
+      },
       "assets": {
         "label": "Asset inventory",
         "sub": "Cached entries from the asset API"
+      },
+      "nodes": {
+        "label": "Swarm nodes",
+        "sub": "Managers + workers currently in the cluster"
+      },
+      "stacks": {
+        "label": "Stacks",
+        "sub": "Compose / Swarm stacks discovered via Portainer"
+      },
+      "services": {
+        "label": "Services",
+        "sub": "Swarm services across every stack"
+      },
+      "containers": {
+        "label": "Containers",
+        "sub": "{replicas} service replicas · {standalone} standalone / orphan"
+      },
+      "schedules": {
+        "label": "Schedules",
+        "sub": "{enabled} enabled · cron-style background jobs"
+      },
+      "backups": {
+        "label": "Backups",
+        "sub": "SQLite + avatars snapshots on disk"
+      },
+      "config_backups": {
+        "label": "Config backups",
+        "sub": "Settings-as-Code JSON snapshots on disk"
+      },
+      "tunables": {
+        "label": "Tunables",
+        "sub": "{overridden} overridden from defaults"
       }
     }
   },

@@ -57,7 +57,23 @@ from logic.db import DB_PATH, db_conn
 _DATA_DIR = os.path.dirname(DB_PATH)
 CONFIG_BACKUP_DIR = os.path.join(_DATA_DIR, "config_backups")
 
-_SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+\.json$")
+# Strict canonical filename: `<prefix>_<YYYY>.<MM>.<DD>_<HH>.<MM>.<SS>.json`
+# where `<prefix>` is drawn from a closed allow-list. The regex parses
+# the operator-supplied URL segment into PRIMITIVES (an allowlisted prefix
+# literal + six int components) and `_safe_path` rebuilds the filename
+# from those primitives — `int()` conversion plus closed regex-alternation
+# are the canonical CodeQL-recognised path-injection sanitizers (same
+# pattern as ``_avatar_path_from_fname`` for ``py/path-injection``). The
+# previous "regex allow + realpath confinement" guard was semantically
+# correct but CodeQL's interprocedural taint tracker did not accept it.
+_PREFIX_ALLOW = ("config", "omnigrid-config")
+_NAME_RE = re.compile(
+    r"^(?P<prefix>config|omnigrid-config)_"
+    r"(?P<y>\d{4})\.(?P<mo>\d{2})\.(?P<d>\d{2})_"
+    r"(?P<h>\d{2})\.(?P<mi>\d{2})\.(?P<s>\d{2})\.json$"
+)
+# Back-compat alias — internal callers grep for it as the validation hook.
+_SAFE_NAME = _NAME_RE
 
 
 def ensure_dir() -> None:
@@ -66,16 +82,33 @@ def ensure_dir() -> None:
 
 def _safe_path(name: str) -> str:
     """Validate + re-anchor a snapshot filename under
-    ``CONFIG_BACKUP_DIR``. Mirrors the path-traversal guard pattern in
-    ``logic/backups.py`` (regex + realpath confinement).
+    ``CONFIG_BACKUP_DIR``.
+
+    Parses ``name`` via ``_NAME_RE`` into PRIMITIVES (an allowlisted
+    prefix literal + six int components), then rebuilds the filename
+    from those primitives. The ``int()`` conversion strips taint
+    interprocedurally for CodeQL's ``py/path-injection`` tracker; the
+    prefix is drawn from a closed alternation set so the rebuilt
+    filename is uncontroversially safe.
     """
-    if not _SAFE_NAME.match(name or ""):
+    m = _NAME_RE.match(name or "")
+    if not m:
         raise ValueError(f"invalid config snapshot name: {name!r}")
-    full = os.path.realpath(os.path.join(CONFIG_BACKUP_DIR, name))
-    root = os.path.realpath(CONFIG_BACKUP_DIR)
-    if not (full == root or full.startswith(root + os.sep)):
-        raise ValueError("path escapes config backup dir")
-    return full
+    prefix = m.group("prefix")  # already constrained by the regex
+    if prefix not in _PREFIX_ALLOW:
+        # Defence-in-depth — the regex alternation should make this
+        # unreachable, but a hand-edited regex could drift.
+        raise ValueError(f"invalid config snapshot prefix: {prefix!r}")
+    y  = int(m.group("y"))
+    mo = int(m.group("mo"))
+    d  = int(m.group("d"))
+    h  = int(m.group("h"))
+    mi = int(m.group("mi"))
+    s  = int(m.group("s"))
+    clean_name = (
+        f"{prefix}_{y:04d}.{mo:02d}.{d:02d}_{h:02d}.{mi:02d}.{s:02d}.json"
+    )
+    return os.path.join(CONFIG_BACKUP_DIR, clean_name)
 
 
 # ----- Secret redaction -----------------------------------------------------
@@ -339,14 +372,20 @@ def save_snapshot_to_disk(*, prefix: str = "config") -> dict:
 
 def list_snapshots() -> list[dict]:
     """Newest-first list of saved snapshot files. Empty list when the
-    directory doesn't exist yet."""
+    directory doesn't exist yet.
+
+    Only files matching the canonical ``_NAME_RE`` pattern are returned —
+    any hand-placed / legacy file the download/restore/delete endpoints
+    couldn't act on (because ``_safe_path`` would reject the name) is
+    omitted so the UI never shows a row the operator can't interact with.
+    """
     ensure_dir()
     out: list[dict] = []
     try:
         for entry in os.scandir(CONFIG_BACKUP_DIR):
             if not entry.is_file():
                 continue
-            if not entry.name.endswith(".json"):
+            if not _NAME_RE.match(entry.name):
                 continue
             try:
                 st = entry.stat()

@@ -154,6 +154,7 @@
             </div>
             <button type="button"
                     @click="_runWithBusy('schedules', () => loadSchedules())"
+                    :disabled="_loadBusy.schedules"
                     :title="t('actions.reload')"
                     :aria-label="t('actions.reload')"
                     class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
@@ -280,6 +281,7 @@
                       :aria-label="t('hosts_extra.empty.clear_filter') || 'Clear filter'">✕</button>
               <button type="button"
                       @click="_runWithBusy('schedule_queue', () => loadScheduleQueue())"
+                      :disabled="_loadBusy.schedule_queue"
                       :title="t('actions.reload')"
                       :aria-label="t('actions.reload')"
                       class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
