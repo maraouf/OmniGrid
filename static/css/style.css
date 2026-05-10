@@ -1222,19 +1222,6 @@ button:disabled {
     border-color: color-mix(in srgb, var(--primary) 30%, transparent);
 }
 
-/* UDP-protocol marker for port-scan chips. Layered ON TOP of the
-   underlying pill-ok / pill-warning so the curated/unknown signal
-   stays readable (green/amber background) while UDP chips get a
-   clear "this is UDP, not TCP" cue: italic label + thick info-blue
-   left border. Pairs with `portScanChipClass(host, port)` in
-   static/js/app.js — see that helper's docstring for the full
-   matrix. */
-.chip--udp {
-    font-style: italic;
-    border-left: 3px solid var(--info);
-    padding-inline-start: calc(var(--s-2) - 1px);
-}
-
 /* ---------------------------------------------------------------------------
    Status dots & chips
    --------------------------------------------------------------------------- */
@@ -1341,6 +1328,29 @@ button:disabled {
 .chip.pill-offline { background: var(--pill-offline-bg);
                      color: var(--pill-offline-fg);
                      border-color: var(--pill-offline-br); }
+
+/* UDP-protocol marker for port-scan chips. Layered ON TOP of the
+   underlying pill-ok / pill-warning so the curated/unknown signal
+   stays readable (green/amber background) while UDP chips get a
+   clear "this is UDP, not TCP" cue: thick info-blue left border.
+   (Italic label was tried then removed per operator preference —
+   the blue left-border alone is enough visual signal without
+   sacrificing the mono-numeric readability of the port label.)
+   Selector `.chip.chip--udp` carries specificity 0,2,0 to tie with
+   `.chip.pill-warning` and win by source order, so the
+   `border-color` shorthand on `.chip.pill-*` doesn't override the
+   explicit `border-left` shorthand here. The `inline-flex` rule
+   restores horizontal-baseline alignment so the asset-mismatch icon
+   sits centred next to the port text instead of falling out of
+   flow. Pairs with `portScanChipClass(host, port)` in
+   static/js/app.js — see that helper's docstring for the full
+   matrix. */
+.chip.chip--udp {
+    border-left: 3px solid var(--info);
+    padding-inline-start: calc(var(--s-2) - 1px);
+    display: inline-flex;
+    align-items: center;
+}
 
 /* Per-provider custom-color chip. The three CSS variables
  * (--chip-bg, --chip-br, --chip-fg) are set inline via Alpine's
