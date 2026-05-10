@@ -4515,6 +4515,79 @@ def _resolve_ai_fallback_chain(active: str) -> tuple[bool, list[str], dict[str, 
     return enabled, chain, creds, max_depth
 
 
+@app.get("/api/admin/stats/overview")
+async def api_admin_stats_overview(
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: quick-insight counts for Stats → Dashboard.
+
+    Aggregates lightweight counts the operator wants at-a-glance:
+    user / session totals, the per-host-stats-provider enabled split,
+    curated-host total, and the cached asset-inventory size. Designed
+    to be a single fast call so the dashboard paints in one fetch.
+    """
+    from logic.host_metrics_sampler import _PROVIDER_PREFIXES
+    out: dict = {
+        "users": {"total": 0, "active": 0, "admins": 0},
+        "sessions": {"total": 0},
+        "providers": {"total": 0, "enabled": [], "disabled": []},
+        "hosts": {"total": 0, "enabled": 0},
+        "assets": {"total": 0},
+    }
+    try:
+        with db_conn() as c:
+            users = auth.list_users(c)
+            sessions = auth.list_sessions(c)
+        active_users = [u for u in users if u.get("disabled") in (0, False, None)]
+        admin_users = [u for u in active_users if (u.get("role") or "") == "admin"]
+        out["users"] = {
+            "total": len(users),
+            "active": len(active_users),
+            "admins": len(admin_users),
+        }
+        out["sessions"] = {"total": len(sessions)}
+    except Exception as e:
+        out["users_error"] = str(e)
+    # Per-provider enabled/disabled split. Truth source for the four
+    # CSV-controlled providers is ``active_host_stats_providers()``;
+    # snmp + ping are per-host opt-in so they're "enabled" iff at least
+    # one curated row has them turned on.
+    try:
+        csv_enabled = active_host_stats_providers()
+        curated = _load_hosts_config()
+        per_host_enabled = {"snmp": False, "ping": False}
+        for h in curated:
+            for key in ("snmp", "ping"):
+                sub = h.get(key) or {}
+                if isinstance(sub, dict) and sub.get("enabled"):
+                    per_host_enabled[key] = True
+        enabled_set: set[str] = set()
+        for p in _PROVIDER_PREFIXES:
+            if p in csv_enabled:
+                enabled_set.add(p)
+            if p in per_host_enabled and per_host_enabled[p]:
+                enabled_set.add(p)
+        all_providers = sorted(_PROVIDER_PREFIXES)
+        out["providers"] = {
+            "total": len(all_providers),
+            "enabled": sorted(enabled_set),
+            "disabled": sorted(p for p in all_providers if p not in enabled_set),
+        }
+        out["hosts"] = {
+            "total": len(curated),
+            "enabled": sum(1 for h in curated if h.get("enabled", True)),
+        }
+    except Exception as e:
+        out["providers_error"] = str(e)
+    try:
+        from logic import asset_inventory as _ai
+        cache = _ai.load_cache() if _is_asset_inventory_enabled() else {}
+        out["assets"] = {"total": int(cache.get("count") or 0)}
+    except Exception as e:
+        out["assets_error"] = str(e)
+    return out
+
+
 @app.get("/api/admin/ai/dashboard")
 async def api_admin_ai_dashboard(
     hours: int = 24,

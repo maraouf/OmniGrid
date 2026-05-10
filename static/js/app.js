@@ -1477,6 +1477,15 @@ function app() {
       { id: 'config_backup',  label: 'Config Backup',   icon: 'save' },
       { id: 'debug',          label: 'Debug',           icon: 'bug' },
     ],
+    // Stats view — admin-only quick-insight pages. Sub-tabs grow with
+    // each release; canonical roster lives here and the matching i18n
+    // keys hang off `stats.sections.<id>`.
+    statsSections: [
+      { id: 'dashboard',      label: 'Dashboard',       icon: 'activity' },
+    ],
+    statsTab: 'dashboard',
+    statsOverview: {},
+    statsOverviewLoaded: false,
     // App-logs viewer state. Polled when the Logs tab is visible.
     // `logLines` is append-only during a session; clear() wipes both
     // the UI list and the server-side ring.
@@ -3111,7 +3120,7 @@ function app() {
     // Unknown paths are left alone (the static file server already
     // handles login / assets; this only intervenes for known views).
     _routeViews() {
-      return new Set(['stacks', 'services', 'nodes', 'hosts', 'history', 'settings', 'admin']);
+      return new Set(['stacks', 'services', 'nodes', 'hosts', 'history', 'settings', 'admin', 'stats']);
     },
     _applyRouteFromPath() {
       const parts = (location.pathname || '/').split('/').filter(Boolean);
@@ -3133,6 +3142,10 @@ function app() {
           // sessions, schedules, etc).
           this.openAdminTab(sub);
         }
+      } else if (head === 'stats' && sub) {
+        if ((this.statsSections || []).some(s => s.id === sub)) {
+          this.openStatsTab(sub);
+        }
       }
     },
     _pushRoute() {
@@ -3141,6 +3154,8 @@ function app() {
         path += '/' + this.settingsSection;
       } else if (this.view === 'admin' && this.adminTab) {
         path += '/' + this.adminTab;
+      } else if (this.view === 'stats' && this.statsTab) {
+        path += '/' + this.statsTab;
       }
       // replaceState rather than pushState so refresh lands on the
       // same page without adding history entries per tab switch.
@@ -3148,6 +3163,25 @@ function app() {
       // work because popstate runs _applyRouteFromPath.
       if (location.pathname !== path) {
         try { history.replaceState(null, '', path); } catch (_) {}
+      }
+    },
+
+    async openStatsTab(tab) {
+      // Stats view (admin-only) — mirrors openAdminTab's shape: switch
+      // view, set sub-tab, fire the matching loader. Currently only
+      // Dashboard exists; future sub-pages add their own loader branch.
+      this.view = 'stats';
+      this.statsTab = tab || 'dashboard';
+      if (this.statsTab === 'dashboard') await this.loadStatsOverview();
+      this._pushRoute && this._pushRoute();
+    },
+    async loadStatsOverview() {
+      try {
+        const r = await fetch('/api/admin/stats/overview');
+        if (!r.ok) return;
+        this.statsOverview = await r.json();
+      } catch (_) {} finally {
+        this.statsOverviewLoaded = true;
       }
     },
 
@@ -12737,7 +12771,7 @@ function app() {
     // ~720 rows even for the 30d window, well under the threshold
     // where extra round-trips beat slicing locally.
     aiModalPage: 1,
-    aiModalPageSize: 25,
+    aiModalPageSize: 20,
     aiModalSortCol: '',               // empty = default order (server / source order)
     aiModalSortDir: 'desc',           // 'asc' | 'desc'
     // Per-provider Test state. `loading` while the probe is in
@@ -13094,7 +13128,7 @@ function app() {
       const params = new URLSearchParams();
       params.set('hours', String(this.aiRange || 24));
       const page = Math.max(1, Number(this.aiModalPage) || 1);
-      const size = Math.max(1, Number(this.aiModalPageSize) || 25);
+      const size = Math.max(1, Number(this.aiModalPageSize) || 20);
       params.set('limit',  String(size));
       params.set('offset', String((page - 1) * size));
       if (this.aiJobsFilterProvider) params.set('provider', this.aiJobsFilterProvider);
@@ -13174,7 +13208,7 @@ function app() {
         : [];
       const sorted = this._aiSortRows(arr);
       const page = Math.max(1, Number(this.aiModalPage) || 1);
-      const size = Math.max(1, Number(this.aiModalPageSize) || 25);
+      const size = Math.max(1, Number(this.aiModalPageSize) || 20);
       const start = (page - 1) * size;
       return sorted.slice(start, start + size);
     },
@@ -13199,7 +13233,7 @@ function app() {
     // Total pages for the active modal — used by the paginator footer.
     aiModalTotalPages() {
       const total = (this.aiModalKey === 'jobs') ? this.aiJobsTotal() : this.aiTrendTotal();
-      const size = Math.max(1, Number(this.aiModalPageSize) || 25);
+      const size = Math.max(1, Number(this.aiModalPageSize) || 20);
       return Math.max(1, Math.ceil(total / size));
     },
     aiModalGoPage(n) {
