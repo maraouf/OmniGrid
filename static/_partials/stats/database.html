@@ -58,7 +58,7 @@
                       <tr class="border-t border-[var(--border)]">
                         <td class="px-4 py-2 mono" x-text="row.name"></td>
                         <td class="px-4 py-2 mono text-end" x-text="row.bytes != null ? fmtBytes(row.bytes) : '—'"></td>
-                        <td class="px-4 py-2 mono text-end" x-text="row.rows != null ? row.rows : '—'"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="row.rows != null ? Number(row.rows).toLocaleString() : '—'"></td>
                       </tr>
                     </template>
                     <tr x-show="!(statsDatabase.tables || []).length">
@@ -85,7 +85,7 @@
                     <template x-for="q in (statsDatabase.queries || [])" :key="q.table">
                       <tr class="border-t border-[var(--border)]">
                         <td class="px-4 py-2 mono" x-text="q.table"></td>
-                        <td class="px-4 py-2 mono text-end" x-text="q.rows"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="Number(q.rows || 0).toLocaleString()"></td>
                       </tr>
                     </template>
                     <tr x-show="!(statsDatabase.queries || []).length">

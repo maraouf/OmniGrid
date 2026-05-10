@@ -216,7 +216,31 @@
   "stats": {
     "sections": {
       "dashboard": "Dashboard",
-      "database": "Database"
+      "database": "Database",
+      "samples": "Samples"
+    },
+    "samples": {
+      "title": "Samples",
+      "hint": "Per-table KPIs for every sample-bearing table written by the provider samplers (Ping / SNMP / Beszel / Pulse / Webmin / node-exporter / Portainer container stats / Port scan / failure events).",
+      "grand_total": {
+        "label": "Total samples across all tables",
+        "sub": "Aggregate row count across {count} sample table(s)"
+      },
+      "tables": {
+        "title": "Per-table breakdown",
+        "hint": "Sorted by row count descending. Distinct hosts column reads the table's host_id (or item_id for Portainer container stats) — a coarse measure of how many entities the sampler is currently writing for.",
+        "col_provider": "Provider",
+        "col_name": "Table",
+        "col_kind": "Kind",
+        "col_rows": "Rows",
+        "col_hosts": "Distinct hosts / items",
+        "col_oldest": "Oldest",
+        "col_newest": "Newest",
+        "empty": "No sample tables found."
+      },
+      "errors": {
+        "title": "Tables that couldn't be queried"
+      }
     },
     "database": {
       "title": "Database",

@@ -4747,9 +4747,23 @@ async def api_admin_stats_database(
                     " LIMIT 5"
                 ).fetchall()
                 for r in rows:
+                    tname = r["name"] if hasattr(r, "keys") else r[0]
+                    # dbstat reports BYTES but not row counts. Run a
+                    # separate COUNT(*) per top-5 table so the Rows
+                    # column populates regardless of which code path
+                    # we hit; falls through to None on a query failure
+                    # (e.g. table renamed mid-query).
+                    cnt = None
+                    try:
+                        cnt = int(c.execute(
+                            f"SELECT COUNT(*) FROM \"{tname}\""
+                        ).fetchone()[0])
+                    except Exception:
+                        cnt = None
                     tables_info.append({
-                        "name":  r["name"] if hasattr(r, "keys") else r[0],
+                        "name":  tname,
                         "bytes": int((r["bytes"] if hasattr(r, "keys") else r[1]) or 0),
+                        "rows":  cnt,
                     })
             except Exception:
                 # dbstat unavailable — approximate via row count.
@@ -4838,6 +4852,106 @@ async def api_admin_stats_database(
         out["projection"] = projection
     except Exception as e:
         out["projection_error"] = str(e)
+    return out
+
+
+@app.get("/api/admin/stats/samples")
+async def api_admin_stats_samples(
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: per-sample-table KPIs for the Stats → Samples page.
+
+    Every persistent time-series / per-tick / per-event table the
+    sampler family writes to gets a row here. Per table returns:
+      name      — operator-facing table name
+      provider  — provider group (ping / snmp / beszel / pulse /
+                  webmin / node_exporter / portainer / events / scan)
+      kind      — short label describing the row granularity
+      rows      — total row count
+      oldest_ts — MIN(ts) (epoch seconds) or NULL on empty
+      newest_ts — MAX(ts) (epoch seconds) or NULL on empty
+      unique_hosts — DISTINCT host_id count where the column exists,
+                     None otherwise
+
+    Total + grand-total across every table are also included for the
+    summary card. Counts are computed via fast metadata queries
+    (COUNT(*) + MIN/MAX) — fine even on multi-million-row tables.
+    """
+    # Canonical roster of sample-bearing tables. Each entry knows
+    # which `ts` column to query for oldest/newest (most use `ts`
+    # but some legacy tables differ) and whether `host_id` exists.
+    spec = [
+        # (table, provider, kind, ts_col, host_col)
+        ("ping_samples",            "ping",          "ping rtt / reach",  "ts",       "host_id"),
+        ("host_snmp_samples",       "snmp",          "snmp host",         "ts",       "host_id"),
+        ("host_snmp_iface_samples", "snmp",          "snmp per-iface",    "ts",       "host_id"),
+        ("host_snmp_temp_samples",  "snmp",          "snmp per-probe",    "ts",       "host_id"),
+        ("host_beszel_samples",     "beszel",        "beszel per-tick",   "ts",       "host_id"),
+        ("host_beszel_services",    "beszel",        "beszel systemd",    "last_seen_ts", "host_id"),
+        ("host_pulse_samples",      "pulse",         "pulse per-tick",    "ts",       "host_id"),
+        ("host_webmin_samples",     "webmin",        "webmin per-tick",   "ts",       "host_id"),
+        ("host_metrics_samples",    "node_exporter", "ne per-tick",       "ts",       "host_id"),
+        ("host_net_samples",        "node_exporter", "ne net rates",      "ts",       "host_id"),
+        ("stats_samples",           "portainer",     "container stats",   "ts",       "item_id"),
+        ("host_port_scans",         "port_scan",     "open ports",        "ts",       "host_id"),
+        ("host_failure_events",     "events",        "failure log",       "ts",       "host_id"),
+    ]
+    out: dict = {"tables": [], "grand_total": 0, "errors": []}
+    try:
+        with db_conn() as c:
+            for table, provider, kind, ts_col, host_col in spec:
+                row: dict = {
+                    "name":         table,
+                    "provider":     provider,
+                    "kind":         kind,
+                    "rows":         0,
+                    "oldest_ts":    None,
+                    "newest_ts":    None,
+                    "unique_hosts": None,
+                }
+                try:
+                    cnt = c.execute(
+                        f'SELECT COUNT(*) FROM "{table}"'
+                    ).fetchone()[0]
+                    row["rows"] = int(cnt or 0)
+                    if row["rows"] > 0:
+                        # MIN/MAX of the ts column. Guarded — fall to
+                        # None on a missing column so the SPA still
+                        # renders the table-rows count cleanly.
+                        try:
+                            r = c.execute(
+                                f'SELECT MIN("{ts_col}"), MAX("{ts_col}") '
+                                f'  FROM "{table}"'
+                            ).fetchone()
+                            row["oldest_ts"] = int(r[0]) if r and r[0] is not None else None
+                            row["newest_ts"] = int(r[1]) if r and r[1] is not None else None
+                        except Exception:
+                            pass
+                        # DISTINCT host count when the host column
+                        # exists. Some tables key on item_id (Portainer
+                        # container stats) — the SPA renders the column
+                        # title as "Distinct hosts / items" so both
+                        # cases land cleanly.
+                        try:
+                            uh = c.execute(
+                                f'SELECT COUNT(DISTINCT "{host_col}") '
+                                f'  FROM "{table}"'
+                            ).fetchone()[0]
+                            row["unique_hosts"] = int(uh or 0)
+                        except Exception:
+                            pass
+                    out["grand_total"] += row["rows"]
+                    out["tables"].append(row)
+                except Exception as e:
+                    # Table doesn't exist on this deploy (e.g. fresh
+                    # bootstrap, no schedules yet) — report it with
+                    # row=0 so the SPA shows the canonical roster
+                    # without dropping rows.
+                    row["error"] = str(e)
+                    out["tables"].append(row)
+                    out["errors"].append({"table": table, "error": str(e)})
+    except Exception as e:
+        out["error"] = str(e)
     return out
 
 

@@ -1,0 +1,103 @@
+      <div x-show="statsTab==='samples'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+          <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
+                <h3 class="font-semibold fs-md" x-text="t('stats.samples.title')"></h3>
+              </div>
+              <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.samples.hint')"></p>
+            </div>
+            <button type="button"
+                    @click="_runWithBusy('stats_samples', () => loadStatsSamples())"
+                    :disabled="_loadBusy.stats_samples === true"
+                    :title="t('actions.reload')"
+                    :aria-label="t('actions.reload')"
+                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="_loadBusy.stats_samples === true ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+              <span x-text="t('actions.reload')"></span>
+            </button>
+          </div>
+
+          <div x-show="!statsSamplesLoaded" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+
+          <div x-show="statsSamplesLoaded" class="p-5 space-y-5">
+
+            <!-- Grand total card -->
+            <div class="stats-card" style="cursor:default">
+              <div class="stats-card-icon">
+                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
+              </div>
+              <div class="stats-card-body">
+                <div class="stats-card-label" x-text="t('stats.samples.grand_total.label')"></div>
+                <div class="stats-card-value mono" x-text="Number((statsSamples.grand_total || 0)).toLocaleString()"></div>
+                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.samples.grand_total.sub', { count: (statsSamples.tables || []).length })"></div>
+              </div>
+            </div>
+
+            <!-- Per-table breakdown — sorted client-side by rows desc
+                 for at-a-glance "which sample family writes most". -->
+            <div>
+              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.samples.tables.title')"></h4>
+              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.samples.tables.hint')"></p>
+              <div class="overflow-x-auto scrollbar">
+                <table class="w-full fs-sm">
+                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+                    <tr>
+                      <th class="text-start px-4 py-2" x-text="t('stats.samples.tables.col_provider')"></th>
+                      <th class="text-start px-4 py-2" x-text="t('stats.samples.tables.col_name')"></th>
+                      <th class="text-start px-4 py-2" x-text="t('stats.samples.tables.col_kind')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.samples.tables.col_rows')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.samples.tables.col_hosts')"></th>
+                      <th class="text-start px-4 py-2" x-text="t('stats.samples.tables.col_oldest')"></th>
+                      <th class="text-start px-4 py-2" x-text="t('stats.samples.tables.col_newest')"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="row in ((statsSamples.tables || []).slice().sort((a, b) => (b.rows || 0) - (a.rows || 0)))" :key="row.name">
+                      <tr class="border-t border-[var(--border)]"
+                          :class="row.error ? 'opacity-60' : ''">
+                        <td class="px-4 py-2 mono fs-xs">
+                          <span class="chip pill-info fs-3xs uppercase" x-text="row.provider"></span>
+                        </td>
+                        <td class="px-4 py-2 mono" x-text="row.name"></td>
+                        <td class="px-4 py-2 fs-xs text-[var(--text-dim)]" x-text="row.kind"></td>
+                        <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.rows || 0).toLocaleString()"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="row.unique_hosts != null ? Number(row.unique_hosts).toLocaleString() : '—'"></td>
+                        <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
+                            :title="row.oldest_ts ? fmtDate(row.oldest_ts) : ''"
+                            x-text="row.oldest_ts ? fmtDate(row.oldest_ts) : '—'"></td>
+                        <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
+                            :title="row.newest_ts ? fmtDate(row.newest_ts) : ''"
+                            x-text="row.newest_ts ? fmtDate(row.newest_ts) : '—'"></td>
+                      </tr>
+                    </template>
+                    <tr x-show="!(statsSamples.tables || []).length">
+                      <td colspan="7" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.samples.tables.empty')"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Errors block — surfaces tables that couldn't be queried.
+                 Usually means the schema didn't ship them yet (fresh
+                 deploy, sampler never ran). Hidden when empty. -->
+            <div x-show="(statsSamples.errors || []).length"
+                 class="rounded-md p-3 fs-xs bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]">
+              <div class="font-semibold mb-1" x-text="t('stats.samples.errors.title')"></div>
+              <ul class="mono space-y-0.5">
+                <template x-for="e in (statsSamples.errors || [])" :key="e.table">
+                  <li><span x-text="e.table"></span>: <span class="text-[var(--text-faint)]" x-text="e.error"></span></li>
+                </template>
+              </ul>
+            </div>
+
+          </div>
+        </section>
+      </div>
