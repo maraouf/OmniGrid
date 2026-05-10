@@ -3325,8 +3325,8 @@
                          x-text="isAllStale(h) ? t('host_drawer.stale.title_bulk') : t('host_drawer.stale.title')"></div>
                     <div class="text-[var(--text-dim)] mt-0.5"
                          x-text="isAllStale(h)
-                           ? t('host_drawer.stale.body_bulk', { age: staleAge(h) })
-                           : t('host_drawer.stale.body', { age: staleAge(h), count: (h._stale_fields || []).length })"></div>
+                           ? t('host_drawer.stale.body_bulk', { age: staleAgeShort(h) })
+                           : t('host_drawer.stale.body', { age: staleAgeShort(h), count: (h._stale_fields || []).length })"></div>
                     <!-- Provider-level stale enumeration. Distinct
                          from the field list below: this surfaces
                          WHICH PROVIDERS are cached vs live so the

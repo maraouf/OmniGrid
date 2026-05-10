@@ -1138,6 +1138,12 @@ function app() {
       // missing from this list so the Admin → Process tunables
       // form silently omitted the row.
       'tuning_host_snapshots_cache_ttl_seconds',
+      // Per-field stale grace cap (hours). When a host_* field has
+      // been stale-restored from snapshot for longer than this
+      // window, drop it from the merged dict + snapshot so phantom
+      // orphans (fields the host's active providers can't actually
+      // produce) decay instead of cycling forever.
+      'tuning_host_snapshot_stale_field_max_age_hours',
       // SPA loadHosts() concurrency cap on per-host
       // /api/hosts/one/<id> fan-out. Read on /api/me into
       // `me.client_config.hosts_parallel_fetch`.
@@ -13285,6 +13291,12 @@ function app() {
       // is 0 / missing / non-numeric. Pre-fix `fmtAgo` would either
       // render "Updated NaN ago" or empty string, depending on which
       // branch hit first; either way it's noise on a tooltip.
+      // **Tooltip surface only** — returns the FULL i18n sentence
+      // (`Last live data 4s ago — value restored from cache snapshot`).
+      // For inline substitution into a larger template (e.g. the
+      // drawer banner whose copy already wraps the time in its own
+      // sentence), use `staleAgeShort(obj)` instead — passing
+      // staleAge(h) into a {age} placeholder double-wraps the time.
       if (!obj) return '';
       const tsRaw = obj._stale_ts;
       const ts = Number(tsRaw);
@@ -13298,6 +13310,20 @@ function app() {
       // the "stale_marker.tooltip" key with the {age} placeholder.
       try { return (window.t && window.t('stale_marker.tooltip', { age: ago })) || ('Last live data ' + ago + ' ago'); }
       catch (_) { return 'Last live data ' + ago + ' ago'; }
+    },
+    // Bare relative-time (e.g. `4s`, `12m`, `3h`) for the snapshot
+    // timestamp on `obj._stale_ts`. Use this when injecting into a
+    // larger i18n template that supplies its own `... ago` wrapping
+    // (the host-drawer "Showing cached data" banner is the canonical
+    // consumer). `staleAge(obj)` is for tooltip surfaces — passing it
+    // into a {age} placeholder double-wraps the time. Empty string
+    // when `_stale_ts` is missing / 0 / non-numeric so the outer
+    // template still renders cleanly.
+    staleAgeShort(obj) {
+      if (!obj) return '';
+      const ts = Number(obj._stale_ts);
+      if (!Number.isFinite(ts) || ts <= 0) return '';
+      return this.fmtAgo(ts * 1000);
     },
     // Theme-aware icon swap. Wraps every icon-URL emit point so
     // brands that ship a `<slug>-dark.svg` variant (KNOWN_DARK_ICONS)

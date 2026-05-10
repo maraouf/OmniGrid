@@ -248,6 +248,13 @@ def save_host_snapshots(nodes_info: dict) -> int:
     JSON-encodes the merged ``nodes_info[host]`` dict. Strips fields
     starting with ``_`` (the stale-marker bookkeeping) so a restart
     doesn't read its own marker noise back as canonical data.
+    EXCEPTION: ``_meta_*`` keys ARE persisted — they're snapshot-
+    internal metadata that must round-trip (currently just
+    ``_meta_stale_since``, the per-field first-stale-ts map that
+    drives the stale-grace pruning in
+    ``apply_host_snapshot_fallback``). Without round-tripping it we
+    can't tell "field has been stale for 25 hours" from "field just
+    went stale this gather", and the grace window can't fire.
     Also strips URL-shaped values from ``host_firmware`` so a
     pre-fix stale URL leak gets cleaned up on the next gather.
     Returns the number of rows written.
@@ -259,7 +266,10 @@ def save_host_snapshots(nodes_info: dict) -> int:
     for host, info in nodes_info.items():
         if not isinstance(info, dict) or not info:
             continue
-        clean = {k: v for k, v in info.items() if not str(k).startswith("_")}
+        clean = {
+            k: v for k, v in info.items()
+            if (not str(k).startswith("_")) or str(k).startswith("_meta_")
+        }
         if _is_urlish(clean.get("host_firmware")):
             clean.pop("host_firmware", None)
         try:
@@ -379,6 +389,18 @@ def apply_host_snapshot_fallback(
     # support) flow through both call sites automatically.
     from logic.merge import is_meaningful as _is_meaningful
 
+    # Per-field "stale grace" cap. Resolved per-call (DB > env >
+    # default) so an Admin → Config edit takes effect on the next
+    # gather without restart. Hours converted to seconds for the
+    # `now - first_stale_ts > grace` comparison below.
+    try:
+        from logic.tuning import tuning_int
+        grace_hours = float(tuning_int("tuning_host_snapshot_stale_field_max_age_hours"))
+    except Exception:
+        grace_hours = 24.0
+    grace_window_s = max(1.0, grace_hours) * 3600.0
+    now = time.time()
+
     for host, info in nodes_info.items():
         if not isinstance(info, dict):
             continue
@@ -395,7 +417,18 @@ def apply_host_snapshot_fallback(
             continue
         snap_data = snap.get("data") or {}
         snap_ts = snap.get("ts") or 0.0
+        # Read prior `_meta_stale_since` map from the snapshot blob —
+        # it round-trips because save_host_snapshots keeps `_meta_*`
+        # keys (the strip filter only drops single-underscore non-meta
+        # bookkeeping). Each key is a host_* field name, value is the
+        # epoch-seconds ts when it FIRST went stale (before any
+        # subsequent re-fallback). Defensive isinstance check covers
+        # legacy snapshots that pre-date this map.
+        prior_stale_since = snap_data.get("_meta_stale_since") or {}
+        if not isinstance(prior_stale_since, dict):
+            prior_stale_since = {}
         stale_fields: list[str] = []
+        meta_stale_since: dict[str, float] = {}
         # Iterate the SNAPSHOT's keys instead of a hand-maintained
         # whitelist. Any ``host_*`` field — plus the small
         # bare-exception set — auto-qualifies, so a provider that
@@ -408,6 +441,9 @@ def apply_host_snapshot_fallback(
             if not _is_snapshot_key(key):
                 continue
             if _is_meaningful(info.get(key)):
+                # Field has a fresh live value — clear any prior
+                # stale-since marker; recovery means the orphan
+                # accounting resets to zero for this field.
                 continue
             # Skip URL-shaped values for host_firmware — pre-fix
             # the iDRAC chassis URL was mapped to host_firmware before
@@ -418,12 +454,37 @@ def apply_host_snapshot_fallback(
             # "Firmware: https://<host>:443" in the Hardware card.
             if key == "host_firmware" and _is_urlish(v):
                 continue
-            if _is_meaningful(v):
-                info[key] = v
-                stale_fields.append(key)
+            if not _is_meaningful(v):
+                continue
+            # Carry-over first_stale_ts if this field was already stale
+            # on a prior gather; otherwise stamp NOW (this is the
+            # first tick that detected the field as stale). Defensive
+            # numeric coerce — operator-edited or migrated snapshot
+            # data could carry a string here.
+            try:
+                first_stale_ts = float(prior_stale_since.get(key, 0)) or now
+            except (TypeError, ValueError):
+                first_stale_ts = now
+            age_s = max(0.0, now - first_stale_ts)
+            if age_s > grace_window_s:
+                # Past grace — drop the orphan from BOTH the merged
+                # dict (so the SPA renders "no data" instead of stale)
+                # AND from `meta_stale_since` (so the next save
+                # doesn't carry it forward). The next save's `clean`
+                # filter will exclude this key naturally because
+                # `info` doesn't carry it; the cycle finally breaks.
+                continue
+            info[key] = v
+            stale_fields.append(key)
+            meta_stale_since[key] = first_stale_ts
         if stale_fields:
             info["_stale_fields"] = stale_fields
             info["_stale_ts"] = snap_ts
+        # Always stamp `_meta_stale_since` (even when empty) so save
+        # round-trips a clean dict — without this an empty map after
+        # full recovery would leave a stale prior map behind in the
+        # snapshot, only updated on the next outage.
+        info["_meta_stale_since"] = meta_stale_since
 
 
 def seed_nodes_info_from_snapshots() -> int:
@@ -440,17 +501,48 @@ def seed_nodes_info_from_snapshots() -> int:
     snapshots = load_host_snapshots()
     if not snapshots:
         return 0
+    # Per-field stale grace cap — same tunable + semantics as
+    # apply_host_snapshot_fallback. Resolved once for the whole seed
+    # pass since startup is a single moment in wall-clock time.
+    try:
+        from logic.tuning import tuning_int
+        grace_hours = float(tuning_int("tuning_host_snapshot_stale_field_max_age_hours"))
+    except Exception:
+        grace_hours = 24.0
+    grace_window_s = max(1.0, grace_hours) * 3600.0
+    now = time.time()
     seeded: dict[str, dict] = {}
     for host, snap in snapshots.items():
         data = dict(snap.get("data") or {})
         if not data:
             continue
+        # Drop past-grace orphan fields BEFORE seeding so the first
+        # paint after a restart matches what apply_host_snapshot_fallback
+        # would render. Without this, fields whose first_stale_ts is
+        # already > grace_window_s old would briefly render as
+        # fresh-stale until the first gather's fallback runs and
+        # cleans them up.
+        prior_stale_since = data.get("_meta_stale_since") or {}
+        if not isinstance(prior_stale_since, dict):
+            prior_stale_since = {}
+        for key, first_stale_ts_raw in list(prior_stale_since.items()):
+            try:
+                first_stale_ts = float(first_stale_ts_raw)
+            except (TypeError, ValueError):
+                continue
+            if first_stale_ts <= 0:
+                continue
+            if (now - first_stale_ts) > grace_window_s:
+                data.pop(key, None)
+                prior_stale_since.pop(key, None)
+        # Round-trip the cleaned meta map so the next save reflects
+        # the post-grace state.
+        data["_meta_stale_since"] = prior_stale_since
         # Tag every snapshot-eligible field present so the UI can show
         # every seeded value as stale. The next gather's
         # apply_host_snapshot_fallback recomputes this list against
         # the live state. Same prefix + bare-exception predicate as
-        # the apply path so seed and restore stay in lock-step
-        #.
+        # the apply path so seed and restore stay in lock-step.
         stale = [k for k in data.keys() if _is_snapshot_key(k)]
         if stale:
             data["_stale_fields"] = stale

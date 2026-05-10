@@ -133,6 +133,14 @@ NOTIFICATION_RETENTION_DAYS=90
 # read collapses N reads into 1. Set 0 to disable.
 HOST_SNAPSHOTS_CACHE_TTL_SECONDS=5
 
+# Per-field stale grace cap (HOURS) for the snapshot fallback. When a
+# host_* field has been restored-from-snapshot (no live provider value)
+# for longer than this window, drop it from the merged dict + next
+# saved snapshot so phantom orphans (fields a host's active providers
+# can't actually produce — e.g. host_cpu_percent on an APC UPS) decay
+# instead of cycling forever. Default 24h. Range 1..720h.
+HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS=24
+
 # Concurrency cap on the SPA's /api/hosts/one/{id} fan-out.
 # Lower if NPM's upstream pool is small or slow Webmin / NE probes
 # saturate the loop (manifests as 504s on unrelated static-asset
@@ -504,6 +512,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `LOG_RETENTION_DAYS`              | Runtime     | `7`                  | Persistent-log retention.                                                        |
 | `NOTIFICATION_RETENTION_DAYS`     | Runtime     | `90`                 | In-app notifications retention. Drives the `prune_notifications` schedule kind. |
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | Runtime    | `5`                  | host_snapshots read-cache TTL.                                                   |
+| `HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS` | Runtime | `24`           | Per-field stale grace cap (hours). Drops orphan host_* fields from snapshot when restored-stale longer than the cap. |
 | `HOSTS_PARALLEL_FETCH`            | Runtime     | `6`                  | SPA fan-out concurrency cap on `/api/hosts/one/{id}`.                            |
 | `AI_SIDEBAR_WIDTH_PX`             | Runtime     | `480`                | AI Assistant sidebar drawer width in pixels (320..720). Mobile ignores.          |
 | `AI_CONVERSATION_EXPORT_ENABLED`  | Runtime     | `1`                  | Show / hide the AI conversation export buttons (TXT + JSON) in the sidebar.     |
