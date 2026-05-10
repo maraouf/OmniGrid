@@ -12429,9 +12429,19 @@ async def api_hosts_timeline(
                 severity = "success" if status == "success" else "error" if status == "error" else "info"
                 op_type = r["op_type"] or "op"
                 title_target = r["target_name"] or r["target_id"] or hid
+                # Specialised event-kind for port_scan / port_scan_refresh
+                # so the SPA's chip + icon helpers render them distinctly
+                # instead of as generic "Op". Both surface as a single
+                # `port_scan` kind on the timeline (the
+                # `port_scan_refresh` aggregate row is per-tick / per-
+                # schedule and isn't keyed by host_id, so it doesn't
+                # appear here — only the per-host `port_scan` rows from
+                # the shared scan helper do, regardless of whether the
+                # scan was operator-initiated or schedule-fired).
+                event_kind = "port_scan" if op_type == "port_scan" else "op"
                 events.append({
                     "ts":       int(r["ts"]),
-                    "kind":     "op",
+                    "kind":     event_kind,
                     "severity": severity,
                     "title":    f"{op_type}",
                     "body":     f"{title_target}" + (f" — {r['error']}" if r['error'] else ""),

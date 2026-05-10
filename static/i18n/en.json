@@ -2517,7 +2517,8 @@
       "kind_op": "Op",
       "kind_notification": "Notification",
       "kind_provider_paused": "Provider paused",
-      "kind_provider_recovered": "Provider recovered"
+      "kind_provider_recovered": "Provider recovered",
+      "kind_port_scan": "Port scan"
     },
     "triage": {
       "heading": "Similar incidents",

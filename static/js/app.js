@@ -23744,16 +23744,21 @@ function app() {
     hostHasCpuMetric(h) {
       if (!h) return false;
       if (this._hostUnixAgent(h)) return true;
-      if (h.snmp_name && h.snmp_enabled === true) {
-        // Live cpu > 0 is an unambiguous signal — show bar.
-        // Live cpu === 0 is ambiguous: the API row's
-        // `cpu_percent` defaults to 0 when the SNMP probe didn't
-        // report CPU at all (APC UPS, iDRAC chassis BMC), so we
-        // can't tell "agent doesn't expose CPU" from "agent at
-        // 0%" off the live value alone. Defer to SNMP history,
-        // which writes NULL when the agent didn't expose
-        // host_cpu_percent and a real 0.0 when the agent reported 0.
-        if (Number(h.cpu_percent) > 0) return true;
+      // DATA-FIRST gate — if the live merged row has a non-zero CPU%
+      // value, the bar should render regardless of which provider
+      // configuration produced it. Pre-fix the gate required
+      // `h.snmp_name && h.snmp_enabled === true`, which hid the CPU
+      // bar for SNMP-tracked hosts (HP printers, Ubiquiti APs, etc.)
+      // whose backend `snmp_enabled` flag was false even though the
+      // SNMP probe was running and `host_cpu_percent` was populated.
+      // The data IS the strongest signal of capability — if the
+      // backend stamped a value, the operator wants to see it.
+      if (Number(h.cpu_percent) > 0) return true;
+      // Capability fallback for SNMP-tracked hosts at 0% (genuine
+      // idle vs. agent-doesn't-expose). Defers to SNMP history,
+      // which writes NULL when the agent didn't expose host_cpu_percent
+      // and a real 0.0 when the agent reported 0.
+      if (h.snmp_name || h.snmp_enabled === true) {
         return this._hostHasFiniteSnmpHistory(h, 'cpu');
       }
       return false;
@@ -23761,12 +23766,13 @@ function app() {
     hostHasMemMetric(h) {
       if (!h) return false;
       if (this._hostUnixAgent(h)) return true;
-      if (h.snmp_name && h.snmp_enabled === true) {
-        // Mem-total > 0 (live) is the capability signal — UPS / chassis
-        // BMC agents that don't expose hrStorage RAM don't surface a
-        // total. History fallback uses the same rule.
-        const memTot = +h.mem_total || 0;
-        if (memTot > 0) return true;
+      // Data-first: any host with a non-zero mem_total has capability,
+      // regardless of provider config. Loosened from the prior
+      // `h.snmp_name && h.snmp_enabled === true` strict gate so SNMP-
+      // tracked hosts with snmp_name set but snmp_enabled coerced false
+      // still render the bar when the backend provided values.
+      if ((+h.mem_total || 0) > 0) return true;
+      if (h.snmp_name || h.snmp_enabled === true) {
         return this._hostHasFiniteSnmpHistory(h, 'memory');
       }
       return false;
@@ -23774,11 +23780,10 @@ function app() {
     hostHasDiskMetric(h) {
       if (!h) return false;
       if (this._hostUnixAgent(h)) return true;
-      if (h.snmp_name && h.snmp_enabled === true) {
-        const diskTot = +h.disk_total || 0;
-        const diskPct = +h.disk_percent || 0;
-        return diskTot > 0 || diskPct > 0;
-      }
+      // Data-first: any disk_total or disk_percent > 0 = capability.
+      const diskTot = +h.disk_total || 0;
+      const diskPct = +h.disk_percent || 0;
+      if (diskTot > 0 || diskPct > 0) return true;
       return false;
     },
     // Outer container gate: ANY of the three axes has data. Used
@@ -27490,6 +27495,7 @@ function app() {
         case 'notification':       return 'pill-warning';
         case 'provider_paused':    return 'pill-error';
         case 'provider_recovered': return 'pill-ok';
+        case 'port_scan':          return 'pill-info';
         default:                   return 'pill-muted';
       }
     },
@@ -27503,6 +27509,7 @@ function app() {
       if (k === 'notification')        return 'icon-bell';
       if (k === 'provider_paused')     return 'icon-pause';
       if (k === 'provider_recovered')  return 'icon-check';
+      if (k === 'port_scan')           return 'icon-search';
       // Unknown kind — fall back on severity for forward-compat.
       if (sev === 'success')           return 'icon-activity';
       if (sev === 'error')             return 'icon-bug';
@@ -27513,7 +27520,18 @@ function app() {
       if (!Number.isFinite(n) || n <= 0) return '';
       try {
         const d = new Date(n * 1000);
-        return d.toLocaleString();
+        // Explicit dd/mm/yyyy HH:MM:SS format. Pre-fix the helper used
+        // `d.toLocaleString()` which renders mm/dd/yyyy for en-US
+        // locales — operator wants the unambiguous day-first ordering
+        // regardless of the browser's locale setting.
+        const pad = (n) => String(n).padStart(2, '0');
+        const dd = pad(d.getDate());
+        const mm = pad(d.getMonth() + 1);
+        const yyyy = d.getFullYear();
+        const hh = pad(d.getHours());
+        const mi = pad(d.getMinutes());
+        const ss = pad(d.getSeconds());
+        return `${dd}/${mm}/${yyyy} ${hh}:${mi}:${ss}`;
       } catch {
         return '';
       }
