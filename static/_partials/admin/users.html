@@ -34,6 +34,7 @@
             </div>
             <button type="button"
                     @click="_runWithBusy('users', () => loadUsers())"
+                    :disabled="_loadBusy.users"
                     :title="t('actions.reload')"
                     :aria-label="t('actions.reload')"
                     class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">

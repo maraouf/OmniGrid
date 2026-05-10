@@ -4532,7 +4532,16 @@ async def api_admin_stats_overview(
         "sessions": {"total": 0},
         "providers": {"total": 0, "enabled": [], "disabled": []},
         "hosts": {"total": 0, "enabled": 0},
+        "host_groups": {"total": 0},
         "assets": {"total": 0},
+        "nodes": {"total": 0},
+        "services": {"total": 0},
+        "stacks": {"total": 0},
+        "containers": {"total": 0},
+        "backups": {"total": 0},
+        "config_backups": {"total": 0},
+        "schedules": {"total": 0, "enabled": 0},
+        "tunables": {"total": 0, "overridden": 0},
     }
     try:
         with db_conn() as c:
@@ -4579,12 +4588,96 @@ async def api_admin_stats_overview(
         }
     except Exception as e:
         out["providers_error"] = str(e)
+    # Host groups — JSON setting array, count meaningful entries only.
+    try:
+        raw = get_setting("host_groups", "") or ""
+        groups = json.loads(raw) if raw.strip() else []
+        if not isinstance(groups, list):
+            groups = []
+        out["host_groups"] = {
+            "total": sum(1 for g in groups if isinstance(g, dict)),
+        }
+    except Exception as e:
+        out["host_groups_error"] = str(e)
     try:
         from logic import asset_inventory as _ai
         cache = _ai.load_cache() if _is_asset_inventory_enabled() else {}
         out["assets"] = {"total": int(cache.get("count") or 0)}
     except Exception as e:
         out["assets_error"] = str(e)
+    # Fleet counts — read from the existing in-memory cache so we don't
+    # trigger a Portainer round-trip on every dashboard open. The SPA's
+    # auto-refresh keeps `_cache` warm; if it happens to be cold (fresh
+    # process boot, never visited Stacks yet) the counts gracefully
+    # report 0 rather than blocking on a refresh.
+    try:
+        items = _cache.get("items") or []
+        stacks = _cache.get("stacks") or []
+        nodes = _cache.get("nodes") or []
+        out["nodes"] = {"total": len(nodes)}
+        out["stacks"] = {"total": len(stacks)}
+        svc_count = sum(1 for it in items if (it.get("type") or "") == "service")
+        ctn_count = sum(1 for it in items if (it.get("type") or "") in ("container", "orphan"))
+        # Containers-in-stacks = service replicas (each service is N running
+        # containers behind it) plus standalone containers that belong to a
+        # stack via the `stack` field. Pure service-item count would
+        # under-report a fleet that scales horizontally; pure item count
+        # over-reports nothing for the orphan / standalone case.
+        repl_total = 0
+        for it in items:
+            if (it.get("type") or "") == "service":
+                rep = it.get("replicas") or {}
+                # Prefer running (actual on-the-wire count); fall back to
+                # desired for services where no task is currently running
+                # but the deploy spec still defines N.
+                repl_total += int(rep.get("running") or rep.get("desired") or 0)
+        out["services"] = {"total": svc_count}
+        out["containers"] = {
+            "total": repl_total + ctn_count,
+            "replicas": repl_total,
+            "standalone": ctn_count,
+        }
+    except Exception as e:
+        out["fleet_error"] = str(e)
+    # Backups + config backups — file-system snapshots produced by the
+    # backup / config_backup schedule kinds and admin Save-now buttons.
+    try:
+        from logic import backups as _b
+        out["backups"] = {"total": len(_b.list_backups())}
+    except Exception as e:
+        out["backups_error"] = str(e)
+    try:
+        out["config_backups"] = {"total": len(config_export.list_snapshots())}
+    except Exception as e:
+        out["config_backups_error"] = str(e)
+    # Schedules — DB-stored cron-style jobs. Report total + enabled split.
+    try:
+        from logic import schedules as _s
+        with db_conn() as c:
+            sched_rows = _s.list_schedules(c)
+        out["schedules"] = {
+            "total": len(sched_rows),
+            "enabled": sum(1 for r in sched_rows if r.get("enabled")),
+        }
+    except Exception as e:
+        out["schedules_error"] = str(e)
+    # Tunables — process-level knobs declared in logic/tuning.py:TUNABLES.
+    # `total` is the canonical count (every knob the app exposes via the
+    # three-tier resolver); `overridden` is how many currently have a
+    # non-default DB value (operator has explicitly customised them).
+    try:
+        from logic.tuning import TUNABLES, tuning_int
+        total = len(TUNABLES)
+        overridden = 0
+        for key, (_env, default, _lo, _hi) in TUNABLES.items():
+            try:
+                if int(tuning_int(key)) != int(default):
+                    overridden += 1
+            except Exception:
+                pass
+        out["tunables"] = {"total": total, "overridden": overridden}
+    except Exception as e:
+        out["tunables_error"] = str(e)
     return out
 
 
@@ -12039,20 +12132,55 @@ async def api_hosts_snmp_history(
     if not hid:
         return {"points": [], "error": "host_id required"}
     since = int(time.time() - h * 3600)
+    # Target ~200 points per chart regardless of window. Raw samples at
+    # the default 5-min cadence produce ~2000 points over the 7d window
+    # — too many to render legibly, and the line reads as noise. For
+    # `hours > 24` bucket the rows server-side via GROUP BY (ts/bucket)
+    # so the SPA receives a smoothed, sensibly-spaced series. Beszel's
+    # PocketBase already does this via its `_pick_stat_type` aggregation
+    # tier; this brings the local sampler-backed providers in line.
+    bucket = 0
+    if h > 24:
+        target_points = 200
+        bucket = max(60, int(h * 3600 / target_points))
     try:
         with db_conn() as c:
-            rows = c.execute(
-                "SELECT ts, cpu_per_core, cpu_used_pct, "
-                "load_1m, load_5m, load_15m, "
-                "mem_total, mem_used, mem_buffers, mem_cached, mem_free, "
-                "uptime_s, net_rx_total_bytes, net_tx_total_bytes, "
-                "printer_page_count, load_percent, battery_percent, "
-                "battery_temp_c, disk_total, disk_used "
-                "FROM host_snmp_samples "
-                "WHERE host_id=? AND ts >= ? "
-                "ORDER BY ts ASC LIMIT ?",
-                (hid, since, h * 60),
-            ).fetchall()
+            if bucket > 0:
+                # SQL-level bucketing — AVG numeric fields, drop the
+                # JSON cpu_per_core (can't average a list cell). The
+                # bucket key is `ts / bucket` integer-divided; we emit
+                # the bucket's MIN(ts) as the canonical timestamp.
+                rows = c.execute(
+                    "SELECT MIN(ts) AS ts, NULL AS cpu_per_core, "
+                    "AVG(cpu_used_pct) AS cpu_used_pct, "
+                    "AVG(load_1m) AS load_1m, AVG(load_5m) AS load_5m, AVG(load_15m) AS load_15m, "
+                    "AVG(mem_total) AS mem_total, AVG(mem_used) AS mem_used, "
+                    "AVG(mem_buffers) AS mem_buffers, AVG(mem_cached) AS mem_cached, AVG(mem_free) AS mem_free, "
+                    "MAX(uptime_s) AS uptime_s, "
+                    "MAX(net_rx_total_bytes) AS net_rx_total_bytes, MAX(net_tx_total_bytes) AS net_tx_total_bytes, "
+                    "MAX(printer_page_count) AS printer_page_count, "
+                    "AVG(load_percent) AS load_percent, AVG(battery_percent) AS battery_percent, "
+                    "AVG(battery_temp_c) AS battery_temp_c, "
+                    "AVG(disk_total) AS disk_total, AVG(disk_used) AS disk_used "
+                    "FROM host_snmp_samples "
+                    "WHERE host_id=? AND ts >= ? "
+                    "GROUP BY ts / ? "
+                    "ORDER BY ts ASC LIMIT ?",
+                    (hid, since, bucket, h * 60),
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    "SELECT ts, cpu_per_core, cpu_used_pct, "
+                    "load_1m, load_5m, load_15m, "
+                    "mem_total, mem_used, mem_buffers, mem_cached, mem_free, "
+                    "uptime_s, net_rx_total_bytes, net_tx_total_bytes, "
+                    "printer_page_count, load_percent, battery_percent, "
+                    "battery_temp_c, disk_total, disk_used "
+                    "FROM host_snmp_samples "
+                    "WHERE host_id=? AND ts >= ? "
+                    "ORDER BY ts ASC LIMIT ?",
+                    (hid, since, h * 60),
+                ).fetchall()
     except Exception as e:
         return {"points": [], "error": f"snmp_history: {e}"}
     points = []

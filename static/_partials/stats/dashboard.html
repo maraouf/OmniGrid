@@ -10,6 +10,7 @@
             </div>
             <button type="button"
                     @click="_runWithBusy('stats_overview', () => loadStatsOverview())"
+                    :disabled="_loadBusy.stats_overview"
                     :title="t('actions.reload')"
                     :aria-label="t('actions.reload')"
                     class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
@@ -102,6 +103,20 @@
               </div>
             </a>
 
+            <!-- Host groups -->
+            <a href="/admin/host_groups"
+               @click.prevent="view='admin'; openAdminTab('host_groups')"
+               class="stats-card no-underline">
+              <div class="stats-card-icon">
+                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
+              </div>
+              <div class="stats-card-body">
+                <div class="stats-card-label" x-text="t('stats.cards.host_groups.label')"></div>
+                <div class="stats-card-value" x-text="(statsOverview.host_groups && statsOverview.host_groups.total) || 0"></div>
+                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.host_groups.sub')"></div>
+              </div>
+            </a>
+
             <!-- Assets -->
             <a href="/admin/assets"
                @click.prevent="view='admin'; openAdminTab('assets')"
@@ -113,6 +128,128 @@
                 <div class="stats-card-label" x-text="t('stats.cards.assets.label')"></div>
                 <div class="stats-card-value" x-text="(statsOverview.assets && statsOverview.assets.total) || 0"></div>
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.assets.sub')"></div>
+              </div>
+            </a>
+
+            <!-- Nodes -->
+            <a href="/nodes"
+               @click.prevent="view='nodes'"
+               class="stats-card no-underline">
+              <div class="stats-card-icon">
+                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cpu"/></svg>
+              </div>
+              <div class="stats-card-body">
+                <div class="stats-card-label" x-text="t('stats.cards.nodes.label')"></div>
+                <div class="stats-card-value" x-text="(statsOverview.nodes && statsOverview.nodes.total) || 0"></div>
+                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.nodes.sub')"></div>
+              </div>
+            </a>
+
+            <!-- Stacks -->
+            <a href="/stacks"
+               @click.prevent="view='stacks'"
+               class="stats-card no-underline">
+              <div class="stats-card-icon">
+                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
+              </div>
+              <div class="stats-card-body">
+                <div class="stats-card-label" x-text="t('stats.cards.stacks.label')"></div>
+                <div class="stats-card-value" x-text="(statsOverview.stacks && statsOverview.stacks.total) || 0"></div>
+                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.stacks.sub')"></div>
+              </div>
+            </a>
+
+            <!-- Services -->
+            <a href="/services"
+               @click.prevent="view='services'"
+               class="stats-card no-underline">
+              <div class="stats-card-icon">
+                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-box"/></svg>
+              </div>
+              <div class="stats-card-body">
+                <div class="stats-card-label" x-text="t('stats.cards.services.label')"></div>
+                <div class="stats-card-value" x-text="(statsOverview.services && statsOverview.services.total) || 0"></div>
+                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.services.sub')"></div>
+              </div>
+            </a>
+
+            <!-- Containers (replicas of services + standalone containers) -->
+            <a href="/stacks"
+               @click.prevent="view='stacks'"
+               class="stats-card no-underline">
+              <div class="stats-card-icon">
+                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/></svg>
+              </div>
+              <div class="stats-card-body">
+                <div class="stats-card-label" x-text="t('stats.cards.containers.label')"></div>
+                <div class="stats-card-value" x-text="(statsOverview.containers && statsOverview.containers.total) || 0"></div>
+                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+                     x-text="t('stats.cards.containers.sub', {
+                       replicas: (statsOverview.containers && statsOverview.containers.replicas) || 0,
+                       standalone: (statsOverview.containers && statsOverview.containers.standalone) || 0
+                     })"></div>
+              </div>
+            </a>
+
+            <!-- Schedules -->
+            <a href="/admin/schedules"
+               @click.prevent="view='admin'; openAdminTab('schedules')"
+               class="stats-card no-underline">
+              <div class="stats-card-icon">
+                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-calendar"/></svg>
+              </div>
+              <div class="stats-card-body">
+                <div class="stats-card-label" x-text="t('stats.cards.schedules.label')"></div>
+                <div class="stats-card-value" x-text="(statsOverview.schedules && statsOverview.schedules.total) || 0"></div>
+                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+                     x-text="t('stats.cards.schedules.sub', {
+                       enabled: (statsOverview.schedules && statsOverview.schedules.enabled) || 0
+                     })"></div>
+              </div>
+            </a>
+
+            <!-- Backups -->
+            <a href="/admin/backups"
+               @click.prevent="view='admin'; openAdminTab('backups')"
+               class="stats-card no-underline">
+              <div class="stats-card-icon">
+                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/></svg>
+              </div>
+              <div class="stats-card-body">
+                <div class="stats-card-label" x-text="t('stats.cards.backups.label')"></div>
+                <div class="stats-card-value" x-text="(statsOverview.backups && statsOverview.backups.total) || 0"></div>
+                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.backups.sub')"></div>
+              </div>
+            </a>
+
+            <!-- Config backups -->
+            <a href="/admin/config_backup"
+               @click.prevent="view='admin'; openAdminTab('config_backup')"
+               class="stats-card no-underline">
+              <div class="stats-card-icon">
+                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-save"/></svg>
+              </div>
+              <div class="stats-card-body">
+                <div class="stats-card-label" x-text="t('stats.cards.config_backups.label')"></div>
+                <div class="stats-card-value" x-text="(statsOverview.config_backups && statsOverview.config_backups.total) || 0"></div>
+                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.config_backups.sub')"></div>
+              </div>
+            </a>
+
+            <!-- Tunables -->
+            <a href="/admin/config"
+               @click.prevent="view='admin'; openAdminTab('config')"
+               class="stats-card no-underline">
+              <div class="stats-card-icon">
+                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+              </div>
+              <div class="stats-card-body">
+                <div class="stats-card-label" x-text="t('stats.cards.tunables.label')"></div>
+                <div class="stats-card-value" x-text="(statsOverview.tunables && statsOverview.tunables.total) || 0"></div>
+                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+                     x-text="t('stats.cards.tunables.sub', {
+                       overridden: (statsOverview.tunables && statsOverview.tunables.overridden) || 0
+                     })"></div>
               </div>
             </a>
 

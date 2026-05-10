@@ -316,7 +316,7 @@
                (per-row hints, debug panel) — it just doesn't drive the
                topbar spinner anymore. -->
           <svg width="13" height="13" aria-hidden="true"
-               :class="((view==='hosts' ? hostsLoading : loading)) ? 'animate-spin' : ''"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-cw"/></svg>
+               :class="((view==='hosts' ? hostsLoading : loading)) ? 'spin-md' : ''"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/></svg>
           <span x-show="!(view==='hosts' ? hostsLoading : loading)" x-text="t('actions.refresh')"></span>
           <span x-show="view==='hosts' ? hostsLoading : loading" x-text="t('actions.refreshing')"></span>
         </button>
@@ -2856,10 +2856,28 @@
             <option :value="s" x-text="s"></option>
           </template>
         </select>
-        <input type="date" x-model="historyFilters.fromDate" @change="historyApplyFilter()"
-               class="fs-sm" :title="t('history.from_date_title')">
-        <input type="date" x-model="historyFilters.toDate" @change="historyApplyFilter()"
-               class="fs-sm" :title="t('history.to_date_title')">
+        <!-- Audit-log date filters render the operator's profile format
+             (`ui_prefs.datetime_format` — date-only portion). Text inputs
+             instead of native date pickers so the displayed value matches
+             every other date surface across the app; the helper
+             `_parseUserDate` accepts the canonical token shape and
+             converts back to the ISO `YYYY-MM-DD` value the existing
+             filter logic consumes. Placeholder shows the active format
+             token so operators can see at a glance what to type. -->
+        <input type="text"
+               :value="_formatIsoDate(historyFilters.fromDate)"
+               @change="setHistoryDateFromText('from', $event.target.value)"
+               :placeholder="_userDateOnlyFormat()"
+               class="fs-sm mono"
+               style="width: 9.5rem"
+               :title="t('history.from_date_title')">
+        <input type="text"
+               :value="_formatIsoDate(historyFilters.toDate)"
+               @change="setHistoryDateFromText('to', $event.target.value)"
+               :placeholder="_userDateOnlyFormat()"
+               class="fs-sm mono"
+               style="width: 9.5rem"
+               :title="t('history.to_date_title')">
         <button x-show="hasHistoryFilter()" @click="historyApplyFilter(() => resetHistoryFilters())"
                 class="btn btn-ghost fs-xs" x-text="t('history.clear_filters')"></button>
       </div>

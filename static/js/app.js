@@ -6963,12 +6963,36 @@ function app() {
     // The wrapped fn can be sync OR async — `await fn()` works either
     // way thanks to the implicit-promise wrap on a non-thenable value.
     _loadBusy: {},
+    // Watchdog timer per busy-key — see `_runWithBusy` below. Cleared
+    // when the inner fn resolves naturally; otherwise the timer force-
+    // clears the busy flag after `_LOAD_BUSY_MAX_MS` so a hung Promise
+    // can't leave the reload button visually stuck forever.
+    _loadBusyWd: {},
+    // 30s upper bound. Matches `/api/hosts/one/{id}`'s published
+    // budget. Reload endpoints are an order of magnitude lighter than
+    // that — 30s is generous enough for any healthy fetch and
+    // aggressive enough that a stuck flag is a visible blip, not a
+    // session-long ghost.
+    _LOAD_BUSY_MAX_MS: 30000,
     async _runWithBusy(key, fn) {
       if (!key || typeof fn !== 'function') return;
       if (this._loadBusy[key]) return;
       this._loadBusy[key] = true;
+      // Watchdog — if the inner fn hangs (network blip, dead probe,
+      // slow listing) clear the busy flag after _LOAD_BUSY_MAX_MS so
+      // the reload button doesn't stay disabled across the session.
+      // The fn keeps running in the background; when it finally
+      // resolves, finally{} would re-clear (already false — no-op).
+      try { clearTimeout(this._loadBusyWd[key]); } catch (_) {}
+      this._loadBusyWd[key] = setTimeout(() => {
+        if (this._loadBusy[key]) this._loadBusy[key] = false;
+      }, this._LOAD_BUSY_MAX_MS);
       try { await fn(); }
-      finally { this._loadBusy[key] = false; }
+      finally {
+        this._loadBusy[key] = false;
+        try { clearTimeout(this._loadBusyWd[key]); } catch (_) {}
+        delete this._loadBusyWd[key];
+      }
     },
     async loadVersion() {
       try {
@@ -13146,8 +13170,11 @@ function app() {
       this.aiModalKey = key;
       // Reset paging + sort on every open so navigating Jobs → Tokens
       // → Cost doesn't carry one modal's last-page through to the next.
+      // Default sort is date DESC across every modal — every table
+      // exposes a `ts` column (jobs row timestamp / trend bucket
+      // timestamp) and newest-first matches operator expectation.
       this.aiModalPage = 1;
-      this.aiModalSortCol = '';
+      this.aiModalSortCol = 'ts';
       this.aiModalSortDir = 'desc';
       if (key === 'jobs') {
         this.loadAiJobs();
@@ -29066,9 +29093,14 @@ function app() {
     fmtDateOnly(ts) {
       if (!ts) return '—';
       const d = new Date(ts * 1000);
+      return this._applyDateTimeFormat(d, this._userDateOnlyFormat());
+    },
+    // Derive the date-only portion of the user's full datetime format
+    // (strip H/h/m/s/a tokens + orphan separators). Shared by `fmtDateOnly`
+    // and the history-filter input rendering so one source of truth
+    // governs how dates surface across the app.
+    _userDateOnlyFormat() {
       const full = this._userDateTimeFormat();
-      // Strip time tokens. Process longer tokens first so e.g. `mm`
-      // gets removed before `m`. Also handle the AM/PM `a`.
       let datePart = full
         .replace(/HH|H|hh|h/g, '')
         .replace(/mm/g, '')
@@ -29076,13 +29108,104 @@ function app() {
         .replace(/ss/g, '')
         .replace(/(?<![A-Za-z])s(?![A-Za-z])/g, '')
         .replace(/(?<![A-Za-z])a(?![A-Za-z])/g, '');
-      // Tidy up dangling separators left over by the strip.
       datePart = datePart
         .replace(/[,;:\s]+$/g, '')
         .replace(/^[,;:\s]+/g, '')
         .replace(/\s{2,}/g, ' ')
         .replace(/[,;:]\s*$/g, '');
-      return this._applyDateTimeFormat(d, datePart || 'dd/MM/yyyy');
+      return datePart || 'dd/MM/yyyy';
+    },
+    // Parse a user-format date string (matching `_userDateOnlyFormat`)
+    // back to an ISO `YYYY-MM-DD` string for the history-filter state.
+    // Returns null when the input doesn't match the expected token shape;
+    // empty input returns the empty string (clears the filter). Tokens
+    // supported: yyyy / yy / MMMM / MMM / MM / M / dd / d.
+    _parseUserDate(text) {
+      const raw = (text || '').toString().trim();
+      if (!raw) return '';
+      const fmt = this._userDateOnlyFormat();
+      const monthsLong = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      const monthsShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      // Build a regex from the format string. Order matters — match
+      // longer tokens first so `MM` doesn't get split into two `M`s.
+      const tokenOrder = ['yyyy','yy','MMMM','MMM','MM','M','dd','d'];
+      const tokenPatterns = {
+        yyyy: '(?<y>\\d{4})',
+        yy:   '(?<y>\\d{2})',
+        MMMM: '(?<mn>[A-Za-z]+)',
+        MMM:  '(?<mn>[A-Za-z]{3})',
+        MM:   '(?<m>\\d{2})',
+        M:    '(?<m>\\d{1,2})',
+        dd:   '(?<d>\\d{2})',
+        d:    '(?<d>\\d{1,2})',
+      };
+      // Escape non-token characters, then replace tokens with capture groups.
+      // Walk the format left-to-right matching the longest token at each
+      // position to avoid `M` consuming the start of `MMMM`.
+      let pattern = '';
+      let i = 0;
+      while (i < fmt.length) {
+        let matched = false;
+        for (const tk of tokenOrder) {
+          if (fmt.slice(i, i + tk.length) === tk) {
+            pattern += tokenPatterns[tk];
+            i += tk.length;
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) {
+          pattern += fmt[i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          i += 1;
+        }
+      }
+      let m;
+      try { m = new RegExp('^' + pattern + '$').exec(raw); }
+      catch (_) { return null; }
+      if (!m) return null;
+      const g = m.groups || {};
+      let y = parseInt(g.y || '', 10);
+      let mo = parseInt(g.m || '', 10);
+      const day = parseInt(g.d || '', 10);
+      if (g.mn) {
+        const lower = g.mn.toLowerCase();
+        const li = monthsLong.findIndex(x => x.toLowerCase() === lower);
+        const si = monthsShort.findIndex(x => x.toLowerCase() === lower);
+        mo = (li >= 0 ? li + 1 : (si >= 0 ? si + 1 : NaN));
+      }
+      if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(day)) return null;
+      if (y < 100) y += 2000;  // yy → 20yy
+      if (mo < 1 || mo > 12 || day < 1 || day > 31) return null;
+      return `${y.toString().padStart(4,'0')}-${mo.toString().padStart(2,'0')}-${day.toString().padStart(2,'0')}`;
+    },
+    // Render an ISO `YYYY-MM-DD` string back through the user's date-only
+    // format. Empty / invalid input returns empty string for use as input
+    // value. Mirror of `_parseUserDate`.
+    _formatIsoDate(iso) {
+      if (!iso || typeof iso !== 'string') return '';
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+      if (!m) return '';
+      const d = new Date(parseInt(m[1],10), parseInt(m[2],10) - 1, parseInt(m[3],10));
+      if (isNaN(d.getTime())) return '';
+      return this._applyDateTimeFormat(d, this._userDateOnlyFormat());
+    },
+    // History-filter `@change` glue. Parses the operator-typed text via
+    // `_parseUserDate`, writes the ISO string into `historyFilters.<key>`,
+    // and triggers the existing `historyApplyFilter` debounce. Empty
+    // input clears the filter; malformed input keeps the field's old
+    // ISO value (so the filter doesn't silently drop on a typo) but the
+    // text input gets re-rendered with the canonical format.
+    setHistoryDateFromText(which, text) {
+      const parsed = this._parseUserDate(text);
+      if (parsed === null) {
+        // Malformed — leave underlying ISO untouched. The render will
+        // re-display the existing parsed value so the input snaps back.
+        return;
+      }
+      if (!this.historyFilters) return;
+      const key = (which === 'from') ? 'fromDate' : 'toDate';
+      this.historyFilters[key] = parsed;
+      this.historyApplyFilter && this.historyApplyFilter();
     },
     // Date + short time — drops only the seconds component from the
     // user's format (token `ss` → ''; token `:ss` cleans up the
