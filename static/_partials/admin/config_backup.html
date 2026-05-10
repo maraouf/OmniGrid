@@ -89,55 +89,90 @@
                     x-show="configBackupSaved.length"
                     x-text="configBackupSaved.length"></span>
             </div>
-            <button @click="loadConfigBackupSaved()"
-                    :disabled="configBackupBusy"
-                    class="btn btn-ghost fs-xs"
-                    x-text="t('actions.reload')"></button>
+            <button type="button"
+                    @click="_runWithBusy('config_backup_saved', () => loadConfigBackupSaved())"
+                    :disabled="configBackupBusy || _loadBusy.config_backup_saved"
+                    :title="t('actions.reload')"
+                    :aria-label="t('actions.reload')"
+                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="_loadBusy.config_backup_saved ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+              <span x-text="t('actions.reload')"></span>
+            </button>
           </div>
           <p class="fs-xs text-[var(--text-faint)] mb-3"
              x-text="t('admin.config_backup.saved_desc')"></p>
 
-          <!-- Retention input — inline with the table header, NOT in
-               its own large section. Lives BELOW the description so
-               it visually associates with the "rows below this card"
-               that retention actually applies to. -->
+          <!-- Retention tunable — full Admin → Config style row:
+               label + input + bounds chips + effective value PLUS the
+               long-form help paragraph (drawn from the same i18n key
+               family used by Admin → Config) AND a section-owned Save
+               button with dirty/undirty pulse. Single-tunable section
+               so the Save handler is a degenerate `saveConfigBackupSection`. -->
           <div x-show="tuningLoaded"
-               class="flex flex-wrap items-center gap-3 mb-4 pb-4 border-b border-[var(--border)]">
-            <label class="fs-xs font-medium"
-                   x-text="t('admin.config.fields.tuning_config_backup_retention_count.label')"></label>
-            <input type="number"
-                   x-model="tuningForm['tuning_config_backup_retention_count']"
-                   :placeholder="tuningPlaceholder('tuning_config_backup_retention_count')"
-                   :min="(tuningEffective['tuning_config_backup_retention_count'] || {}).min"
-                   :max="(tuningEffective['tuning_config_backup_retention_count'] || {}).max"
-                   :disabled="!isAdmin() || tuningSaving"
-                   class="w-32 mono fs-sm py-1">
-            <div class="bounds-chips" role="group"
-                 :aria-label="t('admin.config.bounds.group_label')">
-              <span class="bounds-chip bounds-chip--min"
-                    :title="t('admin.config.bounds.min_title')">
-                <svg width="11" height="11" class="text-[currentColor]" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
-                </svg>
-                <span x-text="(tuningEffective['tuning_config_backup_retention_count'] || {}).min"></span>
-              </span>
-              <span class="bounds-chip bounds-chip--max"
-                    :title="t('admin.config.bounds.max_title')">
-                <svg width="11" height="11" class="text-[currentColor]" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
-                </svg>
-                <span x-text="(tuningEffective['tuning_config_backup_retention_count'] || {}).max"></span>
-              </span>
-              <span class="bounds-chip bounds-chip--default"
-                    :title="t('admin.config.bounds.default_title')">
-                <svg width="11" height="11" class="text-[currentColor]" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
-                </svg>
-                <span x-text="(tuningEffective['tuning_config_backup_retention_count'] || {}).default"></span>
+               class="mb-4 pb-4 border-b border-[var(--border)]">
+            <div class="flex flex-wrap items-center gap-3 mb-2">
+              <label class="fs-xs font-medium"
+                     x-text="t('admin.config.fields.tuning_config_backup_retention_count.label')"></label>
+              <input type="number"
+                     x-model="tuningForm['tuning_config_backup_retention_count']"
+                     :placeholder="tuningPlaceholder('tuning_config_backup_retention_count')"
+                     :min="(tuningEffective['tuning_config_backup_retention_count'] || {}).min"
+                     :max="(tuningEffective['tuning_config_backup_retention_count'] || {}).max"
+                     :disabled="!isAdmin() || tuningSaving || configBackupBusy"
+                     class="w-32 mono fs-sm py-1">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
+                <span class="bounds-chip bounds-chip--min"
+                      :title="t('admin.config.bounds.min_title')">
+                  <svg width="11" height="11" class="text-[currentColor]" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+                  </svg>
+                  <span x-text="(tuningEffective['tuning_config_backup_retention_count'] || {}).min"></span>
+                </span>
+                <span class="bounds-chip bounds-chip--max"
+                      :title="t('admin.config.bounds.max_title')">
+                  <svg width="11" height="11" class="text-[currentColor]" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+                  </svg>
+                  <span x-text="(tuningEffective['tuning_config_backup_retention_count'] || {}).max"></span>
+                </span>
+                <span class="bounds-chip bounds-chip--default"
+                      :title="t('admin.config.bounds.default_title')">
+                  <svg width="11" height="11" class="text-[currentColor]" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+                  </svg>
+                  <span x-text="(tuningEffective['tuning_config_backup_retention_count'] || {}).default"></span>
+                </span>
+              </div>
+              <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                    x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_config_backup_retention_count'] || {}).effective })"></span>
+            </div>
+            <!-- Help paragraph — same shape as the per-tunable help
+                 strings rendered in Admin → Config. Falls back to a
+                 hint-key if the new help-key isn't translated yet,
+                 so non-en locales still get something sensible. -->
+            <p class="fs-2xs text-[var(--text-faint)] mt-1 mb-3"
+               x-text="t('admin.config.fields.tuning_config_backup_retention_count.help')"></p>
+            <!-- Section-owned Save button — dirty/undirty pulse via
+                 `configBackupSectionDirty()`. Disabled when not dirty
+                 OR when the row is busy (existing `configBackupBusy`
+                 from the export / save-to-disk flow). -->
+            <div class="flex items-center gap-3 flex-wrap">
+              <button type="button"
+                      @click="saveConfigBackupSection()"
+                      :disabled="configBackupBusy || !configBackupSectionDirty() || !isAdmin()"
+                      :class="configBackupSectionDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                      class="btn btn-primary fs-sm"
+                      x-text="configBackupBusy ? t('actions.saving') : t('actions.save_changes')"></button>
+              <span x-show="configBackupSectionDirty()"
+                    class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
+                    :title="t('common.unsaved_title')">
+                <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+                <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
               </span>
             </div>
-            <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_config_backup_retention_count'] || {}).effective })"></span>
           </div>
 
           <!-- Empty state -->

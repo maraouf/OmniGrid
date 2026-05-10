@@ -8,7 +8,17 @@
               </div>
               <p class="fs-xs text-[var(--text-faint)]" x-text="t('admin.sessions.hint')"></p>
             </div>
-            <button @click="loadSessions()" class="btn btn-ghost fs-xs" x-text="t('actions.reload')"></button>
+            <button type="button"
+                    @click="_runWithBusy('sessions', () => loadSessions())"
+                    :disabled="_loadBusy.sessions"
+                    :title="t('actions.reload')"
+                    :aria-label="t('actions.reload')"
+                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="_loadBusy.sessions ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+              <span x-text="t('actions.reload')"></span>
+            </button>
           </div>
           <!-- Initial-load placeholder. /api/sessions does a non-trivial
                JOIN across users + sessions and on a busy backend can take

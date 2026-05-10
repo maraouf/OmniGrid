@@ -921,8 +921,14 @@
                 <button type="button"
                         @click="deleteAiMemory(m.id)"
                         :disabled="isReadonly()"
-                        class="btn btn-ghost fs-3xs shrink-0"
-                        x-text="t('ai_memory.delete_button')"></button>
+                        :title="t('ai_memory.delete_button')"
+                        :aria-label="t('ai_memory.delete_button')"
+                        class="btn btn-ghost fs-xs text-danger inline-flex items-center gap-1.5 shrink-0">
+                  <svg width="13" height="13" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+                  </svg>
+                  <span x-text="t('ai_memory.delete_button')"></span>
+                </button>
               </li>
             </template>
           </ul>
@@ -955,7 +961,7 @@
                 <div x-show="aiModalKey === 'jobs'">
                   <div class="flex items-center gap-2 flex-wrap mb-3">
                     <select x-model="aiJobsFilterProvider"
-                            @change="loadAiJobs()"
+                            @change="aiModalPage = 1; loadAiJobs()"
                             class="fs-xs py-1">
                       <option value="" x-text="t('admin.ai.modal.filter_all_providers')"></option>
                       <template x-for="name in aiProviderNames" :key="name">
@@ -963,7 +969,7 @@
                       </template>
                     </select>
                     <select x-model="aiJobsFilterStatus"
-                            @change="loadAiJobs()"
+                            @change="aiModalPage = 1; loadAiJobs()"
                             class="fs-xs py-1">
                       <option value="" x-text="t('admin.ai.modal.filter_all_statuses')"></option>
                       <option value="success" x-text="t('op_status.success')"></option>
@@ -980,17 +986,53 @@
                   <table x-show="aiJobs && aiJobs.jobs.length > 0" class="w-full fs-xs mono">
                     <thead>
                       <tr class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] text-start">
-                        <th class="text-start py-1.5" x-text="t('admin.ai.modal.col_when')"></th>
-                        <th class="text-start py-1.5" x-text="t('admin.ai.modal.col_provider')"></th>
-                        <th class="text-start py-1.5" x-text="t('admin.ai.modal.col_model')"></th>
-                        <th class="text-start py-1.5" x-text="t('admin.ai.modal.col_status')"></th>
-                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_tokens')"></th>
-                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_cost')"></th>
-                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_response')"></th>
+                        <!-- Sortable headers — buttons (not spans) so
+                             keyboard users can Tab into them and Enter
+                             to sort. `aiSortBy(col)` toggles asc/desc
+                             on repeat clicks and resets to desc on a
+                             new column; `aiSortIndicator(col)` paints
+                             a unicode arrow when the column is active.
+                             Column keys mirror the row dict from
+                             `/api/admin/ai/jobs`. -->
+                        <th class="text-start py-1.5">
+                          <button type="button" @click="aiSortBy('ts')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_when')"></span><span x-text="aiSortIndicator('ts')"></span>
+                          </button>
+                        </th>
+                        <th class="text-start py-1.5">
+                          <button type="button" @click="aiSortBy('provider')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_provider')"></span><span x-text="aiSortIndicator('provider')"></span>
+                          </button>
+                        </th>
+                        <th class="text-start py-1.5">
+                          <button type="button" @click="aiSortBy('model')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_model')"></span><span x-text="aiSortIndicator('model')"></span>
+                          </button>
+                        </th>
+                        <th class="text-start py-1.5">
+                          <button type="button" @click="aiSortBy('status')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_status')"></span><span x-text="aiSortIndicator('status')"></span>
+                          </button>
+                        </th>
+                        <th class="text-end py-1.5">
+                          <button type="button" @click="aiSortBy('total_tokens')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_tokens')"></span><span x-text="aiSortIndicator('total_tokens')"></span>
+                          </button>
+                        </th>
+                        <th class="text-end py-1.5">
+                          <button type="button" @click="aiSortBy('cost_usd')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_cost')"></span><span x-text="aiSortIndicator('cost_usd')"></span>
+                          </button>
+                        </th>
+                        <th class="text-end py-1.5">
+                          <button type="button" @click="aiSortBy('response_time_ms')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_response')"></span><span x-text="aiSortIndicator('response_time_ms')"></span>
+                          </button>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      <template x-for="j in (aiJobs ? aiJobs.jobs : [])" :key="j.id">
+                      <template x-for="j in aiJobsRows()" :key="j.id">
                         <tr class="border-t border-[var(--border)]">
                           <td class="py-1" x-text="aiFormatTime(j.ts)"></td>
                           <td class="py-1" x-text="aiProviderDisplayName(j.provider)"></td>
@@ -1005,6 +1047,26 @@
                       </template>
                     </tbody>
                   </table>
+                  <!-- Paginator — page X of Y + Prev / Next. Hidden
+                       when there's at most one page. Server-paged for
+                       JOBS so each click triggers a fresh fetch. -->
+                  <div x-show="aiJobs && aiJobs.jobs.length > 0 && aiModalTotalPages() > 1"
+                       class="flex items-center justify-between gap-3 mt-3 fs-xs">
+                    <span class="text-[var(--text-faint)]"
+                          x-text="t('admin.ai.modal.page_label', { page: aiModalPage, total: aiModalTotalPages() })"></span>
+                    <div class="inline-flex items-center gap-2">
+                      <button type="button"
+                              :disabled="aiModalPage <= 1"
+                              @click="aiModalGoPage(aiModalPage - 1)"
+                              class="btn btn-ghost fs-xs"
+                              x-text="t('actions.prev')"></button>
+                      <button type="button"
+                              :disabled="aiModalPage >= aiModalTotalPages()"
+                              @click="aiModalGoPage(aiModalPage + 1)"
+                              class="btn btn-ghost fs-xs"
+                              x-text="t('actions.next')"></button>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- Trend / breakdown modals — share the same container.
@@ -1019,25 +1081,50 @@
                   <table x-show="aiDashboard && aiDashboard.trend.length > 0" class="w-full fs-xs mono">
                     <thead>
                       <tr class="fs-3xs uppercase tracking-wider text-[var(--text-faint)]">
-                        <th class="text-start py-1.5" x-text="t('admin.ai.modal.col_when')"></th>
-                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_jobs')"></th>
-                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_pass_rate')"></th>
-                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_tokens')"></th>
-                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_cost')"></th>
-                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_accuracy')"></th>
+                        <!-- Sortable headers — same shape as the JOBS
+                             table above. Trend rows are bucketed by
+                             hour from /api/admin/ai/dashboard, so
+                             pagination is client-side via
+                             `aiTrendRows()` (slice of
+                             aiDashboard.trend). Column keys mirror
+                             the row dict's actual fields. -->
+                        <th class="text-start py-1.5">
+                          <button type="button" @click="aiSortBy('ts')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_when')"></span><span x-text="aiSortIndicator('ts')"></span>
+                          </button>
+                        </th>
+                        <th class="text-end py-1.5">
+                          <button type="button" @click="aiSortBy('jobs')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_jobs')"></span><span x-text="aiSortIndicator('jobs')"></span>
+                          </button>
+                        </th>
+                        <th class="text-end py-1.5">
+                          <button type="button" @click="aiSortBy('pass_rate')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_pass_rate')"></span><span x-text="aiSortIndicator('pass_rate')"></span>
+                          </button>
+                        </th>
+                        <th class="text-end py-1.5">
+                          <button type="button" @click="aiSortBy('total_tokens')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_tokens')"></span><span x-text="aiSortIndicator('total_tokens')"></span>
+                          </button>
+                        </th>
+                        <th class="text-end py-1.5">
+                          <button type="button" @click="aiSortBy('total_cost_usd')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_cost')"></span><span x-text="aiSortIndicator('total_cost_usd')"></span>
+                          </button>
+                        </th>
+                        <th class="text-end py-1.5">
+                          <button type="button" @click="aiSortBy('avg_accuracy_score')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                            <span x-text="t('admin.ai.modal.col_accuracy')"></span><span x-text="aiSortIndicator('avg_accuracy_score')"></span>
+                          </button>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       <!-- Loop variable is `row`, NOT `t` — using
                            `t` would shadow the global `t()` i18n
-                           helper inside the loop scope. Currently no
-                           i18n calls live inside this loop, but a
-                           later edit adding one would silently throw
-                           ("t is not a function" — Alpine resolves
-                           the symbol to the trend dict, not the
-                           i18n helper). CLAUDE.md "Newer
-                           conventions" carries this rule. -->
-                      <template x-for="row in (aiDashboard ? aiDashboard.trend : [])" :key="row.ts">
+                           helper inside the loop scope. -->
+                      <template x-for="row in aiTrendRows()" :key="row.ts">
                         <tr class="border-t border-[var(--border)]">
                           <td class="py-1" x-text="aiFormatTime(row.ts)"></td>
                           <td class="py-1 text-end" x-text="row.jobs"></td>
@@ -1049,6 +1136,26 @@
                       </template>
                     </tbody>
                   </table>
+                  <!-- Paginator — same shape as the JOBS modal. Trend
+                       rows page client-side; no extra round-trip on
+                       Prev/Next. -->
+                  <div x-show="aiDashboard && aiDashboard.trend.length > 0 && aiModalTotalPages() > 1"
+                       class="flex items-center justify-between gap-3 mt-3 fs-xs">
+                    <span class="text-[var(--text-faint)]"
+                          x-text="t('admin.ai.modal.page_label', { page: aiModalPage, total: aiModalTotalPages() })"></span>
+                    <div class="inline-flex items-center gap-2">
+                      <button type="button"
+                              :disabled="aiModalPage <= 1"
+                              @click="aiModalGoPage(aiModalPage - 1)"
+                              class="btn btn-ghost fs-xs"
+                              x-text="t('actions.prev')"></button>
+                      <button type="button"
+                              :disabled="aiModalPage >= aiModalTotalPages()"
+                              @click="aiModalGoPage(aiModalPage + 1)"
+                              class="btn btn-ghost fs-xs"
+                              x-text="t('actions.next')"></button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

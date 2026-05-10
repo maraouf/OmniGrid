@@ -24,19 +24,43 @@
             <input type="search" x-model.debounce.200ms="logFilter"
                    :placeholder="t('admin.logs.filter_placeholder')"
                    class="fs-sm min-w-[180px]">
-            <button @click="loadLogs(true)" class="btn btn-ghost fs-xs"
-                    x-text="t('actions.reload')"></button>
+            <button type="button"
+                    @click="_runWithBusy('logs', () => loadLogs(true))"
+                    :disabled="_loadBusy.logs"
+                    :title="t('actions.reload')"
+                    :aria-label="t('actions.reload')"
+                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="_loadBusy.logs ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+              <span x-text="t('actions.reload')"></span>
+            </button>
             <!-- Copy the currently VISIBLE (filtered) log lines to the
                  clipboard as plain text — ts + stream + body, one per
                  line. Respects both the search filter AND any future
-                 severity/tag filters so operators can paste the exact
+                 severity/tag filters so the user can paste the exact
                  view they're looking at into an issue tracker or chat. -->
-            <button @click="copyFilteredLogs()" class="btn btn-ghost fs-xs"
+            <button type="button"
+                    @click="copyFilteredLogs()"
                     :title="t('admin.logs.copy_title')"
+                    :aria-label="t('admin.logs.copy')"
                     :disabled="!filteredLogLines().length"
-                    x-text="t('admin.logs.copy')"></button>
-            <button @click="clearLogs()" class="btn btn-ghost fs-xs text-danger"
-                    x-text="t('admin.logs.clear')"></button>
+                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+              <svg width="13" height="13" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+              </svg>
+              <span x-text="t('admin.logs.copy')"></span>
+            </button>
+            <button type="button"
+                    @click="clearLogs()"
+                    :title="t('admin.logs.clear')"
+                    :aria-label="t('admin.logs.clear')"
+                    class="btn btn-ghost fs-xs text-danger inline-flex items-center gap-1.5">
+              <svg width="13" height="13" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+              </svg>
+              <span x-text="t('admin.logs.clear')"></span>
+            </button>
           </div>
           <!-- Severity filter pills — colored chips per level with
                counts. Click ALL → enable every level; click a specific
@@ -172,8 +196,17 @@
                   x-text="t('admin.logs.files_count', { n: logFiles.length })"></span>
             <span class="flex-1"></span>
             <span class="fs-2xs text-[var(--text-faint)] mono" x-text="logFilesDir"></span>
-            <button @click="loadLogFiles()" class="btn btn-ghost fs-xs"
-                    x-text="t('actions.reload')"></button>
+            <button type="button"
+                    @click="_runWithBusy('log_files', () => loadLogFiles())"
+                    :disabled="_loadBusy.log_files"
+                    :title="t('actions.reload')"
+                    :aria-label="t('actions.reload')"
+                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="_loadBusy.log_files ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+              <span x-text="t('actions.reload')"></span>
+            </button>
           </div>
 
           <div class="overflow-x-auto scrollbar">

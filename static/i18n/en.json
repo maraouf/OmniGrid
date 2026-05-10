@@ -1021,7 +1021,8 @@
         "col_response": "Response",
         "col_jobs": "Jobs",
         "col_pass_rate": "Pass rate",
-        "col_accuracy": "Accuracy"
+        "col_accuracy": "Accuracy",
+        "page_label": "Page {page} of {total}"
       }
     },
     "notifications": {
@@ -1863,22 +1864,22 @@
     "error_label":      "Error: {error}"
   },
   "ai_memory": {
-    "title":               "AI memory",
+    "title":               "AI Memory",
     "subtitle":            "Durable lessons the AI has learned about this OmniGrid deployment. Memories are injected into every palette call's system prompt so the AI accumulates knowledge over time.",
-    "empty":               "No memories yet. The AI emits MEMORY: lines when it learns something specific to this deployment that's worth remembering.",
-    "add_label":           "Add a memory manually",
+    "empty":               "No Memories yet. The AI emits MEMORY: lines when it learns something specific to this deployment that's worth remembering.",
+    "add_label":           "Add a Memory manually",
     "add_placeholder":     "e.g. The Beszel agent on host01.example.com runs as a docker container — restart with `docker restart beszel-agent`, not via systemd",
-    "add_button":          "Add memory",
+    "add_button":          "Add Memory",
     "delete_button":       "Delete",
-    "delete_confirm":      "Delete this memory?",
+    "delete_confirm":      "Delete this Memory?",
     "source_ai":           "AI",
     "source_operator":     "User",
     "source_system":       "System",
     "toast_saved":         "Memory saved",
     "toast_forgotten":     "Memory forgotten",
     "toast_added":         "Memory added",
-    "forget_confirm_title": "Forget memory?",
-    "forget_confirm_body":  "The AI flagged this memory as wrong. Delete it?",
+    "forget_confirm_title": "Forget Memory?",
+    "forget_confirm_body":  "The AI flagged this Memory as wrong. Delete it?",
     "list_item_label":      "Memory from {source} by {actor} at {time}",
     "unknown_actor":        "unknown"
   },

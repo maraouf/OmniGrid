@@ -1987,8 +1987,25 @@ function app() {
                 + ', selected=' + (conv === lsConv ? 'localStorage' : 'db'));
             }
             if (Array.isArray(conv) && conv.length > 0) {
+              // Filter rule: preserve every turn whose ts post-dates
+              // the cleared cutoff. Pre-fix this passed `Number(t.ts)
+              // > cutoff` which silently NUKED every turn whose
+              // persisted record didn't carry `ts` (the async-persist
+              // map historically omitted the field — fixed in
+              // `persistAiConversation`). Belt-and-braces: when a
+              // turn carries no `ts` at all, treat it as a legacy
+              // pre-fix record and PRESERVE it (the user shouldn't
+              // lose cross-device history because the persist map
+              // had a bug). Once a new turn fires the persist round-
+              // trip, every turn rewrites with `ts` and the filter
+              // tightens back to exact cutoff comparison.
               const filtered = cutoff > 0
-                ? conv.filter(t => t && Number(t.ts) > cutoff)
+                ? conv.filter(t => {
+                    if (!t) return false;
+                    const ts = Number(t.ts);
+                    if (!Number.isFinite(ts) || ts <= 0) return true; // legacy / missing ts → preserve
+                    return ts > cutoff;
+                  })
                 : conv;
               this.aiConversation = filtered;
               this._aiConversationClearedAt = cutoff;
@@ -4499,6 +4516,82 @@ function app() {
       }
     },
 
+    // Admin → Config backup — section-owned save for the retention
+    // tunable. Only one tuning key (`tuning_config_backup_retention_count`)
+    // and zero plain settings, so the helper is a degenerate version
+    // of the SNMP / Port Scan section pattern. Dirty-flag pulses the
+    // amber Save ring + "Unsaved" indicator next to the input; Save
+    // commits via the existing additive `/api/settings` POST and then
+    // re-baselines via `loadTuning()`.
+    _configBackupSectionTuningKeys() {
+      return ['tuning_config_backup_retention_count'];
+    },
+    configBackupSectionDirty() {
+      try {
+        const baseline = this._tuningBaselineMap();
+        for (const k of this._configBackupSectionTuningKeys()) {
+          const cur = (this.tuningForm || {})[k];
+          const curStr = (cur == null ? '' : String(cur).trim());
+          const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+          if (curStr !== baseStr) return true;
+        }
+      } catch (_) {}
+      return false;
+    },
+    async saveConfigBackupSection() {
+      if (this.configBackupBusy) return;
+      // Per-key int + bounds validation. Blank input clears the DB
+      // override (falls back to env / default) — same contract every
+      // other section's save uses.
+      for (const k of this._configBackupSectionTuningKeys()) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) continue;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = this.tuningEffective[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+          }), 'error');
+          return;
+        }
+      }
+      this.configBackupBusy = true;
+      try {
+        const body = {};
+        for (const k of this._configBackupSectionTuningKeys()) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        await this.loadTuning();
+        this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+      } catch (e) {
+        this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+      } finally {
+        this.configBackupBusy = false;
+      }
+    },
+
     // Settings → Host stats → SNMP sub-tab — section-owned save.
     // Posts ONLY SNMP's plain settings + every SNMP tunable rendered
     // in the sub-tab (probe_timeout / wall_clock_budget /
@@ -6824,6 +6917,24 @@ function app() {
         'thunder':   '<path d="M19 16a5 5 0 0 0-1-9h-1.3a7 7 0 0 0-13.4 2"/><polyline points="13 11 9 17 14 17 10 22"/>',
       };
       return icons[slug] || icons['cloud'];
+    },
+    // ---- Shared "is this loader running right now" registry --------
+    // Used by admin reload buttons to drive the spinning-icon state.
+    // Keyed on a free-form string ('users' / 'sessions' / 'tokens' /
+    // 'schedules' / 'schedule_queue' / 'backups' / 'logs' /
+    // 'log_files' / 'config_backup_saved'). The button binds to
+    // `_loadBusy.<key>` for both the spinner class and the
+    // `:disabled` attribute; the helper guards against double-fires
+    // so a fast-clicking user can't start a second concurrent fetch.
+    // The wrapped fn can be sync OR async — `await fn()` works either
+    // way thanks to the implicit-promise wrap on a non-thenable value.
+    _loadBusy: {},
+    async _runWithBusy(key, fn) {
+      if (!key || typeof fn !== 'function') return;
+      if (this._loadBusy[key]) return;
+      this._loadBusy[key] = true;
+      try { await fn(); }
+      finally { this._loadBusy[key] = false; }
     },
     async loadVersion() {
       try {
@@ -12048,6 +12159,21 @@ function app() {
         pending_confirm:  !!t.pending_confirm,
         pending_action:   t.pending_action || null,
         cancelled:        !!t.cancelled,
+        // `ts` is the per-turn epoch-ms stamp set when the turn is
+        // pushed onto `aiConversation`. Load-bearing for the
+        // cross-device hydration filter at init() — the Clear button
+        // stamps `ai_conversation_cleared_at` on the user's
+        // ui_prefs, and hydration filters by `Number(t.ts) > cutoff`
+        // so older turns hide on screen but stay in the DB. Without
+        // `ts` in the async-persist map (this map), every PATCH
+        // landed turns with `ts: undefined` → `Number(undefined) =
+        // NaN` → `NaN > cutoff = false` → every turn filtered out
+        // when the user opened a different browser / machine after
+        // ever clicking Clear once. The sync variant
+        // (`persistAiConversationSync`) already had the field; the
+        // two paths now match. User-flagged: "AI history is not
+        // preserved across different computers for the same user".
+        ts:               t.ts || null,
       }));
       // Write-through localStorage cache — keyed per user so multiple
       // logins on the same browser don't trample each other. Captures
@@ -12600,6 +12726,20 @@ function app() {
     aiJobs: null,                     // { total, jobs: [...] }
     aiJobsFilterProvider: '',
     aiJobsFilterStatus: '',
+    // Paging + sorting for the dashboard popups (jobs + every trend
+    // table — cost / tokens / response_time / accuracy / passrate).
+    // 25 per page across the lot; click-to-sort headers. Reset on
+    // modal open so navigating between modals always starts at page
+    // 1 with the default sort. JOBS pagination is server-side via
+    // `/api/admin/ai/jobs?limit=25&offset=N`; trend pagination is
+    // client-side because the trend dataset is the in-memory bucketed
+    // aggregate from `/api/admin/ai/dashboard` — already capped at
+    // ~720 rows even for the 30d window, well under the threshold
+    // where extra round-trips beat slicing locally.
+    aiModalPage: 1,
+    aiModalPageSize: 25,
+    aiModalSortCol: '',               // empty = default order (server / source order)
+    aiModalSortDir: 'desc',           // 'asc' | 'desc'
     // Per-provider Test state. `loading` while the probe is in
     // flight; `result` is the most recent {ok, status, detail,
     // response_time_ms, provider} dict from /api/admin/ai/{p}/test.
@@ -12953,7 +13093,10 @@ function app() {
     async loadAiJobs() {
       const params = new URLSearchParams();
       params.set('hours', String(this.aiRange || 24));
-      params.set('limit', '100');
+      const page = Math.max(1, Number(this.aiModalPage) || 1);
+      const size = Math.max(1, Number(this.aiModalPageSize) || 25);
+      params.set('limit',  String(size));
+      params.set('offset', String((page - 1) * size));
       if (this.aiJobsFilterProvider) params.set('provider', this.aiJobsFilterProvider);
       if (this.aiJobsFilterStatus)   params.set('status',   this.aiJobsFilterStatus);
       try {
@@ -12967,9 +13110,112 @@ function app() {
     },
     openAiModal(key) {
       this.aiModalKey = key;
+      // Reset paging + sort on every open so navigating Jobs → Tokens
+      // → Cost doesn't carry one modal's last-page through to the next.
+      this.aiModalPage = 1;
+      this.aiModalSortCol = '';
+      this.aiModalSortDir = 'desc';
       if (key === 'jobs') {
         this.loadAiJobs();
       }
+    },
+    // Click-to-sort helper. Toggles direction when clicking the same
+    // column; switches column + defaults to 'desc' (numeric biggest-first
+    // / dates newest-first) on a different column. Resets to page 1 so
+    // the first row of the new sort is visible. Server-fetched JOBS
+    // table re-fetches the first page; client-paged trend table just
+    // re-slices on the next render.
+    aiSortBy(col) {
+      if (!col) return;
+      if (this.aiModalSortCol === col) {
+        this.aiModalSortDir = (this.aiModalSortDir === 'asc') ? 'desc' : 'asc';
+      } else {
+        this.aiModalSortCol = col;
+        this.aiModalSortDir = 'desc';
+      }
+      this.aiModalPage = 1;
+      if (this.aiModalKey === 'jobs') this.loadAiJobs();
+    },
+    // Stable comparator across mixed-type fields (number / string /
+    // null). Nulls sink to the bottom regardless of direction so a
+    // partial dataset doesn't disrupt sort ergonomics.
+    _aiSortValue(row, col) {
+      if (!row) return null;
+      const v = row[col];
+      if (v == null || v === '') return null;
+      if (typeof v === 'number') return v;
+      const n = Number(v);
+      if (Number.isFinite(n) && (typeof v === 'string' && /^[\d.\-+eE]+$/.test(v))) return n;
+      return String(v);
+    },
+    _aiSortRows(rows) {
+      const col = this.aiModalSortCol;
+      if (!col || !Array.isArray(rows) || rows.length < 2) return rows || [];
+      const dir = (this.aiModalSortDir === 'asc') ? 1 : -1;
+      const out = rows.slice();
+      out.sort((a, b) => {
+        const av = this._aiSortValue(a, col);
+        const bv = this._aiSortValue(b, col);
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;   // nulls last regardless of dir
+        if (bv == null) return -1;
+        if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+        return String(av).localeCompare(String(bv)) * dir;
+      });
+      return out;
+    },
+    // Returns the SORTED page-slice of `aiDashboard.trend` for the
+    // current page + sort state. Trend modals (cost / tokens /
+    // response_time / accuracy / passrate) all share the same
+    // bucketed table structure so one helper covers them.
+    aiTrendRows() {
+      const arr = (this.aiDashboard && Array.isArray(this.aiDashboard.trend))
+        ? this.aiDashboard.trend
+        : [];
+      const sorted = this._aiSortRows(arr);
+      const page = Math.max(1, Number(this.aiModalPage) || 1);
+      const size = Math.max(1, Number(this.aiModalPageSize) || 25);
+      const start = (page - 1) * size;
+      return sorted.slice(start, start + size);
+    },
+    aiTrendTotal() {
+      return (this.aiDashboard && Array.isArray(this.aiDashboard.trend))
+        ? this.aiDashboard.trend.length
+        : 0;
+    },
+    // Server-fetched JOBS table — `aiJobs.jobs` is already the current
+    // page from the backend, so the client-side step is just sort.
+    aiJobsRows() {
+      const arr = (this.aiJobs && Array.isArray(this.aiJobs.jobs))
+        ? this.aiJobs.jobs
+        : [];
+      return this._aiSortRows(arr);
+    },
+    aiJobsTotal() {
+      return (this.aiJobs && Number.isFinite(Number(this.aiJobs.total)))
+        ? Number(this.aiJobs.total)
+        : 0;
+    },
+    // Total pages for the active modal — used by the paginator footer.
+    aiModalTotalPages() {
+      const total = (this.aiModalKey === 'jobs') ? this.aiJobsTotal() : this.aiTrendTotal();
+      const size = Math.max(1, Number(this.aiModalPageSize) || 25);
+      return Math.max(1, Math.ceil(total / size));
+    },
+    aiModalGoPage(n) {
+      const last = this.aiModalTotalPages();
+      const next = Math.max(1, Math.min(last, Number(n) || 1));
+      if (next === this.aiModalPage) return;
+      this.aiModalPage = next;
+      if (this.aiModalKey === 'jobs') this.loadAiJobs();
+    },
+    // Header-render helper: returns ' ▲' / ' ▼' / '' for the active
+    // sort column. Bound via x-text on a sibling span so the header
+    // text stays in i18n while the indicator is purely visual. Use
+    // the unicode chars (U+25B2 / U+25BC) so no extra SVG asset.
+    aiSortIndicator(col) {
+      if (this.aiModalSortCol !== col) return '';
+      return (this.aiModalSortDir === 'asc') ? ' ▲' : ' ▼';
     },
     closeAiModal() { this.aiModalKey = null; },
     // Resolve the modal's title against the i18n bundle. Falls back to
@@ -25934,16 +26180,18 @@ function app() {
       const out = [];
       for (let i = 0; i < n; i++) {
         const ts = dom.tMinSec + Math.round((i / (n - 1)) * span);
-        out.push(this._snmpFmtAxisTime(ts));
+        out.push(this._fmtAxisTime(ts));
       }
       return out;
     },
-    _snmpFmtAxisTime(ts) {
-      const d = new Date((+ts) * 1000);
-      const hh = String(d.getHours()).padStart(2, '0');
-      const mm = String(d.getMinutes()).padStart(2, '0');
-      return `${hh}:${mm}`;
-    },
+    // _snmpFmtAxisTime was a parallel copy of `_fmtAxisTime` —
+    // consolidated 2026-05-10 per user feedback ("cant we unify and
+    // use generic helper for all charts to unify?"). Every chart card
+    // in the drawer (Beszel / NE / Pulse / Webmin / Ping / SNMP host
+    // / SNMP per-iface / SNMP per-temp probe) routes its X-axis label
+    // formatting through `_fmtAxisTime` now. Drift-prevention: if a
+    // future chart needs a different format, add an opts arg to
+    // `_fmtAxisTime` rather than forking another `_xFmtAxisTime`.
     // CPU per-core lines — one polyline string per core index.
     snmpCpuPerCoreLines(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
@@ -27211,6 +27459,33 @@ function app() {
     _fmtAxisTime(ts) {
       if (!ts) return '';
       const d = new Date(ts * 1000);
+      // 7d (168h) range — every chart's X-axis labels in DAYS not
+      // hours, unified across the drawer. User-flagged: "when the
+      // time selected is 7d, the x-axis has to be days rather than
+      // hours across all charts and unified". Threshold ≥ 48h so 1h
+      // / 6h / 24h all keep HH:MM (within-a-day windows where time-
+      // of-day is the right granularity) and only the 7d picker
+      // (168h) flips to MMM-d (e.g. `May 8`). Date `toLocaleDateString`
+      // via `Intl.DateTimeFormat` honours the browser locale for
+      // month abbreviation, which is the right default for an axis
+      // label that wants to be terse + readable.
+      const rangeHours = Number(this.hostHistoryRange) || 1;
+      if (rangeHours >= 48) {
+        // Short month-day form. Two-digit day so widths line up;
+        // short month name (Jan, Feb,...) is locale-aware via
+        // Intl.DateTimeFormat. Same shape every chart receives.
+        try {
+          return new Intl.DateTimeFormat(undefined, {
+            month: 'short',
+            day:   '2-digit',
+          }).format(d);
+        } catch (_) {
+          // Fallback if Intl is missing for any reason.
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const dd = String(d.getDate()).padStart(2, '0');
+          return `${m}/${dd}`;
+        }
+      }
       const hh = String(d.getHours()).padStart(2, '0');
       const mm = String(d.getMinutes()).padStart(2, '0');
       return `${hh}:${mm}`;
