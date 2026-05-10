@@ -1,17 +1,24 @@
 name: Publish to GHCR (major releases)
 
 # Publishes the OmniGrid image to GitHub Container Registry (ghcr.io)
-# only on MINOR-release tags. The Forgejo daily-PATCH cadence
-# (`v1.2.1`, `v1.2.2`, …) is filtered out by the tag pattern below;
-# only `v1.1.0`, `v1.2.0`, `v1.3.0`-style bundles end up on GHCR.
-# This keeps the package list short and meaningful — one entry per
-# operator-curated MINOR release rather than one per daily build.
+# only on MINOR-release tags AND the first PATCH bump immediately
+# after a MINOR cut. Forgejo's auto-PATCH cadence increments by 1 on
+# every successful deploy, so the daily build right after a `v1.4.0`
+# cut becomes `v1.4.1` — which is the canonical "first stable build
+# of this MINOR" tag the user actually pulls. Both `.0` (the
+# operator-cut tag) and `.1` (the first auto-PATCH on top) are
+# accepted; everything from `.2` onwards is filtered out.
+# Tag pattern uses `[01]` (single-character glob class) so PATCH
+# numbers `.10`, `.11`, `.20`, etc. don't sneak through — those have
+# two characters after the third dot and no longer match the
+# anchored single-char class.
 #
 # Trigger surfaces
 # ────────────────
-#   * push of a tag matching `v<MAJOR>.<MINOR>.0` (the connector
-#     mirrors Forgejo tags to GitHub, so cutting `v1.4.0` on Forgejo
-#     reaches GitHub and fires this workflow automatically).
+#   * push of a tag matching `v<MAJOR>.<MINOR>.0` OR `v<MAJOR>.<MINOR>.1`
+#     (the connector mirrors Forgejo tags to GitHub, so cutting
+#     `v1.4.0` and the subsequent auto-bump to `v1.4.1` both reach
+#     GitHub and fire this workflow).
 #   * `workflow_dispatch` for manual republish — handy if a previous
 #     run failed or the tag was created before this workflow existed.
 #
@@ -50,13 +57,18 @@ name: Publish to GHCR (major releases)
 on:
   push:
     tags:
-      # Matches v1.0.0, v1.1.0, ..., v2.0.0 — anything ending in `.0`.
-      # Patch tags like v1.2.3 do NOT match and so don't trigger this.
-      - 'v[0-9]+.[0-9]+.0'
+      # Matches v1.0.0 / v1.0.1 / v1.4.0 / v1.4.1 / v2.0.0 / v2.0.1 —
+      # anything ending in a SINGLE `.0` or `.1` digit. The `[01]`
+      # character class is exactly one char, so PATCH numbers `.10`,
+      # `.11`, `.20`, etc. do NOT match (two chars after the third
+      # dot, anchored pattern won't accept them). Patch tags `.2`+
+      # also don't match — only the cut-day MINOR tag and the first
+      # auto-PATCH on top of it reach GHCR.
+      - 'v[0-9]+.[0-9]+.[01]'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Semver to publish (e.g. 1.4.0). Must end in .0.'
+        description: 'Semver to publish (e.g. 1.4.0 or 1.4.1). Last segment must be 0 or 1.'
         required: true
         type: string
 
@@ -83,10 +95,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve version + sanity-gate the .0 suffix
-        # Belt-and-braces: the tag pattern above already excludes patch
-        # releases, but workflow_dispatch lets a human type any string.
-        # Refuse anything that isn't a clean MINOR release.
+      - name: Resolve version + sanity-gate the .0 / .1 suffix
+        # Belt-and-braces: the tag pattern above already excludes
+        # patches `.2` and higher (and multi-digit `.10`+), but
+        # workflow_dispatch lets a human type any string. Refuse
+        # anything that isn't a clean MINOR cut OR the first auto-PATCH
+        # on top of it — anchored regex `^<num>\.<num>\.[01]$` keeps
+        # `.10` / `.11` / `.20` out (the `[01]` class is exactly one
+        # char, anchored to end-of-string by `$`).
         id: ver
         run: |
           set -eu
@@ -95,11 +111,11 @@ jobs:
           else
             VERSION="${GITHUB_REF#refs/tags/v}"
           fi
-          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.0$'; then
-            echo "::error::version '${VERSION}' is not a minor release — must match <MAJOR>.<MINOR>.0"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[01]$'; then
+            echo "::error::version '${VERSION}' is not a minor release or first auto-PATCH — must match <MAJOR>.<MINOR>.0 or <MAJOR>.<MINOR>.1"
             exit 1
           fi
-          MINOR="${VERSION%.0}"   # 1.4.0 → 1.4
+          MINOR="${VERSION%.*}"   # 1.4.0 → 1.4 ; 1.4.1 → 1.4
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "minor=${MINOR}"     >> "$GITHUB_OUTPUT"
           echo "[publish-ghcr] resolved version=${VERSION}  minor=${MINOR}"
