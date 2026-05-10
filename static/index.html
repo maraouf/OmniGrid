@@ -376,7 +376,7 @@
               <div class="flex flex-col leading-tight">
                 <span>
                   <span x-show="weather.label" x-text="weather.label + ', '"></span>
-                  <span x-text="(Math.round((weather.temp_c || 0) * 10) / 10) + '°C'"></span>
+                  <span x-text="formatTempPref(weather.temp_c, 1)"></span>
                 </span>
                 <span class="fs-2xs text-[var(--text-faint)]" x-text="weather.condition"></span>
               </div>
