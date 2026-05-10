@@ -198,16 +198,41 @@
                         x-text="s.enabled ? humanNextRun(s.next_run_at) : t('admin.schedules.paused')"
                         :title="s.enabled ? fmtDate(s.next_run_at) : ''"></td>
                     <td class="px-4 py-2 text-end">
-                      <div class="inline-flex gap-1">
-                        <button @click="runSchedule(s)" class="btn btn-soft fs-xs"
+                      <!-- Action-button row — same pattern as Admin →
+                           Users + Backup + Config Backup
+                           (`.user-action-btn` 26×26 icon-only buttons
+                           + `.user-action-sep` divider before the
+                           destructive action). Operator-flagged for
+                           cross-tab unification. -->
+                      <div class="inline-flex items-center gap-0.5 justify-end user-actions">
+                        <button type="button"
+                                @click="runSchedule(s)"
+                                class="user-action-btn"
                                 :title="t('admin.schedules.run_now_title')"
-                                x-text="t('admin.schedules.run_now')"></button>
-                        <button @click="editSchedule(s)" class="btn btn-soft fs-xs"
+                                :aria-label="t('admin.schedules.run_now')">
+                          <svg width="14" height="14" aria-hidden="true">
+                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+                          </svg>
+                        </button>
+                        <button type="button"
+                                @click="editSchedule(s)"
+                                class="user-action-btn"
                                 :title="t('admin.schedules.edit_title')"
-                                x-text="t('actions.edit')"></button>
-                        <button @click="deleteSchedule(s)" class="btn btn-ghost fs-xs text-danger"
+                                :aria-label="t('actions.edit')">
+                          <svg width="14" height="14" aria-hidden="true">
+                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/>
+                          </svg>
+                        </button>
+                        <span class="user-action-sep"></span>
+                        <button type="button"
+                                @click="deleteSchedule(s)"
+                                class="user-action-btn user-action-btn--danger"
                                 :title="t('admin.schedules.delete_title')"
-                                x-text="t('actions.delete')"></button>
+                                :aria-label="t('actions.delete')">
+                          <svg width="14" height="14" aria-hidden="true">
+                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+                          </svg>
+                        </button>
                       </div>
                     </td>
                   </tr>
