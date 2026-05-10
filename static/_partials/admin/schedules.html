@@ -152,7 +152,17 @@
                 <span class="text-[var(--text-faint)] font-normal" x-text="'(' + schedules.length + ')'"></span>
               </h3>
             </div>
-            <button @click="loadSchedules()" class="btn btn-ghost fs-xs" x-text="t('actions.reload')"></button>
+            <button type="button"
+                    @click="_runWithBusy('schedules', () => loadSchedules())"
+                    :disabled="_loadBusy.schedules"
+                    :title="t('actions.reload')"
+                    :aria-label="t('actions.reload')"
+                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="_loadBusy.schedules ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+              <span x-text="t('actions.reload')"></span>
+            </button>
           </div>
           <div class="overflow-x-auto scrollbar">
             <table class="w-full fs-sm">
@@ -269,7 +279,17 @@
                       class="btn btn-ghost fs-xs"
                       :title="t('hosts_extra.empty.clear_filter')"
                       :aria-label="t('hosts_extra.empty.clear_filter') || 'Clear filter'">✕</button>
-              <button @click="loadScheduleQueue()" class="btn btn-ghost fs-xs" x-text="t('actions.reload')"></button>
+              <button type="button"
+                      @click="_runWithBusy('schedule_queue', () => loadScheduleQueue())"
+                      :disabled="_loadBusy.schedule_queue"
+                      :title="t('actions.reload')"
+                      :aria-label="t('actions.reload')"
+                      class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+                <svg width="13" height="13" :class="_loadBusy.schedule_queue ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                </svg>
+                <span x-text="t('actions.reload')"></span>
+              </button>
             </div>
           </div>
           <div class="overflow-x-auto scrollbar">

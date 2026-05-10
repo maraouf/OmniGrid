@@ -23,7 +23,17 @@
               <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-key"/></svg>
               <h3 class="font-semibold fs-md"><span x-text="t('admin.tokens.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + tokens.length + ')'"></span></h3>
             </div>
-            <button @click="loadTokens()" class="btn btn-ghost fs-xs" x-text="t('actions.reload')"></button>
+            <button type="button"
+                    @click="_runWithBusy('tokens', () => loadTokens())"
+                    :disabled="_loadBusy.tokens"
+                    :title="t('actions.reload')"
+                    :aria-label="t('actions.reload')"
+                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="_loadBusy.tokens ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+              <span x-text="t('actions.reload')"></span>
+            </button>
           </div>
           <div x-show="!tokensLoaded" class="loading-state">
             <span class="spin-lg" aria-hidden="true"></span>
