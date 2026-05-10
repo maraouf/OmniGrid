@@ -23956,8 +23956,10 @@ function app() {
       // Capability fallback for SNMP-tracked hosts at 0% (genuine
       // idle vs. agent-doesn't-expose). Defers to SNMP history,
       // which writes NULL when the agent didn't expose host_cpu_percent
-      // and a real 0.0 when the agent reported 0.
-      if (h.snmp_name || h.snmp_enabled === true) {
+      // and a real 0.0 when the agent reported 0. Routed through the
+      // same `_snmpHasProbeTarget` strict-opt-in gate that the chip /
+      // chart-mount surfaces use, so this stays consistent.
+      if (this._snmpHasProbeTarget(h)) {
         return this._hostHasFiniteSnmpHistory(h, 'cpu');
       }
       return false;
@@ -23966,14 +23968,14 @@ function app() {
       if (!h) return false;
       if (this._hostUnixAgent(h)) return true;
       // Data-first: any host with a non-zero mem_total has capability,
-      // regardless of provider config. Loosened from the prior
-      // `h.snmp_name && h.snmp_enabled === true` strict gate so SNMP-
-      // tracked hosts with snmp_name set but snmp_enabled coerced false
-      // still render the bar when the backend provided values. Same
-      // stale exception as the CPU gate above.
+      // regardless of provider config. Same stale exception as the
+      // CPU gate above. SNMP fallback uses the same strict
+      // `_snmpHasProbeTarget` gate (snmp_enabled === true AND a
+      // resolvable target via snmp_name OR address) for consistency
+      // with the chip / chart-mount surfaces.
       const memStale = this.isStaleField(h, 'host_mem_total') || this.isStaleField(h, 'host_mem_used');
       if (!memStale && (+h.mem_total || 0) > 0) return true;
-      if (h.snmp_name || h.snmp_enabled === true) {
+      if (this._snmpHasProbeTarget(h)) {
         return this._hostHasFiniteSnmpHistory(h, 'memory');
       }
       return false;
@@ -24038,12 +24040,25 @@ function app() {
       if (h.ne_url && this.hasHostStatsSource('node_exporter'))             out.push({ name: 'node_exporter', label: 'node-exporter' });
       if (h.webmin_name && this.hasHostStatsSource('webmin'))               out.push({ name: 'webmin',        label: 'Webmin' });
       if (h.ping_enabled && this.hasHostStatsSource('ping'))                out.push({ name: 'ping',          label: 'Ping' });
-      // per opt-in contract, render the SNMP chip ONLY
-      // when both the alias is set AND the operator has explicitly
-      // ticked "Enable SNMP for this host". Pre-fix the chip rendered
-      // on every row whose snmp_name had ever been typed, even when
-      // the operator un-ticked the enable box and saved.
-      if (h.snmp_name && h.snmp_enabled === true && this.hasHostStatsSource('snmp')) {
+      // SNMP chip — the gate must MIRROR the SNMP sampler's actual
+      // probe-target resolver chain: `aliases[id] → snmp_name →
+      // address → SKIP`. Use the existing `_snmpHasProbeTarget`
+      // helper (also used by the SNMP chart-mount gate fleet-wide)
+      // so a host whose sampler IS probing — because `snmp_name` or
+      // `address` is set, even without the explicit per-host opt-in
+      // tick — renders the SNMP chip in the drawer.
+      //
+      // Earlier iteration of this gate required `h.snmp_enabled ===
+      // true` strictly. That was tighter than the sampler so the
+      // operator's APC UPS (`UPS_10K`, snmp_name set, sampler
+      // returning fresh APC vendor data) showed only the Ping chip
+      // in the drawer's "Enabled agents" card — SNMP was actively
+      // probing but invisible. Same drift class as the chart-mount
+      // gate fix that introduced `_snmpHasProbeTarget`. Fleet-wide
+      // `hasHostStatsSource('snmp')` still suppresses the chip when
+      // SNMP is globally disabled, so a host can't render the chip
+      // without something actually probing it.
+      if (this._snmpHasProbeTarget(h) && this.hasHostStatsSource('snmp')) {
         out.push({ name: 'snmp', label: 'SNMP' });
       }
       return out;
@@ -24807,24 +24822,27 @@ function app() {
     // kicker — single source of truth so the gate stays consistent.
     _snmpHasProbeTarget(host) {
       if (!host) return false;
-      // Strict opt-in only — `snmp_enabled === true` is the SINGLE
-      // source of truth for "SNMP is active for this host". The bare
-      // `snmp_name` fallback was dropped because operators commonly
-      // set `snmp_name` as a placeholder / future-use field on hosts
-      // that don't actually have SNMP wired (e.g. an NVR with no
-      // SNMP service running but a curated `snmp_name` value left
-      // over from migration). The legacy backend coerces
-      // `snmp_enabled` to true for any row that has `snmp_name`
-      // set on first boot, so existing enrolments keep working
-      // without operator action; newly-added hosts where the
-      // operator HASN'T explicitly ticked the SNMP checkbox stay
-      // skipped here as intended. Same opt-in rigour as
+      // STRICT opt-in: `snmp_enabled === true` is the master gate —
+      // a host that hasn't been explicitly opted-in to SNMP via the
+      // per-host checkbox is hidden regardless of which target
+      // fields are populated. Same opt-in rigour as
       // `hosts_config[].ssh.enabled` and `hosts_config[].ping.enabled`.
-      // Bare `address` is also explicitly excluded — `address` is a
-      // generic per-host probe target ALSO used by ping-only hosts;
-      // matching it here trips `hostHasSnmpCharts(h)` for non-SNMP
-      // hosts which renders the SNMP warming-up banner spuriously.
-      return host.snmp_enabled === true;
+      if (host.snmp_enabled !== true) return false;
+      // Once opted in, the gate ALSO requires a resolvable target —
+      // either the explicit per-provider `snmp_name` OR the canonical
+      // per-host `address` field that the SNMP sampler's resolver
+      // chain falls back to (`aliases[id] → snmp_name → address →
+      // SKIP` — see logic/snmp.py + CLAUDE.md "address is the
+      // canonical provider-independent probe target"). Operator
+      // pattern: tick SNMP on a host, leave `snmp_name` blank,
+      // populate `address` once with the LAN hostname/IP — the
+      // sampler probes against `address`, this chip renders.
+      // Without a resolvable target the chip stays hidden so the
+      // operator isn't told "SNMP is on" when the sampler has
+      // nothing to probe.
+      const hasName = !!(host.snmp_name && String(host.snmp_name).trim());
+      const hasAddr = !!(host.address && String(host.address).trim());
+      return hasName || hasAddr;
     },
     // Per-interface SNMP counter history. One entry per host,
     // each storing { ifaces: { ifname: [points] }, loading, error,

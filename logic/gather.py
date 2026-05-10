@@ -1830,9 +1830,49 @@ async def _gather_impl() -> None:
             )
             stack = stack_by_name.get(compose_project) if compose_project else None
 
+            # Resolve the real node BEFORE the image-inspect so the
+            # inspect call can be agent-targeted at the correct
+            # Docker daemon. Without this, plain compose containers
+            # running on worker nodes (e.g. `komodo-periphery` on
+            # `debian13web02`) had their image-inspect call routed to
+            # the manager's Docker daemon — which doesn't have the
+            # image, returns 404 — exception caught + swallowed,
+            # `current_digest` stayed None, and the row reported
+            # status=unknown forever even though the remote_digest
+            # probe succeeded. Same `X-PortainerAgent-Target` rule
+            # that gates `_do_update_container` / `_do_restart_container`
+            # / `_do_remove_container`. Priority order (authoritative
+            # first):
+            #   1. `com.docker.swarm.node.id` label — Swarm stamps
+            #      every managed container with this; authoritative.
+            #   2. Swarm task-ID → NodeID via task_node_by_id — older
+            #      Swarm versions sometimes lack the node-id label.
+            #   3. Per-node agent-targeted container sweep
+            #      (`container_node_by_id`) — only signal we have for
+            #      plain compose containers on worker nodes.
+            #   4. Fallback "local" — single-node / non-agent setups
+            #      where we genuinely can't tell.
+            node_id_label = labels.get("com.docker.swarm.node.id")
+            node_name = node_map.get(node_id_label) if node_id_label else None
+            if not node_name:
+                swarm_task_id = labels.get("com.docker.swarm.task.id")
+                node_name = task_node_by_id.get(swarm_task_id) if swarm_task_id else None
+            if not node_name:
+                node_name = container_node_by_id.get(cont["Id"])
+            if not node_name:
+                node_name = "local"
+
             current_digest = None
             try:
-                img = await portainer.pg(client, f"{ep}/images/{cont['ImageID']}/json")
+                # `headers(agent_target=...)` skips the
+                # X-PortainerAgent-Target header for "local" / "" /
+                # "?" so passing the resolved node_name is safe in
+                # all cases (single-node fallback included).
+                img = await portainer.pg(
+                    client,
+                    f"{ep}/images/{cont['ImageID']}/json",
+                    agent_target=node_name,
+                )
                 for rd in img.get("RepoDigests") or []:
                     if "@" in rd:
                         current_digest = rd.split("@", 1)[1]
@@ -1858,31 +1898,6 @@ async def _gather_impl() -> None:
                 health = "degraded"
             else:
                 health = "offline"
-
-            # Resolve the real node. Priority order (authoritative first):
-            # 1. `com.docker.swarm.node.id` label — Swarm stamps every
-            #    managed container (services, global services, even
-            #    orphan task containers whose tasks were shut down)
-            #    with this. Authoritative; comes from the scheduler.
-            # 2. Swarm task-ID → NodeID via task_node_by_id — covers
-            #    the rare case where the container has the task-id
-            #    label but not the node-id label (older Swarm versions).
-            # 3. Per-node agent-targeted container sweep — only signal
-            #    we have for plain compose containers on worker nodes.
-            #    Not perfect (overlaps between per-node responses can
-            #    mis-attribute a container) but self-heals via stats'
-            #    untargeted fallback on failure.
-            # 4. Fallback "local" — genuine single-node / non-agent
-            #    setups where we can't tell.
-            node_id_label = labels.get("com.docker.swarm.node.id")
-            node_name = node_map.get(node_id_label) if node_id_label else None
-            if not node_name:
-                swarm_task_id = labels.get("com.docker.swarm.task.id")
-                node_name = task_node_by_id.get(swarm_task_id) if swarm_task_id else None
-            if not node_name:
-                node_name = container_node_by_id.get(cont["Id"])
-            if not node_name:
-                node_name = "local"
 
             items.append({
                 "id": f"ctn:{cont['Id'][:12]}",
