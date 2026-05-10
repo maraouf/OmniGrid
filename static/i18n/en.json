@@ -267,7 +267,8 @@
       "projection": {
         "title": "90-day growth projection",
         "hint": "Central line is the linear extrapolation from the current size; the band widens with extrapolation distance to convey forecast uncertainty.",
-        "empty": "Not enough history to project growth yet."
+        "empty": "Not enough history to project growth yet.",
+        "today": "Today"
       }
     },
     "dashboard": {
