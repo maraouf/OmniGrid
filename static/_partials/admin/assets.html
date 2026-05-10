@@ -217,11 +217,14 @@
                 class="fs-xs text-[var(--text-faint)]"
                 x-text="lastTestSuccessLabel('asset_inventory')"></span>
           <button x-show="isAdmin()" @click="refreshAssetCache()"
-                  class="btn btn-ghost fs-sm"
+                  class="btn btn-ghost fs-sm inline-flex items-center gap-1.5"
                   :disabled="assetRefreshing || !settings.asset_inventory_enabled"
-                  :title="!settings.asset_inventory_enabled ? t('admin_integrations.disabled_hint') : ''">
+                  :title="!settings.asset_inventory_enabled ? t('admin_integrations.disabled_hint') : t('admin_assets.refresh')">
+            <svg width="13" height="13" :class="assetRefreshing ? 'spin-md' : ''" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+            </svg>
             <span x-show="!assetRefreshing" x-text="t('admin_assets.refresh')"></span>
-            <span x-show="assetRefreshing" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_assets.refreshing')"></span></span>
+            <span x-show="assetRefreshing" x-text="t('admin_assets.refreshing')"></span>
           </button>
         </div>
         <!-- Action row 2 (Save): separated by HR like authentication.

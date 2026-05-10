@@ -2803,10 +2803,41 @@
           <div class="fs-xs text-[var(--text-faint)]" x-text="t('history.entries', { count: historyTotal })"></div>
         </div>
         <div class="flex gap-2">
-          <a :href="historyExportUrl('csv')" class="btn btn-soft fs-sm" :title="t('history.csv_title')" x-text="t('history.csv')"></a>
-          <a :href="historyExportUrl('json')" class="btn btn-soft fs-sm" :title="t('history.json_title')" x-text="t('history.json')"></a>
-          <button @click="loadHistory()" class="btn btn-ghost fs-sm" x-text="t('actions.reload')"></button>
-          <button @click="clearHistory()" class="btn btn-ghost fs-sm text-danger" x-text="t('history.clear_all')"></button>
+          <a :href="historyExportUrl('csv')"
+             class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
+             :title="t('history.csv_title')">
+            <svg width="13" height="13" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-file-text"/>
+            </svg>
+            <span x-text="t('history.csv')"></span>
+          </a>
+          <a :href="historyExportUrl('json')"
+             class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
+             :title="t('history.json_title')">
+            <svg width="13" height="13" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
+            </svg>
+            <span x-text="t('history.json')"></span>
+          </a>
+          <button type="button"
+                  @click="_runWithBusy('history', () => loadHistory())"
+                  :disabled="_loadBusy.history"
+                  :title="t('actions.reload')"
+                  :aria-label="t('actions.reload')"
+                  class="btn btn-ghost fs-sm inline-flex items-center gap-1.5">
+            <svg width="13" height="13" :class="_loadBusy.history ? 'spin-md' : ''" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+            </svg>
+            <span x-text="t('actions.reload')"></span>
+          </button>
+          <button type="button" @click="clearHistory()"
+                  class="btn btn-ghost fs-sm text-danger inline-flex items-center gap-1.5"
+                  :title="t('history.clear_all')">
+            <svg width="13" height="13" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+            </svg>
+            <span x-text="t('history.clear_all')"></span>
+          </button>
         </div>
       </div>
 

@@ -53,10 +53,17 @@
             <input type="file" x-ref="hostsImportFile" accept="application/json,.json"
                    class="hidden"
                    @change="importHostsConfig($event)">
-            <button x-show="isAdmin()" @click="loadHostsConfig()"
-                    class="btn btn-ghost fs-sm"
-                    :disabled="hostsConfigLoading"
-                    x-text="t('actions.reload')"></button>
+            <button x-show="isAdmin()" type="button"
+                    @click="_runWithBusy('hosts_config', () => loadHostsConfig())"
+                    :disabled="hostsConfigLoading || _loadBusy.hosts_config"
+                    :title="t('actions.reload')"
+                    :aria-label="t('actions.reload')"
+                    class="btn btn-ghost fs-sm inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="(hostsConfigLoading || _loadBusy.hosts_config) ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+              <span x-text="t('actions.reload')"></span>
+            </button>
             <!-- Top-of-card Save shortcut — saves operators from
                  scrolling past 20-50 rows to reach the bottom bar
                  when they just tweaked one field near the top. Same
