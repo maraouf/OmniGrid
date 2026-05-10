@@ -902,8 +902,8 @@
       "assets": "Asset inventory",
       "ai": "AI Integration",
       "schedules": "Schedules",
-      "backups": "Backups",
-      "config_backup": "Config backup",
+      "backups": "Backup",
+      "config_backup": "Config Backup",
       "logs": "Logs",
       "config": "Config",
       "debug": "Debug"
