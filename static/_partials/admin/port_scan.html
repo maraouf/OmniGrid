@@ -246,27 +246,12 @@
         </div>
         <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug max-w-[720px]"
            x-text="t('admin_port_scan.udp_section_intro')"></p>
-        <div class="mt-3">
-          <div class="flex items-center justify-between gap-2">
-            <label class="inline-flex items-center gap-2 fs-sm font-medium">
-              <input type="checkbox"
-                     :disabled="isReadonly() || !settings.port_scan_enabled"
-                     x-model="settings.port_scan_udp_enabled">
-              <span x-text="t('admin_port_scan.udp_master_toggle_label')"></span>
-            </label>
-            <span class="chip"
-                  :class="(settings.port_scan_enabled && settings.port_scan_udp_enabled) ? 'pill-ok' : 'pill-muted'"
-                  x-text="(settings.port_scan_enabled && settings.port_scan_udp_enabled) ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
-          </div>
-          <p class="fs-2xs text-[var(--text-faint)] mt-2 leading-snug max-w-[720px]"
-             x-text="t('admin_port_scan.udp_master_toggle_help')"></p>
-        </div>
 
         <div class="mt-3">
           <label class="block fs-xs text-[var(--text-faint)] mb-1"
                  x-text="t('admin_port_scan.udp_default_ports_label')"></label>
           <input x-model="settings.port_scan_udp_default_ports" type="text"
-                 :disabled="isReadonly() || !settings.port_scan_enabled || !settings.port_scan_udp_enabled"
+                 :disabled="isReadonly() || !settings.port_scan_enabled"
                  class="w-full mono fs-xs"
                  placeholder="53,67,69,123,137,161,500,514,520,623,1900,5353">
           <p class="fs-2xs text-[var(--text-faint)] mt-1"
@@ -284,7 +269,7 @@
                    :placeholder="tuningPlaceholder('tuning_port_scan_udp_default_timeout_seconds')"
                    :min="(tuningEffective['tuning_port_scan_udp_default_timeout_seconds'] || {}).min"
                    :max="(tuningEffective['tuning_port_scan_udp_default_timeout_seconds'] || {}).max"
-                   :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled || !settings.port_scan_udp_enabled"
+                   :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled"
                    class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
@@ -320,7 +305,7 @@
                    :placeholder="tuningPlaceholder('tuning_port_scan_udp_default_concurrency')"
                    :min="(tuningEffective['tuning_port_scan_udp_default_concurrency'] || {}).min"
                    :max="(tuningEffective['tuning_port_scan_udp_default_concurrency'] || {}).max"
-                   :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled || !settings.port_scan_udp_enabled"
+                   :disabled="!isAdmin() || tuningSaving || !settings.port_scan_enabled"
                    class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">

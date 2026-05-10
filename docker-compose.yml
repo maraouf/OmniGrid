@@ -77,6 +77,39 @@ services:
         condition: on-failure
         delay: 10s
         max_attempts: 5
+      # CPU + memory reservations / limits. Operator-flagged 2026-05-10
+      # after observing OmniGrid pinned at 100% CPU on the host.
+      # Default (no resources block) lets the container use ALL host
+      # CPUs unbounded, so a busy gather + sampler tick + registry-
+      # digest fan-out can saturate one core and visually read as
+      # "100%". Adding an EXPLICIT reservation guarantees the kernel
+      # gives OmniGrid the CPU it needs even under contention from
+      # neighbouring services; the LIMIT keeps a runaway loop
+      # (e.g. an AI prompt that triggers an infinite refetch) from
+      # starving the manager. Tune both up if the host has more
+      # headroom — `cpus: '4.0'` / `memory: 4G` is reasonable on a
+      # 16-core / 32G manager.
+      resources:
+        reservations:
+          # Guaranteed minimum — Swarm scheduler refuses to place the
+          # task on a node without this much free. Memory bumped from
+          # 512M → 1G after operator observed the live process
+          # holding ~520MB steady-state (sampler tables + Beszel hub
+          # batch maps + AI conversation cache); 512M was right at
+          # the cap and any growth pushed us into reservation
+          # underrun territory.
+          cpus: '2.0'
+          memory: 1G
+        limits:
+          # Burst ceiling. The Python process is single-threaded for
+          # the GIL-bound work but offloads sampler I/O + httpx fan-
+          # out to the event loop, so 4 CPU = ~400% in `top` is the
+          # practical ceiling. Raised from 2.0 → 4.0 on
+          # operator request after the unbounded-default observed at
+          # 100% CPU on a busy gather + sampler tick + registry-digest
+          # fan-out cycle.
+          cpus: '4.0'
+          memory: 2G
       # Zero-downtime rolling update. `start-first` boots the new task
       # and waits for its healthcheck before stopping the old one,
       # cutting CI verify time from a stop→start round-trip down to

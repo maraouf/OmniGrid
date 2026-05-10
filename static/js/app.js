@@ -4043,10 +4043,12 @@ function app() {
         // from the pick array eliminates the perpetually-`undefined`
         // baseline entries that masked real dirty-state changes.
         'port_scan_enabled', 'port_scan_default_ports',
-        // Port-scan UDP companion (Stage 2). Secondary toggle nested
-        // under the master `port_scan_enabled`; default UDP ports +
-        // tunables follow the same dirty-tracker contract.
-        'port_scan_udp_enabled', 'port_scan_udp_default_ports',
+        // Port-scan UDP companion (Stage 2). UDP runs under the
+        // master `port_scan_enabled` toggle (operator-flagged
+        // 2026-05-10 to remove the separate `port_scan_udp_enabled`
+        // flag — TCP + UDP enable/disable together). Default UDP
+        // ports + UDP tunables still ride the dirty tracker.
+        'port_scan_udp_default_ports',
         // SNMP. v3 secret keys behave like beszel_password /
         // webmin_password — `_set` flag indicates persisted state, the
         // `*_key` strings are blanked on the form so any typed value
@@ -4215,9 +4217,9 @@ function app() {
       if (this.settings.port_scan_default_ports !== undefined) {
         payload.port_scan_default_ports = String(this.settings.port_scan_default_ports || '').trim();
       }
-      if (this.settings.port_scan_udp_enabled !== undefined) {
-        payload.port_scan_udp_enabled = !!this.settings.port_scan_udp_enabled;
-      }
+      // `port_scan_udp_enabled` is DEPRECATED — UDP runs under the
+      // master `port_scan_enabled` toggle (operator-flagged 2026-05-10).
+      // No longer included in the save payload.
       if (this.settings.port_scan_udp_default_ports !== undefined) {
         payload.port_scan_udp_default_ports = String(this.settings.port_scan_udp_default_ports || '').trim();
       }
@@ -4403,9 +4405,12 @@ function app() {
       ];
     },
     _portScanSectionPlainKeys() {
+      // `port_scan_udp_enabled` is DEPRECATED (operator-flagged
+      // 2026-05-10) — UDP runs under the master `port_scan_enabled`
+      // toggle. No longer in the dirty-tracker / save payload.
       return [
         'port_scan_enabled', 'port_scan_default_ports',
-        'port_scan_udp_enabled', 'port_scan_udp_default_ports',
+        'port_scan_udp_default_ports',
       ];
     },
     portScanSectionDirty() {
@@ -4468,7 +4473,8 @@ function app() {
         // as strings (server-side validator splits + clamps).
         body.port_scan_enabled = !!s.port_scan_enabled;
         body.port_scan_default_ports = (s.port_scan_default_ports == null ? '' : String(s.port_scan_default_ports));
-        body.port_scan_udp_enabled = !!s.port_scan_udp_enabled;
+        // `port_scan_udp_enabled` DEPRECATED — UDP runs under the
+        // master toggle (operator-flagged 2026-05-10). Not sent.
         body.port_scan_udp_default_ports = (s.port_scan_udp_default_ports == null ? '' : String(s.port_scan_udp_default_ports));
         // Section-owned tunables.
         for (const k of this._portScanSectionTuningKeys()) {
@@ -7379,8 +7385,13 @@ function app() {
           // overrides on `hosts_config[].port_scan`.
           port_scan_enabled:            !!(d.port_scan && d.port_scan.enabled),
           port_scan_default_ports:      (d.port_scan && d.port_scan.default_ports) || '',
-          // Port-scan UDP companion (Stage 2).
-          port_scan_udp_enabled:        !!(d.port_scan && d.port_scan.udp_enabled),
+          // Port-scan UDP companion (Stage 2). UDP runs under the
+          // master `port_scan_enabled` toggle (operator-flagged
+          // 2026-05-10 to remove the separate flag). `port_scan_udp_enabled`
+          // hydrate retained as `true` so any leftover Alpine binding
+          // sees a truthy value during the deprecation window — value
+          // is otherwise unused.
+          port_scan_udp_enabled:        true,
           port_scan_udp_default_ports:  (d.port_scan && d.port_scan.udp_default_ports) || '',
           port_scan_default_timeout:    (d.port_scan && Number.isFinite(d.port_scan.default_timeout)) ? d.port_scan.default_timeout : 2,
           port_scan_default_concurrency: (d.port_scan && Number.isFinite(d.port_scan.default_concurrency)) ? d.port_scan.default_concurrency : 32,

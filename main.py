@@ -2538,11 +2538,14 @@ class SettingsIn(BaseModel):
     port_scan_default_ports: Optional[str] = None
     port_scan_default_timeout_seconds: Optional[int] = None
     port_scan_default_concurrency: Optional[int] = None
-    # Stage 2 (UDP companion). ``port_scan_udp_enabled`` is a
-    # SECONDARY toggle nested under the master ``port_scan_enabled``;
-    # both must be on for UDP scans to run. UDP default ports follow
-    # the same CSV / range syntax as the TCP list.
-    port_scan_udp_enabled: Optional[bool] = None
+    # Stage 2 (UDP companion). UDP scanning runs alongside TCP under the
+    # SAME master toggle ``port_scan_enabled`` — operator-flagged
+    # 2026-05-10 to remove the separate ``port_scan_udp_enabled`` flag
+    # and unify the on/off behaviour. The field is kept on the model
+    # for back-compat (legacy snapshots / older clients can still POST
+    # it without breaking validation) but the value is IGNORED on save.
+    # UDP default ports use the same CSV / range syntax as TCP.
+    port_scan_udp_enabled: Optional[bool] = None  # DEPRECATED — value ignored on save
     port_scan_udp_default_ports: Optional[str] = None
     # SNMP — sixth host-stats provider. Per-host probe (no
     # central hub). Defaults are global; per-host overrides live on
@@ -3258,10 +3261,11 @@ async def api_get_settings(request: Request):
             # value. Per the No-static-config rule.
             "default_timeout":   tuning.tuning_int("tuning_port_scan_default_timeout_seconds"),
             "default_concurrency": tuning.tuning_int("tuning_port_scan_default_concurrency"),
-            # Stage 2 (UDP). Secondary toggle nested under `enabled`;
-            # default UDP ports list is empty so the scanner falls back
-            # to `port_scanner_udp.DEFAULT_UDP_PORTS` when blank.
-            "udp_enabled":         get_setting_bool("port_scan_udp_enabled", False),
+            # Stage 2 (UDP). UDP runs under the master `enabled` toggle
+            # (operator-flagged 2026-05-10 to remove the separate
+            # `udp_enabled` flag). Field kept on the response for
+            # back-compat with older SPA builds; new SPA ignores it.
+            "udp_enabled":         True,
             "udp_default_ports":   get_setting("port_scan_udp_default_ports", "") or "",
             "udp_default_timeout": tuning.tuning_int("tuning_port_scan_udp_default_timeout_seconds"),
             "udp_default_concurrency": tuning.tuning_int("tuning_port_scan_udp_default_concurrency"),
@@ -3654,8 +3658,11 @@ async def _api_set_settings_inner(s, request, _portainer):
                 detail="port_scan_default_ports must be CSV/range syntax (e.g. '22,80,443,8000-8100')",
             )
         set_setting("port_scan_default_ports", raw)
-    if s.port_scan_udp_enabled is not None:
-        set_setting("port_scan_udp_enabled", "true" if s.port_scan_udp_enabled else "false")
+    # `port_scan_udp_enabled` is DEPRECATED — UDP runs under the
+    # master `port_scan_enabled` toggle (operator-flagged 2026-05-10).
+    # We accept the field on POST for legacy compatibility but no
+    # longer persist it; existing rows in the settings table become
+    # dead data and can be pruned by a future migration.
     if s.port_scan_udp_default_ports is not None:
         from logic.port_scanner import parse_port_csv as _pcsv
         raw = (s.port_scan_udp_default_ports or "").strip()
@@ -13921,15 +13928,16 @@ async def api_hosts_port_scan(
         if ps_cfg.get("concurrency") is not None else
         tuning.tuning_int("tuning_port_scan_default_concurrency")
     )
-    # UDP companion (Stage 2). Operator opts in per-call via
-    # `body.udp=true` OR globally by setting `port_scan_udp_enabled`.
-    # When active, the UDP scanner runs in parallel with TCP and the
-    # results merge into a single `host_port_scans` write with a
+    # UDP companion (Stage 2). Operator-flagged 2026-05-10: TCP and UDP
+    # share a single master toggle (`port_scan_enabled`) — there's no
+    # separate `port_scan_udp_enabled` flag anymore. UDP runs alongside
+    # TCP whenever port scanning is enabled. The legacy `body.udp=true`
+    # per-call override is preserved as an explicit "skip UDP this call"
+    # escape hatch (`body.udp=false` disables UDP for this scan only;
+    # otherwise UDP defaults to ON when the master toggle is on).
+    # Results merge into a single `host_port_scans` write with the
     # `protocol` column distinguishing the families.
-    udp_enabled = (
-        bool(body.udp) if body.udp is not None
-        else get_setting_bool("port_scan_udp_enabled", False)
-    )
+    udp_enabled = bool(body.udp) if body.udp is not None else True
     udp_ports_list: list[int] = []
     udp_timeout_s = 0
     udp_concurrency = 0

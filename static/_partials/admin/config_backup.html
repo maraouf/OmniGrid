@@ -91,12 +91,8 @@
             </div>
             <button @click="loadConfigBackupSaved()"
                     :disabled="configBackupBusy"
-                    class="btn btn-ghost fs-xs inline-flex items-center gap-1">
-              <svg width="12" height="12" class="text-[currentColor]" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-              </svg>
-              <span x-text="t('actions.refresh')"></span>
-            </button>
+                    class="btn btn-ghost fs-xs"
+                    x-text="t('actions.reload')"></button>
           </div>
           <p class="fs-xs text-[var(--text-faint)] mb-3"
              x-text="t('admin.config_backup.saved_desc')"></p>
