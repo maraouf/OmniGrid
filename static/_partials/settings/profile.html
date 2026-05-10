@@ -162,6 +162,24 @@
                        placeholder="31.2357"
                        class="w-full fs-sm mono">
               </div>
+              <!-- Temperature unit preference. Backend returns Celsius
+                   always; the SPA converts at the render boundary
+                   (topbar chip + AI palette context). Radio buttons
+                   over a select so the operator sees both options at
+                   a glance — only two values to pick from. -->
+              <div class="sm:col-span-3">
+                <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.unit_label')"></label>
+                <div class="flex items-center gap-4 fs-sm">
+                  <label class="inline-flex items-center gap-2">
+                    <input type="radio" name="weather-unit" value="c" x-model="headerWeatherUnit">
+                    <span x-text="t('topbar_widgets.unit_celsius')"></span>
+                  </label>
+                  <label class="inline-flex items-center gap-2">
+                    <input type="radio" name="weather-unit" value="f" x-model="headerWeatherUnit">
+                    <span x-text="t('topbar_widgets.unit_fahrenheit')"></span>
+                  </label>
+                </div>
+              </div>
             </div>
             <p class="fs-2xs text-[var(--text-faint)]" x-show="headerWeatherEnabled">
               <span x-text="t('topbar_widgets.tip_prefix')"></span><a href="https://www.google.com/maps" target="_blank" rel="noopener" class="text-[var(--primary)] hover:underline" x-text="t('topbar_widgets.tip_maps')"></a><span x-text="t('topbar_widgets.tip_suffix')"></span>

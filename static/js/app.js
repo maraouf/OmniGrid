@@ -368,6 +368,14 @@ function app() {
     headerWeatherLat:   (typeof localStorage !== 'undefined' ? (parseFloat(localStorage.getItem('headerWeatherLat') || '') || null) : null),
     headerWeatherLon:   (typeof localStorage !== 'undefined' ? (parseFloat(localStorage.getItem('headerWeatherLon') || '') || null) : null),
     headerWeatherLabel: (typeof localStorage !== 'undefined' ? (localStorage.getItem('headerWeatherLabel') || '') : ''),
+    // Operator's preferred temperature unit ('c' | 'f', default 'c').
+    // Backend `/api/weather` always returns Celsius (`temp_c`,
+    // forecast `temp_max_c` / `temp_min_c`); the SPA converts at the
+    // render boundary via `formatTempPref(c)`. Persisted to
+    // `ui_prefs.weather_unit` cross-device, with localStorage as the
+    // fast-path cache. Routes through the same headerPrefs save flow
+    // as the rest of the topbar weather widget — no separate Save.
+    headerWeatherUnit:  (typeof localStorage !== 'undefined' ? ((localStorage.getItem('headerWeatherUnit') || 'c').toLowerCase() === 'f' ? 'f' : 'c') : 'c'),
     currentClock: '',
     weather: null,
     _clockTimer: null,
@@ -6440,6 +6448,7 @@ function app() {
         lat:   this.headerWeatherLat == null ? '' : String(this.headerWeatherLat),
         lon:   this.headerWeatherLon == null ? '' : String(this.headerWeatherLon),
         label: this.headerWeatherLabel || '',
+        unit:  (this.headerWeatherUnit === 'f') ? 'f' : 'c',
         // AI launcher visibility participates in the dirty/save flow
         // so toggling the checkbox marks the form dirty (amber ring +
         // "Unsaved" pulse-dot) and reverting it back to the original
@@ -6466,6 +6475,7 @@ function app() {
         localStorage.setItem('headerWeatherLat',     this.headerWeatherLat == null ? '' : String(this.headerWeatherLat));
         localStorage.setItem('headerWeatherLon',     this.headerWeatherLon == null ? '' : String(this.headerWeatherLon));
         localStorage.setItem('headerWeatherLabel',   this.headerWeatherLabel || '');
+        localStorage.setItem('headerWeatherUnit',    (this.headerWeatherUnit === 'f') ? 'f' : 'c');
       } catch (_) {}
       // Re-baseline after the localStorage write so headerPrefsDirty()
       // returns false on the next render. The server PATCH below is
@@ -6493,6 +6503,7 @@ function app() {
             headerWeatherLat:     this.headerWeatherLat == null ? null : Number(this.headerWeatherLat),
             headerWeatherLon:     this.headerWeatherLon == null ? null : Number(this.headerWeatherLon),
             headerWeatherLabel:   this.headerWeatherLabel || null,
+            headerWeatherUnit:    (this.headerWeatherUnit === 'f') ? 'f' : 'c',
             datetime_format:      dtFmtTrimmed || null,
           }}),
         }).catch(() => {/* silent — localStorage still has it */});
@@ -6553,6 +6564,11 @@ function app() {
         this.headerWeatherLabel = p.headerWeatherLabel;
         try { localStorage.setItem('headerWeatherLabel', p.headerWeatherLabel); } catch (_) {}
       }
+      if (typeof p.headerWeatherUnit === 'string') {
+        const u = p.headerWeatherUnit.toLowerCase() === 'f' ? 'f' : 'c';
+        this.headerWeatherUnit = u;
+        try { localStorage.setItem('headerWeatherUnit', u); } catch (_) {}
+      }
       // Datetime format. Server is the only source of truth for this
       // preference (no localStorage cache — the SPA reads via the
       // already-hydrated `this.me.ui_prefs.datetime_format`). The draft
@@ -6560,6 +6576,27 @@ function app() {
       // current setting and `headerPrefsDirty()` is false on first
       // render.
       this.datetimeFormatDraft = (typeof p.datetime_format === 'string') ? p.datetime_format : '';
+    },
+    // °C → operator's preferred unit. Returns the formatted string with
+    // the unit suffix attached (e.g. `21.3°C` or `70°F`). Backend
+    // `/api/weather` ALWAYS returns Celsius; the SPA converts at the
+    // render boundary. `decimals` lets the caller pick precision —
+    // topbar chip uses 1 (matches the °C-only pre-fix display);
+    // forecast min/max uses 0 (the pre-fix Math.round path).
+    formatTempPref(c, decimals = 1) {
+      if (c == null || !Number.isFinite(+c)) return '';
+      const f = (+c) * 9 / 5 + 32;
+      const v = (this.headerWeatherUnit === 'f') ? f : (+c);
+      const factor = Math.pow(10, Math.max(0, decimals | 0));
+      return (Math.round(v * factor) / factor) + (this.headerWeatherUnit === 'f' ? '°F' : '°C');
+    },
+    // Convert a Celsius value to the operator's preferred unit and
+    // return the bare number (no suffix). Used by AI palette context
+    // where the JSON payload carries the unit separately.
+    convertTempPref(c) {
+      if (c == null || !Number.isFinite(+c)) return null;
+      if (this.headerWeatherUnit === 'f') return Math.round(((+c) * 9 / 5 + 32) * 10) / 10;
+      return Math.round((+c) * 10) / 10;
     },
     // Inline SVG path(s) per WMO-icon slug. Kept tiny — the topbar chip
     // is 16px so detail is wasted. Backend maps WMO codes to slugs in
@@ -17383,10 +17420,16 @@ function app() {
       const w = this.weather;
       if (w && w.configured !== false
           && (w.temp_c !== undefined || w.condition !== undefined || w.label)) {
+        // Honour the operator's °C / °F preference: payload temps are
+        // converted to the user's unit + the unit string ('°C' / '°F')
+        // is forwarded explicitly so the AI replies in the matching
+        // unit. Backend `/api/weather` always returns Celsius; the
+        // SPA converts here at the context-build boundary.
+        const unitSuffix = (this.headerWeatherUnit === 'f') ? '°F' : '°C';
         weatherCtx = {
           label:        w.label || this.headerWeatherLabel || '',
-          temperature:  Number.isFinite(+w.temp_c) ? Math.round(+w.temp_c * 10) / 10 : null,
-          unit:         '°C',
+          temperature:  this.convertTempPref(w.temp_c),
+          unit:         unitSuffix,
           condition:    w.condition || '',
           humidity:     Number.isFinite(+w.humidity) ? Math.round(+w.humidity) : null,
           wind_kmh:     Number.isFinite(+w.wind_kmh) ? Math.round(+w.wind_kmh) : null,
@@ -17395,13 +17438,16 @@ function app() {
         };
         // Daily forecast — pass through up to 7 days so the AI can
         // answer "what's the forecast for the next 5 days?" with real
-        // data. Each entry: { date, temp_max_c, temp_min_c, code,
-        // condition, precip_mm }. Backend returns the same shape.
+        // data. Field names stay `temp_max_c` / `temp_min_c` even
+        // when the active unit is °F so the AI can disambiguate the
+        // two if needed; the values themselves are pre-converted to
+        // the operator's preferred unit. Same convention used elsewhere
+        // (the `unit` field carries the suffix).
         if (Array.isArray(w.forecast) && w.forecast.length > 0) {
           weatherCtx.forecast = w.forecast.slice(0, 7).map(d => ({
             date:        d.date || '',
-            temp_max_c:  Number.isFinite(+d.temp_max_c) ? Math.round(+d.temp_max_c * 10) / 10 : null,
-            temp_min_c:  Number.isFinite(+d.temp_min_c) ? Math.round(+d.temp_min_c * 10) / 10 : null,
+            temp_max_c:  this.convertTempPref(d.temp_max_c),
+            temp_min_c:  this.convertTempPref(d.temp_min_c),
             condition:   d.condition || '',
             precip_mm:   Number.isFinite(+d.precip_mm) ? Math.round(+d.precip_mm * 10) / 10 : null,
           }));
