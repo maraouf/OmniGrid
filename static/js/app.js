@@ -6369,11 +6369,27 @@ function app() {
     // --- Topbar clock + weather ---
     tickHeaderClock() {
       const now = new Date();
-      // Browser locale owns the formatting — gives us 12h/24h + AM/PM
-      // automatically based on the user's OS setting.
-      this.currentClock = now.toLocaleTimeString([], {
-        hour: 'numeric', minute: '2-digit',
-      });
+      // Routes through the user's Formats preference (Settings →
+      // Profile → Formats). The topbar clock is time-only, so derive
+      // a time-only format by stripping date tokens (`y` / `M` / `d`
+      // and longer variants) from the user's full format. Trailing
+      // separators left over from the strip get tidied. Empty result
+      // (operator's format had no time component at all) falls back
+      // to `HH:mm` so the clock never goes blank.
+      const full = this._userDateTimeFormat();
+      let timePart = full
+        .replace(/yyyy/g, '').replace(/yy/g, '')
+        .replace(/MMMM/g, '').replace(/MMM/g, '').replace(/MM/g, '')
+        .replace(/(?<![A-Za-z])M(?![A-Za-z])/g, '')
+        .replace(/dd/g, '')
+        .replace(/(?<![A-Za-z])d(?![A-Za-z])/g, '');
+      timePart = timePart
+        .replace(/[,;:\s\/\-]+$/g, '')
+        .replace(/^[,;:\s\/\-]+/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/[\/\-]\s*[\/\-]/g, '')
+        .trim();
+      this.currentClock = this._applyDateTimeFormat(now, timePart || 'HH:mm');
     },
     startHeaderClock() {
       if (this._clockTimer) return;
