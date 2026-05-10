@@ -2449,6 +2449,8 @@
     "open_beszel_title": "Open the Beszel hub in a new tab.",
     "open_pulse": "Open Pulse",
     "open_pulse_title": "Open Pulse in a new tab.",
+    "open_portainer": "Open Portainer",
+    "open_portainer_title": "Open the configured Portainer public URL in a new tab.",
     "metrics": {
       "net_in": "Net In",
       "net_out": "Net Out",
@@ -2647,6 +2649,7 @@
       "curated_only_chip_title": "{name} is in this host's curated services but the most recent scan didn't see it open.",
       "chip_curated_title": "{name} on port {port} — listed in curated services AND detected open.",
       "chip_unknown_title": "Port {port} is open but isn't in the curated services list. Add it via Admin → Hosts if it's an expected listener.",
+      "chip_asset_mismatch_title": "Heads up: this port is not in the asset inventory's port list for this host. Either undocumented (add it to the asset record) or unexpected (investigate the listener).",
       "no_target_toast": "No host selected — open a host drawer or ask the AI to name one before scanning.",
       "scan_failed_title": "Port scan failed",
       "scan_failed_body": "The port scan could not be completed for {host}. {error}",
