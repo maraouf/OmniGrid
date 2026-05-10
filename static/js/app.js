@@ -1172,6 +1172,7 @@ function app() {
       // / frontend SSE knobs delivered via /api/me.
       'tuning_sse_idle_threshold_seconds',
       'tuning_pollops_sse_keepalive_seconds',
+      'tuning_load_busy_max_seconds',
       // login rate-limit policy.
       'tuning_rate_limit_max_failures',
       'tuning_rate_limit_window_seconds',
@@ -6968,12 +6969,41 @@ function app() {
     // clears the busy flag after `_LOAD_BUSY_MAX_MS` so a hung Promise
     // can't leave the reload button visually stuck forever.
     _loadBusyWd: {},
-    // 30s upper bound. Matches `/api/hosts/one/{id}`'s published
-    // budget. Reload endpoints are an order of magnitude lighter than
-    // that — 30s is generous enough for any healthy fetch and
-    // aggressive enough that a stuck flag is a visible blip, not a
-    // session-long ghost.
-    _LOAD_BUSY_MAX_MS: 30000,
+    // Watchdog timers for the SSE-pill "refreshing" flags
+    // (`cacheRefreshing` / `hubProbing` / `statsRefreshing`). The backend
+    // mirrors background-task state into these via response payload
+    // fields. If a backend task stalls (or SSE drops silently in Live
+    // mode so no fresh response lands to clear them), the SSE pill
+    // would stay in `--refreshing` state with its fast-spin animation
+    // forever. Watchdog clears the flag after `_LOAD_BUSY_MAX_MS`.
+    _refreshingWd: {},
+    // Wrapper that mirrors any backend-derived boolean flag into a
+    // SPA-side reactive property AND arms a watchdog so the flag can't
+    // stay truthy past `_LOAD_BUSY_MAX_MS`. Use for any flag whose
+    // truthiness drives a long-running animation (spinner, pulse).
+    _setRefreshingFlag(key, value) {
+      this[key] = !!value;
+      try { clearTimeout(this._refreshingWd[key]); } catch (_) {}
+      if (this[key]) {
+        this._refreshingWd[key] = setTimeout(() => {
+          if (this[key]) this[key] = false;
+        }, this._LOAD_BUSY_MAX_MS || 30000);
+      } else {
+        delete this._refreshingWd[key];
+      }
+    },
+    // Watchdog cap (ms). Operator-tunable via `tuning_load_busy_max_seconds`
+    // (Admin → Config). Defaults to 30000 ms (matches the published
+    // `/api/hosts/one/{id}` probe budget); range 5..600 seconds.
+    // The 30000 literal here is a defence-in-depth fallback for the
+    // brief window before `/api/me` hydrates — every real consumer
+    // reads through the getter so a save in Admin → Config lands on
+    // the next round-trip.
+    get _LOAD_BUSY_MAX_MS() {
+      const v = this.me && this.me.client_config && this.me.client_config.load_busy_max_ms;
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 5000 ? n : 30000;
+    },
     async _runWithBusy(key, fn) {
       if (!key || typeof fn !== 'function') return;
       if (this._loadBusy[key]) return;
@@ -7156,7 +7186,7 @@ function app() {
         // refresh button pulses the spinner whenever ANY background
         // refresh is running. Auto-clears on the next poll once the
         // background gather lands.
-        this.statsRefreshing = !!d.stats_refreshing;
+        this._setRefreshingFlag('statsRefreshing', d.stats_refreshing);
         // Swarm agent unhealthy detection — populated by gather_stats
         // when a Swarm node has consecutive bad gather cycles (every
         // task-derived cid on the node returned None). Empty array on
@@ -7486,7 +7516,7 @@ function app() {
         // pulse so the operator sees the system is still working
         // even after the foreground call completed. Auto-clears
         // on the next poll once the background gather lands.
-        this.cacheRefreshing = !!d.cache_refreshing;
+        this._setRefreshingFlag('cacheRefreshing', d.cache_refreshing);
         // Fire stats alongside a forced refresh UNLESS the cadence
         // picker is set to Off. Pre-fix this gated on
         // `statsInterval > 0`, but `setRefreshInterval` remaps Live
@@ -23129,7 +23159,7 @@ function app() {
         // background. Drives the topbar refresh button's "Refreshing…"
         // pulse so the operator sees the system is working even
         // after the foreground call completed.
-        this.hubProbing = !!d.hub_probing;
+        this._setRefreshingFlag('hubProbing', d.hub_probing);
         // Merge with EXISTING rows to prevent the flicker that
         // happens when the 15s poll re-runs and resets every row to
         // the grey skeleton (hiding graphs / provider chips for a

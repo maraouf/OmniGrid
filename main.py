@@ -2825,6 +2825,7 @@ class SettingsIn(BaseModel):
     # client_config (× 1000 ms conversion in main.py).
     tuning_sse_idle_threshold_seconds: Optional[str] = None
     tuning_pollops_sse_keepalive_seconds: Optional[str] = None
+    tuning_load_busy_max_seconds: Optional[str] = None
     # login rate-limit policy (3 knobs).
     tuning_rate_limit_max_failures: Optional[str] = None
     tuning_rate_limit_window_seconds: Optional[str] = None
@@ -15833,6 +15834,13 @@ async def api_me(request: Request):
             # pollOps SSE-up keep-alive cadence. Same ms-conversion
             # pattern as ops_poll_ms and sse_idle_threshold_ms.
             "pollops_sse_keepalive_ms": tuning.tuning_int("tuning_pollops_sse_keepalive_seconds") * 1000,
+            # SPA-side load-busy watchdog cap (ms). `_runWithBusy` and
+            # the topbar `refresh()` / `loadHosts()` flow + the SSE-pill
+            # refreshing flags (`cacheRefreshing` / `hubProbing` /
+            # `statsRefreshing`) cap any individual "busy" indicator at
+            # this many ms. Stored as seconds, multiplied here so the
+            # SPA setTimeout call keeps its ms contract.
+            "load_busy_max_ms": tuning.tuning_int("tuning_load_busy_max_seconds") * 1000,
             # stat-bar warn / crit cutovers. SPA's barLevel /
             # barColor helpers read these per-call so an Admin → Config
             # save lands on the next render. Stored as integer percent

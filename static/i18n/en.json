@@ -1366,6 +1366,10 @@
           "label": "Ops poll keepalive when SSE is up (seconds)",
           "help": "When SSE is healthy, op deltas arrive via push (the `op:created/updated/completed` events), so /api/ops doesn't need fast polling. The SPA's pollOps loop slows from `tuning_ops_poll_interval_seconds` (the fast cadence) to THIS value as a safety-net keepalive — catches a silently-stalled stream that the freshness watchdog hasn't yet detected. Default 30 seconds, lined up with the freshness threshold so the keepalive fires at-or-before the watchdog flips _sseConnected to false. Lower this if you want belt-and-braces faster recovery; raise it to cut idle traffic when SSE is reliable. Stored as seconds; SPA multiplies × 1000 for setTimeout."
         },
+        "tuning_load_busy_max_seconds": {
+          "label": "Spinner / reload watchdog cap (seconds)",
+          "help": "Hard cap on how long any individual SPA-side busy indicator can stay active — admin reload buttons (gated by `_loadBusy.<key>` in `_runWithBusy`), the topbar Refresh spinner (gated by `loading` / `hostsLoading` in `refresh()` / `loadHosts()`), and the SSE-pill refreshing dot (gated by `cacheRefreshing` / `hubProbing` / `statsRefreshing` mirrored from backend response fields). A hung fetch, dead probe, or stalled background gather can't leave a spinner spinning or a button disabled past this many seconds. Default 30 — matches the published `/api/hosts/one/{id}` probe budget so a healthy fetch always completes well within the cap. Lower (5-10s) if you want aggressive recovery on flaky networks; raise (60-120s) if you have genuinely slow endpoints and would rather see the spinner persist than flicker false-clear. Range 5..600 seconds. Takes effect on the next /api/me round-trip."
+        },
         "tuning_rate_limit_max_failures": {
           "label": "Login rate-limit failures threshold",
           "help": "Maximum consecutive failed login attempts (per IP, AND independently per IP+username pair) before the account locks out. Default 5 — matches OWASP's recommendation for interactive logins. Lower for high-security deployments (e.g. 3); raise for shared-IP environments where multiple operators may collide on bad-typed-passwords (e.g. 10). Resolved per failed-login attempt so a Save in Admin → Config takes effect immediately."
@@ -1637,7 +1641,8 @@
         "prune_logs": "Prune log files",
         "prune_notifications": "Prune notifications",
         "swarm_agent_health": "Swarm agent health check",
-        "port_scan_refresh": "Refresh open ports (port scan)"
+        "port_scan_refresh": "Refresh open ports (port scan)",
+        "config_backup": "Config backup snapshot"
       },
       "run_at_label": "Run at (optional)",
       "run_at_placeholder": "HH:MM — leave empty to use interval",

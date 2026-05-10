@@ -294,9 +294,12 @@
             </select>
             <button x-show="isAdmin()" @click="runSshAdminTest()"
                     :disabled="sshTestOnHost.pending || !sshTestOnHost.host_id"
-                    class="btn btn-soft fs-sm">
+                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="sshTestOnHost.pending ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+              </svg>
               <span x-show="!sshTestOnHost.pending" x-text="t('admin_ssh.test_button')"></span>
-              <span x-show="sshTestOnHost.pending" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_ssh.testing')"></span></span>
+              <span x-show="sshTestOnHost.pending" x-text="t('admin_ssh.testing')"></span>
             </button>
             <span x-show="sshTestOnHost.result && !sshTestOnHost.pending"
                   :class="sshTestOnHost.result && sshTestOnHost.result.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"

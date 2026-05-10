@@ -249,8 +249,12 @@
           <div class="flex items-center gap-2 flex-wrap">
             <button x-show="isAdmin()" @click="testBeszelConnection()"
                     :disabled="(beszelTestResult && beszelTestResult.pending) || !hasHostStatsSource('beszel')"
-                    class="btn btn-soft fs-sm"
-                    x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
+                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="(beszelTestResult && beszelTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+              </svg>
+              <span x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></span>
+            </button>
             <span x-show="lastTestSuccessLabel('beszel')"
                   class="fs-xs text-[var(--text-faint)]"
                   x-text="lastTestSuccessLabel('beszel')"></span>
@@ -392,8 +396,12 @@
           <div class="flex items-center gap-2 flex-wrap">
             <button x-show="isAdmin()" @click="testPulseConnection()"
                     :disabled="(pulseTestResult && pulseTestResult.pending) || !hasHostStatsSource('pulse')"
-                    class="btn btn-soft fs-sm"
-                    x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></button>
+                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="(pulseTestResult && pulseTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+              </svg>
+              <span x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></span>
+            </button>
             <span x-show="lastTestSuccessLabel('pulse')"
                   class="fs-xs text-[var(--text-faint)]"
                   x-text="lastTestSuccessLabel('pulse')"></span>
@@ -530,8 +538,12 @@
           <div class="flex items-center gap-2 flex-wrap">
             <button x-show="isAdmin()" @click="testWebminConnection()"
                     :disabled="(webminTestResult && webminTestResult.pending) || !hasHostStatsSource('webmin')"
-                    class="btn btn-soft fs-sm"
-                    x-text="(webminTestResult && webminTestResult.pending) ? t('settings.host_stats.webmin_testing') : t('settings.host_stats.webmin_test_button')"></button>
+                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="(webminTestResult && webminTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+              </svg>
+              <span x-text="(webminTestResult && webminTestResult.pending) ? t('settings.host_stats.webmin_testing') : t('settings.host_stats.webmin_test_button')"></span>
+            </button>
             <input x-model="webminTestUrl" type="url" class="flex-1 fs-xs mono"
                    :placeholder="t('admin_hosts.row.webmin_url_placeholder')">
             <span x-show="lastTestSuccessLabel('webmin')"
@@ -683,8 +695,12 @@
           <div class="flex items-center gap-2 flex-wrap">
             <button x-show="isAdmin()" @click="testPingConnection()"
                     :disabled="(pingTestResult && pingTestResult.pending) || !hasHostStatsSource('ping') || !pingTestHostId"
-                    class="btn btn-soft fs-sm"
-                    x-text="(pingTestResult && pingTestResult.pending) ? t('settings.host_stats.ping.test_running') : t('settings.host_stats.ping.test_button')"></button>
+                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="(pingTestResult && pingTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+              </svg>
+              <span x-text="(pingTestResult && pingTestResult.pending) ? t('settings.host_stats.ping.test_running') : t('settings.host_stats.ping.test_button')"></span>
+            </button>
             <select x-model="pingTestHostId"
                     :disabled="isReadonly() || !hasHostStatsSource('ping')"
                     class="fs-xs mono">
@@ -924,8 +940,12 @@
           <div class="flex items-center gap-2 flex-wrap">
             <button x-show="isAdmin()" @click="testSnmpConnection()"
                     :disabled="(snmpTestResult && snmpTestResult.pending) || !hasHostStatsSource('snmp') || !snmpTestHostId"
-                    class="btn btn-soft fs-sm"
-                    x-text="(snmpTestResult && snmpTestResult.pending) ? t('settings.host_stats.snmp.testing') : t('settings.host_stats.snmp.test_button')"></button>
+                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="(snmpTestResult && snmpTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+              </svg>
+              <span x-text="(snmpTestResult && snmpTestResult.pending) ? t('settings.host_stats.snmp.testing') : t('settings.host_stats.snmp.test_button')"></span>
+            </button>
             <select x-model="snmpTestHostId"
                     :disabled="isReadonly() || !hasHostStatsSource('snmp')"
                     class="fs-xs mono">
