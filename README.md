@@ -97,7 +97,7 @@ The canonical production deploy is the CI pipeline — push to `main`, the runne
 
 ### Pull a pre-built image (no build step)
 
-Pre-built multi-platform images are published to the public **GitHub Container Registry** at `ghcr.io/maraouf/omnigrid` on every MINOR release (and the first auto-PATCH that lands on top of it). The package is public — `docker pull` works anonymously, no token needed:
+Pre-built multi-platform images are published to the public **GitHub Container Registry** at `ghcr.io/maraouf/omnigrid` on every MINOR release (cut-day `v<MAJOR>.<MINOR>.0` tag — daily auto-PATCH builds stay in the maintainer-private registry). The package is public — `docker pull` works anonymously, no token needed:
 
 ```bash
 docker pull ghcr.io/maraouf/omnigrid:latest          # newest minor
@@ -105,7 +105,7 @@ docker pull ghcr.io/maraouf/omnigrid:1.4             # newest patch on the 1.4 l
 docker pull ghcr.io/maraouf/omnigrid:1.4.0           # exact, immutable
 ```
 
-Tag layout: `latest` floats to the newest minor we've shipped; `<MAJOR>.<MINOR>` floats to the newest patch on that minor; `<MAJOR>.<MINOR>.<PATCH>` is the immutable per-build tag (use this for rollbacks). Daily auto-PATCH builds are NOT published to GHCR — they live only in the maintainer's private registry and on the Swarm manager itself; cutting a MINOR is what publishes a new public tag.
+Tag layout: `latest` floats to the newest minor we've shipped; `<MAJOR>.<MINOR>` floats to the newest minor on that major line; `<MAJOR>.<MINOR>.0` is the immutable cut-day MINOR tag (use this for rollbacks). Only `v<MAJOR>.<MINOR>.0` cut-day tags are published — daily auto-PATCH builds (`.1`, `.2`, …) stay in the maintainer-private registry and on the Swarm manager itself; cutting a MINOR is what publishes a new public tag.
 
 For a Swarm `docker-compose.yml`, set `OMNIGRID_IMAGE=ghcr.io/maraouf/omnigrid:latest` (or pin a specific tag) before `docker stack deploy` and the compose substitution picks it up. See the [GHCR section in the deploy runbook](docs/guidelines/deploy.md#pre-built-images-on-ghcr) for `--with-registry-auth` details and the publish-trigger contract.
 

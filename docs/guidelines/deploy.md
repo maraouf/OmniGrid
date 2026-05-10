@@ -608,7 +608,7 @@ source.
 
 ```bash
 docker pull ghcr.io/maraouf/omnigrid:latest          # newest minor
-docker pull ghcr.io/maraouf/omnigrid:1.4             # newest patch on the 1.4 line
+docker pull ghcr.io/maraouf/omnigrid:1.4             # newest minor on the 1.x line (alias to 1.4.0)
 docker pull ghcr.io/maraouf/omnigrid:1.4.0           # exact, immutable
 ```
 
@@ -616,23 +616,22 @@ The package is **public** — `docker pull` works anonymously; no `docker login`
 access. Swarm pulls don't need `--with-registry-auth` either (the flag still works; it's just not
 required when the package is public).
 
-### Publish trigger — MINOR-cut + first-PATCH only
+### Publish trigger — MINOR-cut tags only
 
-The `.github/workflows/publish-ghcr.yml` workflow fires when a tag matching `v<MAJOR>.<MINOR>.[01]`
-is pushed to GitHub (the connector mirrors Forgejo tags to GitHub, so the operator-cut MINOR tag
-AND the first auto-PATCH on top both reach this workflow). Every other auto-PATCH (`.2`, `.3`, …,
-`.42`, …) is intentionally NOT published to GHCR — those churn fast and clutter the public package
+The `.github/workflows/publish-ghcr.yml` workflow fires only when a tag matching
+`v<MAJOR>.<MINOR>.0` is pushed to GitHub (the connector mirrors Forgejo tags to GitHub, so the
+operator-cut MINOR tag reaches this workflow). Every auto-PATCH (`.1`, `.2`, …, `.42`, …) is
+intentionally NOT published to GHCR — those churn daily and would clutter the public package
 list. The pull-the-newest-minor flow is `:latest`; the "pin to a known good build" flow is
-`:1.4.1` (the first stable build of the 1.4 line, since `.0` is the cut-day and `.1` is the
-auto-bump that immediately follows).
+`:1.4.0` (the cut-day MINOR build).
 
 Tag layout summary:
 
 | Tag                              | Floats?  | Use for                                                                |
 | -------------------------------- | -------- | ---------------------------------------------------------------------- |
 | `ghcr.io/maraouf/omnigrid:latest`         | ✅       | "Give me the newest stable build" — moves on every MINOR cut            |
-| `ghcr.io/maraouf/omnigrid:<MAJOR>.<MINOR>`| ✅       | "Pin me to this minor line, I want patch updates" — e.g. `1.4`         |
-| `ghcr.io/maraouf/omnigrid:<MAJOR>.<MINOR>.<PATCH>` | ❌       | Immutable per-build tag — use for rollbacks, never overwritten          |
+| `ghcr.io/maraouf/omnigrid:<MAJOR>.<MINOR>`| ✅       | "Pin me to this major line" — moves to the newest MINOR on that major   |
+| `ghcr.io/maraouf/omnigrid:<MAJOR>.<MINOR>.0` | ❌    | Immutable cut-day MINOR tag — use for rollbacks, never overwritten      |
 
 ### Compose / Swarm wiring
 
@@ -653,15 +652,15 @@ the digest pin.
 
 If a publish run failed (transient network glitch, GHCR maintenance, etc.) the workflow has a
 `workflow_dispatch` trigger so an operator can rerun it manually from the Actions tab. Pass the
-target version (e.g. `1.4.1`) as the input; the workflow validates the trailing-`[01]` shape and
+target version (e.g. `1.4.0`) as the input; the workflow validates the trailing-`.0` shape and
 republishes to all three tags.
 
 ### What's still maintainer-private
 
-Daily auto-PATCH images (everything from `.2` onwards) live only in the maintainer's private
-registry + on the Swarm manager's local image cache. Operators running OmniGrid from GHCR
-upgrade on the cadence of the public MINOR cuts (or hand-pick a specific `.X.Y.Z` for rollback);
-the daily PATCH churn doesn't reach them.
+Daily auto-PATCH images (every `.1` onwards) live only in the maintainer's private registry +
+on the Swarm manager's local image cache. Operators running OmniGrid from GHCR upgrade on the
+cadence of the public MINOR cuts (or hand-pick a specific `.X.Y.0` for rollback); the daily
+PATCH churn doesn't reach them.
 
 ## VERSION.txt bump model (SemVer MAJOR.MINOR.PATCH)
 

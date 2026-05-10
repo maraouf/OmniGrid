@@ -4440,7 +4440,7 @@
                       <div class="text-[var(--text-dim)] fs-xs mb-1"
                            x-text="t('host_drawer.port_scan.detected_label', { count: (h.detected_ports || []).length })"></div>
                       <div class="flex flex-wrap gap-1.5">
-                        <template x-for="p in (h.detected_ports || [])" :key="(p.protocol || 'tcp') + ':' + p.port">
+                        <template x-for="p in sortedDetectedPorts(h)" :key="(p.protocol || 'tcp') + ':' + p.port">
                           <span class="chip fs-xs mono"
                                 :class="portScanChipClass(h, p)"
                                 :title="portScanChipTitle(h, p)">
