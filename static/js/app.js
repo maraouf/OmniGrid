@@ -1484,12 +1484,15 @@ function app() {
     statsSections: [
       { id: 'dashboard',      label: 'Dashboard',       icon: 'activity' },
       { id: 'database',       label: 'Database',        icon: 'database' },
+      { id: 'samples',        label: 'Samples',         icon: 'layers' },
     ],
     statsTab: 'dashboard',
     statsOverview: {},
     statsOverviewLoaded: false,
     statsDatabase: {},
     statsDatabaseLoaded: false,
+    statsSamples: {},
+    statsSamplesLoaded: false,
     // App-logs viewer state. Polled when the Logs tab is visible.
     // `logLines` is append-only during a session; clear() wipes both
     // the UI list and the server-side ring.
@@ -3177,6 +3180,7 @@ function app() {
       this.statsTab = tab || 'dashboard';
       if (this.statsTab === 'dashboard') await this.loadStatsOverview();
       else if (this.statsTab === 'database') await this.loadStatsDatabase();
+      else if (this.statsTab === 'samples') await this.loadStatsSamples();
       this._pushRoute && this._pushRoute();
     },
     async loadStatsOverview() {
@@ -3195,6 +3199,15 @@ function app() {
         this.statsDatabase = await r.json();
       } catch (_) {} finally {
         this.statsDatabaseLoaded = true;
+      }
+    },
+    async loadStatsSamples() {
+      try {
+        const r = await fetch('/api/admin/stats/samples');
+        if (!r.ok) return;
+        this.statsSamples = await r.json();
+      } catch (_) {} finally {
+        this.statsSamplesLoaded = true;
       }
     },
 
@@ -6987,7 +7000,7 @@ function app() {
       schedules: false, schedule_queue: false,
       backups: false, config_backup_saved: false,
       logs: false, log_files: false,
-      stats_overview: false, stats_database: false,
+      stats_overview: false, stats_database: false, stats_samples: false,
       history: false, hosts_config: false,
     },
     // Watchdog timer per busy-key — see `_runWithBusy` below. Cleared
@@ -18689,17 +18702,25 @@ function app() {
       });
       const esc = (s) => this._logEscape(String(s));
       let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block">';
-      // Grid lines.
+      // Horizontal gridlines — same style as the AI drawer chart's
+      // y-axis ticks: thin faint dashed `--border` strokes.
       for (const t of yTicks) {
         svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
-          + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,3"/>';
+          + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>';
         svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
+      }
+      // Vertical gridlines — one per X-axis tick, matching the AI
+      // drawer chart's "now" divider style but applied to every
+      // tick. Operators can read each 30-day boundary at a glance.
+      for (const t of xTicks) {
+        svg += '<line x1="' + t.x + '" y1="' + PAD_T + '" x2="' + t.x + '" y2="' + (H - PAD_B)
+          + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>';
       }
       // Band.
       svg += '<path d="' + bandPath + '" fill="var(--primary)" fill-opacity="0.12" stroke="none"/>';
       // Central line (dashed for projection feel).
       svg += '<path d="' + linePath + '" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-dasharray="4,2"/>';
-      // X-axis ticks.
+      // X-axis tick labels.
       for (const t of xTicks) {
         svg += '<text x="' + t.x + '" y="' + (H - 6) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
       }

@@ -230,6 +230,23 @@
             <span x-show="assetRefreshing" x-text="t('admin_assets.refreshing')"></span>
           </button>
         </div>
+
+        <!-- Test result chip — lives directly under the Test button row
+             (before the Save HR) so the operator sees pending / ok /
+             error feedback adjacent to the action that produced it.
+             Pre-fix this chip sat AFTER the Save row, which felt
+             detached from the action. -->
+        <div x-show="assetTestResult"
+             class="mt-3 rounded-md px-3 py-2 fs-sm"
+             :class="assetTestResult && assetTestResult.pending
+                     ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
+                     : (assetTestResult && assetTestResult.ok
+                       ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                       : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
+             x-text="assetTestResult && assetTestResult.pending
+                     ? t('admin_assets.testing')
+                     : ((assetTestResult && assetTestResult.detail) || '')"></div>
+
         <!-- Action row 2 (Save): separated by HR like authentication.
              Test-before-Save gate: same pattern as Portainer / OIDC.
              When asset_inventory_enabled is ON, Save is locked until
@@ -255,17 +272,6 @@
                 class="fs-xs text-[var(--text-faint)]"
                 x-text="t('admin_assets.save_requires_test')"></span>
         </div>
-
-        <div x-show="assetTestResult"
-             class="mt-3 rounded-md px-3 py-2 fs-sm"
-             :class="assetTestResult && assetTestResult.pending
-                     ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
-                     : (assetTestResult && assetTestResult.ok
-                       ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
-                       : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-             x-text="assetTestResult && assetTestResult.pending
-                     ? t('admin_assets.testing')
-                     : ((assetTestResult && assetTestResult.detail) || '')"></div>
 
         <!-- Cache preview — `icon-archive` reads as "stored / archived
              snapshot" and matches the section's role of showing the
