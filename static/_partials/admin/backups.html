@@ -98,11 +98,41 @@
                     <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtDate(b.mtime)"></td>
                     <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="b.version || '—'"></td>
                     <td class="px-4 py-2 text-end">
-                      <div class="inline-flex gap-1">
+                      <!-- Action-button row — same pattern as Admin →
+                           Users + Admin → Config Backup
+                           (`.user-action-btn` 26×26 icon-only buttons
+                           + `.user-action-sep` divider before the
+                           destructive action). Operator-flagged for
+                           cross-tab unification. -->
+                      <div class="inline-flex items-center gap-0.5 justify-end user-actions">
                         <a :href="'/api/backups/' + encodeURIComponent(b.name)"
-                           class="btn btn-soft fs-xs" :title="t('admin.backups.download')" x-text="t('admin.backups.download')"></a>
-                        <button @click="restoreBackup(b)" class="btn btn-soft fs-xs" :title="t('admin.backups.restore')" x-text="t('admin.backups.restore')"></button>
-                        <button @click="deleteBackup(b)" class="btn btn-ghost fs-xs text-danger" x-text="t('actions.delete')"></button>
+                           download
+                           class="user-action-btn"
+                           :title="t('admin.backups.download')"
+                           :aria-label="t('admin.backups.download')">
+                          <svg width="14" height="14" aria-hidden="true">
+                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
+                          </svg>
+                        </a>
+                        <button type="button"
+                                @click="restoreBackup(b)"
+                                class="user-action-btn"
+                                :title="t('admin.backups.restore')"
+                                :aria-label="t('admin.backups.restore')">
+                          <svg width="14" height="14" aria-hidden="true">
+                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-ccw"/>
+                          </svg>
+                        </button>
+                        <span class="user-action-sep"></span>
+                        <button type="button"
+                                @click="deleteBackup(b)"
+                                class="user-action-btn user-action-btn--danger"
+                                :title="t('actions.delete')"
+                                :aria-label="t('actions.delete')">
+                          <svg width="14" height="14" aria-hidden="true">
+                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+                          </svg>
+                        </button>
                       </div>
                     </td>
                   </tr>
