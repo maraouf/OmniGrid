@@ -1472,9 +1472,9 @@ function app() {
       { id: 'ai',             label: 'AI integration',  icon: 'zap' },
       { id: 'schedules',      label: 'Schedules',       icon: 'calendar' },
       { id: 'backups',        label: 'Backup',          icon: 'archive' },
-      { id: 'config_backup',  label: 'Config Backup',   icon: 'save' },
       { id: 'logs',           label: 'Logs',            icon: 'file-text' },
       { id: 'config',         label: 'Config',          icon: 'settings' },
+      { id: 'config_backup',  label: 'Config Backup',   icon: 'save' },
       { id: 'debug',          label: 'Debug',           icon: 'bug' },
     ],
     // App-logs viewer state. Polled when the Logs tab is visible.

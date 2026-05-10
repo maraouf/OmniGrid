@@ -903,9 +903,9 @@
       "ai": "AI Integration",
       "schedules": "Schedules",
       "backups": "Backup",
-      "config_backup": "Config Backup",
       "logs": "Logs",
       "config": "Config",
+      "config_backup": "Config Backup",
       "debug": "Debug"
     },
     "general": {
