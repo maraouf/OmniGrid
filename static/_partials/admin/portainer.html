@@ -192,7 +192,7 @@
                  class="fs-xs text-[var(--text-faint)] -mt-1"
                  x-text="t('settings.portainer.save_requires_test')"></div>
             <div x-show="portainerTestResult" class="fs-sm rounded-md px-3 py-2"
-                 :class="portainerTestResult && portainerTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
+                 :class="(portainerTestResult && portainerTestResult.pending) ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]' : (portainerTestResult && portainerTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')">
               <template x-if="portainerTestResult && portainerTestResult.pending">
                 <span x-text="t('loading.testing')"></span>
               </template>

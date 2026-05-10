@@ -215,7 +215,36 @@
   },
   "stats": {
     "sections": {
-      "dashboard": "Dashboard"
+      "dashboard": "Dashboard",
+      "database": "Database"
+    },
+    "database": {
+      "title": "Database",
+      "hint": "SQLite file size, busiest tables, and a 90-day growth projection.",
+      "size": {
+        "label": "Current size",
+        "sub": "Total on-disk size of the SQLite file (data + WAL + SHM)"
+      },
+      "tables": {
+        "title": "Top 5 tables by size",
+        "hint": "Approximate per-table size from SQLite's dbstat virtual table where available; falls back to row counts when dbstat is not enabled.",
+        "col_name": "Table",
+        "col_bytes": "Size",
+        "col_rows": "Rows",
+        "empty": "No tables to report yet."
+      },
+      "queries": {
+        "title": "Top 5 busiest tables",
+        "hint": "Proxy for query hotspots — SQLite doesn't expose per-statement counters by default, so this lists the tables with the most rows (a coarse proxy for write activity).",
+        "col_table": "Table",
+        "col_rows": "Rows",
+        "empty": "No query stats available."
+      },
+      "projection": {
+        "title": "90-day growth projection",
+        "hint": "Central line is the linear extrapolation from the current size; the band widens with extrapolation distance to convey forecast uncertainty.",
+        "empty": "Not enough history to project growth yet."
+      }
     },
     "dashboard": {
       "title": "Overview",

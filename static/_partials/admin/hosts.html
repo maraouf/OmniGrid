@@ -32,24 +32,35 @@
             <button x-show="isAdmin() && hostsConfig.length > 0"
                     @click="testAllHostRows()"
                     :disabled="hostsTestingAll"
-                    class="btn btn-ghost fs-sm"
+                    class="btn btn-ghost fs-sm inline-flex items-center gap-1.5"
                     :title="t('admin_hosts.test_all_title')">
+              <svg width="13" height="13" :class="hostsTestingAll ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+              </svg>
               <span x-show="!hostsTestingAll" x-text="t('actions.test_all')"></span>
-              <span x-show="hostsTestingAll" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.testing')"></span></span>
+              <span x-show="hostsTestingAll" x-text="t('actions.testing')"></span>
             </button>
             <!-- Export / Import — back up the curated list as JSON
                  or restore from a saved file. Round-trips cleanly
                  across OmniGrid instances. -->
             <button x-show="isAdmin() && hostsConfig.length > 0"
                     @click="exportHostsConfig()"
-                    class="btn btn-ghost fs-sm"
-                    :title="t('admin_hosts.export_title')"
-                    x-text="t('admin_hosts.export')"></button>
+                    class="btn btn-ghost fs-sm inline-flex items-center gap-1.5"
+                    :title="t('admin_hosts.export_title')">
+              <svg width="13" height="13" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
+              </svg>
+              <span x-text="t('admin_hosts.export')"></span>
+            </button>
             <button x-show="isAdmin()"
                     @click="$refs.hostsImportFile.click()"
-                    class="btn btn-ghost fs-sm"
-                    :title="t('admin_hosts.import_title')"
-                    x-text="t('admin_hosts.import_button')"></button>
+                    class="btn btn-ghost fs-sm inline-flex items-center gap-1.5"
+                    :title="t('admin_hosts.import_title')">
+              <svg width="13" height="13" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-upload"/>
+              </svg>
+              <span x-text="t('admin_hosts.import_button')"></span>
+            </button>
             <input type="file" x-ref="hostsImportFile" accept="application/json,.json"
                    class="hidden"
                    @change="importHostsConfig($event)">
