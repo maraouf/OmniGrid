@@ -258,17 +258,19 @@
             <span x-show="lastTestSuccessLabel('beszel')"
                   class="fs-xs text-[var(--text-faint)]"
                   x-text="lastTestSuccessLabel('beszel')"></span>
-            <span x-show="beszelTestResult"
-                  class="fs-xs rounded-md px-2 py-1 inline-flex items-center"
-                  :class="beszelTestResult && beszelTestResult.pending
-                          ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
-                          : (beszelTestResult && beszelTestResult.ok
-                            ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
-                            : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-                  x-text="beszelTestResult && beszelTestResult.pending
-                          ? t('actions.testing')
-                          : (beszelTestResult ? ((beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult.detail || '')) : '')"></span>
           </div>
+          <!-- Test result chip — full-width below the action row,
+               matching Portainer's pattern. Three-state colour box:
+               yellow while pending, green on ok, red on error. -->
+          <div x-show="beszelTestResult" class="fs-sm rounded-md px-3 py-2"
+               :class="beszelTestResult && beszelTestResult.pending
+                       ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
+                       : (beszelTestResult && beszelTestResult.ok
+                         ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                         : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
+               x-text="beszelTestResult && beszelTestResult.pending
+                       ? t('actions.testing')
+                       : (beszelTestResult ? ((beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult.detail || '')) : '')"></div>
           <p class="fs-2xs text-[var(--text-faint)]"
              x-text="t('settings.host_stats.beszel_naming_hint')"></p>
           <!-- Beszel section tunables — probe timeout, sampler
@@ -408,17 +410,16 @@
             <span x-show="lastTestSuccessLabel('pulse')"
                   class="fs-xs text-[var(--text-faint)]"
                   x-text="lastTestSuccessLabel('pulse')"></span>
-            <span x-show="pulseTestResult"
-                  class="fs-xs rounded-md px-2 py-1 inline-flex items-center"
-                  :class="pulseTestResult && pulseTestResult.pending
-                          ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
-                          : (pulseTestResult && pulseTestResult.ok
-                            ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
-                            : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-                  x-text="pulseTestResult && pulseTestResult.pending
-                          ? t('actions.testing')
-                          : (pulseTestResult ? ((pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult.detail || '')) : '')"></span>
           </div>
+          <div x-show="pulseTestResult" class="fs-sm rounded-md px-3 py-2"
+               :class="pulseTestResult && pulseTestResult.pending
+                       ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
+                       : (pulseTestResult && pulseTestResult.ok
+                         ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                         : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
+               x-text="pulseTestResult && pulseTestResult.pending
+                       ? t('actions.testing')
+                       : (pulseTestResult ? ((pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult.detail || '')) : '')"></div>
           <p class="fs-2xs text-[var(--text-faint)]" x-text="t('settings.host_stats.pulse_aliases_hint')"></p>
           <!-- Pulse auto-pause threshold. -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
@@ -555,17 +556,16 @@
             <span x-show="lastTestSuccessLabel('webmin')"
                   class="fs-xs text-[var(--text-faint)]"
                   x-text="lastTestSuccessLabel('webmin')"></span>
-            <span x-show="webminTestResult"
-                  class="fs-xs rounded-md px-2 py-1 inline-flex items-center"
-                  :class="webminTestResult && webminTestResult.pending
-                          ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
-                          : (webminTestResult && webminTestResult.ok
-                            ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
-                            : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-                  x-text="webminTestResult && webminTestResult.pending
-                          ? t('actions.testing')
-                          : (webminTestResult ? ((webminTestResult.ok ? '✓ ' : '✗ ') + (webminTestResult.detail || '')) : '')"></span>
           </div>
+          <div x-show="webminTestResult" class="fs-sm rounded-md px-3 py-2"
+               :class="webminTestResult && webminTestResult.pending
+                       ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
+                       : (webminTestResult && webminTestResult.ok
+                         ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                         : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
+               x-text="webminTestResult && webminTestResult.pending
+                       ? t('actions.testing')
+                       : (webminTestResult ? ((webminTestResult.ok ? '✓ ' : '✗ ') + (webminTestResult.detail || '')) : '')"></div>
           <p class="fs-2xs text-[var(--text-faint)]"
              x-html="t('settings.host_stats.webmin_aliases_hint_html')"></p>
 
@@ -721,16 +721,9 @@
                 <option :value="opt.id" x-text="opt.label"></option>
               </template>
             </select>
-            <span x-show="pingTestResult"
-                  class="fs-xs rounded-md px-2 py-1 inline-flex items-center"
-                  :class="pingTestResult && pingTestResult.pending
-                          ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
-                          : (pingTestResult && pingTestResult.ok
-                            ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
-                            : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-                  x-text="pingTestResult && pingTestResult.pending
-                          ? t('actions.testing')
-                          : (pingTestResult ? ((pingTestResult.ok ? '✓ ' : '✗ ') + (pingTestResult.detail || '')) : '')"></span>
+            <!-- Result chip moved out of the action row — see the
+                 full-width div directly below the closing `</div>` of
+                 this flex row to match the Portainer pattern. -->
             <span x-show="hasHostStatsSource('ping') && !pingEnabledHosts().length"
                   class="fs-2xs text-[var(--text-faint)] italic"
                   x-text="t('settings.host_stats.ping.test_no_hosts')"></span>
@@ -738,6 +731,15 @@
                   class="fs-xs text-[var(--text-faint)]"
                   x-text="lastTestSuccessLabel('ping')"></span>
           </div>
+          <div x-show="pingTestResult" class="fs-sm rounded-md px-3 py-2"
+               :class="pingTestResult && pingTestResult.pending
+                       ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
+                       : (pingTestResult && pingTestResult.ok
+                         ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                         : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
+               x-text="pingTestResult && pingTestResult.pending
+                       ? t('actions.testing')
+                       : (pingTestResult ? ((pingTestResult.ok ? '✓ ' : '✗ ') + (pingTestResult.detail || '')) : '')"></div>
           <!-- Ping tunables — same Alpine state as the other tunable
                cards (tuningForm / tuningEffective). Renders inline so
                operators tweaking ping have everything to hand. -->
@@ -972,16 +974,6 @@
                 <option :value="opt.id" x-text="opt.label"></option>
               </template>
             </select>
-            <span x-show="snmpTestResult"
-                  class="fs-xs rounded-md px-2 py-1 inline-flex items-center"
-                  :class="snmpTestResult && snmpTestResult.pending
-                          ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
-                          : (snmpTestResult && snmpTestResult.ok
-                            ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
-                            : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-                  x-text="snmpTestResult && snmpTestResult.pending
-                          ? t('actions.testing')
-                          : (snmpTestResult ? ((snmpTestResult.ok ? '✓ ' : '✗ ') + (snmpTestResult.detail || '')) : '')"></span>
             <span x-show="hasHostStatsSource('snmp') && !snmpEnabledHosts().length"
                   class="fs-2xs text-[var(--text-faint)] italic"
                   x-text="t('settings.host_stats.snmp.test_no_hosts')"></span>
@@ -989,6 +981,15 @@
                   class="fs-xs text-[var(--text-faint)]"
                   x-text="lastTestSuccessLabel('snmp')"></span>
           </div>
+          <div x-show="snmpTestResult" class="fs-sm rounded-md px-3 py-2"
+               :class="snmpTestResult && snmpTestResult.pending
+                       ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
+                       : (snmpTestResult && snmpTestResult.ok
+                         ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                         : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
+               x-text="snmpTestResult && snmpTestResult.pending
+                       ? t('actions.testing')
+                       : (snmpTestResult ? ((snmpTestResult.ok ? '✓ ' : '✗ ') + (snmpTestResult.detail || '')) : '')"></div>
 
           <!-- Tunables — SNMP probe timeout + concurrency. Same Alpine
                state pattern as the other relocated tunables. -->
