@@ -44,15 +44,13 @@ walkthroughs). Add new screenshots here at sensible names (`hosts-view.png`,
 ## Conventions
 
 - **Public-shippable content only.** Anything maintainer-private (working
-  scratch notes, runner config, the `.claude/agent-memory/**` dirs, the
-  deploy `.env`, the live Grafana dashboard) stays under `notes/` or is
-  gitignored. The audit grep is documented in `CLAUDE.md`'s
-  "Operator-private hostnames" convention bullet.
+  scratch notes, runner config, agent-memory dirs, the deploy `.env`, the
+  live Grafana dashboard) stays under `notes/` or is gitignored.
 - **Hostname / IP placeholders.** `*.example.com` (RFC 2606 reserved domain)
   for hostnames; `192.X.X.X` for IPs (chosen over the technically-valid RFC 5737
   `192.0.2.x` because visually-obvious-as-non-real beats strict standards
   conformance for this project).
 - **Cross-links.** Internal cross-references between guideline files use
   relative paths within `docs/` (e.g. `guidelines/auth.md` → `auth.md`).
-  Links from outside `docs/` (root README, CLAUDE.md, code docstrings) use
+  Links from outside `docs/` (root README, code docstrings) use
   the full `docs/guidelines/<file>.md` path.
