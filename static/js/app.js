@@ -11829,6 +11829,12 @@ function app() {
         // restore-after-reload contract needs them.
         host_ids:         Array.isArray(t.host_ids) ? t.host_ids.slice() : null,
         chart_kind:       (typeof t.chart_kind === 'string' && t.chart_kind) ? t.chart_kind : null,
+        // Per-action parameters — currently only retag_image consumes
+        // them (tag from ACTION_TAG, item-name-or-id from
+        // ACTION_ITEM). Persisted so the inline-confirm chip's
+        // re-fire after a reload uses the same params.
+        action_tag:       (t.action_tag || '').toString(),
+        action_item:      (t.action_item || '').toString(),
         pending_confirm:  !!t.pending_confirm,
         pending_action:   t.pending_action || null,
         cancelled:        !!t.cancelled,
@@ -11910,6 +11916,8 @@ function app() {
         error:            t.error || null,
         host_ids:         Array.isArray(t.host_ids) ? t.host_ids.slice() : null,
         chart_kind:       (typeof t.chart_kind === 'string' && t.chart_kind) ? t.chart_kind : null,
+        action_tag:       (t.action_tag || '').toString(),
+        action_item:      (t.action_item || '').toString(),
         pending_confirm:  !!t.pending_confirm,
         pending_action:   t.pending_action || null,
         cancelled:        !!t.cancelled,
@@ -15336,6 +15344,30 @@ function app() {
           run:   () => { this.runPortScan(null); }
         }] : []),
 
+        // Switch image tag — AI-dispatchable wrapper around the same
+        // `submitRetagPopover` flow the drawer's inline popover uses.
+        // `defer_confirm_to_run: true` means the runner itself decides
+        // whether to confirm; the inline-confirm chip path in the AI
+        // sidebar handles the destructive-confirm UX (no SwAl popup).
+        // `run(opts)` receives `{ skipConfirm, tag, item }` from the
+        // dispatcher — `tag` comes from the AI's `ACTION_TAG: <tag>`
+        // directive (parsed in main.py and forwarded as
+        // `payload.action_tag`); `item` resolves from `ACTION_ITEM:`
+        // first, then the open item drawer. Empty tag falls back to
+        // "latest" via the same backend validator the popover uses.
+        ...(typeof this.submitRetagPopover === 'function' ? [{
+          id: 'retag-image',
+          label: t('command_palette.action.retag_image', 'Switch image tag'),
+          sub:   t('command_palette.action.retag_image_sub', 'Switch this container/stack to a different floating tag (e.g. :latest, :2)'),
+          verbs: ['retag', 'switch', 'tag', 'pin', 'track'],
+          destructive: true,
+          // Defer the destructive-confirm gate to the dispatcher's
+          // inline-chip path (sidebar) — the runner skips its own
+          // popover when called with skipConfirm=true.
+          defer_confirm_to_run: true,
+          run: (opts) => { this._aiRetagDispatch(opts || {}); },
+        }] : []),
+
         // Sign out — destructive (terminates the session)
         ...(typeof this.logout === 'function' ? [{
           id: 'logout',
@@ -15881,6 +15913,13 @@ function app() {
       if (!action || typeof action.run !== 'function') return;
       const fromSidebar = !!(opts && opts.surface === 'sidebar');
       const skipConfirm = !!(opts && opts.skipConfirm);
+      // Per-action params forwarded to the descriptor's `run(opts)`.
+      // The retag_image action consumes `tag` (from ACTION_TAG) and
+      // `actionItem` (from ACTION_ITEM); other actions today ignore
+      // these. Add fields here as new parameterised actions land
+      // rather than introducing a parallel kwargs envelope.
+      const actionTag  = (opts && opts.tag) || (opts && opts.actionTag) || '';
+      const actionItem = (opts && opts.item) || (opts && opts.actionItem) || '';
       // Some destructive actions wrap their OWN SweetAlert confirm
       // INSIDE `run()` and present a richer payload (e.g. the topbar
       // Cleanup flow lists every container by name). Opting in via
@@ -15941,7 +15980,15 @@ function app() {
         }
       }
       try {
-        await action.run();
+        // Forward parameterised-action params via the run(opts)
+        // envelope. retag_image consumes `tag` + `actionItem` from
+        // the AI's ACTION_TAG / ACTION_ITEM directives. `skipConfirm`
+        // is FORWARDED (not unconditionally set true) so deferred
+        // actions whose inner SwAl is the only confirm in the
+        // modal-palette path still see it; the sidebar Yes-click
+        // path passes skipConfirm=true upstream so the second call
+        // bypasses the inner popup correctly.
+        await action.run({ skipConfirm: skipConfirm, tag: actionTag, actionItem: actionItem });
         // Sidebar: flip the most-recent assistant turn's `action_ran`
         // to true so the green "Ran:" chip surfaces. Skip when this
         // call is from the modal palette path (no turn to update).
@@ -15978,7 +16025,14 @@ function app() {
         // the rich-data SweetAlert it would otherwise raise is
         // bypassed. The operator already approved inline; a second
         // popup would defeat the no-popup contract.
-        await action.run({ skipConfirm: true });
+        // `tag` + `actionItem` are forwarded for parameterised
+        // actions (currently retag_image only). Other actions
+        // ignore them.
+        await action.run({
+          skipConfirm: true,
+          tag:         (turn.action_tag || '').toString(),
+          actionItem:  (turn.action_item || '').toString(),
+        });
       } catch (e) {
         if (typeof this.showToast === 'function') {
           this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
@@ -16227,6 +16281,8 @@ function app() {
               slash:            !!t.slash,
               host_ids:         Array.isArray(t.host_ids) ? t.host_ids.slice() : null,
               chart_kind:       (typeof t.chart_kind === 'string' && t.chart_kind) ? t.chart_kind : null,
+              action_tag:       (t.action_tag || '').toString(),
+              action_item:      (t.action_item || '').toString(),
               feedback:         t.feedback || null,
               error:            t.error || null,
               cancelled:        !!t.cancelled,
@@ -16564,6 +16620,14 @@ function app() {
           action_label:     actionDesc ? (actionDesc.label || actionId) : null,
           action_ran:       false,
           host_ids:         hostIds,
+          // Per-action parameters carried alongside the action_id so
+          // confirmInlineAction (the inline-chip "Yes" handler) can
+          // re-fire the action with the same params after the
+          // operator confirms. retag_image consumes both — `tag` from
+          // the AI's ACTION_TAG directive, `actionItem` from
+          // ACTION_ITEM. Other actions ignore them.
+          action_tag:       (j.action_tag || '').toString(),
+          action_item:      (j.action_item || '').toString(),
           // Persisted on the turn so re-hydration after a reload
           // (loadAiConversation walks each saved turn and re-fires
           // the populator) picks the right chart kind without a
@@ -16611,7 +16675,11 @@ function app() {
           } else {
             turn.action_ran = true;
           }
-          this._runCommandPaletteAction(actionDesc, { surface: 'sidebar' });
+          this._runCommandPaletteAction(actionDesc, {
+            surface:    'sidebar',
+            tag:        turn.action_tag,
+            actionItem: turn.action_item,
+          });
         }
       } catch (e) {
         this.aiConversation.push({
@@ -17525,6 +17593,17 @@ function app() {
         test_beszel:          'test-beszel',
         test_pulse:           'test-pulse',
         test_webmin:          'test-webmin',
+        // retag_image — switch a container/stack item's image tag to
+        // a different floating tag. Snake-case canonical id matches
+        // backend's ALLOWED_PALETTE_ACTIONS; kebab descriptor lives
+        // in `_commandActions()`. Synonyms cover the natural-language
+        // ways the operator might phrase it ("switch tag", "retag",
+        // "pin to v2") so the model has a stable map.
+        retag_image:          'retag-image',
+        switch_tag:           'retag-image',
+        pin_to_tag:           'retag-image',
+        change_tag:           'retag-image',
+        track_tag:            'retag-image',
       };
       const target = aliasMap[id] || kebab;
       const all = (typeof this._commandActions === 'function')
@@ -28593,79 +28672,147 @@ function app() {
         this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
       }
     },
-    // Eligibility gate for the drawer's "Switch to :latest" button.
-    // True iff the item is a container OR stack-managed item AND its
-    // image tag is something OTHER than `latest`. Two paths handle the
-    // dispatch downstream:
-    //   - Stack-managed (item.stack_id truthy) → case-1: rewrite the
-    //     compose file via /api/update/stack/{id}/retag-latest.
-    //   - Standalone container (item.raw_id truthy, stack_id null) →
-    //     case-2: recreate the container via
-    //     /api/update/container/{id}/retag-latest.
-    // Both paths require an image with a non-`latest` tag. Digest
-    // suffix `@sha256:...` is dropped before the tag-suffix check so
-    // digest-pinned-but-tagged-latest images still hide the button.
+    // Eligibility gate for the drawer's "Switch to tag…" inline-popover.
+    // True iff the item is a container OR stack-managed item with an
+    // image. The original gate required tag !== 'latest' (single-target
+    // retag); the generalised "switch to ANY tag" feature accepts
+    // moves both ways (e.g. :latest → :2 to pin a major-line, OR
+    // :2.0.0-dev → :2 to leave a snapshot tag for the moving v2 line),
+    // so the only requirements are:
+    //   - has an image
+    //   - has stack_id (Portainer-managed compose) OR raw_id (container
+    //     we can recreate via Docker)
+    //   - is a container/stack-managed item, NOT a Swarm service
+    //     (services need `docker service update --image --force` —
+    //     different flow).
+    // Digest-only images (no :tag) are still eligible — the operator
+    // can pin a tag where none was set before.
     canRetagToLatest(item) {
       if (!item || !item.image) return false;
-      // Need either stack_id (Portainer-managed compose) OR raw_id
-      // (any container we can recreate via Docker). Service items
-      // have neither flag unique to them, but their `stack_id` would
-      // be set if they're stack-managed.
       if (!item.stack_id && !item.raw_id) return false;
-      // Services aren't supported by either case yet — Swarm tasks
-      // need a different update flow (`docker service update --image
-      // ... --force`). Filter out so the button doesn't appear for
-      // service rows.
       if (item.type === 'service' || item.type === 'orphan') return false;
-      const noDigest = item.image.split('@')[0];
-      const lastSlash = noDigest.lastIndexOf('/');
-      const lastColon = noDigest.lastIndexOf(':');
-      const tag = (lastColon > lastSlash) ? noDigest.slice(lastColon + 1) : '';
-      return tag && tag !== 'latest';
+      return true;
     },
-    // Compose-stack image-tag swap: rewrites `image: <repo>:<tag>` →
-    // `image: <repo>:latest` in the stack's compose file, then runs the
-    // standard update path (Prune+PullImage). For single-service stacks
-    // (e.g. komodo running on a Compose-managed standalone container)
-    // this gives operators a one-click "track :latest from now on"
-    // affordance without manually editing the compose file in Portainer.
-    // Multi-service stacks scope the retag to the operator-clicked
-    // item's image_repo so sibling services keep their pinned tags.
-    async retagStackToLatest(item) {
+    // Inline-popover state for the drawer's "Switch to tag…" affordance.
+    // Single open-popover at a time across the app — `_retagPopoverItemId`
+    // holds the currently-open item id (raw_id || id) or null.
+    // Replaces the earlier SwAl-prompt path per operator request:
+    // "don't make it another popup, more enhanced and modern UI/UX".
+    // The popover anchors to the button itself (CSS position: absolute
+    // inside a position: relative wrapper) so it visually attaches to
+    // the action that opened it.
+    _retagPopoverItemId: null,
+    _retagDraft: '',
+    _retagBusy: false,
+    isRetagPopoverOpen(item) {
+      if (!item || !this._retagPopoverItemId) return false;
+      return this._retagPopoverItemId === (item.raw_id || item.id);
+    },
+    openRetagPopover(item) {
       if (!item) return;
+      const id = item.raw_id || item.id;
+      // Toggle: clicking the same item's button closes the popover.
+      if (this._retagPopoverItemId === id) {
+        this.closeRetagPopover();
+        return;
+      }
+      this._retagPopoverItemId = id;
+      this._retagDraft = '';
+      this._retagBusy = false;
+      // Focus the input on the next render so the operator can type
+      // immediately. Defensive: ref might not be mounted yet on a
+      // newly-toggled popover — wait one tick.
+      this.$nextTick(() => {
+        try {
+          const el = document.querySelector('[data-retag-input="' + id + '"]');
+          if (el) { el.focus(); el.select(); }
+        } catch (_) {}
+      });
+    },
+    closeRetagPopover() {
+      this._retagPopoverItemId = null;
+      this._retagDraft = '';
+      this._retagBusy = false;
+    },
+    // Submit the popover's draft tag. Hits the same backend retag
+    // endpoint the original button used; the new `tag` body field
+    // carries the operator's chosen target. Empty draft falls back
+    // to "latest" (server-side validator also defaults).
+    // AI-palette dispatch wrapper for the retag flow. Consumes the
+    // inline-confirm chip's `opts` envelope: `tag` from the AI's
+    // ACTION_TAG directive, `item` from ACTION_ITEM (resolved
+    // upstream by the dispatcher) OR the open item drawer when
+    // ACTION_ITEM is missing. Falls through to a toast asking the
+    // operator to specify when neither resolves. Pre-fills the
+    // popover's draft + busy state so `submitRetagPopover` can
+    // run untouched (single source of truth — AI dispatch and
+    // operator-typed inline use the same backend code path).
+    async _aiRetagDispatch(opts) {
+      const params = opts || {};
+      // Resolve target item: explicit `item` param > AI's ACTION_ITEM
+      // (resolved against `this.items` by raw_id / id / case-insensitive
+      // name match) > open item drawer.
+      let item = params.item || null;
+      const tokenRaw = (params.actionItem || '').toString().trim();
+      if (!item && tokenRaw) {
+        const tok = tokenRaw.toLowerCase();
+        const items = Array.isArray(this.items) ? this.items : [];
+        item = items.find(i => i && (i.raw_id === tokenRaw || i.id === tokenRaw))
+            || items.find(i => i && (i.name || '').toLowerCase() === tok)
+            || null;
+      }
+      if (!item) item = this.drawerItem || null;
+      if (!item) {
+        this.showToast(this.t('toasts.retag_no_target') || 'Open the item drawer first OR name the container/stack in your query.', 'warning');
+        return;
+      }
+      if (!this.canRetagToLatest(item)) {
+        this.showToast(this.t('toasts.retag_ineligible', { name: item.name }) || `Can't retag ${item.name} — not a container/stack-managed item.`, 'warning');
+        return;
+      }
+      // Pre-fill the popover's draft so submitRetagPopover sees the
+      // operator's chosen tag (or empty → backend defaults to :latest).
+      this._retagDraft = (params.tag || '').toString().trim();
+      this._retagPopoverItemId = item.raw_id || item.id;
+      this._retagBusy = false;
+      // Fire — submitRetagPopover handles validation, busy state,
+      // backend dispatch, toast, and popover-close on success.
+      try {
+        await this.submitRetagPopover(item);
+      } catch (e) {
+        // submitRetagPopover already toasts on its own failure path;
+        // this catch is defence-in-depth so a thrown error doesn't
+        // leave the popover state stuck open.
+        this.closeRetagPopover();
+      }
+    },
+    async submitRetagPopover(item) {
+      if (!item || this._retagBusy) return;
+      const target = (this._retagDraft || '').trim();
+      // Client-side validation mirrors the backend's _validate_retag_tag.
+      // Empty is allowed (server defaults to "latest"); otherwise must
+      // match Docker tag charset.
+      if (target && !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(target)) {
+        this.showToast(this.t('toasts.retag_invalid_tag', { tag: target }), 'error');
+        return;
+      }
+      const newTag = target || 'latest';
+      // Idempotence: if image already tracks the requested tag,
+      // short-circuit with a friendly toast instead of churning the
+      // backend.
       const currentImage = item.image || '';
-      // Strip tag + digest to extract the repo for the optional filter
-      // / proposed-image preview. `<host>/<path>/<repo>:<tag>@sha256:...`
-      // → `<host>/<path>/<repo>`.
       let imageRepo = currentImage.split('@')[0];
       const lastColon = imageRepo.lastIndexOf(':');
       const lastSlash = imageRepo.lastIndexOf('/');
+      const currentTag = (lastColon > lastSlash) ? imageRepo.slice(lastColon + 1) : '';
       if (lastColon > lastSlash) imageRepo = imageRepo.slice(0, lastColon);
-      const proposedImage = imageRepo + ':latest';
-      if (currentImage === proposedImage) {
-        this.showToast(this.t('toasts.retag_already_latest', { name: item.name }), 'info');
+      if (currentTag === newTag && !currentImage.includes('@')) {
+        this.showToast(this.t('toasts.retag_already_target', { name: item.name, tag: newTag }), 'info');
+        this.closeRetagPopover();
         return;
       }
-      // Two dispatch paths — case-1 rewrites the Portainer-managed
-      // compose file (stack-level), case-2 recreates the container
-      // directly (works for non-Portainer-managed containers like
-      // Komodo). Same SweetAlert confirm + same button + same toast
-      // contract.
+      this._retagBusy = true;
       const isStackPath = !!item.stack_id;
-      const ok = await this.confirmDialog({
-        title: this.t('dialogs.retag_latest_title'),
-        html: this.t('dialogs.retag_latest_html', {
-          name:    item.name,
-          oldImage: currentImage || '(unknown)',
-          newImage: proposedImage,
-        }) + (isStackPath ? '' : ('<div class="hint-top" style="margin-top:8px;color:var(--warning)">'
-              + (this.t('dialogs.retag_latest_recreate_note')
-                 || 'This container isn\'t managed by Portainer\'s stack engine — it will be stopped, removed, and recreated with the new tag. Named volumes + env + networks survive; transient state does not.')
-              + '</div>')),
-        icon: 'warning', confirmText: this.t('actions.retag_latest'),
-        focusConfirm: true,
-      });
-      if (!ok) return;
       const key = isStackPath
         ? this._busyKey('stack', item.stack_id)
         : this._busyKey('item', item.raw_id || item.id);
@@ -28674,18 +28821,23 @@ function app() {
         const url = isStackPath
           ? `/api/update/stack/${item.stack_id}/retag-latest`
           : `/api/update/container/${item.raw_id || item.id}/retag-latest`;
-        const body = isStackPath ? { image_repo: imageRepo } : {};
+        const body = isStackPath
+          ? { image_repo: imageRepo, tag: newTag }
+          : { tag: newTag };
         const r = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
         if (!r.ok) throw new Error(await r.text());
-        this.showToast(this.t('toasts.queued', { name: item.name }));
+        this.showToast(this.t('toasts.retag_queued', { name: item.name, tag: newTag }));
+        this.closeRetagPopover();
         this.pollOpsNow();
       } catch (e) {
         this._clearBusy(key);
         this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
+      } finally {
+        this._retagBusy = false;
       }
     },
     async restartService(item) { return this.restartItem(item); },

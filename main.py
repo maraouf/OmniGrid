@@ -1660,15 +1660,44 @@ async def api_update_stack(
 
 
 class StackRetagIn(BaseModel):
-    """Optional `image_repo` filter — when present, only image: lines whose
+    """Optional ``image_repo`` filter — when present, only image: lines whose
     repo matches that prefix are retagged. Otherwise every image: line in
-    the compose file flips to `:latest`."""
+    the compose file flips. Optional ``tag`` field — defaults to
+    ``"latest"`` for back-compat with the original "Switch to :latest"
+    code path; operators can pass any valid Docker tag (e.g. ``"2"``,
+    ``"v2-stable"``) to track a moving sub-version tag instead."""
     image_repo: Optional[str] = None
+    tag: Optional[str] = None
+
+
+class ContainerRetagIn(BaseModel):
+    """Optional ``tag`` field — same semantics as ``StackRetagIn.tag``."""
+    tag: Optional[str] = None
+
+
+def _validate_retag_tag(raw: Optional[str]) -> str:
+    """Sanitise the operator-supplied retag target tag. Empty / whitespace
+    falls back to ``"latest"``. Otherwise: trim, validate against the
+    Docker tag charset (``[A-Za-z0-9_.-]`` up to 128 chars per OCI
+    spec, can't start with ``.`` or ``-``). Rejects anything else with
+    a 400 — typo'd or malicious input shouldn't reach the compose
+    rewriter."""
+    import re as _re
+    t = (raw or "").strip()
+    if not t:
+        return "latest"
+    if len(t) > 128 or not _re.match(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", t):
+        raise HTTPException(
+            400,
+            f"Invalid tag {t!r} — must match Docker tag spec [A-Za-z0-9_][A-Za-z0-9_.-]{{0,127}}",
+        )
+    return t
 
 
 @app.post("/api/update/container/{container_id}/retag-latest")
 async def api_update_container_retag_latest(
     container_id: str, bg: BackgroundTasks, request: Request,
+    body: Optional[ContainerRetagIn] = None,
     _admin: auth.User = Depends(auth.require_admin),
 ):
     """Switch a non-Portainer-managed container's image tag to ``:latest``.
@@ -1688,11 +1717,12 @@ async def api_update_container_retag_latest(
     sessions) is lost. Persistent state (named volumes, env vars from
     compose / -e flags, restart policy) survives.
     """
+    new_tag = _validate_retag_tag(body.tag if body else None)
     name, stack = _item_context(container_id)
     op = new_op("update_container", container_id, name,
                 target_stack=stack, actor=_actor_from(request))
-    bg.add_task(_ops_mod.do_retag_container_to_latest, op, container_id)
-    return {"op_id": op.id}
+    bg.add_task(_ops_mod.do_retag_container_to_latest, op, container_id, new_tag)
+    return {"op_id": op.id, "new_tag": new_tag}
 
 
 @app.post("/api/update/stack/{stack_id}/retag-latest")
@@ -1718,6 +1748,7 @@ async def api_update_stack_retag_latest(
     a digest defeats the point of switching to a moving tag. Operators
     who want to re-pin can manually edit the compose file in Portainer.
     """
+    new_tag = _validate_retag_tag(body.tag)
     name = f"stack-{stack_id}"
     for s in _cache["stacks"]:
         if s.get("stack_id") == stack_id:
@@ -1729,8 +1760,9 @@ async def api_update_stack_retag_latest(
         _do_update_stack, op, stack_id,
         retag_to_latest=True,
         target_image_repo=body.image_repo,
+        new_tag=new_tag,
     )
-    return {"op_id": op.id}
+    return {"op_id": op.id, "new_tag": new_tag}
 
 
 @app.post("/api/update/container/{container_id}")
@@ -5015,6 +5047,30 @@ async def api_ai_palette(
     if action_host_ids:
         out["text"] = cleaned_text
         out["action_hosts"] = action_host_ids
+    text = cleaned_text
+
+    # Parse the optional `ACTION_TAG: <new_tag>` trailer — used by
+    # `ACTION: retag_image` to carry the destination tag (e.g. `2`,
+    # `latest`, `v2-stable`). Validated against the Docker tag
+    # charset by `parse_palette_action_tag`; invalid → empty string
+    # so the SPA falls back to its own default. The directive line
+    # is stripped from the rendered text either way.
+    action_tag, cleaned_text = _ai.parse_palette_action_tag(text)
+    if action_tag:
+        out["text"] = cleaned_text
+        out["action_tag"] = action_tag
+    text = cleaned_text
+
+    # Parse the optional `ACTION_ITEM: <name-or-id>` trailer — used by
+    # `ACTION: retag_image` (and any future per-item action) to name
+    # the target container/stack explicitly. The SPA resolves the
+    # token by exact-match against item ids first, then by case-
+    # insensitive name match; falls through to the open item drawer
+    # when the token doesn't resolve.
+    action_item, cleaned_text = _ai.parse_palette_action_item(text)
+    if action_item:
+        out["text"] = cleaned_text
+        out["action_item"] = action_item
     text = cleaned_text
 
     # Parse trailing MEMORY: / MEMORY-FORGET: directives. Each MEMORY:

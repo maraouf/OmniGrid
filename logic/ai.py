@@ -868,6 +868,17 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     "test_ping",
     "test_asset_inventory",
     "test_apprise",
+    # Switch a stack/container's image tag to a different floating tag.
+    # Operator pattern: pin a container deployed against `:2.0.0-dev` to
+    # the moving `:2` tag for v2-line patch updates without bumping to
+    # `:latest` (which on some images still tracks v1). The AI emits
+    # `ACTION: retag_image` paired with `ACTION_TAG: <new_tag>` (and
+    # OPTIONALLY `ACTION_ITEM: <name-or-id>`). When ACTION_ITEM is
+    # omitted, the SPA defaults to the open item drawer; if no drawer
+    # is open AND no ACTION_ITEM, the operator gets a toast asking to
+    # open the drawer or name the item explicitly. Destructive — gates
+    # behind the inline-confirm chip in approval mode.
+    "retag_image",
 })
 
 
@@ -1143,6 +1154,7 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - test_ping — re-test the Ping host-stats provider for the host. Navigates to Admin → Hosts and kicks the per-row test. Synonyms: 'test ping', 'check reachability'.\n"
     " - test_asset_inventory — refresh + verify the upstream asset-inventory connection. Navigates to Admin → Asset Inventory and kicks the probe. Synonyms: 'test asset inventory', 'check assets'.\n"
     " - test_apprise — send a test notification through every enabled medium so the operator confirms Apprise / in-app delivery is working. Synonyms: 'test notification', 'send test', 'test apprise'.\n"
+    " - retag_image — switch a container or stack-managed item's image tag to a different floating tag (e.g. switch `komodo-core:2.0.0-dev` to `:2` for v2-line patch updates without bumping to `:latest`). Synonyms: 'switch tag', 'retag', 'pin to tag', 'change image tag', 'track tag'. ALWAYS pair with `ACTION_TAG: <new_tag>` (the destination tag — bare value, e.g. `2`, no leading `:`). When the operator names a specific item in the query (e.g. \"switch komodo-core to :2\"), ALSO emit `ACTION_ITEM: <name-or-id>` so the SPA targets that item directly; otherwise the SPA defaults to the open item drawer. Example reply: 'Switching komodo-core from :2.0.0-dev to :2.\\nACTION: retag_image\\nACTION_ITEM: komodo-core\\nACTION_TAG: 2'. (Destructive — recreates the container or redeploys the stack; operator confirms via the inline-confirm chip in the AI sidebar before it fires.)\n"
     "Example single-action reply: 'I'll mark every notification as read for you.\\n"
     "ACTION: mark_all_notifications_read'\n"
     "Example multi-action reply (\"refresh and cleanup\"): 'Refreshing the dashboard, then opening the cleanup confirm.\\n"
@@ -1482,6 +1494,65 @@ def parse_palette_action_hosts(text: str, known_ids: set[str] | None = None) -> 
             break
     cleaned_text = text[: m.start()].rstrip()
     return cleaned_ids, cleaned_text
+
+
+def parse_palette_action_tag(text: str) -> tuple[str, str]:
+    """Extract the optional ``ACTION_TAG: <new_tag>`` trailer from a
+    palette response. Returns ``(tag, cleaned_text)``.
+
+    Used by the ``retag_image`` action — the AI emits
+    ``ACTION: retag_image`` paired with ``ACTION_TAG: 2`` (or
+    ``latest`` / ``v2-stable`` / etc.) and the SPA threads the tag
+    into the same retag endpoint the drawer's inline popover uses.
+    Validates against the Docker tag charset
+    (``[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}``); invalid → empty string +
+    untouched text so the caller can fall back to the operator-typed
+    default. Sibling of ``parse_palette_action_hosts`` — same
+    cleanup-text contract so the SPA's downstream renderer doesn't
+    surface the directive line as prose.
+    """
+    if not text:
+        return "", text or ""
+    import re as _re
+    m = _re.search(
+        r"(?:^|\n)[\s`*]*ACTION_TAG\s*:\s*(.+?)[\s`.*]*$",
+        text, _re.IGNORECASE | _re.MULTILINE,
+    )
+    if not m:
+        return "", text
+    raw = m.group(1).strip().strip("`'\"*.,;").strip()
+    cleaned_text = text[: m.start()].rstrip()
+    if not raw:
+        return "", cleaned_text
+    if len(raw) > 128 or not _re.match(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", raw):
+        return "", cleaned_text
+    return raw, cleaned_text
+
+
+def parse_palette_action_item(text: str) -> tuple[str, str]:
+    """Extract the optional ``ACTION_ITEM: <name-or-id>`` trailer from
+    a palette response. Returns ``(item_token, cleaned_text)``.
+
+    Used by the ``retag_image`` action when the operator names a
+    specific container/stack in the query and the AI surfaces the
+    target explicitly. The SPA resolves the token by exact-match
+    against item ids first, then by case-insensitive name match.
+    Sibling of ``parse_palette_action_hosts`` but for items (not
+    hosts) — keeps the action-target channel separated from the
+    HOSTS line that drives disk-projection charts.
+    """
+    if not text:
+        return "", text or ""
+    import re as _re
+    m = _re.search(
+        r"(?:^|\n)[\s`*]*ACTION_ITEM\s*:\s*(.+?)[\s`.*]*$",
+        text, _re.IGNORECASE | _re.MULTILINE,
+    )
+    if not m:
+        return "", text
+    raw = m.group(1).strip().strip("`'\"*.,;").strip()
+    cleaned_text = text[: m.start()].rstrip()
+    return raw, cleaned_text
 
 
 def parse_host_filter_response(text: str) -> tuple[str, str, str]:
