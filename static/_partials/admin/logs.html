@@ -196,15 +196,28 @@
                     <td class="px-3 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtBytes(f.size)"></td>
                     <td class="px-3 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtDate(f.mtime)"></td>
                     <td class="px-3 py-2 text-end">
-                      <div class="inline-flex gap-1">
-                        <button @click="viewLogFile(f.name)"
-                                class="btn btn-soft fs-xs"
-                                x-text="t('admin.logs.view')"></button>
+                      <!-- Action-button row — same pattern as Admin →
+                           Users / API tokens / Sessions / Backup /
+                           Config Backup / Schedules. View + Download. -->
+                      <div class="inline-flex items-center gap-0.5 justify-end user-actions">
+                        <button type="button"
+                                @click="viewLogFile(f.name)"
+                                class="user-action-btn"
+                                :title="t('admin.logs.view')"
+                                :aria-label="t('admin.logs.view')">
+                          <svg width="14" height="14" aria-hidden="true">
+                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-eye"/>
+                          </svg>
+                        </button>
                         <a :href="'/api/admin/logs/files/' + encodeURIComponent(f.name) + '/download'"
-                           class="btn btn-soft fs-xs"
                            :download="f.name"
+                           class="user-action-btn"
                            :title="t('admin.logs.download_title')"
-                           x-text="t('admin.logs.download')"></a>
+                           :aria-label="t('admin.logs.download')">
+                          <svg width="14" height="14" aria-hidden="true">
+                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
+                          </svg>
+                        </a>
                       </div>
                     </td>
                   </tr>

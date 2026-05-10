@@ -16755,6 +16755,26 @@ function app() {
           }
         }
       } catch (_) { /* never block the question on prefetch */ }
+      // Pre-fetch backup state when the operator's question mentions
+      // backup-style words AND the lists aren't loaded yet (empty
+      // because the operator never opened the Backup / Config Backup
+      // tabs in this session). Without this the AI replies "I don't
+      // have access to the history of backup jobs" — operator-flagged.
+      // Fire-and-forget; best-effort; never blocks the question.
+      try {
+        const lcq = q.toLowerCase();
+        const wantsBackupCtx = /\b(backup|backups|snapshot|snapshots|restore|restored|config\s*backup)\b/.test(lcq);
+        if (wantsBackupCtx) {
+          const tasks = [];
+          if (!Array.isArray(this.backups) || this.backups.length === 0) {
+            if (typeof this.loadBackups === 'function') tasks.push(this.loadBackups().catch(() => null));
+          }
+          if (!Array.isArray(this.configBackupSaved) || this.configBackupSaved.length === 0) {
+            if (typeof this.loadConfigBackupSaved === 'function') tasks.push(this.loadConfigBackupSaved().catch(() => null));
+          }
+          if (tasks.length) await Promise.allSettled(tasks);
+        }
+      } catch (_) { /* never block the question on prefetch */ }
       const ctx = this._buildAiPaletteContext();
       try {
         const r = await fetch('/api/ai/palette', {
@@ -17797,6 +17817,31 @@ function app() {
         items: itemsCtx,
       };
       if (weatherCtx) ctx.weather = weatherCtx;
+      // Backups context — operator-flagged the AI saying "I don't have
+      // access to the history of backup jobs" when asked "what's the
+      // latest backup?". Forward the latest 5 SQLite-backup zip rows
+      // AND the latest 5 Settings-as-Code (config_backup) snapshots
+      // when either list is loaded so the AI can answer freshness +
+      // pruning questions without a separate fetch. Skip cleanly when
+      // the lists are empty / not yet loaded so a fresh tab doesn't
+      // pad the prompt with meaningless rows.
+      const fmtBackup = (b) => ({
+        name:  String(b.name || ''),
+        size:  Number(b.size) || 0,
+        mtime: Number(b.mtime) || 0,
+      });
+      const sqliteBackups = (Array.isArray(this.backups) ? this.backups : [])
+        .slice(0, 5).map(fmtBackup).filter(b => b.name);
+      const configBackups = (Array.isArray(this.configBackupSaved) ? this.configBackupSaved : [])
+        .slice(0, 5).map(fmtBackup).filter(b => b.name);
+      if (sqliteBackups.length || configBackups.length) {
+        ctx.backups = {
+          sqlite: sqliteBackups,         // /api/backups (full DB + avatars zips)
+          config: configBackups,         // /api/admin/config-backup/list (Settings-as-Code JSON)
+          sqlite_count: sqliteBackups.length,
+          config_count: configBackups.length,
+        };
+      }
       return ctx;
     },
     // Resolve a snake_case action ID emitted by the AI palette
