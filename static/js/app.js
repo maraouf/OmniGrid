@@ -23104,23 +23104,30 @@ function app() {
         return ta - tb;
       });
     },
-    // Chip class for a detected port. TCP: green (`pill-ok`) when the
-    // port matches a curated service entry, amber (`pill-warning`)
-    // when open but not curated — the operator should either add it
-    // (expected listener) or investigate (unexpected). UDP: same
-    // green/amber for curated/unknown semantics PLUS a `chip--udp`
-    // modifier (italic text + thick info-blue left border) so the
-    // protocol is visually obvious at a glance without losing the
-    // curated/unknown signal. Curated services don't carry a
-    // protocol field today, so a `port: 22` curated row matches BOTH
-    // families.
+    // Chip class for a detected port.
+    //
+    // Two-axis colour scheme:
+    //   TCP curated  → pill-ok       (green — known good)
+    //   TCP unknown  → pill-warning  (amber — investigate / curate)
+    //   UDP (any)    → pill-info     (blue — distinct fill from TCP)
+    //
+    // UDP rolls up to ONE colour because the operator's primary
+    // request is "make UDP visually distinct from TCP", not "preserve
+    // curated/unknown within UDP". The curated vs unknown signal for
+    // UDP is carried by the tooltip + the curated chip's
+    // `service_hint` label suffix; the asset-mismatch icon (when
+    // asset inventory is enabled — see `portScanShouldFlag`)
+    // surfaces UDP rows that need attention separately.
+    //
+    // Curated services don't carry a protocol field today, so a
+    // `port: 22` curated row matches BOTH families.
     portScanChipClass(host, port) {
       if (!host || !port) return 'pill-muted';
+      const isUdp = ((port.protocol || 'tcp').toLowerCase() === 'udp');
+      if (isUdp) return 'pill-info';
       const curated = Array.isArray(host.services) ? host.services : [];
       const match = curated.find(s => Number(s && s.port) === Number(port.port));
-      const base = match ? 'pill-ok' : 'pill-warning';
-      const isUdp = ((port.protocol || 'tcp').toLowerCase() === 'udp');
-      return isUdp ? (base + ' chip--udp') : base;
+      return match ? 'pill-ok' : 'pill-warning';
     },
 
     // Tooltip for a detected port chip. Appends an "asset mismatch"
