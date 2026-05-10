@@ -55,7 +55,7 @@
                    @change="importHostsConfig($event)">
             <button x-show="isAdmin()" type="button"
                     @click="_runWithBusy('hosts_config', () => loadHostsConfig())"
-                    :disabled="hostsConfigLoading || _loadBusy.hosts_config"
+                    :disabled="hostsConfigLoading || _loadBusy.hosts_config === true"
                     :title="t('actions.reload')"
                     :aria-label="t('actions.reload')"
                     class="btn btn-ghost fs-sm inline-flex items-center gap-1.5">

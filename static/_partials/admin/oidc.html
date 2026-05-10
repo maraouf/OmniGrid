@@ -134,12 +134,13 @@
               <span x-show="oidcSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
             </button>
             <button @click="testOidcConnection()"
-                    :disabled="!oidcForm.enabled"
+                    :disabled="!oidcForm.enabled || (oidcTestResult && oidcTestResult.pending)"
                     class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-              <svg width="13" height="13" aria-hidden="true">
+              <svg width="13" height="13" :class="(oidcTestResult && oidcTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
               </svg>
-              <span x-text="t('settings.oidc.test_button')"></span>
+              <span x-show="!(oidcTestResult && oidcTestResult.pending)" x-text="t('settings.oidc.test_button')"></span>
+              <span x-show="oidcTestResult && oidcTestResult.pending" x-text="t('actions.testing')"></span>
             </button>
             <span x-show="lastTestSuccessLabel('oidc')"
                   class="fs-xs text-[var(--text-faint)]"

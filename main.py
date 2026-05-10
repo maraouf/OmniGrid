@@ -12142,7 +12142,11 @@ async def api_hosts_snmp_history(
     # tier; this brings the local sampler-backed providers in line.
     bucket = 0
     if h > 24:
-        target_points = 200
+        # Target ~96 points = roughly one point per hour at 7d, every
+        # 30 min at 48h. Previous 200-point target produced ~3024s
+        # buckets on 7d (still 168 raw-ish points = too noisy on the
+        # SVG). Tightened per operator feedback.
+        target_points = 96
         bucket = max(60, int(h * 3600 / target_points))
     try:
         with db_conn() as c:
