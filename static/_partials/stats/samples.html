@@ -63,7 +63,9 @@
                       <tr class="border-t border-[var(--border)]"
                           :class="row.error ? 'opacity-60' : ''">
                         <td class="px-4 py-2 mono fs-xs">
-                          <span class="chip pill-info fs-3xs uppercase" x-text="row.provider"></span>
+                          <span class="chip pill-custom fs-3xs uppercase"
+                                :style="providerChipStyle(row.provider)"
+                                x-text="row.provider"></span>
                         </td>
                         <td class="px-4 py-2 mono" x-text="row.name"></td>
                         <td class="px-4 py-2 fs-xs text-[var(--text-dim)]" x-text="row.kind"></td>

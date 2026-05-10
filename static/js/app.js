@@ -18693,12 +18693,18 @@ function app() {
       const yTicks = [0, yMax * 0.33, yMax * 0.66, yMax].map(v => ({
         v, y: Y(v).toFixed(1), label: fmtB(v),
       }));
-      // X-axis labels: today, 30d, 60d, 90d.
+      // X-axis labels: Today / +30 / +60 / +90 — relative day offsets
+      // read cleanly for a 90-day projection where the axis itself
+      // tells you "this is days from now". Absolute dates would
+      // require operators to do mental arithmetic to gauge the
+      // projection horizon.
       const xTicks = [0, 30, 60, 90].map(d => {
         const idx = Math.min(points.length - 1, Math.round((d / 90) * (points.length - 1)));
         const p = points[idx];
-        const dt = new Date(p.ts * 1000);
-        return { x: X(p.ts).toFixed(1), label: this._applyDateTimeFormat(dt, this._userDateOnlyFormat()) };
+        const label = d === 0
+          ? (this.t('stats.database.projection.today') || 'Today')
+          : '+' + d + 'd';
+        return { x: X(p.ts).toFixed(1), label };
       });
       const esc = (s) => this._logEscape(String(s));
       let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block">';
@@ -27044,7 +27050,46 @@ function app() {
           return;
         }
         const d = await r.json();
-        const next = Array.isArray(d.series) ? d.series : [];
+        let next = Array.isArray(d.series) ? d.series : [];
+        // Enrich the latest series point with live merged stats for
+        // `temps` / `gpus` / `temp_max` / `gpu_pwr` / `gpu_usage` /
+        // `gpu_vram_pct` when the host has live data but the persisted
+        // samples haven't caught up yet (sampler warm-up gap, or a
+        // newly-enabled GPU agent). Otherwise the chart shows
+        // "Collecting data" indefinitely even though the operator can
+        // see the values in the host card / drawer header.
+        try {
+          const host = (this.hosts || []).find(h => h && h.id === hostId);
+          if (host && next.length) {
+            const last = next[next.length - 1];
+            const liveTemps = host.host_temperatures || null;
+            const liveGpus = Array.isArray(host.host_gpus) ? host.host_gpus : [];
+            const seriesHasTemps = next.some(r => r && r.temps && Object.keys(r.temps).length > 0);
+            const seriesHasGpu = next.some(r => r && Number(r.gpu_pwr) > 0);
+            if (!seriesHasTemps && liveTemps && Object.keys(liveTemps).length > 0) {
+              last.temps = liveTemps;
+              const vals = Object.values(liveTemps).map(v => Number(v)).filter(Number.isFinite);
+              last.temp_max = vals.length ? Math.max(...vals) : 0;
+            }
+            if (!seriesHasGpu && liveGpus.length) {
+              let pwrSum = 0, usageSum = 0, vUsedSum = 0, vTotSum = 0, n = 0;
+              for (const g of liveGpus) {
+                if (!g || typeof g !== 'object') continue;
+                const w = Number(g.power_watts);   if (Number.isFinite(w)) pwrSum += w;
+                const u = Number(g.usage_percent); if (Number.isFinite(u)) usageSum += u;
+                const vu = Number(g.vram_used_bytes);  if (Number.isFinite(vu)) vUsedSum += vu;
+                const vt = Number(g.vram_total_bytes); if (Number.isFinite(vt)) vTotSum += vt;
+                n += 1;
+              }
+              if (n) {
+                last.gpus = liveGpus;
+                last.gpu_pwr = pwrSum / n;
+                last.gpu_usage = usageSum / n;
+                last.gpu_vram_pct = vTotSum > 0 ? (100 * vUsedSum / vTotSum) : 0;
+              }
+            }
+          }
+        } catch (_) { /* enrichment is best-effort */ }
         // Stamp loadedAt on every successful HTTP 2xx, regardless of
         // whether the series came back populated. Operator expectation
         // is "when did we last poll the backend" (matching their
