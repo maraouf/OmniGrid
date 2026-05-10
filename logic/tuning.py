@@ -270,6 +270,18 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # keepalive fires at-or-before the watchdog flips _sseConnected
     # to false.
     "tuning_pollops_sse_keepalive_seconds": ("POLLOPS_SSE_KEEPALIVE_SECONDS", 30, 5, 600),
+    # SPA-side load-busy watchdog. `_runWithBusy` and the topbar
+    # `refresh()` / `loadHosts()` flow + the SSE-pill refreshing
+    # flags (`cacheRefreshing` / `hubProbing` / `statsRefreshing`)
+    # cap any individual "busy" indicator at this many seconds. A
+    # hung fetch (server unreachable, network blip) can't leave a
+    # spinner or disabled-reload button stuck across the session.
+    # Lower bound 5s — anything shorter would clear the gate before
+    # a normal fetch completes and operators would see flickers.
+    # Upper bound 600s — anything longer is effectively "no cap"
+    # and defeats the watchdog's purpose. Default 30s matches the
+    # documented per-host probe budget for `/api/hosts/one/{id}`.
+    "tuning_load_busy_max_seconds":         ("LOAD_BUSY_MAX_SECONDS", 30, 5, 600),
     # login rate-limit policy. Three knobs grouped (max
     # failures, sliding window, lockout duration). Default mirrors
     # the prior hardcoded policy: 5 failures in 15 min → 15 min

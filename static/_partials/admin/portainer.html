@@ -160,7 +160,12 @@
               </button>
               <button @click="testPortainerConnection()"
                       :disabled="!settings.portainer_enabled"
-                      class="btn btn-soft fs-sm" x-text="t('settings.portainer.test_button')"></button>
+                      class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+                <svg width="13" height="13" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+                </svg>
+                <span x-text="t('settings.portainer.test_button')"></span>
+              </button>
               <!-- Last successful Test-connection timestamp. Stamped
                    on every passing test, persisted across reloads via
                    localStorage so the operator always sees when the

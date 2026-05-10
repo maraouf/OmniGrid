@@ -135,7 +135,12 @@
             </button>
             <button @click="testOidcConnection()"
                     :disabled="!oidcForm.enabled"
-                    class="btn btn-soft fs-sm" x-text="t('settings.oidc.test_button')"></button>
+                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+              <svg width="13" height="13" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+              </svg>
+              <span x-text="t('settings.oidc.test_button')"></span>
+            </button>
             <span x-show="lastTestSuccessLabel('oidc')"
                   class="fs-xs text-[var(--text-faint)]"
                   x-text="lastTestSuccessLabel('oidc')"></span>
