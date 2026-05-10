@@ -79,11 +79,11 @@
             </div>
             <button type="button"
                     @click="_runWithBusy('backups', () => loadBackups())"
-                    :disabled="_loadBusy.backups"
+                    :disabled="_loadBusy.backups === true"
                     :title="t('actions.reload')"
                     :aria-label="t('actions.reload')"
                     class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.backups ? 'spin-md' : ''" aria-hidden="true">
+              <svg width="13" height="13" :class="_loadBusy.backups === true ? 'spin-md' : ''" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
               </svg>
               <span x-text="t('actions.reload')"></span>

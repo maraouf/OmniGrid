@@ -6963,7 +6963,20 @@ function app() {
     // so a fast-clicking user can't start a second concurrent fetch.
     // The wrapped fn can be sync OR async — `await fn()` works either
     // way thanks to the implicit-promise wrap on a non-thenable value.
-    _loadBusy: {},
+    // Pre-declared keys ensure Alpine's reactive Proxy registers each
+    // property as a stable tracked path from mount. Adding properties
+    // later via `_loadBusy[key] = true` works in most cases but has
+    // edge cases (especially when Alpine evaluates the binding before
+    // the first write, then races against subsequent writes) where the
+    // initial DOM evaluation sticks even after the data clears. Listing
+    // every key with `false` up-front side-steps the whole class.
+    _loadBusy: {
+      users: false, sessions: false, tokens: false,
+      schedules: false, schedule_queue: false,
+      backups: false, config_backup_saved: false,
+      logs: false, log_files: false,
+      stats_overview: false, history: false, hosts_config: false,
+    },
     // Watchdog timer per busy-key — see `_runWithBusy` below. Cleared
     // when the inner fn resolves naturally; otherwise the timer force-
     // clears the busy flag after `_LOAD_BUSY_MAX_MS` so a hung Promise
@@ -19200,6 +19213,13 @@ function app() {
         if (!ok) return;
       }
       this.hostsConfigLoading = true;
+      // Watchdog cap — mirrors `_runWithBusy`. If `fetch` hangs (server
+      // unreachable / dead probe), `await` never returns and finally
+      // never runs; the Admin → Hosts reload button would stay stuck
+      // disabled across the session. Watchdog clears `hostsConfigLoading`
+      // after `_LOAD_BUSY_MAX_MS` so the UI recovers on its own.
+      const _wd = setTimeout(() => { if (this.hostsConfigLoading) this.hostsConfigLoading = false; },
+                             this._LOAD_BUSY_MAX_MS || 30000);
       try {
         const r = await fetch('/api/hosts/config');
         if (!r.ok) {
@@ -19286,6 +19306,7 @@ function app() {
         this.showToast(this.t('admin_hosts.load_failed', { error: e.message }), 'error');
       } finally {
         this.hostsConfigLoading = false;
+        try { clearTimeout(_wd); } catch (_) {}
       }
     },
     async discoverHosts() {

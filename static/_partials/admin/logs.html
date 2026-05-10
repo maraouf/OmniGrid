@@ -26,11 +26,11 @@
                    class="fs-sm min-w-[180px]">
             <button type="button"
                     @click="_runWithBusy('logs', () => loadLogs(true))"
-                    :disabled="_loadBusy.logs"
+                    :disabled="_loadBusy.logs === true"
                     :title="t('actions.reload')"
                     :aria-label="t('actions.reload')"
                     class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.logs ? 'spin-md' : ''" aria-hidden="true">
+              <svg width="13" height="13" :class="_loadBusy.logs === true ? 'spin-md' : ''" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
               </svg>
               <span x-text="t('actions.reload')"></span>
@@ -196,11 +196,11 @@
             <span class="fs-2xs text-[var(--text-faint)] mono" x-text="logFilesDir"></span>
             <button type="button"
                     @click="_runWithBusy('log_files', () => loadLogFiles())"
-                    :disabled="_loadBusy.log_files"
+                    :disabled="_loadBusy.log_files === true"
                     :title="t('actions.reload')"
                     :aria-label="t('actions.reload')"
                     class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.log_files ? 'spin-md' : ''" aria-hidden="true">
+              <svg width="13" height="13" :class="_loadBusy.log_files === true ? 'spin-md' : ''" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
               </svg>
               <span x-text="t('actions.reload')"></span>

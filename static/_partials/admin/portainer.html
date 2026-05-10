@@ -159,12 +159,13 @@
                 <span x-show="portainerSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
               </button>
               <button @click="testPortainerConnection()"
-                      :disabled="!settings.portainer_enabled"
+                      :disabled="!settings.portainer_enabled || (portainerTestResult && portainerTestResult.pending)"
                       class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-                <svg width="13" height="13" aria-hidden="true">
+                <svg width="13" height="13" :class="(portainerTestResult && portainerTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
                   <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
                 </svg>
-                <span x-text="t('settings.portainer.test_button')"></span>
+                <span x-show="!(portainerTestResult && portainerTestResult.pending)" x-text="t('settings.portainer.test_button')"></span>
+                <span x-show="portainerTestResult && portainerTestResult.pending" x-text="t('actions.testing')"></span>
               </button>
               <!-- Last successful Test-connection timestamp. Stamped
                    on every passing test, persisted across reloads via

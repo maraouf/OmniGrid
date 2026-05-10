@@ -2792,7 +2792,7 @@
            than the misleading "no hosts yet". -->
       <div x-show="hostsInitialLoaded && hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount === 0"
            class="text-center py-16 text-[var(--text-faint)] text-sm"
-           x-html="t('hosts_extra.empty.no_data_html', { sources: (hostsActiveSources || []).length ? '<span class=\'mono\'>' + ((hostsActiveSources || []).join(' / ')) + '</span>' : t('hosts_extra.empty.fallback_sources_label') })"></div>
+           x-html="t('hosts_extra.empty.no_data_html', { sources: (hostsActiveSources || []).length ? '<span class='mono'>' + ((hostsActiveSources || []).join(' / ')) + '</span>' : t('hosts_extra.empty.fallback_sources_label') })"></div>
     </div>
 
     <!-- ===== HISTORY VIEW ===== -->
@@ -2821,11 +2821,11 @@
           </a>
           <button type="button"
                   @click="_runWithBusy('history', () => loadHistory())"
-                  :disabled="_loadBusy.history"
+                  :disabled="_loadBusy.history === true"
                   :title="t('actions.reload')"
                   :aria-label="t('actions.reload')"
                   class="btn btn-ghost fs-sm inline-flex items-center gap-1.5">
-            <svg width="13" height="13" :class="_loadBusy.history ? 'spin-md' : ''" aria-hidden="true">
+            <svg width="13" height="13" :class="_loadBusy.history === true ? 'spin-md' : ''" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
             </svg>
             <span x-text="t('actions.reload')"></span>
@@ -3521,9 +3521,9 @@
                     <span class="fs-2xs text-[var(--text-faint)]"
                           x-show="hostTimeline[h.id] && hostTimeline[h.id].counts"
                           x-text="t('host_drawer.timeline.summary', {
-                            ops:           (hostTimeline[h.id] && hostTimeline[h.id].counts.ops) || 0,
-                            notifications: (hostTimeline[h.id] && hostTimeline[h.id].counts.notifications) || 0,
-                            failures:      (hostTimeline[h.id] && hostTimeline[h.id].counts.failures) || 0,
+                            ops:           (hostTimeline[h.id] && hostTimeline[h.id].counts && hostTimeline[h.id].counts.ops) || 0,
+                            notifications: (hostTimeline[h.id] && hostTimeline[h.id].counts && hostTimeline[h.id].counts.notifications) || 0,
+                            failures:      (hostTimeline[h.id] && hostTimeline[h.id].counts && hostTimeline[h.id].counts.failures) || 0,
                           })"></span>
                   </div>
                   <svg width="12" height="12" class="text-[var(--text-faint)]"
@@ -6548,8 +6548,8 @@
                         <div x-text="t('hosts_extra.collectors_missing.net_title')"></div>
                         <div class="fs-2xs text-[var(--text-faint)] mt-1"
                              x-html="t('hosts_extra.collectors_missing.net_body', {
-                               metric: '<code class=\'mono text-[var(--text-dim)]\'>node_network_*</code>',
-                               flag: '<code class=\'mono text-[var(--text-dim)]\'>--collector.netstats</code>'
+                               metric: '<code class='mono text-[var(--text-dim)]'>node_network_*</code>',
+                               flag: '<code class='mono text-[var(--text-dim)]'>--collector.netstats</code>'
                              })"></div>
                       </div>
                     </div>
@@ -6579,8 +6579,8 @@
                         <template x-if="!h.ne_url">
                           <div class="fs-2xs text-[var(--text-faint)] mt-1"
                                x-html="t('hosts_extra.net_inactive.body_in', {
-                                 code: '<code class=\'mono text-[var(--text-dim)]\'>NICS=eth0</code>',
-                                 ipcmd: '<code class=\'mono text-[var(--text-dim)]\'>ip a</code>'
+                                 code: '<code class='mono text-[var(--text-dim)]'>NICS=eth0</code>',
+                                 ipcmd: '<code class='mono text-[var(--text-dim)]'>ip a</code>'
                                })"></div>
                         </template>
                         <template x-if="h.ne_url">
@@ -6678,8 +6678,8 @@
                         <div x-text="t('hosts_extra.collectors_missing.disk_io_title')"></div>
                         <div class="fs-2xs text-[var(--text-faint)] mt-1"
                              x-html="t('hosts_extra.collectors_missing.disk_io_body', {
-                               metric: '<code class=\'mono text-[var(--text-dim)]\'>node_disk_*</code>',
-                               flag: '<code class=\'mono text-[var(--text-dim)]\'>--collector.diskstats</code>'
+                               metric: '<code class='mono text-[var(--text-dim)]'>node_disk_*</code>',
+                               flag: '<code class='mono text-[var(--text-dim)]'>--collector.diskstats</code>'
                              })"></div>
                       </div>
                     </div>

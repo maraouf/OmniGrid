@@ -1422,10 +1422,51 @@ def history_series(host_id: str, hours: int) -> list[dict]:
     against this path with no branching. Fields NE doesn't have are
     returned as 0; the chart-gates ``hostMetricStats(...).maxRaw > 0``
     on the SPA side hide those panels cleanly.
+
+    For windows longer than 24h the raw 5-min samples are aggregated
+    down to ~96 buckets server-side via AVG-per-bucket so the SVG
+    renderer doesn't get a 2000-point noise wall on the 7d view.
+    Mirrors the bucketing pattern `api_hosts_snmp_history` uses.
     """
     hours = max(1, min(168, int(hours or 1)))
     since = int(time.time() - hours * 3600)
     raw = recent_samples(host_id, since, limit=hours * 60)
+    # Server-side bucket for long windows. Same target (~96 points)
+    # as the SNMP history endpoint so every chart family aggregates
+    # uniformly at the 7d range.
+    if hours > 24 and raw:
+        bucket_seconds = max(60, int(hours * 3600 / 96))
+        buckets: dict[int, list[dict]] = {}
+        for row in raw:
+            ts = int(row.get("ts") or 0)
+            if ts <= 0:
+                continue
+            key = ts // bucket_seconds
+            buckets.setdefault(key, []).append(row)
+        aggregated: list[dict] = []
+        for key in sorted(buckets.keys()):
+            rows = buckets[key]
+            agg: dict = {}
+            # Average every numeric field across the bucket; use MIN(ts)
+            # as the canonical bucket timestamp. Non-numeric fields take
+            # the latest row's value.
+            min_ts = min(int(r.get("ts") or 0) for r in rows)
+            sample_keys = set()
+            for r in rows:
+                sample_keys.update(r.keys())
+            for k in sample_keys:
+                if k == "ts":
+                    agg[k] = min_ts
+                    continue
+                vals = [r.get(k) for r in rows if isinstance(r.get(k), (int, float))]
+                if vals:
+                    agg[k] = sum(vals) / len(vals)
+                else:
+                    # Non-numeric (string / list) — keep the latest
+                    # row's value (rows are ASC-sorted from recent_samples).
+                    agg[k] = rows[-1].get(k)
+            aggregated.append(agg)
+        raw = aggregated
     gib = 1024 ** 3
     series: list[dict] = []
     for r in raw:

@@ -154,11 +154,11 @@
             </div>
             <button type="button"
                     @click="_runWithBusy('schedules', () => loadSchedules())"
-                    :disabled="_loadBusy.schedules"
+                    :disabled="_loadBusy.schedules === true"
                     :title="t('actions.reload')"
                     :aria-label="t('actions.reload')"
                     class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.schedules ? 'spin-md' : ''" aria-hidden="true">
+              <svg width="13" height="13" :class="_loadBusy.schedules === true ? 'spin-md' : ''" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
               </svg>
               <span x-text="t('actions.reload')"></span>
@@ -281,11 +281,11 @@
                       :aria-label="t('hosts_extra.empty.clear_filter') || 'Clear filter'">✕</button>
               <button type="button"
                       @click="_runWithBusy('schedule_queue', () => loadScheduleQueue())"
-                      :disabled="_loadBusy.schedule_queue"
+                      :disabled="_loadBusy.schedule_queue === true"
                       :title="t('actions.reload')"
                       :aria-label="t('actions.reload')"
                       class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-                <svg width="13" height="13" :class="_loadBusy.schedule_queue ? 'spin-md' : ''" aria-hidden="true">
+                <svg width="13" height="13" :class="_loadBusy.schedule_queue === true ? 'spin-md' : ''" aria-hidden="true">
                   <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
                 </svg>
                 <span x-text="t('actions.reload')"></span>

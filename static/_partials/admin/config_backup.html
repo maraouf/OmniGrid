@@ -91,11 +91,11 @@
             </div>
             <button type="button"
                     @click="_runWithBusy('config_backup_saved', () => loadConfigBackupSaved())"
-                    :disabled="configBackupBusy || _loadBusy.config_backup_saved"
+                    :disabled="configBackupBusy || _loadBusy.config_backup_saved === true"
                     :title="t('actions.reload')"
                     :aria-label="t('actions.reload')"
                     class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.config_backup_saved ? 'spin-md' : ''" aria-hidden="true">
+              <svg width="13" height="13" :class="_loadBusy.config_backup_saved === true ? 'spin-md' : ''" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
               </svg>
               <span x-text="t('actions.reload')"></span>
