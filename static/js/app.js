@@ -23872,7 +23872,14 @@ function app() {
       // SNMP probe was running and `host_cpu_percent` was populated.
       // The data IS the strongest signal of capability — if the
       // backend stamped a value, the operator wants to see it.
-      if (Number(h.cpu_percent) > 0) return true;
+      // EXCEPTION: snapshot-restored stale values aren't capability
+      // signals — they're the LAST seen value from a since-orphaned
+      // provider (e.g. host_cpu_percent on an APC UPS that briefly
+      // reported via Beszel and now has no provider for it). Trusting
+      // those would render a permanent stale bar that never updates.
+      // When stale, fall through to the SNMP-history capability check.
+      const cpuStale = this.isStaleField(h, 'host_cpu_percent');
+      if (!cpuStale && Number(h.cpu_percent) > 0) return true;
       // Capability fallback for SNMP-tracked hosts at 0% (genuine
       // idle vs. agent-doesn't-expose). Defers to SNMP history,
       // which writes NULL when the agent didn't expose host_cpu_percent
@@ -23889,8 +23896,10 @@ function app() {
       // regardless of provider config. Loosened from the prior
       // `h.snmp_name && h.snmp_enabled === true` strict gate so SNMP-
       // tracked hosts with snmp_name set but snmp_enabled coerced false
-      // still render the bar when the backend provided values.
-      if ((+h.mem_total || 0) > 0) return true;
+      // still render the bar when the backend provided values. Same
+      // stale exception as the CPU gate above.
+      const memStale = this.isStaleField(h, 'host_mem_total') || this.isStaleField(h, 'host_mem_used');
+      if (!memStale && (+h.mem_total || 0) > 0) return true;
       if (h.snmp_name || h.snmp_enabled === true) {
         return this._hostHasFiniteSnmpHistory(h, 'memory');
       }
@@ -23900,6 +23909,12 @@ function app() {
       if (!h) return false;
       if (this._hostUnixAgent(h)) return true;
       // Data-first: any disk_total or disk_percent > 0 = capability.
+      // Same stale exception as the CPU / memory gates above. Disk
+      // history isn't currently surfaced by SNMP samples so there's
+      // no SNMP-history fallback — when stale and no other signal,
+      // the bar hides cleanly until a live provider populates it.
+      const diskStale = this.isStaleField(h, 'host_disk_total') || this.isStaleField(h, 'host_disk_used');
+      if (diskStale) return false;
       const diskTot = +h.disk_total || 0;
       const diskPct = +h.disk_percent || 0;
       if (diskTot > 0 || diskPct > 0) return true;
