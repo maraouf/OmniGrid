@@ -812,6 +812,16 @@ function app() {
     aiSidebarIncidentChip: null, // {kind, host_id, title, query, ts} — proactive chip rendered above the input when an SSE host-failure / warning-notification event lands AND the sidebar is open. Newest wins (one at a time); click runs the prepared query, X dismisses. Cleared after the query fires so the chip doesn't linger after the operator engaged with it.
     aiSidebarLauncherHidden: false, // Operator preference; hides the floating AI launcher. Cmd-K still opens the sidebar. Persisted to ui_prefs.ai_sidebar_launcher_hidden.
     aiSidebarLauncherHiddenDraft: false, // Draft value for the Settings → Profile checkbox. Marked dirty when it diverges from `aiSidebarLauncherHidden`; Save commits via `setAiSidebarLauncherHidden(draft)`. Hydrated alongside the live value.
+    // Settings → Profile → Formats. Single text input — the user
+    // types one datetime format string (e.g. `dd/MM/yyyy HH:mm:ss`,
+    // `yyyy-MM-dd HH:mm`, `MMM d, yyyy h:mm a`). The SPA's
+    // `_applyDateTimeFormat` token parser turns it into rendered
+    // strings; `fmtDateOnly` and `fmtDateTimeShort` derive their own
+    // shorter formats by stripping time / seconds from the user's
+    // value. Persisted to `ui_prefs.datetime_format`. Empty / blank
+    // value = inherit the SPA default `DEFAULT_DATETIME_FORMAT`. The
+    // draft is what the input binds to via x-model; Save commits.
+    datetimeFormatDraft: '',
     aiSidebarMode: 'approval', // 'approval' (default — destructive actions render an inline-confirm chip) OR 'autonomous' (AI fires every action — including destructive — without prompting). Persisted to ui_prefs.ai_sidebar_mode so the choice follows the operator across browsers / machines. Read by `_runCommandPaletteAction`'s sidebar branch — if mode === 'autonomous', the destructive-confirm path is bypassed entirely and the action fires immediately.
     aiSidebarPinned: false,      // Pin-to-dock mode — sidebar becomes a permanent left-edge split instead of slide-out overlay. Body gets `padding-inline-start: var(--ai-sidebar-width)` via the `body.ai-pinned` class so main view shrinks; backdrop is hidden (no overlay needed). Persisted to ui_prefs.ai_sidebar_pinned. Toggled via the 📌 Pin button in the sidebar header AND by `togglePinAiSidebar()`. Mobile (max-width: 480px) ignores pin (sidebar is 100vw — pinning would hide all content). When pinned, `openAiSidebar()` is implicit (sidebar is always open) and `closeAiSidebar()` un-pins as a side effect.
     // In-flight port-scan tracker — global keyed by host_id so the
@@ -5982,8 +5992,10 @@ function app() {
         const n = Math.round(diff / 3600);
         return this.t('hosts_extra.metrics.last_updated_hours', { count: n }) || `${n}h ago`;
       }
-      const d = new Date(Number(epochSeconds) * 1000);
-      try { return d.toLocaleDateString(); } catch (_) { return d.toISOString().slice(0, 10); }
+      // Older than 24h → fall back to a date-only render. Goes
+      // through `fmtDateOnly` so the operator's chosen Formats
+      // preference applies here too.
+      return this.fmtDateOnly(Number(epochSeconds));
     },
 
     async loadTotpStatus() {
@@ -6420,6 +6432,12 @@ function app() {
         // pre-fix behaviour and didn't fit the rest of the form's
         // explicit-save model.
         aiLauncherHidden: !!this.aiSidebarLauncherHiddenDraft,
+        // Datetime format string. Trimmed so trailing whitespace
+        // doesn't make the form look dirty when nothing meaningful
+        // changed. Empty draft + empty baseline both serialise as ''
+        // → match → not dirty (intentional: no value vs cleared
+        // value are equivalent for this preference).
+        dtFmt: (this.datetimeFormatDraft || '').trim(),
       });
     },
     headerPrefsDirty() {
@@ -6445,6 +6463,11 @@ function app() {
       // but /api/me's ui_prefs is the cross-device source of truth
       // and overrides localStorage on next page load (see init()).
       try {
+        // Datetime format goes through the same PATCH so cross-device
+        // sync stays the source of truth. Empty / whitespace draft is
+        // serialised as null which the backend treats as "clear the
+        // override; revert to the SPA default at next render".
+        const dtFmtTrimmed = (this.datetimeFormatDraft || '').trim();
         fetch('/api/me/ui-prefs', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -6454,8 +6477,18 @@ function app() {
             headerWeatherLat:     this.headerWeatherLat == null ? null : Number(this.headerWeatherLat),
             headerWeatherLon:     this.headerWeatherLon == null ? null : Number(this.headerWeatherLon),
             headerWeatherLabel:   this.headerWeatherLabel || null,
+            datetime_format:      dtFmtTrimmed || null,
           }}),
         }).catch(() => {/* silent — localStorage still has it */});
+        // Update the live `me.ui_prefs.datetime_format` immediately so
+        // every `:value="fmtDate(...)"` binding re-renders with the
+        // new format on this very save (the PATCH above is fire-and-
+        // forget; we don't wait for it). Empty draft → unset so the
+        // SPA falls back to DEFAULT_DATETIME_FORMAT.
+        if (this.me) {
+          if (!this.me.ui_prefs) this.me.ui_prefs = {};
+          this.me.ui_prefs.datetime_format = dtFmtTrimmed || '';
+        }
       } catch (_) {}
       // Re-fetch with the new settings immediately rather than waiting
       // for the 10-min tick. Also flushes weather to null when disabled.
@@ -6504,6 +6537,13 @@ function app() {
         this.headerWeatherLabel = p.headerWeatherLabel;
         try { localStorage.setItem('headerWeatherLabel', p.headerWeatherLabel); } catch (_) {}
       }
+      // Datetime format. Server is the only source of truth for this
+      // preference (no localStorage cache — the SPA reads via the
+      // already-hydrated `this.me.ui_prefs.datetime_format`). The draft
+      // mirrors the live value so the form input renders with the
+      // current setting and `headerPrefsDirty()` is false on first
+      // render.
+      this.datetimeFormatDraft = (typeof p.datetime_format === 'string') ? p.datetime_format : '';
     },
     // Inline SVG path(s) per WMO-icon slug. Kept tiny — the topbar chip
     // is 16px so detail is wasted. Backend maps WMO codes to slugs in
@@ -23302,19 +23342,10 @@ function app() {
         ['host_net_samples',        'samples_table.label_host_net'],
         ['ping_samples',            'samples_table.label_ping'],
       ];
-      const fmtTs = (ts) => {
-        if (ts == null) return '—';
-        try {
-          const d = new Date(ts * 1000);
-          // Same format as the X-axis ticks elsewhere in the app:
-          // local "HH:MM:SS" so the operator can match against the
-          // chart's time axis without mental conversion.
-          return d.toLocaleString(undefined, {
-            month:  'short', day: '2-digit',
-            hour:   '2-digit', minute: '2-digit', second: '2-digit',
-          });
-        } catch { return String(ts); }
-      };
+      // Routes through fmtDate so the operator's Formats preference
+      // applies here too — keeps the per-sample timestamp consistent
+      // with the rest of the SPA's renders.
+      const fmtTs = (ts) => this.fmtDate(ts);
       const fmtAge = (s) => {
         if (s == null) return '—';
         const n = Math.max(0, Math.round(+s || 0));
@@ -27518,23 +27549,10 @@ function app() {
     hostTimelineTimeLabel(ts) {
       const n = Number(ts);
       if (!Number.isFinite(n) || n <= 0) return '';
-      try {
-        const d = new Date(n * 1000);
-        // Explicit dd/mm/yyyy HH:MM:SS format. Pre-fix the helper used
-        // `d.toLocaleString()` which renders mm/dd/yyyy for en-US
-        // locales — operator wants the unambiguous day-first ordering
-        // regardless of the browser's locale setting.
-        const pad = (n) => String(n).padStart(2, '0');
-        const dd = pad(d.getDate());
-        const mm = pad(d.getMonth() + 1);
-        const yyyy = d.getFullYear();
-        const hh = pad(d.getHours());
-        const mi = pad(d.getMinutes());
-        const ss = pad(d.getSeconds());
-        return `${dd}/${mm}/${yyyy} ${hh}:${mi}:${ss}`;
-      } catch {
-        return '';
-      }
+      // Routes through fmtDate so the timeline picks up the user's
+      // Formats preference (Settings → Profile → Formats). Default
+      // remains the previous dd/MM/yyyy, HH:mm:ss when no override.
+      return this.fmtDate(n);
     },
     // ===== HOSTS BULK SELECTION ======================================
     // Selection helpers. The Hosts main view's row checkbox stops
@@ -28027,36 +28045,162 @@ function app() {
       return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
     },
 
-    // Date + time in dd/mm/yyyy, HH:MM:SS (24-hour). Used everywhere
-    // a full timestamp is shown (history, sessions, asset cache,
-    // etc). Uniform across browsers so two operators in different
-    // locales see identical strings in the admin tables.
+    // ---- User-configurable datetime format -------------------------
+    // The operator picks a single datetime format string in
+    // Settings → Profile → Formats. Stored at
+    // `me.ui_prefs.datetime_format`. The shared `_applyDateTimeFormat`
+    // helper applies that format to a Date object via a small token
+    // grammar. `fmtDate` uses the format verbatim; `fmtDateOnly`
+    // strips time tokens; `fmtDateTimeShort` strips seconds.
+    //
+    // Token grammar (subset of Unicode LDML — close enough that the
+    // operator's expectations from common date-format strings carry
+    // over without surprises):
+    //   yyyy  4-digit year
+    //   yy    2-digit year
+    //   MMMM  full month name (January)
+    //   MMM   short month name (Jan)
+    //   MM    2-digit month
+    //   M     1-2 digit month
+    //   dd    2-digit day
+    //   d     1-2 digit day
+    //   HH    24-hour 2-digit
+    //   H     24-hour 1-2 digit
+    //   hh    12-hour 2-digit
+    //   h     12-hour 1-2 digit
+    //   mm    2-digit minute
+    //   m     1-2 digit minute
+    //   ss    2-digit second
+    //   s     1-2 digit second
+    //   a     AM/PM marker (uppercase)
+    //   '...' literal (anything inside single quotes is emitted
+    //         as-is, so the operator can include letters that would
+    //         otherwise be parsed as tokens, e.g. "yyyy-MM-dd'T'HH:mm:ss")
+    DEFAULT_DATETIME_FORMAT: 'dd/MM/yyyy, HH:mm:ss',
+    _userDateTimeFormat() {
+      const pref = this.me && this.me.ui_prefs && this.me.ui_prefs.datetime_format;
+      const s = (pref || '').toString().trim();
+      return s || this.DEFAULT_DATETIME_FORMAT;
+    },
+    _applyDateTimeFormat(d, fmt) {
+      if (!d || isNaN(d.getTime())) return '—';
+      const pad = (n, w) => String(n).padStart(w, '0');
+      const monthsLong = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      const monthsShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const Y = d.getFullYear();
+      const M = d.getMonth() + 1;
+      const D = d.getDate();
+      const H = d.getHours();
+      const m = d.getMinutes();
+      const s = d.getSeconds();
+      const ampm = H >= 12 ? 'PM' : 'AM';
+      const h12 = ((H + 11) % 12) + 1;
+      // Token order matters — longer tokens BEFORE shorter so `MM`
+      // doesn't get matched as two separate `M` tokens. Single-quote
+      // literals are extracted first to a placeholder so token-replace
+      // doesn't see their content.
+      const literals = [];
+      let work = String(fmt || this.DEFAULT_DATETIME_FORMAT)
+        .replace(/'([^']*)'/g, (_, lit) => {
+          literals.push(lit);
+          return `\x00${literals.length - 1}\x00`;
+        });
+      const replacements = [
+        ['yyyy', String(Y)],
+        ['yy',   pad(Y % 100, 2)],
+        ['MMMM', monthsLong[M - 1]],
+        ['MMM',  monthsShort[M - 1]],
+        ['MM',   pad(M, 2)],
+        ['M',    String(M)],
+        ['dd',   pad(D, 2)],
+        ['d',    String(D)],
+        ['HH',   pad(H, 2)],
+        ['H',    String(H)],
+        ['hh',   pad(h12, 2)],
+        ['h',    String(h12)],
+        ['mm',   pad(m, 2)],
+        ['m',    String(m)],
+        ['ss',   pad(s, 2)],
+        ['s',    String(s)],
+        ['a',    ampm],
+      ];
+      // Walk the format char-by-char, greedily matching the longest
+      // token at each position. Anything not a token is passed
+      // through verbatim (commas / slashes / colons / spaces).
+      let out = '';
+      let i = 0;
+      while (i < work.length) {
+        // Literal placeholder?
+        if (work.charCodeAt(i) === 0) {
+          const end = work.indexOf('\x00', i + 1);
+          if (end > 0) {
+            const idx = parseInt(work.slice(i + 1, end), 10);
+            out += literals[idx] || '';
+            i = end + 1;
+            continue;
+          }
+        }
+        let matched = false;
+        for (const [tok, val] of replacements) {
+          if (work.startsWith(tok, i)) {
+            out += val;
+            i += tok.length;
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) {
+          out += work[i];
+          i += 1;
+        }
+      }
+      return out;
+    },
+    // Date + time using the operator's preferred format. Used
+    // everywhere a full timestamp is shown (history, sessions, asset
+    // cache, drawer timeline, etc). Default is `dd/MM/yyyy, HH:mm:ss`.
     fmtDate(ts) {
       if (!ts) return '—';
       const d = new Date(ts * 1000);
-      if (isNaN(d.getTime())) return '—';
-      const pad = n => String(n).padStart(2, '0');
-      return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear()
-           + ', ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+      return this._applyDateTimeFormat(d, this._userDateTimeFormat());
     },
-    // Date only — dd/mm/yyyy. Use when the time-of-day would be noise
-    // (e.g. "created 25/04/2026" on a config row).
+    // Date only — derived from the user's full format by stripping
+    // every time-related token (`H`/`h`/`m`/`s`/`a`) and any leading
+    // / trailing whitespace, commas, dashes the strip leaves behind.
     fmtDateOnly(ts) {
       if (!ts) return '—';
       const d = new Date(ts * 1000);
-      if (isNaN(d.getTime())) return '—';
-      const pad = n => String(n).padStart(2, '0');
-      return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear();
+      const full = this._userDateTimeFormat();
+      // Strip time tokens. Process longer tokens first so e.g. `mm`
+      // gets removed before `m`. Also handle the AM/PM `a`.
+      let datePart = full
+        .replace(/HH|H|hh|h/g, '')
+        .replace(/mm/g, '')
+        .replace(/(?<![A-Za-z])m(?![A-Za-z])/g, '')
+        .replace(/ss/g, '')
+        .replace(/(?<![A-Za-z])s(?![A-Za-z])/g, '')
+        .replace(/(?<![A-Za-z])a(?![A-Za-z])/g, '');
+      // Tidy up dangling separators left over by the strip.
+      datePart = datePart
+        .replace(/[,;:\s]+$/g, '')
+        .replace(/^[,;:\s]+/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/[,;:]\s*$/g, '');
+      return this._applyDateTimeFormat(d, datePart || 'dd/MM/yyyy');
     },
-    // Date + short time — dd/mm/yyyy, HH:MM (no seconds). Use when
-    // second-precision is noise (scheduled-next-run, audit-log list).
+    // Date + short time — drops only the seconds component from the
+    // user's format (token `ss` → ''; token `:ss` cleans up the
+    // dangling colon).
     fmtDateTimeShort(ts) {
       if (!ts) return '—';
       const d = new Date(ts * 1000);
-      if (isNaN(d.getTime())) return '—';
-      const pad = n => String(n).padStart(2, '0');
-      return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear()
-           + ', ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      const full = this._userDateTimeFormat();
+      const noSec = full
+        .replace(/:ss/g, '')
+        .replace(/\.ss/g, '')
+        .replace(/(?<![A-Za-z])ss(?![A-Za-z])/g, '')
+        .replace(/(?<![A-Za-z])s(?![A-Za-z])/g, '');
+      return this._applyDateTimeFormat(d, noSec);
     },
     copy(text) {
       navigator.clipboard?.writeText(text);

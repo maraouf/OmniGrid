@@ -201,6 +201,104 @@
                 </div>
               </div>
             </template>
+            <!-- Formats sub-section — single text input where the user
+                 enters one datetime format string. The SPA's
+                 `_applyDateTimeFormat` token parser renders date /
+                 datetime everywhere from this one value (date-only and
+                 short-datetime are derived by stripping time / seconds
+                 tokens). Persisted to ui_prefs.datetime_format via the
+                 same Save button as the rest of this section — dirty
+                 tracking flows through `_headerPrefsSnapshot` →
+                 `headerPrefsDirty()`. Empty input = inherit the SPA
+                 default (`dd/MM/yyyy, HH:mm:ss`). -->
+            <div>
+              <hr class="border-[var(--border)] my-4">
+              <div class="flex items-center gap-2 mb-4">
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
+                </svg>
+                <h3 class="font-semibold fs-md" x-text="t('settings.formats.title')"></h3>
+              </div>
+              <p class="fs-xs text-[var(--text-faint)] mb-4"
+                 x-text="t('settings.formats.intro')"></p>
+              <div class="space-y-3">
+                <div>
+                  <label class="block fs-xs text-[var(--text-dim)] mb-1"
+                         x-text="t('settings.formats.datetime_label')"></label>
+                  <input type="text"
+                         x-model="datetimeFormatDraft"
+                         :placeholder="DEFAULT_DATETIME_FORMAT"
+                         class="w-full fs-sm mono"
+                         spellcheck="false"
+                         autocomplete="off">
+                  <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                     x-text="t('settings.formats.datetime_hint', { default: DEFAULT_DATETIME_FORMAT })"></p>
+                </div>
+                <!-- Live preview — re-evaluates on every keystroke via
+                     Alpine reactivity, using the draft value (NOT the
+                     saved one) so the user can see what their input
+                     produces before clicking Save. Falls back to the
+                     SPA default when the draft is empty. -->
+                <div class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3">
+                  <div class="fs-2xs text-[var(--text-dim)] mb-2"
+                       x-text="t('settings.formats.preview_label')"></div>
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 fs-xs">
+                    <div>
+                      <div class="text-[var(--text-faint)]" x-text="t('settings.formats.preview_full')"></div>
+                      <div class="mono" x-text="_applyDateTimeFormat(new Date(), (datetimeFormatDraft || '').trim() || DEFAULT_DATETIME_FORMAT)"></div>
+                    </div>
+                    <div>
+                      <div class="text-[var(--text-faint)]" x-text="t('settings.formats.preview_date_only')"></div>
+                      <div class="mono" x-text="(function(){
+                        const f = ((datetimeFormatDraft || '').trim() || DEFAULT_DATETIME_FORMAT)
+                          .replace(/HH|H|hh|h/g, '')
+                          .replace(/mm/g, '')
+                          .replace(/(?<![A-Za-z])m(?![A-Za-z])/g, '')
+                          .replace(/ss/g, '')
+                          .replace(/(?<![A-Za-z])s(?![A-Za-z])/g, '')
+                          .replace(/(?<![A-Za-z])a(?![A-Za-z])/g, '')
+                          .replace(/[,;:\s]+$/g, '')
+                          .replace(/^[,;:\s]+/g, '')
+                          .replace(/\s{2,}/g, ' ')
+                          .replace(/[,;:]\s*$/g, '');
+                        return _applyDateTimeFormat(new Date(), f || 'dd/MM/yyyy');
+                      })()"></div>
+                    </div>
+                    <div>
+                      <div class="text-[var(--text-faint)]" x-text="t('settings.formats.preview_short')"></div>
+                      <div class="mono" x-text="(function(){
+                        const f = ((datetimeFormatDraft || '').trim() || DEFAULT_DATETIME_FORMAT)
+                          .replace(/:ss/g, '')
+                          .replace(/\.ss/g, '')
+                          .replace(/(?<![A-Za-z])ss(?![A-Za-z])/g, '')
+                          .replace(/(?<![A-Za-z])s(?![A-Za-z])/g, '');
+                        return _applyDateTimeFormat(new Date(), f);
+                      })()"></div>
+                    </div>
+                  </div>
+                </div>
+                <details class="fs-xs text-[var(--text-dim)]">
+                  <summary class="cursor-pointer hover:text-[var(--text)]"
+                           x-text="t('settings.formats.tokens_summary')"></summary>
+                  <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 mono fs-2xs">
+                    <div><b>yyyy</b> — <span x-text="t('settings.formats.token_yyyy')"></span></div>
+                    <div><b>yy</b> — <span x-text="t('settings.formats.token_yy')"></span></div>
+                    <div><b>MMMM</b> — <span x-text="t('settings.formats.token_mmmm')"></span></div>
+                    <div><b>MMM</b> — <span x-text="t('settings.formats.token_mmm')"></span></div>
+                    <div><b>MM</b> — <span x-text="t('settings.formats.token_mm')"></span></div>
+                    <div><b>M</b> — <span x-text="t('settings.formats.token_m')"></span></div>
+                    <div><b>dd</b> — <span x-text="t('settings.formats.token_dd')"></span></div>
+                    <div><b>d</b> — <span x-text="t('settings.formats.token_d')"></span></div>
+                    <div><b>HH</b> — <span x-text="t('settings.formats.token_hh')"></span></div>
+                    <div><b>hh</b> — <span x-text="t('settings.formats.token_hh12')"></span></div>
+                    <div><b>mm</b> — <span x-text="t('settings.formats.token_mm_min')"></span></div>
+                    <div><b>ss</b> — <span x-text="t('settings.formats.token_ss')"></span></div>
+                    <div><b>a</b> — <span x-text="t('settings.formats.token_a')"></span></div>
+                    <div><b>'…'</b> — <span x-text="t('settings.formats.token_literal')"></span></div>
+                  </div>
+                </details>
+              </div>
+            </div>
             <!-- Save button — toggling the checkboxes / typing in the
                  lat/lon/label fields ONLY marks the form dirty. Save
                  commits to localStorage AND syncs to /api/me/ui-prefs
