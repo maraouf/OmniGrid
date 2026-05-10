@@ -2744,6 +2744,10 @@ class SettingsIn(BaseModel):
     # out N parallel /api/hosts/one/{id} per refresh; caching the
     # snapshot-table read for a few seconds collapses N reads into 1.
     tuning_host_snapshots_cache_ttl_seconds: Optional[str] = None
+    # Per-field "stale grace" cap for the snapshot fallback. Bounds
+    # how long a stale field survives in the merged dict / persisted
+    # snapshot before being dropped as an orphan. Default 24h.
+    tuning_host_snapshot_stale_field_max_age_hours: Optional[str] = None
     # concurrency cap on the SPA's per-host /api/hosts/one/<id>
     # fan-out in `loadHosts()`. Read on /api/me into
     # `me.client_config.hosts_parallel_fetch`.

@@ -102,6 +102,21 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # operators disable the cache entirely (every call hits the DB);
     # max 300s caps a misconfigured override at 5 min.
     "tuning_host_snapshots_cache_ttl_seconds": ("HOST_SNAPSHOTS_CACHE_TTL_SECONDS", 5, 0, 300),
+    # Per-field "stale grace" cap for the snapshot fallback
+    # (`logic/gather.py:apply_host_snapshot_fallback`). When a provider
+    # stops emitting a host_* field, the snapshot fallback restores
+    # the last-known value flagged stale; without this cap, fields a
+    # host CAN'T produce (e.g. host_cpu_percent on an APC UPS, or
+    # host_ping_loss_pct on a non-pinged host) accumulate as phantom
+    # stale rows forever — every gather restores them, every save
+    # re-persists them, the cycle never breaks. This tunable bounds
+    # how long a stale field can survive without a fresh value: when
+    # `now - first_stale_ts > grace_window`, the field is dropped from
+    # both the merged dict AND the next snapshot save, so the orphan
+    # decays naturally. Default 24h covers transient outages
+    # (provider down for hours, operator wants to see last value)
+    # without keeping orphans forever. Range 1..720h (1h..30d).
+    "tuning_host_snapshot_stale_field_max_age_hours": ("HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS", 24, 1, 720),
     # concurrency cap on the SPA's per-host /api/hosts/one/<id>
     # fan-out in `loadHosts()`. Read on /api/me into
     # `me.client_config.hosts_parallel_fetch`; loadHosts resolves it per
