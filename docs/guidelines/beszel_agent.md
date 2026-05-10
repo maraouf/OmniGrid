@@ -2,8 +2,8 @@
 
 OmniGrid consumes host-level CPU / memory / disk / network stats from a
 Beszel Hub (`logic/beszel.py`). The Hub aggregates data pushed by the
-**Beszel agent** running on every target host. Two pieces the operator
-has to get right before charts light up in OmniGrid:
+**Beszel agent** running on every target host. Two pieces have to be
+right before charts light up in OmniGrid:
 
 1. Each host runs a Beszel agent with matching `KEY`, `PORT`, and (for
    network stats) a `NICS=` env variable pointing at the real NIC.
@@ -155,7 +155,7 @@ docker run -d --name beszel-agent --restart unless-stopped \
 
 Detects the interface carrying the default route and pins the agent
 to it. Works on any single-NIC Debian / Ubuntu / RHEL host without
-the operator having to read `ip -o link show` first:
+having to read `ip -o link show` first:
 
 ```bash
 NIC=$(ip -o route show default | awk '{print $5}' | head -1) && \

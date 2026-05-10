@@ -5,7 +5,7 @@ with a two-track cadence:
 
 - **PATCH bumps are continuous and automatic** — every successful CI
   deploy increments PATCH by 1.
-- **MINOR releases are periodic and manual** — the operator decides when
+- **MINOR releases are periodic and manual** — the maintainer decides when
   enough PATCH-shipped work has accumulated to warrant a "release" and
   cuts one by hand.
 
@@ -21,7 +21,7 @@ ritual that takes ~5 minutes.
 | **PATCH** | CI (automatic) | Every successful `git push origin main` that triggers a deploy | n/a |
 
 The accumulating PATCH counter between MINOR releases is intentional —
-it's the "tasks shipped since the last release" signal the operator
+it's the "tasks shipped since the last release" signal the maintainer
 glances at to decide *when* a MINOR cut is warranted.
 
 ## Where the version number lives (image-build deploy)
@@ -41,7 +41,7 @@ remains as:
 - A dev-time hint for IDEs / `_read_version()`'s repo-fallback path.
 - A **file-grounded floor** that the deploy pipeline reads as one of three
   version sources (see "Daily flow" below). Hand-editing it is how the
-  operator seeds a MAJOR / MINOR bump for the next CI deploy.
+  maintainer seeds a MAJOR / MINOR bump for the next CI deploy.
 
 A local `docker build` without `--build-arg VERSION=...` produces an
 image whose `/api/version` reports `0.0.0-dev` — visible signal that
@@ -61,7 +61,7 @@ For every change:
         when reachable.
      2. **`VERSION.txt` from the rsynced build context** (file-grounded
         floor; survives a brief outage of the live service AND lets the
-        operator seed MAJOR / MINOR bumps from the repo).
+        maintainer seed MAJOR / MINOR bumps from the repo).
      3. **Highest existing `omnigrid:<X.Y.Z>` tag** in the local image
         registry on the manager (covers post-rollback scenarios).
    - increments PATCH by 1, runs `docker build --build-arg VERSION=<new>`,
@@ -141,7 +141,7 @@ a line:
 
 ## Rare flow (MAJOR — breaking change)
 
-Reserve MAJOR for changes that require operator intervention to upgrade:
+Reserve MAJOR for changes that require manual intervention to upgrade:
 
 - Database schema migration that isn't applied automatically by `init_db()`.
 - Env var rename (e.g. `BESZEL_HUB_URL` → `MONITORING_HUB_URL`).
@@ -162,8 +162,8 @@ Process:
 3. Bake the migration into `init_db()` / lifespan startup where
    possible so the upgrade is hands-off; otherwise document the manual
    command clearly.
-4. Tag the release as usual + Apprise the announcement so the operator
-   doesn't miss the manual step.
+4. Tag the release as usual + Apprise the announcement so the manual
+   upgrade step doesn't get missed.
 
 ## File reference
 
@@ -186,7 +186,7 @@ Process:
 
 ## Why this works for OmniGrid
 
-OmniGrid has one operator and one user (often the same person). Heavy
+OmniGrid has one maintainer and one user (often the same person). Heavy
 release ceremony (RC builds, beta channels, signed tarballs, GPG-signed
 tags) is overkill. But a *visible* changelog and a *predictable* version
 bump are still load-bearing because:

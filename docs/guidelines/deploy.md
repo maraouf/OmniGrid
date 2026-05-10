@@ -433,8 +433,8 @@ ssh pi@docker.example.com '
 ```
 
 Typical result on a Swarm manager: `rsync` MISSING, `docker` + `ssh` + `sudo` present,
-`/opt/omnigrid/app` exists (because the operator created it pre-deploy and CI rsyncs the
-build context here), ownership is `root:root`.
+`/opt/omnigrid/app` exists (created pre-deploy, CI rsyncs the build context into it),
+ownership is `root:root`.
 
 ### 2.2 Install rsync (and anything else flagged missing)
 
@@ -534,7 +534,7 @@ ssh pi@docker.example.com 'chmod 600 /opt/omnigrid/app/.env'
 ```
 
 The compose bind is `:ro`, so the container can't modify the file (intentional — secrets
-should only flow operator → host, never the other way).
+flow into the host, never the other way).
 
 ## 3. First run
 
@@ -618,15 +618,15 @@ The repo-root `VERSION.txt` is no longer the runtime source of truth — it rema
 dev-time hint for IDEs and `_read_version()`'s repo-fallback path, but the deploy pipeline
 never reads or writes it.
 
-See `docs/RELEASE_PROCESS.md` for the full operator runbook. Quick summary:
+See `docs/RELEASE_PROCESS.md` for the full release runbook. Quick summary:
 
-- **MAJOR** — operator-controlled. Reserved for breaking changes. Resets MINOR + PATCH to 0.
+- **MAJOR** — manually cut. Reserved for breaking changes. Resets MINOR + PATCH to 0.
   Cut by hand-building an `omnigrid:<X.0.0>` tag on the manager and `docker service update
   --image omnigrid:<X.0.0> omnigrid_omnigrid`. The next CI deploy reads `/api/version=X.0.0`
   and increments PATCH → `X.0.1`.
-- **MINOR** — operator-controlled, periodic. When a batch of PATCH-shipped items feels
-  release-worthy, the operator runs a manual `docker build --build-arg VERSION=<X.Y.0>`
-  + `service update --image omnigrid:<X.Y.0>` on the manager (or pushes a one-off tagged
+- **MINOR** — manually cut, periodic. When a batch of PATCH-shipped items feels
+  release-worthy, run a manual `docker build --build-arg VERSION=<X.Y.0>`
+  + `service update --image omnigrid:<X.Y.0>` on the manager (or push a one-off tagged
   image). The next CI deploy increments PATCH → `X.Y.1`. CI never touches MINOR autonomously.
 - **PATCH** — CI-controlled, automatic. Every successful CI deploy resolves the previous
   version from THREE sources and takes the highest semver, then increments PATCH by 1 and
@@ -634,9 +634,9 @@ See `docs/RELEASE_PROCESS.md` for the full operator runbook. Quick summary:
   three sources, in order of authority:
     1. **Live `/api/version`** on the running service — most authoritative when reachable.
     2. **`VERSION.txt` from the rsynced build context** (`/opt/omnigrid/app/VERSION.txt`) —
-       file-grounded floor; survives a brief outage of the live service. Operator can also
-       hand-edit this in the repo to SEED a MAJOR/MINOR bump (the next CI deploy will read
-       it as the new floor and bump from there).
+       file-grounded floor; survives a brief outage of the live service. Hand-edit this in
+       the repo to SEED a MAJOR/MINOR bump (the next CI deploy will read it as the new
+       floor and bump from there).
     3. **Highest existing `omnigrid:<X.Y.Z>` tag in the local image registry** on the
        manager — covers post-rollback scenarios where you've manually swapped to an older
        tag; the registry still knows the highest version that ever shipped, so the next CI
@@ -658,8 +658,8 @@ See `docs/RELEASE_PROCESS.md` for the full operator runbook. Quick summary:
 
 The old Admin → Version UI was a direct VERSION.txt editor that worked because of a writable
 per-file bind mount on the host. Under the image-build model that file lives INSIDE the image
-and isn't writable from inside the container; the equivalent operator workflow is to build a
-new image with the desired `--build-arg VERSION=...` and force-update the service onto it.
+and isn't writable from inside the container; the equivalent workflow is to build a new image
+with the desired `--build-arg VERSION=...` and force-update the service onto it.
 
 ## Apply Swarm update-config without redeploying the stack
 
@@ -710,7 +710,7 @@ Contract:
   30s, OmniGrid returns `504` with a `detail` string identifying the host.
 - Nginx Proxy Manager's default `proxy_read_timeout` is **60 seconds**, leaving 30s of
   headroom — OmniGrid's 504 should always fire first.
-- If your proxy is set lower than 30s, the operator sees NPM's generic `504 Gateway Time-out`
+- If your proxy is set lower than 30s, callers see NPM's generic `504 Gateway Time-out`
   page instead of OmniGrid's identifying detail, and `/api/events` SSE connections die after
   the same window.
 

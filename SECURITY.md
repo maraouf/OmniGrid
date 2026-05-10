@@ -3,7 +3,7 @@
 Thanks for taking the time to look at OmniGrid's security posture. This
 file is the public reporting policy.
 
-OmniGrid is a homelab dashboard maintained by a single operator. I take
+OmniGrid is a homelab dashboard with a single maintainer. I take
 security reports seriously and aim to acknowledge and triage them
 quickly even though this isn't a full-time project.
 
@@ -11,7 +11,7 @@ quickly even though this isn't a full-time project.
 
 OmniGrid follows [Semantic Versioning](https://semver.org). PATCH bumps
 land automatically on every successful CI deploy; MINOR and MAJOR are
-operator-controlled (see [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md)).
+maintainer-controlled (see [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md)).
 
 Because the deploy story is single-replica home-lab, only the latest
 MINOR receives security fixes:
@@ -46,7 +46,7 @@ A useful report includes:
   that demonstrates the issue.
 - The impact you've identified (data exposure, auth bypass, RCE,
   etc.) and any constraints on exploitation.
-- Mitigations or workarounds you've already verified (operator-side
+- Mitigations or workarounds you've already verified (admin-side
   config changes, reverse-proxy rules, etc.).
 - Logs, debug payloads, or screenshots if relevant — please **redact
   secrets** (session tokens, API keys, OIDC client secrets, SSH
@@ -79,31 +79,31 @@ In scope (please report):
   any `/api/*` route or admin-only feature (SSH runner, schedules,
   asset inventory refresh, etc.).
 - Privilege escalation between roles (`readonly` → `admin`) or
-  cross-tenant data exposure if the deploy serves multiple operators.
+  cross-tenant data exposure if the deploy serves multiple users.
 - Credential leakage in logs, error responses, backups, the persistent
-  log file, or the SPA — including operator-private hostnames or
+  log file, or the SPA — including private hostnames or
   secrets surfacing in the public mirror.
 - Cross-site scripting in the SPA (HTML / JS / template literals
   bypassing the existing escape helpers).
-- Insecure default configuration that can't be remediated by the
-  operator without a code change.
+- Insecure default configuration that can't be remediated by an admin
+  without a code change.
 
 Out of scope:
 
 - Vulnerabilities in third-party dependencies that are already
   tracked upstream (please report those to the upstream project; I'll
   pick up the fix when it lands).
-- Denial-of-service from operator-controlled tunables set far outside
+- Denial-of-service from admin-controlled tunables set far outside
   their documented bounds — `TUNABLES` clamps these on read, but a
-  determined operator can still misconfigure their own deploy.
+  determined admin can still misconfigure their own deploy.
 - Findings that require already-compromised host access (root on the
   Swarm manager, write access to `/app/.env`, control of the
   Portainer instance OmniGrid talks to).
 - Self-hosted deploys with security defences explicitly disabled by
-  the operator (`VERIFY_TLS=false` on a public network, missing
+  the admin (`VERIFY_TLS=false` on a public network, missing
   `SESSION_SECRET`, public exposure without a reverse proxy doing
   TLS, etc.).
-- Attacks that require physical access to the host or the operator's
+- Attacks that require physical access to the host or the user's
   browser session.
 
 If you're not sure whether something is in scope, send the report
@@ -111,7 +111,7 @@ anyway — I'd rather triage a borderline finding than miss a real one.
 
 ## Hardening references
 
-The operator-facing security runbooks live under `docs/guidelines/`:
+The admin-facing security runbooks live under `docs/guidelines/`:
 
 - [`auth.md`](docs/guidelines/auth.md) — session cookies, API tokens,
   CSRF, rate limiting, bootstrap admin.

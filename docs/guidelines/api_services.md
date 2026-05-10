@@ -549,8 +549,8 @@ empty.
 
 **Sample live tokens** are one per tenant, long-lifetime `client_credentials`.
 Format: `Bearer <id>.<secret>` (64 hex + dot + 64 hex). Live token values are
-stored out-of-band (operator's secrets manager / ops handover notes); never
-commit them to source control or share across deployments.
+stored out-of-band (your secrets manager / ops handover notes); never commit
+them to source control or share across deployments.
 
 To mint a new set for your project:
 

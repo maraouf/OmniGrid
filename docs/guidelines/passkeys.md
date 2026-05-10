@@ -1,7 +1,7 @@
 # Passkeys (WebAuthn / FIDO2) runbook
 
 Passkeys are OmniGrid's second-factor option alongside TOTP (`docs/guidelines/auth.md`).
-Either method satisfies the 2FA gate — operators with both enrolled pick at the login screen.
+Either method satisfies the 2FA gate — users with both enrolled pick at the login screen.
 
 ## Supported authenticators
 
@@ -63,7 +63,7 @@ If you migrate OmniGrid between hostnames (e.g. `omnigrid.old.example.com` → `
 or move from a `localhost:8088` dev URL to a production NPM-fronted domain, the browser refuses
 to offer your previously-enrolled passkeys at the new origin — they were registered against the
 old RP ID and the new domain is a separate WebAuthn relying party. Earlier this manifested as
-"the Passkey button defaults to QR with no explanation" and the operator had no in-UI signal of
+"the Passkey button defaults to QR with no explanation" and the user had no in-UI signal of
 why their fingerprint / Touch ID prompts weren't appearing.
 
 Today:
@@ -76,7 +76,7 @@ Today:
   *"Your passkeys were registered under a different domain. Re-enrol them from Profile →
   Security on the new domain ({current})."*
 - **Profile → Security** shows a per-credential red "registered for `<old-rp-id>`" badge so the
-  operator can revoke + re-enrol orphaned credentials WITHOUT needing to authenticate first.
+  user can revoke + re-enrol orphaned credentials WITHOUT needing to authenticate first.
 - Server logs include a greppable `[webauthn] <user> login-start RP-ID mismatch current=<x>
   orphaned=[...] matching=N` line per affected login attempt.
 
@@ -88,8 +88,7 @@ assume matching — existing enrolments don't fire spurious banners.
 - **"This browser doesn't support passkeys"** — upgrade your browser or use a different one.
   Mobile Safari requires iOS 16+ for full passkey UX.
 - **"Passkey support is not available on this server"** — the `webauthn` Python package
-  isn't installed. The operator runs `pip install -r requirements.txt` and restarts the
-  service.
+  isn't installed. Run `pip install -r requirements.txt` and restart the service.
 - **"Your passkeys were registered under a different domain"** — see the RP-ID mismatch
   section above. Revoke the orphaned credentials from Profile → Security and re-enrol on
   the current domain.
