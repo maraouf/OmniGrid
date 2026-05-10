@@ -155,7 +155,7 @@
                class="fs-xs text-[var(--text-faint)] -mt-1"
                x-text="t('settings.oidc.save_requires_test')"></div>
           <div x-show="oidcTestResult" class="fs-sm rounded-md px-3 py-2"
-               :class="oidcTestResult && oidcTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
+               :class="(oidcTestResult && oidcTestResult.pending) ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]' : (oidcTestResult && oidcTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')">
             <template x-if="oidcTestResult && oidcTestResult.pending">
               <span x-text="t('loading.testing')"></span>
             </template>

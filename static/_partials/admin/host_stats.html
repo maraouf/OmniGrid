@@ -258,13 +258,16 @@
             <span x-show="lastTestSuccessLabel('beszel')"
                   class="fs-xs text-[var(--text-faint)]"
                   x-text="lastTestSuccessLabel('beszel')"></span>
-            <span class="fs-xs min-w-0"
-                  :class="beszelTestResult && !beszelTestResult.pending
-                          ? (beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]')
-                          : 'text-[var(--text-faint)]'"
-                  x-text="beszelTestResult && !beszelTestResult.pending
-                          ? ((beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult.detail || ''))
-                          : ''"></span>
+            <span x-show="beszelTestResult"
+                  class="fs-xs rounded-md px-2 py-1 inline-flex items-center"
+                  :class="beszelTestResult && beszelTestResult.pending
+                          ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
+                          : (beszelTestResult && beszelTestResult.ok
+                            ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                            : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
+                  x-text="beszelTestResult && beszelTestResult.pending
+                          ? t('actions.testing')
+                          : (beszelTestResult ? ((beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult.detail || '')) : '')"></span>
           </div>
           <p class="fs-2xs text-[var(--text-faint)]"
              x-text="t('settings.host_stats.beszel_naming_hint')"></p>
@@ -405,13 +408,16 @@
             <span x-show="lastTestSuccessLabel('pulse')"
                   class="fs-xs text-[var(--text-faint)]"
                   x-text="lastTestSuccessLabel('pulse')"></span>
-            <span class="fs-xs min-w-0"
-                  :class="pulseTestResult && !pulseTestResult.pending
-                          ? (pulseTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]')
-                          : 'text-[var(--text-faint)]'"
-                  x-text="pulseTestResult && !pulseTestResult.pending
-                          ? ((pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult.detail || ''))
-                          : ''"></span>
+            <span x-show="pulseTestResult"
+                  class="fs-xs rounded-md px-2 py-1 inline-flex items-center"
+                  :class="pulseTestResult && pulseTestResult.pending
+                          ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
+                          : (pulseTestResult && pulseTestResult.ok
+                            ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                            : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
+                  x-text="pulseTestResult && pulseTestResult.pending
+                          ? t('actions.testing')
+                          : (pulseTestResult ? ((pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult.detail || '')) : '')"></span>
           </div>
           <p class="fs-2xs text-[var(--text-faint)]" x-text="t('settings.host_stats.pulse_aliases_hint')"></p>
           <!-- Pulse auto-pause threshold. -->
@@ -549,10 +555,16 @@
             <span x-show="lastTestSuccessLabel('webmin')"
                   class="fs-xs text-[var(--text-faint)]"
                   x-text="lastTestSuccessLabel('webmin')"></span>
-            <span x-show="webminTestResult && !webminTestResult.pending"
-                  :class="webminTestResult && webminTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
-                  class="fs-xs"
-                  x-text="(webminTestResult && webminTestResult.ok ? '✓ ' : '✗ ') + (webminTestResult && webminTestResult.detail || '')"></span>
+            <span x-show="webminTestResult"
+                  class="fs-xs rounded-md px-2 py-1 inline-flex items-center"
+                  :class="webminTestResult && webminTestResult.pending
+                          ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
+                          : (webminTestResult && webminTestResult.ok
+                            ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                            : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
+                  x-text="webminTestResult && webminTestResult.pending
+                          ? t('actions.testing')
+                          : (webminTestResult ? ((webminTestResult.ok ? '✓ ' : '✗ ') + (webminTestResult.detail || '')) : '')"></span>
           </div>
           <p class="fs-2xs text-[var(--text-faint)]"
              x-html="t('settings.host_stats.webmin_aliases_hint_html')"></p>
@@ -709,10 +721,16 @@
                 <option :value="opt.id" x-text="opt.label"></option>
               </template>
             </select>
-            <span x-show="pingTestResult && !pingTestResult.pending"
-                  :class="pingTestResult && pingTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
-                  class="fs-xs"
-                  x-text="(pingTestResult && pingTestResult.detail) || ''"></span>
+            <span x-show="pingTestResult"
+                  class="fs-xs rounded-md px-2 py-1 inline-flex items-center"
+                  :class="pingTestResult && pingTestResult.pending
+                          ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
+                          : (pingTestResult && pingTestResult.ok
+                            ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                            : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
+                  x-text="pingTestResult && pingTestResult.pending
+                          ? t('actions.testing')
+                          : (pingTestResult ? ((pingTestResult.ok ? '✓ ' : '✗ ') + (pingTestResult.detail || '')) : '')"></span>
             <span x-show="hasHostStatsSource('ping') && !pingEnabledHosts().length"
                   class="fs-2xs text-[var(--text-faint)] italic"
                   x-text="t('settings.host_stats.ping.test_no_hosts')"></span>
@@ -954,10 +972,16 @@
                 <option :value="opt.id" x-text="opt.label"></option>
               </template>
             </select>
-            <span x-show="snmpTestResult && !snmpTestResult.pending"
-                  :class="snmpTestResult && snmpTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
-                  class="fs-xs"
-                  x-text="(snmpTestResult && snmpTestResult.ok ? '✓ ' : '✗ ') + (snmpTestResult && snmpTestResult.detail || '')"></span>
+            <span x-show="snmpTestResult"
+                  class="fs-xs rounded-md px-2 py-1 inline-flex items-center"
+                  :class="snmpTestResult && snmpTestResult.pending
+                          ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
+                          : (snmpTestResult && snmpTestResult.ok
+                            ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                            : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
+                  x-text="snmpTestResult && snmpTestResult.pending
+                          ? t('actions.testing')
+                          : (snmpTestResult ? ((snmpTestResult.ok ? '✓ ' : '✗ ') + (snmpTestResult.detail || '')) : '')"></span>
             <span x-show="hasHostStatsSource('snmp') && !snmpEnabledHosts().length"
                   class="fs-2xs text-[var(--text-faint)] italic"
                   x-text="t('settings.host_stats.snmp.test_no_hosts')"></span>

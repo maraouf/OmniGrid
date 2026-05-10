@@ -1483,10 +1483,13 @@ function app() {
     // keys hang off `stats.sections.<id>`.
     statsSections: [
       { id: 'dashboard',      label: 'Dashboard',       icon: 'activity' },
+      { id: 'database',       label: 'Database',        icon: 'database' },
     ],
     statsTab: 'dashboard',
     statsOverview: {},
     statsOverviewLoaded: false,
+    statsDatabase: {},
+    statsDatabaseLoaded: false,
     // App-logs viewer state. Polled when the Logs tab is visible.
     // `logLines` is append-only during a session; clear() wipes both
     // the UI list and the server-side ring.
@@ -3169,11 +3172,11 @@ function app() {
 
     async openStatsTab(tab) {
       // Stats view (admin-only) — mirrors openAdminTab's shape: switch
-      // view, set sub-tab, fire the matching loader. Currently only
-      // Dashboard exists; future sub-pages add their own loader branch.
+      // view, set sub-tab, fire the matching loader.
       this.view = 'stats';
       this.statsTab = tab || 'dashboard';
       if (this.statsTab === 'dashboard') await this.loadStatsOverview();
+      else if (this.statsTab === 'database') await this.loadStatsDatabase();
       this._pushRoute && this._pushRoute();
     },
     async loadStatsOverview() {
@@ -3183,6 +3186,15 @@ function app() {
         this.statsOverview = await r.json();
       } catch (_) {} finally {
         this.statsOverviewLoaded = true;
+      }
+    },
+    async loadStatsDatabase() {
+      try {
+        const r = await fetch('/api/admin/stats/database');
+        if (!r.ok) return;
+        this.statsDatabase = await r.json();
+      } catch (_) {} finally {
+        this.statsDatabaseLoaded = true;
       }
     },
 
@@ -6975,7 +6987,8 @@ function app() {
       schedules: false, schedule_queue: false,
       backups: false, config_backup_saved: false,
       logs: false, log_files: false,
-      stats_overview: false, history: false, hosts_config: false,
+      stats_overview: false, stats_database: false,
+      history: false, hosts_config: false,
     },
     // Watchdog timer per busy-key — see `_runWithBusy` below. Cleared
     // when the inner fn resolves naturally; otherwise the timer force-
@@ -18621,6 +18634,79 @@ function app() {
         shell.innerHTML = this._renderDiskProjectionInner(hostId, null, e.message || String(e));
       }
     },
+    // Stats → Database 90-day growth chart. Takes the projection
+    // array from `/api/admin/stats/database` (each point: {ts, bytes,
+    // low, high}) and emits an SVG with a central line + a confidence
+    // band. Width is responsive (100% of container); height fixed at
+    // 220px. Mirrors the disk-projection chart visual treatment but
+    // standalone since the data shape and the calling surface are
+    // distinct.
+    _renderDbProjectionChart(points) {
+      if (!Array.isArray(points) || points.length < 2) return '';
+      const W = 720, H = 220;
+      const PAD_L = 64, PAD_R = 16, PAD_T = 12, PAD_B = 24;
+      const plotW = W - PAD_L - PAD_R;
+      const plotH = H - PAD_T - PAD_B;
+      const tsMin = points[0].ts;
+      const tsMax = points[points.length - 1].ts;
+      const tsRange = Math.max(1, tsMax - tsMin);
+      let yMax = 0;
+      for (const p of points) {
+        const hi = Number(p.high || p.bytes || 0);
+        if (hi > yMax) yMax = hi;
+      }
+      yMax = yMax * 1.05;  // 5% headroom
+      const X = (ts) => PAD_L + ((ts - tsMin) / tsRange) * plotW;
+      const Y = (b) => PAD_T + (1 - (b / Math.max(1, yMax))) * plotH;
+      // Confidence band — closed polygon (top edge low→high, bottom
+      // edge high→low reversed).
+      let bandTop = '';
+      let bandBot = '';
+      for (const p of points) {
+        bandTop += (bandTop ? ' L' : 'M') + X(p.ts).toFixed(1) + ',' + Y(p.high).toFixed(1);
+      }
+      for (let i = points.length - 1; i >= 0; i--) {
+        const p = points[i];
+        bandBot += ' L' + X(p.ts).toFixed(1) + ',' + Y(p.low).toFixed(1);
+      }
+      const bandPath = bandTop + bandBot + ' Z';
+      // Central line.
+      let linePath = '';
+      for (const p of points) {
+        linePath += (linePath ? ' L' : 'M') + X(p.ts).toFixed(1) + ',' + Y(p.bytes).toFixed(1);
+      }
+      // Y-axis labels: 4 ticks (0, 33%, 66%, 100%).
+      const fmtB = (n) => this.fmtBytes(n);
+      const yTicks = [0, yMax * 0.33, yMax * 0.66, yMax].map(v => ({
+        v, y: Y(v).toFixed(1), label: fmtB(v),
+      }));
+      // X-axis labels: today, 30d, 60d, 90d.
+      const xTicks = [0, 30, 60, 90].map(d => {
+        const idx = Math.min(points.length - 1, Math.round((d / 90) * (points.length - 1)));
+        const p = points[idx];
+        const dt = new Date(p.ts * 1000);
+        return { x: X(p.ts).toFixed(1), label: this._applyDateTimeFormat(dt, this._userDateOnlyFormat()) };
+      });
+      const esc = (s) => this._logEscape(String(s));
+      let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block">';
+      // Grid lines.
+      for (const t of yTicks) {
+        svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
+          + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,3"/>';
+        svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
+      }
+      // Band.
+      svg += '<path d="' + bandPath + '" fill="var(--primary)" fill-opacity="0.12" stroke="none"/>';
+      // Central line (dashed for projection feel).
+      svg += '<path d="' + linePath + '" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-dasharray="4,2"/>';
+      // X-axis ticks.
+      for (const t of xTicks) {
+        svg += '<text x="' + t.x + '" y="' + (H - 6) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
+      }
+      svg += '</svg>';
+      return svg;
+    },
+
     _renderDiskProjectionInner(hostId, data, errorMsg) {
       const t = (k, fb) => this.t(k) || fb;
       const esc = (s) => this._logEscape(s);

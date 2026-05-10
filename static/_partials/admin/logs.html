@@ -83,8 +83,13 @@
               </button>
             </template>
             <span class="flex-1"></span>
-            <button @click="setLogSeverityErrorsOnly()" class="btn btn-ghost fs-2xs"
-                    x-text="t('admin.logs.severity_errors_only')"></button>
+            <button @click="setLogSeverityErrorsOnly()"
+                    class="btn btn-ghost fs-2xs inline-flex items-center gap-1.5">
+              <svg width="11" height="11" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+              </svg>
+              <span x-text="t('admin.logs.severity_errors_only')"></span>
+            </button>
           </div>
           <!-- Line-buffered viewer. Monospace + fixed height = terminal feel.
                Each row is ts + stream label + text. Stderr rows get tinted

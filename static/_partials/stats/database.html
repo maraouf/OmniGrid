@@ -1,0 +1,113 @@
+      <div x-show="statsTab==='database'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+          <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/></svg>
+                <h3 class="font-semibold fs-md" x-text="t('stats.database.title')"></h3>
+              </div>
+              <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.database.hint')"></p>
+            </div>
+            <button type="button"
+                    @click="_runWithBusy('stats_database', () => loadStatsDatabase())"
+                    :disabled="_loadBusy.stats_database === true"
+                    :title="t('actions.reload')"
+                    :aria-label="t('actions.reload')"
+                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="_loadBusy.stats_database === true ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+              <span x-text="t('actions.reload')"></span>
+            </button>
+          </div>
+
+          <div x-show="!statsDatabaseLoaded" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+
+          <div x-show="statsDatabaseLoaded" class="p-5 space-y-5">
+
+            <!-- DB size card -->
+            <div class="stats-card" style="cursor:default">
+              <div class="stats-card-icon">
+                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/></svg>
+              </div>
+              <div class="stats-card-body">
+                <div class="stats-card-label" x-text="t('stats.database.size.label')"></div>
+                <div class="stats-card-value mono" x-text="fmtBytes((statsDatabase.size && statsDatabase.size.bytes) || 0)"></div>
+                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.database.size.sub')"></div>
+              </div>
+            </div>
+
+            <!-- Top tables -->
+            <div>
+              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.database.tables.title')"></h4>
+              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.database.tables.hint')"></p>
+              <div class="overflow-x-auto scrollbar">
+                <table class="w-full fs-sm">
+                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+                    <tr>
+                      <th class="text-start px-4 py-2" x-text="t('stats.database.tables.col_name')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.database.tables.col_bytes')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.database.tables.col_rows')"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="row in (statsDatabase.tables || [])" :key="row.name">
+                      <tr class="border-t border-[var(--border)]">
+                        <td class="px-4 py-2 mono" x-text="row.name"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="row.bytes != null ? fmtBytes(row.bytes) : '—'"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="row.rows != null ? row.rows : '—'"></td>
+                      </tr>
+                    </template>
+                    <tr x-show="!(statsDatabase.tables || []).length">
+                      <td colspan="3" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.database.tables.empty')"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Top hot queries (proxied by busiest tables) -->
+            <div>
+              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.database.queries.title')"></h4>
+              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.database.queries.hint')"></p>
+              <div class="overflow-x-auto scrollbar">
+                <table class="w-full fs-sm">
+                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+                    <tr>
+                      <th class="text-start px-4 py-2" x-text="t('stats.database.queries.col_table')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.database.queries.col_rows')"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="q in (statsDatabase.queries || [])" :key="q.table">
+                      <tr class="border-t border-[var(--border)]">
+                        <td class="px-4 py-2 mono" x-text="q.table"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="q.rows"></td>
+                      </tr>
+                    </template>
+                    <tr x-show="!(statsDatabase.queries || []).length">
+                      <td colspan="2" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.database.queries.empty')"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- 90-day growth projection chart -->
+            <div>
+              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.database.projection.title')"></h4>
+              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.database.projection.hint')"></p>
+              <div class="db-projection-chart"
+                   x-show="(statsDatabase.projection || []).length"
+                   x-html="_renderDbProjectionChart(statsDatabase.projection || [])"></div>
+              <div x-show="!(statsDatabase.projection || []).length"
+                   class="py-6 text-center text-[var(--text-faint)] fs-sm italic"
+                   x-text="t('stats.database.projection.empty')"></div>
+            </div>
+
+          </div>
+        </section>
+      </div>
