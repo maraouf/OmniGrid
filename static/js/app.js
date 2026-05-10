@@ -7447,6 +7447,11 @@ function app() {
 
     async refresh(force=false) {
       this.loading = true;
+      // Watchdog cap — mirror the `_runWithBusy` pattern so a hung fetch
+      // (server not responding, network blip) can't leave the topbar
+      // spinner stuck across the session. Cleared on natural resolve.
+      const _wd = setTimeout(() => { if (this.loading) this.loading = false; },
+                             this._LOAD_BUSY_MAX_MS || 30000);
       try {
         const r = await fetch('/api/items' + (force ? '?force=true' : ''));
         if (!r.ok) throw new Error(await r.text());
@@ -7490,8 +7495,13 @@ function app() {
         // seeded stale data forever. Now any non-Off mode loads
         // stats; only `refreshInterval === 0` (explicit Off) skips.
         if (force && this.refreshInterval !== 0) this.loadStats(true);
-      } catch (e) { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
-      this.loading = false;
+      } catch (e) {
+        try { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
+        catch (_) {}
+      } finally {
+        this.loading = false;
+        try { clearTimeout(_wd); } catch (_) {}
+      }
     },
     async loadSettings() {
       try {
@@ -23081,6 +23091,15 @@ function app() {
 
     async loadHosts(force = false) {
       this.hostsLoading = true;
+      // Watchdog cap — mirrors `_runWithBusy`. If `fetch` itself hangs
+      // (server unreachable, dead network), `await` never returns and
+      // `finally` never runs; the topbar spinner would stay stuck on
+      // Hosts view across the session. Watchdog clears `hostsLoading`
+      // after `_LOAD_BUSY_MAX_MS` so the UI recovers on its own; the
+      // hung fetch keeps running in the background and a later poll
+      // recovers state once the network resumes.
+      const _wd = setTimeout(() => { if (this.hostsLoading) this.hostsLoading = false; },
+                             this._LOAD_BUSY_MAX_MS || 30000);
       try {
         // `force=true` bypasses the backend's 10s `_host_provider_cache`
         // memo so a settings save → next loadHosts immediately reflects
@@ -23246,6 +23265,7 @@ function app() {
         return;
       } finally {
         this.hostsLoading = false;
+        try { clearTimeout(_wd); } catch (_) {}
         // First /api/hosts/list response landed (success OR error path).
         // Empty-state ladder is now allowed to render — see hostsInitialLoaded
         // gate in static/index.html.
