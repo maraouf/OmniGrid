@@ -23055,17 +23055,43 @@ function app() {
       }).map(s => ({ port: Number(s.port), name: s.name || s.label || '' }));
     },
 
-    // Chip class for a detected port. Green (`pill-ok`) when the port
-    // matches a curated service entry; amber (`pill-warning`) when the
-    // port is open but not in the curated list — the operator should
-    // either add it (expected listener) or investigate (unexpected).
-    // Curated services don't carry a protocol field today, so a
-    // `port: 22` curated row matches BOTH families.
+    // Detected ports sorted by port-number ascending, regardless of
+    // protocol — TCP and UDP interleave so the chip strip reads as
+    // a numeric sequence (`22/tcp · 53/udp · 80/tcp · 443/tcp · …`)
+    // instead of grouping all TCP first then all UDP. Operator-
+    // requested for at-a-glance scanning of which port numbers are
+    // open. Stable: ports tie-break on protocol so UDP/TCP duplicates
+    // (rare but possible — e.g. dual-stack DNS on 53) order
+    // deterministically across renders.
+    sortedDetectedPorts(host) {
+      const arr = (host && Array.isArray(host.detected_ports)) ? host.detected_ports : [];
+      if (arr.length < 2) return arr;
+      return [...arr].sort((a, b) => {
+        const pa = Number(a && a.port) || 0;
+        const pb = Number(b && b.port) || 0;
+        if (pa !== pb) return pa - pb;
+        const ta = (a && a.protocol) === 'udp' ? 1 : 0;
+        const tb = (b && b.protocol) === 'udp' ? 1 : 0;
+        return ta - tb;
+      });
+    },
+    // Chip class for a detected port. TCP: green (`pill-ok`) when the
+    // port matches a curated service entry, amber (`pill-warning`)
+    // when open but not curated — the operator should either add it
+    // (expected listener) or investigate (unexpected). UDP: same
+    // green/amber for curated/unknown semantics PLUS a `chip--udp`
+    // modifier (italic text + thick info-blue left border) so the
+    // protocol is visually obvious at a glance without losing the
+    // curated/unknown signal. Curated services don't carry a
+    // protocol field today, so a `port: 22` curated row matches BOTH
+    // families.
     portScanChipClass(host, port) {
       if (!host || !port) return 'pill-muted';
       const curated = Array.isArray(host.services) ? host.services : [];
       const match = curated.find(s => Number(s && s.port) === Number(port.port));
-      return match ? 'pill-ok' : 'pill-warning';
+      const base = match ? 'pill-ok' : 'pill-warning';
+      const isUdp = ((port.protocol || 'tcp').toLowerCase() === 'udp');
+      return isUdp ? (base + ' chip--udp') : base;
     },
 
     // Tooltip for a detected port chip.

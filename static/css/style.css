@@ -1222,6 +1222,19 @@ button:disabled {
     border-color: color-mix(in srgb, var(--primary) 30%, transparent);
 }
 
+/* UDP-protocol marker for port-scan chips. Layered ON TOP of the
+   underlying pill-ok / pill-warning so the curated/unknown signal
+   stays readable (green/amber background) while UDP chips get a
+   clear "this is UDP, not TCP" cue: italic label + thick info-blue
+   left border. Pairs with `portScanChipClass(host, port)` in
+   static/js/app.js — see that helper's docstring for the full
+   matrix. */
+.chip--udp {
+    font-style: italic;
+    border-left: 3px solid var(--info);
+    padding-inline-start: calc(var(--s-2) - 1px);
+}
+
 /* ---------------------------------------------------------------------------
    Status dots & chips
    --------------------------------------------------------------------------- */
