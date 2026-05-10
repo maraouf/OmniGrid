@@ -1378,6 +1378,10 @@ function app() {
       // Backup retention count — rendered under Admin → Backups
       // (form field "Keep N most recent backups"). 0 = keep all.
       'tuning_backup_retention_count',
+      // Settings-as-Code (config_backup schedule kind) on-disk
+      // snapshot retention — sibling of tuning_backup_retention_count
+      // for the new JSON-snapshot path.
+      'tuning_config_backup_retention_count',
       // SSH WebSocket heartbeat cadence — rendered under Admin →
       // SSH alongside the other SSH knobs.
       'tuning_ssh_ws_heartbeat_seconds',
@@ -1468,6 +1472,7 @@ function app() {
       { id: 'ai',             label: 'AI integration',  icon: 'zap' },
       { id: 'schedules',      label: 'Schedules',       icon: 'calendar' },
       { id: 'backups',        label: 'Backups',         icon: 'archive' },
+      { id: 'config_backup',  label: 'Config backup',   icon: 'save' },
       { id: 'logs',           label: 'Logs',            icon: 'file-text' },
       { id: 'config',         label: 'Config',          icon: 'settings' },
       { id: 'debug',          label: 'Debug',           icon: 'bug' },
@@ -1499,6 +1504,12 @@ function app() {
     _logFileTimer: null,
     backups: [],
     backupBusy: false,
+    // Settings-as-Code (Admin → Config backup) state. `configBackupSaved`
+    // is the list of saved snapshot files from
+    // /api/admin/config-backup/list. `configBackupBusy` gates every
+    // button on the tab to prevent overlapping requests.
+    configBackupSaved: [],
+    configBackupBusy: false,
     // Scheduler state. `schedules` is the list of rows from /api/schedules,
     // `scheduleQueue` is recent scheduler-driven ops from /api/schedules/queue.
     // `scheduleKinds` is populated from the same /api/schedules response so
@@ -3133,6 +3144,7 @@ function app() {
       else if (tab === 'sessions') await this.loadSessions();
       else if (tab === 'tokens') await this.loadTokens();
       else if (tab === 'backups') await this.loadBackups();
+      else if (tab === 'config_backup') await this.loadConfigBackupSaved();
       else if (tab === 'schedules') {
         // Fire both loads in parallel — the scheduled table and the queue
         // table aren't related state-wise, no reason to wait on each other.
@@ -3731,6 +3743,192 @@ function app() {
         }
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
       finally { this.backupBusy = false; }
+    },
+
+    // ---------------------------------------------------------------
+    // Settings-as-Code (Admin → Config backup)
+    // ---------------------------------------------------------------
+    // Trigger a download of the current admin configuration as a JSON
+    // file. Goes through the same /api/admin/config-backup/export
+    // endpoint that emits Content-Disposition: attachment; the browser
+    // does the rest. Operators commit the file to a private git repo
+    // for change tracking. Secrets are redacted server-side to the
+    // sentinel "__OMITTED__"; on import those entries are skipped so
+    // the live DB's secret material is preserved.
+    async downloadConfigBackup() {
+      if (this.configBackupBusy) return;
+      this.configBackupBusy = true;
+      try {
+        // Anchor-click pattern matches every other download path in
+        // the SPA (logs export, AI conversation export, etc.) so the
+        // browser handles the filename + content-type correctly.
+        const a = document.createElement('a');
+        a.href = '/api/admin/config-backup/export';
+        // The endpoint sets Content-Disposition with a timestamped
+        // name; setting `download` here guarantees the prompt even
+        // if a future version drops the header.
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } finally {
+        // Tiny delay so the browser registers the click before the
+        // button re-enables; otherwise rapid double-click can fire
+        // two downloads.
+        setTimeout(() => { this.configBackupBusy = false; }, 250);
+      }
+    },
+    async saveConfigBackupToDisk() {
+      if (this.configBackupBusy) return;
+      this.configBackupBusy = true;
+      try {
+        const r = await fetch('/api/admin/config-backup/save', { method: 'POST' });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || ('HTTP ' + r.status));
+        }
+        const d = await r.json().catch(() => ({}));
+        this.showToast(this.t('toasts_extra.config_backup_saved', { name: d.name || '' }), 'success');
+        await this.loadConfigBackupSaved();
+      } catch (e) {
+        this.showToast(this.t('toasts_extra.config_backup_save_failed', { error: (e && e.message) || '' }), 'error');
+      } finally {
+        this.configBackupBusy = false;
+      }
+    },
+    async loadConfigBackupSaved() {
+      try {
+        const r = await fetch('/api/admin/config-backup/list');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.configBackupSaved = Array.isArray(d.files) ? d.files : [];
+      } catch (_) {}
+    },
+    // File-input handler — operator picks a JSON snapshot, we parse
+    // client-side (so we can show a helpful error before the round-
+    // trip), then POST to /api/admin/config-backup/import. The
+    // confirm here is the inline-popover pattern's modal SwAl
+    // counterpart — restoring config is destructive enough that an
+    // explicit "yes" is appropriate even though the file picker
+    // already implies intent.
+    async importConfigBackupFile(ev) {
+      const file = ev && ev.target && ev.target.files && ev.target.files[0];
+      if (!file) return;
+      // Reset the input so the same file can be re-picked after a
+      // failed import (browsers don't fire `change` for the same
+      // value twice in a row).
+      ev.target.value = '';
+      if (this.configBackupBusy) return;
+      let payload;
+      try {
+        const text = await file.text();
+        payload = JSON.parse(text);
+      } catch (e) {
+        this.showToast(this.t('toasts_extra.config_backup_invalid_json', { error: (e && e.message) || '' }), 'error');
+        return;
+      }
+      const ok = await this.confirmDialog({
+        title: this.t('admin.config_backup.import_confirm_title'),
+        html:  this.t('admin.config_backup.import_confirm_body', { name: file.name }),
+        icon:  'warning',
+        confirmText: this.t('admin.config_backup.import_confirm_button'),
+        focusConfirm: false,
+      });
+      if (!ok) return;
+      this.configBackupBusy = true;
+      try {
+        const r = await fetch('/api/admin/config-backup/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ payload }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || ('HTTP ' + r.status));
+        }
+        const d = await r.json().catch(() => ({}));
+        this.showToast(this.t('toasts_extra.config_backup_imported', {
+          settings: d.settings_applied || 0,
+          schedules: d.schedules_replaced || 0,
+        }), 'success');
+        // Reload settings + schedules so the UI reflects the imported
+        // state immediately (no manual refresh).
+        await this.loadSettings();
+        if (typeof this.loadSchedules === 'function') {
+          await this.loadSchedules();
+        }
+        if (typeof this.loadTuning === 'function') {
+          await this.loadTuning();
+        }
+      } catch (e) {
+        this.showToast(this.t('toasts_extra.config_backup_import_failed', { error: (e && e.message) || '' }), 'error');
+      } finally {
+        this.configBackupBusy = false;
+      }
+    },
+    async restoreConfigBackupSaved(name) {
+      if (this.configBackupBusy) return;
+      const ok = await this.confirmDialog({
+        title: this.t('admin.config_backup.import_confirm_title'),
+        html:  this.t('admin.config_backup.import_confirm_body', { name: name }),
+        icon:  'warning',
+        confirmText: this.t('admin.config_backup.import_confirm_button'),
+        focusConfirm: false,
+      });
+      if (!ok) return;
+      this.configBackupBusy = true;
+      try {
+        const r = await fetch('/api/admin/config-backup/saved/' + encodeURIComponent(name) + '/restore', {
+          method: 'POST',
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || ('HTTP ' + r.status));
+        }
+        const d = await r.json().catch(() => ({}));
+        this.showToast(this.t('toasts_extra.config_backup_imported', {
+          settings: d.settings_applied || 0,
+          schedules: d.schedules_replaced || 0,
+        }), 'success');
+        await this.loadSettings();
+        if (typeof this.loadSchedules === 'function') {
+          await this.loadSchedules();
+        }
+        if (typeof this.loadTuning === 'function') {
+          await this.loadTuning();
+        }
+      } catch (e) {
+        this.showToast(this.t('toasts_extra.config_backup_import_failed', { error: (e && e.message) || '' }), 'error');
+      } finally {
+        this.configBackupBusy = false;
+      }
+    },
+    async deleteConfigBackupSaved(name) {
+      if (this.configBackupBusy) return;
+      const ok = await this.confirmDialog({
+        title: this.t('admin.config_backup.delete_confirm_title'),
+        html:  this.t('admin.config_backup.delete_confirm_body', { name: name }),
+        icon:  'warning',
+        confirmText: this.t('actions.delete'),
+        focusConfirm: false,
+      });
+      if (!ok) return;
+      this.configBackupBusy = true;
+      try {
+        const r = await fetch('/api/admin/config-backup/saved/' + encodeURIComponent(name), {
+          method: 'DELETE',
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || ('HTTP ' + r.status));
+        }
+        this.showToast(this.t('toasts_extra.config_backup_deleted', { name }), 'success');
+        await this.loadConfigBackupSaved();
+      } catch (e) {
+        this.showToast(this.t('toasts_extra.config_backup_delete_failed', { error: (e && e.message) || '' }), 'error');
+      } finally {
+        this.configBackupBusy = false;
+      }
     },
 
     // Multi-source selector helpers. ``host_stats_source`` is now a
@@ -11835,6 +12033,7 @@ function app() {
         // re-fire after a reload uses the same params.
         action_tag:       (t.action_tag || '').toString(),
         action_item:      (t.action_item || '').toString(),
+        action_data:      (t.action_data && typeof t.action_data === 'object') ? t.action_data : null,
         pending_confirm:  !!t.pending_confirm,
         pending_action:   t.pending_action || null,
         cancelled:        !!t.cancelled,
@@ -11918,6 +12117,7 @@ function app() {
         chart_kind:       (typeof t.chart_kind === 'string' && t.chart_kind) ? t.chart_kind : null,
         action_tag:       (t.action_tag || '').toString(),
         action_item:      (t.action_item || '').toString(),
+        action_data:      (t.action_data && typeof t.action_data === 'object') ? t.action_data : null,
         pending_confirm:  !!t.pending_confirm,
         pending_action:   t.pending_action || null,
         cancelled:        !!t.cancelled,
@@ -15368,6 +15568,43 @@ function app() {
           run: (opts) => { this._aiRetagDispatch(opts || {}); },
         }] : []),
 
+        // Schedule CRUD actions — operator says "create a daily backup
+        // schedule at 1am" / "delete the experimental prune schedule"
+        // and the AI emits one of these with `ACTION_DATA: {...}`
+        // carrying the payload. Create + update are non-destructive
+        // (operators can always edit / delete after the fact); delete
+        // IS destructive (typed-confirm chip in the sidebar). All
+        // three reuse the existing /api/schedules CRUD endpoints —
+        // no new backend surface; backend bounds-clamping +
+        // skip-if-running gates apply uniformly.
+        {
+          id: 'schedule-create',
+          label: t('command_palette.action.schedule_create', 'Create schedule'),
+          sub:   t('command_palette.action.schedule_create_sub', 'Add a new recurring scheduled job'),
+          verbs: ['schedule', 'create', 'add', 'new', 'cron', 'recurring'],
+          destructive: false,
+          run: (opts) => { this._aiScheduleDispatch('create', opts || {}); },
+        },
+        {
+          id: 'schedule-update',
+          label: t('command_palette.action.schedule_update', 'Update schedule'),
+          sub:   t('command_palette.action.schedule_update_sub', 'Modify an existing scheduled job'),
+          verbs: ['schedule', 'update', 'modify', 'change', 'edit'],
+          destructive: false,
+          run: (opts) => { this._aiScheduleDispatch('update', opts || {}); },
+        },
+        {
+          id: 'schedule-delete',
+          label: t('command_palette.action.schedule_delete', 'Delete schedule'),
+          sub:   t('command_palette.action.schedule_delete_sub', 'Remove a scheduled job permanently'),
+          verbs: ['schedule', 'delete', 'remove'],
+          destructive: true,
+          // Defer the destructive-confirm gate to the dispatcher's
+          // inline-chip path (sidebar) — same shape as retag-image.
+          defer_confirm_to_run: true,
+          run: (opts) => { this._aiScheduleDispatch('delete', opts || {}); },
+        },
+
         // Sign out — destructive (terminates the session)
         ...(typeof this.logout === 'function' ? [{
           id: 'logout',
@@ -15920,6 +16157,10 @@ function app() {
       // rather than introducing a parallel kwargs envelope.
       const actionTag  = (opts && opts.tag) || (opts && opts.actionTag) || '';
       const actionItem = (opts && opts.item) || (opts && opts.actionItem) || '';
+      // Structured payload from the AI's `ACTION_DATA: {<json>}`
+      // directive — currently consumed by schedule_create /
+      // schedule_update / schedule_delete. Pass-through verbatim.
+      const actionData = (opts && opts.data) || (opts && opts.actionData) || null;
       // Some destructive actions wrap their OWN SweetAlert confirm
       // INSIDE `run()` and present a richer payload (e.g. the topbar
       // Cleanup flow lists every container by name). Opting in via
@@ -15988,7 +16229,7 @@ function app() {
         // modal-palette path still see it; the sidebar Yes-click
         // path passes skipConfirm=true upstream so the second call
         // bypasses the inner popup correctly.
-        await action.run({ skipConfirm: skipConfirm, tag: actionTag, actionItem: actionItem });
+        await action.run({ skipConfirm: skipConfirm, tag: actionTag, actionItem: actionItem, data: actionData });
         // Sidebar: flip the most-recent assistant turn's `action_ran`
         // to true so the green "Ran:" chip surfaces. Skip when this
         // call is from the modal palette path (no turn to update).
@@ -16032,6 +16273,7 @@ function app() {
           skipConfirm: true,
           tag:         (turn.action_tag || '').toString(),
           actionItem:  (turn.action_item || '').toString(),
+          data:        (turn.action_data && typeof turn.action_data === 'object') ? turn.action_data : null,
         });
       } catch (e) {
         if (typeof this.showToast === 'function') {
@@ -16283,6 +16525,7 @@ function app() {
               chart_kind:       (typeof t.chart_kind === 'string' && t.chart_kind) ? t.chart_kind : null,
               action_tag:       (t.action_tag || '').toString(),
               action_item:      (t.action_item || '').toString(),
+              action_data:      (t.action_data && typeof t.action_data === 'object') ? t.action_data : null,
               feedback:         t.feedback || null,
               error:            t.error || null,
               cancelled:        !!t.cancelled,
@@ -16623,11 +16866,11 @@ function app() {
           // Per-action parameters carried alongside the action_id so
           // confirmInlineAction (the inline-chip "Yes" handler) can
           // re-fire the action with the same params after the
-          // operator confirms. retag_image consumes both — `tag` from
-          // the AI's ACTION_TAG directive, `actionItem` from
-          // ACTION_ITEM. Other actions ignore them.
+          // operator confirms. retag_image consumes tag + actionItem;
+          // schedule_* consumes action_data (structured JSON payload).
           action_tag:       (j.action_tag || '').toString(),
           action_item:      (j.action_item || '').toString(),
+          action_data:      (j.action_data && typeof j.action_data === 'object') ? j.action_data : null,
           // Persisted on the turn so re-hydration after a reload
           // (loadAiConversation walks each saved turn and re-fires
           // the populator) picks the right chart kind without a
@@ -16679,6 +16922,7 @@ function app() {
             surface:    'sidebar',
             tag:        turn.action_tag,
             actionItem: turn.action_item,
+            data:       turn.action_data,
           });
         }
       } catch (e) {
@@ -17604,6 +17848,20 @@ function app() {
         pin_to_tag:           'retag-image',
         change_tag:           'retag-image',
         track_tag:            'retag-image',
+        // Schedule CRUD via AI palette. Operator synonyms cover
+        // common phrasings so the model has a stable map.
+        schedule_create:      'schedule-create',
+        create_schedule:      'schedule-create',
+        add_schedule:         'schedule-create',
+        new_schedule:         'schedule-create',
+        schedule_update:      'schedule-update',
+        update_schedule:      'schedule-update',
+        modify_schedule:      'schedule-update',
+        change_schedule:      'schedule-update',
+        edit_schedule:        'schedule-update',
+        schedule_delete:      'schedule-delete',
+        delete_schedule:      'schedule-delete',
+        remove_schedule:      'schedule-delete',
       };
       const target = aliasMap[id] || kebab;
       const all = (typeof this._commandActions === 'function')
@@ -28814,6 +29072,94 @@ function app() {
     // endpoint the original button used; the new `tag` body field
     // carries the operator's chosen target. Empty draft falls back
     // to "latest" (server-side validator also defaults).
+    // AI-palette dispatch wrapper for schedule CRUD. Reads the
+    // structured payload from `opts.data` (parsed by the backend
+    // from the AI's `ACTION_DATA: {<json>}` directive) and dispatches
+    // to the existing /api/schedules endpoints — same as the Admin →
+    // Schedules table buttons. Three ops:
+    //   - 'create': POST /api/schedules with the full payload
+    //   - 'update': PATCH /api/schedules/{id} after resolving id
+    //               (data.id, OR data.name → match against this.schedules)
+    //   - 'delete': DELETE /api/schedules/{id} (same id resolution)
+    // Delete gates on the inline-confirm chip via the descriptor's
+    // `destructive: true` + `defer_confirm_to_run: true` upstream;
+    // by the time the runner is called with skipConfirm=true the
+    // operator has already approved.
+    async _aiScheduleDispatch(op, opts) {
+      const params = opts || {};
+      const data = (params.data && typeof params.data === 'object') ? params.data : {};
+      // For update + delete: resolve id from data.id, else data.name
+      // → look up against this.schedules. Empty data → toast.
+      const resolveId = () => {
+        if (data.id != null) return Number(data.id);
+        const nm = (data.name || '').toString().trim();
+        if (!nm) return null;
+        const list = Array.isArray(this.schedules) ? this.schedules : [];
+        const match = list.find(s => s && s.name === nm);
+        return match ? Number(match.id) : null;
+      };
+      try {
+        if (op === 'create') {
+          if (!data.name || !data.kind || !data.interval_seconds) {
+            this.showToast(this.t('toasts_extra.schedule_missing_fields') || 'Schedule needs name, kind, and interval_seconds.', 'error');
+            return;
+          }
+          const r = await fetch('/api/schedules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            throw new Error(j.detail || ('HTTP ' + r.status));
+          }
+          this.showToast(this.t('toasts_extra.schedule_created', { name: data.name }), 'success');
+        } else if (op === 'update') {
+          const id = resolveId();
+          if (id == null) {
+            this.showToast(this.t('toasts_extra.schedule_no_target') || 'Couldn\'t resolve schedule by id or name.', 'error');
+            return;
+          }
+          // Strip id/name from the patch body — those are identity, not fields.
+          const patch = Object.assign({}, data);
+          delete patch.id;
+          // name CAN be in the patch (rename) — only strip when it was used as the lookup key.
+          if (data.id == null && patch.name === data.name) delete patch.name;
+          const r = await fetch('/api/schedules/' + encodeURIComponent(id), {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patch),
+          });
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            throw new Error(j.detail || ('HTTP ' + r.status));
+          }
+          this.showToast(this.t('toasts_extra.schedule_updated', { name: data.name || ('id ' + id) }), 'success');
+        } else if (op === 'delete') {
+          const id = resolveId();
+          if (id == null) {
+            this.showToast(this.t('toasts_extra.schedule_no_target') || 'Couldn\'t resolve schedule by id or name.', 'error');
+            return;
+          }
+          const r = await fetch('/api/schedules/' + encodeURIComponent(id), {
+            method: 'DELETE',
+          });
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            throw new Error(j.detail || ('HTTP ' + r.status));
+          }
+          this.showToast(this.t('toasts_extra.schedule_deleted', { name: data.name || ('id ' + id) }), 'success');
+        }
+        // Refresh the schedules list so the Admin → Schedules table
+        // reflects the change immediately if the operator navigates.
+        if (typeof this.loadSchedules === 'function') {
+          await this.loadSchedules();
+        }
+      } catch (e) {
+        this.showToast(this.t('toasts_extra.schedule_action_failed', { error: (e && e.message) || '' }), 'error');
+      }
+    },
+
     // AI-palette dispatch wrapper for the retag flow. Consumes the
     // inline-confirm chip's `opts` envelope: `tag` from the AI's
     // ACTION_TAG directive, `item` from ACTION_ITEM (resolved

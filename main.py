@@ -58,7 +58,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from logic import auth, backups, errors as _err, events as _events, metrics, oidc, schedules, totp
+from logic import auth, backups, config_export, errors as _err, events as _events, metrics, oidc, schedules, totp
 from logic import webauthn_helper as webauthn_h
 from pydantic import BaseModel, field_validator
 
@@ -2908,6 +2908,8 @@ class SettingsIn(BaseModel):
     # 4-step audit-fix promotion; consumed via `tuning_int(...)`;
     # rendered in Admin → Backups and Admin → SSH respectively.
     tuning_backup_retention_count: Optional[str] = None
+    # Settings-as-Code (config_backup schedule kind) snapshot retention.
+    tuning_config_backup_retention_count: Optional[str] = None
     tuning_ssh_ws_heartbeat_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
@@ -5071,6 +5073,19 @@ async def api_ai_palette(
     if action_item:
         out["text"] = cleaned_text
         out["action_item"] = action_item
+    text = cleaned_text
+
+    # Parse the optional `ACTION_DATA: {<json>}` trailer — used by
+    # parameterised actions whose payload is a structured dict
+    # (currently `schedule_create` / `schedule_update` /
+    # `schedule_delete`). Distinct from the single-value
+    # `ACTION_TAG` / `ACTION_HOSTS` / `ACTION_ITEM` channels.
+    # Validated as JSON object server-side; invalid → None so the
+    # SPA falls back gracefully.
+    action_data, cleaned_text = _ai.parse_palette_action_data(text)
+    if action_data is not None:
+        out["text"] = cleaned_text
+        out["action_data"] = action_data
     text = cleaned_text
 
     # Parse trailing MEMORY: / MEMORY-FORGET: directives. Each MEMORY:
@@ -17227,6 +17242,131 @@ async def api_restore_backup_upload(
         try: os.remove(tmp_path)
         except OSError: pass
     return result
+
+
+# ============================================================================
+# Settings-as-Code — export / import the operator-tunable admin config as
+# a single human-readable JSON document. See `logic/config_export.py` for
+# the snapshot shape, secret-redaction contract, and apply semantics.
+# Admin-only — every endpoint gates on require_admin.
+# ============================================================================
+
+
+@app.get("/api/admin/config-backup/export")
+async def api_config_backup_export(_admin: auth.User = Depends(auth.require_admin)):
+    """Build a fresh snapshot and stream it as a JSON download.
+
+    Operators commit the file to a private git repo for change tracking.
+    Secrets (api keys / passwords / tokens / private keys) are redacted
+    to the literal sentinel string `"__OMITTED__"`; on import those
+    entries are skipped so the live DB's secret material is preserved.
+    """
+    snap = config_export.build_snapshot()
+    blob = json.dumps(snap, indent=2, sort_keys=True)
+    ts = time.strftime("%Y.%m.%d_%H.%M.%S", time.localtime())
+    fname = f"omnigrid-config_{ts}.json"
+    return Response(
+        content=blob,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@app.get("/api/admin/config-backup/preview")
+async def api_config_backup_preview(_admin: auth.User = Depends(auth.require_admin)):
+    """Return the current snapshot as a JSON object (NOT a download).
+
+    Used by the Admin → Config backup tab to show the operator what
+    they're about to download / commit / restore. Same shape as the
+    download endpoint; just no Content-Disposition header.
+    """
+    return config_export.build_snapshot()
+
+
+class ConfigBackupImportIn(BaseModel):
+    """Body for the import endpoint — single `payload` field carries
+    the full snapshot dict the operator uploaded. Pydantic accepts
+    arbitrary nested JSON via `dict`."""
+    payload: dict
+
+
+@app.post("/api/admin/config-backup/import")
+async def api_config_backup_import(
+    body: ConfigBackupImportIn,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Apply an uploaded snapshot to the live DB. See
+    `logic.config_export.apply_snapshot` for the per-surface semantics
+    (settings: per-key UPSERT skipping redacted; schedules + ai_memory:
+    replace-all).
+
+    Returns the apply-result counters + warnings so the operator's
+    toast can summarise what changed.
+    """
+    try:
+        result = config_export.apply_snapshot(body.payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
+
+
+@app.get("/api/admin/config-backup/list")
+async def api_config_backup_list(_admin: auth.User = Depends(auth.require_admin)):
+    """List saved snapshot files written by the `config_backup`
+    schedule kind (or any future manual save-to-disk path)."""
+    return {"files": config_export.list_snapshots()}
+
+
+@app.post("/api/admin/config-backup/save")
+async def api_config_backup_save(_admin: auth.User = Depends(auth.require_admin)):
+    """Write a fresh snapshot to disk on demand. Same path the
+    `config_backup` schedule kind uses. Returns the saved file's
+    {name, size, mtime}."""
+    return config_export.save_snapshot_to_disk()
+
+
+@app.get("/api/admin/config-backup/saved/{name}")
+async def api_config_backup_download_saved(
+    name: str, _admin: auth.User = Depends(auth.require_admin),
+):
+    """Download a previously-saved snapshot file."""
+    try:
+        full = config_export._safe_path(name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(full, media_type="application/json", filename=name)
+
+
+@app.post("/api/admin/config-backup/saved/{name}/restore")
+async def api_config_backup_restore_saved(
+    name: str, _admin: auth.User = Depends(auth.require_admin),
+):
+    """Read a saved snapshot file and apply it. Same as POSTing the
+    file's contents to `/api/admin/config-backup/import`, just routed
+    through the disk path so the operator doesn't have to re-upload."""
+    try:
+        snap = config_export.read_snapshot(name)
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        result = config_export.apply_snapshot(snap)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
+
+
+@app.delete("/api/admin/config-backup/saved/{name}")
+async def api_config_backup_delete_saved(
+    name: str, _admin: auth.User = Depends(auth.require_admin),
+):
+    """Delete a saved snapshot file."""
+    try:
+        config_export.delete_snapshot(name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
 
 
 # ============================================================================
