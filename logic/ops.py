@@ -1321,9 +1321,13 @@ async def notify_with_retry(
 # Write ops. Each follows the same pattern: try/except/finally with
 # persist_history + cache invalidation in finally.
 # ---------------------------------------------------------------------
-def _retag_compose_to_latest(content: str, target_image_repo: Optional[str] = None) -> tuple[str, list[tuple[str, str]]]:
+def _retag_compose_to_latest(
+    content: str,
+    target_image_repo: Optional[str] = None,
+    new_tag: str = "latest",
+) -> tuple[str, list[tuple[str, str]]]:
     """Rewrite every ``image: <repo>:<tag>`` line in a compose file to
-    ``image: <repo>:latest``. Returns ``(new_content, replacements)``
+    ``image: <repo>:<new_tag>``. Returns ``(new_content, replacements)``
     where ``replacements`` is a list of ``(old_image, new_image)`` pairs
     in the order they appeared.
 
@@ -1332,14 +1336,19 @@ def _retag_compose_to_latest(content: str, target_image_repo: Optional[str] = No
     other ``image:`` line is left untouched. Useful when a stack has
     multiple services and the operator only wants to switch one.
 
+    ``new_tag`` defaults to ``"latest"`` for back-compat with the
+    original "Switch to :latest" code paths; operators can pass any
+    valid Docker tag (e.g. ``"2"``, ``"v2-stable"``) when they want to
+    track a moving sub-version tag instead of ``:latest``.
+
     The matcher tolerates: optional surrounding quotes, leading
     whitespace, and the ``@sha256:...`` digest suffix (digest is
-    dropped on retag — `:latest` always tracks the moving tag, a
-    pinned digest defeats the point). Lines already at ``:latest``
-    AND with no digest are left alone (idempotent — the helper can
-    re-run without churn).
+    dropped on retag — a moving tag with a pinned digest defeats the
+    point). Lines already at ``:<new_tag>`` AND with no digest are
+    left alone (idempotent — the helper can re-run without churn).
     """
     import re as _re
+    nt = (new_tag or "latest").strip() or "latest"
     pattern = _re.compile(
         r"""(?P<indent>^\s*)image\s*:\s*(?P<quote>['"]?)(?P<repo>[^:'"@\s]+(?::[0-9]+)?(?:/[^:'"@\s]+)*)(?::(?P<tag>[^@'"\s]+))?(?:@sha256:[0-9a-f]+)?(?P=quote)\s*$""",
         _re.MULTILINE,
@@ -1353,10 +1362,10 @@ def _retag_compose_to_latest(content: str, target_image_repo: Optional[str] = No
         old_tag = m.group("tag") or ""
         if target_image_repo and repo != target_image_repo:
             return m.group(0)
-        if old_tag == "latest" and "@sha256:" not in m.group(0):
+        if old_tag == nt and "@sha256:" not in m.group(0):
             return m.group(0)
         old_image = repo + (f":{old_tag}" if old_tag else "")
-        new_image = f"{repo}:latest"
+        new_image = f"{repo}:{nt}"
         replacements.append((old_image, new_image))
         return f"{indent}image: {quote}{new_image}{quote}"
 
@@ -1364,9 +1373,18 @@ def _retag_compose_to_latest(content: str, target_image_repo: Optional[str] = No
     return new_content, replacements
 
 
-async def do_update_stack(op: Operation, stack_id: int, *, retag_to_latest: bool = False, target_image_repo: Optional[str] = None) -> None:
+async def do_update_stack(
+    op: Operation,
+    stack_id: int,
+    *,
+    retag_to_latest: bool = False,
+    target_image_repo: Optional[str] = None,
+    new_tag: str = "latest",
+) -> None:
     try:
-        op.log(f"Starting stack update (id={stack_id}, retag={retag_to_latest})")
+        op.log(f"Starting stack update (id={stack_id}, retag={retag_to_latest}"
+               + (f", new_tag={new_tag!r}" if retag_to_latest else "")
+               + ")")
         async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=600.0) as client:
             stack = await portainer.pg(client, f"/api/stacks/{stack_id}")
             op.log(f"Resolved stack: {stack['Name']}")
@@ -1377,10 +1395,12 @@ async def do_update_stack(op: Operation, stack_id: int, *, retag_to_latest: bool
             op.log("Fetched compose file from Portainer")
             content = file_data["StackFileContent"]
             if retag_to_latest:
-                content, replacements = _retag_compose_to_latest(content, target_image_repo)
+                content, replacements = _retag_compose_to_latest(
+                    content, target_image_repo, new_tag=new_tag,
+                )
                 if not replacements:
                     raise RuntimeError(
-                        "Retag-to-latest requested but no image: lines matched"
+                        f"Retag to :{new_tag} requested but no image: lines matched"
                         + (f" (repo filter: {target_image_repo})" if target_image_repo else "")
                     )
                 for old, new in replacements:
@@ -1424,10 +1444,20 @@ async def do_update_container(op: Operation, container_id: str) -> None:
         op.log("Recreating container with PullImage=true"
                + (f" on node '{node}'" if node else ""))
         async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=600.0) as client:
+            # `json={}` is REQUIRED — Portainer's recreate endpoint
+            # rejects an empty request body with
+            # `HTTP 400 {"message":"Invalid request payload","details":"EOF"}`
+            # on newer versions. The body is otherwise unused (the
+            # `?PullImage=true` query param drives the actual recreate
+            # behaviour); it just needs to be valid JSON so the
+            # backend's body-parser doesn't EOF before reading
+            # anything. Operator-flagged 2026-05-10 against Portainer
+            # CE recent.
             r = await client.post(
                 f"{portainer.PORTAINER_URL}/api/docker/{portainer.PORTAINER_ENDPOINT_ID}"
                 f"/containers/{container_id}/recreate?PullImage=true",
                 headers=portainer.headers(agent_target=node),
+                json={},
             )
             if r.status_code >= 400:
                 raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
@@ -1447,15 +1477,29 @@ async def do_update_container(op: Operation, container_id: str) -> None:
         gather.invalidate_cache()
 
 
-def _retag_image_string(image: str, target_repo: Optional[str] = None) -> Optional[str]:
-    """Strip tag + digest from `image`, append `:latest`. Returns None
-    if the image already tracks `:latest` (no work to do) or the parse
-    fails. ``target_repo`` (when supplied) gates the retag to a single
-    repo so multi-image stacks aren't surprised — Komodo-style single-
-    container case ignores it.
+def _retag_image_string(
+    image: str,
+    target_repo: Optional[str] = None,
+    new_tag: str = "latest",
+) -> Optional[str]:
+    """Strip tag + digest from `image`, append ``:<new_tag>``. Returns
+    None if the image already tracks ``:<new_tag>`` (no work to do) or
+    the parse fails. ``target_repo`` (when supplied) gates the retag to
+    a single repo so multi-image stacks aren't surprised — Komodo-style
+    single-container case ignores it.
+
+    ``new_tag`` defaults to ``"latest"`` for back-compat with the
+    original "Switch to :latest" code paths; operators can pass any
+    valid Docker tag (e.g. ``"2"``, ``"2.4"``, ``"v2-stable"``) when
+    they want to track a moving sub-version tag instead of the
+    moving-and-could-be-anything ``:latest``. The Komodo case shipped
+    2026-05-10 was specifically: ``komodo-core:2.0.0-dev`` → ``:2`` so
+    the operator gets v2 patch updates without bumping to the
+    bleeding-edge dev tag.
     """
     if not image:
         return None
+    nt = (new_tag or "latest").strip() or "latest"
     no_digest = image.split("@", 1)[0]
     last_slash = no_digest.rfind("/")
     last_colon = no_digest.rfind(":")
@@ -1467,20 +1511,24 @@ def _retag_image_string(image: str, target_repo: Optional[str] = None) -> Option
         tag = ""
     if target_repo and repo != target_repo:
         return None
-    if tag == "latest" and "@" not in image:
+    if tag == nt and "@" not in image:
         return None
-    return f"{repo}:latest"
+    return f"{repo}:{nt}"
 
 
-async def do_retag_container_to_latest(op: Operation, container_id: str) -> None:
-    """Switch a non-Portainer-managed container's image tag to ``:latest``.
+async def do_retag_container_to_latest(
+    op: Operation, container_id: str, new_tag: str = "latest",
+) -> None:
+    """Switch a non-Portainer-managed container's image tag to
+    ``:<new_tag>`` (defaults to ``:latest`` for back-compat with the
+    original "Switch to :latest" code path).
 
     Workflow (preserves volumes, networks, env, command, restart policy):
 
       1. Inspect the running container — capture name + Config +
          HostConfig + NetworkSettings.Networks.
       2. Compute the new image ref by stripping the current tag and
-         appending ``:latest``.
+         appending ``:<new_tag>``.
       3. Pull the new image via ``POST /images/create?fromImage=...``.
       4. Stop + remove the old container.
       5. Create a fresh container with the SAME name + the captured
@@ -1492,7 +1540,7 @@ async def do_retag_container_to_latest(op: Operation, container_id: str) -> None
 
     Failure handling: any step before the remove succeeds raises and
     leaves the original container intact. After the remove, a failure
-    leaves the operator with no running container — the SweetAlert
+    leaves the operator with no running container — the operator
     confirm flagged that risk before dispatch. Volumes survive because
     they're named (not anonymous) on every well-formed container; if
     the operator runs anonymous volumes those are lost on recreate
@@ -1514,10 +1562,10 @@ async def do_retag_container_to_latest(op: Operation, container_id: str) -> None
             inspect = r.json()
             old_name = (inspect.get("Name") or "").lstrip("/")
             old_image_ref = (inspect.get("Config") or {}).get("Image") or ""
-            new_image_ref = _retag_image_string(old_image_ref)
+            new_image_ref = _retag_image_string(old_image_ref, new_tag=new_tag)
             if not new_image_ref:
                 raise RuntimeError(
-                    f"Image already tracks :latest or unparseable ({old_image_ref!r})"
+                    f"Image already tracks :{new_tag} or unparseable ({old_image_ref!r})"
                 )
             op.log(f"Retag {old_image_ref} → {new_image_ref}")
 

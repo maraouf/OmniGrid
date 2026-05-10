@@ -7729,18 +7729,62 @@
               <button x-show="isAdmin()" @click="toggleIgnore(drawerItem)"
                       class="btn btn-soft justify-center fs-sm"
                       x-text="drawerItem.ignored ? t('drawer.unignore') : t('drawer.ignore')"></button>
-              <!-- Switch-to-:latest — for stack-managed items pinned
-                   to a version tag. Mutates the compose file's image:
-                   line via the standard update path so Portainer pulls
-                   `:latest` next deploy. Hidden when the image already
-                   tracks `:latest` (or has no tag, i.e. defaults to
-                   `:latest` already). -->
-              <button x-show="isAdmin() && canRetagToLatest(drawerItem)"
-                      @click="retagStackToLatest(drawerItem)"
-                      :disabled="isItemBusy(drawerItem)"
-                      class="btn btn-soft justify-center fs-sm"
-                      :title="t('drawer.retag_latest_title')"
-                      x-text="t('drawer.retag_latest')"></button>
+              <!-- Switch-to-tag inline popover. Operator-requested
+                   modern UI/UX (no extra modal popup) — clicking the
+                   button anchors a small inline panel below it with
+                   a free-text input pre-focused for the new tag. Enter
+                   to submit, Esc / outside-click to cancel. Replaces
+                   the earlier "Switch to :latest" + SwAl-prompt
+                   pattern. Generalised — accepts any valid Docker
+                   tag (operator's case: switch komodo-core from the
+                   pinned `2.0.0-dev` snapshot to the floating `2`
+                   tag for v2-line patch updates without bumping to
+                   `:latest` which still tracks v1). -->
+              <div class="relative inline-block"
+                   x-show="isAdmin() && canRetagToLatest(drawerItem)">
+                <button type="button"
+                        @click="openRetagPopover(drawerItem)"
+                        :disabled="isItemBusy(drawerItem)"
+                        :class="isRetagPopoverOpen(drawerItem) ? 'btn btn-primary justify-center fs-sm' : 'btn btn-soft justify-center fs-sm'"
+                        :title="t('drawer.retag_tag_title')"
+                        :aria-expanded="isRetagPopoverOpen(drawerItem) ? 'true' : 'false'"
+                        x-text="t('drawer.retag_tag')"></button>
+                <div x-show="isRetagPopoverOpen(drawerItem)"
+                     x-transition.opacity.duration.150ms
+                     @click.outside="closeRetagPopover()"
+                     @keydown.escape.window="closeRetagPopover()"
+                     class="retag-popover"
+                     role="dialog"
+                     :aria-label="t('drawer.retag_tag_title')">
+                  <div class="retag-popover-header" x-text="t('drawer.retag_tag_header')"></div>
+                  <div class="retag-popover-current">
+                    <span class="text-[var(--text-faint)] fs-2xs" x-text="t('drawer.retag_tag_current_label')"></span>
+                    <code class="mono fs-xs text-[var(--text-dim)]" x-text="drawerItem.image || '—'"></code>
+                  </div>
+                  <input type="text"
+                         :data-retag-input="drawerItem.raw_id || drawerItem.id"
+                         x-model="_retagDraft"
+                         @keyup.enter="submitRetagPopover(drawerItem)"
+                         @keyup.escape="closeRetagPopover()"
+                         :placeholder="t('drawer.retag_tag_placeholder')"
+                         class="retag-popover-input mono fs-sm"
+                         autocomplete="off"
+                         spellcheck="false">
+                  <div class="retag-popover-help fs-2xs text-[var(--text-faint)]"
+                       x-text="t('drawer.retag_tag_help')"></div>
+                  <div class="retag-popover-actions">
+                    <button type="button"
+                            @click="closeRetagPopover()"
+                            class="btn btn-soft fs-xs"
+                            x-text="t('actions.cancel')"></button>
+                    <button type="button"
+                            @click="submitRetagPopover(drawerItem)"
+                            :disabled="_retagBusy"
+                            class="btn btn-primary fs-xs"
+                            x-text="_retagBusy ? t('actions.working') : t('drawer.retag_tag_submit')"></button>
+                  </div>
+                </div>
+              </div>
               <a x-show="drawerItem.stack_id"
                  :href="portainerDeepLink(drawerItem)" target="_blank"
                  class="btn btn-soft justify-center fs-sm text-center" x-text="t('drawer.portainer')"></a>

@@ -7064,3 +7064,72 @@ select.field-invalid {
 .modal-panel--default-height {
     height: var(--modal-max-height-default);
 }
+
+/* ---------------------------------------------------------------------------
+   Inline retag popover (drawer "Switch to tag…" affordance)
+   ---------------------------------------------------------------------------
+   Anchored below the trigger button (parent has position: relative;
+   inline-block). Compact panel with a single text input for the new
+   tag, two action buttons. Replaces the SwAl-prompt path per
+   operator's "no popups, modern UI/UX" preference. Width is
+   intrinsic to the contents but capped so the panel doesn't blow
+   out a narrow drawer; right-aligned via inset-inline-end so it
+   doesn't overflow the drawer's right edge on the rightmost
+   action button. */
+.retag-popover {
+    position: absolute;
+    inset-inline-end: 0;
+    inset-block-start: calc(100% + var(--s-1));
+    z-index: 50;
+    min-width: 280px;
+    max-width: min(360px, 90vw);
+    padding: var(--s-3);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    border: 1px solid var(--border-bright);
+    box-shadow: 0 8px 24px var(--backdrop);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+}
+.retag-popover-header {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text);
+}
+.retag-popover-current {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--s-2);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+.retag-popover-current code {
+    word-break: break-all;
+    line-height: 1.35;
+}
+.retag-popover-input {
+    width: 100%;
+    padding: var(--s-2) var(--s-3);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    border: 1px solid var(--border-bright);
+    color: var(--text);
+}
+.retag-popover-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-soft);
+}
+.retag-popover-help {
+    line-height: 1.4;
+}
+.retag-popover-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--s-2);
+    margin-block-start: var(--s-1);
+}
