@@ -25,7 +25,6 @@
             </div>
             <button type="button"
                     @click="_runWithBusy('tokens', () => loadTokens())"
-                    :disabled="_loadBusy.tokens"
                     :title="t('actions.reload')"
                     :aria-label="t('actions.reload')"
                     class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">

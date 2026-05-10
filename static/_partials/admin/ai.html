@@ -921,13 +921,12 @@
                 <button type="button"
                         @click="deleteAiMemory(m.id)"
                         :disabled="isReadonly()"
+                        class="user-action-btn user-action-btn--danger shrink-0"
                         :title="t('ai_memory.delete_button')"
-                        :aria-label="t('ai_memory.delete_button')"
-                        class="btn btn-ghost fs-xs text-danger inline-flex items-center gap-1.5 shrink-0">
-                  <svg width="13" height="13" aria-hidden="true">
+                        :aria-label="t('ai_memory.delete_button')">
+                  <svg width="14" height="14" aria-hidden="true">
                     <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
                   </svg>
-                  <span x-text="t('ai_memory.delete_button')"></span>
                 </button>
               </li>
             </template>
@@ -1059,12 +1058,12 @@
                               :disabled="aiModalPage <= 1"
                               @click="aiModalGoPage(aiModalPage - 1)"
                               class="btn btn-ghost fs-xs"
-                              x-text="t('actions.prev')"></button>
+                              x-text="t('pagination.prev')"></button>
                       <button type="button"
                               :disabled="aiModalPage >= aiModalTotalPages()"
                               @click="aiModalGoPage(aiModalPage + 1)"
                               class="btn btn-ghost fs-xs"
-                              x-text="t('actions.next')"></button>
+                              x-text="t('pagination.next')"></button>
                     </div>
                   </div>
                 </div>
@@ -1148,12 +1147,12 @@
                               :disabled="aiModalPage <= 1"
                               @click="aiModalGoPage(aiModalPage - 1)"
                               class="btn btn-ghost fs-xs"
-                              x-text="t('actions.prev')"></button>
+                              x-text="t('pagination.prev')"></button>
                       <button type="button"
                               :disabled="aiModalPage >= aiModalTotalPages()"
                               @click="aiModalGoPage(aiModalPage + 1)"
                               class="btn btn-ghost fs-xs"
-                              x-text="t('actions.next')"></button>
+                              x-text="t('pagination.next')"></button>
                     </div>
                   </div>
                 </div>

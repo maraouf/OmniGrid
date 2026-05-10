@@ -69,6 +69,7 @@
     "notifications": "Notifications",
     "settings": "Settings",
     "admin": "Admin",
+    "stats": "Stats",
     "stacks_updates_title": "{count} pending update(s)",
     "offline_title": "{count} offline service(s)"
   },
@@ -208,8 +209,40 @@
     "profile": "Profile",
     "settings": "Settings",
     "admin": "Admin",
+    "stats": "Stats",
     "hotkeys": "Keyboard shortcuts",
     "sign_out": "Sign out"
+  },
+  "stats": {
+    "sections": {
+      "dashboard": "Dashboard"
+    },
+    "dashboard": {
+      "title": "Overview",
+      "hint": "Quick insights across users, sessions, providers, hosts and assets. Click any card to jump to the matching admin tab."
+    },
+    "cards": {
+      "users": {
+        "label": "Users",
+        "sub": "{active} active · {admins} admin(s)"
+      },
+      "sessions": {
+        "label": "Active sessions",
+        "sub": "Cookie + bearer-token sessions currently live"
+      },
+      "providers": {
+        "label": "Host-stats providers",
+        "sub": "{enabled} enabled · {disabled} disabled"
+      },
+      "hosts": {
+        "label": "Curated hosts",
+        "sub": "{enabled} enabled in inventory"
+      },
+      "assets": {
+        "label": "Asset inventory",
+        "sub": "Cached entries from the asset API"
+      }
+    }
   },
   "profile": {
     "notifications": {

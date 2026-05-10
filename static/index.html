@@ -464,6 +464,10 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             <span x-text="t('user_menu.admin')"></span>
           </button>
+          <button x-show="isAdmin()" @click="userMenuOpen=false; openStatsTab('dashboard')" class="user-menu-item">
+            <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/></svg>
+            <span x-text="t('user_menu.stats')"></span>
+          </button>
           <button @click="userMenuOpen=false; showHotkeys=true" class="user-menu-item">
             <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-help-circle"/></svg>
             <span x-text="t('user_menu.hotkeys')"></span>
@@ -3041,6 +3045,38 @@
       <!-- INCLUDE: admin/authentication.html -->
       <!-- INCLUDE: admin/debug.html -->
       </div>
+      </div>
+    </div>
+
+    <!-- ================== STATS VIEW ================== -->
+    <!-- Admin-only quick-insight dashboard. Mirrors the admin page-layout
+         shape (mobile select + desktop sidebar + content area) so the
+         visual treatment matches Admin one-to-one. Sub-tabs are minimal
+         today (Dashboard) and grow as more insight pages land. -->
+    <div x-show="view==='stats'" class="page-layout">
+      <div class="page-mobile-nav">
+        <label class="fs-xs text-[var(--text-faint)] block mb-1" x-text="t('nav.stats')"></label>
+        <select :value="statsTab" @change="openStatsTab($event.target.value)" class="w-full fs-md py-2">
+          <template x-for="s in statsSections" :key="s.id">
+            <option :value="s.id" :selected="statsTab === s.id" x-text="t('stats.sections.' + s.id)"></option>
+          </template>
+        </select>
+      </div>
+      <aside class="page-sidebar">
+        <div class="page-sidebar-header">
+          <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/></svg>
+          <span x-text="t('nav.stats')"></span>
+        </div>
+        <template x-for="s in statsSections" :key="s.id">
+          <button @click="openStatsTab(s.id)"
+                  :class="statsTab === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'">
+            <svg width="14" height="14" class="page-sidebar-icon" aria-hidden="true"><use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-' + s.icon"/></svg>
+            <span x-text="t('stats.sections.' + s.id)"></span>
+          </button>
+        </template>
+      </aside>
+      <div class="page-content">
+      <!-- INCLUDE: stats/dashboard.html -->
       </div>
     </div>
 
