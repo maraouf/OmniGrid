@@ -104,16 +104,19 @@
             <div>
               <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
                 <h4 class="font-semibold fs-sm" x-text="t('stats.samples.daily_chart.title')"></h4>
-                <!-- Range picker — same chip pattern as the other
-                     stats range pickers (Incidents / AI Cost trend).
-                     Click reloads the chart with the new bucket size;
-                     the Samples table sections above don't refetch. -->
-                <div class="inline-flex items-center gap-1" role="group"
+                <!-- Range picker — same segmented control pattern as
+                     the Incidents window picker at the top of the
+                     stats page. Click reloads the chart with the new
+                     bucket size; the Samples table sections above
+                     don't refetch. -->
+                <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
+                     role="group"
                      :aria-label="t('stats.samples.daily_chart.range_label')">
                   <template x-for="opt in ['1h', '24h', '7d', '30d', '90d']" :key="opt">
                     <button type="button"
                             @click="loadStatsSamples(opt)"
-                            :class="statsSamplesRange === opt ? 'btn btn-primary fs-2xs' : 'btn btn-ghost fs-2xs'"
+                            :class="statsSamplesRange === opt ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                            class="px-2 py-0.5 rounded fs-xs font-medium transition"
                             x-text="opt"></button>
                   </template>
                 </div>

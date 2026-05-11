@@ -1504,6 +1504,7 @@ function app() {
     statsNetworkHours: 168,
     statsAiCost: {},
     statsAiCostLoaded: false,
+    statsAiCostRange: '30d',
     // App-logs viewer state. Polled when the Logs tab is visible.
     // `logLines` is append-only during a session; clear() wipes both
     // the UI list and the server-side ring.
@@ -3360,9 +3361,17 @@ function app() {
       svg += '</svg>';
       return svg;
     },
-    async loadStatsAiCost() {
+    async loadStatsAiCost(range) {
+      // Operator-selectable range applies to BOTH the response-time
+      // trend chart AND the Top 10 expensive table — backend wires
+      // the cutoff to both. Other sections (MTD / last month / EOM /
+      // tokens by provider+model) keep their canonical windows.
+      const validRanges = new Set(['1h', '24h', '7d', '30d', '90d']);
+      const r0 = (range && validRanges.has(range)) ? range : (this.statsAiCostRange || '30d');
+      this.statsAiCostRange = r0;
       try {
-        const r = await fetch('/api/admin/stats/ai-cost');
+        const qs = '?range=' + encodeURIComponent(r0);
+        const r = await fetch('/api/admin/stats/ai-cost' + qs);
         if (!r.ok) return;
         this.statsAiCost = await r.json();
       } catch (_) {} finally {

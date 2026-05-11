@@ -5257,9 +5257,17 @@ async def api_admin_stats_incidents(
 
 @app.get("/api/admin/stats/ai-cost")
 async def api_admin_stats_ai_cost(
+    range: str = "30d",
     _admin: auth.User = Depends(auth.require_admin),
 ):
     """Admin-only: AI cost / usage forecasts re-framed as a finance view.
+
+    Query params:
+      range — operator-selectable window for the response-time trend
+              chart AND the top-expensive table. Accepts 1h / 24h /
+              7d / 30d / 90d. Default 30d. Other sections (MTD / last
+              month / EOM / tokens by provider+model) keep their
+              canonical windows regardless of `range`.
 
     Returns:
       month_to_date     — {cost_usd, tokens, jobs} from start-of-month → now.
@@ -5267,11 +5275,13 @@ async def api_admin_stats_ai_cost(
       projected_eom     — {cost_usd, tokens, jobs} extrapolated linearly
                           from current burn rate to end of month.
       tokens_by_provider_model — list of {provider, model, tokens, cost_usd}
-                                 sorted by tokens DESC.
-      avg_response_time_trend — list of {bucket_ts, avg_ms, jobs} bucketed by
-                                day across the last 30 days.
-      top_expensive     — top 10 single most-expensive `ai_jobs` rows in the
-                          last 90 days.
+                                 sorted by tokens DESC. Fixed 30d window.
+      avg_response_time_trend — list of {bucket_ts, avg_ms, jobs} bucketed
+                                by hour (range ≤ 24h) or day (> 24h)
+                                across the operator-selected window.
+      top_expensive     — top 10 single most-expensive `ai_jobs` rows in
+                          the operator-selected window.
+      range             — echo of the resolved range string ('30d' default).
     """
     import time as _time
     from datetime import datetime as _dt, timedelta as _td
@@ -5403,34 +5413,52 @@ async def api_admin_stats_ai_cost(
                 }
                 for r in rows
             ]
-            # Avg response time per day for the last 30 days.
+            # Resolve operator-selected window for the trend chart + top-expensive
+            # table. Other sections (MTD / last month / EOM / tokens-by-PM)
+            # keep their canonical windows above.
+            _RANGE_TO_SECONDS = {
+                "1h":  3600,
+                "24h": 86400,
+                "7d":  7 * 86400,
+                "30d": 30 * 86400,
+                "90d": 90 * 86400,
+            }
+            range_key = (range or "30d").strip().lower()
+            if range_key not in _RANGE_TO_SECONDS:
+                range_key = "30d"
+            range_seconds = _RANGE_TO_SECONDS[range_key]
+            range_cutoff = now_ts - range_seconds
+            # Bucket size: hour buckets for ≤ 24h windows, day buckets above.
+            # Lets the 1h / 24h selections render fine-grained without
+            # collapsing every job into a single bar.
+            bucket_seconds = 3600 if range_seconds <= 86400 else 86400
+            # Avg response time over operator-selected window, bucketed.
             rows = c.execute(
-                "SELECT CAST((ts / 86400) AS INTEGER) * 86400 AS day_ts, "
-                "       AVG(response_time_ms) AS avg_ms, "
-                "       COUNT(*) AS jobs "
+                f"SELECT CAST((ts / {bucket_seconds}) AS INTEGER) * {bucket_seconds} AS bucket_ts, "
+                "        AVG(response_time_ms) AS avg_ms, "
+                "        COUNT(*) AS jobs "
                 "  FROM ai_jobs "
                 " WHERE ts >= ? AND response_time_ms IS NOT NULL "
-                " GROUP BY day_ts "
-                " ORDER BY day_ts ASC",
-                (cutoff_30d,),
+                " GROUP BY bucket_ts "
+                " ORDER BY bucket_ts ASC",
+                (range_cutoff,),
             ).fetchall()
             out["avg_response_time_trend"] = [
                 {
-                    "bucket_ts": int(r["day_ts"] if hasattr(r, "keys") else r[0]),
+                    "bucket_ts": int(r["bucket_ts"] if hasattr(r, "keys") else r[0]),
                     "avg_ms":    float(r["avg_ms"] if hasattr(r, "keys") else r[1] or 0),
                     "jobs":      int(r["jobs"] if hasattr(r, "keys") else r[2]),
                 }
                 for r in rows
             ]
-            # Top 10 most expensive single calls in the last 90 days.
-            cutoff_90d = now_ts - 90 * 86400
+            # Top 10 most expensive single calls in the operator-selected window.
             rows = c.execute(
                 "SELECT id, ts, provider, model, kind, total_tokens, cost_usd, response_time_ms "
                 "  FROM ai_jobs "
                 " WHERE ts >= ? AND cost_usd IS NOT NULL AND cost_usd > 0 "
                 " ORDER BY cost_usd DESC "
                 " LIMIT 10",
-                (cutoff_90d,),
+                (range_cutoff,),
             ).fetchall()
             out["top_expensive"] = [
                 {
@@ -5445,6 +5473,7 @@ async def api_admin_stats_ai_cost(
                 }
                 for r in rows
             ]
+            out["range"] = range_key
     except Exception as e:
         out["error"] = str(e)
     return out
