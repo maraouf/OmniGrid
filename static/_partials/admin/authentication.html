@@ -79,7 +79,7 @@
             </div>
 
             <div class="flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
-              <button x-show="isAdmin()" @click="saveTotpPolicy()"
+              <button type="button" x-show="isAdmin()" @click="saveTotpPolicy()"
                       :disabled="totpPolicySaving"
                       :class="totpPolicyDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                       class="btn btn-primary fs-sm">

@@ -1,10 +1,10 @@
       <div x-show="adminTab==='logs'" class="space-y-3">
         <div class="flex items-center gap-1 border-b border-[var(--border)]">
-          <button @click="logsSubTab='live'"
+          <button type="button" @click="logsSubTab='live'"
                   :class="logsSubTab==='live' ? 'text-[var(--text)] border-b-2 border-[var(--primary)] -mb-[1px]' : 'text-[var(--text-dim)]'"
                   class="px-3 py-2 fs-sm font-medium transition"
                   x-text="t('admin.logs.subtab_live')"></button>
-          <button @click="logsSubTab='files'; loadLogFiles()"
+          <button type="button" @click="logsSubTab='files'; loadLogFiles()"
                   :class="logsSubTab==='files' ? 'text-[var(--text)] border-b-2 border-[var(--primary)] -mb-[1px]' : 'text-[var(--text-dim)]'"
                   class="px-3 py-2 fs-sm font-medium transition"
                   x-text="t('admin.logs.subtab_files')"></button>
@@ -83,7 +83,7 @@
               </button>
             </template>
             <span class="flex-1"></span>
-            <button @click="setLogSeverityErrorsOnly()"
+            <button type="button" @click="setLogSeverityErrorsOnly()"
                     class="btn btn-ghost fs-2xs inline-flex items-center gap-1.5">
               <svg width="11" height="11" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
@@ -179,7 +179,7 @@
                doesn't silently persist pending edits from other
                admin sections. -->
           <div class="flex items-center gap-3 mt-3 pt-3 border-t border-[var(--border)]" x-show="isAdmin()">
-            <button @click="saveLogsSection()"
+            <button type="button" @click="saveLogsSection()"
                     :disabled="tuningSaving"
                     :class="logsSectionDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                     class="btn btn-primary fs-sm">
@@ -282,7 +282,7 @@
               <span class="fs-2xs text-[var(--text-faint)]"
                     x-text="t('admin.logs.tail_lines', { n: logFileTailLines })"></span>
               <span class="flex-1"></span>
-              <button @click="logSelectedFile=''" class="btn btn-ghost fs-xs"
+              <button type="button" @click="logSelectedFile=''" class="btn btn-ghost fs-xs"
                       x-text="t('actions.close')"></button>
             </div>
             <!-- Text filter — same input as the Live (stdout) tab.
@@ -295,7 +295,7 @@
               <input type="search" x-model.debounce.200ms="logFilter"
                      :placeholder="t('admin.logs.filter_placeholder')"
                      class="fs-sm min-w-[180px] flex-1">
-              <button x-show="logFilter" @click="logFilter=''"
+              <button type="button" x-show="logFilter" @click="logFilter=''"
                       class="btn btn-ghost fs-xs"
                       :title="t('admin.logs.filter_clear')"
                       x-text="t('admin.logs.filter_clear')"></button>

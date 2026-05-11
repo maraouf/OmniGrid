@@ -22,7 +22,7 @@
           </div>
           <div x-show="newUser.auth_source==='authentik'" class="mt-2 fs-xs text-[var(--text-faint)]" x-text="t('admin.users.authentik_hint')"></div>
           <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-3">
-            <button @click="createUser()" class="btn btn-primary fs-sm" x-text="t('actions.create')"></button>
+            <button type="button" @click="createUser()" class="btn btn-primary fs-sm" x-text="t('actions.create')"></button>
           </div>
         </section>
 
@@ -138,17 +138,17 @@
                            groups at a glance. Single-row layout drops
                            the table from 3 stacked rows per user to 1. -->
                       <div class="inline-flex items-center gap-0.5 justify-end user-actions">
-                        <button @click="toggleUserRole(u)" class="user-action-btn"
+                        <button type="button" @click="toggleUserRole(u)" class="user-action-btn"
                                 :title="u.role==='admin' ? t('admin.users.make_readonly') : t('admin.users.make_admin')"
                                 :aria-label="u.role==='admin' ? t('admin.users.make_readonly') : t('admin.users.make_admin')">
                           <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-right"/></svg>
                         </button>
-                        <button @click="toggleUserDisabled(u)" class="user-action-btn"
+                        <button type="button" @click="toggleUserDisabled(u)" class="user-action-btn"
                                 :title="u.disabled ? t('admin.users.enable') : t('admin.users.disable')"
                                 :aria-label="u.disabled ? t('admin.users.enable') : t('admin.users.disable')">
                           <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-lock"/></svg>
                         </button>
-                        <button x-show="u.auth_source==='local'" @click="resetUserPassword(u)"
+                        <button type="button" x-show="u.auth_source==='local'" @click="resetUserPassword(u)"
                                 class="user-action-btn"
                                 :title="t('admin.users.reset_pw_title')"
                                 :aria-label="t('admin.users.reset_pw')">
@@ -159,7 +159,7 @@
                              only for local users with TOTP currently
                              enabled. Audited via history.op_type=
                              totp_admin_disabled. -->
-                        <button x-show="u.auth_source==='local' && u.totp_enabled"
+                        <button type="button" x-show="u.auth_source==='local' && u.totp_enabled"
                                 @click="adminDisableTotp(u)"
                                 class="user-action-btn user-action-btn--warning"
                                 :title="t('admin.users.totp_disable_title')"
@@ -170,14 +170,14 @@
                              override. Audited via history.
                              op_type=totp_force_set. Hidden for
                              Authentik users (TOTP doesn't apply). -->
-                        <button x-show="u.auth_source==='local' && !u.totp_force_required"
+                        <button type="button" x-show="u.auth_source==='local' && !u.totp_force_required"
                                 @click="adminForceTotp(u, true)"
                                 class="user-action-btn"
                                 :title="t('admin.users.totp_force_title')"
                                 :aria-label="t('admin.users.totp_force')">
                           <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
                         </button>
-                        <button x-show="u.auth_source==='local' && u.totp_force_required"
+                        <button type="button" x-show="u.auth_source==='local' && u.totp_force_required"
                                 @click="adminForceTotp(u, false)"
                                 class="user-action-btn user-action-btn--warning"
                                 :title="t('admin.users.totp_unforce_title')"
@@ -185,7 +185,7 @@
                           <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
                         </button>
                         <span class="user-action-sep"></span>
-                        <button @click="deleteUser(u)"
+                        <button type="button" @click="deleteUser(u)"
                                 class="user-action-btn user-action-btn--danger"
                                 :disabled="me && u.id === me.id ? true : false"
                                 :title="me && u.id === me.id ? t('admin.users.delete_self_title') : t('admin.users.delete_title')"

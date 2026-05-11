@@ -33,7 +33,7 @@
           <!-- Save action row below the input — matches the Apprise
                panel above it for visual consistency. -->
           <div class="flex items-center gap-3 mt-3 flex-wrap pt-3 border-t border-[var(--border)]" x-show="isAdmin()">
-            <button @click="saveOpenMeteoUrl()"
+            <button type="button" @click="saveOpenMeteoUrl()"
                     :disabled="openMeteoSaving"
                     :class="openMeteoDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                     class="btn btn-primary fs-sm">

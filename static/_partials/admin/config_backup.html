@@ -23,7 +23,7 @@
             <p class="fs-xs text-[var(--text-faint)] mb-3"
                x-html="t('admin.config_backup.export_desc')"></p>
             <div class="flex items-center gap-2 flex-wrap">
-              <button @click="downloadConfigBackup()"
+              <button type="button" @click="downloadConfigBackup()"
                       :disabled="configBackupBusy"
                       class="btn btn-primary fs-sm inline-flex items-center gap-1.5"
                       :class="configBackupBusy && 'opacity-60'">
@@ -32,7 +32,7 @@
                 </svg>
                 <span x-text="t('admin.config_backup.download_button')"></span>
               </button>
-              <button @click="saveConfigBackupToDisk()"
+              <button type="button" @click="saveConfigBackupToDisk()"
                       :disabled="configBackupBusy"
                       class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
                       :class="configBackupBusy && 'opacity-60'">

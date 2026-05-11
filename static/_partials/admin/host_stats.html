@@ -24,7 +24,7 @@
             ['ping',          t('settings.host_stats.source_ping')],
             ['snmp',          t('settings.host_stats.source_snmp')],
           ]" :key="tab[0]">
-            <button @click="setHostStatsTab(tab[0])"
+            <button type="button" @click="setHostStatsTab(tab[0])"
                     role="tab"
                     :id="'provider-tab-' + tab[0]"
                     :aria-selected="hostStatsTab === tab[0] ? 'true' : 'false'"
@@ -247,7 +247,7 @@
                the button, not on a separate line below. flex-wrap
                handles narrow viewports. -->
           <div class="flex items-center gap-2 flex-wrap">
-            <button x-show="isAdmin()" @click="testBeszelConnection()"
+            <button type="button" x-show="isAdmin()" @click="testBeszelConnection()"
                     :disabled="(beszelTestResult && beszelTestResult.pending) || !hasHostStatsSource('beszel')"
                     class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
               <svg width="13" height="13" :class="(beszelTestResult && beszelTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
@@ -399,7 +399,7 @@
           <!-- Test button + last-connected label + result chip all on
                one row (matches Beszel / Webmin / Portainer / OIDC). -->
           <div class="flex items-center gap-2 flex-wrap">
-            <button x-show="isAdmin()" @click="testPulseConnection()"
+            <button type="button" x-show="isAdmin()" @click="testPulseConnection()"
                     :disabled="(pulseTestResult && pulseTestResult.pending) || !hasHostStatsSource('pulse')"
                     class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
               <svg width="13" height="13" :class="(pulseTestResult && pulseTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
@@ -543,7 +543,7 @@
             <span x-text="t('settings.host_stats.webmin_verify_tls_label')"></span>
           </label>
           <div class="flex items-center gap-2 flex-wrap">
-            <button x-show="isAdmin()" @click="testWebminConnection()"
+            <button type="button" x-show="isAdmin()" @click="testWebminConnection()"
                     :disabled="(webminTestResult && webminTestResult.pending) || !hasHostStatsSource('webmin')"
                     class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
               <svg width="13" height="13" :class="(webminTestResult && webminTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
@@ -705,7 +705,7 @@
           <!-- Test button — picks an opted-in host and fires a one-shot
                live probe via /api/ping/test. -->
           <div class="flex items-center gap-2 flex-wrap">
-            <button x-show="isAdmin()" @click="testPingConnection()"
+            <button type="button" x-show="isAdmin()" @click="testPingConnection()"
                     :disabled="(pingTestResult && pingTestResult.pending) || !hasHostStatsSource('ping') || !pingTestHostId"
                     class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
               <svg width="13" height="13" :class="(pingTestResult && pingTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
@@ -958,7 +958,7 @@
                /api/snmp/test, falling back to global defaults
                server-side for fields the row doesn't override. -->
           <div class="flex items-center gap-2 flex-wrap">
-            <button x-show="isAdmin()" @click="testSnmpConnection()"
+            <button type="button" x-show="isAdmin()" @click="testSnmpConnection()"
                     :disabled="(snmpTestResult && snmpTestResult.pending) || !hasHostStatsSource('snmp') || !snmpTestHostId"
                     class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
               <svg width="13" height="13" :class="(snmpTestResult && snmpTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
@@ -1101,7 +1101,7 @@
              tab I'm on") holds across every sub-tab. -->
         <div x-show="hostStatsTab === 'beszel' || hostStatsTab === 'pulse'"
              class="mt-4 flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
-          <button x-show="isAdmin()" @click="saveHostStats()"
+          <button type="button" x-show="isAdmin()" @click="saveHostStats()"
                   :disabled="hostStatsSaving"
                   :class="hostStatsDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                   class="btn btn-primary fs-sm">

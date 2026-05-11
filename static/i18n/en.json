@@ -2156,7 +2156,8 @@
     "search_aria": "Search this AI conversation",
     "search_no_match": "no match",
     "search_prev": "Previous match",
-    "search_next": "Next match"
+    "search_next": "Next match",
+    "mode_help": "Approval mode: AI proposes actions and waits for your confirm before running them. Autonomous mode: AI runs safe actions immediately without asking; destructive actions still confirm."
   },
   "ai_memory": {
     "title": "AI Memory",

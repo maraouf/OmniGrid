@@ -4,6 +4,23 @@
    without touching component rules. No hardcoded colors/spacing in markup.
    ============================================================================ */
 
+/* WAI-ARIA "screen-reader only" utility. Visually hidden but still
+   announced by AT (NVDA / JAWS / VoiceOver). Used for help text
+   referenced via aria-describedby — operators with vision get the
+   tooltip via :title; AT users get this. Standard recipe; matches
+   Tailwind's .sr-only. */
+.sr-only {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+}
+
 /* ---------------------------------------------------------------------------
    Poppins font — vendored under static/fonts/ for offline operation.
    Refresh with scripts/download_poppins.sh if Google ever changes the URLs.
@@ -5473,12 +5490,15 @@ button:focus:not(:focus-visible) {
     .subtle-flash,
     .host-spin,
     .sse-dot,
+    .sse-pill--live .sse-pill-dot,
+    .sse-pill--reconnecting .sse-pill-dot,
     .skeleton,
     .ai-sidebar-drawer,
     .ai-sidebar-jump-latest,
     .row-stale-flash,
     .chip-loading,
-    .charts-refreshing > .metric-card {
+    .charts-refreshing > .metric-card,
+    .bulk-applied-glyph {
         animation-duration: 0.001ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.001ms !important;

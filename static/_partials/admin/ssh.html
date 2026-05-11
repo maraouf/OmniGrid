@@ -292,7 +292,7 @@
                 <option :value="h.id" x-text="hostDisplayName(h) + ' (' + h.id + ')'"></option>
               </template>
             </select>
-            <button x-show="isAdmin()" @click="runSshAdminTest()"
+            <button type="button" x-show="isAdmin()" @click="runSshAdminTest()"
                     :disabled="sshTestOnHost.pending || !sshTestOnHost.host_id"
                     class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
               <svg width="13" height="13" :class="sshTestOnHost.pending ? 'spin-md' : ''" aria-hidden="true">
@@ -315,7 +315,7 @@
         </div>
 
         <div class="mt-5 flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
-          <button x-show="isAdmin()" @click="saveSshSettings()"
+          <button type="button" x-show="isAdmin()" @click="saveSshSettings()"
                   :disabled="sshSettingsBusy"
                   :class="sshSettingsDirty ? 'ring-2 ring-[var(--warning)]' : ''"
                   class="btn btn-primary fs-sm">

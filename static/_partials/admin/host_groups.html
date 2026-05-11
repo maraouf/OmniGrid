@@ -255,7 +255,7 @@
                      `Move up / Move down / Remove` accesskeys
                      (`title` attributes already describe them). -->
                 <div class="flex items-center gap-1 pb-1.5">
-                  <button x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, -1)"
+                  <button type="button" x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, -1)"
                           tabindex="-1"
                           :disabled="listIdx === 0"
                           class="btn btn-ghost fs-sm px-2"
@@ -263,7 +263,7 @@
                           :title="t('admin_hosts.groups.move_up_title')">
                     <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/></svg>
                   </button>
-                  <button x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, +1)"
+                  <button type="button" x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, +1)"
                           tabindex="-1"
                           :disabled="listIdx === sortedGroupsForEditor().length - 1"
                           class="btn btn-ghost fs-sm px-2"
@@ -271,7 +271,7 @@
                           :title="t('admin_hosts.groups.move_down_title')">
                     <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
                   </button>
-                  <button x-show="isAdmin()" @click="removeHostGroup(origIdx)"
+                  <button type="button" x-show="isAdmin()" @click="removeHostGroup(origIdx)"
                           tabindex="-1"
                           class="btn btn-ghost fs-sm text-danger px-2"
                           :title="t('admin_hosts.groups.remove_title')"
@@ -367,12 +367,12 @@
                   x-text="'· ' + sortedGroupsForEditor().length + ' total'"></span>
           </div>
           <div class="flex items-center gap-1.5">
-            <button @click="hostGroupsGoToPage(1)"
+            <button type="button" @click="hostGroupsGoToPage(1)"
                     :disabled="hostGroupsPage <= 1"
                     :class="hostGroupsPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
                     class="btn btn-ghost fs-xs px-2"
                     :title="t('pagination.first_page_title')">«</button>
-            <button @click="hostGroupsPrevPage()"
+            <button type="button" @click="hostGroupsPrevPage()"
                     :disabled="hostGroupsPage <= 1"
                     :class="hostGroupsPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
                     class="btn btn-soft fs-xs px-2.5">‹ Prev</button>
@@ -381,11 +381,11 @@
                    @change="hostGroupsGoToPage($event.target.value)"
                    class="w-14 text-center fs-xs py-1"
                    :title="t('pagination.jump_to_page_title')">
-            <button @click="hostGroupsNextPage()"
+            <button type="button" @click="hostGroupsNextPage()"
                     :disabled="hostGroupsPage >= hostGroupsTotalPages()"
                     :class="hostGroupsPage >= hostGroupsTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
                     class="btn btn-soft fs-xs px-2.5">Next ›</button>
-            <button @click="hostGroupsGoToPage(hostGroupsTotalPages())"
+            <button type="button" @click="hostGroupsGoToPage(hostGroupsTotalPages())"
                     :disabled="hostGroupsPage >= hostGroupsTotalPages()"
                     :class="hostGroupsPage >= hostGroupsTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
                     class="btn btn-ghost fs-xs px-2"
@@ -408,15 +408,15 @@
              behave identically. Add / Collapse-all / Save / count /
              scroll-to-top with the existing dirty-ring pattern. -->
         <div class="hosts-config-actionbar flex items-center gap-2 flex-wrap">
-          <button x-show="isAdmin()" @click="addHostGroup()"
+          <button type="button" x-show="isAdmin()" @click="addHostGroup()"
                   class="btn btn-soft fs-sm"
                   x-text="t('admin_hosts.groups.add')"></button>
-          <button x-show="isAdmin() && (hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
+          <button type="button" x-show="isAdmin() && (hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
                   @click="collapseAllHostGroupChildren()"
                   class="btn btn-soft fs-sm"
                   :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group\'s sub-rows'"
                   x-text="t('admin_hosts.groups.collapse_all') || 'Collapse all'"></button>
-          <button x-show="isAdmin()" @click="saveHostGroups()"
+          <button type="button" x-show="isAdmin()" @click="saveHostGroups()"
                   class="btn btn-primary fs-sm"
                   :disabled="hostGroupsSaving"
                   :class="hostGroupsDirty ? 'ring-2 ring-[var(--warning)]' : ''">
@@ -437,7 +437,7 @@
             <span class="unsaved-flash" x-text="t('admin_hosts.groups.unsaved')"></span>
           </span>
           <span class="ms-auto"></span>
-          <button x-show="(hostGroups || []).length > 5"
+          <button type="button" x-show="(hostGroups || []).length > 5"
                   @click="scrollToHostGroupsTop()"
                   class="btn btn-soft fs-xs"
                   :title="t('hosts_actions.top_title')"

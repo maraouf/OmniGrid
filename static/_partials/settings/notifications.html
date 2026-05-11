@@ -65,9 +65,9 @@
             <section class="notify-category"
                      x-show="notifySearchQuery === '' || notifyCategoryFilteredRows(cat).length > 0">
               <!-- Header row. The expand/collapse trigger and the
-                   per-medium bulk-toggle chips are SIBLING <button>
+                   per-medium bulk-toggle chips are SIBLING <button type="button">
                    elements — nesting interactive content inside a
-                   parent <button> is invalid HTML5 (browsers handle
+                   parent <button type="button"> is invalid HTML5 (browsers handle
                    focus / Enter activation inconsistently for
                    nested-button cases) AND defeats the keyboard
                    navigation contract per CLAUDE.md's "Clickable
@@ -100,7 +100,7 @@
                        :class="isNotifyCategoryExpanded(cat.id) ? 'rotate-180' : ''"
                        aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
                 </button>
-                <!-- per-medium state chips. Sibling <button>s, NOT
+                <!-- per-medium state chips. Sibling <button type="button">s, NOT
                      nested in the toggle. Clicking a chip cycles all
                      → none → all for that medium across the entire
                      category. Disabled-by-admin chips render as
@@ -336,7 +336,7 @@
         </div>
 
         <div class="flex items-center gap-3 flex-wrap mt-4 pt-4 border-t border-[var(--border)]">
-          <button @click="saveProfile()" :disabled="profileBusy"
+          <button type="button" @click="saveProfile()" :disabled="profileBusy"
                   :class="profileDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                   class="btn btn-primary fs-sm"
                   x-text="profileBusy ? t('actions.saving') : t('actions.save_changes')"></button>
@@ -449,7 +449,7 @@
                   x-text="beszelTestResult && !beszelTestResult.pending
                           ? ((beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult.detail || ''))
                           : ''"></span>
-            <button x-show="isAdmin()" @click="testBeszelConnection()"
+            <button type="button" x-show="isAdmin()" @click="testBeszelConnection()"
                     :disabled="beszelTestResult && beszelTestResult.pending"
                     class="btn btn-soft fs-sm justify-self-end"
                     x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
@@ -458,7 +458,7 @@
              x-text="t('settings.host_stats.beszel_naming_hint')"></p>
         </div>
 
-        <button x-show="isAdmin()" @click="saveHostStats()"
+        <button type="button" x-show="isAdmin()" @click="saveHostStats()"
                 class="btn btn-primary fs-sm mt-4"
                 x-text="t('actions.save')"></button>
       </section>
