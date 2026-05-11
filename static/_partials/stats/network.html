@@ -115,7 +115,13 @@
                   <tbody>
                     <template x-for="row in (statsNetwork.top_24h || [])" :key="'24h:' + row.host_id">
                       <tr class="border-t border-[var(--border)]">
-                        <td class="px-4 py-2 mono" x-text="row.host_id"></td>
+                        <td class="px-4 py-2 mono">
+                          <span x-text="row.host_id"></span>
+                          <span x-show="(row.aliases || []).length"
+                                class="ms-2 fs-3xs text-[var(--text-faint)] italic"
+                                :title="(row.aliases || []).join(', ')"
+                                x-text="'(+' + (row.aliases || []).length + ' alias)'"></span>
+                        </td>
                         <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_rx_bps)"></td>
                         <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_tx_bps)"></td>
                       </tr>
@@ -146,7 +152,13 @@
                   <tbody>
                     <template x-for="row in (statsNetwork.top_7d || [])" :key="'7d:' + row.host_id">
                       <tr class="border-t border-[var(--border)]">
-                        <td class="px-4 py-2 mono" x-text="row.host_id"></td>
+                        <td class="px-4 py-2 mono">
+                          <span x-text="row.host_id"></span>
+                          <span x-show="(row.aliases || []).length"
+                                class="ms-2 fs-3xs text-[var(--text-faint)] italic"
+                                :title="(row.aliases || []).join(', ')"
+                                x-text="'(+' + (row.aliases || []).length + ' alias)'"></span>
+                        </td>
                         <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_rx_bps)"></td>
                         <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_tx_bps)"></td>
                       </tr>
@@ -178,7 +190,13 @@
                   <tbody>
                     <template x-for="row in (statsNetwork.top_chatty || [])" :key="'c:' + row.host_id">
                       <tr class="border-t border-[var(--border)]">
-                        <td class="px-4 py-2 mono" x-text="row.host_id"></td>
+                        <td class="px-4 py-2 mono">
+                          <span x-text="row.host_id"></span>
+                          <span x-show="(row.aliases || []).length"
+                                class="ms-2 fs-3xs text-[var(--text-faint)] italic"
+                                :title="(row.aliases || []).join(', ')"
+                                x-text="'(+' + (row.aliases || []).length + ' alias)'"></span>
+                        </td>
                         <td class="px-4 py-2 mono text-end" x-text="fmtBytes(row.bytes_rx)"></td>
                         <td class="px-4 py-2 mono text-end" x-text="fmtBytes(row.bytes_tx)"></td>
                         <td class="px-4 py-2 mono text-end font-semibold" x-text="fmtBytes(row.bytes_total)"></td>

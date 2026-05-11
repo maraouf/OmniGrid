@@ -18830,25 +18830,44 @@ function app() {
         const hi = Number(p.high || p.bytes || 0);
         if (hi > yMax) yMax = hi;
       }
-      // Round yMax UP to a clean multiple — 1 / 2 / 5 × 10^N. Gives
-      // tidy axis labels like 100 MB / 200 MB / 500 MB / 1 GB instead
-      // of "97.4 MB". A 5% headroom is added FIRST so the data line
-      // doesn't kiss the top edge, then the result snaps to the next
-      // clean bucket.
+      // Pick a Y-axis with EVERY tick a multiple of 100 in whatever
+      // unit (B / KB / MB / GB / TB) fits the range. Algorithm:
+      // 1. Add 5% headroom so the data line doesn't kiss the top edge.
+      // 2. Walk the unit ladder UP while padded/unitBytes ≥ 1024 (same
+      //    rule as fmtBytes), then walk DOWN if the value-in-unit is
+      //    < 100 so the multiple-of-100 snap is meaningful (a 5 GB
+      //    value snaps in MB at 5400 MB instead of 100 GB).
+      // 3. Pick a step from {100, 200, 500, 1000, 2000, 5000, 10000}
+      //    such that ≤ 6 ticks cover the range. Ticks then land at
+      //    0, step, 2×step, …, ceil(value/step)×step — every one a
+      //    clean multiple of 100 in the chosen unit.
+      let yTicksValues = [0];
+      let yMaxCalc = 1;
       const padded = yMax * 1.05;
       if (padded > 0) {
-        const exp = Math.floor(Math.log10(padded));
-        const base = Math.pow(10, exp);
-        const m = padded / base;
-        let snap;
-        if (m <= 1) snap = 1;
-        else if (m <= 2) snap = 2;
-        else if (m <= 5) snap = 5;
-        else snap = 10;
-        yMax = snap * base;
-      } else {
-        yMax = 1;
+        let unitIdx = 0;
+        let inUnit = padded;
+        while (inUnit >= 1024 && unitIdx < 4) { inUnit /= 1024; unitIdx++; }
+        // If the value-in-unit is < 100, drop to a smaller unit so
+        // the 100-snap doesn't overshoot wildly (5 GB → MB = 5120).
+        while (inUnit < 100 && unitIdx > 0) {
+          inUnit *= 1024;
+          unitIdx -= 1;
+        }
+        const unitBytes = Math.pow(1024, unitIdx);
+        const stepCandidates = [100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000];
+        let step = stepCandidates[stepCandidates.length - 1];
+        for (const s of stepCandidates) {
+          if (Math.ceil(inUnit / s) <= 6) { step = s; break; }
+        }
+        const ticksCount = Math.max(1, Math.ceil(inUnit / step));
+        yMaxCalc = ticksCount * step * unitBytes;
+        yTicksValues = [];
+        for (let i = 0; i <= ticksCount; i++) {
+          yTicksValues.push(i * step * unitBytes);
+        }
       }
+      yMax = yMaxCalc;
       const X = (ts) => PAD_L + ((ts - tsMin) / tsRange) * plotW;
       const Y = (b) => PAD_T + (1 - (b / Math.max(1, yMax))) * plotH;
       // Confidence band — closed polygon (top edge low→high, bottom
@@ -18868,11 +18887,12 @@ function app() {
       for (const p of points) {
         linePath += (linePath ? ' L' : 'M') + X(p.ts).toFixed(1) + ',' + Y(p.bytes).toFixed(1);
       }
-      // Y-axis labels: 5 ticks at 0 / 25% / 50% / 75% / 100% of the
-      // snapped max. Even quarters of a clean snap (100 MB / 1 GB /
-      // etc.) produce clean intermediate labels too.
-      const fmtB = (n) => this.fmtBytes(n);
-      const yTicks = [0, yMax * 0.25, yMax * 0.5, yMax * 0.75, yMax].map(v => ({
+      // Y-axis labels — every tick is a multiple-of-100 in the chosen
+      // unit (computed above). `fmtBytesAt(v, yMax)` formats each tick
+      // in the SAME unit family so labels read consistently across the
+      // axis (no "1000 MB" next to "2 GB" mismatches).
+      const fmtB = (n) => this.fmtBytesAt(n, yMax);
+      const yTicks = yTicksValues.map(v => ({
         v, y: Y(v).toFixed(1), label: fmtB(v),
       }));
       // X-axis labels: Today / +30 / +60 / +90 — relative day offsets
