@@ -1389,6 +1389,10 @@ function app() {
       // SSH WebSocket heartbeat cadence — rendered under Admin →
       // SSH alongside the other SSH knobs.
       'tuning_ssh_ws_heartbeat_seconds',
+      // Per-provider default ports — promoted out of plain settings.
+      'tuning_ssh_default_port',
+      'tuning_snmp_default_port',
+      'tuning_ping_default_port',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -3070,20 +3074,23 @@ function app() {
       );
     },
 
-    async pruneNode(host) {
+    async pruneNode(host, opts) {
       // Confirm first — `docker system prune --volumes` is destructive:
       // stopped containers go away, dangling images, unused networks, AND
       // unused volumes (which can carry data users forgot was orphaned).
-      const res = await Swal.fire({
-        title: this.t('admin.nodes.prune_prompt_title', { host }),
-        html: this.t('admin.nodes.prune_prompt_html', { host }),
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: this.t('actions.prune_now'),
-        cancelButtonText: this.t('actions.cancel'),
-        confirmButtonColor: this._cssVar('--danger'),
-      });
-      if (!res.isConfirmed) return;
+      const skipConfirm = !!(opts && opts.skipConfirm);
+      if (!skipConfirm) {
+        const res = await Swal.fire({
+          title: this.t('admin.nodes.prune_prompt_title', { host }),
+          html: this.t('admin.nodes.prune_prompt_html', { host }),
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: this.t('actions.prune_now'),
+          cancelButtonText: this.t('actions.cancel'),
+          confirmButtonColor: this._cssVar('--danger'),
+        });
+        if (!res.isConfirmed) return;
+      }
       try {
         const r = await fetch('/api/prune/node/' + encodeURIComponent(host), { method: 'POST' });
         if (r.ok) {
@@ -16208,6 +16215,194 @@ function app() {
           run: (opts) => { this._aiScheduleDispatch('delete', opts || {}); },
         },
 
+        // Item write-ops via AI palette — operator says "restart traefik"
+        // / "update the auth stack" / "remove that orphan container".
+        // Each is destructive; `defer_confirm_to_run: true` means the
+        // sidebar inline-confirm chip handles approval and the helper
+        // bypasses its inner SwAl when called with skipConfirm=true.
+        // `_aiItemDispatch` resolves the target from ACTION_ITEM or
+        // the open drawer; toast asks the operator if neither resolves.
+        {
+          id: 'update-stack',
+          label: t('command_palette.action.update_stack', 'Update stack'),
+          sub:   t('command_palette.action.update_stack_sub', 'Pull updates for the named stack and redeploy'),
+          verbs: ['update', 'pull', 'upgrade', 'stack', 'redeploy'],
+          destructive: true,
+          defer_confirm_to_run: true,
+          run: (opts) => { this._aiItemDispatch('update_stack', opts || {}); },
+        },
+        {
+          id: 'update-container',
+          label: t('command_palette.action.update_container', 'Update container'),
+          sub:   t('command_palette.action.update_container_sub', 'Recreate the named container with the latest image'),
+          verbs: ['update', 'recreate', 'pull', 'container'],
+          destructive: true,
+          defer_confirm_to_run: true,
+          run: (opts) => { this._aiItemDispatch('update_container', opts || {}); },
+        },
+        {
+          id: 'restart-service',
+          label: t('command_palette.action.restart_service', 'Restart service'),
+          sub:   t('command_palette.action.restart_service_sub', 'Force-update the named Swarm service (no image pull)'),
+          verbs: ['restart', 'service', 'bounce'],
+          destructive: true,
+          defer_confirm_to_run: true,
+          run: (opts) => { this._aiItemDispatch('restart_service', opts || {}); },
+        },
+        {
+          id: 'restart-container',
+          label: t('command_palette.action.restart_container', 'Restart container'),
+          sub:   t('command_palette.action.restart_container_sub', 'Restart the named standalone container'),
+          verbs: ['restart', 'container', 'bounce'],
+          destructive: true,
+          defer_confirm_to_run: true,
+          run: (opts) => { this._aiItemDispatch('restart_container', opts || {}); },
+        },
+        {
+          id: 'remove-container',
+          label: t('command_palette.action.remove_container', 'Remove container'),
+          sub:   t('command_palette.action.remove_container_sub', 'Delete the named stopped / orphan container'),
+          verbs: ['remove', 'delete', 'rm', 'container'],
+          destructive: true,
+          defer_confirm_to_run: true,
+          run: (opts) => { this._aiItemDispatch('remove_container', opts || {}); },
+        },
+
+        // prune_node — Docker system prune on a specific node.
+        // ACTION_ITEM carries the hostname. Destructive.
+        ...(typeof this.pruneNode === 'function' ? [{
+          id: 'prune-node',
+          label: t('command_palette.action.prune_node', 'Prune node'),
+          sub:   t('command_palette.action.prune_node_sub', 'docker system prune --volumes on the named node'),
+          verbs: ['prune', 'node', 'cleanup', 'docker'],
+          destructive: true,
+          defer_confirm_to_run: true,
+          run: (opts) => { this._aiHostDispatch('prune_node', opts || {}); },
+        }] : []),
+
+        // Bulk host pause / resume via AI palette. The Cmd-K palette
+        // already supports verb-prefix DSL (`pause:` / `resume:`);
+        // these snake_case actions make the route consistent so the
+        // sidebar can dispatch via `ACTION: hosts_bulk_pause` too.
+        ...(typeof this.bulkPauseHosts === 'function' ? [{
+          id: 'hosts-bulk-pause',
+          label: t('command_palette.action.hosts_bulk_pause', 'Pause hosts'),
+          sub:   t('command_palette.action.hosts_bulk_pause_sub', 'Pause sampling on the selected host group'),
+          verbs: ['pause', 'hosts', 'sampling', 'suspend'],
+          destructive: true,
+          defer_confirm_to_run: true,
+          run: (opts) => { this._aiHostDispatch('hosts_bulk_pause', opts || {}); },
+        }] : []),
+        ...(typeof this.bulkResumeHosts === 'function' ? [{
+          id: 'hosts-bulk-resume',
+          label: t('command_palette.action.hosts_bulk_resume', 'Resume hosts'),
+          sub:   t('command_palette.action.hosts_bulk_resume_sub', 'Resume sampling on the selected host group'),
+          verbs: ['resume', 'unpause', 'hosts', 'sampling'],
+          destructive: false,
+          run: (opts) => { this._aiHostDispatch('hosts_bulk_resume', opts || {}); },
+        }] : []),
+
+        // On-demand backup snapshot. Non-destructive (creates a new
+        // zip; retention prune fires under the existing TUNABLE).
+        ...(typeof this.createBackup === 'function' ? [{
+          id: 'backup-create',
+          label: t('command_palette.action.backup_create', 'Create backup'),
+          sub:   t('command_palette.action.backup_create_sub', 'Snapshot the SQLite DB + avatars to a zip'),
+          verbs: ['backup', 'snapshot', 'save'],
+          destructive: false,
+          run: () => { this.createBackup(); },
+        }] : []),
+
+        // AI memory CRUD via palette. Create + delete already exposed
+        // via MEMORY: / MEMORY-FORGET: directives; snake_case ids
+        // here make the cmd-K route consistent so operator phrasing
+        // like "remember that X" / "forget Y" parses to the same
+        // dispatch path. ACTION_ITEM carries the memory text (create)
+        // or numeric id (delete).
+        {
+          id: 'ai-memory-create',
+          label: t('command_palette.action.ai_memory_create', 'Remember this'),
+          sub:   t('command_palette.action.ai_memory_create_sub', 'Add a memory the AI will recall in future conversations'),
+          verbs: ['remember', 'memorize', 'memorise', 'memory', 'note'],
+          destructive: false,
+          run: (opts) => {
+            const text = ((opts && opts.actionItem) || '').toString().trim();
+            if (!text) {
+              this.showToast(
+                this.t('toasts_extra.ai_memory_no_text') || 'Pass ACTION_ITEM: <memory text> for ai_memory_create.',
+                'error',
+              );
+              return;
+            }
+            fetch('/api/ai/memory', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text, source: 'operator' }),
+            }).then(r => {
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              this.showToast(this.t('toasts_extra.ai_memory_added') || 'Memory added', 'success');
+            }).catch(e => this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error'));
+          },
+        },
+        {
+          id: 'ai-memory-delete',
+          label: t('command_palette.action.ai_memory_delete', 'Forget memory'),
+          sub:   t('command_palette.action.ai_memory_delete_sub', 'Remove an AI memory by exact text'),
+          verbs: ['forget', 'remove', 'memory', 'unremember'],
+          destructive: true,
+          defer_confirm_to_run: true,
+          run: (opts) => {
+            const text = ((opts && opts.actionItem) || '').toString().trim();
+            if (!text) {
+              this.showToast(
+                this.t('toasts_extra.ai_memory_no_text') || 'Pass ACTION_ITEM: <exact memory text> for ai_memory_delete.',
+                'error',
+              );
+              return;
+            }
+            fetch('/api/ai/memory/forget', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text }),
+            }).then(r => {
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              this.showToast(this.t('toasts_extra.ai_memory_forgotten') || 'Memory forgotten', 'success');
+            }).catch(e => this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error'));
+          },
+        },
+
+        // Fire any schedule on-demand. ACTION_ITEM carries the schedule
+        // name; the dispatcher looks it up against this.schedules and
+        // POSTs to /api/schedules/{id}/run. Non-destructive (operator
+        // can still abort the resulting op via the floating ops panel).
+        ...(Array.isArray(this.schedules) ? [{
+          id: 'schedule-run-now',
+          label: t('command_palette.action.schedule_run_now', 'Run schedule now'),
+          sub:   t('command_palette.action.schedule_run_now_sub', 'Fire a named schedule immediately, bypassing its interval'),
+          verbs: ['run', 'fire', 'trigger', 'schedule'],
+          destructive: false,
+          run: (opts) => {
+            const name = ((opts && opts.actionItem) || '').toString().trim();
+            if (!name) {
+              this.showToast(
+                this.t('toasts_extra.schedule_no_target') || 'Pass ACTION_ITEM: <schedule name> for schedule_run_now.',
+                'error',
+              );
+              return;
+            }
+            const list = Array.isArray(this.schedules) ? this.schedules : [];
+            const match = list.find(s => s && (s.name === name));
+            if (!match) {
+              this.showToast(
+                (this.t('toasts_extra.schedule_no_target') || 'Schedule not found: ') + name,
+                'error',
+              );
+              return;
+            }
+            this.runSchedule(match);
+          },
+        }] : []),
+
         // Sign out — destructive (terminates the session)
         ...(typeof this.logout === 'function' ? [{
           id: 'logout',
@@ -18657,6 +18852,39 @@ function app() {
         schedule_delete:      'schedule-delete',
         delete_schedule:      'schedule-delete',
         remove_schedule:      'schedule-delete',
+        // Item write-ops + bulk + memory / schedule_run_now — snake_case
+        // canonical ids match `ALLOWED_PALETTE_ACTIONS` in `logic/ai.py`;
+        // kebab descriptor lives in `_commandActions()`. Synonyms cover
+        // common operator phrasings ("update the auth stack" / "restart
+        // traefik" / "back up now" / "remember that X" etc.) so the AI
+        // emits whichever snake_case verb feels natural and the SPA
+        // resolves it to the right descriptor.
+        update_stack:         'update-stack',
+        update_container:    'update-container',
+        recreate_container:  'update-container',
+        restart_service:      'restart-service',
+        restart_container:    'restart-container',
+        bounce_service:       'restart-service',
+        bounce_container:     'restart-container',
+        remove_container:     'remove-container',
+        delete_container:     'remove-container',
+        prune_node:           'prune-node',
+        prune_docker:         'prune-node',
+        hosts_bulk_pause:     'hosts-bulk-pause',
+        pause_hosts:          'hosts-bulk-pause',
+        hosts_bulk_resume:    'hosts-bulk-resume',
+        resume_hosts:         'hosts-bulk-resume',
+        unpause_hosts:        'hosts-bulk-resume',
+        backup_create:        'backup-create',
+        create_backup:        'backup-create',
+        snapshot_backup:      'backup-create',
+        ai_memory_create:     'ai-memory-create',
+        remember_this:        'ai-memory-create',
+        ai_memory_delete:     'ai-memory-delete',
+        forget_memory:        'ai-memory-delete',
+        schedule_run_now:     'schedule-run-now',
+        run_schedule_now:     'schedule-run-now',
+        fire_schedule:        'schedule-run-now',
       };
       const target = aliasMap[id] || kebab;
       const all = (typeof this._commandActions === 'function')
@@ -30204,22 +30432,25 @@ function app() {
       return (resp && resp.error) || fallback || '';
     },
 
-    async itemAction(item) {
+    async itemAction(item, opts) {
       if (this.isItemBusy(item)) return;
-      const ok = item.stack_id
-        ? await this.confirmDialog({
-            title: this.t('dialogs.update_stack_title'),
-            html: this.t('dialogs.update_stack_html', { name: item.stack }),
-            icon: 'warning', confirmText: this.t('actions.update_stack'),
-            focusConfirm: true,
-          })
-        : await this.confirmDialog({
-            title: this.t('dialogs.recreate_container_title'),
-            html: this.t('dialogs.recreate_container_html', { name: item.name }),
-            icon: 'warning', confirmText: this.t('actions.recreate'),
-            focusConfirm: true,
-          });
-      if (!ok) return;
+      const skipConfirm = !!(opts && opts.skipConfirm);
+      if (!skipConfirm) {
+        const ok = item.stack_id
+          ? await this.confirmDialog({
+              title: this.t('dialogs.update_stack_title'),
+              html: this.t('dialogs.update_stack_html', { name: item.stack }),
+              icon: 'warning', confirmText: this.t('actions.update_stack'),
+              focusConfirm: true,
+            })
+          : await this.confirmDialog({
+              title: this.t('dialogs.recreate_container_title'),
+              html: this.t('dialogs.recreate_container_html', { name: item.name }),
+              icon: 'warning', confirmText: this.t('actions.recreate'),
+              focusConfirm: true,
+            });
+        if (!ok) return;
+      }
       if (this.isItemBusy(item)) return;
       const key = item.stack_id
         ? this._busyKey('stack', item.stack_id)
@@ -30239,15 +30470,18 @@ function app() {
         this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
       }
     },
-    async updateStack(stack) {
+    async updateStack(stack, opts) {
       if (this.isStackBusy(stack)) return;
-      const ok = await this.confirmDialog({
-        title: this.t('dialogs.update_stack_title'),
-        html: this.t('dialogs.update_stack_html', { name: stack.name }),
-        icon: 'warning', confirmText: this.t('actions.update_stack'),
-        focusConfirm: true,
-      });
-      if (!ok) return;
+      const skipConfirm = !!(opts && opts.skipConfirm);
+      if (!skipConfirm) {
+        const ok = await this.confirmDialog({
+          title: this.t('dialogs.update_stack_title'),
+          html: this.t('dialogs.update_stack_html', { name: stack.name }),
+          icon: 'warning', confirmText: this.t('actions.update_stack'),
+          focusConfirm: true,
+        });
+        if (!ok) return;
+      }
       if (this.isStackBusy(stack)) return;
       const key = this._busyKey('stack', stack.stack_id);
       this._markBusy(key);
@@ -30416,6 +30650,102 @@ function app() {
     // `destructive: true` + `defer_confirm_to_run: true` upstream;
     // by the time the runner is called with skipConfirm=true the
     // operator has already approved.
+    // AI palette item-write dispatcher. Resolves the target item /
+    // stack / host from `opts.actionItem` (the AI's `ACTION_ITEM:`
+    // directive) with a fallback to the currently-open drawer; then
+    // calls the matching helper with `{skipConfirm: true}` so the
+    // inner SwAl popup is bypassed (the inline-confirm chip in the
+    // sidebar OR the modal-palette's outer confirm already handled
+    // approval). Verb is one of:
+    //   update_stack / update_container / restart_service /
+    //   restart_container / remove_container
+    async _aiItemDispatch(verb, opts) {
+      const params = opts || {};
+      const targetName = (params.actionItem || '').toString().trim();
+      const skipConfirm = !!params.skipConfirm;
+      // Resolve target item — by name (case-insensitive match against
+      // raw_id / id / name / stack), else fall through to drawerItem.
+      let item = null;
+      const items = Array.isArray(this.items) ? this.items : [];
+      if (targetName) {
+        const needle = targetName.toLowerCase();
+        item = items.find(i => i && (
+          (i.name && i.name.toLowerCase() === needle) ||
+          (i.id && String(i.id).toLowerCase() === needle) ||
+          (i.raw_id && String(i.raw_id).toLowerCase() === needle) ||
+          (i.stack && i.stack.toLowerCase() === needle)
+        )) || null;
+      }
+      if (!item) item = this.drawerItem;
+      if (!item) {
+        this.showToast(
+          this.t('toasts_extra.ai_action_no_target')
+          || ('Couldn\'t resolve target item for ' + verb + '. Open the drawer or pass ACTION_ITEM.'),
+          'error',
+        );
+        return;
+      }
+      const dispatchOpts = { skipConfirm };
+      try {
+        if (verb === 'update_stack') {
+          // Stack-level update — if the item carries stack_id use
+          // itemAction's stack path; otherwise look up the stack object
+          // and use updateStack(stack).
+          if (item.stack_id) {
+            await this.itemAction(item, dispatchOpts);
+          } else if (typeof this.updateStack === 'function') {
+            const stacks = Array.isArray(this.stacks) ? this.stacks : [];
+            const stack = stacks.find(s => s && s.name === (item.stack || item.name));
+            if (stack) await this.updateStack(stack, dispatchOpts);
+            else await this.itemAction(item, dispatchOpts);
+          }
+        } else if (verb === 'update_container') {
+          await this.itemAction(item, dispatchOpts);
+        } else if (verb === 'restart_service' || verb === 'restart_container') {
+          await this.restartItem(item, dispatchOpts);
+        } else if (verb === 'remove_container') {
+          await this.removeContainer(item, dispatchOpts);
+        } else {
+          this.showToast('Unknown AI item verb: ' + verb, 'error');
+        }
+      } catch (e) {
+        this.showToast(
+          this.t('toasts.failed_with_error', { error: (e && e.message) || String(e) }),
+          'error',
+        );
+      }
+    },
+    // AI palette host-level dispatcher — covers prune_node /
+    // hosts_bulk_pause / hosts_bulk_resume. Target host(s) come from
+    // `opts.actionItem` (single host) or the existing selection set.
+    async _aiHostDispatch(verb, opts) {
+      const params = opts || {};
+      const skipConfirm = !!params.skipConfirm;
+      const targetName = (params.actionItem || '').toString().trim();
+      const dispatchOpts = { skipConfirm };
+      try {
+        if (verb === 'prune_node') {
+          if (!targetName) {
+            this.showToast(
+              this.t('toasts_extra.ai_action_no_target')
+              || 'Specify ACTION_ITEM: <hostname> for prune_node.',
+              'error',
+            );
+            return;
+          }
+          await this.pruneNode(targetName, dispatchOpts);
+        } else if (verb === 'hosts_bulk_pause' && typeof this.bulkPauseHosts === 'function') {
+          await this.bulkPauseHosts(dispatchOpts);
+        } else if (verb === 'hosts_bulk_resume' && typeof this.bulkResumeHosts === 'function') {
+          await this.bulkResumeHosts(dispatchOpts);
+        }
+      } catch (e) {
+        this.showToast(
+          this.t('toasts.failed_with_error', { error: (e && e.message) || String(e) }),
+          'error',
+        );
+      }
+    },
     async _aiScheduleDispatch(op, opts) {
       const params = opts || {};
       const data = (params.data && typeof params.data === 'object') ? params.data : {};
@@ -30593,21 +30923,24 @@ function app() {
         this._retagBusy = false;
       }
     },
-    async restartService(item) { return this.restartItem(item); },
-    async restartItem(item) {
+    async restartService(item, opts) { return this.restartItem(item, opts); },
+    async restartItem(item, opts) {
       if (!this.isRestartable(item)) return;
       if (this.isRestartBusy(item)) return;
+      const skipConfirm = !!(opts && opts.skipConfirm);
       const isService = item.type === 'service';
-      const body = isService
-        ? this.t('dialogs.restart_service_html', { name: item.name })
-        : this.t('dialogs.restart_container_html', { name: item.name });
-      const ok = await this.confirmDialog({
-        title: isService ? this.t('dialogs.restart_service_title') : this.t('dialogs.restart_container_title'),
-        html: body,
-        icon: 'question', confirmText: this.t('actions.restart'), confirmColor: this._cssVar('--primary'),
-        focusConfirm: true,
-      });
-      if (!ok) return;
+      if (!skipConfirm) {
+        const body = isService
+          ? this.t('dialogs.restart_service_html', { name: item.name })
+          : this.t('dialogs.restart_container_html', { name: item.name });
+        const ok = await this.confirmDialog({
+          title: isService ? this.t('dialogs.restart_service_title') : this.t('dialogs.restart_container_title'),
+          html: body,
+          icon: 'question', confirmText: this.t('actions.restart'), confirmColor: this._cssVar('--primary'),
+          focusConfirm: true,
+        });
+        if (!ok) return;
+      }
       if (this.isRestartBusy(item)) return;
       const key = isService ? this._busyKey('svc', item.raw_id) : this._busyKey('ctn', item.raw_id);
       const url = isService
@@ -30687,15 +31020,18 @@ function app() {
       this.pollOpsNow();
       this.showToast(this.t('toasts.restart_result', { ok: okCount, fail }), fail ? 'error' : 'success');
     },
-    async removeContainer(item) {
+    async removeContainer(item, opts) {
       if (this.isItemBusy(item)) return;
-      const ok = await this.confirmDialog({
-        title: this.t('dialogs.remove_container_title'),
-        html: this.t('dialogs.remove_container_html', { name: item.name }),
-        icon: 'warning', confirmText: this.t('actions.remove'), confirmColor: this._cssVar('--danger'),
-        focusConfirm: true,
-      });
-      if (!ok) return;
+      const skipConfirm = !!(opts && opts.skipConfirm);
+      if (!skipConfirm) {
+        const ok = await this.confirmDialog({
+          title: this.t('dialogs.remove_container_title'),
+          html: this.t('dialogs.remove_container_html', { name: item.name }),
+          icon: 'warning', confirmText: this.t('actions.remove'), confirmColor: this._cssVar('--danger'),
+          focusConfirm: true,
+        });
+        if (!ok) return;
+      }
       if (this.isItemBusy(item)) return;
       const key = this._busyKey('ctn', item.raw_id);
       this._markBusy(key);

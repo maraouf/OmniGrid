@@ -942,7 +942,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
         version = ((snmp_cfg.get("version") or "").strip().lower()
                    or (_get_setting("snmp_default_version", "") or "v2c"))
         try:
-            port = int(snmp_cfg.get("port") or _get_setting("snmp_default_port", "") or 161)
+            port = int(snmp_cfg.get("port") or tuning.tuning_int("tuning_snmp_default_port"))
         except (TypeError, ValueError):
             port = 161
         v3_user = ((snmp_cfg.get("v3_user") or "").strip()

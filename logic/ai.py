@@ -889,6 +889,47 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     "schedule_create",
     "schedule_update",
     "schedule_delete",
+    # Item write-ops via AI palette — destructive, gated by inline-
+    # confirm chip in the sidebar (same shape as `cleanup_stopped` /
+    # `update_all_updatable`). Each requires `ACTION_ITEM: <name-or-id>`
+    # to identify the target; the SPA defaults to the open drawer if
+    # ACTION_ITEM is omitted (toast asks the operator to name the item
+    # if no drawer is open either). Same authorisation as the row-level
+    # action button: bearer / cookie + admin role.
+    "update_stack",
+    "update_container",
+    "restart_service",
+    "restart_container",
+    "remove_container",
+    # Bulk node prune via AI palette — same destructive treatment.
+    # Operator phrases: "prune docker on web01" / "prune the cluster".
+    # ACTION_HOSTS: <ids> can target a subset; omitting it falls through
+    # to the SPA's bulk-prune flow.
+    "prune_node",
+    # Bulk host-pause / resume via AI palette. The Cmd-K palette
+    # already has a verb-prefix DSL for these (`pause:` / `resume:`);
+    # exposing the snake_case action IDs makes the cmd-K route
+    # consistent for sidebar dispatching.
+    "hosts_bulk_pause",
+    "hosts_bulk_resume",
+    # On-demand backup snapshot via AI palette. Non-destructive
+    # (creates a new zip; retention prune fires under the existing
+    # `tuning_backup_retention_count` knob).
+    "backup_create",
+    # AI memory write actions — already exposed via the MEMORY: /
+    # MEMORY-FORGET: directives in AI replies, but adding the explicit
+    # snake_case action IDs makes the cmd-K route consistent so
+    # operator phrases like "remember that X" / "forget about Y"
+    # parse to the same dispatch path regardless of whether the AI
+    # emits MEMORY: or ACTION: ai_memory_create.
+    "ai_memory_create",
+    "ai_memory_delete",
+    # Fire any schedule on-demand. Operator phrase: "run the backup
+    # schedule now". Requires `ACTION_ITEM: <name>` to identify the
+    # schedule by its operator-visible name. Same endpoint
+    # (POST /api/schedules/{id}/run) the Admin table's "Run now"
+    # button uses.
+    "schedule_run_now",
 })
 
 
@@ -1070,6 +1111,44 @@ PALETTE_SYSTEM_PROMPT: str = (
     "instead of describing the drawer button. If no host drawer is "
     "open the SPA's gate fails gracefully — narrate the open-the-"
     "drawer step in that case.\n\n"
+    "WRITE-ACTION DISPATCH (DESTRUCTIVE). When the operator asks "
+    "to update / restart / remove / prune / pause / resume / back "
+    "up / forget / fire-schedule, emit the matching ACTION line "
+    "INSTEAD of narrating the UI path. The SPA gates every "
+    "destructive action behind an inline-confirm chip in the AI "
+    "sidebar — operator clicks Yes before the action fires, so "
+    "emitting the ACTION is always safe. Verb mappings:\n"
+    " - \"update <stack-name>\" / \"upgrade the <name> stack\" → "
+    "`ACTION: update_stack` paired with `ACTION_ITEM: <stack-name>`\n"
+    " - \"update <container-name>\" / \"recreate <name>\" → "
+    "`ACTION: update_container` + `ACTION_ITEM: <name>`\n"
+    " - \"restart <service-or-container-name>\" / \"bounce <name>\" "
+    "→ `ACTION: restart_service` for Swarm services OR "
+    "`ACTION: restart_container` for plain containers + "
+    "`ACTION_ITEM: <name>`\n"
+    " - \"remove <container-name>\" / \"delete that orphan\" → "
+    "`ACTION: remove_container` + `ACTION_ITEM: <name>`\n"
+    " - \"prune docker on <host>\" / \"prune <host>\" → "
+    "`ACTION: prune_node` + `ACTION_ITEM: <hostname>`\n"
+    " - \"pause every host in <group>\" / \"suspend the <group> "
+    "hosts\" → `ACTION: hosts_bulk_pause` (operator picks the group "
+    "from the selection chip strip)\n"
+    " - \"resume every host\" / \"unpause hosts\" → "
+    "`ACTION: hosts_bulk_resume`\n"
+    " - \"back up the database now\" / \"create a backup\" / "
+    "\"snapshot\" → `ACTION: backup_create`\n"
+    " - \"remember that <X>\" / \"add a memory: <X>\" → "
+    "`ACTION: ai_memory_create` + `ACTION_ITEM: <memory text>`\n"
+    " - \"forget about <X>\" / \"delete the memory <X>\" → "
+    "`ACTION: ai_memory_delete` + `ACTION_ITEM: <exact memory "
+    "text>`\n"
+    " - \"run the <name> schedule now\" / \"fire the <name> "
+    "schedule\" → `ACTION: schedule_run_now` + `ACTION_ITEM: "
+    "<schedule-name>`\n"
+    "ALWAYS pair the destructive action with ACTION_ITEM (or "
+    "ACTION_HOSTS for bulk-host ops). If you don't know the exact "
+    "name the operator means, ASK them to clarify rather than "
+    "emitting a misdirected ACTION.\n\n"
     "MARKDOWN FORMATTING — the SPA renders your reply through a "
     "safe-Markdown subset: fenced code blocks (```), inline code "
     "(`...`), bold (**...**), bullet lists (* / -), and numbered "

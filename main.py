@@ -2915,6 +2915,12 @@ class SettingsIn(BaseModel):
     # Settings-as-Code (config_backup schedule kind) snapshot retention.
     tuning_config_backup_retention_count: Optional[str] = None
     tuning_ssh_ws_heartbeat_seconds: Optional[str] = None
+    # Per-provider default ports — promoted out of the plain settings
+    # table per the CLAUDE.md "Plain-`settings`-row escape hatch" rule.
+    # Bounds 1..65535 (TCP / UDP port range) enforced by TUNABLES.
+    tuning_ssh_default_port: Optional[str] = None
+    tuning_snmp_default_port: Optional[str] = None
+    tuning_ping_default_port: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -3180,7 +3186,7 @@ async def api_get_settings(request: Request):
             },
         },
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
-        "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
+        "backup_retention_count": tuning.tuning_int("tuning_backup_retention_count"),
         "scheduler_timezone": get_setting("scheduler_timezone", "") or "",
         # Host-drawer admin debug panel visibility (Admin → Hosts toggle).
         # Default true — preserves the legacy behaviour for existing
@@ -3239,7 +3245,7 @@ async def api_get_settings(request: Request):
         # missing.
         "ping": {
             "enabled":          get_setting_bool("ping_enabled", False),
-            "default_port":     int(get_setting("ping_default_port", "443") or "443"),
+            "default_port":     tuning.tuning_int("tuning_ping_default_port"),
             "use_icmp":         get_setting_bool("ping_use_icmp", False),
             "has_icmp_support": (lambda: __import__("logic.ping", fromlist=["has_icmp_support"]).has_icmp_support())(),
         },
@@ -3281,7 +3287,7 @@ async def api_get_settings(request: Request):
         "snmp": {
             "default_community":   get_setting("snmp_default_community", "public") or "public",
             "default_version":     (get_setting("snmp_default_version", "v2c") or "v2c").strip().lower(),
-            "default_port":        int(get_setting("snmp_default_port", "161") or "161"),
+            "default_port":        tuning.tuning_int("tuning_snmp_default_port"),
             "v3_user":             get_setting("snmp_v3_user", "") or "",
             "v3_auth_key_set":     bool(get_setting("snmp_v3_auth_key", "")),
             "v3_priv_key_set":     bool(get_setting("snmp_v3_priv_key", "")),
@@ -3316,7 +3322,7 @@ async def api_get_settings(request: Request):
         # editable regex — shown verbatim for the textarea.
         "ssh": {
             "user":            get_setting("ssh_default_user", "") or "",
-            "port":            int(get_setting("ssh_default_port", "22") or "22"),
+            "port":            tuning.tuning_int("tuning_ssh_default_port"),
             "private_key_set": bool(get_setting("ssh_default_private_key", "")),
             "passphrase_set":  bool(get_setting("ssh_default_private_key_passphrase", "")),
             "password_set":    bool(get_setting("ssh_default_password", "")),
@@ -8101,7 +8107,9 @@ def _compute_host_provider_cache_key() -> tuple[set[str], tuple]:
         # cache without waiting on the explicit invalidate path.
         get_setting("snmp_default_community", "") or "",
         get_setting("snmp_default_version", "") or "",
-        get_setting("snmp_default_port", "") or "",
+        # Default port migrated to TUNABLES — read via tuning_int so a
+        # change to `tuning_snmp_default_port` busts this cache too.
+        str(tuning.tuning_int("tuning_snmp_default_port")),
         get_setting("snmp_v3_user", "") or "",
         get_setting("snmp_v3_auth_key", "") or "",
         get_setting("snmp_v3_priv_key", "") or "",
@@ -8358,7 +8366,7 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
             get_setting("snmp_default_version", "") or "v2c"
         ).strip().lower() or "v2c"
         try:
-            snmp_default_port = int(get_setting("snmp_default_port", "") or "161")
+            snmp_default_port = tuning.tuning_int("tuning_snmp_default_port")
         except (TypeError, ValueError):
             snmp_default_port = 161
         snmp_v3_user = get_setting("snmp_v3_user", "") or ""
@@ -11394,7 +11402,7 @@ async def api_hosts_test(
             community = snmp_community or get_setting("snmp_default_community", "public") or "public"
             version = snmp_version or (get_setting("snmp_default_version", "v2c") or "v2c").lower()
             try:
-                port = snmp_port or int(get_setting("snmp_default_port", "161") or "161")
+                port = snmp_port or tuning.tuning_int("tuning_snmp_default_port")
             except (TypeError, ValueError):
                 port = 161
             # Per-host overrides forwarded from the SPA's testHostRow
@@ -11673,7 +11681,7 @@ async def api_hosts_debug(
                                 or "v2c")
                 try:
                     port_kick = int(row_snmp_kick.get("port")
-                                    or get_setting("snmp_default_port", "") or "161")
+                                    or tuning.tuning_int("tuning_snmp_default_port"))
                 except (TypeError, ValueError):
                     port_kick = 161
                 v3_user_kick = ((row_snmp_kick.get("v3_user") or "").strip()
@@ -15382,7 +15390,7 @@ async def api_ping_test(
         or hid
     )
     pcfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
-    default_port = int(get_setting("ping_default_port", "443") or "443") or 443
+    default_port = tuning.tuning_int("tuning_ping_default_port") or 443
     port = body.port if body.port is not None else (pcfg.get("port") or default_port)
     use_icmp_global = get_setting_bool("ping_use_icmp", False)
     transport = (body.transport or pcfg.get("transport") or "").strip().lower()
@@ -16959,7 +16967,7 @@ async def api_me(request: Request):
             # ping_port / ping_transport override. Mirrors the SNMP
             # global-default surface pattern above.
             "ping": {
-                "default_port": int(get_setting("ping_default_port", "443") or "443"),
+                "default_port": tuning.tuning_int("tuning_ping_default_port"),
                 "use_icmp":     get_setting_bool("ping_use_icmp", False),
             },
             # AI integration master state — surfaced so the SPA's

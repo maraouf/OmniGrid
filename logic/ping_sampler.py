@@ -120,15 +120,14 @@ def _curated_ping_hosts() -> list[dict]:
 
 
 def _resolve_default_port() -> int:
-    raw = (get_setting("ping_default_port", "") or "").strip()
-    if raw:
-        try:
-            n = int(raw)
-            if 1 <= n <= 65535:
-                return n
-        except ValueError:
-            pass
-    return 443
+    # `tuning_ping_default_port` clamps to 1..65535 in TUNABLES, so the
+    # resolver returns a valid port. Defaults to 443 (HTTPS) when no
+    # override is set.
+    from logic import tuning as _tuning
+    try:
+        return _tuning.tuning_int("tuning_ping_default_port") or 443
+    except Exception:
+        return 443
 
 
 async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:

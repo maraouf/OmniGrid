@@ -1206,7 +1206,7 @@ async def _gather_impl() -> None:
             default_community = get_setting("snmp_default_community", "") or "public"
             default_version = (get_setting("snmp_default_version", "") or "v2c").strip().lower()
             try:
-                default_port = int(get_setting("snmp_default_port", "") or "161")
+                default_port = _tuning.tuning_int("tuning_snmp_default_port")
             except (TypeError, ValueError):
                 default_port = 161
             v3_user = get_setting("snmp_v3_user", "") or ""

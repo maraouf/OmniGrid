@@ -138,9 +138,10 @@ def get_global_ssh_settings() -> dict:
     shaper. The API layer redacts per CLAUDE.md's ``_set`` flag pattern.
     """
     from logic.db import get_setting
+    from logic import tuning as _tuning
     return {
         "user":         (get_setting("ssh_default_user", "") or "").strip(),
-        "port":         int(get_setting("ssh_default_port", "22") or "22"),
+        "port":         _tuning.tuning_int("tuning_ssh_default_port"),
         "private_key":  get_setting("ssh_default_private_key", "") or "",
         "passphrase":   get_setting("ssh_default_private_key_passphrase", "") or "",
         # Password auth fallback — used when private_key is blank, or
