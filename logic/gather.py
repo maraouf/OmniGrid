@@ -1833,8 +1833,8 @@ async def _gather_impl() -> None:
             # Resolve the real node BEFORE the image-inspect so the
             # inspect call can be agent-targeted at the correct
             # Docker daemon. Without this, plain compose containers
-            # running on worker nodes (e.g. `komodo-periphery` on
-            # `debian13web02`) had their image-inspect call routed to
+            # running on worker nodes (e.g. a sidecar agent on a
+            # worker node) had their image-inspect call routed to
             # the manager's Docker daemon — which doesn't have the
             # image, returns 404 — exception caught + swallowed,
             # `current_digest` stayed None, and the row reported

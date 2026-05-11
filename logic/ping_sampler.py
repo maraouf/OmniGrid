@@ -87,8 +87,8 @@ def _curated_ping_hosts() -> list[dict]:
         # curated `address` field at all, AND (b) still consulted the
         # row's `url` field as a fallback (parsed via urlparse). The
         # `url` fallback was deliberately removed from every other
-        # probe site when #1211 landed because it carries the operator-
-        # facing clickable web-UI link (often a public service relay
+        # probe site when the canonical `address` field landed, because
+        # `url` carries the operator-facing clickable web-UI link (often a public service relay
         # behind NPM / Cloudflare), not a LAN-reachable probe target —
         # using it for ping samples produced misleading RTTs against
         # the wrong host. The bare `host_id` stays as a last resort

@@ -37,10 +37,15 @@
               </div>
               <div class="stats-card-body">
                 <div class="stats-card-label" x-text="t('stats.cards.users.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.users && statsOverview.users.total) || 0"></div>
+                <!-- Operator-flagged: render as `active/total` slash-
+                     format (same shape as Hosts / Schedules tiles) so
+                     the disabled count is visible at a glance instead
+                     of buried in the sub line. Sub now carries the
+                     admin-count tail only. -->
+                <div class="stats-card-value"
+                     x-text="((statsOverview.users && statsOverview.users.active) || 0) + '/' + ((statsOverview.users && statsOverview.users.total) || 0)"></div>
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
                      x-text="t('stats.cards.users.sub', {
-                       active: (statsOverview.users && statsOverview.users.active) || 0,
                        admins: (statsOverview.users && statsOverview.users.admins) || 0
                      })"></div>
               </div>
@@ -200,11 +205,15 @@
               </div>
               <div class="stats-card-body">
                 <div class="stats-card-label" x-text="t('stats.cards.schedules.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.schedules && statsOverview.schedules.total) || 0"></div>
+                <!-- Operator-flagged: render as `enabled/total` slash-
+                     format so the disabled count is visible at a
+                     glance (e.g. `7/7` when every schedule is
+                     enabled). Sub-line carries the descriptive
+                     "cron-style background jobs" tail only. -->
+                <div class="stats-card-value"
+                     x-text="((statsOverview.schedules && statsOverview.schedules.enabled) || 0) + '/' + ((statsOverview.schedules && statsOverview.schedules.total) || 0)"></div>
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
-                     x-text="t('stats.cards.schedules.sub', {
-                       enabled: (statsOverview.schedules && statsOverview.schedules.enabled) || 0
-                     })"></div>
+                     x-text="t('stats.cards.schedules.sub')"></div>
               </div>
             </a>
 

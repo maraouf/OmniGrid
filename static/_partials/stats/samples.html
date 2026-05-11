@@ -40,6 +40,8 @@
               </div>
             </div>
 
+            <hr class="border-[var(--border)] my-2">
+
             <!-- Per-table breakdown — sorted client-side by rows desc
                  for at-a-glance "which sample family writes most". -->
             <div>
@@ -86,6 +88,56 @@
                 </table>
               </div>
             </div>
+
+            <hr class="border-[var(--border)] my-2">
+
+            <!-- Daily samples-written chart — sums every
+                 sample-bearing table's rows per day over the last
+                 90 days. Single-line bar chart so a sampler regression
+                 (sudden zero days) or fleet growth (slope going up)
+                 is visible at a glance. Backend (`/api/admin/stats/samples`)
+                 returns `daily_totals: [{date, total}, ...]` already
+                 sorted ASC by date. -->
+            <div>
+              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.samples.daily_chart.title')"></h4>
+              <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('stats.samples.daily_chart.hint')"></p>
+
+              <div x-show="!(statsSamples.daily_totals || []).length"
+                   class="text-center py-8 fs-sm text-[var(--text-faint)] italic"
+                   x-text="t('stats.samples.daily_chart.empty')"></div>
+
+              <div x-show="(statsSamples.daily_totals || []).length"
+                   class="bg-[var(--bg)] border border-[var(--border)] rounded-md p-3">
+                <!-- Bar chart — pure CSS via flex + percentage heights
+                     keyed off the per-day totals. No SVG path needed
+                     for a single-series bar; lighter than the SVG
+                     line-chart helpers used elsewhere AND interactive
+                     hover-titles per bar are essentially free. -->
+                <div class="samples-daily-chart"
+                     :style="'--samples-max: ' + Math.max(1, ...(statsSamples.daily_totals || []).map(d => d.total || 0))">
+                  <template x-for="d in (statsSamples.daily_totals || [])" :key="d.date">
+                    <div class="samples-daily-bar"
+                         :style="'--bar-h: ' + Math.max(2, Math.round(((d.total || 0) / Math.max(1, ...(statsSamples.daily_totals || []).map(x => x.total || 0))) * 100)) + '%'"
+                         :title="d.date + ': ' + Number(d.total || 0).toLocaleString() + ' ' + t('stats.samples.daily_chart.row_unit')">
+                      <span class="samples-daily-bar-fill"></span>
+                    </div>
+                  </template>
+                </div>
+                <!-- X-axis: first / mid / last date so the operator
+                     can anchor the timeline without ticking every day. -->
+                <div class="flex justify-between items-center mt-2 fs-2xs text-[var(--text-faint)] mono">
+                  <span x-text="(statsSamples.daily_totals && statsSamples.daily_totals[0]) ? statsSamples.daily_totals[0].date : ''"></span>
+                  <span x-text="(statsSamples.daily_totals && statsSamples.daily_totals.length > 2) ? statsSamples.daily_totals[Math.floor(statsSamples.daily_totals.length / 2)].date : ''"></span>
+                  <span x-text="(statsSamples.daily_totals && statsSamples.daily_totals.length) ? statsSamples.daily_totals[statsSamples.daily_totals.length - 1].date : ''"></span>
+                </div>
+                <div class="flex justify-between items-center mt-1 fs-2xs text-[var(--text-dim)]">
+                  <span x-text="t('stats.samples.daily_chart.legend_total', { n: Number((statsSamples.daily_totals || []).reduce((a, d) => a + (d.total || 0), 0)).toLocaleString() })"></span>
+                  <span x-text="t('stats.samples.daily_chart.legend_days', { n: (statsSamples.daily_totals || []).length })"></span>
+                </div>
+              </div>
+            </div>
+
+            <hr class="border-[var(--border)] my-2">
 
             <!-- Errors block — surfaces tables that couldn't be queried.
                  Usually means the schema didn't ship them yet (fresh

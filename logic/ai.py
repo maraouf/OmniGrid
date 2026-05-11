@@ -2022,8 +2022,8 @@ def log_ai_outcome(*, kind: str, provider: str, model: str,
     # `ask_provider_with_fallback`'s gates so the operator-visible
     # log severity matches what the system actually did. HTTP=0 is
     # the "network error / timeout / DNS fail" sentinel that the
-    # retry path now treats as transient (CHANGELOG entry for
-    # #1167); the log classifier diverged before this fix and
+    # retry path now treats as transient (the operator-classifier
+    # alignment fix); the log classifier diverged before this fix and
     # ERROR-stamped outcomes the system already retried + recovered
     # from. Now: HTTP=0 OR 429/502/503/504 → WARN; everything else
     # (4xx auth/model errors, 5xx that aren't transient) → ERROR.
