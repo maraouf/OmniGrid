@@ -219,7 +219,51 @@
       "database": "Database",
       "samples": "Samples",
       "incidents": "Incidents",
+      "network": "Network",
       "ai_cost": "AI Cost"
+    },
+    "network": {
+      "title": "Network",
+      "hint": "Fleet-wide network throughput from host_net_samples. Total bytes integrated from per-tick rates, top hosts by burst rate over 24h / 7d, and a stacked-area chart of fleet RX/TX over the selected window.",
+      "cards": {
+        "rx": "Total RX",
+        "rx_sub": "Bytes received across every host in the window",
+        "tx": "Total TX",
+        "tx_sub": "Bytes transmitted across every host in the window",
+        "total": "Combined",
+        "total_sub": "RX + TX across the fleet"
+      },
+      "chart": {
+        "title": "Fleet RX + TX over time",
+        "legend_rx": "RX (in)",
+        "legend_tx": "TX (out)",
+        "empty": "No samples in the selected window."
+      },
+      "top_24h": {
+        "title": "Top hosts by burst rate — last 24h",
+        "hint": "Peak per-host RX / TX rate observed in the last 24 hours. Useful for spotting which host briefly saturated its link.",
+        "col_host": "Host",
+        "col_max_rx": "Peak RX",
+        "col_max_tx": "Peak TX",
+        "empty": "No samples in the last 24h."
+      },
+      "top_7d": {
+        "title": "Top hosts by burst rate — last 7d",
+        "hint": "Peak per-host RX / TX rate observed in the last 7 days.",
+        "col_host": "Host",
+        "col_max_rx": "Peak RX",
+        "col_max_tx": "Peak TX",
+        "empty": "No samples in the last 7d."
+      },
+      "chatty": {
+        "title": "Top 10 chattiest hosts",
+        "hint": "Hosts that moved the most bytes (RX + TX) over the selected window — integrated from per-tick rates.",
+        "col_host": "Host",
+        "col_rx": "RX",
+        "col_tx": "TX",
+        "col_total": "Total",
+        "empty": "No samples in the window."
+      }
     },
     "incidents": {
       "title": "Incidents",
@@ -266,7 +310,17 @@
         "last_month": "Last month",
         "last_month_sub": "{tokens} tokens · {jobs} calls",
         "eom_proj": "Projected end-of-month",
-        "eom_proj_sub": "~{tokens} tokens at current burn rate"
+        "eom_proj_sub": "~{tokens} tokens at current burn rate",
+        "jobs": "Jobs (MTD)",
+        "jobs_sub": "Total AI calls since the 1st",
+        "pass_rate": "Pass rate (MTD)",
+        "pass_rate_sub": "{ok} success · {err} error",
+        "tokens": "Tokens (MTD)",
+        "tokens_sub": "Total tokens consumed since the 1st",
+        "avg_rt": "Avg response time (MTD)",
+        "avg_rt_sub": "Mean per-call wall-clock latency",
+        "accuracy": "Avg accuracy (MTD)",
+        "accuracy_sub": "Mean accuracy_score (when scored)"
       },
       "tokens": {
         "title": "Tokens by provider / model (last 30 days)",

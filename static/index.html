@@ -2792,7 +2792,7 @@
            than the misleading "no hosts yet". -->
       <div x-show="hostsInitialLoaded && hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount === 0"
            class="text-center py-16 text-[var(--text-faint)] text-sm"
-           x-html="t('hosts_extra.empty.no_data_html', { sources: (hostsActiveSources || []).length ? '<span class='mono'>' + ((hostsActiveSources || []).join(' / ')) + '</span>' : t('hosts_extra.empty.fallback_sources_label') })"></div>
+           x-html="t('hosts_extra.empty.no_data_html', { sources: (hostsActiveSources || []).length ? '<span class=&quot;mono&quot;>' + ((hostsActiveSources || []).join(' / ')) + '</span>' : t('hosts_extra.empty.fallback_sources_label') })"></div>
     </div>
 
     <!-- ===== HISTORY VIEW ===== -->
@@ -3129,6 +3129,7 @@
       <!-- INCLUDE: stats/database.html -->
       <!-- INCLUDE: stats/samples.html -->
       <!-- INCLUDE: stats/incidents.html -->
+      <!-- INCLUDE: stats/network.html -->
       <!-- INCLUDE: stats/ai_cost.html -->
       </div>
     </div>

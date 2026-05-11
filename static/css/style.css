@@ -5218,12 +5218,18 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 /* Stats → Incidents heatmap. 7×24 grid (day-of-week × hour-of-day).
    Each cell is a thin tinted square; intensity scales with failure
    count vs the matrix max. Uses --danger via `color-mix` so the cell
-   colour respects the active theme. */
+   colour respects the active theme. Cells flex to fill the container
+   width via `table-layout: fixed` + `width: 100%` — the label column
+   gets a fixed 36px so the 24 cell columns share the remaining width
+   equally. `aspect-ratio: 1 / 1` keeps cells square at any container
+   width down to ~480px; below that horizontal-scroll kicks in via the
+   outer `.incidents-heatmap`'s `overflow-x: auto`. */
 .incidents-heatmap {
   width: 100%;
   overflow-x: auto;
 }
 .incidents-heatmap-table {
+  width: 100%;
   border-collapse: separate;
   border-spacing: 2px;
   table-layout: fixed;
@@ -5234,12 +5240,11 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   text-align: end;
 }
 .incidents-heatmap-hour {
-  width: 18px;
   text-align: center;
 }
 .incidents-heatmap-cell {
-  width: 18px;
-  height: 18px;
+  height: auto;
+  aspect-ratio: 1 / 1;
   border-radius: var(--r-sm);
   cursor: default;
   transition: transform 0.08s, outline 0.08s;

@@ -1486,6 +1486,7 @@ function app() {
       { id: 'database',       label: 'Database',        icon: 'database' },
       { id: 'samples',        label: 'Samples',         icon: 'layers' },
       { id: 'incidents',      label: 'Incidents',       icon: 'alert-triangle' },
+      { id: 'network',        label: 'Network',         icon: 'activity' },
       { id: 'ai_cost',        label: 'AI Cost',         icon: 'zap' },
     ],
     statsTab: 'dashboard',
@@ -1498,6 +1499,9 @@ function app() {
     statsIncidents: {},
     statsIncidentsLoaded: false,
     statsIncidentsHours: 168,
+    statsNetwork: {},
+    statsNetworkLoaded: false,
+    statsNetworkHours: 168,
     statsAiCost: {},
     statsAiCostLoaded: false,
     // App-logs viewer state. Polled when the Logs tab is visible.
@@ -3189,6 +3193,7 @@ function app() {
       else if (this.statsTab === 'database') await this.loadStatsDatabase();
       else if (this.statsTab === 'samples') await this.loadStatsSamples();
       else if (this.statsTab === 'incidents') await this.loadStatsIncidents();
+      else if (this.statsTab === 'network') await this.loadStatsNetwork();
       else if (this.statsTab === 'ai_cost') await this.loadStatsAiCost();
       this._pushRoute && this._pushRoute();
     },
@@ -3229,6 +3234,122 @@ function app() {
       } catch (_) {} finally {
         this.statsIncidentsLoaded = true;
       }
+    },
+    async loadStatsNetwork(hours) {
+      const h = Number(hours) || this.statsNetworkHours || 168;
+      this.statsNetworkHours = h;
+      try {
+        const r = await fetch('/api/admin/stats/network?hours=' + encodeURIComponent(h));
+        if (!r.ok) return;
+        this.statsNetwork = await r.json();
+      } catch (_) {} finally {
+        this.statsNetworkLoaded = true;
+      }
+    },
+    // Format a bytes-per-second rate into a human-readable string
+    // (e.g. "12.4 MB/s"). Wraps `fmtBytes` for the value, appends "/s".
+    fmtBps(bps) {
+      if (bps == null || !Number.isFinite(+bps) || +bps <= 0) return '0 B/s';
+      return this.fmtBytes(bps) + '/s';
+    },
+    // Stacked-area chart for fleet network throughput. Two series:
+    // rx (incoming, primary colour) and tx (outgoing, success colour),
+    // stacked so the top edge is the sum. Same gridline + axis style
+    // as the 90d growth chart so the Stats family reads as a coherent
+    // visual treatment.
+    _renderFleetNetChart(points) {
+      if (!Array.isArray(points) || points.length < 2) return '';
+      const W = 720, H = 220;
+      const PAD_L = 80, PAD_R = 16, PAD_T = 12, PAD_B = 24;
+      const plotW = W - PAD_L - PAD_R;
+      const plotH = H - PAD_T - PAD_B;
+      const tsMin = points[0].bucket_ts;
+      const tsMax = points[points.length - 1].bucket_ts;
+      const tsRange = Math.max(1, tsMax - tsMin);
+      let yMax = 0;
+      for (const p of points) {
+        const sum = (Number(p.rx_bps) || 0) + (Number(p.tx_bps) || 0);
+        if (sum > yMax) yMax = sum;
+      }
+      const padded = yMax * 1.1;
+      if (padded > 0) {
+        const exp = Math.floor(Math.log10(padded));
+        const base = Math.pow(10, exp);
+        const m = padded / base;
+        let snap;
+        if (m <= 1) snap = 1;
+        else if (m <= 2) snap = 2;
+        else if (m <= 5) snap = 5;
+        else snap = 10;
+        yMax = snap * base;
+      } else {
+        yMax = 1;
+      }
+      const X = (ts) => PAD_L + ((ts - tsMin) / tsRange) * plotW;
+      const Y = (v) => PAD_T + (1 - (v / Math.max(1, yMax))) * plotH;
+      // Build the two stacked areas. rx is the BOTTOM band (0 →
+      // rx); tx is the TOP band (rx → rx + tx). Closed polygons so
+      // fill works correctly.
+      let rxArea = '';
+      let txArea = '';
+      let rxLine = '';
+      for (const p of points) {
+        const rx = Number(p.rx_bps) || 0;
+        const x = X(p.bucket_ts);
+        rxLine += (rxLine ? ' L' : 'M') + x.toFixed(1) + ',' + Y(rx).toFixed(1);
+      }
+      // Close the rx area down to the baseline.
+      rxArea = rxLine + ' L' + X(points[points.length - 1].bucket_ts).toFixed(1) + ',' + Y(0).toFixed(1)
+        + ' L' + X(points[0].bucket_ts).toFixed(1) + ',' + Y(0).toFixed(1) + ' Z';
+      // tx area sits on top of rx. Top edge: rx + tx. Bottom edge:
+      // rx (reversed so the polygon closes correctly).
+      let txTop = '';
+      for (const p of points) {
+        const rx = Number(p.rx_bps) || 0;
+        const tx = Number(p.tx_bps) || 0;
+        const x = X(p.bucket_ts);
+        txTop += (txTop ? ' L' : 'M') + x.toFixed(1) + ',' + Y(rx + tx).toFixed(1);
+      }
+      let txBot = '';
+      for (let i = points.length - 1; i >= 0; i--) {
+        const p = points[i];
+        const rx = Number(p.rx_bps) || 0;
+        txBot += ' L' + X(p.bucket_ts).toFixed(1) + ',' + Y(rx).toFixed(1);
+      }
+      txArea = txTop + txBot + ' Z';
+      // Y-axis ticks (5).
+      const fmt = (n) => this.fmtBps(n);
+      const yTicks = [0, yMax * 0.25, yMax * 0.5, yMax * 0.75, yMax].map(v => ({
+        v, y: Y(v).toFixed(1), label: fmt(v),
+      }));
+      // X-axis ticks — 5 evenly-spaced. Use the user's date-only
+      // format for the labels.
+      const xTicks = [0, 1, 2, 3, 4].map(i => {
+        const idx = Math.min(points.length - 1, Math.round((i / 4) * (points.length - 1)));
+        const p = points[idx];
+        const dt = new Date(p.bucket_ts * 1000);
+        return { x: X(p.bucket_ts).toFixed(1), label: this._applyDateTimeFormat(dt, this._userDateOnlyFormat()) };
+      });
+      const esc = (s) => this._logEscape(String(s));
+      let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block">';
+      for (const t of yTicks) {
+        svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
+          + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+        svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
+      }
+      for (const t of xTicks) {
+        svg += '<line x1="' + t.x + '" y1="' + PAD_T + '" x2="' + t.x + '" y2="' + (H - PAD_B)
+          + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+      }
+      // RX area (bottom, primary tint).
+      svg += '<path d="' + rxArea + '" fill="var(--primary)" fill-opacity="0.35" stroke="var(--primary)" stroke-width="1"/>';
+      // TX area (top, success tint).
+      svg += '<path d="' + txArea + '" fill="var(--success)" fill-opacity="0.35" stroke="var(--success)" stroke-width="1"/>';
+      for (const t of xTicks) {
+        svg += '<text x="' + t.x + '" y="' + (H - 6) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
+      }
+      svg += '</svg>';
+      return svg;
     },
     async loadStatsAiCost() {
       try {
@@ -7041,7 +7162,7 @@ function app() {
       backups: false, config_backup_saved: false,
       logs: false, log_files: false,
       stats_overview: false, stats_database: false, stats_samples: false,
-      stats_incidents: false, stats_ai_cost: false,
+      stats_incidents: false, stats_network: false, stats_ai_cost: false,
       history: false, hosts_config: false,
     },
     // Watchdog timer per busy-key — see `_runWithBusy` below. Cleared
