@@ -1739,6 +1739,18 @@
         "tuning_stat_bar_crit_pct": {
           "label": "Stat-bar critical threshold (percent)",
           "help": "Percent at which CPU / Memory / Disk bars flip from amber to red. Default 85 — the typical \"investigate before saturation\" signal. Lower (e.g. 75) for fleets where 80% sustained means a rebalance; raise (e.g. 95) for over-provisioned hosts where amber stays green-equivalent. Must be ≥ the warning threshold. Range 50..99. Resolved per render."
+        },
+        "tuning_ssh_default_port": {
+          "label": "SSH default port",
+          "help": "Default TCP port for the SSH terminal + run-command flows. Consumed when a curated host's `ssh.port` is unset. Default 22 (standard SSH). Range 1..65535. Live — takes effect on the next SSH invocation; no restart needed."
+        },
+        "tuning_snmp_default_port": {
+          "label": "SNMP default port",
+          "help": "Default UDP port for SNMP queries. Consumed when a curated host's `snmp.port` is unset. Default 161 (standard SNMP). Range 1..65535. Live — takes effect on the next probe cycle; no restart needed."
+        },
+        "tuning_ping_default_port": {
+          "label": "Ping default port",
+          "help": "Default TCP port for the Ping host-stats provider's TCP-connect probe. Consumed when a curated host's `ping.port` is unset. Default 443 (HTTPS — universally reachable through firewalls). Range 1..65535. Live — takes effect on the next sampler tick."
         }
       },
       "totp": {

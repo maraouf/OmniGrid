@@ -627,6 +627,30 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # timeout (some defaults are 15 s); raise on long-lived sessions to
     # cut traffic. Range 5..120.
     "tuning_ssh_ws_heartbeat_seconds": ("SSH_WS_HEARTBEAT_SECONDS", 25, 5, 120),
+
+    # ----- Per-provider default ports --------------------------------------
+    # Each port setting promoted out of the plain `settings` table per the
+    # CLAUDE.md "Plain-`settings`-row escape hatch is a drift class" rule.
+    # Operator-tunable defaults consumed by per-host probes when the row
+    # doesn't carry its own per-host port override. Bounds 1..65535 (TCP /
+    # UDP port range). Defaults match standard service ports.
+
+    # SSH terminal + run-command port. Consumed by `logic/ssh.py:resolve_
+    # ssh_params` and the SSH admin form's default placeholder. Per-host
+    # `hosts_config[].ssh.port` always wins when set; this is the global
+    # fallback default. Default 22 (standard SSH).
+    "tuning_ssh_default_port": ("SSH_DEFAULT_PORT", 22, 1, 65535),
+
+    # SNMP query port. Consumed by `logic/snmp.py:probe_snmp` and the SNMP
+    # admin form's default placeholder. Per-host `hosts_config[].snmp.port`
+    # always wins when set. Default 161 (standard SNMP UDP).
+    "tuning_snmp_default_port": ("SNMP_DEFAULT_PORT", 161, 1, 65535),
+
+    # Ping (TCP-connect) probe port. Consumed by `logic/ping_sampler.py`
+    # and the Ping admin form's default placeholder. Per-host
+    # `hosts_config[].ping.port` always wins when set. Default 443
+    # (universally-reachable through firewalls; HTTPS).
+    "tuning_ping_default_port": ("PING_DEFAULT_PORT", 443, 1, 65535),
 }
 
 
