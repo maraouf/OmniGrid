@@ -16947,7 +16947,7 @@ function app() {
     async _runCommandPaletteAction(action, opts) {
       if (!action || typeof action.run !== 'function') return;
       const fromSidebar = !!(opts && opts.surface === 'sidebar');
-      const skipConfirm = !!(opts && opts.skipConfirm);
+      let skipConfirm = !!(opts && opts.skipConfirm);
       // Per-action params forwarded to the descriptor's `run(opts)`.
       // The retag_image action consumes `tag` (from ACTION_TAG) and
       // `actionItem` (from ACTION_ITEM); other actions today ignore
@@ -16966,30 +16966,26 @@ function app() {
       // don't double-popup.
       if (action.destructive && !skipConfirm) {
         if (fromSidebar) {
-          // AI sidebar surface — by default replace destructive
-          // popups with an inline-confirm chip. Operator-tunable mode:
-          //   approval (default): inline-confirm chip; operator
-          //     clicks Yes / Cancel before the action fires.
-          //   autonomous: bypass the chip entirely — action fires
-          //     immediately. Operator-flagged: agentic workflows
-          //     where the AI acts without intervention.
+          // AI sidebar surface — operator-flagged "no popups in the
+          // sidebar, ever". Two sub-modes:
+          //   approval (default): inline-confirm chip in the chat;
+          //     operator clicks Yes / Cancel before the action fires.
+          //   autonomous: action fires IMMEDIATELY with no chip and no
+          //     popup — agentic workflow where the AI acts without
+          //     intervention.
+          // In BOTH modes the inner helper's SwAl popup is bypassed via
+          // `skipConfirm=true` so the sidebar never raises a modal.
+          // The approval-mode Yes-click path also sets skipConfirm=true
+          // via `confirmInlineAction`.
           if (this.aiSidebarMode === 'autonomous') {
-            // Fall through to the run() block below — no inline chip,
-            // no SweetAlert, no confirmation. The most-recent
-            // assistant turn's `action_ran` flips to true after run().
+            // Autonomous: action runs RIGHT NOW. Force skipConfirm=true
+            // so the inner helper's SwAl (cleanup_stopped's listing,
+            // update_all_updatable's listing, etc.) doesn't pop.
+            skipConfirm = true;
           } else {
-            // AI sidebar surface — replace EVERY destructive popup with
-            // an inline confirmation chip in the chat, including actions
-            // marked `defer_confirm_to_run` (cleanup_stopped /
-            // update_all_updatable). The inner SweetAlert their `run()`
-            // raises will still appear after Yes-click on the inline
-            // chip — that's a SECOND, data-rich popup we treat as
-            // legitimate confirmation data (lists every affected
-            // container by name); the bypass-the-generic-popup goal
-            // is satisfied here. Operator clicks Yes / Cancel right
-            // inside the conversation; no GENERIC popup, no experience
-            // disruption. The chip lives on the SAME assistant turn
-            // `_appendActionChatTurn` just pushed.
+            // Approval mode — stash the pending action on the most-
+            // recent assistant turn; the inline chip in the chat
+            // handles Yes/Cancel. Action does NOT fire here.
             const idx = this.aiConversation.length - 1;
             const turn = this.aiConversation[idx];
             if (turn) {
@@ -17020,13 +17016,11 @@ function app() {
       }
       try {
         // Forward parameterised-action params via the run(opts)
-        // envelope. retag_image consumes `tag` + `actionItem` from
-        // the AI's ACTION_TAG / ACTION_ITEM directives. `skipConfirm`
-        // is FORWARDED (not unconditionally set true) so deferred
-        // actions whose inner SwAl is the only confirm in the
-        // modal-palette path still see it; the sidebar Yes-click
-        // path passes skipConfirm=true upstream so the second call
-        // bypasses the inner popup correctly.
+        // envelope. `skipConfirm` is forwarded (true in sidebar mode
+        // after autonomous fall-through OR after the approval-mode
+        // Yes-click; false in modal palette where the generic SwAl
+        // already confirmed). Inner helpers honour skipConfirm to
+        // bypass their own SwAl popups — no double-confirm anywhere.
         await action.run({ skipConfirm: skipConfirm, tag: actionTag, actionItem: actionItem, data: actionData });
         // Sidebar: flip the most-recent assistant turn's `action_ran`
         // to true so the green "Ran:" chip surfaces. Skip when this
@@ -29725,34 +29719,40 @@ function app() {
         );
       }
     },
-    async bulkPauseHosts() {
+    async bulkPauseHosts(opts) {
       if (this.selectedHostCount() === 0) return;
+      const skipConfirm = !!(opts && opts.skipConfirm);
       // SweetAlert confirm — destructive (sampler will skip these
       // hosts until manually resumed). Body shows the actual host
       // names so the operator can verify the selection before
       // committing — for >10 hosts the list is truncated to the first
       // 10 + "...and N more" so a 200-host pause confirm doesn't fill
-      // the entire screen with hostnames.
-      const ids = this.selectedHostsArray();
-      const sample = ids.slice(0, 10);
-      const more = ids.length - sample.length;
-      const sampleHtml = sample.map(id => '<code>' + this._logEscape(id) + '</code>').join(', ');
-      const moreHtml = more > 0
-        ? ' ' + (this.t('hosts_extra.bulk.pause_confirm_more', { more }) || ('… and ' + more + ' more'))
-        : '';
-      try {
-        const result = await Swal.fire({
-          title: this.t('hosts_extra.bulk.pause_confirm_title') || 'Pause sampling?',
-          html:  (this.t('hosts_extra.bulk.pause_confirm_body', { count: this.selectedHostCount() })
-                  || ('Pause sampling on ' + this.selectedHostCount() + ' host(s)?'))
-                 + '<br><br><div class="text-[11.5px] text-[var(--text-dim)] mono break-words">' + sampleHtml + moreHtml + '</div>',
-          icon:  'warning',
-          showCancelButton: true,
-          confirmButtonText: this.t('hosts_extra.bulk.pause_confirm_ok') || 'Pause',
-          cancelButtonText:  this.t('actions.cancel') || 'Cancel',
-        });
-        if (!result.isConfirmed) return;
-      } catch { return; }
+      // the entire screen with hostnames. The AI sidebar inline-
+      // confirm path passes skipConfirm=true so the SwAl is bypassed
+      // (the operator approved inline; a second popup defeats the
+      // no-popup contract).
+      if (!skipConfirm) {
+        const ids = this.selectedHostsArray();
+        const sample = ids.slice(0, 10);
+        const more = ids.length - sample.length;
+        const sampleHtml = sample.map(id => '<code>' + this._logEscape(id) + '</code>').join(', ');
+        const moreHtml = more > 0
+          ? ' ' + (this.t('hosts_extra.bulk.pause_confirm_more', { more }) || ('… and ' + more + ' more'))
+          : '';
+        try {
+          const result = await Swal.fire({
+            title: this.t('hosts_extra.bulk.pause_confirm_title') || 'Pause sampling?',
+            html:  (this.t('hosts_extra.bulk.pause_confirm_body', { count: this.selectedHostCount() })
+                    || ('Pause sampling on ' + this.selectedHostCount() + ' host(s)?'))
+                   + '<br><br><div class="text-[11.5px] text-[var(--text-dim)] mono break-words">' + sampleHtml + moreHtml + '</div>',
+            icon:  'warning',
+            showCancelButton: true,
+            confirmButtonText: this.t('hosts_extra.bulk.pause_confirm_ok') || 'Pause',
+            cancelButtonText:  this.t('actions.cancel') || 'Cancel',
+          });
+          if (!result.isConfirmed) return;
+        } catch { return; }
+      }
       // Step-up reauth — bulk pause is the most destructive bulk
       // action (sampler stops probing every selected host until
       // manually resumed), so the backend gates it behind a short-
@@ -29766,7 +29766,11 @@ function app() {
         { reauthToken },
       );
     },
-    async bulkResumeHosts() {
+    async bulkResumeHosts(opts) {
+      // Resume is non-destructive (re-enables sampler probes) — no
+      // inner SwAl to bypass — but accept opts.skipConfirm for API
+      // symmetry with bulkPauseHosts. Currently a no-op.
+      void opts;
       if (this.selectedHostCount() === 0) return;
       await this._hostsBulkPost('resume', null, 'hosts_extra.bulk.resume_success');
     },
