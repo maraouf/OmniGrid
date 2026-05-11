@@ -9,10 +9,16 @@
               <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.network.hint')"></p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+              <!-- Range chips route through `_runWithBusy` so the spinner
+                   on the Reload button next door reflects in-flight
+                   refetches triggered by chip click. Range pickers
+                   across Stats charts MUST show a loading indicator on
+                   click per operator preference. -->
               <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
-                <template x-for="opt in [[1,'1h'],[24,'24h'],[168,'7d'],[720,'30d']]" :key="opt[0]">
+                <template x-for="opt in [[1,'1h'],[24,'24h'],[168,'7d'],[720,'30d'],[2160,'90d']]" :key="opt[0]">
                   <button type="button"
-                          @click="loadStatsNetwork(opt[0])"
+                          @click="_runWithBusy('stats_network', () => loadStatsNetwork(opt[0]))"
+                          :disabled="_loadBusy.stats_network === true"
                           :class="statsNetworkHours === opt[0] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                           class="px-2 py-0.5 rounded fs-xs font-medium transition"
                           x-text="opt[1]"></button>

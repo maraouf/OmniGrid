@@ -2854,32 +2854,31 @@
           <button @click="historyApplyFilter(() => historyFilters.status = 'error')"
                   :class="historyFilters.status==='error' ? 'active' : ''" class="filter-chip" x-text="t('history.status_error')"></button>
         </div>
+        <!-- Op-type filter — labels resolved via `opTypeLabel(v)` which
+             consults `t('op_types.<v>')` first then falls back to a
+             title-cased split. Source list mirrors `logic.ops.OP_TYPES`
+             — when adding a new op_type, extend this array AND add the
+             matching i18n key under `op_types.<name>` so localised
+             operators see a clean label. -->
         <select x-model="historyFilters.op_type" @change="historyApplyFilter()" class="fs-sm min-w-[150px]">
           <option value="" x-text="t('history.all_op_types')"></option>
-          <option value="update_stack">update_stack</option>
-          <option value="update_container">update_container</option>
-          <option value="restart_service">restart_service</option>
-          <option value="restart_container">restart_container</option>
-          <option value="remove_container">remove_container</option>
-          <option value="prune_node">prune_node</option>
-          <option value="prune_all_nodes">prune_all_nodes</option>
-          <option value="prune_logs">prune_logs</option>
-          <option value="prune_notifications">prune_notifications</option>
-          <option value="backup">backup</option>
-          <option value="gather_refresh">gather_refresh</option>
-          <option value="asset_inventory_refresh">asset_inventory_refresh</option>
-          <option value="ssh_run">ssh_run</option>
-          <option value="ssh_terminal">ssh_terminal</option>
-          <option value="port_scan">port_scan</option>
-          <option value="ai_palette">ai_palette</option>
-          <option value="ai_host_filter">ai_host_filter</option>
-          <option value="swarm_agent_health">swarm_agent_health</option>
-          <option value="restart_swarm_agent">restart_swarm_agent</option>
-          <option value="cleanup_overlay_network">cleanup_overlay_network</option>
-          <option value="hosts_bulk_pause">hosts_bulk_pause</option>
-          <option value="hosts_bulk_resume">hosts_bulk_resume</option>
-          <option value="totp_admin_disabled">totp_admin_disabled</option>
-          <option value="totp_force_set">totp_force_set</option>
+          <template x-for="ot in [
+              'update_stack','update_container','restart_service','restart_container','remove_container',
+              'restart_swarm_agent','cleanup_overlay_network','hosts_bulk_pause','hosts_bulk_resume',
+              'ssh_run','ssh_terminal','port_scan','port_scan_refresh',
+              'prune_node','prune_all_nodes','gather_refresh','backup','asset_inventory_refresh',
+              'prune_logs','prune_notifications','swarm_agent_health',
+              'ai_palette','ai_host_filter',
+              'totp_admin_disabled','totp_force_set',
+              'user_create','user_update','user_delete','user_pw_reset',
+              'session_revoke','token_create','token_revoke',
+              'backup_create','backup_delete','backup_restore',
+              'config_backup_save','config_backup_import','config_backup_restore','config_backup_delete',
+              'schedule_create','schedule_update','schedule_delete','schedule_run_now',
+              'notification_delete'
+            ]" :key="ot">
+            <option :value="ot" x-text="opTypeLabel(ot)"></option>
+          </template>
         </select>
         <select x-model="historyFilters.stack" @change="historyApplyFilter()" class="fs-sm min-w-[150px]">
           <option value="" x-text="t('history.all_stacks')"></option>
@@ -8571,6 +8570,49 @@
         </svg>
       </button>
     </div>
+    <!-- In-conversation scrollback search — gated on >5 turns so a
+         fresh chat doesn't carry a search input it doesn't need. Enter
+         cycles through matches; Escape clears. Hidden on mobile (max-
+         width: 480px) where a 100vw sidebar would push the log
+         off-screen with the search input on top. From the UX review
+         IA-LOW finding. -->
+    <div class="ai-sidebar-search hidden sm:flex"
+         x-show="aiConversation.length > 5">
+      <svg width="13" height="13" class="text-[var(--text-faint)]" aria-hidden="true">
+        <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-search'"/>
+      </svg>
+      <input type="text"
+             x-model.debounce.150ms="aiConversationSearch"
+             @input="_recomputeAiConversationMatches()"
+             @keydown.enter.prevent="cycleAiConversationMatch(1)"
+             @keydown.escape.prevent="aiConversationSearch = ''; _recomputeAiConversationMatches()"
+             :placeholder="t('ai_sidebar.search_placeholder')"
+             :aria-label="t('ai_sidebar.search_aria')"
+             class="ai-sidebar-search-input">
+      <span class="ai-sidebar-search-meta fs-2xs mono"
+            x-show="aiConversationSearch"
+            x-text="aiConversationSearchMatches.length
+              ? ((aiConversationSearchMatchIdx + 1) + ' / ' + aiConversationSearchMatches.length)
+              : t('ai_sidebar.search_no_match')"></span>
+      <button type="button"
+              @click="cycleAiConversationMatch(-1)"
+              x-show="aiConversationSearch && aiConversationSearchMatches.length > 1"
+              class="btn btn-ghost fs-2xs"
+              :title="t('ai_sidebar.search_prev')"
+              :aria-label="t('ai_sidebar.search_prev')">↑</button>
+      <button type="button"
+              @click="cycleAiConversationMatch(1)"
+              x-show="aiConversationSearch && aiConversationSearchMatches.length > 1"
+              class="btn btn-ghost fs-2xs"
+              :title="t('ai_sidebar.search_next')"
+              :aria-label="t('ai_sidebar.search_next')">↓</button>
+      <button type="button"
+              @click="aiConversationSearch = ''; _recomputeAiConversationMatches()"
+              x-show="aiConversationSearch"
+              class="btn btn-ghost fs-2xs"
+              :title="t('actions.clear')"
+              :aria-label="t('actions.clear')">✕</button>
+    </div>
     <div id="og-ai-sidebar-log" class="ai-sidebar-log scrollbar"
          role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"
          @scroll="_onAiSidebarLogScroll($event)">
@@ -8582,7 +8624,13 @@
         </div>
       </div>
       <template x-for="(turn, idx) in aiConversation" :key="idx">
-        <div class="ai-turn" :class="turn.role === 'user' ? 'ai-turn-user' : 'ai-turn-assistant'">
+        <div class="ai-turn"
+             :data-ai-turn-idx="idx"
+             :class="[
+               turn.role === 'user' ? 'ai-turn-user' : 'ai-turn-assistant',
+               (aiConversationSearch && aiConversationSearchMatches.includes(idx)) ? 'ai-turn--matched' : '',
+               (aiConversationSearch && aiConversationSearchMatches[aiConversationSearchMatchIdx] === idx) ? 'ai-turn--matched-active' : ''
+             ]">
           <!--
             Bubble rendering — assistant turns render via `x-html` so
             fenced code blocks (```...```), bold (**…**), inline code

@@ -4897,7 +4897,10 @@ async def api_admin_stats_network(
     import time as _time
     from logic import tuning as _tuning
     try:
-        hours = max(1, min(720, int(hours or 168)))
+        # Accept up to 90 days (2160 hours) so the unified Stats range
+        # picker (1h / 24h / 7d / 30d / 90d) maps cleanly. The earlier
+        # cap was 720 (30d).
+        hours = max(1, min(2160, int(hours or 168)))
     except (TypeError, ValueError):
         hours = 168
     try:
@@ -5081,10 +5084,21 @@ async def api_admin_stats_network(
                 "bytes_rx": sum(v["bytes_rx"] for v in ded_total.values()),
                 "bytes_tx": sum(v["bytes_tx"] for v in ded_total.values()),
             }
-            # Fleet-wide stacked-area time-series. Target ~96 buckets
-            # across the window (one per hour at 7d, ~15-min at 24h).
-            target = 96
-            bucket = max(cadence, int(hours * 3600 / target))
+            # Fleet-wide stacked-area time-series. Bucket size follows
+            # the unified Stats-charts rule
+            # (`logic.tuning.STATS_BUCKET_SECONDS`): 1h / 24h → hour
+            # buckets, 7d / 30d → day, 90d → week. For arbitrary `hours`
+            # values that don't snap to a canonical range, fall back to
+            # the legacy ~96-bucket adaptive scheme so the chart still
+            # renders sensibly.
+            from logic.tuning import stats_bucket_seconds_for_range as _stats_bucket
+            _hours_to_range = {1: "1h", 24: "24h", 168: "7d", 720: "30d", 2160: "90d"}
+            _range_key = _hours_to_range.get(int(hours))
+            if _range_key:
+                bucket = max(cadence, _stats_bucket(_range_key))
+            else:
+                target = 96
+                bucket = max(cadence, int(hours * 3600 / target))
             rows = c.execute(
                 "SELECT (ts / ?) * ? AS bucket_ts, "
                 "       AVG(rx_bytes_per_s) AS rx, "
@@ -5415,23 +5429,19 @@ async def api_admin_stats_ai_cost(
             ]
             # Resolve operator-selected window for the trend chart + top-expensive
             # table. Other sections (MTD / last month / EOM / tokens-by-PM)
-            # keep their canonical windows above.
-            _RANGE_TO_SECONDS = {
-                "1h":  3600,
-                "24h": 86400,
-                "7d":  7 * 86400,
-                "30d": 30 * 86400,
-                "90d": 90 * 86400,
-            }
+            # keep their canonical windows above. Bucket size follows the
+            # unified Stats-charts rule (`_stats_bucket_seconds_for_range`):
+            # 1h / 24h → hour buckets, 7d / 30d → day, 90d → week.
+            from logic.tuning import (  # local import to keep main.py top tidy
+                stats_range_seconds as _stats_range_seconds,
+                stats_bucket_seconds_for_range as _stats_bucket_seconds_for_range,
+            )
             range_key = (range or "30d").strip().lower()
-            if range_key not in _RANGE_TO_SECONDS:
+            if _stats_range_seconds(range_key) is None:
                 range_key = "30d"
-            range_seconds = _RANGE_TO_SECONDS[range_key]
+            range_seconds = _stats_range_seconds(range_key)
             range_cutoff = now_ts - range_seconds
-            # Bucket size: hour buckets for ≤ 24h windows, day buckets above.
-            # Lets the 1h / 24h selections render fine-grained without
-            # collapsing every job into a single bar.
-            bucket_seconds = 3600 if range_seconds <= 86400 else 86400
+            bucket_seconds = _stats_bucket_seconds_for_range(range_key)
             # Avg response time over operator-selected window, bucketed.
             rows = c.execute(
                 f"SELECT CAST((ts / {bucket_seconds}) AS INTEGER) * {bucket_seconds} AS bucket_ts, "
@@ -5526,19 +5536,23 @@ async def api_admin_stats_samples(
     # Operator-flagged 2026-05-11: chart needs proper axes + range
     # picker; days with zero samples were absent so the chart
     # appeared sparse instead of showing 90 contiguous days.
-    # Range picker shapes (parsed from `?range=`):
-    #   1h  → 1-minute buckets (60 bars)
-    #   24h → 1-hour buckets (24 bars)
-    #   7d  → 1-day buckets (7 bars)
-    #   30d → 1-day buckets (30 bars)
-    #   90d → 1-day buckets (90 bars; default, back-compat with the
-    #         original daily_totals contract)
+    # Range picker shapes (parsed from `?range=`). Bucket size follows
+    # the unified Stats-charts rule (`logic.tuning.STATS_BUCKET_SECONDS`):
+    #   1h  → 1 hour bucket   (1 bar — operator's stated convention)
+    #   24h → 1-hour buckets  (24 bars)
+    #   7d  → 1-day buckets   (7 bars)
+    #   30d → 1-day buckets   (30 bars)
+    #   90d → 1-WEEK buckets  (~13 bars; was per-day previously)
+    # `bucket_fmt` controls the SQLite `strftime` group-key — the FE chart
+    # formats display labels separately so a per-week bucket can render
+    # as "Mar 04 – Mar 10" if the renderer wants. For now the group-key
+    # is the bucket-anchor's ISO date.
     range_spec = {
-        "1h":  {"sql_offset": "-1 hour",   "bucket_fmt": "%Y-%m-%dT%H:%M",  "bucket_seconds": 60,    "n_buckets": 60},
-        "24h": {"sql_offset": "-24 hours", "bucket_fmt": "%Y-%m-%dT%H:00",  "bucket_seconds": 3600,  "n_buckets": 24},
-        "7d":  {"sql_offset": "-7 days",   "bucket_fmt": "%Y-%m-%d",        "bucket_seconds": 86400, "n_buckets": 7},
-        "30d": {"sql_offset": "-30 days",  "bucket_fmt": "%Y-%m-%d",        "bucket_seconds": 86400, "n_buckets": 30},
-        "90d": {"sql_offset": "-90 days",  "bucket_fmt": "%Y-%m-%d",        "bucket_seconds": 86400, "n_buckets": 90},
+        "1h":  {"sql_offset": "-1 hour",   "bucket_fmt": "%Y-%m-%dT%H:00",  "bucket_seconds": 3600,    "n_buckets": 1},
+        "24h": {"sql_offset": "-24 hours", "bucket_fmt": "%Y-%m-%dT%H:00",  "bucket_seconds": 3600,    "n_buckets": 24},
+        "7d":  {"sql_offset": "-7 days",   "bucket_fmt": "%Y-%m-%d",        "bucket_seconds": 86400,   "n_buckets": 7},
+        "30d": {"sql_offset": "-30 days",  "bucket_fmt": "%Y-%m-%d",        "bucket_seconds": 86400,   "n_buckets": 30},
+        "90d": {"sql_offset": "-90 days",  "bucket_fmt": "%Y-%m-%d",        "bucket_seconds": 604800,  "n_buckets": 13},
     }
     sel = range_spec.get(range) or range_spec["90d"]
     bucket_fmt = sel["bucket_fmt"]
@@ -15548,7 +15562,7 @@ async def api_notifications_mark_all_read(
 async def api_notifications_delete(
     nid: int,
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    admin: auth.User = Depends(auth.require_admin),
 ):
     """Admin-only delete one notification. Operators rarely need this —
     the prune_notifications schedule sweeps old rows automatically — but
@@ -15562,6 +15576,12 @@ async def api_notifications_delete(
             "SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL"
         ).fetchone()
         unread_count = int(unread_row["n"]) if unread_row else 0
+        _ops_mod.write_admin_audit(
+            c, "notification_delete",
+            target_kind="notification", target_name=str(nid), target_id=str(nid),
+            actor=admin.username,
+            message=f"Deleted notification id={nid}",
+        )
     try:
         _events.publish(
             "notification:deleted",
@@ -18035,6 +18055,12 @@ async def api_create_user(
             u.password if u.auth_source == "local" else None,
             u.role, u.auth_source,
         )
+        _ops_mod.write_admin_audit(
+            c, "user_create",
+            target_kind="user", target_name=user.username, target_id=str(user.id),
+            actor=_admin.username,
+            message=f"Created {u.auth_source} user '{user.username}' with role '{u.role}'",
+        )
     return {"ok": True, "id": user.id, "username": user.username, "role": user.role}
 
 
@@ -18062,10 +18088,20 @@ async def api_update_user(
                 status_code=400,
                 detail="Cannot demote or disable the last active admin.",
             )
+        changes = []
         if p.role is not None:
             auth.set_user_role(c, user_id, p.role)
+            changes.append(f"role -> {p.role}")
         if p.disabled is not None:
             auth.set_user_disabled(c, user_id, bool(p.disabled))
+            changes.append(f"disabled -> {bool(p.disabled)}")
+        if changes:
+            _ops_mod.write_admin_audit(
+                c, "user_update",
+                target_kind="user", target_name=target.username, target_id=str(user_id),
+                actor=admin.username,
+                message=f"Updated user '{target.username}': {', '.join(changes)}",
+            )
     return {"ok": True}
 
 
@@ -18092,7 +18128,14 @@ async def api_delete_user(
         # inherit the orphan. in the code review.
         profile = auth.get_user_profile(c, user_id) or {}
         avatar_path = (profile.get("avatar_path") or "").strip()
+        target_username = target.username
         auth.delete_user(c, user_id)
+        _ops_mod.write_admin_audit(
+            c, "user_delete",
+            target_kind="user", target_name=target_username, target_id=str(user_id),
+            actor=admin.username,
+            message=f"Deleted user '{target_username}' (id={user_id})",
+        )
     if avatar_path:
         try:
             full = os.path.join(_AVATAR_DIR, avatar_path)
@@ -18107,7 +18150,7 @@ async def api_delete_user(
 async def api_reset_password(
     user_id: int,
     r: PasswordResetIn,
-    _admin: auth.User = Depends(auth.require_admin),
+    admin: auth.User = Depends(auth.require_admin),
 ):
     """Admin password-reset for a local user.
 
@@ -18128,6 +18171,12 @@ async def api_reset_password(
                 detail="Authentik-managed users must change their password in Authentik.",
             )
         auth.admin_reset_password(c, user_id, r.new_password)
+        _ops_mod.write_admin_audit(
+            c, "user_pw_reset",
+            target_kind="user", target_name=target.username, target_id=str(user_id),
+            actor=admin.username,
+            message=f"Admin reset password for '{target.username}' (also clears TOTP)",
+        )
     return {"ok": True}
 
 
@@ -18311,10 +18360,16 @@ async def api_list_sessions(_admin: auth.User = Depends(auth.require_admin)):
 @app.delete("/api/sessions/{token_id}")
 async def api_revoke_session(
     token_id: str,
-    _admin: auth.User = Depends(auth.require_admin),
+    admin: auth.User = Depends(auth.require_admin),
 ):
     with db_conn() as c:
         auth.delete_session(c, token_id)
+        _ops_mod.write_admin_audit(
+            c, "session_revoke",
+            target_kind="session", target_name=token_id, target_id=token_id,
+            actor=admin.username,
+            message=f"Revoked session token {token_id}",
+        )
     return {"ok": True}
 
 
@@ -18337,6 +18392,12 @@ async def api_create_token(
     try:
         with db_conn() as c:
             raw = auth.create_api_token(c, name, t.role, admin.id)
+            _ops_mod.write_admin_audit(
+                c, "token_create",
+                target_kind="api_token", target_name=name, target_id=name,
+                actor=admin.username,
+                message=f"Created API token '{name}' with role '{t.role}'",
+            )
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail="A token with that name already exists.")
     # Raw token returned ONCE. UI shows a one-time reveal modal; we store
@@ -18347,10 +18408,16 @@ async def api_create_token(
 @app.delete("/api/tokens/{token_id}")
 async def api_delete_token(
     token_id: int,
-    _admin: auth.User = Depends(auth.require_admin),
+    admin: auth.User = Depends(auth.require_admin),
 ):
     with db_conn() as c:
         auth.delete_api_token(c, token_id)
+        _ops_mod.write_admin_audit(
+            c, "token_revoke",
+            target_kind="api_token", target_name=str(token_id), target_id=str(token_id),
+            actor=admin.username,
+            message=f"Revoked API token id={token_id}",
+        )
     return {"ok": True}
 
 
@@ -18366,7 +18433,7 @@ async def api_list_backups(_admin: auth.User = Depends(auth.require_admin)):
 
 
 @app.post("/api/backups")
-async def api_create_backup(_admin: auth.User = Depends(auth.require_admin)):
+async def api_create_backup(admin: auth.User = Depends(auth.require_admin)):
     result = backups.create_backup()
     # Retention — surfaced to the operator in the response so they can
     # see what got pruned without re-listing. Zero/empty setting means
@@ -18381,6 +18448,14 @@ async def api_create_backup(_admin: auth.User = Depends(auth.require_admin)):
     pruned = backups.prune_backups(keep) if keep > 0 else []
     if pruned:
         result = {**result, "pruned": pruned}
+    backup_name = (result or {}).get("name", "") or ""
+    with db_conn() as c:
+        _ops_mod.write_admin_audit(
+            c, "backup_create",
+            target_kind="backup", target_name=backup_name, target_id=backup_name,
+            actor=admin.username,
+            message=f"Created backup '{backup_name}'" + (f" (pruned {len(pruned)})" if pruned else ""),
+        )
     return result
 
 
@@ -18399,27 +18474,42 @@ async def api_download_backup(
 
 @app.delete("/api/backups/{name}")
 async def api_delete_backup(
-    name: str, _admin: auth.User = Depends(auth.require_admin),
+    name: str, admin: auth.User = Depends(auth.require_admin),
 ):
     try:
         backups.delete_backup(name)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid backup name")
+    with db_conn() as c:
+        _ops_mod.write_admin_audit(
+            c, "backup_delete",
+            target_kind="backup", target_name=name, target_id=name,
+            actor=admin.username,
+            message=f"Deleted backup '{name}'",
+        )
     return {"ok": True}
 
 
 @app.post("/api/backups/{name}/restore")
 async def api_restore_backup_named(
-    name: str, _admin: auth.User = Depends(auth.require_admin),
+    name: str, admin: auth.User = Depends(auth.require_admin),
 ):
     try:
-        return backups.restore_by_name(name)
+        result = backups.restore_by_name(name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Backup not found")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Restore failed: {e}")
+    with db_conn() as c:
+        _ops_mod.write_admin_audit(
+            c, "backup_restore",
+            target_kind="backup", target_name=name, target_id=name,
+            actor=admin.username,
+            message=f"Restored backup '{name}'",
+        )
+    return result
 
 
 @app.post("/api/backups/restore")
@@ -18508,7 +18598,7 @@ class ConfigBackupImportIn(BaseModel):
 @app.post("/api/admin/config-backup/import")
 async def api_config_backup_import(
     body: ConfigBackupImportIn,
-    _admin: auth.User = Depends(auth.require_admin),
+    admin: auth.User = Depends(auth.require_admin),
 ):
     """Apply an uploaded snapshot to the live DB. See
     `logic.config_export.apply_snapshot` for the per-surface semantics
@@ -18522,6 +18612,13 @@ async def api_config_backup_import(
         result = config_export.apply_snapshot(body.payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    with db_conn() as c:
+        _ops_mod.write_admin_audit(
+            c, "config_backup_import",
+            target_kind="config_backup",
+            actor=admin.username,
+            message=f"Imported config-backup snapshot ({len(result.get('warnings') or [])} warning(s))",
+        )
     return result
 
 
@@ -18533,11 +18630,20 @@ async def api_config_backup_list(_admin: auth.User = Depends(auth.require_admin)
 
 
 @app.post("/api/admin/config-backup/save")
-async def api_config_backup_save(_admin: auth.User = Depends(auth.require_admin)):
+async def api_config_backup_save(admin: auth.User = Depends(auth.require_admin)):
     """Write a fresh snapshot to disk on demand. Same path the
     `config_backup` schedule kind uses. Returns the saved file's
     {name, size, mtime}."""
-    return config_export.save_snapshot_to_disk()
+    result = config_export.save_snapshot_to_disk()
+    fname = (result or {}).get("name", "") or ""
+    with db_conn() as c:
+        _ops_mod.write_admin_audit(
+            c, "config_backup_save",
+            target_kind="config_backup", target_name=fname, target_id=fname,
+            actor=admin.username,
+            message=f"Saved config-backup snapshot to disk: '{fname}'",
+        )
+    return result
 
 
 @app.get("/api/admin/config-backup/saved/{name}")
@@ -18556,7 +18662,7 @@ async def api_config_backup_download_saved(
 
 @app.post("/api/admin/config-backup/saved/{name}/restore")
 async def api_config_backup_restore_saved(
-    name: str, _admin: auth.User = Depends(auth.require_admin),
+    name: str, admin: auth.User = Depends(auth.require_admin),
 ):
     """Read a saved snapshot file and apply it. Same as POSTing the
     file's contents to `/api/admin/config-backup/import`, just routed
@@ -18569,18 +18675,32 @@ async def api_config_backup_restore_saved(
         result = config_export.apply_snapshot(snap)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    with db_conn() as c:
+        _ops_mod.write_admin_audit(
+            c, "config_backup_restore",
+            target_kind="config_backup", target_name=name, target_id=name,
+            actor=admin.username,
+            message=f"Restored config-backup snapshot '{name}' from disk",
+        )
     return result
 
 
 @app.delete("/api/admin/config-backup/saved/{name}")
 async def api_config_backup_delete_saved(
-    name: str, _admin: auth.User = Depends(auth.require_admin),
+    name: str, admin: auth.User = Depends(auth.require_admin),
 ):
     """Delete a saved snapshot file."""
     try:
         config_export.delete_snapshot(name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    with db_conn() as c:
+        _ops_mod.write_admin_audit(
+            c, "config_backup_delete",
+            target_kind="config_backup", target_name=name, target_id=name,
+            actor=admin.username,
+            message=f"Deleted config-backup snapshot '{name}'",
+        )
     return {"ok": True}
 
 
@@ -18630,7 +18750,7 @@ async def api_list_schedules(_admin: auth.User = Depends(auth.require_admin)):
 @app.post("/api/schedules")
 async def api_create_schedule(
     s: ScheduleIn,
-    _admin: auth.User = Depends(auth.require_admin),
+    admin: auth.User = Depends(auth.require_admin),
 ):
     name = (s.name or "").strip()
     if not name:
@@ -18663,6 +18783,12 @@ async def api_create_schedule(
                 days_of_week=s.days_of_week,
                 day_of_month=s.day_of_month,
             )
+            _ops_mod.write_admin_audit(
+                c, "schedule_create",
+                target_kind="schedule", target_name=name, target_id=str(row.get("id") or ""),
+                actor=admin.username,
+                message=f"Created schedule '{name}' (kind={s.kind}, interval={s.interval_seconds}s)",
+            )
     except sqlite3.IntegrityError:
         raise HTTPException(
             status_code=409,
@@ -18677,7 +18803,7 @@ async def api_create_schedule(
 async def api_update_schedule(
     schedule_id: int,
     p: SchedulePatch,
-    _admin: auth.User = Depends(auth.require_admin),
+    admin: auth.User = Depends(auth.require_admin),
 ):
     # exclude_unset keeps explicit None values so "clear this field" works
     # via wire-level null (e.g. flipping back to interval mode by sending
@@ -18695,6 +18821,13 @@ async def api_update_schedule(
             if not existing:
                 raise HTTPException(status_code=404, detail="Schedule not found.")
             row = schedules.update_schedule(c, schedule_id, **patch_fields)
+            sched_name = (row or {}).get("name") or existing.get("name") or str(schedule_id)
+            _ops_mod.write_admin_audit(
+                c, "schedule_update",
+                target_kind="schedule", target_name=sched_name, target_id=str(schedule_id),
+                actor=admin.username,
+                message=f"Updated schedule '{sched_name}': {', '.join(sorted(patch_fields.keys()))}",
+            )
     except sqlite3.IntegrityError:
         raise HTTPException(
             status_code=409,
@@ -18708,19 +18841,27 @@ async def api_update_schedule(
 @app.delete("/api/schedules/{schedule_id}")
 async def api_delete_schedule(
     schedule_id: int,
-    _admin: auth.User = Depends(auth.require_admin),
+    admin: auth.User = Depends(auth.require_admin),
 ):
     with db_conn() as c:
-        if not schedules.get_schedule(c, schedule_id):
+        existing = schedules.get_schedule(c, schedule_id)
+        if not existing:
             raise HTTPException(status_code=404, detail="Schedule not found.")
+        sched_name = existing.get("name") or str(schedule_id)
         schedules.delete_schedule(c, schedule_id)
+        _ops_mod.write_admin_audit(
+            c, "schedule_delete",
+            target_kind="schedule", target_name=sched_name, target_id=str(schedule_id),
+            actor=admin.username,
+            message=f"Deleted schedule '{sched_name}' (kind={existing.get('kind') or 'unknown'})",
+        )
     return {"ok": True}
 
 
 @app.post("/api/schedules/{schedule_id}/run")
 async def api_run_schedule(
     schedule_id: int,
-    _admin: auth.User = Depends(auth.require_admin),
+    admin: auth.User = Depends(auth.require_admin),
 ):
     """Fire a schedule immediately, bypassing its interval.
 
@@ -18738,6 +18879,14 @@ async def api_run_schedule(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fire failed: {e}")
+    sched_name = s.get("name") or str(schedule_id)
+    with db_conn() as c:
+        _ops_mod.write_admin_audit(
+            c, "schedule_run_now",
+            target_kind="schedule", target_name=sched_name, target_id=str(schedule_id),
+            actor=admin.username,
+            message=f"Manually fired schedule '{sched_name}' (op_id={op_id or 'unknown'})",
+        )
     return {"ok": True, "op_id": op_id}
 
 

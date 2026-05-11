@@ -814,6 +814,9 @@ function app() {
     // back near the bottom OR clicks the pill.
     aiSidebarUnseenCount: 0,
     aiConversation: [],          // [{role, text, action?, job_id?, feedback?, ts, error?}]
+    aiConversationSearch: '',    // In-conversation scrollback search. Empty = inactive.
+    aiConversationSearchMatches: [],   // Indexes into aiConversation[] matching the search.
+    aiConversationSearchMatchIdx: 0,   // Cursor into aiConversationSearchMatches.
     aiSidebarFeedbackBusy: {},   // turn-index → bool while POST /api/ai/feedback in flight
     aiSidebarSlashIdx: 0,        // selected index in the slash-command picker
     aiRecentSlashActions: [],    // FIFO of last 5 slash-action ids; persisted to ui_prefs.ai_recent_slash_actions. Only populated for ACTION kinds (not navigation), so "Open host:web01" can't pollute "Pause sampling" recents.
@@ -17579,6 +17582,55 @@ function app() {
         }
       } catch (_) { /* ignore */ }
     },
+    // In-conversation scrollback search. Walks aiConversation[] for
+    // case-insensitive substring match in turn.text. Match-index
+    // cursor (`aiConversationSearchMatchIdx`) cycles via Enter / ↑↓
+    // buttons. Recomputed on every keystroke via the input's `@input`
+    // binding; cleared on Escape. No-op for short queries (< 2 chars)
+    // to keep typing snappy on huge conversations.
+    _recomputeAiConversationMatches() {
+      const q = (this.aiConversationSearch || '').trim().toLowerCase();
+      if (q.length < 2) {
+        this.aiConversationSearchMatches = [];
+        this.aiConversationSearchMatchIdx = 0;
+        return;
+      }
+      const matches = [];
+      for (let i = 0; i < this.aiConversation.length; i++) {
+        const t = this.aiConversation[i];
+        const text = String((t && t.text) || '').toLowerCase();
+        if (text.includes(q)) matches.push(i);
+      }
+      this.aiConversationSearchMatches = matches;
+      // Reset cursor to the LAST match (closest to current scroll
+      // position — operators search "what did I just say" more often
+      // than "what did I say first") and scroll to it.
+      this.aiConversationSearchMatchIdx = Math.max(0, matches.length - 1);
+      if (matches.length) this._scrollToAiTurn(matches[this.aiConversationSearchMatchIdx]);
+    },
+    // Cycle through matches in either direction (wraps at edges).
+    // direction = +1 next, -1 previous.
+    cycleAiConversationMatch(direction) {
+      const total = this.aiConversationSearchMatches.length;
+      if (!total) return;
+      const step = (direction || 1) > 0 ? 1 : -1;
+      let idx = (this.aiConversationSearchMatchIdx + step) % total;
+      if (idx < 0) idx += total;
+      this.aiConversationSearchMatchIdx = idx;
+      this._scrollToAiTurn(this.aiConversationSearchMatches[idx]);
+    },
+    // Scroll the AI sidebar log so the targeted turn is centred.
+    // Used by the search affordance to jump between matches.
+    _scrollToAiTurn(turnIdx) {
+      try {
+        const log = document.getElementById('og-ai-sidebar-log');
+        if (!log) return;
+        const target = log.querySelector('[data-ai-turn-idx="' + turnIdx + '"]');
+        if (target && target.scrollIntoView) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } catch (_) { /* ignore */ }
+    },
     // Click handler for the floating "↓ N new" pill — snaps to bottom
     // (force=true bypasses the near-bottom gate) and clears the counter.
     jumpToLatestAiTurn() {
@@ -18944,6 +18996,88 @@ function app() {
     // window (first/last always shown). Hover on a bar reveals
     // `<bucket>: N rows` via :title for cheap tooltip without a
     // separate tooltip layer.
+    // Avg-response-time trend chart for Stats → AI Cost. Same SVG
+    // shape as `_renderSamplesBucketChart` (axes + gridlines + bars)
+    // so the visual treatment lands consistently across Stats charts
+    // per the operator-flagged unification ask. Points
+    // carry `{bucket_ts, avg_ms, jobs}` from the backend's bucketed
+    // SQL query; bucket size adapts per the unified rule (1h/24h →
+    // hour, 7d/30d → day, 90d → week).
+    _renderAiCostTrendChart(points, range) {
+      if (!Array.isArray(points) || points.length === 0) return '';
+      const W = 720, H = 220;
+      const PAD_L = 56, PAD_R = 12, PAD_T = 12, PAD_B = 28;
+      const plotW = W - PAD_L - PAD_R;
+      const plotH = H - PAD_T - PAD_B;
+      const n = points.length;
+      const barW = plotW / n;
+      const yMaxRaw = Math.max(1, ...points.map(p => p.avg_ms || 0));
+      const niceMax = (v) => {
+        if (v <= 0) return 1;
+        const exp = Math.pow(10, Math.floor(Math.log10(v)));
+        const r = v / exp;
+        const stepMul = (r <= 1) ? 1 : (r <= 2) ? 2 : (r <= 5) ? 5 : 10;
+        return stepMul * exp;
+      };
+      const yMax = niceMax(yMaxRaw);
+      const Y = (v) => PAD_T + (1 - (v / Math.max(1, yMax))) * plotH;
+      const X = (i) => PAD_L + i * barW;
+      const yTicks = [0, 1, 2, 3, 4].map(i => {
+        const v = (yMax / 4) * i;
+        return { v, y: Y(v).toFixed(1), label: Math.round(v).toLocaleString() + ' ms' };
+      });
+      const tickCount = Math.min(6, n);
+      const xIdxs = [];
+      if (tickCount === 1) {
+        xIdxs.push(0);
+      } else {
+        for (let i = 0; i < tickCount; i++) {
+          xIdxs.push(Math.round((i / (tickCount - 1)) * (n - 1)));
+        }
+      }
+      const dedup = Array.from(new Set(xIdxs));
+      const r = (range || '30d').toString();
+      // Per-bucket x-tick formatter — hour buckets get HH:MM (drop
+      // date prefix when every shown tick is the same date), day +
+      // week buckets get MM-DD.
+      const fmtXLabel = (ts) => {
+        if (!ts) return '';
+        if (r === '1h' || r === '24h') {
+          return this.fmtDateTimeShort(ts).replace(/^\S+\s+/, '');
+        }
+        return this.fmtDateOnly(ts);
+      };
+      const esc = (s) => this._logEscape(String(s));
+      let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block">';
+      for (const t of yTicks) {
+        svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
+          + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+        svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">'
+          + esc(t.label) + '</text>';
+      }
+      const totalBarW = Math.max(1, barW - 1);
+      for (let i = 0; i < n; i++) {
+        const p = points[i];
+        const v = Number(p.avg_ms || 0);
+        const bx = X(i).toFixed(2);
+        const by = Y(v).toFixed(2);
+        const bh = (PAD_T + plotH - Y(v)).toFixed(2);
+        const tip = fmtXLabel(p.bucket_ts) + ': ' + Math.round(v).toLocaleString() + ' ms · ' + Number(p.jobs || 0).toLocaleString() + ' job(s)';
+        svg += '<rect x="' + bx + '" y="' + by + '" width="' + totalBarW.toFixed(2)
+          + '" height="' + bh + '" fill="var(--primary)" fill-opacity="0.7">'
+          + '<title>' + esc(tip) + '</title>'
+          + '</rect>';
+      }
+      for (const i of dedup) {
+        const p = points[i];
+        if (!p) continue;
+        const cx = (X(i) + barW / 2).toFixed(1);
+        svg += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">'
+          + esc(fmtXLabel(p.bucket_ts)) + '</text>';
+      }
+      svg += '</svg>';
+      return svg;
+    },
     _renderSamplesBucketChart(points, range) {
       if (!Array.isArray(points) || points.length === 0) return '';
       const W = 720, H = 220;

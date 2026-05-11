@@ -2151,7 +2151,12 @@
     "feedback_up": "Helpful",
     "feedback_down": "Not helpful",
     "error_prefix": "Error:",
-    "error_label": "Error: {error}"
+    "error_label": "Error: {error}",
+    "search_placeholder": "Search conversation…",
+    "search_aria": "Search this AI conversation",
+    "search_no_match": "no match",
+    "search_prev": "Previous match",
+    "search_next": "Next match"
   },
   "ai_memory": {
     "title": "AI Memory",
@@ -2619,7 +2624,26 @@
     "totp_admin_disabled": "TOTP admin-disabled",
     "totp_force_set": "TOTP force-set",
     "hosts_bulk_pause": "hosts bulk pause",
-    "hosts_bulk_resume": "hosts bulk resume"
+    "hosts_bulk_resume": "hosts bulk resume",
+    "user_create": "Create user",
+    "user_update": "Update user",
+    "user_delete": "Delete user",
+    "user_pw_reset": "Reset password",
+    "session_revoke": "Revoke session",
+    "token_create": "Create API token",
+    "token_revoke": "Revoke API token",
+    "backup_create": "Create backup",
+    "backup_delete": "Delete backup",
+    "backup_restore": "Restore backup",
+    "config_backup_save": "Save config backup",
+    "config_backup_import": "Import config backup",
+    "config_backup_restore": "Restore config backup",
+    "config_backup_delete": "Delete config backup",
+    "schedule_create": "Create schedule",
+    "schedule_update": "Update schedule",
+    "schedule_delete": "Delete schedule",
+    "schedule_run_now": "Run schedule now",
+    "notification_delete": "Delete notification"
   },
   "op_status": {
     "running": "running",
