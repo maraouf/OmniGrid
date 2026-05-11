@@ -564,37 +564,47 @@
           <!-- Tile grid — 6 compact summary cards. Click a card with
                a modal handler to expand the relevant detail view. -->
           <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <button type="button" @click="openAiModal('jobs')" class="ai-tile">
+            <!-- Each tile is a clickable summary card. `:aria-label`
+                 composes a full sentence so screen-reader users hear
+                 "AI jobs — 1,234 total. 1200 / 30 / 4. Click to view
+                 detail" instead of just "button". -->
+            <button type="button" @click="openAiModal('jobs')" class="ai-tile"
+                    :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.jobs'), value: ((aiDashboard && aiDashboard.summary.total_jobs) || 0), sub: (aiDashboard ? (aiDashboard.summary.success + ' / ' + aiDashboard.summary.error + ' / ' + aiDashboard.summary.running) : '— / — / —') })">
               <div class="ai-tile-label" x-text="t('admin.ai.tile.jobs')"></div>
               <div class="ai-tile-value" x-text="(aiDashboard && aiDashboard.summary.total_jobs) || 0"></div>
               <div class="ai-tile-sub"
                    x-text="aiDashboard ? (aiDashboard.summary.success + ' / ' + aiDashboard.summary.error + ' / ' + aiDashboard.summary.running) : '— / — / —'"></div>
             </button>
-            <button type="button" @click="openAiModal('passrate')" class="ai-tile">
+            <button type="button" @click="openAiModal('passrate')" class="ai-tile"
+                    :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.pass_rate'), value: (aiDashboard ? (Math.round(aiDashboard.summary.pass_rate * 100) + '%') : '—'), sub: t('admin.ai.tile.pass_rate_sub') })">
               <div class="ai-tile-label" x-text="t('admin.ai.tile.pass_rate')"></div>
               <div class="ai-tile-value"
                    x-text="aiDashboard ? (Math.round(aiDashboard.summary.pass_rate * 100) + '%') : '—'"></div>
               <div class="ai-tile-sub" x-text="t('admin.ai.tile.pass_rate_sub')"></div>
             </button>
-            <button type="button" @click="openAiModal('cost')" class="ai-tile">
+            <button type="button" @click="openAiModal('cost')" class="ai-tile"
+                    :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.cost'), value: (aiDashboard ? aiFormatCost(aiDashboard.summary.total_cost_usd) : '—'), sub: t('admin.ai.tile.cost_sub') })">
               <div class="ai-tile-label" x-text="t('admin.ai.tile.cost')"></div>
               <div class="ai-tile-value"
                    x-text="aiDashboard ? aiFormatCost(aiDashboard.summary.total_cost_usd) : '—'"></div>
               <div class="ai-tile-sub" x-text="t('admin.ai.tile.cost_sub')"></div>
             </button>
-            <button type="button" @click="openAiModal('tokens')" class="ai-tile">
+            <button type="button" @click="openAiModal('tokens')" class="ai-tile"
+                    :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.tokens'), value: (aiDashboard ? aiFormatNumber(aiDashboard.summary.total_tokens) : '0'), sub: (aiDashboard ? (aiFormatNumber(aiDashboard.summary.prompt_tokens) + ' / ' + aiFormatNumber(aiDashboard.summary.completion_tokens)) : '— / —') })">
               <div class="ai-tile-label" x-text="t('admin.ai.tile.tokens')"></div>
               <div class="ai-tile-value" x-text="aiDashboard ? aiFormatNumber(aiDashboard.summary.total_tokens) : '0'"></div>
               <div class="ai-tile-sub"
                    x-text="aiDashboard ? (aiFormatNumber(aiDashboard.summary.prompt_tokens) + ' / ' + aiFormatNumber(aiDashboard.summary.completion_tokens)) : '— / —'"></div>
             </button>
-            <button type="button" @click="openAiModal('response_time')" class="ai-tile">
+            <button type="button" @click="openAiModal('response_time')" class="ai-tile"
+                    :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.response_time'), value: ((aiDashboard && aiDashboard.summary.avg_response_time_ms !== null) ? (Math.round(aiDashboard.summary.avg_response_time_ms)).toLocaleString() + ' ms' : '—'), sub: t('admin.ai.tile.response_time_sub') })">
               <div class="ai-tile-label" x-text="t('admin.ai.tile.response_time')"></div>
               <div class="ai-tile-value"
                    x-text="(aiDashboard && aiDashboard.summary.avg_response_time_ms !== null) ? (Math.round(aiDashboard.summary.avg_response_time_ms)).toLocaleString() + ' ms' : '—'"></div>
               <div class="ai-tile-sub" x-text="t('admin.ai.tile.response_time_sub')"></div>
             </button>
-            <button type="button" @click="openAiModal('accuracy')" class="ai-tile">
+            <button type="button" @click="openAiModal('accuracy')" class="ai-tile"
+                    :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.accuracy'), value: (aiDashboard ? aiFormatPct01(aiDashboard.summary.avg_accuracy_score) : '—'), sub: t('admin.ai.tile.accuracy_sub') })">
               <div class="ai-tile-label" x-text="t('admin.ai.tile.accuracy')"></div>
               <div class="ai-tile-value"
                    x-text="aiDashboard ? aiFormatPct01(aiDashboard.summary.avg_accuracy_score) : '—'"></div>
@@ -993,37 +1003,49 @@
                              a unicode arrow when the column is active.
                              Column keys mirror the row dict from
                              `/api/admin/ai/jobs`. -->
-                        <th class="text-start py-1.5">
+                        <!-- `:aria-sort` on the <th> per WAI-ARIA spec
+                             — screen-reader users hear "ascending" /
+                             "descending" / "none" alongside the column
+                             name when sort changes. The sort button
+                             still owns the click + visual indicator. -->
+                        <th class="text-start py-1.5"
+                            :aria-sort="aiModalSortCol ==='ts' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
                           <button type="button" @click="aiSortBy('ts')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_when')"></span><span x-text="aiSortIndicator('ts')"></span>
                           </button>
                         </th>
-                        <th class="text-start py-1.5">
+                        <th class="text-start py-1.5"
+                            :aria-sort="aiModalSortCol ==='provider' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
                           <button type="button" @click="aiSortBy('provider')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_provider')"></span><span x-text="aiSortIndicator('provider')"></span>
                           </button>
                         </th>
-                        <th class="text-start py-1.5">
+                        <th class="text-start py-1.5"
+                            :aria-sort="aiModalSortCol ==='model' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
                           <button type="button" @click="aiSortBy('model')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_model')"></span><span x-text="aiSortIndicator('model')"></span>
                           </button>
                         </th>
-                        <th class="text-start py-1.5">
+                        <th class="text-start py-1.5"
+                            :aria-sort="aiModalSortCol ==='status' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
                           <button type="button" @click="aiSortBy('status')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_status')"></span><span x-text="aiSortIndicator('status')"></span>
                           </button>
                         </th>
-                        <th class="text-end py-1.5">
+                        <th class="text-end py-1.5"
+                            :aria-sort="aiModalSortCol ==='total_tokens' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
                           <button type="button" @click="aiSortBy('total_tokens')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_tokens')"></span><span x-text="aiSortIndicator('total_tokens')"></span>
                           </button>
                         </th>
-                        <th class="text-end py-1.5">
+                        <th class="text-end py-1.5"
+                            :aria-sort="aiModalSortCol ==='cost_usd' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
                           <button type="button" @click="aiSortBy('cost_usd')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_cost')"></span><span x-text="aiSortIndicator('cost_usd')"></span>
                           </button>
                         </th>
-                        <th class="text-end py-1.5">
+                        <th class="text-end py-1.5"
+                            :aria-sort="aiModalSortCol ==='response_time_ms' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
                           <button type="button" @click="aiSortBy('response_time_ms')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_response')"></span><span x-text="aiSortIndicator('response_time_ms')"></span>
                           </button>
