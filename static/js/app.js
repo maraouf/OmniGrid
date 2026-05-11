@@ -1482,9 +1482,11 @@ function app() {
     // each release; canonical roster lives here and the matching i18n
     // keys hang off `stats.sections.<id>`.
     statsSections: [
-      { id: 'dashboard',      label: 'Dashboard',       icon: 'activity' },
+      { id: 'dashboard',      label: 'Dashboard',       icon: 'layout-dashboard' },
       { id: 'database',       label: 'Database',        icon: 'database' },
       { id: 'samples',        label: 'Samples',         icon: 'layers' },
+      { id: 'incidents',      label: 'Incidents',       icon: 'alert-triangle' },
+      { id: 'ai_cost',        label: 'AI Cost',         icon: 'zap' },
     ],
     statsTab: 'dashboard',
     statsOverview: {},
@@ -1493,6 +1495,11 @@ function app() {
     statsDatabaseLoaded: false,
     statsSamples: {},
     statsSamplesLoaded: false,
+    statsIncidents: {},
+    statsIncidentsLoaded: false,
+    statsIncidentsHours: 168,
+    statsAiCost: {},
+    statsAiCostLoaded: false,
     // App-logs viewer state. Polled when the Logs tab is visible.
     // `logLines` is append-only during a session; clear() wipes both
     // the UI list and the server-side ring.
@@ -3181,6 +3188,8 @@ function app() {
       if (this.statsTab === 'dashboard') await this.loadStatsOverview();
       else if (this.statsTab === 'database') await this.loadStatsDatabase();
       else if (this.statsTab === 'samples') await this.loadStatsSamples();
+      else if (this.statsTab === 'incidents') await this.loadStatsIncidents();
+      else if (this.statsTab === 'ai_cost') await this.loadStatsAiCost();
       this._pushRoute && this._pushRoute();
     },
     async loadStatsOverview() {
@@ -3209,6 +3218,37 @@ function app() {
       } catch (_) {} finally {
         this.statsSamplesLoaded = true;
       }
+    },
+    async loadStatsIncidents(hours) {
+      const h = Number(hours) || this.statsIncidentsHours || 168;
+      this.statsIncidentsHours = h;
+      try {
+        const r = await fetch('/api/admin/stats/incidents?hours=' + encodeURIComponent(h));
+        if (!r.ok) return;
+        this.statsIncidents = await r.json();
+      } catch (_) {} finally {
+        this.statsIncidentsLoaded = true;
+      }
+    },
+    async loadStatsAiCost() {
+      try {
+        const r = await fetch('/api/admin/stats/ai-cost');
+        if (!r.ok) return;
+        this.statsAiCost = await r.json();
+      } catch (_) {} finally {
+        this.statsAiCostLoaded = true;
+      }
+    },
+    // Format a duration in seconds → human-readable short form
+    // (e.g. "2m 14s" / "1h 23m" / "—"). Used by the Stats → Incidents
+    // MTTR cells.
+    fmtDurationShort(seconds) {
+      if (seconds == null || !Number.isFinite(+seconds) || +seconds <= 0) return '—';
+      const s = Math.round(+seconds);
+      if (s < 60) return s + 's';
+      if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+      if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+      return Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h';
     },
 
     async openAdminTab(tab) {
@@ -7001,6 +7041,7 @@ function app() {
       backups: false, config_backup_saved: false,
       logs: false, log_files: false,
       stats_overview: false, stats_database: false, stats_samples: false,
+      stats_incidents: false, stats_ai_cost: false,
       history: false, hosts_config: false,
     },
     // Watchdog timer per busy-key — see `_runWithBusy` below. Cleared
@@ -18668,7 +18709,25 @@ function app() {
         const hi = Number(p.high || p.bytes || 0);
         if (hi > yMax) yMax = hi;
       }
-      yMax = yMax * 1.05;  // 5% headroom
+      // Round yMax UP to a clean multiple — 1 / 2 / 5 × 10^N. Gives
+      // tidy axis labels like 100 MB / 200 MB / 500 MB / 1 GB instead
+      // of "97.4 MB". A 5% headroom is added FIRST so the data line
+      // doesn't kiss the top edge, then the result snaps to the next
+      // clean bucket.
+      const padded = yMax * 1.05;
+      if (padded > 0) {
+        const exp = Math.floor(Math.log10(padded));
+        const base = Math.pow(10, exp);
+        const m = padded / base;
+        let snap;
+        if (m <= 1) snap = 1;
+        else if (m <= 2) snap = 2;
+        else if (m <= 5) snap = 5;
+        else snap = 10;
+        yMax = snap * base;
+      } else {
+        yMax = 1;
+      }
       const X = (ts) => PAD_L + ((ts - tsMin) / tsRange) * plotW;
       const Y = (b) => PAD_T + (1 - (b / Math.max(1, yMax))) * plotH;
       // Confidence band — closed polygon (top edge low→high, bottom
@@ -18688,9 +18747,11 @@ function app() {
       for (const p of points) {
         linePath += (linePath ? ' L' : 'M') + X(p.ts).toFixed(1) + ',' + Y(p.bytes).toFixed(1);
       }
-      // Y-axis labels: 4 ticks (0, 33%, 66%, 100%).
+      // Y-axis labels: 5 ticks at 0 / 25% / 50% / 75% / 100% of the
+      // snapped max. Even quarters of a clean snap (100 MB / 1 GB /
+      // etc.) produce clean intermediate labels too.
       const fmtB = (n) => this.fmtBytes(n);
-      const yTicks = [0, yMax * 0.33, yMax * 0.66, yMax].map(v => ({
+      const yTicks = [0, yMax * 0.25, yMax * 0.5, yMax * 0.75, yMax].map(v => ({
         v, y: Y(v).toFixed(1), label: fmtB(v),
       }));
       // X-axis labels: Today / +30 / +60 / +90 — relative day offsets

@@ -217,7 +217,87 @@
     "sections": {
       "dashboard": "Dashboard",
       "database": "Database",
-      "samples": "Samples"
+      "samples": "Samples",
+      "incidents": "Incidents",
+      "ai_cost": "AI Cost"
+    },
+    "incidents": {
+      "title": "Incidents",
+      "hint": "Failure events surfaced by the auto-pause sampler. Shows how often each provider trips, how fast hosts recover, and which hosts misbehave most.",
+      "cards": {
+        "failures": "Failures",
+        "failures_sub": "`paused` transitions in the window",
+        "recoveries": "Recoveries",
+        "recoveries_sub": "`recovered` transitions in the window",
+        "mttr": "Mean time to recovery",
+        "mttr_sub": "Across every paused → recovered pair",
+        "events": "Total events",
+        "events_sub": "Sum of failures + recoveries"
+      },
+      "per_provider": {
+        "title": "Per-provider breakdown",
+        "hint": "Failure / recovery counts and MTTR grouped by provider. Sorted by failures descending.",
+        "col_provider": "Provider",
+        "col_failures": "Failures",
+        "col_recoveries": "Recoveries",
+        "col_mttr": "MTTR",
+        "empty": "No incidents in the selected window."
+      },
+      "top_hosts": {
+        "title": "Top 5 troubled hosts",
+        "hint": "Hosts with the highest count of state transitions (paused + recovered) in the window.",
+        "col_host": "Host",
+        "col_transitions": "Transitions",
+        "empty": "No host transitions recorded."
+      },
+      "heatmap": {
+        "title": "Failure heatmap",
+        "hint": "Failure events bucketed by day-of-week × hour-of-day in the scheduler timezone. Darker cells = more failures.",
+        "dow_mon": "Mon", "dow_tue": "Tue", "dow_wed": "Wed",
+        "dow_thu": "Thu", "dow_fri": "Fri", "dow_sat": "Sat", "dow_sun": "Sun"
+      }
+    },
+    "ai_cost": {
+      "title": "AI Cost",
+      "hint": "Finance-style view of AI spend: month-to-date burn, projected end-of-month, breakdowns by provider / model, response-time trend, and the top 10 most expensive single calls.",
+      "cards": {
+        "mtd": "Month to date",
+        "mtd_sub": "{tokens} tokens · {jobs} calls since the 1st",
+        "last_month": "Last month",
+        "last_month_sub": "{tokens} tokens · {jobs} calls",
+        "eom_proj": "Projected end-of-month",
+        "eom_proj_sub": "~{tokens} tokens at current burn rate"
+      },
+      "tokens": {
+        "title": "Tokens by provider / model (last 30 days)",
+        "hint": "Where the tokens go. Helpful for spotting a model that's silently dominating cost.",
+        "col_provider": "Provider",
+        "col_model": "Model",
+        "col_tokens": "Tokens",
+        "col_cost": "Cost",
+        "col_jobs": "Calls",
+        "empty": "No AI calls recorded in the last 30 days."
+      },
+      "rt_trend": {
+        "title": "Response time trend (last 30 days)",
+        "hint": "Mean response time per day. A creeping trend often precedes a model-side outage or a rate-limit throttle.",
+        "col_day": "Day",
+        "col_avg_ms": "Avg",
+        "col_jobs": "Calls",
+        "empty": "Not enough response-time data yet."
+      },
+      "top_expensive": {
+        "title": "Top 10 most expensive single calls (last 90 days)",
+        "hint": "Useful for spotting a runaway prompt or a tool call that's accidentally pricey.",
+        "col_when": "When",
+        "col_provider": "Provider",
+        "col_model": "Model",
+        "col_kind": "Kind",
+        "col_tokens": "Tokens",
+        "col_cost": "Cost",
+        "col_rt": "Response",
+        "empty": "No costed calls recorded."
+      }
     },
     "samples": {
       "title": "Samples",
@@ -272,7 +352,7 @@
       }
     },
     "dashboard": {
-      "title": "Overview",
+      "title": "Dashboard",
       "hint": "Quick insights across users, sessions, providers, hosts and assets. Click any card to jump to the matching admin tab."
     },
     "cards": {

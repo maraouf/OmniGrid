@@ -1,0 +1,195 @@
+      <div x-show="statsTab==='ai_cost'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+          <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/></svg>
+                <h3 class="font-semibold fs-md" x-text="t('stats.ai_cost.title')"></h3>
+              </div>
+              <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.ai_cost.hint')"></p>
+            </div>
+            <button type="button"
+                    @click="_runWithBusy('stats_ai_cost', () => loadStatsAiCost())"
+                    :disabled="_loadBusy.stats_ai_cost === true"
+                    :title="t('actions.reload')"
+                    :aria-label="t('actions.reload')"
+                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+              <svg width="13" height="13" :class="_loadBusy.stats_ai_cost === true ? 'spin-md' : ''" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+              <span x-text="t('actions.reload')"></span>
+            </button>
+          </div>
+
+          <div x-show="!statsAiCostLoaded" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+
+          <div x-show="statsAiCostLoaded" class="p-5 space-y-5">
+
+            <!-- Three headline cards: MTD spend / Last month / Projected EOM -->
+            <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))">
+              <div class="stats-card" style="cursor:default">
+                <div class="stats-card-icon">
+                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/></svg>
+                </div>
+                <div class="stats-card-body">
+                  <div class="stats-card-label" x-text="t('stats.ai_cost.cards.mtd')"></div>
+                  <div class="stats-card-value mono"
+                       x-text="'$' + (statsAiCost.month_to_date && statsAiCost.month_to_date.cost_usd || 0).toFixed(4)"></div>
+                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+                       x-text="t('stats.ai_cost.cards.mtd_sub', {
+                         tokens: Number((statsAiCost.month_to_date && statsAiCost.month_to_date.tokens) || 0).toLocaleString(),
+                         jobs: Number((statsAiCost.month_to_date && statsAiCost.month_to_date.jobs) || 0).toLocaleString()
+                       })"></div>
+                </div>
+              </div>
+              <div class="stats-card" style="cursor:default">
+                <div class="stats-card-icon">
+                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-history"/></svg>
+                </div>
+                <div class="stats-card-body">
+                  <div class="stats-card-label" x-text="t('stats.ai_cost.cards.last_month')"></div>
+                  <div class="stats-card-value mono"
+                       x-text="'$' + (statsAiCost.last_month && statsAiCost.last_month.cost_usd || 0).toFixed(4)"></div>
+                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+                       x-text="t('stats.ai_cost.cards.last_month_sub', {
+                         tokens: Number((statsAiCost.last_month && statsAiCost.last_month.tokens) || 0).toLocaleString(),
+                         jobs: Number((statsAiCost.last_month && statsAiCost.last_month.jobs) || 0).toLocaleString()
+                       })"></div>
+                </div>
+              </div>
+              <div class="stats-card" style="cursor:default">
+                <div class="stats-card-icon">
+                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trending-up"/></svg>
+                </div>
+                <div class="stats-card-body">
+                  <div class="stats-card-label" x-text="t('stats.ai_cost.cards.eom_proj')"></div>
+                  <div class="stats-card-value mono"
+                       x-text="'$' + (statsAiCost.projected_eom && statsAiCost.projected_eom.cost_usd || 0).toFixed(4)"></div>
+                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+                       x-text="t('stats.ai_cost.cards.eom_proj_sub', {
+                         tokens: Number((statsAiCost.projected_eom && statsAiCost.projected_eom.tokens) || 0).toLocaleString()
+                       })"></div>
+                </div>
+              </div>
+            </div>
+
+            <hr class="border-[var(--border)]">
+
+            <!-- Tokens by (provider, model) over the last 30 days -->
+            <div>
+              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.ai_cost.tokens.title')"></h4>
+              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.ai_cost.tokens.hint')"></p>
+              <div class="overflow-x-auto scrollbar">
+                <table class="w-full fs-sm">
+                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+                    <tr>
+                      <th class="text-start px-4 py-2" x-text="t('stats.ai_cost.tokens.col_provider')"></th>
+                      <th class="text-start px-4 py-2" x-text="t('stats.ai_cost.tokens.col_model')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.ai_cost.tokens.col_tokens')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.ai_cost.tokens.col_cost')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.ai_cost.tokens.col_jobs')"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="row in (statsAiCost.tokens_by_provider_model || [])" :key="row.provider + ':' + row.model">
+                      <tr class="border-t border-[var(--border)]">
+                        <td class="px-4 py-2 fs-xs">
+                          <span class="chip pill-custom fs-3xs uppercase"
+                                :style="providerChipStyle(row.provider)"
+                                x-text="row.provider"></span>
+                        </td>
+                        <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="row.model"></td>
+                        <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.tokens || 0).toLocaleString()"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="'$' + (Number(row.cost_usd || 0)).toFixed(4)"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="Number(row.jobs || 0).toLocaleString()"></td>
+                      </tr>
+                    </template>
+                    <tr x-show="!(statsAiCost.tokens_by_provider_model || []).length">
+                      <td colspan="5" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.ai_cost.tokens.empty')"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <hr class="border-[var(--border)]">
+
+            <!-- Avg response time trend (30d, per day) -->
+            <div>
+              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.ai_cost.rt_trend.title')"></h4>
+              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.ai_cost.rt_trend.hint')"></p>
+              <div x-show="(statsAiCost.avg_response_time_trend || []).length"
+                   class="overflow-x-auto scrollbar">
+                <table class="w-full fs-sm">
+                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+                    <tr>
+                      <th class="text-start px-4 py-2" x-text="t('stats.ai_cost.rt_trend.col_day')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.ai_cost.rt_trend.col_avg_ms')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.ai_cost.rt_trend.col_jobs')"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="row in (statsAiCost.avg_response_time_trend || [])" :key="row.bucket_ts">
+                      <tr class="border-t border-[var(--border)]">
+                        <td class="px-4 py-2 mono fs-xs" x-text="fmtDateOnly(row.bucket_ts)"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="Math.round(row.avg_ms).toLocaleString() + ' ms'"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="Number(row.jobs || 0).toLocaleString()"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+              <div x-show="!(statsAiCost.avg_response_time_trend || []).length"
+                   class="py-6 text-center text-[var(--text-faint)] fs-sm italic"
+                   x-text="t('stats.ai_cost.rt_trend.empty')"></div>
+            </div>
+
+            <hr class="border-[var(--border)]">
+
+            <!-- Top 10 most expensive single calls -->
+            <div>
+              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.ai_cost.top_expensive.title')"></h4>
+              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.ai_cost.top_expensive.hint')"></p>
+              <div class="overflow-x-auto scrollbar">
+                <table class="w-full fs-sm">
+                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+                    <tr>
+                      <th class="text-start px-4 py-2" x-text="t('stats.ai_cost.top_expensive.col_when')"></th>
+                      <th class="text-start px-4 py-2" x-text="t('stats.ai_cost.top_expensive.col_provider')"></th>
+                      <th class="text-start px-4 py-2" x-text="t('stats.ai_cost.top_expensive.col_model')"></th>
+                      <th class="text-start px-4 py-2" x-text="t('stats.ai_cost.top_expensive.col_kind')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.ai_cost.top_expensive.col_tokens')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.ai_cost.top_expensive.col_cost')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.ai_cost.top_expensive.col_rt')"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="row in (statsAiCost.top_expensive || [])" :key="row.id">
+                      <tr class="border-t border-[var(--border)]">
+                        <td class="px-4 py-2 mono fs-xs" x-text="fmtDate(row.ts)"></td>
+                        <td class="px-4 py-2 fs-xs">
+                          <span class="chip pill-custom fs-3xs uppercase"
+                                :style="providerChipStyle(row.provider)"
+                                x-text="row.provider"></span>
+                        </td>
+                        <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="row.model"></td>
+                        <td class="px-4 py-2 fs-xs text-[var(--text-dim)]" x-text="row.kind"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="Number(row.total_tokens || 0).toLocaleString()"></td>
+                        <td class="px-4 py-2 mono text-end font-semibold" x-text="'$' + (Number(row.cost_usd || 0)).toFixed(4)"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="row.response_time_ms ? (row.response_time_ms.toLocaleString() + ' ms') : '—'"></td>
+                      </tr>
+                    </template>
+                    <tr x-show="!(statsAiCost.top_expensive || []).length">
+                      <td colspan="7" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.ai_cost.top_expensive.empty')"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </section>
+      </div>

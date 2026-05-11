@@ -4855,6 +4855,296 @@ async def api_admin_stats_database(
     return out
 
 
+@app.get("/api/admin/stats/incidents")
+async def api_admin_stats_incidents(
+    hours: int = 168,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: incident-centric view of ``host_failure_events``.
+
+    Returns:
+      window_hours    — clamped operator-selected window (1..720).
+      total_events    — count across every kind in the window.
+      total_failures  — count of `paused` events.
+      total_recoveries — count of `recovered` events.
+      per_provider    — list of {provider, failures, recoveries, mttr_seconds}
+                        sorted by failures DESC.
+      mttr_overall_seconds — MTTR averaged across every (host, provider)
+                             paused→recovered pair in the window.
+      top_hosts       — top 5 hosts by state-transition count (paused +
+                        recovered).
+      heatmap         — 7×24 matrix of failure counts keyed by
+                        (day_of_week × hour_of_day). day_of_week: 0 = Monday
+                        (ISO), hour_of_day: 0..23 in the scheduler timezone.
+    """
+    import time as _time
+    from datetime import datetime as _dt
+    try:
+        hours = max(1, min(720, int(hours or 168)))
+    except (TypeError, ValueError):
+        hours = 168
+    cutoff = int(_time.time()) - hours * 3600
+    out: dict = {
+        "window_hours": hours,
+        "total_events": 0,
+        "total_failures": 0,
+        "total_recoveries": 0,
+        "per_provider": [],
+        "mttr_overall_seconds": None,
+        "top_hosts": [],
+        "heatmap": [[0] * 24 for _ in range(7)],
+    }
+    # Resolve the scheduler timezone so the heatmap day-of-week / hour
+    # buckets match the operator's locale (consistent with every other
+    # date-aware UI in the app).
+    try:
+        from logic.schedules import _scheduler_tz as _stz
+        tz = _stz()
+    except Exception:
+        tz = None
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT ts, host_id, provider, kind "
+                "  FROM host_failure_events "
+                " WHERE ts >= ? "
+                " ORDER BY ts ASC",
+                (cutoff,),
+            ).fetchall()
+    except Exception as e:
+        out["error"] = str(e)
+        return out
+    if not rows:
+        return out
+    # Pass 1 — totals + per-provider counters + per-host transition
+    # counts + heatmap bucketing.
+    per_provider: dict = {}
+    per_host: dict = {}
+    for r in rows:
+        ts = float(r["ts"] if hasattr(r, "keys") else r[0])
+        host_id = (r["host_id"] if hasattr(r, "keys") else r[1]) or ""
+        provider = (r["provider"] if hasattr(r, "keys") else r[2]) or "(whole-host)"
+        kind = (r["kind"] if hasattr(r, "keys") else r[3]) or ""
+        out["total_events"] += 1
+        if kind == "paused":
+            out["total_failures"] += 1
+        elif kind == "recovered":
+            out["total_recoveries"] += 1
+        p = per_provider.setdefault(provider, {
+            "provider": provider,
+            "failures": 0,
+            "recoveries": 0,
+            "_pending": {},   # host_id → ts of the latest unmatched paused
+            "_durations": [], # seconds between paused→recovered pairs
+        })
+        if kind == "paused":
+            p["failures"] += 1
+            # Latest paused for this (provider, host) wins — if the
+            # operator paused twice without recovery in between we
+            # only count one cycle (defensive).
+            p["_pending"][host_id] = ts
+        elif kind == "recovered":
+            p["recoveries"] += 1
+            paused_ts = p["_pending"].pop(host_id, None)
+            if paused_ts is not None and ts > paused_ts:
+                p["_durations"].append(ts - paused_ts)
+        per_host[host_id] = per_host.get(host_id, 0) + 1
+        # Heatmap bucketing — convert ts to scheduler tz and bucket
+        # by (weekday, hour). Python's `datetime.weekday()` returns
+        # 0=Monday which matches the SPA's grid render.
+        try:
+            dt = _dt.fromtimestamp(ts, tz=tz) if tz else _dt.fromtimestamp(ts)
+            dow = dt.weekday()
+            hour = dt.hour
+            if 0 <= dow < 7 and 0 <= hour < 24 and kind == "paused":
+                out["heatmap"][dow][hour] += 1
+        except Exception:
+            pass
+    # Pass 2 — finalise per-provider list with MTTR + sort.
+    all_durations: list = []
+    for prov_data in per_provider.values():
+        durations = prov_data.pop("_durations", []) or []
+        prov_data.pop("_pending", None)
+        prov_data["mttr_seconds"] = (
+            sum(durations) / len(durations) if durations else None
+        )
+        all_durations.extend(durations)
+    out["per_provider"] = sorted(
+        per_provider.values(),
+        key=lambda x: (-x["failures"], x["provider"]),
+    )
+    out["mttr_overall_seconds"] = (
+        sum(all_durations) / len(all_durations) if all_durations else None
+    )
+    # Top 5 troubled hosts by total transition count.
+    top = sorted(per_host.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+    out["top_hosts"] = [{"host_id": h, "transitions": n} for h, n in top]
+    return out
+
+
+@app.get("/api/admin/stats/ai-cost")
+async def api_admin_stats_ai_cost(
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: AI cost / usage forecasts re-framed as a finance view.
+
+    Returns:
+      month_to_date     — {cost_usd, tokens, jobs} from start-of-month → now.
+      last_month        — same shape for the entire previous calendar month.
+      projected_eom     — {cost_usd, tokens, jobs} extrapolated linearly
+                          from current burn rate to end of month.
+      tokens_by_provider_model — list of {provider, model, tokens, cost_usd}
+                                 sorted by tokens DESC.
+      avg_response_time_trend — list of {bucket_ts, avg_ms, jobs} bucketed by
+                                day across the last 30 days.
+      top_expensive     — top 10 single most-expensive `ai_jobs` rows in the
+                          last 90 days.
+    """
+    import time as _time
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        from logic.schedules import _scheduler_tz as _stz
+        tz = _stz()
+    except Exception:
+        tz = None
+    now_ts = int(_time.time())
+    now_dt = _dt.fromtimestamp(now_ts, tz=tz) if tz else _dt.fromtimestamp(now_ts)
+    # Start of this calendar month (in scheduler tz).
+    som_dt = now_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    som_ts = int(som_dt.timestamp())
+    # End of this calendar month — day = first day of next month - 1s.
+    if som_dt.month == 12:
+        eom_dt = som_dt.replace(year=som_dt.year + 1, month=1)
+    else:
+        eom_dt = som_dt.replace(month=som_dt.month + 1)
+    eom_ts = int(eom_dt.timestamp()) - 1
+    # Last month window.
+    if som_dt.month == 1:
+        lm_start = som_dt.replace(year=som_dt.year - 1, month=12)
+    else:
+        lm_start = som_dt.replace(month=som_dt.month - 1)
+    lm_start_ts = int(lm_start.timestamp())
+    lm_end_ts = som_ts - 1
+    out: dict = {
+        "month_to_date": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
+        "last_month":    {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
+        "projected_eom": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
+        "tokens_by_provider_model": [],
+        "avg_response_time_trend": [],
+        "top_expensive": [],
+        "now_ts": now_ts,
+        "som_ts": som_ts,
+        "eom_ts": eom_ts,
+    }
+    try:
+        with db_conn() as c:
+            # Month-to-date.
+            r = c.execute(
+                "SELECT COUNT(*) AS jobs, "
+                "       COALESCE(SUM(total_tokens), 0) AS tokens, "
+                "       COALESCE(SUM(cost_usd), 0.0) AS cost "
+                "  FROM ai_jobs WHERE ts >= ? AND ts <= ?",
+                (som_ts, now_ts),
+            ).fetchone()
+            out["month_to_date"] = {
+                "jobs":     int(r["jobs"] if hasattr(r, "keys") else r[0]),
+                "tokens":   int(r["tokens"] if hasattr(r, "keys") else r[1]),
+                "cost_usd": float(r["cost"] if hasattr(r, "keys") else r[2]),
+            }
+            # Last month full window.
+            r = c.execute(
+                "SELECT COUNT(*) AS jobs, "
+                "       COALESCE(SUM(total_tokens), 0) AS tokens, "
+                "       COALESCE(SUM(cost_usd), 0.0) AS cost "
+                "  FROM ai_jobs WHERE ts >= ? AND ts <= ?",
+                (lm_start_ts, lm_end_ts),
+            ).fetchone()
+            out["last_month"] = {
+                "jobs":     int(r["jobs"] if hasattr(r, "keys") else r[0]),
+                "tokens":   int(r["tokens"] if hasattr(r, "keys") else r[1]),
+                "cost_usd": float(r["cost"] if hasattr(r, "keys") else r[2]),
+            }
+            # Projection — linear extrapolation from MTD burn rate to EOM.
+            elapsed = max(1, now_ts - som_ts)
+            remaining = max(0, eom_ts - now_ts)
+            scale = (elapsed + remaining) / elapsed
+            mtd = out["month_to_date"]
+            out["projected_eom"] = {
+                "jobs":     int(round(mtd["jobs"] * scale)),
+                "tokens":   int(round(mtd["tokens"] * scale)),
+                "cost_usd": round(mtd["cost_usd"] * scale, 4),
+            }
+            # Tokens by (provider, model) over the last 30 days. Skip
+            # rows missing model so the table doesn't carry blank rows.
+            cutoff_30d = now_ts - 30 * 86400
+            rows = c.execute(
+                "SELECT provider, model, "
+                "       COALESCE(SUM(total_tokens), 0) AS tokens, "
+                "       COALESCE(SUM(cost_usd), 0.0) AS cost, "
+                "       COUNT(*) AS jobs "
+                "  FROM ai_jobs "
+                " WHERE ts >= ? AND model IS NOT NULL AND model != '' "
+                " GROUP BY provider, model "
+                " ORDER BY tokens DESC",
+                (cutoff_30d,),
+            ).fetchall()
+            out["tokens_by_provider_model"] = [
+                {
+                    "provider": r["provider"] if hasattr(r, "keys") else r[0],
+                    "model":    r["model"]    if hasattr(r, "keys") else r[1],
+                    "tokens":   int(r["tokens"] if hasattr(r, "keys") else r[2]),
+                    "cost_usd": float(r["cost"]   if hasattr(r, "keys") else r[3]),
+                    "jobs":     int(r["jobs"]   if hasattr(r, "keys") else r[4]),
+                }
+                for r in rows
+            ]
+            # Avg response time per day for the last 30 days.
+            rows = c.execute(
+                "SELECT CAST((ts / 86400) AS INTEGER) * 86400 AS day_ts, "
+                "       AVG(response_time_ms) AS avg_ms, "
+                "       COUNT(*) AS jobs "
+                "  FROM ai_jobs "
+                " WHERE ts >= ? AND response_time_ms IS NOT NULL "
+                " GROUP BY day_ts "
+                " ORDER BY day_ts ASC",
+                (cutoff_30d,),
+            ).fetchall()
+            out["avg_response_time_trend"] = [
+                {
+                    "bucket_ts": int(r["day_ts"] if hasattr(r, "keys") else r[0]),
+                    "avg_ms":    float(r["avg_ms"] if hasattr(r, "keys") else r[1] or 0),
+                    "jobs":      int(r["jobs"] if hasattr(r, "keys") else r[2]),
+                }
+                for r in rows
+            ]
+            # Top 10 most expensive single calls in the last 90 days.
+            cutoff_90d = now_ts - 90 * 86400
+            rows = c.execute(
+                "SELECT id, ts, provider, model, kind, total_tokens, cost_usd, response_time_ms "
+                "  FROM ai_jobs "
+                " WHERE ts >= ? AND cost_usd IS NOT NULL AND cost_usd > 0 "
+                " ORDER BY cost_usd DESC "
+                " LIMIT 10",
+                (cutoff_90d,),
+            ).fetchall()
+            out["top_expensive"] = [
+                {
+                    "id":               int(r["id"] if hasattr(r, "keys") else r[0]),
+                    "ts":               int(r["ts"] if hasattr(r, "keys") else r[1]),
+                    "provider":         r["provider"] if hasattr(r, "keys") else r[2],
+                    "model":            r["model"] if hasattr(r, "keys") else r[3],
+                    "kind":             r["kind"] if hasattr(r, "keys") else r[4],
+                    "total_tokens":     int(r["total_tokens"] if hasattr(r, "keys") else r[5] or 0),
+                    "cost_usd":         float(r["cost_usd"] if hasattr(r, "keys") else r[6]),
+                    "response_time_ms": int(r["response_time_ms"] if hasattr(r, "keys") else r[7] or 0),
+                }
+                for r in rows
+            ]
+    except Exception as e:
+        out["error"] = str(e)
+    return out
+
+
 @app.get("/api/admin/stats/samples")
 async def api_admin_stats_samples(
     _admin: auth.User = Depends(auth.require_admin),
