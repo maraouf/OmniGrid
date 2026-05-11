@@ -18882,6 +18882,11 @@ async def spa_settings_shell(section: str = ""):
 async def spa_admin_shell(tab: str = ""):
     return _render_shell("static/index.html")
 
+@app.get("/stats")
+@app.get("/stats/{tab}")
+async def spa_stats_shell(tab: str = ""):
+    return _render_shell("static/index.html")
+
 
 # Prometheus scrape endpoint.
 # Implemented as a regular route (not app.mount) because Starlette's
