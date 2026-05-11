@@ -43,7 +43,7 @@ bcrypt==5.0.0
 # same parser path), and the bootstrap admin form. Pinned because
 # FastAPI's parameter validation occasionally couples to specific
 # python-multipart versions during major bumps.
-python-multipart==0.0.27
+python-multipart==0.0.28
 # .env loader — reads /app/.env (or `ENV_FILE_PATH` override) at
 # startup. main.py's first real line is `load_dotenv("/app/.env",
 # override=False)` so every os.environ.get() in main / logic resolves
