@@ -2708,6 +2708,17 @@ details summary::-webkit-details-marker {
     transition: opacity 200ms;
 }
 
+/* Generic single-chart loading state — same dim+pulse treatment as
+   the drawer's `.charts-refreshing > .metric-card` rule but applied
+   to a single chart container (Stats → Samples / AI Cost / Network).
+   Range-chip click + initial load both flip this class via
+   `:class="_loadBusy.stats_<key> === true ? 'chart-loading' : ''"`. */
+.chart-loading {
+    opacity: 0.6;
+    animation: chart-refreshing-pulse 1.4s ease-in-out infinite;
+    transition: opacity 200ms;
+}
+
 @keyframes chart-refreshing-pulse {
     0%, 100% { opacity: 0.6; }
     50%      { opacity: 0.85; }
@@ -5498,6 +5509,7 @@ button:focus:not(:focus-visible) {
     .row-stale-flash,
     .chip-loading,
     .charts-refreshing > .metric-card,
+    .chart-loading,
     .bulk-applied-glyph {
         animation-duration: 0.001ms !important;
         animation-iteration-count: 1 !important;

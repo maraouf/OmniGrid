@@ -96,6 +96,7 @@
                 </span>
               </div>
               <div class="fleet-net-chart"
+                   :class="_loadBusy.stats_network === true ? 'chart-loading' : ''"
                    x-show="(statsNetwork.timeseries || []).length"
                    x-html="_renderFleetNetChart(statsNetwork.timeseries || [])"></div>
               <div x-show="!(statsNetwork.timeseries || []).length"
@@ -105,21 +106,26 @@
 
             <hr class="border-[var(--border)]">
 
-            <!-- Top hosts by burst rate — last 24h -->
+            <!-- Top hosts by burst rate — window matches the page's
+                 selected range chip. Pre-fix this was two separate
+                 hardcoded tables (24h + 7d); now one table that follows
+                 the operator's range pick (1h / 24h / 7d / 30d / 90d).
+                 Backend `top_range` is the merged-window top-10. -->
             <div>
-              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.network.top_24h.title')"></h4>
-              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.network.top_24h.hint')"></p>
+              <h4 class="font-semibold fs-sm mb-2"
+                  x-text="t('stats.network.top_range.title', { range: statsNetworkRangeLabel() })"></h4>
+              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.network.top_range.hint')"></p>
               <div class="overflow-x-auto scrollbar">
                 <table class="w-full fs-sm">
                   <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
                     <tr>
-                      <th class="text-start px-4 py-2" x-text="t('stats.network.top_24h.col_host')"></th>
-                      <th class="text-end px-4 py-2" x-text="t('stats.network.top_24h.col_max_rx')"></th>
-                      <th class="text-end px-4 py-2" x-text="t('stats.network.top_24h.col_max_tx')"></th>
+                      <th class="text-start px-4 py-2" x-text="t('stats.network.top_range.col_host')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.network.top_range.col_max_rx')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.network.top_range.col_max_tx')"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    <template x-for="row in (statsNetwork.top_24h || [])" :key="'24h:' + row.host_id">
+                    <template x-for="row in (statsNetwork.top_range || [])" :key="'range:' + row.host_id">
                       <tr class="border-t border-[var(--border)]">
                         <td class="px-4 py-2 mono">
                           <span x-text="row.host_id"></span>
@@ -132,45 +138,8 @@
                         <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_tx_bps)"></td>
                       </tr>
                     </template>
-                    <tr x-show="!(statsNetwork.top_24h || []).length">
-                      <td colspan="3" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.network.top_24h.empty')"></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <hr class="border-[var(--border)]">
-
-            <!-- Top hosts by burst rate — last 7d -->
-            <div>
-              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.network.top_7d.title')"></h4>
-              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.network.top_7d.hint')"></p>
-              <div class="overflow-x-auto scrollbar">
-                <table class="w-full fs-sm">
-                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
-                    <tr>
-                      <th class="text-start px-4 py-2" x-text="t('stats.network.top_7d.col_host')"></th>
-                      <th class="text-end px-4 py-2" x-text="t('stats.network.top_7d.col_max_rx')"></th>
-                      <th class="text-end px-4 py-2" x-text="t('stats.network.top_7d.col_max_tx')"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="row in (statsNetwork.top_7d || [])" :key="'7d:' + row.host_id">
-                      <tr class="border-t border-[var(--border)]">
-                        <td class="px-4 py-2 mono">
-                          <span x-text="row.host_id"></span>
-                          <span x-show="(row.aliases || []).length"
-                                class="ms-2 fs-3xs text-[var(--text-faint)] italic"
-                                :title="(row.aliases || []).join(', ')"
-                                x-text="'(+' + (row.aliases || []).length + ' alias)'"></span>
-                        </td>
-                        <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_rx_bps)"></td>
-                        <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_tx_bps)"></td>
-                      </tr>
-                    </template>
-                    <tr x-show="!(statsNetwork.top_7d || []).length">
-                      <td colspan="3" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.network.top_7d.empty')"></td>
+                    <tr x-show="!(statsNetwork.top_range || []).length">
+                      <td colspan="3" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.network.top_range.empty')"></td>
                     </tr>
                   </tbody>
                 </table>

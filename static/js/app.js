@@ -3259,6 +3259,19 @@ function app() {
         this.statsNetworkLoaded = true;
       }
     },
+    // Map the Stats → Network range-chip's numeric hours value to the
+    // human-readable label the chips display. Used by the burst-rate
+    // table heading so "Top hosts by burst rate — last 7d" tracks the
+    // operator's range pick.
+    statsNetworkRangeLabel() {
+      const h = Number(this.statsNetworkHours) || 168;
+      if (h === 1)    return '1h';
+      if (h === 24)   return '24h';
+      if (h === 168)  return '7d';
+      if (h === 720)  return '30d';
+      if (h === 2160) return '90d';
+      return h + 'h';
+    },
     // Format a bytes-per-second rate into a human-readable string
     // (e.g. "12.4 MB/s"). Wraps `fmtBytes` for the value, appends "/s".
     fmtBps(bps) {
@@ -19114,10 +19127,19 @@ function app() {
         const v = (yMax / 4) * i;
         return { v, y: Y(v).toFixed(1), label: Math.round(v).toLocaleString() };
       });
-      // X-axis: pick ~6 buckets evenly spaced (first/last always
-      // included). For sub-day buckets shorten the label by stripping
-      // the date prefix when every shown tick is the same date.
-      const tickCount = Math.min(6, n);
+      const r = (range || '90d').toString();
+      // X-axis tick density per range — operator-flagged that 90d
+      // showed labels on only some bars (default tickCount=6 across
+      // ~14 weekly buckets left 8 unlabeled). Now: sparse ranges
+      // label EVERY bucket; 30d shows ~10 evenly-spaced; 24h shows
+      // every 4th hour; 1h is single-bucket.
+      let tickCount;
+      if (r === '1h')        tickCount = 1;
+      else if (r === '24h')  tickCount = Math.min(n, 6);
+      else if (r === '7d')   tickCount = n;       // all 7 days
+      else if (r === '30d')  tickCount = Math.min(n, 10);
+      else if (r === '90d')  tickCount = n;       // all ~14 weeks
+      else                    tickCount = Math.min(6, n);
       const xIdxs = [];
       if (tickCount === 1) {
         xIdxs.push(0);
@@ -19127,24 +19149,14 @@ function app() {
         }
       }
       const dedup = Array.from(new Set(xIdxs));
-      const r = (range || '90d').toString();
-      // Format the x-tick label per range: hourly buckets shorten to
-      // time-of-day; daily buckets keep `MM-DD` (drop year prefix);
-      // weekly buckets (90d) render as `MM-DD–MM-DD` so the operator
-      // sees the week's date-RANGE rather than a single day-looking
-      // anchor (operator-flagged: a bare MM-DD on a 7-day bucket
-      // reads like a daily label).
-      const _addDays = (yyyy_mm_dd, days) => {
-        // Parse as UTC midnight to dodge DST + timezone drift in the
-        // +6-day offset; the bucket itself was anchored UTC by the
-        // backend's strftime(%s) -> bucket_seconds math.
-        const [y, m, d] = yyyy_mm_dd.split('-').map(n => parseInt(n, 10));
-        const dt = new Date(Date.UTC(y, m - 1, d));
-        dt.setUTCDate(dt.getUTCDate() + days);
-        const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
-        const dd = String(dt.getUTCDate()).padStart(2, '0');
-        return mm + '-' + dd;
-      };
+      // Format the x-tick label per range. Operator-flagged 90d's
+      // prior "MM-DD–MM-DD" en-dash format as not clear. Switched to:
+      //   1h / 24h → HH:MM (drop date prefix)
+      //   7d / 30d → MM-DD (drop year)
+      //   90d      → "MMM DD" (short month + day-of-week-start, e.g.
+      //              "Feb 15") — readable + fits ~14 labels on a
+      //              720px chart without overlap.
+      const _MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const fmtXLabel = (key) => {
         if (!key) return '';
         if (r === '1h' || r === '24h') {
@@ -19153,17 +19165,39 @@ function app() {
           return t >= 0 ? key.slice(t + 1) : key;
         }
         if (r === '90d' && key.length === 10) {
-          // Weekly bucket — render as MM-DD–MM-DD (start–end of week).
+          // Weekly bucket — render the start-of-week as "MMM DD" so
+          // every label is short + readable + signals month boundary
+          // at a glance (the bar's `<title>` tooltip still carries
+          // the full date if the operator needs it).
           try {
-            const startMmDd = key.slice(5);
-            const endMmDd = _addDays(key, 6);
-            return startMmDd + '–' + endMmDd;
+            const mm = parseInt(key.slice(5, 7), 10);
+            const dd = key.slice(8, 10);
+            return _MONTHS_SHORT[mm - 1] + ' ' + dd;
           } catch (_) {
             return key.slice(5);
           }
         }
         // Daily — drop year so labels are compact (MM-DD).
         return key.length === 10 ? key.slice(5) : key;
+      };
+      // Tooltip helper for week buckets — still shows the FULL week
+      // range so operators can verify which 7 days a bar represents.
+      const _addDays = (yyyy_mm_dd, days) => {
+        const [y, m, d] = yyyy_mm_dd.split('-').map(n => parseInt(n, 10));
+        const dt = new Date(Date.UTC(y, m - 1, d));
+        dt.setUTCDate(dt.getUTCDate() + days);
+        const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getUTCDate()).padStart(2, '0');
+        return mm + '-' + dd;
+      };
+      const fmtTooltipDate = (key) => {
+        if (!key) return '';
+        if (r === '90d' && key.length === 10) {
+          try {
+            return key.slice(5) + '–' + _addDays(key, 6);
+          } catch (_) { return fmtXLabel(key); }
+        }
+        return fmtXLabel(key);
       };
       const esc = (s) => this._logEscape(String(s));
       let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block">';
@@ -19185,7 +19219,7 @@ function app() {
         const bh = (PAD_T + plotH - Y(total)).toFixed(2);
         svg += '<rect x="' + bx + '" y="' + by + '" width="' + totalBarW.toFixed(2)
           + '" height="' + bh + '" fill="var(--primary)" fill-opacity="0.7">'
-          + '<title>' + esc(fmtXLabel(p.date)) + ': ' + total.toLocaleString() + ' rows</title>'
+          + '<title>' + esc(fmtTooltipDate(p.date)) + ': ' + total.toLocaleString() + ' rows</title>'
           + '</rect>';
       }
       // X-axis tick labels.
