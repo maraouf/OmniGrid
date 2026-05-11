@@ -11,7 +11,7 @@ scope for this suite. Instead we verify:
 
 Run with ``pytest tests/`` from the repo root. The bulk of the WebAuthn
 ceremony is exercised end-to-end via manual validation steps in the
-TODO entry for #381.
+TODO entry for the WebAuthn enrolment work.
 """
 from __future__ import annotations
 

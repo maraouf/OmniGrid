@@ -1849,7 +1849,7 @@ async def api_cleanup_overlay_network(
     subnet = (body.subnet or "").strip()
     service_id = (body.service_id or "").strip()
     if not subnet or not _re.match(r"^\d+\.\d+\.\d+\.\d+/\d+$", subnet):
-        raise HTTPException(400, "subnet must be a CIDR (e.g. 10.90.24.0/24)")
+        raise HTTPException(400, "subnet must be a CIDR (e.g. 10.X.X.0/24)")
     if not service_id:
         raise HTTPException(400, "service_id is required")
     name, stack = _item_context(service_id)
@@ -15083,7 +15083,7 @@ async def _run_port_scan_async(
             # `target` BEFORE the first probe fired. Surfaced so the
             # toast / history can show what was actually hit at the
             # network layer when the host_id is a friendly alias
-            # (e.g. `opnsense` → `192.168.1.1` via container's
+            # (e.g. `opnsense` → `192.X.X.X` via container's
             # search-domain resolution). None when getaddrinfo failed
             # OR the scanner couldn't extract it; SPA falls back to
             # `target` then `host_id` in that case.
