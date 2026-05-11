@@ -5491,9 +5491,27 @@ async def api_admin_stats_samples(
         ("host_port_scans",         "port_scan",     "open ports",        "ts",       "host_id"),
         ("host_failure_events",     "events",        "failure log",       "ts",       "host_id"),
     ]
-    out: dict = {"tables": [], "grand_total": 0, "errors": []}
+    # Daily-totals bucket — last 90 days across every sample-bearing
+    # table, summed per day. Powers the "samples over time" chart on
+    # the Stats → Samples page (operator-flagged: visual signal for
+    # fleet growth + sampler regression spikes that the per-table
+    # totals alone don't surface). Bucket keys are `YYYY-MM-DD` strings
+    # via `strftime('%Y-%m-%d', ts, 'unixepoch')` so the SPA can sort
+    # lexicographically. Empty days return absent (operator's chart
+    # renderer fills with zero).
+    daily_totals: dict[str, int] = {}
+    out: dict = {"tables": [], "grand_total": 0, "errors": [], "daily_totals": []}
     try:
         with db_conn() as c:
+            # Compute the 90-day cutoff once per request — cheaper than
+            # threading it through the per-table loop AND ensures every
+            # table queries against the same wall-clock anchor.
+            try:
+                cutoff_ts = int(c.execute(
+                    "SELECT strftime('%s', 'now', '-90 days')"
+                ).fetchone()[0])
+            except Exception:
+                cutoff_ts = 0
             for table, provider, kind, ts_col, host_col in spec:
                 row: dict = {
                     "name":         table,
@@ -5537,6 +5555,31 @@ async def api_admin_stats_samples(
                             pass
                     out["grand_total"] += row["rows"]
                     out["tables"].append(row)
+                    # 90-day daily-bucket query for the chart. Skip on
+                    # empty tables AND skip when the cutoff failed
+                    # (cutoff_ts == 0 means strftime didn't return a
+                    # number — bail rather than scan whole-table).
+                    if row["rows"] > 0 and cutoff_ts > 0:
+                        try:
+                            day_rows = c.execute(
+                                f'SELECT strftime("%Y-%m-%d", "{ts_col}", "unixepoch") AS d, '
+                                f'       COUNT(*) AS n '
+                                f'  FROM "{table}" '
+                                f' WHERE "{ts_col}" > ? '
+                                f' GROUP BY d',
+                                (cutoff_ts,),
+                            ).fetchall()
+                            for r in day_rows:
+                                d = r[0] if isinstance(r, (list, tuple)) else r["d"]
+                                n = r[1] if isinstance(r, (list, tuple)) else r["n"]
+                                if d:
+                                    daily_totals[d] = daily_totals.get(d, 0) + int(n or 0)
+                        except Exception:
+                            # Table may lack the ts column or have a
+                            # quirky type — skip the daily bucket
+                            # silently so the per-table summary still
+                            # renders.
+                            pass
                 except Exception as e:
                     # Table doesn't exist on this deploy (e.g. fresh
                     # bootstrap, no schedules yet) — report it with
@@ -5547,6 +5590,14 @@ async def api_admin_stats_samples(
                     out["errors"].append({"table": table, "error": str(e)})
     except Exception as e:
         out["error"] = str(e)
+    # Daily-totals output: sorted ASC by date so the SPA chart can
+    # plot left-to-right without re-sorting client-side. Each entry
+    # is `{date: "YYYY-MM-DD", total: N}` — a single line summed
+    # across every sample-bearing table.
+    out["daily_totals"] = [
+        {"date": d, "total": daily_totals[d]}
+        for d in sorted(daily_totals.keys())
+    ]
     return out
 
 

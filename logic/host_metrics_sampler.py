@@ -919,7 +919,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
         # SKIP. Pre-fix the sampler stopped at `snmp_name` and never
         # consulted the curated `address` field, so hosts that
         # cleared `snmp_name` intending to inherit from the shared
-        # `address` (the documented contract from #1211) silently
+        # `address` (the documented address-fallback contract) silently
         # stopped being probed by the sampler — `_probe_one_snmp`
         # returned early on `if not snmp_target` and the per-tick
         # `host_snmp_samples` row never landed. Drawer charts went

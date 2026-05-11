@@ -174,10 +174,45 @@
 
             <hr class="border-[var(--border)]">
 
-            <!-- Avg response time trend (30d, per day) -->
+            <!-- Avg response time trend (30d, per day) — bar chart on
+                 top, then a desc-sorted table below for exact values.
+                 Operator-flagged: visual signal for latency drift /
+                 spike-day detection that the table alone doesn't
+                 surface. Backend's `avg_response_time_trend` is
+                 ASC-sorted; chart renders ASC (left=old, right=new
+                 is the canonical time-series direction); table is
+                 reversed to DESC so the newest day is at the top. -->
             <div>
               <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.ai_cost.rt_trend.title')"></h4>
-              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.ai_cost.rt_trend.hint')"></p>
+              <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('stats.ai_cost.rt_trend.hint')"></p>
+
+              <!-- Bar chart — single-series; reuses the
+                   `.samples-daily-chart` rule family from
+                   `static/css/style.css`. Each bar's height is
+                   percent-of-max within the window. Hover the bar →
+                   the date + ms + job count in the title. -->
+              <div x-show="(statsAiCost.avg_response_time_trend || []).length"
+                   class="bg-[var(--bg)] border border-[var(--border)] rounded-md p-3 mb-3">
+                <div class="samples-daily-chart"
+                     :style="'--samples-max: ' + Math.max(1, ...(statsAiCost.avg_response_time_trend || []).map(d => d.avg_ms || 0))">
+                  <template x-for="d in (statsAiCost.avg_response_time_trend || [])" :key="d.bucket_ts">
+                    <div class="samples-daily-bar"
+                         :style="'--bar-h: ' + Math.max(2, Math.round(((d.avg_ms || 0) / Math.max(1, ...(statsAiCost.avg_response_time_trend || []).map(x => x.avg_ms || 0))) * 100)) + '%'"
+                         :title="fmtDateOnly(d.bucket_ts) + ': ' + Math.round(d.avg_ms || 0).toLocaleString() + ' ms · ' + Number(d.jobs || 0).toLocaleString() + ' job(s)'">
+                      <span class="samples-daily-bar-fill"></span>
+                    </div>
+                  </template>
+                </div>
+                <div class="flex justify-between items-center mt-2 fs-2xs text-[var(--text-faint)] mono">
+                  <span x-text="(statsAiCost.avg_response_time_trend && statsAiCost.avg_response_time_trend[0]) ? fmtDateOnly(statsAiCost.avg_response_time_trend[0].bucket_ts) : ''"></span>
+                  <span x-text="(statsAiCost.avg_response_time_trend && statsAiCost.avg_response_time_trend.length > 2) ? fmtDateOnly(statsAiCost.avg_response_time_trend[Math.floor(statsAiCost.avg_response_time_trend.length / 2)].bucket_ts) : ''"></span>
+                  <span x-text="(statsAiCost.avg_response_time_trend && statsAiCost.avg_response_time_trend.length) ? fmtDateOnly(statsAiCost.avg_response_time_trend[statsAiCost.avg_response_time_trend.length - 1].bucket_ts) : ''"></span>
+                </div>
+              </div>
+
+              <!-- Table — DESC-sorted (newest day at top) per
+                   operator-flagged convention. The chart above shows
+                   the trajectory; the table gives the exact values. -->
               <div x-show="(statsAiCost.avg_response_time_trend || []).length"
                    class="overflow-x-auto scrollbar">
                 <table class="w-full fs-sm">
@@ -189,7 +224,7 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <template x-for="row in (statsAiCost.avg_response_time_trend || [])" :key="row.bucket_ts">
+                    <template x-for="row in ((statsAiCost.avg_response_time_trend || []).slice().sort((a, b) => (b.bucket_ts || 0) - (a.bucket_ts || 0)))" :key="row.bucket_ts">
                       <tr class="border-t border-[var(--border)]">
                         <td class="px-4 py-2 mono fs-xs" x-text="fmtDateOnly(row.bucket_ts)"></td>
                         <td class="px-4 py-2 mono text-end" x-text="Math.round(row.avg_ms).toLocaleString() + ' ms'"></td>

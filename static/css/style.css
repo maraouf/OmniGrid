@@ -3679,8 +3679,8 @@ body.ai-pinned > .ai-sidebar-drawer.pinned {
     position: relative !important;
     inset: auto !important;
     transform: none !important;
-    width: var(--ai-sidebar-width, 480px) !important;
-    flex: 0 0 var(--ai-sidebar-width, 480px) !important;
+    width: var(--ai-sidebar-width, 460px) !important;
+    flex: 0 0 var(--ai-sidebar-width, 460px) !important;
     align-self: stretch;
     height: auto;
     min-height: 100vh;
@@ -7229,4 +7229,42 @@ select.field-invalid {
     justify-content: flex-end;
     gap: var(--s-2);
     margin-block-start: var(--s-1);
+}
+
+/* ---------------------------------------------------------------------------
+   Stats → Samples — daily-totals bar chart (last 90 days)
+   ---------------------------------------------------------------------------
+   Single-series bar chart; pure CSS via flex + percentage heights so
+   we don't need an SVG path renderer for one column-per-day. The
+   chart container declares `--samples-max` (peak count across the
+   window) via inline style; each bar's `--bar-h` is the per-day
+   percent-of-max. Hover reveals the date + count via the bar's
+   `:title` attr (no JS tooltip needed).
+*/
+.samples-daily-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 1px;
+    height: 120px;
+    width: 100%;
+    padding-block-end: var(--s-1);
+}
+.samples-daily-bar {
+    flex: 1 1 0;
+    min-width: 2px;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    cursor: default;
+}
+.samples-daily-bar-fill {
+    display: block;
+    width: 100%;
+    height: var(--bar-h, 2%);
+    background: color-mix(in srgb, var(--primary) 70%, transparent);
+    border-radius: 1px 1px 0 0;
+    transition: background-color 0.15s;
+}
+.samples-daily-bar:hover .samples-daily-bar-fill {
+    background: var(--primary);
 }

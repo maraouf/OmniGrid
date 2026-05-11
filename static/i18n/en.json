@@ -374,6 +374,14 @@
       },
       "errors": {
         "title": "Tables that couldn't be queried"
+      },
+      "daily_chart": {
+        "title": "Samples written per day (last 90 days)",
+        "hint": "Daily total across every sample-bearing table. A flat-zero band means a sampler stopped writing; a sudden slope-up usually means a host or stack was added.",
+        "empty": "No samples in the last 90 days yet — samplers haven't run long enough or no tables have data.",
+        "row_unit": "rows",
+        "legend_total": "Total: {n}",
+        "legend_days": "Window: {n} day(s)"
       }
     },
     "database": {
@@ -412,7 +420,7 @@
     "cards": {
       "users": {
         "label": "Users",
-        "sub": "{active} active · {admins} admin(s)"
+        "sub": "{admins} admin(s)"
       },
       "sessions": {
         "label": "Active sessions",
@@ -452,7 +460,7 @@
       },
       "schedules": {
         "label": "Schedules",
-        "sub": "{enabled} enabled · cron-style background jobs"
+        "sub": "Cron-style background jobs"
       },
       "backups": {
         "label": "Backups",

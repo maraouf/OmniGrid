@@ -16905,7 +16905,7 @@ function app() {
         if (el && typeof el.focus === 'function') el.focus();
         // FORCE the scroll-to-bottom on open. The non-force path
         // honours the user's manual scroll position (chat-app
-        // convention — see #1209 jump-to-latest pill), but on a
+        // convention — paired with the jump-to-latest pill below), but on a
         // FRESH open we always want to land on the latest turn
         // regardless of where the log was when the drawer last
         // closed. Without `force: true`, a previously-scrolled-up
@@ -27986,9 +27986,9 @@ function app() {
         // whose drawer-open path populated the iface cache via the
         // looser `_snmpHasProbeTarget` then clicked 6h/24h/7d would
         // get the cache STAY at the initial 1h window. Same uniformity
-        // rule documented for the FIVE chart-fetch sites in heuristic
-        // covering #1239 — this is the SIXTH site that was missed in
-        // the original sweep.
+        // rule documented for the FIVE chart-fetch sites in the
+        // SNMP-history reload sweep — this is the SIXTH site that was
+        // missed in the original sweep.
         if (this.drawerHost && this._snmpHasProbeTarget(this.drawerHost)) {
           if (typeof this.loadHostSnmpHistory === 'function') {
             tasks.push(this.loadHostSnmpHistory(this.drawerHost.id, hrs));
