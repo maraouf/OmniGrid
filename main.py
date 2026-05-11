@@ -4738,11 +4738,21 @@ async def api_admin_stats_database(
                 # dbstat is built-in to SQLite ≥ 3.7.10 but only enabled
                 # when compiled with SQLITE_ENABLE_DBSTAT_VTAB. Try it
                 # first; if the virtual table doesn't exist, fall back.
+                # Filter dbstat to TABLE entries only — without the
+                # join, dbstat also returns rows for every CREATE INDEX
+                # (named `idx_*` in this schema). Those index entries
+                # have no underlying table-shape `COUNT(*)` consumer
+                # and would render as `—` in the Rows column. Joining
+                # against `sqlite_master.type='table'` keeps the Top-N
+                # focused on real table sizes; indexes contribute to
+                # the DB file size via the overall size card already.
                 rows = c.execute(
-                    "SELECT name, SUM(pgsize) AS bytes "
-                    "  FROM dbstat "
-                    " WHERE name NOT LIKE 'sqlite_%' "
-                    " GROUP BY name "
+                    "SELECT s.name AS name, SUM(s.pgsize) AS bytes "
+                    "  FROM dbstat s "
+                    "  JOIN sqlite_master m "
+                    "    ON m.name = s.name AND m.type = 'table' "
+                    " WHERE s.name NOT LIKE 'sqlite_%' "
+                    " GROUP BY s.name "
                     " ORDER BY bytes DESC "
                     " LIMIT 5"
                 ).fetchall()
@@ -4852,6 +4862,170 @@ async def api_admin_stats_database(
         out["projection"] = projection
     except Exception as e:
         out["projection_error"] = str(e)
+    return out
+
+
+@app.get("/api/admin/stats/network")
+async def api_admin_stats_network(
+    hours: int = 168,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: fleet-wide network throughput KPIs.
+
+    Sources:
+      ``host_net_samples`` carries per-host ``(rx_bytes_per_s,
+      tx_bytes_per_s)`` rate rows at the sampler's tick cadence
+      (``tuning_stats_sample_interval_seconds`` — default 300s).
+
+    Returns:
+      window_hours   — clamped operator-selected window (1..720).
+      sample_interval_seconds — cadence used to integrate rates → bytes.
+      top_24h        — top 10 hosts by max RX or TX over the last 24h
+                       ({host_id, max_rx_bps, max_tx_bps}).
+      top_7d         — same shape over the last 7d.
+      total          — {bytes_rx, bytes_tx} integrated across every
+                       host × every sample in the requested window
+                       (rate × cadence per row).
+      top_chatty     — top 10 hosts by total bytes (rx + tx) in the
+                       window ({host_id, bytes_rx, bytes_tx, bytes_total}).
+      timeseries     — fleet-wide stacked-area data: list of
+                       {bucket_ts, rx_bps, tx_bps} where each value is
+                       the sum of rates across every host's sample
+                       inside the bucket. Bucket count ~96 (one point
+                       per hour at 7d).
+    """
+    import time as _time
+    from logic import tuning as _tuning
+    try:
+        hours = max(1, min(720, int(hours or 168)))
+    except (TypeError, ValueError):
+        hours = 168
+    try:
+        cadence = max(60, int(_tuning.tuning_int("tuning_stats_sample_interval_seconds")))
+    except Exception:
+        cadence = 300
+    now_ts = int(_time.time())
+    cutoff = now_ts - hours * 3600
+    out: dict = {
+        "window_hours": hours,
+        "sample_interval_seconds": cadence,
+        "top_24h": [],
+        "top_7d": [],
+        "total": {"bytes_rx": 0, "bytes_tx": 0},
+        "top_chatty": [],
+        "timeseries": [],
+    }
+    try:
+        with db_conn() as c:
+            # Top-N hosts by max rate — two windows. UNION so we can
+            # render the "burst rate" KPI cards without a second round-
+            # trip per range.
+            for label, hrs in (("top_24h", 24), ("top_7d", 168)):
+                since = now_ts - hrs * 3600
+                rows = c.execute(
+                    "SELECT host_id, "
+                    "       MAX(rx_bytes_per_s) AS max_rx, "
+                    "       MAX(tx_bytes_per_s) AS max_tx "
+                    "  FROM host_net_samples "
+                    " WHERE ts >= ? "
+                    " GROUP BY host_id "
+                    " ORDER BY MAX(rx_bytes_per_s + tx_bytes_per_s) DESC "
+                    " LIMIT 10",
+                    (since,),
+                ).fetchall()
+                out[label] = [
+                    {
+                        "host_id":    r["host_id"] if hasattr(r, "keys") else r[0],
+                        "max_rx_bps": float(r["max_rx"] if hasattr(r, "keys") else r[1] or 0),
+                        "max_tx_bps": float(r["max_tx"] if hasattr(r, "keys") else r[2] or 0),
+                    }
+                    for r in rows
+                ]
+            # Per-host integrated bytes over the requested window.
+            # rate × cadence per row, summed. Simple + bounded enough
+            # given the sample cadence is operator-controlled. Long
+            # gaps (host paused) inflate slightly because we still
+            # treat each row as `cadence` seconds — accepted given the
+            # bound; the alternative (compute interval between rows)
+            # is more code for a marginal accuracy win.
+            rows = c.execute(
+                "SELECT host_id, "
+                "       SUM(rx_bytes_per_s) * ? AS bytes_rx, "
+                "       SUM(tx_bytes_per_s) * ? AS bytes_tx "
+                "  FROM host_net_samples "
+                " WHERE ts >= ? "
+                " GROUP BY host_id "
+                " ORDER BY SUM(rx_bytes_per_s + tx_bytes_per_s) DESC "
+                " LIMIT 10",
+                (cadence, cadence, cutoff),
+            ).fetchall()
+            chatty = []
+            for r in rows:
+                bx = int(r["bytes_rx"] if hasattr(r, "keys") else r[1] or 0)
+                bt = int(r["bytes_tx"] if hasattr(r, "keys") else r[2] or 0)
+                chatty.append({
+                    "host_id":     r["host_id"] if hasattr(r, "keys") else r[0],
+                    "bytes_rx":    bx,
+                    "bytes_tx":    bt,
+                    "bytes_total": bx + bt,
+                })
+            out["top_chatty"] = chatty
+            # Fleet-wide totals.
+            r = c.execute(
+                "SELECT COALESCE(SUM(rx_bytes_per_s) * ?, 0) AS bytes_rx, "
+                "       COALESCE(SUM(tx_bytes_per_s) * ?, 0) AS bytes_tx "
+                "  FROM host_net_samples "
+                " WHERE ts >= ?",
+                (cadence, cadence, cutoff),
+            ).fetchone()
+            out["total"] = {
+                "bytes_rx": int(r["bytes_rx"] if hasattr(r, "keys") else r[0] or 0),
+                "bytes_tx": int(r["bytes_tx"] if hasattr(r, "keys") else r[1] or 0),
+            }
+            # Fleet-wide stacked-area time-series. Target ~96 buckets
+            # across the window (one per hour at 7d, ~15-min at 24h).
+            target = 96
+            bucket = max(cadence, int(hours * 3600 / target))
+            rows = c.execute(
+                "SELECT (ts / ?) * ? AS bucket_ts, "
+                "       AVG(rx_bytes_per_s) AS rx, "
+                "       AVG(tx_bytes_per_s) AS tx "
+                "  FROM host_net_samples "
+                " WHERE ts >= ? "
+                " GROUP BY bucket_ts "
+                " ORDER BY bucket_ts ASC",
+                (bucket, bucket, cutoff),
+            ).fetchall()
+            # `AVG` here is the per-(bucket, sample) average; multiply
+            # by the count of hosts active in each bucket to get the
+            # fleet sum. Cleaner: re-query summed rate. Pick sum.
+            rows = c.execute(
+                "SELECT (ts / ?) * ? AS bucket_ts, "
+                "       SUM(rx_bytes_per_s) AS rx, "
+                "       SUM(tx_bytes_per_s) AS tx "
+                "  FROM host_net_samples "
+                " WHERE ts >= ? "
+                " GROUP BY bucket_ts "
+                " ORDER BY bucket_ts ASC",
+                (bucket, bucket, cutoff),
+            ).fetchall()
+            # Each bucket may aggregate multiple ticks per host
+            # (cadence < bucket size). Average across ticks within the
+            # bucket so the value reflects the bucket's mean throughput
+            # rather than the sum-of-rates-by-tick (which would scale
+            # linearly with bucket size). Computed in Python so the
+            # division stays clean across SQLite versions.
+            ticks_per_bucket = max(1, bucket // cadence)
+            out["timeseries"] = [
+                {
+                    "bucket_ts": int(r["bucket_ts"] if hasattr(r, "keys") else r[0]),
+                    "rx_bps":    float((r["rx"] if hasattr(r, "keys") else r[1] or 0) / ticks_per_bucket),
+                    "tx_bps":    float((r["tx"] if hasattr(r, "keys") else r[2] or 0) / ticks_per_bucket),
+                }
+                for r in rows
+            ]
+    except Exception as e:
+        out["error"] = str(e)
     return out
 
 
@@ -5029,6 +5203,15 @@ async def api_admin_stats_ai_cost(
         "month_to_date": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
         "last_month":    {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
         "projected_eom": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
+        # Additional headline metrics over the MTD window — surfaced
+        # as standalone cards next to the cost cards.
+        "mtd_metrics": {
+            "pass_rate":            None,   # 0..1, or None when no success/error rows
+            "avg_response_time_ms": None,
+            "avg_accuracy_score":   None,
+            "success_jobs":         0,
+            "error_jobs":           0,
+        },
         "tokens_by_provider_model": [],
         "avg_response_time_trend": [],
         "top_expensive": [],
@@ -5050,6 +5233,29 @@ async def api_admin_stats_ai_cost(
                 "jobs":     int(r["jobs"] if hasattr(r, "keys") else r[0]),
                 "tokens":   int(r["tokens"] if hasattr(r, "keys") else r[1]),
                 "cost_usd": float(r["cost"] if hasattr(r, "keys") else r[2]),
+            }
+            # MTD additional metrics — pass rate / avg RT / avg accuracy.
+            # Computed in a single query so the cards land in one fetch.
+            rr = c.execute(
+                "SELECT "
+                "  SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS ok_jobs, "
+                "  SUM(CASE WHEN status = 'error'   THEN 1 ELSE 0 END) AS err_jobs, "
+                "  AVG(CASE WHEN response_time_ms IS NOT NULL THEN response_time_ms END) AS avg_rt, "
+                "  AVG(CASE WHEN accuracy_score   IS NOT NULL THEN accuracy_score   END) AS avg_acc "
+                "  FROM ai_jobs WHERE ts >= ? AND ts <= ?",
+                (som_ts, now_ts),
+            ).fetchone()
+            ok_jobs = int(rr["ok_jobs"] if hasattr(rr, "keys") else rr[0] or 0)
+            err_jobs = int(rr["err_jobs"] if hasattr(rr, "keys") else rr[1] or 0)
+            denom = ok_jobs + err_jobs
+            avg_rt = rr["avg_rt"] if hasattr(rr, "keys") else rr[2]
+            avg_acc = rr["avg_acc"] if hasattr(rr, "keys") else rr[3]
+            out["mtd_metrics"] = {
+                "pass_rate":            (ok_jobs / denom) if denom else None,
+                "avg_response_time_ms": (float(avg_rt) if avg_rt is not None else None),
+                "avg_accuracy_score":   (float(avg_acc) if avg_acc is not None else None),
+                "success_jobs":         ok_jobs,
+                "error_jobs":           err_jobs,
             }
             # Last month full window.
             r = c.execute(

@@ -1,0 +1,197 @@
+      <div x-show="statsTab==='network'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+          <div class="p-5 border-b border-[var(--border)] flex justify-between items-center flex-wrap gap-3">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/></svg>
+                <h3 class="font-semibold fs-md" x-text="t('stats.network.title')"></h3>
+              </div>
+              <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.network.hint')"></p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
+                <template x-for="opt in [[1,'1h'],[24,'24h'],[168,'7d'],[720,'30d']]" :key="opt[0]">
+                  <button type="button"
+                          @click="loadStatsNetwork(opt[0])"
+                          :class="statsNetworkHours === opt[0] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                          class="px-2 py-0.5 rounded fs-xs font-medium transition"
+                          x-text="opt[1]"></button>
+                </template>
+              </div>
+              <button type="button"
+                      @click="_runWithBusy('stats_network', () => loadStatsNetwork(statsNetworkHours))"
+                      :disabled="_loadBusy.stats_network === true"
+                      :title="t('actions.reload')"
+                      :aria-label="t('actions.reload')"
+                      class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+                <svg width="13" height="13" :class="_loadBusy.stats_network === true ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                </svg>
+                <span x-text="t('actions.reload')"></span>
+              </button>
+            </div>
+          </div>
+
+          <div x-show="!statsNetworkLoaded" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+
+          <div x-show="statsNetworkLoaded" class="p-5 space-y-5">
+
+            <!-- Headline cards: total RX / total TX / combined -->
+            <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))">
+              <div class="stats-card" style="cursor:default">
+                <div class="stats-card-icon">
+                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                </div>
+                <div class="stats-card-body">
+                  <div class="stats-card-label" x-text="t('stats.network.cards.rx')"></div>
+                  <div class="stats-card-value mono" x-text="fmtBytes((statsNetwork.total && statsNetwork.total.bytes_rx) || 0)"></div>
+                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.network.cards.rx_sub')"></div>
+                </div>
+              </div>
+              <div class="stats-card" style="cursor:default">
+                <div class="stats-card-icon">
+                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                </div>
+                <div class="stats-card-body">
+                  <div class="stats-card-label" x-text="t('stats.network.cards.tx')"></div>
+                  <div class="stats-card-value mono" x-text="fmtBytes((statsNetwork.total && statsNetwork.total.bytes_tx) || 0)"></div>
+                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.network.cards.tx_sub')"></div>
+                </div>
+              </div>
+              <div class="stats-card" style="cursor:default">
+                <div class="stats-card-icon">
+                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/></svg>
+                </div>
+                <div class="stats-card-body">
+                  <div class="stats-card-label" x-text="t('stats.network.cards.total')"></div>
+                  <div class="stats-card-value mono"
+                       x-text="fmtBytes(((statsNetwork.total && statsNetwork.total.bytes_rx) || 0) + ((statsNetwork.total && statsNetwork.total.bytes_tx) || 0))"></div>
+                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.network.cards.total_sub')"></div>
+                </div>
+              </div>
+            </div>
+
+            <hr class="border-[var(--border)]">
+
+            <!-- Fleet-wide stacked-area chart -->
+            <div>
+              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.network.chart.title')"></h4>
+              <div class="flex items-center gap-3 mb-2 fs-xs text-[var(--text-dim)]">
+                <span class="inline-flex items-center gap-1.5">
+                  <span class="inline-block w-3 h-3 rounded" style="background: var(--primary); opacity: 0.55"></span>
+                  <span x-text="t('stats.network.chart.legend_rx')"></span>
+                </span>
+                <span class="inline-flex items-center gap-1.5">
+                  <span class="inline-block w-3 h-3 rounded" style="background: var(--success); opacity: 0.55"></span>
+                  <span x-text="t('stats.network.chart.legend_tx')"></span>
+                </span>
+              </div>
+              <div class="fleet-net-chart"
+                   x-show="(statsNetwork.timeseries || []).length"
+                   x-html="_renderFleetNetChart(statsNetwork.timeseries || [])"></div>
+              <div x-show="!(statsNetwork.timeseries || []).length"
+                   class="py-6 text-center text-[var(--text-faint)] fs-sm italic"
+                   x-text="t('stats.network.chart.empty')"></div>
+            </div>
+
+            <hr class="border-[var(--border)]">
+
+            <!-- Top hosts by burst rate — last 24h -->
+            <div>
+              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.network.top_24h.title')"></h4>
+              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.network.top_24h.hint')"></p>
+              <div class="overflow-x-auto scrollbar">
+                <table class="w-full fs-sm">
+                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+                    <tr>
+                      <th class="text-start px-4 py-2" x-text="t('stats.network.top_24h.col_host')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.network.top_24h.col_max_rx')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.network.top_24h.col_max_tx')"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="row in (statsNetwork.top_24h || [])" :key="'24h:' + row.host_id">
+                      <tr class="border-t border-[var(--border)]">
+                        <td class="px-4 py-2 mono" x-text="row.host_id"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_rx_bps)"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_tx_bps)"></td>
+                      </tr>
+                    </template>
+                    <tr x-show="!(statsNetwork.top_24h || []).length">
+                      <td colspan="3" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.network.top_24h.empty')"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <hr class="border-[var(--border)]">
+
+            <!-- Top hosts by burst rate — last 7d -->
+            <div>
+              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.network.top_7d.title')"></h4>
+              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.network.top_7d.hint')"></p>
+              <div class="overflow-x-auto scrollbar">
+                <table class="w-full fs-sm">
+                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+                    <tr>
+                      <th class="text-start px-4 py-2" x-text="t('stats.network.top_7d.col_host')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.network.top_7d.col_max_rx')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.network.top_7d.col_max_tx')"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="row in (statsNetwork.top_7d || [])" :key="'7d:' + row.host_id">
+                      <tr class="border-t border-[var(--border)]">
+                        <td class="px-4 py-2 mono" x-text="row.host_id"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_rx_bps)"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_tx_bps)"></td>
+                      </tr>
+                    </template>
+                    <tr x-show="!(statsNetwork.top_7d || []).length">
+                      <td colspan="3" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.network.top_7d.empty')"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <hr class="border-[var(--border)]">
+
+            <!-- Top 10 chattiest hosts by total bytes in the window -->
+            <div>
+              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.network.chatty.title')"></h4>
+              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.network.chatty.hint')"></p>
+              <div class="overflow-x-auto scrollbar">
+                <table class="w-full fs-sm">
+                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+                    <tr>
+                      <th class="text-start px-4 py-2" x-text="t('stats.network.chatty.col_host')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.network.chatty.col_rx')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.network.chatty.col_tx')"></th>
+                      <th class="text-end px-4 py-2" x-text="t('stats.network.chatty.col_total')"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="row in (statsNetwork.top_chatty || [])" :key="'c:' + row.host_id">
+                      <tr class="border-t border-[var(--border)]">
+                        <td class="px-4 py-2 mono" x-text="row.host_id"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="fmtBytes(row.bytes_rx)"></td>
+                        <td class="px-4 py-2 mono text-end" x-text="fmtBytes(row.bytes_tx)"></td>
+                        <td class="px-4 py-2 mono text-end font-semibold" x-text="fmtBytes(row.bytes_total)"></td>
+                      </tr>
+                    </template>
+                    <tr x-show="!(statsNetwork.top_chatty || []).length">
+                      <td colspan="4" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.network.chatty.empty')"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </section>
+      </div>

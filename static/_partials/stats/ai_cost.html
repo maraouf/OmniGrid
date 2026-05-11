@@ -28,8 +28,8 @@
 
           <div x-show="statsAiCostLoaded" class="p-5 space-y-5">
 
-            <!-- Three headline cards: MTD spend / Last month / Projected EOM -->
-            <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))">
+            <!-- MTD headline row: cost + jobs + pass rate + tokens + avg RT + accuracy. -->
+            <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr))">
               <div class="stats-card" style="cursor:default">
                 <div class="stats-card-icon">
                   <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/></svg>
@@ -43,6 +43,63 @@
                          tokens: Number((statsAiCost.month_to_date && statsAiCost.month_to_date.tokens) || 0).toLocaleString(),
                          jobs: Number((statsAiCost.month_to_date && statsAiCost.month_to_date.jobs) || 0).toLocaleString()
                        })"></div>
+                </div>
+              </div>
+              <div class="stats-card" style="cursor:default">
+                <div class="stats-card-icon">
+                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/></svg>
+                </div>
+                <div class="stats-card-body">
+                  <div class="stats-card-label" x-text="t('stats.ai_cost.cards.jobs')"></div>
+                  <div class="stats-card-value mono" x-text="Number((statsAiCost.month_to_date && statsAiCost.month_to_date.jobs) || 0).toLocaleString()"></div>
+                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.ai_cost.cards.jobs_sub')"></div>
+                </div>
+              </div>
+              <div class="stats-card" style="cursor:default">
+                <div class="stats-card-icon">
+                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/></svg>
+                </div>
+                <div class="stats-card-body">
+                  <div class="stats-card-label" x-text="t('stats.ai_cost.cards.pass_rate')"></div>
+                  <div class="stats-card-value mono"
+                       x-text="(statsAiCost.mtd_metrics && statsAiCost.mtd_metrics.pass_rate != null) ? (Math.round(statsAiCost.mtd_metrics.pass_rate * 1000) / 10).toFixed(1) + '%' : '—'"></div>
+                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+                       x-text="t('stats.ai_cost.cards.pass_rate_sub', {
+                         ok: Number((statsAiCost.mtd_metrics && statsAiCost.mtd_metrics.success_jobs) || 0).toLocaleString(),
+                         err: Number((statsAiCost.mtd_metrics && statsAiCost.mtd_metrics.error_jobs) || 0).toLocaleString()
+                       })"></div>
+                </div>
+              </div>
+              <div class="stats-card" style="cursor:default">
+                <div class="stats-card-icon">
+                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/></svg>
+                </div>
+                <div class="stats-card-body">
+                  <div class="stats-card-label" x-text="t('stats.ai_cost.cards.tokens')"></div>
+                  <div class="stats-card-value mono" x-text="Number((statsAiCost.month_to_date && statsAiCost.month_to_date.tokens) || 0).toLocaleString()"></div>
+                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.ai_cost.cards.tokens_sub')"></div>
+                </div>
+              </div>
+              <div class="stats-card" style="cursor:default">
+                <div class="stats-card-icon">
+                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/></svg>
+                </div>
+                <div class="stats-card-body">
+                  <div class="stats-card-label" x-text="t('stats.ai_cost.cards.avg_rt')"></div>
+                  <div class="stats-card-value mono"
+                       x-text="(statsAiCost.mtd_metrics && statsAiCost.mtd_metrics.avg_response_time_ms != null) ? (Math.round(statsAiCost.mtd_metrics.avg_response_time_ms).toLocaleString() + ' ms') : '—'"></div>
+                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.ai_cost.cards.avg_rt_sub')"></div>
+                </div>
+              </div>
+              <div class="stats-card" style="cursor:default">
+                <div class="stats-card-icon">
+                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                </div>
+                <div class="stats-card-body">
+                  <div class="stats-card-label" x-text="t('stats.ai_cost.cards.accuracy')"></div>
+                  <div class="stats-card-value mono"
+                       x-text="(statsAiCost.mtd_metrics && statsAiCost.mtd_metrics.avg_accuracy_score != null) ? (Math.round(statsAiCost.mtd_metrics.avg_accuracy_score * 100) / 100).toFixed(2) : '—'"></div>
+                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.ai_cost.cards.accuracy_sub')"></div>
                 </div>
               </div>
               <div class="stats-card" style="cursor:default">
