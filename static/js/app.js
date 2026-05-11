@@ -18401,6 +18401,104 @@ function app() {
           config_count: configBackups.length,
         };
       }
+      // Stats — every Stats sub-page's already-loaded data, ground-
+      // truth context for AI questions like "what's our MTD AI spend?"
+      // / "how many failures last week?" / "top chatty host this 7d?"
+      // / "how big is the DB?". Each block lands only if that Stats
+      // sub-page has been opened AT LEAST ONCE this session (its
+      // `*Loaded` flag is true) — keeps the payload small for fresh
+      // tabs while still grounding the AI on whatever the operator's
+      // actually been looking at. Backend endpoints exist under
+      // `/api/admin/stats/*` if the AI ever needs to fetch them
+      // directly; this client-side bundle just opportunistically
+      // forwards what's already in memory.
+      const stats = {};
+      if (this.statsOverviewLoaded && this.statsOverview && Object.keys(this.statsOverview).length) {
+        // Pluck the headline counts only — the SPA card payload has
+        // sub-breakdowns like per-provider lists that bloat the
+        // prompt; the AI rarely needs them.
+        const o = this.statsOverview;
+        stats.overview = {
+          users:           o.users || null,
+          sessions:        o.sessions || null,
+          providers:       o.providers || null,
+          hosts:           o.hosts || null,
+          host_groups:     o.host_groups || null,
+          assets:          o.assets || null,
+          nodes:           o.nodes || null,
+          stacks:          o.stacks || null,
+          services:        o.services || null,
+          containers:      o.containers || null,
+          schedules:       o.schedules || null,
+          backups:         o.backups || null,
+          config_backups:  o.config_backups || null,
+          tunables:        o.tunables || null,
+        };
+      }
+      if (this.statsDatabaseLoaded && this.statsDatabase && Object.keys(this.statsDatabase).length) {
+        const d = this.statsDatabase;
+        stats.database = {
+          size_bytes: (d.size && d.size.bytes) || 0,
+          top_tables: (d.tables || []).map(t => ({
+            name:  t.name, bytes: t.bytes, rows: t.rows,
+          })),
+          top_queries: (d.queries || []).map(q => ({
+            table: q.table, rows: q.rows,
+          })),
+          // Projection — first + last point only (90d window). Full
+          // 91-point series would bloat the prompt.
+          projection_first: (d.projection || [])[0] || null,
+          projection_last:  (d.projection || [])[(d.projection || []).length - 1] || null,
+        };
+      }
+      if (this.statsSamplesLoaded && this.statsSamples && Object.keys(this.statsSamples).length) {
+        const s = this.statsSamples;
+        stats.samples = {
+          grand_total: s.grand_total || 0,
+          tables: (s.tables || []).map(t => ({
+            name:         t.name,
+            provider:     t.provider,
+            rows:         t.rows,
+            unique_hosts: t.unique_hosts,
+            oldest_ts:    t.oldest_ts,
+            newest_ts:    t.newest_ts,
+          })),
+        };
+      }
+      if (this.statsIncidentsLoaded && this.statsIncidents && Object.keys(this.statsIncidents).length) {
+        const i = this.statsIncidents;
+        stats.incidents = {
+          window_hours:        i.window_hours || null,
+          total_failures:      i.total_failures || 0,
+          total_recoveries:    i.total_recoveries || 0,
+          total_events:        i.total_events || 0,
+          mttr_overall_seconds: i.mttr_overall_seconds,
+          per_provider:        i.per_provider || [],
+          top_hosts:           i.top_hosts || [],
+        };
+      }
+      if (this.statsNetworkLoaded && this.statsNetwork && Object.keys(this.statsNetwork).length) {
+        const n = this.statsNetwork;
+        stats.network = {
+          window_hours:    n.window_hours || null,
+          total:           n.total || null,
+          top_24h:         (n.top_24h || []).slice(0, 5),
+          top_7d:          (n.top_7d || []).slice(0, 5),
+          top_chatty:      (n.top_chatty || []).slice(0, 5),
+        };
+      }
+      if (this.statsAiCostLoaded && this.statsAiCost && Object.keys(this.statsAiCost).length) {
+        const a = this.statsAiCost;
+        stats.ai_cost = {
+          month_to_date:   a.month_to_date || null,
+          last_month:      a.last_month || null,
+          projected_eom:   a.projected_eom || null,
+          mtd_metrics:     a.mtd_metrics || null,
+          tokens_by_provider_model: (a.tokens_by_provider_model || []).slice(0, 10),
+          top_expensive:   (a.top_expensive || []).slice(0, 5),
+        };
+      }
+      if (Object.keys(stats).length) ctx.stats = stats;
       return ctx;
     },
     // Resolve a snake_case action ID emitted by the AI palette

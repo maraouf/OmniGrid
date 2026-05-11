@@ -1832,6 +1832,42 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 "Always cite the file name when answering 'what's the latest backup?' style questions."
             )
             parts.append("\n".join(block_lines))
+        # Stats — Stats sub-page data the operator has opened this
+        # session. Each block lands only when the matching Stats page
+        # has been visited (the SPA forwards the in-memory state for
+        # any sub-page whose `*Loaded` flag is true). The AI should
+        # answer questions like "what's our MTD AI spend?" / "how
+        # many failures last week?" / "top chatty host" using this
+        # block as ground truth instead of refusing or guessing.
+        # When the relevant Stats sub-page hasn't been opened the
+        # block is absent — the AI should suggest the operator open
+        # the corresponding Stats tab to populate it.
+        stats = ctx.get("stats") if isinstance(ctx.get("stats"), dict) else None
+        if stats:
+            try:
+                import json as _json
+                # JSON-stringify the stats block compactly. Tree is
+                # already pre-shaped by the SPA to be small (10-30
+                # rows per leaf list), so a single compact JSON dump
+                # stays well within the prompt budget on a fleet of
+                # any reasonable size.
+                stats_json = _json.dumps(stats, separators=(",", ":"), default=str)
+                # Hard cap defensively in case a fleet pushed the size.
+                if len(stats_json) > 8000:
+                    stats_json = stats_json[:8000] + "...<truncated>"
+                stats_block = [
+                    "Stats context (forwarded from the SPA's already-loaded Stats sub-pages):",
+                    stats_json,
+                    "Each sub-page key (overview / database / samples / incidents / network / "
+                    "ai_cost) is the same shape returned by /api/admin/stats/<sub>. Use these "
+                    "values to ground numeric / KPI / cost / failure / network-throughput "
+                    "questions. When the relevant key is ABSENT, tell the operator the Stats "
+                    "sub-page hasn't been opened this session and they can populate it by "
+                    "visiting Stats → <sub>.",
+                ]
+                parts.append("\n".join(stats_block))
+            except Exception:
+                pass
         # Recent log signals — last N error/warn lines from the
         # in-process log ring buffer. Populated by the palette
         # endpoint via `logic.logs.recent_lines(levels=[error, warn])`
