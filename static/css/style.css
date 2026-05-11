@@ -3760,6 +3760,47 @@ body.ai-pinned > .og-app-shell--ai-pinned {
     font-weight: 600;
     color: var(--text);
 }
+/* In-conversation scrollback search row. Sits between the header and
+   the log scrollback. Hidden on mobile (markup uses `hidden sm:flex`
+   Tailwind utility) — sidebar is 100vw on phones and the log would be
+   pushed off-screen with a search bar on top. */
+.ai-sidebar-search {
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-2) var(--s-4);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+}
+.ai-sidebar-search-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: var(--s-1) var(--s-2);
+    color: var(--text);
+    font-size: var(--fs-sm);
+    outline: none;
+}
+.ai-sidebar-search-input:focus-visible {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-soft);
+}
+.ai-sidebar-search-meta {
+    color: var(--text-faint);
+    white-space: nowrap;
+}
+/* Matched turns (passive — light primary tint). Active match adds
+   a left border accent so the operator's eye lands on the current
+   cursor position even when multiple matches are visible at once. */
+.ai-turn--matched {
+    background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+.ai-turn--matched-active {
+    background: color-mix(in srgb, var(--primary) 18%, transparent);
+    border-inline-start: 3px solid var(--primary);
+    padding-inline-start: var(--s-2);
+}
 /* Mode-toggle dropdown — Approval / Autonomous switch. Sits in
    the input/send row next to the Send button so the operator sees
    "what mode am I in" right next to "what action am I about to

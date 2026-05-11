@@ -667,6 +667,48 @@ def tuning_int(db_key: str) -> int:
     return _clamp(default)
 
 
+# ---------------------------------------------------------------------------
+# Stats-charts unified bucketing rule (operator-flagged):
+#   1h or 24h  → per-hour buckets   (3600s)
+#   7d or 30d  → per-day  buckets   (86400s)
+#   90d        → per-week buckets   (604800s)
+# Consumed by every `/api/admin/stats/*` endpoint that accepts a `?range=`
+# param. Single source of truth so the per-chart implementations stay in
+# sync as new ranges are added. Wider windows that can't fit a bar-per-bucket
+# (e.g. 1h with hourly buckets = 1 bar) are accepted as-is — a single bar is
+# the operator-stated convention for that case.
+STATS_RANGE_SECONDS: dict[str, int] = {
+    "1h":  3600,
+    "24h": 86400,
+    "7d":  7 * 86400,
+    "30d": 30 * 86400,
+    "90d": 90 * 86400,
+}
+
+STATS_BUCKET_SECONDS: dict[str, int] = {
+    "1h":  3600,
+    "24h": 3600,
+    "7d":  86400,
+    "30d": 86400,
+    "90d": 7 * 86400,
+}
+
+
+def stats_range_seconds(range_key: str) -> int | None:
+    """Return total seconds for the operator-selected window, or None
+    when the key is unknown — caller falls back to its own default.
+    """
+    return STATS_RANGE_SECONDS.get((range_key or "").strip().lower())
+
+
+def stats_bucket_seconds_for_range(range_key: str) -> int:
+    """Bucket size in seconds for the chart serving `range_key`. Falls
+    back to day buckets (86400s) for unknown ranges so the consumer
+    never crashes on a typo'd query param.
+    """
+    return STATS_BUCKET_SECONDS.get((range_key or "").strip().lower(), 86400)
+
+
 def effective_state() -> dict:
     """Return current effective values + which tier each came from. Used by
     the GET endpoint so the UI can render placeholders showing the env

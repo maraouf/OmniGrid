@@ -134,6 +134,34 @@ OP_TYPES: frozenset[str] = frozenset({
     # else.
     "totp_admin_disabled",
     "totp_force_set",
+    # Admin write-action audit-trail — every admin POST/PATCH/DELETE
+    # that's NOT an Operation (and isn't a high-volume / low-stakes
+    # path like notification mark-as-read) writes a synchronous direct
+    # INSERT INTO history at the success path's top via
+    # `assert_op_type(<canonical>)`. See CLAUDE.md "Admin write-actions
+    # audit-trail gap" rule for the full contract — including which
+    # paths are intentionally exempt and which canonical helper to use
+    # for new audit rows. notification_read intentionally OUT
+    # (high-volume + low-stakes per the UX review).
+    "user_create",
+    "user_update",
+    "user_delete",
+    "user_pw_reset",
+    "session_revoke",
+    "token_create",
+    "token_revoke",
+    "backup_create",
+    "backup_delete",
+    "backup_restore",
+    "config_backup_save",
+    "config_backup_import",
+    "config_backup_restore",
+    "config_backup_delete",
+    "schedule_create",
+    "schedule_update",
+    "schedule_delete",
+    "schedule_run_now",
+    "notification_delete",
 })
 
 
@@ -150,6 +178,59 @@ def assert_op_type(op_type: str) -> None:
         f"[ops] warning — unknown op_type {op_type!r} written to history; "
         f"add to logic.ops.OP_TYPES + static/i18n/en.json:history.op_types"
     )
+
+
+def write_admin_audit(
+    conn,
+    op_type: str,
+    *,
+    target_kind: str | None = None,
+    target_name: str | None = None,
+    target_id: str | None = None,
+    actor: str = "ui",
+    status: str = "success",
+    message: str | None = None,
+    error: str | None = None,
+) -> None:
+    """Synchronous audit-trail writer for admin write-actions that
+    don't go through `new_op` / `Operation`. Used by the 18 admin
+    write-routes covered by the CLAUDE.md "Admin write-actions
+    audit-trail gap" rule (user / session / token / backup /
+    config-backup / schedule / notification CRUD).
+
+    Mirrors the TOTP audit pattern (`api_admin_user_disable_totp` /
+    `api_admin_user_force_totp_set`) — calls `assert_op_type` for
+    typo-detection then INSERTs directly. Failures are swallowed +
+    logged so a bad audit row can't roll back the actual admin
+    action; the operator sees the failure in Admin → Logs.
+
+    The single-line `events` JSON (one info-level event with the
+    optional `message`) gives the History UI a row body to expand
+    when the operator clicks the audit row.
+    """
+    import time as _time
+    import json as _json
+    assert_op_type(op_type)
+    try:
+        events_json = _json.dumps([{
+            "ts": _time.time(),
+            "level": "error" if status == "error" else "info",
+            "msg": message or "",
+        }]) if message else None
+        conn.execute(
+            "INSERT INTO history "
+            "(ts, op_type, target_kind, target_name, target_id, "
+            " target_stack, status, duration, events, error, actor) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                _time.time(), op_type,
+                target_kind, target_name, target_id,
+                None, status, 0.0,
+                events_json, error, actor or "ui",
+            ),
+        )
+    except Exception as e:
+        print(f"[ops] warning — failed to write admin audit row {op_type!r}: {e!r}")
 
 
 # Single source of truth for notification event names + per-event default

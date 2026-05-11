@@ -192,16 +192,23 @@
                    stats page. -->
               <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
                 <h4 class="font-semibold fs-sm" x-text="t('stats.ai_cost.rt_trend.title')"></h4>
-                <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
-                     role="group"
-                     :aria-label="t('stats.ai_cost.rt_trend.range_label')">
-                  <template x-for="opt in ['1h', '24h', '7d', '30d', '90d']" :key="opt">
-                    <button type="button"
-                            @click="loadStatsAiCost(opt)"
-                            :class="(statsAiCost.range || statsAiCostRange) === opt ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-                            class="px-2 py-0.5 rounded fs-xs font-medium transition"
-                            x-text="opt"></button>
-                  </template>
+                <div class="flex items-center gap-2">
+                  <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
+                       role="group"
+                       :aria-label="t('stats.ai_cost.rt_trend.range_label')">
+                    <template x-for="opt in ['1h', '24h', '7d', '30d', '90d']" :key="opt">
+                      <button type="button"
+                              @click="_runWithBusy('stats_ai_cost', () => loadStatsAiCost(opt))"
+                              :disabled="_loadBusy.stats_ai_cost === true"
+                              :class="(statsAiCost.range || statsAiCostRange) === opt ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                              class="px-2 py-0.5 rounded fs-xs font-medium transition"
+                              x-text="opt"></button>
+                    </template>
+                  </div>
+                  <svg x-show="_loadBusy.stats_ai_cost === true"
+                       width="13" height="13" class="spin-md text-[var(--text-dim)]" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                  </svg>
                 </div>
               </div>
               <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('stats.ai_cost.rt_trend.hint')"></p>
@@ -211,27 +218,15 @@
                    `static/css/style.css`. Each bar's height is
                    percent-of-max within the window. Hover the bar →
                    the date + ms + job count in the title. -->
+              <!-- SVG bar chart with proper X + Y axes and gridlines.
+                   Renderer is `_renderAiCostTrendChart(points, range)`
+                   in static/js/app.js — same shape as the Samples
+                   bucket chart so the visual treatment is consistent
+                   across Stats per the operator-flagged unification
+                   ask. -->
               <div x-show="(statsAiCost.avg_response_time_trend || []).length"
                    class="bg-[var(--bg)] border border-[var(--border)] rounded-md p-3 mb-3">
-                <!-- Bucket label format depends on the resolved range:
-                     hour buckets (1h / 24h) use the full datetime
-                     formatter; day buckets (≥7d) use the date-only
-                     formatter so labels stay short. -->
-                <div class="samples-daily-chart"
-                     :style="'--samples-max: ' + Math.max(1, ...(statsAiCost.avg_response_time_trend || []).map(d => d.avg_ms || 0))">
-                  <template x-for="d in (statsAiCost.avg_response_time_trend || [])" :key="d.bucket_ts">
-                    <div class="samples-daily-bar"
-                         :style="'--bar-h: ' + Math.max(2, Math.round(((d.avg_ms || 0) / Math.max(1, ...(statsAiCost.avg_response_time_trend || []).map(x => x.avg_ms || 0))) * 100)) + '%'"
-                         :title="(((statsAiCost.range || statsAiCostRange) === '1h' || (statsAiCost.range || statsAiCostRange) === '24h') ? fmtDateTimeShort(d.bucket_ts) : fmtDateOnly(d.bucket_ts)) + ': ' + Math.round(d.avg_ms || 0).toLocaleString() + ' ms · ' + Number(d.jobs || 0).toLocaleString() + ' job(s)'">
-                      <span class="samples-daily-bar-fill"></span>
-                    </div>
-                  </template>
-                </div>
-                <div class="flex justify-between items-center mt-2 fs-2xs text-[var(--text-faint)] mono">
-                  <span x-text="(statsAiCost.avg_response_time_trend && statsAiCost.avg_response_time_trend[0]) ? (((statsAiCost.range || statsAiCostRange) === '1h' || (statsAiCost.range || statsAiCostRange) === '24h') ? fmtDateTimeShort(statsAiCost.avg_response_time_trend[0].bucket_ts) : fmtDateOnly(statsAiCost.avg_response_time_trend[0].bucket_ts)) : ''"></span>
-                  <span x-text="(statsAiCost.avg_response_time_trend && statsAiCost.avg_response_time_trend.length > 2) ? (((statsAiCost.range || statsAiCostRange) === '1h' || (statsAiCost.range || statsAiCostRange) === '24h') ? fmtDateTimeShort(statsAiCost.avg_response_time_trend[Math.floor(statsAiCost.avg_response_time_trend.length / 2)].bucket_ts) : fmtDateOnly(statsAiCost.avg_response_time_trend[Math.floor(statsAiCost.avg_response_time_trend.length / 2)].bucket_ts)) : ''"></span>
-                  <span x-text="(statsAiCost.avg_response_time_trend && statsAiCost.avg_response_time_trend.length) ? (((statsAiCost.range || statsAiCostRange) === '1h' || (statsAiCost.range || statsAiCostRange) === '24h') ? fmtDateTimeShort(statsAiCost.avg_response_time_trend[statsAiCost.avg_response_time_trend.length - 1].bucket_ts) : fmtDateOnly(statsAiCost.avg_response_time_trend[statsAiCost.avg_response_time_trend.length - 1].bucket_ts)) : ''"></span>
-                </div>
+                <div x-html="_renderAiCostTrendChart(statsAiCost.avg_response_time_trend || [], statsAiCost.range || statsAiCostRange)"></div>
               </div>
 
               <!-- Table — DESC-sorted (newest day at top) per
