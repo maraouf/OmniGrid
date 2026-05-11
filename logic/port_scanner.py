@@ -379,7 +379,7 @@ async def scan_host(
         # when getaddrinfo() failed AND the target wasn't a literal
         # IP. Surfaced in toast / history so the operator can trace
         # results back beyond the alias they typed (e.g. `opnsense`
-        # → `192.168.1.1`, `ftth` → `192.168.0.1` via search-domain
+        # → `192.X.X.X`, `ftth` → `192.X.X.X` via search-domain
         # resolution chain in the container's resolv.conf).
         "resolved_ip": resolved_ip,
         "scanned_at":  int(time.time()),

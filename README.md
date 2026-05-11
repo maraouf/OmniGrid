@@ -97,7 +97,7 @@ The canonical production deploy is the CI pipeline — push to `main`, the runne
 
 ### Pull a pre-built image (no build step)
 
-Pre-built multi-platform images are published to the public **GitHub Container Registry** at `ghcr.io/maraouf/omnigrid` on every MINOR release (cut-day `v<MAJOR>.<MINOR>.0` tag — daily auto-PATCH builds stay in the maintainer-private registry). The package is public — `docker pull` works anonymously, no token needed:
+Pre-built multi-platform images are published to a public container registry at `ghcr.io/maraouf/omnigrid` on every MINOR release (cut-day `v<MAJOR>.<MINOR>.0` tag — daily auto-PATCH builds stay in the maintainer-private registry). The package is public — `docker pull` works anonymously, no token needed:
 
 ```bash
 docker pull ghcr.io/maraouf/omnigrid:latest          # newest minor

@@ -3499,7 +3499,7 @@
       "icon_placeholder": "opnsense · pfsense · ghcr.io/… · none",
       "address_label": "Hostname or IP",
       "address_hint": "(default probe target for port-scan / ping / SNMP / SSH when no provider override is set)",
-      "address_placeholder": "192.168.1.50 · host.example.com · …",
+      "address_placeholder": "192.X.X.X · host.example.com · …",
       "ssh_fqdn_label": "SSH FQDN / host",
       "ssh_fqdn_hint": "(blank = falls back to Hostname or IP)",
       "snmp_target_label": "SNMP target",

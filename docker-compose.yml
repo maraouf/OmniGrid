@@ -3,7 +3,7 @@ services:
   omnigrid:
     # Built from the in-tree Dockerfile by the deploy pipeline on the
     # Swarm manager AND pushed to Forgejo's container registry on
-    # every successful build (#609). The pipeline sets `OMNIGRID_IMAGE`
+    # every successful build. The pipeline sets `OMNIGRID_IMAGE`
     # in the runner env to the registry path
     # (`<REGISTRY_HOST>/<NAMESPACE>/<IMAGE>:latest`) before
     # `docker stack deploy`, and `${OMNIGRID_IMAGE:-omnigrid:latest}`
@@ -27,7 +27,7 @@ services:
       - TZ=Africa/Cairo
 
     # Raw socket capability — ONLY required for the Ping host-stats
-    # provider's optional ICMP transport (#343). icmplib needs
+    # provider's optional ICMP transport. icmplib needs
     # CAP_NET_RAW to open SOCK_RAW; without it every ICMP probe raises
     # SocketPermissionError and logic/ping.py falls back to TCP-connect
     # at probe time (still functional, just no ICMP). Granting NET_RAW
