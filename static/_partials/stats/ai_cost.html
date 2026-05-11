@@ -98,7 +98,7 @@
                 <div class="stats-card-body">
                   <div class="stats-card-label" x-text="t('stats.ai_cost.cards.accuracy')"></div>
                   <div class="stats-card-value mono"
-                       x-text="(statsAiCost.mtd_metrics && statsAiCost.mtd_metrics.avg_accuracy_score != null) ? (Math.round(statsAiCost.mtd_metrics.avg_accuracy_score * 100) / 100).toFixed(2) : '—'"></div>
+                       x-text="(statsAiCost.mtd_metrics && statsAiCost.mtd_metrics.avg_accuracy_score != null) ? (Math.round(statsAiCost.mtd_metrics.avg_accuracy_score * 1000) / 10).toFixed(1) + '%' : '—'"></div>
                   <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.ai_cost.cards.accuracy_sub')"></div>
                 </div>
               </div>

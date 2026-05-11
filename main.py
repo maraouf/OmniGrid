@@ -4915,11 +4915,48 @@ async def api_admin_stats_network(
         "top_chatty": [],
         "timeseries": [],
     }
+    # Dedupe key resolver — builds host_id → canonical key from
+    # `hosts_config[].ne_url`. Two curated rows scraping the same
+    # exporter (same host:port) end up writing samples under different
+    # `host_id` values, which double-counts the same physical box in
+    # the Top-N lists. Group by the canonical key (host:port) and
+    # collapse duplicates client-side AFTER the SQL aggregation —
+    # SQLite can't reach into JSON-blob settings to dedupe inline.
+    from urllib.parse import urlparse as _urlparse
+    canonical_map: dict = {}
+    try:
+        curated = _load_hosts_config()
+        for h in curated:
+            hid = (h.get("id") or "").strip()
+            if not hid:
+                continue
+            ne_url = (h.get("ne_url") or "").strip()
+            if not ne_url:
+                continue
+            try:
+                p = _urlparse(ne_url)
+                host = (p.hostname or "").strip().lower()
+                port = p.port or (443 if p.scheme == "https" else 80)
+                if host:
+                    canonical_map[hid] = f"{host}:{port}"
+            except Exception:
+                pass
+    except Exception as e:
+        out["canonical_map_error"] = str(e)
+
+    def _canonical(hid: str) -> str:
+        """Return canonical dedupe key — ne_url host:port if mapped,
+        else fall back to the host_id itself (host stands alone)."""
+        return canonical_map.get(hid) or hid
+
     try:
         with db_conn() as c:
             # Top-N hosts by max rate — two windows. UNION so we can
             # render the "burst rate" KPI cards without a second round-
-            # trip per range.
+            # trip per range. Fetch WITHOUT LIMIT, dedupe by canonical
+            # host:port (so two curated rows scraping the same exporter
+            # collapse to one entry — see `canonical_map` above),
+            # then slice to top 10.
             for label, hrs in (("top_24h", 24), ("top_7d", 168)):
                 since = now_ts - hrs * 3600
                 rows = c.execute(
@@ -4929,18 +4966,41 @@ async def api_admin_stats_network(
                     "  FROM host_net_samples "
                     " WHERE ts >= ? "
                     " GROUP BY host_id "
-                    " ORDER BY MAX(rx_bytes_per_s + tx_bytes_per_s) DESC "
-                    " LIMIT 10",
+                    " ORDER BY MAX(rx_bytes_per_s + tx_bytes_per_s) DESC",
                     (since,),
                 ).fetchall()
-                out[label] = [
-                    {
-                        "host_id":    r["host_id"] if hasattr(r, "keys") else r[0],
-                        "max_rx_bps": float(r["max_rx"] if hasattr(r, "keys") else r[1] or 0),
-                        "max_tx_bps": float(r["max_tx"] if hasattr(r, "keys") else r[2] or 0),
-                    }
-                    for r in rows
-                ]
+                deduped: dict = {}
+                for r in rows:
+                    hid = r["host_id"] if hasattr(r, "keys") else r[0]
+                    rx = float(r["max_rx"] if hasattr(r, "keys") else r[1] or 0)
+                    tx = float(r["max_tx"] if hasattr(r, "keys") else r[2] or 0)
+                    key = _canonical(hid)
+                    cur = deduped.get(key)
+                    if cur is None:
+                        deduped[key] = {
+                            "host_id":    hid,
+                            "max_rx_bps": rx,
+                            "max_tx_bps": tx,
+                            "aliases":    [],
+                        }
+                    else:
+                        # MAX across duplicates — they're sampling the
+                        # same exporter at different moments, so the
+                        # higher peak captured by either is the real
+                        # burst rate for the physical box.
+                        if rx + tx > cur["max_rx_bps"] + cur["max_tx_bps"]:
+                            cur["aliases"].append(cur["host_id"])
+                            cur["host_id"] = hid
+                        else:
+                            cur["aliases"].append(hid)
+                        cur["max_rx_bps"] = max(cur["max_rx_bps"], rx)
+                        cur["max_tx_bps"] = max(cur["max_tx_bps"], tx)
+                # Sort by combined max + slice to top 10.
+                merged = sorted(
+                    deduped.values(),
+                    key=lambda x: -(x["max_rx_bps"] + x["max_tx_bps"]),
+                )[:10]
+                out[label] = merged
             # Per-host integrated bytes over the requested window.
             # rate × cadence per row, summed. Simple + bounded enough
             # given the sample cadence is operator-controlled. Long
@@ -4955,32 +5015,71 @@ async def api_admin_stats_network(
                 "  FROM host_net_samples "
                 " WHERE ts >= ? "
                 " GROUP BY host_id "
-                " ORDER BY SUM(rx_bytes_per_s + tx_bytes_per_s) DESC "
-                " LIMIT 10",
+                " ORDER BY SUM(rx_bytes_per_s + tx_bytes_per_s) DESC",
                 (cadence, cadence, cutoff),
             ).fetchall()
-            chatty = []
+            # Dedupe by canonical host:port. Two curated rows scraping
+            # the SAME exporter at separate ticks effectively double-
+            # count the box (each sample is independently inserted). We
+            # MAX the per-key bytes rather than SUM — summing two rows
+            # of the same exporter inflates the total artificially;
+            # MAX picks the more accurate side (whichever sampler
+            # caught more ticks during the window).
+            ded_chatty: dict = {}
             for r in rows:
+                hid = r["host_id"] if hasattr(r, "keys") else r[0]
                 bx = int(r["bytes_rx"] if hasattr(r, "keys") else r[1] or 0)
                 bt = int(r["bytes_tx"] if hasattr(r, "keys") else r[2] or 0)
-                chatty.append({
-                    "host_id":     r["host_id"] if hasattr(r, "keys") else r[0],
-                    "bytes_rx":    bx,
-                    "bytes_tx":    bt,
-                    "bytes_total": bx + bt,
-                })
-            out["top_chatty"] = chatty
-            # Fleet-wide totals.
-            r = c.execute(
-                "SELECT COALESCE(SUM(rx_bytes_per_s) * ?, 0) AS bytes_rx, "
-                "       COALESCE(SUM(tx_bytes_per_s) * ?, 0) AS bytes_tx "
+                total = bx + bt
+                key = _canonical(hid)
+                cur = ded_chatty.get(key)
+                if cur is None:
+                    ded_chatty[key] = {
+                        "host_id":     hid,
+                        "bytes_rx":    bx,
+                        "bytes_tx":    bt,
+                        "bytes_total": total,
+                        "aliases":     [],
+                    }
+                else:
+                    if total > cur["bytes_total"]:
+                        cur["aliases"].append(cur["host_id"])
+                        cur["host_id"] = hid
+                        cur["bytes_rx"] = bx
+                        cur["bytes_tx"] = bt
+                        cur["bytes_total"] = total
+                    else:
+                        cur["aliases"].append(hid)
+            out["top_chatty"] = sorted(
+                ded_chatty.values(),
+                key=lambda x: -x["bytes_total"],
+            )[:10]
+            # Fleet-wide totals. Aggregate per host_id first, then
+            # dedupe by canonical key (MAX across duplicates, same
+            # reasoning as the chatty list), then sum the deduped
+            # rows. Bare SUM across all rows would double-count any
+            # physical box represented by two curated entries.
+            rows = c.execute(
+                "SELECT host_id, "
+                "       SUM(rx_bytes_per_s) * ? AS bytes_rx, "
+                "       SUM(tx_bytes_per_s) * ? AS bytes_tx "
                 "  FROM host_net_samples "
-                " WHERE ts >= ?",
+                " WHERE ts >= ? "
+                " GROUP BY host_id",
                 (cadence, cadence, cutoff),
-            ).fetchone()
+            ).fetchall()
+            ded_total: dict = {}
+            for r in rows:
+                hid = r["host_id"] if hasattr(r, "keys") else r[0]
+                bx = int(r["bytes_rx"] if hasattr(r, "keys") else r[1] or 0)
+                bt = int(r["bytes_tx"] if hasattr(r, "keys") else r[2] or 0)
+                key = _canonical(hid)
+                cur = ded_total.get(key)
+                if cur is None or (bx + bt) > (cur["bytes_rx"] + cur["bytes_tx"]):
+                    ded_total[key] = {"bytes_rx": bx, "bytes_tx": bt}
             out["total"] = {
-                "bytes_rx": int(r["bytes_rx"] if hasattr(r, "keys") else r[0] or 0),
-                "bytes_tx": int(r["bytes_tx"] if hasattr(r, "keys") else r[1] or 0),
+                "bytes_rx": sum(v["bytes_rx"] for v in ded_total.values()),
+                "bytes_tx": sum(v["bytes_tx"] for v in ded_total.values()),
             }
             # Fleet-wide stacked-area time-series. Target ~96 buckets
             # across the window (one per hour at 7d, ~15-min at 24h).
