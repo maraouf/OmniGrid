@@ -3215,9 +3215,18 @@ function app() {
         this.statsDatabaseLoaded = true;
       }
     },
-    async loadStatsSamples() {
+    // Range for the "Samples written per day" chart. Distinct from
+    // the global stats range (rest of the Samples tab is all-time);
+    // operator-flagged 2026-05-11 to add per-section range picker
+    // matching the host-chart picker shape (1h / 24h / 7d / 30d).
+    // Persisted in-session only — defaults back to 90d on reload so
+    // the chart's wide-window default re-establishes itself.
+    statsSamplesRange: '90d',
+    async loadStatsSamples(range) {
+      const r_arg = (range || this.statsSamplesRange || '90d').toString();
+      this.statsSamplesRange = r_arg;
       try {
-        const r = await fetch('/api/admin/stats/samples');
+        const r = await fetch('/api/admin/stats/samples?range=' + encodeURIComponent(r_arg));
         if (!r.ok) return;
         this.statsSamples = await r.json();
       } catch (_) {} finally {
@@ -18914,6 +18923,104 @@ function app() {
     // 220px. Mirrors the disk-projection chart visual treatment but
     // standalone since the data shape and the calling surface are
     // distinct.
+    // SVG bar chart for the Stats → Samples "Samples written per
+    // bucket" panel. Replaces the earlier pure-CSS bar chart so x +
+    // y axes can render proper tick labels (operator-flagged
+    // 2026-05-11). Backend `/api/admin/stats/samples?range=X` returns
+    // `bucket_totals: [{date: <bucket-key>, total: N}, ...]`
+    // ascending; bucket-key is `YYYY-MM-DD` for daily windows,
+    // `YYYY-MM-DDTHH:00` for hourly (24h), `YYYY-MM-DDTHH:MM` for
+    // minutely (1h). Y-axis: 5 evenly-spaced ticks rounded to nice
+    // numbers. X-axis: ~6 tick labels, evenly-spaced across the
+    // window (first/last always shown). Hover on a bar reveals
+    // `<bucket>: N rows` via :title for cheap tooltip without a
+    // separate tooltip layer.
+    _renderSamplesBucketChart(points, range) {
+      if (!Array.isArray(points) || points.length === 0) return '';
+      const W = 720, H = 220;
+      const PAD_L = 56, PAD_R = 12, PAD_T = 12, PAD_B = 28;
+      const plotW = W - PAD_L - PAD_R;
+      const plotH = H - PAD_T - PAD_B;
+      const n = points.length;
+      const barW = plotW / n;
+      const yMaxRaw = Math.max(1, ...points.map(p => p.total || 0));
+      // Round yMax up to a nice number (1, 2, 5 × 10^k) so y-tick
+      // labels are clean integers.
+      const niceMax = (v) => {
+        if (v <= 0) return 1;
+        const exp = Math.pow(10, Math.floor(Math.log10(v)));
+        const r = v / exp;
+        const stepMul = (r <= 1) ? 1 : (r <= 2) ? 2 : (r <= 5) ? 5 : 10;
+        return stepMul * exp;
+      };
+      const yMax = niceMax(yMaxRaw);
+      const Y = (v) => PAD_T + (1 - (v / Math.max(1, yMax))) * plotH;
+      const X = (i) => PAD_L + i * barW;
+      // Y-axis ticks — 5 evenly-spaced from 0 to yMax.
+      const yTicks = [0, 1, 2, 3, 4].map(i => {
+        const v = (yMax / 4) * i;
+        return { v, y: Y(v).toFixed(1), label: Math.round(v).toLocaleString() };
+      });
+      // X-axis: pick ~6 buckets evenly spaced (first/last always
+      // included). For sub-day buckets shorten the label by stripping
+      // the date prefix when every shown tick is the same date.
+      const tickCount = Math.min(6, n);
+      const xIdxs = [];
+      if (tickCount === 1) {
+        xIdxs.push(0);
+      } else {
+        for (let i = 0; i < tickCount; i++) {
+          xIdxs.push(Math.round((i / (tickCount - 1)) * (n - 1)));
+        }
+      }
+      const dedup = Array.from(new Set(xIdxs));
+      const r = (range || '90d').toString();
+      // Format the x-tick label per range: hourly/minutely shorten
+      // to time-of-day; daily keeps `MM-DD` (drop year prefix).
+      const fmtXLabel = (key) => {
+        if (!key) return '';
+        if (r === '1h' || r === '24h') {
+          // `YYYY-MM-DDTHH:MM` or `YYYY-MM-DDTHH:00`
+          const t = key.indexOf('T');
+          return t >= 0 ? key.slice(t + 1) : key;
+        }
+        // Daily — drop year so labels are compact (MM-DD).
+        return key.length === 10 ? key.slice(5) : key;
+      };
+      const esc = (s) => this._logEscape(String(s));
+      let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block">';
+      // Horizontal gridlines + Y-axis labels.
+      for (const t of yTicks) {
+        svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
+          + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+        svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">'
+          + esc(t.label) + '</text>';
+      }
+      // Bars — primary tint with darker hover-state via a per-bar
+      // <title> for cheap tooltips.
+      const totalBarW = Math.max(1, barW - 1);
+      for (let i = 0; i < n; i++) {
+        const p = points[i];
+        const total = Number(p.total || 0);
+        const bx = X(i).toFixed(2);
+        const by = Y(total).toFixed(2);
+        const bh = (PAD_T + plotH - Y(total)).toFixed(2);
+        svg += '<rect x="' + bx + '" y="' + by + '" width="' + totalBarW.toFixed(2)
+          + '" height="' + bh + '" fill="var(--primary)" fill-opacity="0.7">'
+          + '<title>' + esc(p.date) + ': ' + total.toLocaleString() + ' rows</title>'
+          + '</rect>';
+      }
+      // X-axis tick labels.
+      for (const i of dedup) {
+        const p = points[i];
+        if (!p) continue;
+        const cx = (X(i) + barW / 2).toFixed(1);
+        svg += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">'
+          + esc(fmtXLabel(p.date)) + '</text>';
+      }
+      svg += '</svg>';
+      return svg;
+    },
     _renderDbProjectionChart(points) {
       if (!Array.isArray(points) || points.length < 2) return '';
       const W = 720, H = 220;
@@ -19008,19 +19115,20 @@ function app() {
       });
       const esc = (s) => this._logEscape(String(s));
       let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block">';
-      // Horizontal gridlines — same style as the AI drawer chart's
-      // y-axis ticks: thin faint dashed `--border` strokes.
+      // Horizontal gridlines — `var(--chart-grid)` (per-theme tone:
+      // dark-theme uses a slightly-brighter-than-border slate; light-
+      // theme uses slate-400). Operator-flagged 2026-05-11: the
+      // previous `var(--border)` rendered the gridlines as nearly
+      // invisible in light theme.
       for (const t of yTicks) {
         svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
-          + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+          + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"/>';
         svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
       }
-      // Vertical gridlines — one per X-axis tick, matching the AI
-      // drawer chart's "now" divider style but applied to every
-      // tick. Operators can read each 30-day boundary at a glance.
+      // Vertical gridlines — same `--chart-grid` per-theme tone.
       for (const t of xTicks) {
         svg += '<line x1="' + t.x + '" y1="' + PAD_T + '" x2="' + t.x + '" y2="' + (H - PAD_B)
-          + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+          + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"/>';
       }
       // Band.
       svg += '<path d="' + bandPath + '" fill="var(--primary)" fill-opacity="0.12" stroke="none"/>';

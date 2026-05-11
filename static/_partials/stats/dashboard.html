@@ -44,8 +44,13 @@
                      admin-count tail only. -->
                 <div class="stats-card-value"
                      x-text="((statsOverview.users && statsOverview.users.active) || 0) + '/' + ((statsOverview.users && statsOverview.users.total) || 0)"></div>
+                <!-- Sub-line mirrors Providers' "{enabled} enabled · {disabled} disabled"
+                     pattern so the operator reads the slash-format value's
+                     decomposition at a glance (e.g. "2/3" → "2 active · 1 disabled · 1 admin"). -->
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
                      x-text="t('stats.cards.users.sub', {
+                       active: (statsOverview.users && statsOverview.users.active) || 0,
+                       disabled: Math.max(0, ((statsOverview.users && statsOverview.users.total) || 0) - ((statsOverview.users && statsOverview.users.active) || 0)),
                        admins: (statsOverview.users && statsOverview.users.admins) || 0
                      })"></div>
               </div>
@@ -212,8 +217,14 @@
                      "cron-style background jobs" tail only. -->
                 <div class="stats-card-value"
                      x-text="((statsOverview.schedules && statsOverview.schedules.enabled) || 0) + '/' + ((statsOverview.schedules && statsOverview.schedules.total) || 0)"></div>
+                <!-- Sub-line mirrors Providers' "{enabled} enabled · {disabled} disabled"
+                     pattern so the operator reads the slash-format value's
+                     decomposition at a glance (e.g. "7/7" → "7 enabled · 0 disabled"). -->
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
-                     x-text="t('stats.cards.schedules.sub')"></div>
+                     x-text="t('stats.cards.schedules.sub', {
+                       enabled: (statsOverview.schedules && statsOverview.schedules.enabled) || 0,
+                       disabled: Math.max(0, ((statsOverview.schedules && statsOverview.schedules.total) || 0) - ((statsOverview.schedules && statsOverview.schedules.enabled) || 0))
+                     })"></div>
               </div>
             </a>
 

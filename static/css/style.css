@@ -55,6 +55,13 @@
     --surface-2: #131c2b;
     --surface-3: #1b2538;
     --border: #1e293b;
+    /* Dedicated chart-gridline tone — slightly brighter than --border
+       (which sits well against dark surface but renders too faint
+       against light surface in light-theme charts). Operator-flagged
+       2026-05-11: 90-day growth-projection gridlines were nearly
+       invisible in light theme. Per-theme override below in
+       :root[data-theme="light"]. */
+    --chart-grid: #2d3a52;
     --border-bright: #334155; /* slate-700 — clearly visible against the
                                  dark surface without being heavy. Pre-fix
                                  this was empty (`--border-bright:;`) so
@@ -367,6 +374,12 @@
     --surface-2: #f1f5f9;
     --surface-3: #e2e8f0;
     --border: #e2e8f0;
+    /* Light-theme chart gridline — distinctly darker than --border
+       so SVG gridlines (stroke-width 0.5) actually read against
+       the white-ish chart background. slate-400 sits between
+       --border (slate-200) and --text-faint without competing
+       with the chart curves. */
+    --chart-grid: #94a3b8;
     --border-bright: #cbd5e1;
 
     --text: #0f172a;
@@ -713,7 +726,7 @@ textarea {
     background: var(--surface-2);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 5px 10px;
+    padding: var(--s-3) var(--s-5);
     border-radius: var(--r-lg);
     outline: none;
     /* Font size + family restated explicitly — some browsers (notably Safari
@@ -3679,8 +3692,8 @@ body.ai-pinned > .ai-sidebar-drawer.pinned {
     position: relative !important;
     inset: auto !important;
     transform: none !important;
-    width: var(--ai-sidebar-width, 460px) !important;
-    flex: 0 0 var(--ai-sidebar-width, 460px) !important;
+    width: var(--ai-sidebar-width) !important;
+    flex: 0 0 var(--ai-sidebar-width) !important;
     align-self: stretch;
     height: auto;
     min-height: 100vh;
@@ -4670,7 +4683,7 @@ body.ai-pinned > .og-app-shell--ai-pinned {
     text-transform: uppercase;
     letter-spacing: .06em;
     color: var(--text-faint);
-    padding: 10px var(--s-5);
+    padding: var(--s-5);
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
 }
@@ -4685,7 +4698,7 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 }
 
 .ptable td {
-    padding: 9px var(--s-5);
+    padding: var(--s-4) var(--s-5);
     border-bottom: 1px solid var(--border);
     vertical-align: middle;
 }
@@ -4900,7 +4913,7 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 }
 
 .swal2-html-container li {
-    padding: 3px 0;
+    padding: var(--s-1) 0;
     color: var(--text);
 }
 
@@ -5735,7 +5748,7 @@ body.login {
 .login-card input[type="text"],
 .login-card input[type="password"] {
     width: 100%;
-    padding: 9px 10px;
+    padding: var(--s-4) var(--s-5);
     background: var(--surface-2);
     color: var(--text);
     border: 1px solid var(--border-bright);
