@@ -466,7 +466,7 @@
              Port Scan tunables (4 TCP + 2 UDP). Per the section-saves
              -its-own-tunables convention. -->
         <div class="mt-4 flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
-          <button x-show="isAdmin()"
+          <button type="button" x-show="isAdmin()"
                   @click="savePortScanSection()"
                   :disabled="hostStatsSaving || !portScanSectionDirty()"
                   :class="portScanSectionDirty() ? 'ring-2 ring-[var(--warning)]' : ''"

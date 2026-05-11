@@ -40,7 +40,7 @@
             </span>
           </div>
           <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
-            <button x-show="isAdmin()" @click="saveSchedulerSettings()"
+            <button type="button" x-show="isAdmin()" @click="saveSchedulerSettings()"
                     :disabled="schedulerSaving"
                     class="btn btn-primary fs-sm">
               <span x-show="!schedulerSaving" x-text="t('actions.save')"></span>
@@ -135,7 +135,7 @@
                       :placeholder="t('admin.schedules.params_placeholder')"></textarea>
           </div>
           <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-2">
-            <button @click="createSchedule()" :disabled="scheduleBusy"
+            <button type="button" @click="createSchedule()" :disabled="scheduleBusy"
                     class="btn btn-primary fs-sm"
                     :class="scheduleBusy && 'opacity-60'"
                     x-text="scheduleBusy ? t('loading.creating') : t('admin.schedules.create_button')"></button>
@@ -188,7 +188,7 @@
                     <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
                         x-text="cadenceLabel(s)"></td>
                     <td class="px-4 py-2">
-                      <button @click="toggleScheduleEnabled(s)"
+                      <button type="button" @click="toggleScheduleEnabled(s)"
                               class="btn btn-soft fs-xs"
                               :title="s.enabled ? t('admin.schedules.disable_title') : t('admin.schedules.enable_title')"
                               x-text="s.enabled ? t('admin.schedules.on') : t('admin.schedules.off')"></button>
@@ -275,7 +275,7 @@
                      @input="onScheduleQueueSearchInput()"
                      :placeholder="t('admin.schedules.queue_search_placeholder')"
                      class="fs-sm py-1 min-w-[220px]">
-              <button x-show="scheduleQueueSearch" @click="clearScheduleQueueSearch()"
+              <button type="button" x-show="scheduleQueueSearch" @click="clearScheduleQueueSearch()"
                       class="btn btn-ghost fs-xs"
                       :title="t('hosts_extra.empty.clear_filter')"
                       :aria-label="t('hosts_extra.empty.clear_filter') || 'Clear filter'">✕</button>
@@ -380,7 +380,7 @@
                  @click.stop>
               <div class="flex items-center justify-between mb-3">
                 <h3 class="font-semibold fs-md" x-text="t('admin.schedules.edit_title_modal')"></h3>
-                <button @click="cancelEditSchedule()" class="btn btn-ghost fs-sm"
+                <button type="button" @click="cancelEditSchedule()" class="btn btn-ghost fs-sm"
                         x-text="t('actions.cancel')"></button>
               </div>
               <template x-if="editingSchedule">
@@ -443,9 +443,9 @@
                 </div>
               </template>
               <div class="mt-4 flex justify-end gap-2">
-                <button @click="cancelEditSchedule()" class="btn btn-ghost fs-sm"
+                <button type="button" @click="cancelEditSchedule()" class="btn btn-ghost fs-sm"
                         x-text="t('actions.cancel')"></button>
-                <button @click="saveSchedule()"
+                <button type="button" @click="saveSchedule()"
                         :disabled="scheduleSaving"
                         class="btn btn-primary fs-sm">
                   <span x-show="!scheduleSaving" x-text="t('actions.save')"></span>

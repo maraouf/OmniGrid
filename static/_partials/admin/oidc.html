@@ -125,7 +125,7 @@
                  after a passing Test re-locks Save. When the master
                  toggle is OFF the gate releases (no IdP probe will
                  fire either way). -->
-            <button @click="saveOidcSettings()"
+            <button type="button" @click="saveOidcSettings()"
                     :disabled="oidcSaving || !canSaveOidc()"
                     :class="oidcDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                     :title="!canSaveOidc() ? t('settings.oidc.save_requires_test') : ''"
@@ -133,7 +133,7 @@
               <span x-show="!oidcSaving" x-text="t('actions.save')"></span>
               <span x-show="oidcSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
             </button>
-            <button @click="testOidcConnection()"
+            <button type="button" @click="testOidcConnection()"
                     :disabled="!oidcForm.enabled || (oidcTestResult && oidcTestResult.pending)"
                     class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
               <svg width="13" height="13" :class="(oidcTestResult && oidcTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">

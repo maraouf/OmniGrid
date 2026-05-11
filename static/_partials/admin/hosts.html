@@ -10,14 +10,14 @@
         <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
            x-text="t('admin_hosts.intro')"></p>
         <div class="flex items-center gap-2 flex-wrap mb-3">
-            <button x-show="isAdmin()" @click="discoverHosts()"
+            <button type="button" x-show="isAdmin()" @click="discoverHosts()"
                     class="btn btn-ghost fs-sm"
                     :disabled="hostsDiscovering"
                     :title="t('admin_hosts.discover_title')">
               <span x-show="!hostsDiscovering" x-text="t('admin_hosts.discover_button')"></span>
               <span x-show="hostsDiscovering" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_hosts.discover_busy')"></span></span>
             </button>
-            <button x-show="isAdmin() && discoveredMissingCount() > 0"
+            <button type="button" x-show="isAdmin() && discoveredMissingCount() > 0"
                     @click="importDiscoveredHosts()"
                     class="btn btn-primary fs-sm"
                     :title="t('admin_hosts.import_discovered_title')">
@@ -29,7 +29,7 @@
                  enabled host with at least one provider mapping.
                  Useful after bulk edits, before relying on the
                  merged data in the Hosts view. -->
-            <button x-show="isAdmin() && hostsConfig.length > 0"
+            <button type="button" x-show="isAdmin() && hostsConfig.length > 0"
                     @click="testAllHostRows()"
                     :disabled="hostsTestingAll"
                     class="btn btn-ghost fs-sm inline-flex items-center gap-1.5"
@@ -43,7 +43,7 @@
             <!-- Export / Import — back up the curated list as JSON
                  or restore from a saved file. Round-trips cleanly
                  across OmniGrid instances. -->
-            <button x-show="isAdmin() && hostsConfig.length > 0"
+            <button type="button" x-show="isAdmin() && hostsConfig.length > 0"
                     @click="exportHostsConfig()"
                     class="btn btn-ghost fs-sm inline-flex items-center gap-1.5"
                     :title="t('admin_hosts.export_title')">
@@ -52,7 +52,7 @@
               </svg>
               <span x-text="t('admin_hosts.export')"></span>
             </button>
-            <button x-show="isAdmin()"
+            <button type="button" x-show="isAdmin()"
                     @click="$refs.hostsImportFile.click()"
                     class="btn btn-ghost fs-sm inline-flex items-center gap-1.5"
                     :title="t('admin_hosts.import_title')">
@@ -79,7 +79,7 @@
                  scrolling past 20-50 rows to reach the bottom bar
                  when they just tweaked one field near the top. Same
                  handler + dirty ring as the bottom bar's Save. -->
-            <button x-show="isAdmin()" @click="saveHostsConfig()"
+            <button type="button" x-show="isAdmin()" @click="saveHostsConfig()"
                     :class="hostsConfigDirty ? 'ring-2 ring-[var(--warning)]' : ''"
                     class="btn btn-primary fs-sm"
                     :disabled="hostsConfigSaving">
@@ -129,7 +129,7 @@
           <span class="fs-2xs text-[var(--text-faint)]"
                 x-show="hostsConfigFilter"
                 x-text="filteredHostsConfig().length + ' of ' + hostsConfig.length"></span>
-          <button x-show="hostsConfigFilter" @click="hostsConfigFilter=''"
+          <button type="button" x-show="hostsConfigFilter" @click="hostsConfigFilter=''"
                   class="btn btn-ghost fs-xs"
                   :title="t('hosts_extra.empty.clear_filter')"
                   :aria-label="t('hosts_extra.empty.clear_filter') || 'Clear filter'">✕</button>
@@ -885,7 +885,7 @@
                      was passing short-circuited ``undefined`` through
                      :disabled which some browsers treat as truthy and
                      stuck the button in a permanently-disabled state. -->
-                <button x-show="isAdmin()" @click="testHostRow(idx)"
+                <button type="button" x-show="isAdmin()" @click="testHostRow(idx)"
                         class="btn btn-soft fs-xs"
                         :disabled="!!(hostsTestResults[idx] && hostsTestResults[idx].pending) || !rowHasProviderMapping(row)"
                         :title="!rowHasProviderMapping(row) ? t('admin_hosts.test_providers_disabled_title') : ''">
@@ -914,26 +914,26 @@
                      opposite Test-providers; on narrow viewports the
                      parent's `flex-wrap` lets them drop to a new line. -->
                 <div class="flex items-center gap-1 ms-auto">
-                  <button x-show="isAdmin()" @click="moveHostRow(idx, -1)"
+                  <button type="button" x-show="isAdmin()" @click="moveHostRow(idx, -1)"
                           :disabled="idx === 0"
                           class="btn btn-ghost fs-sm px-2"
                           :class="idx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_up_title')">
                     <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/></svg>
                   </button>
-                  <button x-show="isAdmin()" @click="moveHostRow(idx, +1)"
+                  <button type="button" x-show="isAdmin()" @click="moveHostRow(idx, +1)"
                           :disabled="idx === hostsConfig.length - 1"
                           class="btn btn-ghost fs-sm px-2"
                           :class="idx === hostsConfig.length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_down_title')">
                     <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
                   </button>
-                  <button x-show="isAdmin()" @click="duplicateHostRow(idx)"
+                  <button type="button" x-show="isAdmin()" @click="duplicateHostRow(idx)"
                           class="btn btn-ghost fs-sm px-2"
                           :title="t('admin_hosts.row.duplicate_title')">
                     <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
                   </button>
-                  <button x-show="isAdmin()" @click="removeHostRow(idx)"
+                  <button type="button" x-show="isAdmin()" @click="removeHostRow(idx)"
                           class="btn btn-ghost fs-sm text-danger px-2"
                           :title="t('admin_hosts.row.remove_title')"
                           x-text="t('admin_hosts.row.remove')"></button>
@@ -952,7 +952,7 @@
           <div x-show="hostsConfig.length > 0 && filteredHostsConfig().length === 0"
                class="text-center py-8 text-[var(--text-faint)] fs-sm italic">
             <span x-text="t('admin_hosts.filter_no_match')"></span>
-            <button @click="hostsConfigFilter=''"
+            <button type="button" @click="hostsConfigFilter=''"
                     class="text-[var(--primary)] hover:underline not-italic ms-2"
                     x-text="t('admin_hosts.filter_clear')"></button>
           </div>
@@ -971,11 +971,11 @@
                     x-text="'· ' + filteredHostsConfig().length + ' total'"></span>
             </div>
             <div class="flex items-center gap-1.5">
-              <button @click="hostsConfigGoToPage(1)"
+              <button type="button" @click="hostsConfigGoToPage(1)"
                       :disabled="hostsConfigPage <= 1"
                       :class="hostsConfigPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
                       class="btn btn-ghost fs-xs px-2" :title="t('pagination.first_page_title')">«</button>
-              <button @click="hostsConfigPrevPage()"
+              <button type="button" @click="hostsConfigPrevPage()"
                       :disabled="hostsConfigPage <= 1"
                       :class="hostsConfigPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
                       class="btn btn-soft fs-xs px-2.5">‹ Prev</button>
@@ -984,11 +984,11 @@
                      @change="hostsConfigGoToPage($event.target.value)"
                      class="w-14 text-center fs-xs py-1"
                      :title="t('pagination.jump_to_page_title')">
-              <button @click="hostsConfigNextPage()"
+              <button type="button" @click="hostsConfigNextPage()"
                       :disabled="hostsConfigPage >= hostsConfigTotalPages()"
                       :class="hostsConfigPage >= hostsConfigTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
                       class="btn btn-soft fs-xs px-2.5">Next ›</button>
-              <button @click="hostsConfigGoToPage(hostsConfigTotalPages())"
+              <button type="button" @click="hostsConfigGoToPage(hostsConfigTotalPages())"
                       :disabled="hostsConfigPage >= hostsConfigTotalPages()"
                       :class="hostsConfigPage >= hostsConfigTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
                       class="btn btn-ghost fs-xs px-2" :title="t('pagination.last_page_title')">»</button>
@@ -1013,15 +1013,15 @@
              even when rows scroll underneath.
              -->
         <div class="hosts-config-actionbar flex items-center gap-2 flex-wrap">
-          <button x-show="isAdmin()" @click="addHostRow()"
+          <button type="button" x-show="isAdmin()" @click="addHostRow()"
                   class="btn btn-soft fs-sm"
                   x-text="t('hosts_actions.add')"></button>
-          <button x-show="isAdmin() && hostsConfig.length > 0"
+          <button type="button" x-show="isAdmin() && hostsConfig.length > 0"
                   @click="collapseAllHostConfigRows()"
                   class="btn btn-soft fs-sm"
                   :title="t('hosts_actions.collapse_all_title')"
                   x-text="t('hosts_actions.collapse_all')"></button>
-          <button x-show="isAdmin()" @click="saveHostsConfig()"
+          <button type="button" x-show="isAdmin()" @click="saveHostsConfig()"
                   class="btn btn-primary fs-sm"
                   :disabled="hostsConfigSaving"
                   :class="hostsConfigDirty ? 'ring-2 ring-[var(--warning)]' : ''">

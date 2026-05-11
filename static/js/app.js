@@ -15302,6 +15302,16 @@ function app() {
       if (this.sortField !== field) return '';
       return this.sortDir === 'asc' ? '▲' : '▼';
     },
+    // WAI-ARIA `aria-sort` value resolver. Returns 'ascending' /
+    // 'descending' for the active sort column, 'none' otherwise. Bind
+    // on the `<th>` (NOT the inner button) so screen-reader users hear
+    // sort direction alongside the column name. Generic over any
+    // (currentField, currentDir) pair so AI / Stats / fleet sortable
+    // tables can all reuse it without duplicating the ternary.
+    _sortAria(field, currentField, currentDir) {
+      if (currentField !== field) return 'none';
+      return currentDir === 'asc' ? 'ascending' : 'descending';
+    },
     toggleStack(name) {
       if (this.expanded.includes(name)) this.expanded = this.expanded.filter(n => n !== name);
       else this.expanded = [...this.expanded, name];
@@ -19118,14 +19128,39 @@ function app() {
       }
       const dedup = Array.from(new Set(xIdxs));
       const r = (range || '90d').toString();
-      // Format the x-tick label per range: hourly/minutely shorten
-      // to time-of-day; daily keeps `MM-DD` (drop year prefix).
+      // Format the x-tick label per range: hourly buckets shorten to
+      // time-of-day; daily buckets keep `MM-DD` (drop year prefix);
+      // weekly buckets (90d) render as `MM-DD–MM-DD` so the operator
+      // sees the week's date-RANGE rather than a single day-looking
+      // anchor (operator-flagged: a bare MM-DD on a 7-day bucket
+      // reads like a daily label).
+      const _addDays = (yyyy_mm_dd, days) => {
+        // Parse as UTC midnight to dodge DST + timezone drift in the
+        // +6-day offset; the bucket itself was anchored UTC by the
+        // backend's strftime(%s) -> bucket_seconds math.
+        const [y, m, d] = yyyy_mm_dd.split('-').map(n => parseInt(n, 10));
+        const dt = new Date(Date.UTC(y, m - 1, d));
+        dt.setUTCDate(dt.getUTCDate() + days);
+        const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getUTCDate()).padStart(2, '0');
+        return mm + '-' + dd;
+      };
       const fmtXLabel = (key) => {
         if (!key) return '';
         if (r === '1h' || r === '24h') {
           // `YYYY-MM-DDTHH:MM` or `YYYY-MM-DDTHH:00`
           const t = key.indexOf('T');
           return t >= 0 ? key.slice(t + 1) : key;
+        }
+        if (r === '90d' && key.length === 10) {
+          // Weekly bucket — render as MM-DD–MM-DD (start–end of week).
+          try {
+            const startMmDd = key.slice(5);
+            const endMmDd = _addDays(key, 6);
+            return startMmDd + '–' + endMmDd;
+          } catch (_) {
+            return key.slice(5);
+          }
         }
         // Daily — drop year so labels are compact (MM-DD).
         return key.length === 10 ? key.slice(5) : key;
@@ -19150,7 +19185,7 @@ function app() {
         const bh = (PAD_T + plotH - Y(total)).toFixed(2);
         svg += '<rect x="' + bx + '" y="' + by + '" width="' + totalBarW.toFixed(2)
           + '" height="' + bh + '" fill="var(--primary)" fill-opacity="0.7">'
-          + '<title>' + esc(p.date) + ': ' + total.toLocaleString() + ' rows</title>'
+          + '<title>' + esc(fmtXLabel(p.date)) + ': ' + total.toLocaleString() + ' rows</title>'
           + '</rect>';
       }
       // X-axis tick labels.

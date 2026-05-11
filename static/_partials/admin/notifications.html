@@ -194,7 +194,7 @@
           <hr class="border-0 border-t border-[var(--border)] my-3">
 
           <div class="flex items-center gap-2 flex-wrap" x-show="isAdmin()">
-            <button @click="setAllNotifyEvents(true)"
+            <button type="button" @click="setAllNotifyEvents(true)"
                     :disabled="isReadonly() || !settings.apprise_enabled"
                     class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
               <svg width="12" height="12" aria-hidden="true">
@@ -202,7 +202,7 @@
               </svg>
               <span x-text="t('admin.notifications.events.enable_all')"></span>
             </button>
-            <button @click="setAllNotifyEvents(false)"
+            <button type="button" @click="setAllNotifyEvents(false)"
                     :disabled="isReadonly() || !settings.apprise_enabled"
                     class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
               <svg width="12" height="12" aria-hidden="true">
@@ -210,7 +210,7 @@
               </svg>
               <span x-text="t('admin.notifications.events.disable_all')"></span>
             </button>
-            <button @click="setNotifyEventsErrorsOnly()"
+            <button type="button" @click="setNotifyEventsErrorsOnly()"
                     :disabled="isReadonly() || !settings.apprise_enabled"
                     class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
               <svg width="12" height="12" aria-hidden="true">
@@ -326,14 +326,14 @@
              overlaps for retention + page-size; both flipping the
              same input is fine — the dirty cue still fires once. -->
         <div class="flex items-center gap-3 mt-4 pt-4 border-t border-[var(--border)] flex-wrap" x-show="isAdmin()">
-          <button @click="saveSettings(); if (tuningDirty()) saveTuning();"
+          <button type="button" @click="saveSettings(); if (tuningDirty()) saveTuning();"
                   :disabled="settingsSaving || tuningSaving"
                   :class="(appriseDirty() || tuningDirty()) ? 'ring-2 ring-[var(--warning)]' : ''"
                   class="btn btn-primary fs-sm">
             <span x-show="!(settingsSaving || tuningSaving)" x-text="t('actions.save')"></span>
             <span x-show="settingsSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
-          <button @click="testNotify()"
+          <button type="button" @click="testNotify()"
                   :disabled="!settings.apprise_enabled"
                   class="btn btn-soft fs-sm" x-text="t('actions.send_test')"></button>
           <span x-show="appriseDirty() || tuningDirty()"

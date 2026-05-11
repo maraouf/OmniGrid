@@ -36,7 +36,7 @@
               <span x-text="me && me.source"></span>
             </span>
           </div>
-          <button x-show="me && me.avatar_url" @click="clearAvatar()"
+          <button type="button" x-show="me && me.avatar_url" @click="clearAvatar()"
                   class="mt-4 fs-xs text-[var(--danger)] hover:underline" x-text="t('settings.profile.avatar_remove')"></button>
         </section>
 
@@ -102,7 +102,7 @@
               <p class="fs-3xs text-[var(--text-faint)] mt-1" x-text="t('settings.profile.bio_count', { count: (profileForm.bio || '').length })"></p>
             </div>
             <div class="flex items-center gap-3 flex-wrap">
-              <button @click="saveProfile()" :disabled="profileBusy"
+              <button type="button" @click="saveProfile()" :disabled="profileBusy"
                       :class="profileDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                       class="btn btn-primary fs-sm"
                       x-text="profileBusy ? t('actions.saving') : t('actions.save_changes')"></button>

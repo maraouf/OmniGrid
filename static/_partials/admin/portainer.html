@@ -150,7 +150,7 @@
                    master switch is OFF the gate releases (no probe
                    will fire either way). The :title surfaces the
                    reason via tooltip when Save is locked. -->
-              <button @click="savePortainerSettings()"
+              <button type="button" @click="savePortainerSettings()"
                       :disabled="portainerSaving || !canSavePortainer()"
                       :class="portainerDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                       :title="!canSavePortainer() ? t('settings.portainer.save_requires_test') : ''"
@@ -158,7 +158,7 @@
                 <span x-show="!portainerSaving" x-text="t('settings.portainer.save_button')"></span>
                 <span x-show="portainerSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
               </button>
-              <button @click="testPortainerConnection()"
+              <button type="button" @click="testPortainerConnection()"
                       :disabled="!settings.portainer_enabled || (portainerTestResult && portainerTestResult.pending)"
                       class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
                 <svg width="13" height="13" :class="(portainerTestResult && portainerTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">

@@ -207,7 +207,7 @@
              `t('nav.stacks_updates_title', ...)` call below would
              throw "t is not a function". -->
         <template x-for="nav in navItems()" :key="nav[0]">
-          <button @click="view=nav[0]"
+          <button type="button" @click="view=nav[0]"
                   :class="view===nav[0] ? 'text-[var(--text)] bg-[var(--surface-2)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                   :title="nav[0]==='stacks' && counts.update > 0 ? t('nav.stacks_updates_title', { count: counts.update }) : nav[1]"
                   class="px-2 sm:px-3 py-1.5 rounded-md fs-md font-medium transition flex items-center gap-1.5 relative cursor-pointer">
@@ -278,7 +278,7 @@
            orphaning to their own wrap-row regardless of order class.
            Desktop unchanged. -->
       <div class="hidden sm:flex items-center gap-2 sm:order-none">
-        <button x-show="isAdmin() && removableAll().length > 0"
+        <button type="button" x-show="isAdmin() && removableAll().length > 0"
                 @click="bulkRemoveAll()"
                 class="btn btn-danger-outline"
                 :title="t('topbar.cleanup_title', { count: removableAll().length })">
@@ -301,7 +301,7 @@
              over the prior icon-only consolidation). Ghost button +
              gap-1.5 + label flip mirrors the old Hosts-toolbar shape
              that operators preferred. -->
-        <button @click="view==='hosts' ? loadHosts() : refresh(true)"
+        <button type="button" @click="view==='hosts' ? loadHosts() : refresh(true)"
                 :disabled="view==='hosts' ? hostsLoading : loading"
                 class="btn btn-ghost fs-sm hidden sm:inline-flex items-center gap-1.5"
                 :title="t('topbar.refresh_title')">
@@ -330,7 +330,7 @@
              string different from the one captured at page boot.
              Hard-reloads with a cache-busting query param so the new
              HTML + asset cache-bust tokens take effect. -->
-        <button x-show="newVersionAvailable"
+        <button type="button" x-show="newVersionAvailable"
                 @click="reloadForNewVersion()"
                 class="btn btn-primary fs-xs flex items-center gap-1.5 animate-pulse"
                 :title="t('topbar_extra.new_version_title', { version: newVersionString })">
@@ -394,7 +394,7 @@
              far right. The `border-s` separator is hidden below sm: since
              there's no clock to its left to need separating from. -->
         <div x-show="me" x-data="{ }" class="relative sm:ps-3 sm:border-s sm:border-[var(--border)] order-2 ms-auto sm:order-none sm:ms-0">
-        <button @click="userMenuOpen = !userMenuOpen"
+        <button type="button" @click="userMenuOpen = !userMenuOpen"
                 class="flex items-center gap-1 p-1 rounded-full hover:bg-[var(--surface-2)] transition"
                 :title="me ? t('app.signed_in_as') + ' ' + me.username : ''"
                 :aria-expanded="userMenuOpen">
@@ -441,7 +441,7 @@
           <div class="px-3 py-2 border-b border-[var(--border)] fs-3xs uppercase tracking-wider text-[var(--text-faint)]">
             <span x-text="t('app.signed_in_as')"></span> <span class="text-[var(--text-dim)] font-semibold normal-case" x-text="me && me.username"></span>
           </div>
-          <button @click="userMenuOpen=false; view='settings'; settingsSection='profile'" class="user-menu-item">
+          <button type="button" @click="userMenuOpen=false; view='settings'; settingsSection='profile'" class="user-menu-item">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             <span x-text="t('user_menu.profile')"></span>
           </button>
@@ -450,30 +450,30 @@
                so the operator sees the count without leaving the
                dropdown. The chip is hidden at 0 so a clean state
                doesn't look like dead UI. -->
-          <button @click="userMenuOpen=false; openNotificationsPopup()" class="user-menu-item user-menu-item-with-badge">
+          <button type="button" @click="userMenuOpen=false; openNotificationsPopup()" class="user-menu-item user-menu-item-with-badge">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             <span x-text="t('nav.notifications')"></span>
             <span class="user-menu-item-badge" x-show="(notificationsUnread || 0) > 0"
                   x-text="(notificationsUnread > 99) ? '99+' : notificationsUnread"></span>
           </button>
-          <button @click="userMenuOpen=false; view='settings'" class="user-menu-item">
+          <button type="button" @click="userMenuOpen=false; view='settings'" class="user-menu-item">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             <span x-text="t('user_menu.settings')"></span>
           </button>
-          <button x-show="isAdmin()" @click="userMenuOpen=false; view='admin'" class="user-menu-item">
+          <button type="button" x-show="isAdmin()" @click="userMenuOpen=false; view='admin'" class="user-menu-item">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             <span x-text="t('user_menu.admin')"></span>
           </button>
-          <button x-show="isAdmin()" @click="userMenuOpen=false; openStatsTab('dashboard')" class="user-menu-item">
+          <button type="button" x-show="isAdmin()" @click="userMenuOpen=false; openStatsTab('dashboard')" class="user-menu-item">
             <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/></svg>
             <span x-text="t('user_menu.stats')"></span>
           </button>
-          <button @click="userMenuOpen=false; showHotkeys=true" class="user-menu-item">
+          <button type="button" @click="userMenuOpen=false; showHotkeys=true" class="user-menu-item">
             <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-help-circle"/></svg>
             <span x-text="t('user_menu.hotkeys')"></span>
           </button>
           <div class="border-t border-[var(--border)]"></div>
-          <button @click="userMenuOpen=false; logout()" class="user-menu-item user-menu-item-danger">
+          <button type="button" @click="userMenuOpen=false; logout()" class="user-menu-item user-menu-item-danger">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             <span x-text="t('user_menu.sign_out')"></span>
           </button>
@@ -508,7 +508,7 @@
       <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none w-full sm:w-auto"
            :title="t('topbar.refresh_picker_title')">
         <span class="px-1.5 fs-3xs text-faint uppercase tracking-wider" x-text="t('topbar.refresh_label')"></span>
-        <button @click="setRefreshInterval(-1)"
+        <button type="button" @click="setRefreshInterval(-1)"
                 :class="refreshInterval===-1 ? 'bg-[var(--success)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                 class="px-2 py-0.5 rounded fs-xs font-medium transition flex items-center gap-1"
                 :title="t('topbar.refresh_live_title')">
@@ -517,7 +517,7 @@
           <span x-text="t('topbar.refresh_live')"></span>
         </button>
         <template x-for="p in [[t('topbar.off'),0],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
-          <button @click="setRefreshInterval(p[1])"
+          <button type="button" @click="setRefreshInterval(p[1])"
                   :class="refreshInterval===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                   class="px-2 py-0.5 rounded fs-xs font-medium transition" x-text="p[0]"></button>
         </template>
@@ -571,7 +571,7 @@
       <!-- Theme + Hotkeys — small icon buttons. On mobile they live at
            order-4 alongside the language picker so they don't get
            shoved to a new row by the wide SYNC/STATS pills below. -->
-      <button @click="cycleTheme()" :title="t('topbar.theme_title', { pref: themePref })" class="btn btn-soft order-4 sm:order-none">
+      <button type="button" @click="cycleTheme()" :title="t('topbar.theme_title', { pref: themePref })" class="btn btn-soft order-4 sm:order-none">
         <!-- Moon for dark, sun for light, split-circle for auto. All
              three reference shared <symbol> defs in static/img/ui-sprite.svg
              so the topbar stays terse and the icons match the rest of
@@ -586,7 +586,7 @@
           <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-theme-auto"/></svg>
         </template>
       </button>
-      <button @click="showHotkeys=true" class="btn btn-soft order-4 sm:order-none" :title="t('topbar.hotkeys_title')">
+      <button type="button" @click="showHotkeys=true" class="btn btn-soft order-4 sm:order-none" :title="t('topbar.hotkeys_title')">
         <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-help-circle"/></svg>
       </button>
       <!-- Language picker. Compact <select> — the richer UI lives in
@@ -616,25 +616,25 @@
            role="radiogroup"
            :aria-label="t('filters.health_group_label')"
            @keydown="_radiogroupArrowKey($event)">
-        <button @click="healthFilter='';statusFilter=''"
+        <button type="button" @click="healthFilter='';statusFilter=''"
                 role="radio"
                 :aria-checked="!healthFilter && !statusFilter"
                 :tabindex="(!healthFilter && !statusFilter) ? 0 : -1"
                 :class="(!healthFilter && !statusFilter) ? 'active' : ''"
                 class="filter-chip"><span x-text="t('filters.all')"></span> <span class="count" x-text="items.length"></span></button>
-        <button @click="healthFilter='healthy';statusFilter=''"
+        <button type="button" @click="healthFilter='healthy';statusFilter=''"
                 role="radio"
                 :aria-checked="healthFilter==='healthy'"
                 :tabindex="healthFilter==='healthy' ? 0 : -1"
                 :class="healthFilter==='healthy' ? 'active' : ''"
                 class="filter-chip"><span class="dot dot-healthy inline-block me-1.5"></span><span x-text="t('filters.online')"></span> <span class="count" x-text="counts.healthy"></span></button>
-        <button @click="healthFilter='degraded';statusFilter=''"
+        <button type="button" @click="healthFilter='degraded';statusFilter=''"
                 role="radio"
                 :aria-checked="healthFilter==='degraded'"
                 :tabindex="healthFilter==='degraded' ? 0 : -1"
                 :class="healthFilter==='degraded' ? 'active' : ''"
                 class="filter-chip"><span class="dot dot-degraded inline-block me-1.5"></span><span x-text="t('filters.degraded')"></span> <span class="count" x-text="counts.degraded"></span></button>
-        <button @click="healthFilter='offline';statusFilter=''"
+        <button type="button" @click="healthFilter='offline';statusFilter=''"
                 role="radio"
                 :aria-checked="healthFilter==='offline'"
                 :tabindex="healthFilter==='offline' ? 0 : -1"
@@ -652,31 +652,31 @@
            role="radiogroup"
            :aria-label="t('filters.status_group_label')"
            @keydown="_radiogroupArrowKey($event)">
-        <button @click="statusFilter='update';healthFilter=''"
+        <button type="button" @click="statusFilter='update';healthFilter=''"
                 role="radio"
                 :aria-checked="statusFilter==='update'"
                 :tabindex="statusFilter==='update' ? 0 : -1"
                 :class="statusFilter==='update' ? 'active' : ''"
                 class="filter-chip"><span class="dot dot-update inline-block me-1.5"></span><span x-text="t('filters.updates')"></span> <span class="count" x-text="counts.update"></span></button>
-        <button @click="statusFilter='up-to-date';healthFilter=''"
+        <button type="button" @click="statusFilter='up-to-date';healthFilter=''"
                 role="radio"
                 :aria-checked="statusFilter==='up-to-date'"
                 :tabindex="statusFilter==='up-to-date' ? 0 : -1"
                 :class="statusFilter==='up-to-date' ? 'active' : ''"
                 class="filter-chip"><span x-text="t('filters.uptodate')"></span> <span class="count" x-text="counts.uptodate"></span></button>
-        <button @click="statusFilter='error';healthFilter=''"
+        <button type="button" @click="statusFilter='error';healthFilter=''"
                 role="radio"
                 :aria-checked="statusFilter==='error'"
                 :tabindex="statusFilter==='error' ? 0 : -1"
                 :class="statusFilter==='error' ? 'active' : ''"
                 class="filter-chip"><span class="dot dot-error inline-block me-1.5"></span><span x-text="t('filters.errors')"></span> <span class="count" x-text="counts.error"></span></button>
-        <button @click="statusFilter='unknown';healthFilter=''"
+        <button type="button" @click="statusFilter='unknown';healthFilter=''"
                 role="radio"
                 :aria-checked="statusFilter==='unknown'"
                 :tabindex="statusFilter==='unknown' ? 0 : -1"
                 :class="statusFilter==='unknown' ? 'active' : ''"
                 class="filter-chip"><span x-text="t('filters.unknown')"></span> <span class="count" x-text="counts.unknown"></span></button>
-        <button @click="statusFilter='ignored';healthFilter=''"
+        <button type="button" @click="statusFilter='ignored';healthFilter=''"
                 role="radio"
                 :aria-checked="statusFilter==='ignored'"
                 :tabindex="statusFilter==='ignored' ? 0 : -1"
@@ -693,12 +693,12 @@
       <div x-show="view==='stacks' || view==='nodes' || view==='hosts'"
            class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
            :title="t('filters.expand_collapse_title')">
-        <button @click="view==='stacks' ? expandAllStacks() : view==='nodes' ? expandAllNodes() : expandAllHosts()"
+        <button type="button" @click="view==='stacks' ? expandAllStacks() : view==='nodes' ? expandAllNodes() : expandAllHosts()"
                 class="px-2.5 py-1 rounded fs-xs font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
           <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
           <span x-text="t('filters.expand_all')"></span>
         </button>
-        <button @click="view==='stacks' ? collapseAllStacks() : view==='nodes' ? collapseAllNodes() : collapseAllHosts()"
+        <button type="button" @click="view==='stacks' ? collapseAllStacks() : view==='nodes' ? collapseAllNodes() : collapseAllHosts()"
                 class="px-2.5 py-1 rounded fs-xs font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
           <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/></svg>
           <span x-text="t('filters.collapse_all')"></span>
@@ -706,9 +706,9 @@
       </div>
 
       <div class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
-        <button @click="view='stacks'" :class="view==='stacks' ? 'bg-[var(--surface)] text-[var(--text)]' : 'text-[var(--text-dim)]'"
+        <button type="button" @click="view='stacks'" :class="view==='stacks' ? 'bg-[var(--surface)] text-[var(--text)]' : 'text-[var(--text-dim)]'"
                 class="px-2.5 py-1 rounded fs-xs font-medium transition" x-text="t('filters.grouped')"></button>
-        <button @click="view='services'" :class="view==='services' ? 'bg-[var(--surface)] text-[var(--text)]' : 'text-[var(--text-dim)]'"
+        <button type="button" @click="view='services'" :class="view==='services' ? 'bg-[var(--surface)] text-[var(--text)]' : 'text-[var(--text-dim)]'"
                 class="px-2.5 py-1 rounded fs-xs font-medium transition" x-text="t('filters.list')"></button>
       </div>
 
@@ -745,7 +745,7 @@
         <div class="font-semibold text-[var(--text)]" x-text="t('warnings.session_secret_auto.title')"></div>
         <div class="text-[var(--text-dim)] mt-0.5" x-text="t('warnings.session_secret_auto.body')"></div>
       </div>
-      <button @click="dismissSessionSecretWarning()"
+      <button type="button" @click="dismissSessionSecretWarning()"
               class="btn btn-ghost fs-xs flex-shrink-0"
               :title="t('warnings.session_secret_auto.dismiss_title')"
               :aria-label="t('actions.close')">✕</button>
@@ -763,7 +763,7 @@
         <div class="font-semibold text-[var(--text)]" x-text="t('warnings.bootstrap_env_still_set.title')"></div>
         <div class="text-[var(--text-dim)] mt-0.5" x-text="t('warnings.bootstrap_env_still_set.body')"></div>
       </div>
-      <button @click="dismissBootstrapEnvWarning()"
+      <button type="button" @click="dismissBootstrapEnvWarning()"
               class="btn btn-ghost fs-xs flex-shrink-0"
               :title="t('warnings.bootstrap_env_still_set.dismiss_title')"
               :aria-label="t('actions.close')">✕</button>
@@ -776,19 +776,19 @@
       <span class="fs-xs text-[var(--text-faint)]"
             x-text="selectionSummary()"></span>
       <span class="flex-1"></span>
-      <button x-show="selectionUpdatable().length > 0" @click="bulkUpdate()" class="btn btn-warning fs-sm">
+      <button type="button" x-show="selectionUpdatable().length > 0" @click="bulkUpdate()" class="btn btn-warning fs-sm">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
         <span x-text="t('bulk.update')"></span> (<span x-text="selectionUpdatable().length"></span>)
       </button>
-      <button x-show="selectionRestartable().length > 0" @click="bulkRestart()" class="btn btn-soft fs-sm">
+      <button type="button" x-show="selectionRestartable().length > 0" @click="bulkRestart()" class="btn btn-soft fs-sm">
         <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-cw"/></svg>
         <span x-text="t('bulk.restart')"></span> (<span x-text="selectionRestartable().length"></span>)
       </button>
-      <button x-show="selectionRemovable().length > 0" @click="bulkRemove()" class="btn btn-danger-outline fs-sm">
+      <button type="button" x-show="selectionRemovable().length > 0" @click="bulkRemove()" class="btn btn-danger-outline fs-sm">
         <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/></svg>
         <span x-text="t('bulk.remove')"></span> (<span x-text="selectionRemovable().length"></span>)
       </button>
-      <button @click="selected=[]" class="btn btn-ghost fs-sm" x-text="t('bulk.clear')"></button>
+      <button type="button" @click="selected=[]" class="btn btn-ghost fs-sm" x-text="t('bulk.clear')"></button>
     </div>
 
     <!-- ===== SWARM AGENT UNHEALTHY BANNER ===========================
@@ -971,7 +971,7 @@
                        header button too duplicates the affordance and
                        stacks two amber buttons in the same horizontal
                        slice. Toggle off when expanded. -->
-                  <button x-show="isAdmin() && stack.updates>0 && stack.stack_id && !expanded.includes(stack.name)"
+                  <button type="button" x-show="isAdmin() && stack.updates>0 && stack.stack_id && !expanded.includes(stack.name)"
                           @click="updateStack(stack)"
                           :disabled="isStackBusy(stack)"
                           class="btn btn-warning fs-sm">
@@ -1098,14 +1098,14 @@
                   <td class="hidden lg:table-cell fs-xs mono text-dim" x-text="fmtAgo(uptimeFor(item))"></td>
                   <td class="align-right" @click.stop>
                     <div class="flex items-center justify-end gap-1.5">
-                      <button x-show="isAdmin() && item.status==='update' && canUpdate(item)"
+                      <button type="button" x-show="isAdmin() && item.status==='update' && canUpdate(item)"
                               @click="itemAction(item)"
                               :disabled="isItemBusy(item)"
                               class="btn btn-warning fs-xs">
                         <template x-if="isItemBusy(item)"><span class="flex items-center gap-1"><span class="spin"></span>…</span></template>
                         <template x-if="!isItemBusy(item)"><span x-text="actionLabel(item)"></span></template>
                       </button>
-                      <button x-show="isAdmin() && isRestartable(item)"
+                      <button type="button" x-show="isAdmin() && isRestartable(item)"
                               @click="restartItem(item)"
                               :disabled="isRestartBusy(item)"
                               class="btn btn-soft fs-xs"
@@ -1115,7 +1115,7 @@
                           <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-cw"/></svg>
                         </template>
                       </button>
-                      <button x-show="isAdmin() && item.removable"
+                      <button type="button" x-show="isAdmin() && item.removable"
                               @click="removeContainer(item)"
                               :disabled="isItemBusy(item)"
                               class="btn btn-danger-outline fs-xs"
@@ -1148,14 +1148,14 @@
         <div class="min-w-0 flex-1">
           <div class="font-semibold text-[var(--text)]" x-text="t('empty.portainer_not_configured.title')"></div>
           <div class="mt-1" x-text="t('empty.portainer_not_configured.body')"></div>
-          <button x-show="isAdmin()" @click="view='admin'; adminTab='portainer'"
+          <button type="button" x-show="isAdmin()" @click="view='admin'; adminTab='portainer'"
                   class="btn btn-primary fs-sm mt-2"
                   x-text="t('empty.portainer_not_configured.cta')"></button>
         </div>
       </div>
       <div x-show="filteredStacks.length===0 && !loading && items.length > 0" class="text-center py-16 text-[var(--text-faint)] text-sm">
         <span x-text="t('empty.no_match_filters')"></span>
-        <button @click="search='';statusFilter='';healthFilter=''" class="ms-2 text-[var(--primary)] hover:underline" x-text="t('empty.clear')"></button>
+        <button type="button" @click="search='';statusFilter='';healthFilter=''" class="ms-2 text-[var(--primary)] hover:underline" x-text="t('empty.clear')"></button>
       </div>
     </div>
 
@@ -1172,16 +1172,16 @@
                        class="w-[13px] h-[13px] accent-[var(--primary)]">
               </th>
               <th class="col-chev"></th>
-              <th class="col-grow sortable" @click="sortBy('name')"><span x-text="t('columns.name')"></span> <span x-text="sortIndicator('name')"></span></th>
-              <th class="sortable" @click="sortBy('stack')" x-text="t('columns.stack')"></th>
-              <th class="col-image sortable" @click="sortBy('image')" x-text="t('columns.image')"></th>
+              <th class="col-grow sortable" @click="sortBy('name')" :aria-sort="_sortAria('name', sortField, sortDir)"><span x-text="t('columns.name')"></span> <span x-text="sortIndicator('name')"></span></th>
+              <th class="sortable" @click="sortBy('stack')" :aria-sort="_sortAria('stack', sortField, sortDir)" x-text="t('columns.stack')"></th>
+              <th class="col-image sortable" @click="sortBy('image')" :aria-sort="_sortAria('image', sortField, sortDir)" x-text="t('columns.image')"></th>
               <th class="col-health" x-text="t('columns.health')"></th>
-              <th class="col-status sortable" @click="sortBy('status')"><span x-text="t('columns.status')"></span> <span x-text="sortIndicator('status')"></span></th>
+              <th class="col-status sortable" @click="sortBy('status')" :aria-sort="_sortAria('status', sortField, sortDir)"><span x-text="t('columns.status')"></span> <span x-text="sortIndicator('status')"></span></th>
               <th class="col-tasks hidden lg:table-cell" x-text="t('columns.tasks')"></th>
               <th class="col-cpu hidden md:table-cell" x-text="t('columns.cpu')"></th>
               <th class="col-mem hidden md:table-cell" x-text="t('columns.memory')"></th>
               <th class="col-disk hidden xl:table-cell" x-text="t('columns.disk')"></th>
-              <th class="col-uptime sortable hidden lg:table-cell" @click="sortBy('uptime')"><span x-text="t('columns.uptime')"></span> <span x-text="sortIndicator('uptime')"></span></th>
+              <th class="col-uptime sortable hidden lg:table-cell" @click="sortBy('uptime')" :aria-sort="_sortAria('uptime', sortField, sortDir)"><span x-text="t('columns.uptime')"></span> <span x-text="sortIndicator('uptime')"></span></th>
               <th class="col-node hidden xl:table-cell" x-text="t('columns.node')"></th>
               <th class="col-action" x-text="t('columns.action')"></th>
             </tr>
@@ -1292,14 +1292,14 @@
                 </td>
                 <td class="align-right" @click.stop>
                   <div class="flex items-center justify-end gap-1.5">
-                    <button x-show="isAdmin() && item.status==='update' && canUpdate(item)"
+                    <button type="button" x-show="isAdmin() && item.status==='update' && canUpdate(item)"
                             @click="itemAction(item)"
                             :disabled="isItemBusy(item)"
                             class="btn btn-warning fs-xs">
                       <template x-if="isItemBusy(item)"><span class="flex items-center gap-1"><span class="spin"></span>…</span></template>
                       <template x-if="!isItemBusy(item)"><span x-text="actionLabel(item)"></span></template>
                     </button>
-                    <button x-show="isAdmin() && isRestartable(item)"
+                    <button type="button" x-show="isAdmin() && isRestartable(item)"
                             @click="restartItem(item)"
                             :disabled="isRestartBusy(item)"
                             class="btn btn-soft fs-xs"
@@ -1309,7 +1309,7 @@
                         <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-cw"/></svg>
                       </template>
                     </button>
-                    <button x-show="isAdmin() && item.removable"
+                    <button type="button" x-show="isAdmin() && item.removable"
                             @click="removeContainer(item)"
                             :disabled="isItemBusy(item)"
                             class="btn btn-danger-outline fs-xs"
@@ -1341,7 +1341,7 @@
         <div class="min-w-0 flex-1">
           <div class="font-semibold text-[var(--text)]" x-text="t('empty.portainer_not_configured.title')"></div>
           <div class="mt-1" x-text="t('empty.portainer_not_configured.body')"></div>
-          <button x-show="isAdmin()" @click="view='admin'; adminTab='portainer'"
+          <button type="button" x-show="isAdmin()" @click="view='admin'; adminTab='portainer'"
                   class="btn btn-primary fs-sm mt-2"
                   x-text="t('empty.portainer_not_configured.cta')"></button>
         </div>
@@ -1359,7 +1359,7 @@
       <template x-for="node in nodeGroups()" :key="node.key">
         <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <!-- Node header — left side toggles, right side has actions
-               (Prune etc). Kept as a flex row (not one big <button>) so
+               (Prune etc). Kept as a flex row (not one big <button type="button">) so
                the Prune click doesn't also collapse/expand the card.
                Stacks vertically on mobile (was inline-wrapping with
                name + subtitle both inline, which squeezed both into
@@ -1440,7 +1440,7 @@
               </span>
               <!-- Prune — admin-only, hidden on the synthetic Unpinned
                    bucket because there's no real node to target. -->
-              <button x-show="isAdmin() && !node.is_unpinned"
+              <button type="button" x-show="isAdmin() && !node.is_unpinned"
                       @click="pruneNode(node.name)"
                       :disabled="isPruneBusy(node.name)"
                       class="btn btn-danger-outline fs-xs"
@@ -1635,7 +1635,7 @@
         <div class="min-w-0 flex-1">
           <div class="font-semibold text-[var(--text)]" x-text="t('empty.portainer_not_configured.title')"></div>
           <div class="mt-1" x-text="t('empty.portainer_not_configured.body')"></div>
-          <button x-show="isAdmin()" @click="view='admin'; adminTab='portainer'"
+          <button type="button" x-show="isAdmin()" @click="view='admin'; adminTab='portainer'"
                   class="btn btn-primary fs-sm mt-2"
                   x-text="t('empty.portainer_not_configured.cta')"></button>
         </div>
@@ -1643,7 +1643,7 @@
       <div x-show="!loading && items.length === 0 && portainerConfigured !== false" class="text-center py-16 text-[var(--text-faint)] text-sm" x-text="t('empty.no_nodes')"></div>
       <div x-show="!loading && items.length > 0 && nodeGroups().length === 0" class="text-center py-16 text-[var(--text-faint)] text-sm">
         <span x-text="t('empty.no_match_filters')"></span>
-        <button @click="search='';statusFilter='';healthFilter=''" class="ms-2 text-[var(--primary)] hover:underline" x-text="t('empty.clear')"></button>
+        <button type="button" @click="search='';statusFilter='';healthFilter=''" class="ms-2 text-[var(--primary)] hover:underline" x-text="t('empty.clear')"></button>
       </div>
     </div>
 
@@ -1929,12 +1929,12 @@
                doesn't render. Same handlers the other views use. -->
           <div x-show="hosts.length > 0"
                class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
-            <button @click="expandAllHosts()"
+            <button type="button" @click="expandAllHosts()"
                     class="px-2.5 py-1 rounded fs-xs font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
               <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
               <span x-text="t('filters.expand_all')"></span>
             </button>
-            <button @click="collapseAllHosts()"
+            <button type="button" @click="collapseAllHosts()"
                     class="px-2.5 py-1 rounded fs-xs font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
               <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/></svg>
               <span x-text="t('filters.collapse_all')"></span>
@@ -1944,13 +1944,13 @@
                operator has defined at least one host group. -->
           <div x-show="hostGroups.length > 0 && hosts.length > 0"
                class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
-            <button @click="expandAllGroups()"
+            <button type="button" @click="expandAllGroups()"
                     :title="t('hosts_extra_groups.expand_all_title')"
                     class="px-2.5 py-1 rounded fs-xs font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
               <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
               <span x-text="t('hosts_extra_groups.expand_all')"></span>
             </button>
-            <button @click="collapseAllGroups()"
+            <button type="button" @click="collapseAllGroups()"
                     :title="t('hosts_extra_groups.collapse_all_title')"
                     class="px-2.5 py-1 rounded fs-xs font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
               <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/></svg>
@@ -2035,7 +2035,7 @@
         <span class="fs-2xs text-[var(--text-faint)]"
               x-show="hostsSearch"
               x-text="filteredHosts().length + ' of ' + hosts.length"></span>
-        <button x-show="hostsSearch" @click="hostsSearch=''"
+        <button type="button" x-show="hostsSearch" @click="hostsSearch=''"
                 class="btn btn-ghost fs-xs" :title="t('hosts_extra.empty.clear_filter')"
                 :aria-label="t('hosts_extra.empty.clear_filter')">✕</button>
         <label class="flex items-center gap-1.5 fs-xs text-[var(--text-faint)] whitespace-nowrap"
@@ -2751,7 +2751,7 @@
           <span x-text="t('hosts_extra.empty.no_match')"></span>
           <span class="mono text-[var(--text-dim)]" x-text="'“' + hostsSearch + '”'"></span>.
         </div>
-        <button @click="hostsSearch = ''"
+        <button type="button" @click="hostsSearch = ''"
                 class="mt-2 text-[var(--primary)] hover:underline"
                 x-text="t('hosts_extra.empty.clear_filter')"></button>
       </div>
@@ -2847,11 +2847,11 @@
                :placeholder="t('history.search_placeholder')"
                class="fs-sm min-w-[220px] flex-1 max-w-[340px]">
         <div class="flex items-center gap-1.5 flex-wrap">
-          <button @click="historyApplyFilter(() => historyFilters.status = '')"
+          <button type="button" @click="historyApplyFilter(() => historyFilters.status = '')"
                   :class="!historyFilters.status ? 'active' : ''" class="filter-chip" x-text="t('history.status_all')"></button>
-          <button @click="historyApplyFilter(() => historyFilters.status = 'success')"
+          <button type="button" @click="historyApplyFilter(() => historyFilters.status = 'success')"
                   :class="historyFilters.status==='success' ? 'active' : ''" class="filter-chip" x-text="t('history.status_success')"></button>
-          <button @click="historyApplyFilter(() => historyFilters.status = 'error')"
+          <button type="button" @click="historyApplyFilter(() => historyFilters.status = 'error')"
                   :class="historyFilters.status==='error' ? 'active' : ''" class="filter-chip" x-text="t('history.status_error')"></button>
         </div>
         <!-- Op-type filter — labels resolved via `opTypeLabel(v)` which
@@ -2908,7 +2908,7 @@
                class="fs-sm mono"
                style="width: 9.5rem"
                :title="t('history.to_date_title')">
-        <button x-show="hasHistoryFilter()" @click="historyApplyFilter(() => resetHistoryFilters())"
+        <button type="button" x-show="hasHistoryFilter()" @click="historyApplyFilter(() => resetHistoryFilters())"
                 class="btn btn-ghost fs-xs" x-text="t('history.clear_filters')"></button>
       </div>
 
@@ -2960,13 +2960,13 @@
                   x-text="t('pagination.total_count', { count: historyTotal })"></span>
           </div>
           <div class="flex items-center gap-1.5">
-            <button @click="historyGoToPage(1)"
+            <button type="button" @click="historyGoToPage(1)"
                     :disabled="historyPage <= 1"
                     :class="historyPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
                     class="btn btn-ghost fs-xs px-2"
                     :title="t('pagination.first_page_title')"
                     x-text="t('pagination.first_glyph')"></button>
-            <button @click="historyPrevPage()"
+            <button type="button" @click="historyPrevPage()"
                     :disabled="historyPage <= 1"
                     :class="historyPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
                     class="btn btn-soft fs-xs px-2.5"
@@ -2976,12 +2976,12 @@
                    @change="historyGoToPage($event.target.value)"
                    class="w-14 text-center fs-xs py-1"
                    :title="t('pagination.jump_to_page_title')">
-            <button @click="historyNextPage()"
+            <button type="button" @click="historyNextPage()"
                     :disabled="historyPage >= historyTotalPages()"
                     :class="historyPage >= historyTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
                     class="btn btn-soft fs-xs px-2.5"
                     x-text="t('pagination.next')"></button>
-            <button @click="historyGoToPage(historyTotalPages())"
+            <button type="button" @click="historyGoToPage(historyTotalPages())"
                     :disabled="historyPage >= historyTotalPages()"
                     :class="historyPage >= historyTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
                     class="btn btn-ghost fs-xs px-2"
@@ -3014,7 +3014,7 @@
           <span x-text="t('settings.title')"></span>
         </div>
         <template x-for="s in settingsSections" :key="s.id">
-          <button @click="settingsSection = s.id"
+          <button type="button" @click="settingsSection = s.id"
                   :class="settingsSection === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'">
             <svg width="14" height="14" class="page-sidebar-icon" aria-hidden="true"><use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#icon-' + s.icon"/></svg>
             <span x-text="t('settings.sections.' + s.id)"></span>
@@ -3062,7 +3062,7 @@
           <span x-text="t('nav.admin')"></span>
         </div>
         <template x-for="s in adminSections" :key="s.id">
-          <button @click="openAdminTab(s.id)"
+          <button type="button" @click="openAdminTab(s.id)"
                   :class="adminTab === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'">
             <svg width="14" height="14" class="page-sidebar-icon" aria-hidden="true"><use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-' + s.icon"/></svg>
             <span x-text="t('admin.sections.' + s.id)"></span>
@@ -3116,7 +3116,7 @@
           <span x-text="t('nav.stats')"></span>
         </div>
         <template x-for="s in statsSections" :key="s.id">
-          <button @click="openStatsTab(s.id)"
+          <button type="button" @click="openStatsTab(s.id)"
                   :class="statsTab === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'">
             <svg width="14" height="14" class="page-sidebar-icon" aria-hidden="true"><use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-' + s.icon"/></svg>
             <span x-text="t('stats.sections.' + s.id)"></span>
@@ -3254,14 +3254,14 @@
                        focusHostsConfigRow chain the System card's
                        "+ Add URL" link uses ; admin-only since
                        only admins can edit the curated host list. -->
-                  <button x-show="me && me.role === 'admin'"
+                  <button type="button" x-show="me && me.role === 'admin'"
                           @click="(() => { const _hid = h.id; closeHostDrawer(); view='admin'; openAdminTab('hosts').then(() => focusHostsConfigRow(_hid)); })()"
                           class="btn btn-ghost fs-xs flex items-center gap-1.5"
                           :title="t('host_drawer.actions.edit_in_admin_title')">
                     <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
                     <span x-text="t('host_drawer.actions.edit_in_admin')"></span>
                   </button>
-                  <button @click="closeHostDrawer()"
+                  <button type="button" @click="closeHostDrawer()"
                           class="btn btn-ghost text-base leading-none"
                           :title="t('actions.close') || 'Close'"
                           :aria-label="t('actions.close') || 'Close'">✕</button>
@@ -3312,7 +3312,7 @@
                          class="fs-xs text-[var(--text-faint)] mt-1"
                          x-text="hostLastFailureAge(h)"></div>
                   </div>
-                  <button @click="resumeHostSampling(h)"
+                  <button type="button" @click="resumeHostSampling(h)"
                           :disabled="!canResumeHost(h)"
                           :aria-busy="h._resumeBusy ? 'true' : 'false'"
                           class="btn btn-soft fs-xs flex-shrink-0"
@@ -5093,7 +5093,7 @@
                          on reveals the lower-traffic ports inline. -->
                     <template x-if="networkIfacesBusyHiddenCount(h) > 0">
                       <div class="pt-2 border-t border-dashed border-[var(--border)]">
-                        <button @click="toggleNetworkIfacesBusyAll(h)"
+                        <button type="button" @click="toggleNetworkIfacesBusyAll(h)"
                                 class="fs-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
                                 :title="t('host_drawer.network.busy_all_toggle_title')">
                           <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowAllBusy[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
@@ -5110,7 +5110,7 @@
                          doesn't dominate the drawer. -->
                     <template x-if="networkIfacesActivityPartition(h).idle.length > 0">
                       <div class="pt-2 border-t border-dashed border-[var(--border)]">
-                        <button @click="toggleNetworkIfacesIdle(h)"
+                        <button type="button" @click="toggleNetworkIfacesIdle(h)"
                                 class="fs-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
                                 :title="t('host_drawer.network.idle_toggle_title')">
                           <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowIdle[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
@@ -5173,7 +5173,7 @@
                                       && networkIfacesActivityPartition(h).idle.length === 0)
                                     && networkIfacesPartition(h).internal.length > 0">
                       <div class="pt-2 border-t border-dashed border-[var(--border)]">
-                        <button @click="toggleNetworkIfacesDocker(h)"
+                        <button type="button" @click="toggleNetworkIfacesDocker(h)"
                                 class="fs-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
                                 :title="t('host_drawer.network.docker_toggle_title')">
                           <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowDocker[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
@@ -7731,7 +7731,7 @@
               <div class="fs-2xs uppercase tracking-wider text-[var(--text-faint)]" x-text="t('nodes.beszel.drawer_kicker')"></div>
               <h2 class="text-[17px] font-semibold mt-1 mono break-all" x-text="drawerNode.name"></h2>
             </div>
-            <button @click="drawerNode=null" class="btn btn-ghost text-base leading-none"
+            <button type="button" @click="drawerNode=null" class="btn btn-ghost text-base leading-none"
                     :aria-label="t('actions.close')">✕</button>
           </div>
 
@@ -7751,13 +7751,13 @@
                      x-model="drawerNode.aliasInput"
                      @keydown.enter="saveNodeBeszelMapping()">
               <div class="flex items-center gap-2 mt-3">
-                <button class="btn btn-primary fs-sm"
+                <button type="button" class="btn btn-primary fs-sm"
                         :disabled="drawerNodeSaving"
                         @click="saveNodeBeszelMapping()">
                   <span x-show="!drawerNodeSaving" x-text="t('actions.save')"></span>
                   <span x-show="drawerNodeSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
                 </button>
-                <button class="btn btn-ghost fs-sm" @click="drawerNode=null" x-text="t('actions.cancel')"></button>
+                <button type="button" class="btn btn-ghost fs-sm" @click="drawerNode=null" x-text="t('actions.cancel')"></button>
               </div>
             </section>
           </div>
@@ -7788,12 +7788,12 @@
                 <span x-text="imageRepo(drawerItem)"></span><span class="text-[var(--text-faint)]">:</span><span x-text="drawerItem.tag"></span>
               </div>
             </div>
-            <button @click="drawerItem=null" class="btn btn-ghost text-base leading-none"
+            <button type="button" @click="drawerItem=null" class="btn btn-ghost text-base leading-none"
                     :aria-label="t('actions.close')">✕</button>
           </div>
 
           <div class="mt-5 space-y-2">
-            <button x-show="isAdmin() && drawerItem.status==='update' && canUpdate(drawerItem)"
+            <button type="button" x-show="isAdmin() && drawerItem.status==='update' && canUpdate(drawerItem)"
                     @click="itemAction(drawerItem)"
                     :disabled="isItemBusy(drawerItem)"
                     class="w-full btn btn-warning justify-center py-2.5 fs-md">
@@ -7804,19 +7804,19 @@
                  class="w-full bg-[var(--surface-2)] border border-[var(--warning)]/30 rounded-md p-3 fs-xs text-warning"
                  x-text="t('drawer.external_warning')"></div>
             <div class="grid grid-cols-2 gap-2">
-              <button x-show="isAdmin() && isRestartable(drawerItem)"
+              <button type="button" x-show="isAdmin() && isRestartable(drawerItem)"
                       @click="restartItem(drawerItem)"
                       :disabled="isRestartBusy(drawerItem)"
                       class="btn btn-soft justify-center fs-sm">
                 <template x-if="isRestartBusy(drawerItem)"><span class="flex items-center gap-1.5"><span class="spin"></span><span x-text="t('actions.restarting')"></span></span></template>
                 <template x-if="!isRestartBusy(drawerItem)"><span x-text="t('drawer.restart')"></span></template>
               </button>
-              <button x-show="isAdmin() && drawerItem.removable"
+              <button type="button" x-show="isAdmin() && drawerItem.removable"
                       @click="removeContainer(drawerItem)"
                       :disabled="isItemBusy(drawerItem)"
                       class="btn btn-danger-outline justify-center fs-sm"
                       x-text="t('drawer.remove_container')"></button>
-              <button x-show="isAdmin()" @click="toggleIgnore(drawerItem)"
+              <button type="button" x-show="isAdmin()" @click="toggleIgnore(drawerItem)"
                       class="btn btn-soft justify-center fs-sm"
                       x-text="drawerItem.ignored ? t('drawer.unignore') : t('drawer.ignore')"></button>
               <!-- Switch-to-tag inline popover. Operator-requested
@@ -8034,14 +8034,14 @@
             <div x-show="drawerItem.current_digest">
               <div class="fs-3xs text-[var(--text-faint)] uppercase tracking-wider flex justify-between">
                 <span x-text="t('drawer.local_digest')"></span>
-                <button @click="copy(drawerItem.current_digest)" class="hover:text-[var(--text)]" x-text="t('drawer.copy')"></button>
+                <button type="button" @click="copy(drawerItem.current_digest)" class="hover:text-[var(--text)]" x-text="t('drawer.copy')"></button>
               </div>
               <div class="mono fs-2xs break-all mt-1 text-[var(--text-dim)]" x-text="drawerItem.current_digest"></div>
             </div>
             <div x-show="drawerItem.remote_digest">
               <div class="fs-3xs text-[var(--text-faint)] uppercase tracking-wider flex justify-between">
                 <span x-text="t('drawer.remote_digest')"></span>
-                <button @click="copy(drawerItem.remote_digest)" class="hover:text-[var(--text)]" x-text="t('drawer.copy')"></button>
+                <button type="button" @click="copy(drawerItem.remote_digest)" class="hover:text-[var(--text)]" x-text="t('drawer.copy')"></button>
               </div>
               <div class="mono fs-2xs break-all mt-1"
                    :class="drawerItem.status==='update' ? 'text-[var(--warning)]' : 'text-[var(--text-dim)]'"
@@ -8086,13 +8086,13 @@
                      :value="lastCreatedToken && lastCreatedToken.token"
                      class="mono fs-sm flex-1"
                      onclick="this.select()">
-              <button @click="copyToClipboard(lastCreatedToken.token)"
+              <button type="button" @click="copyToClipboard(lastCreatedToken.token)"
                       class="btn btn-soft fs-sm whitespace-nowrap" x-text="t('settings.oidc.copy')"></button>
             </div>
           </div>
         </div>
         <div class="p-4 border-t border-[var(--border)] flex justify-end">
-          <button @click="lastCreatedToken = null" class="btn btn-primary fs-sm" x-text="t('admin.token_modal.saved')"></button>
+          <button type="button" @click="lastCreatedToken = null" class="btn btn-primary fs-sm" x-text="t('admin.token_modal.saved')"></button>
         </div>
       </div>
     </div>
@@ -8134,7 +8134,7 @@
                     @click="resetNotifyTemplateEditor()"
                     class="btn btn-ghost fs-xs"
                     x-text="t('admin.notify_templates.reset_to_default')"></button>
-            <button @click="closeNotifyTemplateEditor()" class="btn btn-ghost"
+            <button type="button" @click="closeNotifyTemplateEditor()" class="btn btn-ghost"
                     :aria-label="t('actions.close')">✕</button>
           </div>
         </div>
@@ -8238,14 +8238,14 @@
         <div class="p-4 border-t border-[var(--border)] flex items-center gap-2 flex-wrap sticky bottom-0 bg-[var(--surface)]">
           <template x-if="!notifyTemplateEditor.readOnly">
             <div class="flex items-center gap-2 flex-wrap">
-              <button @click="saveNotifyTemplate()"
+              <button type="button" @click="saveNotifyTemplate()"
                       :disabled="notifyTemplateEditor.saving || !notifyTemplateEditorIsDirty()"
                       :class="notifyTemplateEditorIsDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                       class="btn btn-primary fs-sm">
                 <span x-show="!notifyTemplateEditor.saving" x-text="t('actions.save')"></span>
                 <span x-show="notifyTemplateEditor.saving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
               </button>
-              <button @click="testNotifyTemplate()"
+              <button type="button" @click="testNotifyTemplate()"
                       :disabled="notifyTemplateEditor.testing"
                       class="btn btn-soft fs-sm">
                 <span x-show="!notifyTemplateEditor.testing" x-text="t('admin.notify_templates.send_test')"></span>
@@ -8258,7 +8258,7 @@
               </span>
             </div>
           </template>
-          <button @click="closeNotifyTemplateEditor()"
+          <button type="button" @click="closeNotifyTemplateEditor()"
                   class="btn btn-soft fs-sm ms-auto"
                   x-text="t('actions.close')"></button>
         </div>
@@ -8293,7 +8293,7 @@
                  stacks toolbar / drawer chart-grid. SVG sits inside
                  the button alongside an `aria-label` so screen
                  readers announce the action. -->
-            <button @click="loadNotifications()"
+            <button type="button" @click="loadNotifications()"
                     :disabled="notificationsLoading"
                     class="btn btn-ghost fs-sm inline-flex items-center gap-1.5"
                     :aria-label="t('actions.reload')" :title="t('actions.reload')">
@@ -8302,10 +8302,10 @@
               <span x-show="!notificationsLoading" x-text="t('actions.reload')"></span>
               <span x-show="notificationsLoading" x-text="t('actions.reloading')"></span>
             </button>
-            <button @click="markAllNotificationsRead()" class="btn btn-soft fs-sm"
+            <button type="button" @click="markAllNotificationsRead()" class="btn btn-soft fs-sm"
                     :disabled="(notificationsUnread || 0) === 0"
                     x-text="t('notifications.mark_all_read')"></button>
-            <button @click="showNotificationsPopup=false" class="btn btn-ghost"
+            <button type="button" @click="showNotificationsPopup=false" class="btn btn-ghost"
                     :aria-label="t('actions.close')">✕</button>
           </div>
         </div>
@@ -8328,7 +8328,7 @@
                  + thin border in the chip's own colour + bold label so
                  the active state is unmissable but visually subtle. -->
             <template x-for="sev in ['all','info','success','warning','error']" :key="sev">
-              <button role="radio" :aria-checked="notificationsFilterSeverity === sev"
+              <button type="button" role="radio" :aria-checked="notificationsFilterSeverity === sev"
                       @click="notificationsFilterSeverity = sev; loadNotifications()"
                       :class="[
                         'chip',
@@ -8377,7 +8377,7 @@
                     <span class="notification-row-title" x-text="n.title || n.event || ''"></span>
                     <span class="notification-row-meta">
                       <span class="fs-xs text-[var(--text-faint)]" x-text="fmtAgo(n.ts * 1000)"></span>
-                      <button x-show="n.read_at == null"
+                      <button type="button" x-show="n.read_at == null"
                               @click="markNotificationRead(n.id)"
                               class="btn btn-ghost fs-xs"
                               x-text="t('notifications.mark_read')"></button>
@@ -8415,11 +8415,11 @@
                           })"></span>
             <div class="flex items-center gap-1.5"
                  x-show="notificationsTotal > (notificationsLimit || 50)">
-              <button @click="notificationsPrevPage()"
+              <button type="button" @click="notificationsPrevPage()"
                       :disabled="!notificationsHasPrev() || notificationsLoading"
                       class="btn btn-soft fs-xs"
                       x-text="t('pagination.prev')"></button>
-              <button @click="notificationsNextPage()"
+              <button type="button" @click="notificationsNextPage()"
                       :disabled="!notificationsHasNext() || notificationsLoading"
                       class="btn btn-soft fs-xs"
                       x-text="t('pagination.next')"></button>
@@ -8899,10 +8899,15 @@
                 :value="aiSidebarMode"
                 @change="setAiSidebarMode($event.target.value)"
                 :title="aiSidebarMode === 'autonomous' ? t('ai_sidebar.mode_autonomous_title') : t('ai_sidebar.mode_approval_title')"
-                :aria-label="t('ai_sidebar.mode_label')">
+                :aria-label="t('ai_sidebar.mode_label')"
+                aria-describedby="ai-mode-help">
           <option value="approval"   x-text="t('ai_sidebar.mode_approval')"></option>
           <option value="autonomous" x-text="t('ai_sidebar.mode_autonomous')"></option>
         </select>
+        <!-- Sr-only help text — explains what each mode does so AT
+             users hear "Mode, Approval; AI proposes actions and waits
+             for your confirm" instead of just "Mode, Approval". -->
+        <span id="ai-mode-help" class="sr-only" x-text="t('ai_sidebar.mode_help')"></span>
         <span class="fs-3xs text-[var(--text-faint)]"
               x-show="!aiSidebarSlashOpen() && aiSidebarSurfaceEnabled()"
               x-text="t('ai_sidebar.enter_hint')"></span>
@@ -9062,7 +9067,7 @@
               <p class="fs-xs text-[var(--text-faint)] mt-0.5" x-html="t('hotkeys.hint')"></p>
             </div>
           </div>
-          <button @click="showHotkeys=false" class="btn btn-ghost"
+          <button type="button" @click="showHotkeys=false" class="btn btn-ghost"
                   :aria-label="t('actions.close')">✕</button>
         </div>
         <div class="p-5 grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -9131,7 +9136,7 @@
                     x-show="terminalState === 'disconnected' || terminalState === 'error'"
                     @click="reconnectHostTerminal()"
                     x-text="t('hosts_extra_ssh.terminal.reconnect')"></button>
-            <button @click="closeHostTerminal()" class="btn btn-ghost"
+            <button type="button" @click="closeHostTerminal()" class="btn btn-ghost"
                     :title="t('hosts_extra_ssh.terminal.close_hint')"
                     :aria-label="t('hosts_extra_ssh.terminal.close_hint')">✕</button>
           </div>

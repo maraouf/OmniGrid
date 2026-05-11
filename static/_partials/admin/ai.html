@@ -505,7 +505,7 @@
                  form is mid-save OR neither is dirty. The amber-ring
                  dirty-cue lights up on EITHER side dirty. -->
             <div class="flex items-center gap-2 flex-wrap pt-3 border-t border-[var(--border)]">
-              <button @click="saveAiSettings()"
+              <button type="button" @click="saveAiSettings()"
                       :disabled="isReadonly() || aiSaving || !aiFormDirty()"
                       class="btn btn-primary fs-sm"
                       :class="aiFormDirty() ? 'ring-2 ring-[var(--warning)]' : ''">
@@ -553,7 +553,8 @@
                       @click="loadAiDashboard(true)"
                       :disabled="aiDashboardLoading"
                       class="btn btn-ghost fs-xs"
-                      :title="t('admin.ai.refresh')">
+                      :title="t('admin.ai.refresh')"
+                      :aria-label="t('admin.ai.refresh')">
                 <svg width="12" height="12" aria-hidden="true" :class="aiDashboardLoading ? 'spin-md' : ''">
                   <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/>
                 </svg>
@@ -868,7 +869,7 @@
                input then scrolled to the bottom Save would persist
                the AI cards but silently drop the tunable change. -->
           <div class="mt-4 pt-4 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
-            <button @click="if (aiFormDirty()) saveAiSettings(); if (tuningDirty()) saveTuning();"
+            <button type="button" @click="if (aiFormDirty()) saveAiSettings(); if (tuningDirty()) saveTuning();"
                     :disabled="isReadonly() || aiSaving || tuningSaving || (!aiFormDirty() && !tuningDirty())"
                     class="btn btn-primary fs-sm"
                     :class="(aiFormDirty() || tuningDirty()) ? 'ring-2 ring-[var(--warning)]' : ''">
@@ -1009,43 +1010,43 @@
                              name when sort changes. The sort button
                              still owns the click + visual indicator. -->
                         <th class="text-start py-1.5"
-                            :aria-sort="aiModalSortCol ==='ts' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
+                            :aria-sort="_sortAria('ts', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('ts')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_when')"></span><span x-text="aiSortIndicator('ts')"></span>
                           </button>
                         </th>
                         <th class="text-start py-1.5"
-                            :aria-sort="aiModalSortCol ==='provider' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
+                            :aria-sort="_sortAria('provider', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('provider')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_provider')"></span><span x-text="aiSortIndicator('provider')"></span>
                           </button>
                         </th>
                         <th class="text-start py-1.5"
-                            :aria-sort="aiModalSortCol ==='model' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
+                            :aria-sort="_sortAria('model', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('model')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_model')"></span><span x-text="aiSortIndicator('model')"></span>
                           </button>
                         </th>
                         <th class="text-start py-1.5"
-                            :aria-sort="aiModalSortCol ==='status' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
+                            :aria-sort="_sortAria('status', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('status')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_status')"></span><span x-text="aiSortIndicator('status')"></span>
                           </button>
                         </th>
                         <th class="text-end py-1.5"
-                            :aria-sort="aiModalSortCol ==='total_tokens' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
+                            :aria-sort="_sortAria('total_tokens', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('total_tokens')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_tokens')"></span><span x-text="aiSortIndicator('total_tokens')"></span>
                           </button>
                         </th>
                         <th class="text-end py-1.5"
-                            :aria-sort="aiModalSortCol ==='cost_usd' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
+                            :aria-sort="_sortAria('cost_usd', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('cost_usd')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_cost')"></span><span x-text="aiSortIndicator('cost_usd')"></span>
                           </button>
                         </th>
                         <th class="text-end py-1.5"
-                            :aria-sort="aiModalSortCol ==='response_time_ms' ? (aiModalSortDir === 'asc' ? 'ascending' : 'descending') : 'none'">
+                            :aria-sort="_sortAria('response_time_ms', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('response_time_ms')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_response')"></span><span x-text="aiSortIndicator('response_time_ms')"></span>
                           </button>
@@ -1109,32 +1110,38 @@
                              `aiTrendRows()` (slice of
                              aiDashboard.trend). Column keys mirror
                              the row dict's actual fields. -->
-                        <th class="text-start py-1.5">
+                        <th class="text-start py-1.5"
+                            :aria-sort="_sortAria('ts', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('ts')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_when')"></span><span x-text="aiSortIndicator('ts')"></span>
                           </button>
                         </th>
-                        <th class="text-end py-1.5">
+                        <th class="text-end py-1.5"
+                            :aria-sort="_sortAria('jobs', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('jobs')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_jobs')"></span><span x-text="aiSortIndicator('jobs')"></span>
                           </button>
                         </th>
-                        <th class="text-end py-1.5">
+                        <th class="text-end py-1.5"
+                            :aria-sort="_sortAria('pass_rate', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('pass_rate')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_pass_rate')"></span><span x-text="aiSortIndicator('pass_rate')"></span>
                           </button>
                         </th>
-                        <th class="text-end py-1.5">
+                        <th class="text-end py-1.5"
+                            :aria-sort="_sortAria('total_tokens', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('total_tokens')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_tokens')"></span><span x-text="aiSortIndicator('total_tokens')"></span>
                           </button>
                         </th>
-                        <th class="text-end py-1.5">
+                        <th class="text-end py-1.5"
+                            :aria-sort="_sortAria('total_cost_usd', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('total_cost_usd')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_cost')"></span><span x-text="aiSortIndicator('total_cost_usd')"></span>
                           </button>
                         </th>
-                        <th class="text-end py-1.5">
+                        <th class="text-end py-1.5"
+                            :aria-sort="_sortAria('avg_accuracy_score', aiModalSortCol, aiModalSortDir)">
                           <button type="button" @click="aiSortBy('avg_accuracy_score')" class="uppercase tracking-wider hover:text-[var(--text)]">
                             <span x-text="t('admin.ai.modal.col_accuracy')"></span><span x-text="aiSortIndicator('avg_accuracy_score')"></span>
                           </button>
