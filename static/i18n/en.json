@@ -263,6 +263,14 @@
         "col_tx": "TX",
         "col_total": "Total",
         "empty": "No samples in the window."
+      },
+      "top_range": {
+        "title": "Top hosts by burst rate — last {range}",
+        "hint": "Peak rx/tx rate captured for each host in the selected window. Highlights hot spots that exceed the operator-tunable bps thresholds.",
+        "col_host": "Host",
+        "col_max_rx": "Max RX",
+        "col_max_tx": "Max TX",
+        "empty": "No throughput data in this window."
       }
     },
     "incidents": {
@@ -2644,7 +2652,10 @@
     "schedule_update": "Update schedule",
     "schedule_delete": "Delete schedule",
     "schedule_run_now": "Run schedule now",
-    "notification_delete": "Delete notification"
+    "notification_delete": "Delete notification",
+    "settings_update": "Update settings",
+    "ai_memory_create": "Create AI memory",
+    "ai_memory_delete": "Delete AI memory"
   },
   "op_status": {
     "running": "running",

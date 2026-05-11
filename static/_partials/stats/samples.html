@@ -144,6 +144,7 @@
                    x-text="t('stats.samples.daily_chart.empty')"></div>
 
               <div x-show="(statsSamples.bucket_totals || statsSamples.daily_totals || []).length"
+                   :class="_loadBusy.stats_samples === true ? 'chart-loading' : ''"
                    class="bg-[var(--bg)] border border-[var(--border)] rounded-md p-3">
                 <!-- SVG bar chart with proper x + y axes. See
                      `_renderSamplesBucketChart()` in static/js/app.js

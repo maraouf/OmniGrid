@@ -225,6 +225,7 @@
                    across Stats per the operator-flagged unification
                    ask. -->
               <div x-show="(statsAiCost.avg_response_time_trend || []).length"
+                   :class="_loadBusy.stats_ai_cost === true ? 'chart-loading' : ''"
                    class="bg-[var(--bg)] border border-[var(--border)] rounded-md p-3 mb-3">
                 <div x-html="_renderAiCostTrendChart(statsAiCost.avg_response_time_trend || [], statsAiCost.range || statsAiCostRange)"></div>
               </div>

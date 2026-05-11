@@ -3377,7 +3377,25 @@ async def api_set_settings(
     # N version mismatches → N reloads of /api/settings + /api/me per
     # Save. The defer context collapses to ONE bump at end-of-request.
     with defer_settings_version_bump():
-        return await _api_set_settings_inner(s, request, _portainer)
+        result = await _api_set_settings_inner(s, request, _portainer)
+    # Audit row — record which top-level fields were touched (Pydantic
+    # `model_dump(exclude_unset=True)` keys). Secret-suffix fields are
+    # already filtered server-side; the audit row carries field NAMES
+    # only, never values. Skip when the operator submitted an empty body.
+    try:
+        touched = sorted(s.model_dump(exclude_unset=True).keys())
+        if touched:
+            with db_conn() as c:
+                _ops_mod.write_admin_audit(
+                    c, "settings_update",
+                    target_kind="settings",
+                    actor=_admin.username,
+                    message=f"Updated settings: {', '.join(touched[:30])}"
+                            + (f" (+{len(touched) - 30} more)" if len(touched) > 30 else ""),
+                )
+    except Exception as _e:
+        print(f"[ops] settings_update audit-row skipped: {_e!r}")
+    return result
 
 
 async def _api_set_settings_inner(s, request, _portainer):
@@ -4916,6 +4934,7 @@ async def api_admin_stats_network(
         "top_7d": [],
         "total": {"bytes_rx": 0, "bytes_tx": 0},
         "top_chatty": [],
+        "top_range": [],
         "timeseries": [],
     }
     # Dedupe key resolver — builds host_id → canonical key from
@@ -4960,7 +4979,11 @@ async def api_admin_stats_network(
             # host:port (so two curated rows scraping the same exporter
             # collapse to one entry — see `canonical_map` above),
             # then slice to top 10.
-            for label, hrs in (("top_24h", 24), ("top_7d", 168)):
+            # `top_range` uses the operator-selected window from the
+            # page's range chip (passed as `?hours=`); `top_24h` /
+            # `top_7d` kept for back-compat with any historical callers
+            # but the SPA now renders the dynamic `top_range` table.
+            for label, hrs in (("top_24h", 24), ("top_7d", 168), ("top_range", hours)):
                 since = now_ts - hrs * 3600
                 rows = c.execute(
                     "SELECT host_id, "
@@ -6447,6 +6470,15 @@ async def api_ai_memory_add(
             )
             c.commit()
             new_id = int(cur.lastrowid) if cur and cur.lastrowid else None
+            preview = text if len(text) <= 80 else text[:77] + "…"
+            _ops_mod.write_admin_audit(
+                c, "ai_memory_create",
+                target_kind="ai_memory",
+                target_name=str(new_id) if new_id is not None else None,
+                target_id=str(new_id) if new_id is not None else None,
+                actor=_admin.username,
+                message=f"Added AI memory (source={src}): {preview}",
+            )
     except Exception as e:  # noqa: BLE001
         print(f"[ai] memory add failed: {e}")
         raise HTTPException(500, str(e))
@@ -6462,8 +6494,26 @@ async def api_ai_memory_delete(
     """Delete one memory by id. Idempotent — already-gone returns ok."""
     try:
         with db_conn() as c:
+            # Capture preview BEFORE delete so the audit row carries the
+            # text that was forgotten — operator post-mortem reads better
+            # than a bare numeric id.
+            row = c.execute(
+                "SELECT text FROM ai_memory WHERE id = ?", (int(mem_id),)
+            ).fetchone()
+            preview = ""
+            if row:
+                raw = row[0] or ""
+                preview = raw if len(raw) <= 80 else raw[:77] + "…"
             c.execute("DELETE FROM ai_memory WHERE id = ?", (int(mem_id),))
             c.commit()
+            _ops_mod.write_admin_audit(
+                c, "ai_memory_delete",
+                target_kind="ai_memory",
+                target_name=str(mem_id), target_id=str(mem_id),
+                actor=_admin.username,
+                message=(f"Deleted AI memory id={mem_id}: {preview}"
+                         if preview else f"Deleted AI memory id={mem_id}"),
+            )
     except Exception as e:  # noqa: BLE001
         print(f"[ai] memory delete failed: {e}")
         raise HTTPException(500, str(e))
@@ -6489,6 +6539,14 @@ async def api_ai_memory_forget(
             cur = c.execute("DELETE FROM ai_memory WHERE text = ?", (text,))
             c.commit()
             deleted = int(cur.rowcount or 0)
+            if deleted > 0:
+                preview = text if len(text) <= 80 else text[:77] + "…"
+                _ops_mod.write_admin_audit(
+                    c, "ai_memory_delete",
+                    target_kind="ai_memory",
+                    actor=_admin.username,
+                    message=f"Forgot {deleted} AI memor{'y' if deleted == 1 else 'ies'} by exact text: {preview}",
+                )
     except Exception as e:  # noqa: BLE001
         print(f"[ai] memory forget failed: {e}")
         raise HTTPException(500, str(e))

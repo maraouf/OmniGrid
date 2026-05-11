@@ -162,6 +162,9 @@ OP_TYPES: frozenset[str] = frozenset({
     "schedule_delete",
     "schedule_run_now",
     "notification_delete",
+    "settings_update",
+    "ai_memory_create",
+    "ai_memory_delete",
 })
 
 
