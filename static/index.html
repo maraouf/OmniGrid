@@ -4112,6 +4112,17 @@
                                 class="text-[9.5px] text-[var(--text-faint)] mono ps-0.5"
                                 :title="t('hosts_extra.provider_sample_count_title', { provider: agent.name })"
                                 x-text="t('hosts_extra.provider_sample_count', { count: Number(providerSampleCount(h, agent.name)).toLocaleString() })"></span>
+                          <!-- Effective sampler cadence for this provider.
+                               Reads `h.provider_sample_intervals[<name>]`
+                               (post-floor, post-inherit-resolution seconds).
+                               The label collapses inherit-from-global so the
+                               user sees the ACTUAL applied cadence, never
+                               the raw `0 = inherit` sentinel. Hidden on 0
+                               (cold-load skeleton). -->
+                          <span x-show="providerSampleInterval(h, agent.name) > 0"
+                                class="text-[9.5px] text-[var(--text-faint)] mono ps-0.5"
+                                :title="t('hosts_extra.provider_sample_interval_title', { provider: agent.name, seconds: providerSampleInterval(h, agent.name) })"
+                                x-text="t('hosts_extra.provider_sample_interval', { every: providerSampleIntervalLabel(h, agent.name) })"></span>
                         </div>
                       </template>
                     </div>

@@ -1478,14 +1478,21 @@ async def api_stats_history(item_id: str, hours: int = 24):
 
     `item_id` may be comma-separated to fetch multiple in one round-trip
     (the UI batches all visible stacks so it's not N requests per refresh).
+
+    Server-side bucketing kicks in for windows > 2h via the shared
+    `_bucket_drawer_series` helper — keeps each item's series at
+    ~120 points regardless of window so inline sparklines don't accumulate
+    multi-hundred points for the 24h+ default range.
     """
     hours = max(1, min(hours, tuning.tuning_int("tuning_stats_history_days") * 24))
     ids = [s.strip() for s in item_id.split(",") if s.strip()]
     since = time.time() - hours * 3600
+    raw_series = _stats_history(ids, since)
+    bucketed = {iid: _bucket_drawer_series(series, hours) for iid, series in raw_series.items()}
     return {
         "since": since,
         "hours": hours,
-        "series": _stats_history(ids, since),
+        "series": bucketed,
     }
 
 
@@ -9582,7 +9589,56 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
         print(f"[hosts] provider_sample_counts failed for {h.get('id')!r}: {e}")
         merged["provider_sample_counts"] = {}
 
+    # Per-provider effective sampler interval (seconds) — surfaces as
+    # the third subtitle line below the chip ("Every Ns" / "Every Nm").
+    # Resolves the "0 = inherit" sentinel each sampler uses so the user
+    # sees the actual applied value, not the raw tunable. Host-id is
+    # accepted for future per-host override knobs; current intervals
+    # are global.
+    try:
+        merged["provider_sample_intervals"] = _provider_sample_intervals(h["id"])
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts] provider_sample_intervals failed for {h.get('id')!r}: {e}")
+        merged["provider_sample_intervals"] = {}
+
     return merged, providers_hit
+
+
+def _provider_sample_intervals(host_id: str) -> dict:
+    """Return ``{<provider>: int seconds}`` for each curated provider's
+    effective sampler cadence. Resolves the "0 = inherit" sentinel each
+    sampler uses so the value matches what the operator's sampler is
+    ACTUALLY ticking at, not the raw tunable. Provider names match
+    `agent.name` in the SPA's `hostEnabledAgents`.
+
+    `host_id` is accepted for future per-host override knobs; current
+    intervals are global, so the value is identical across hosts in
+    this implementation.
+    """
+    from logic import tuning as _tuning
+    out: dict[str, int] = {}
+    global_iv = max(30, int(_tuning.tuning_int("tuning_stats_sample_interval_seconds")) or 300)
+    # Each provider's tunable: 0 = inherit global, > 0 = explicit override.
+    # The sampler floor (typically 10s or 30s) is also applied so the
+    # surfaced value matches what the sampler loop actually sleeps for.
+    inheritors = (
+        ("ping",          "tuning_ping_interval_seconds",            10),
+        ("snmp",          "tuning_snmp_sample_interval_seconds",     30),
+        ("beszel",        "tuning_beszel_sample_interval_seconds",   30),
+        ("pulse",         "tuning_pulse_sample_interval_seconds",    30),
+        ("node_exporter", "tuning_node_exporter_sample_interval_seconds", 30),
+    )
+    for name, key, floor in inheritors:
+        try:
+            raw = int(_tuning.tuning_int(key) or 0)
+        except Exception:
+            raw = 0
+        effective = max(floor, raw) if raw > 0 else global_iv
+        out[name] = effective
+    # Webmin has no dedicated sample-interval knob — its sampler shares
+    # the global cadence directly (see logic/host_webmin_sampler.py).
+    out["webmin"] = global_iv
+    return out
 
 
 def _provider_sample_counts(host_id: str) -> dict:
@@ -10077,6 +10133,11 @@ def _shape_host_api_row(
         # is available per provider for THIS host. {} when the per-host
         # probe hasn't run yet (cold-load `/api/hosts/list` skeleton).
         "provider_sample_counts": dict(s.get("provider_sample_counts") or {}),
+        # Per-provider effective sampler interval (seconds) — third
+        # subtitle line in the chip strip. Each value is the post-floor,
+        # post-inherit-resolution cadence the sampler actually sleeps
+        # for, so the operator sees "Every 5m" not "interval=0 (inherit)".
+        "provider_sample_intervals": dict(s.get("provider_sample_intervals") or {}),
         # Permanent-fail tracking. All four fields are non-zero
         # only when the host_metrics_sampler has recorded consecutive
         # failures for this host. `sampling_paused: true` triggers the
@@ -13413,6 +13474,79 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
 import asyncssh  # noqa: E402,F401  (used inside ws_ssh_terminal handlers)
 
 
+def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) -> list:
+    """Generic time-series bucketing for drawer-chart endpoints.
+
+    Takes a list of dicts where each dict has a `t` (or `ts`) epoch-
+    seconds field plus numeric metric fields, returns a bucketed list
+    of the same shape with ~``target_points`` points evenly spread
+    across the window. Numeric fields are averaged across each bucket;
+    non-numeric fields are dropped (lists / dicts / JSON blobs); the
+    bucket's emitted `t`/`ts` is the bucket midpoint so the SVG x-axis
+    centres each point in its window.
+
+    Short windows (≤2h) AND already-small series (len ≤ target) skip
+    the bucket pass entirely — they're already chart-friendly. Buckets
+    with NO numeric data are dropped so the SPA's time-based gap
+    detection renders them as real breaks in the line (matches the
+    ping-history skip-all-dead-bucket convention).
+
+    Sampler-floor + min-bucket-width is 60s so we never produce a
+    bucket smaller than a typical sampler tick. Same `max(60, ceil(
+    hours*3600/target))` formula every drawer-chart endpoint uses.
+    """
+    if not series or hours <= 2 or len(series) <= target_points:
+        return series
+    bucket_s = max(60, int((hours * 3600) / target_points))
+    half = bucket_s // 2
+    buckets: dict = {}
+    # First pass — discover which keys carry numeric data so we don't
+    # try to bucket-average lists / dicts / JSON blobs.
+    sample = series[0] if series else {}
+    metric_keys: list[str] = []
+    for k, v in sample.items():
+        if k in ("t", "ts"):
+            continue
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            metric_keys.append(k)
+    for r in series:
+        ts = int(r.get("t") or r.get("ts") or 0)
+        if not ts:
+            continue
+        bts = (ts // bucket_s) * bucket_s
+        b = buckets.get(bts)
+        if b is None:
+            b = {"_sums": {k: 0.0 for k in metric_keys},
+                 "_ns":   {k: 0   for k in metric_keys}}
+            buckets[bts] = b
+        for k in metric_keys:
+            v = r.get(k)
+            if v is None:
+                continue
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            b["_sums"][k] += fv
+            b["_ns"][k]   += 1
+    out: list = []
+    use_t = ("t" in sample)
+    for bts in sorted(buckets.keys()):
+        b = buckets[bts]
+        # Drop fully-empty buckets so the gap-detection fires.
+        if not any(n > 0 for n in b["_ns"].values()):
+            continue
+        row: dict = {}
+        for k in metric_keys:
+            n = b["_ns"][k]
+            row[k] = (b["_sums"][k] / n) if n > 0 else 0
+        mid = bts + half
+        row["t"]  = mid
+        row["ts"] = mid
+        out.append(row)
+    return out
+
+
 @app.get("/api/hosts/history")
 async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = ""):
     """Return time-series stats for one host.
@@ -13485,7 +13619,7 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
                     return {"series": [], "error": f"host_pulse_sampler: {e}"}
                 if pseries:
                     return {
-                        "series": pseries,
+                        "series": _bucket_drawer_series(pseries, h),
                         "collectors": {"cpu": True, "mem": True, "fs": True, "net": True, "disk_io": False},
                         "source": "pulse",
                         "error": None,
@@ -13510,14 +13644,14 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
                     return {"series": [], "error": f"host_webmin_sampler: {e}"}
                 if wseries:
                     return {
-                        "series": wseries,
+                        "series": _bucket_drawer_series(wseries, h),
                         "collectors": {"cpu": True, "mem": True, "fs": True, "net": True, "disk_io": False},
                         "source": "webmin",
                         "error": None,
                     }
         if ne_err:
             return {"series": [], "error": ne_err}
-        return {"series": series, "collectors": collectors, "error": None}
+        return {"series": _bucket_drawer_series(series, h), "collectors": collectors, "error": None}
 
     if not sid:
         return {"series": [], "error": "system_id or host_id required"}
@@ -13566,7 +13700,7 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
     except Exception as e:  # noqa: BLE001
         return {"series": [], "error": f"host_beszel_sampler: {e}"}
     return {
-        "series":  local_series,
+        "series":  _bucket_drawer_series(local_series, h),
         "source":  "beszel_local",
         "error":   None,
     }
@@ -13580,24 +13714,111 @@ async def api_hosts_ping_history(
     """Ping reachability time-series for one curated host.
 
     Mirrors :func:`api_hosts_history` shape — returns
-    ``{points: [...], error: None}`` with one point per
-    ``ping_samples`` row in the window. Empty list when this host
-    has never been probed (sampler hasn't run yet, or the host isn't
-    opted in). Window clamped to 1..168 hours like the Beszel path.
+    ``{points: [...], error: None}``. Empty list when this host has
+    never been probed (sampler hasn't run yet, or the host isn't opted
+    in). Window clamped to 1..168 hours like the Beszel path.
+
+    **Bucketing** — raw `ping_samples` rows at 60s cadence produce
+    ~1440 points in a 24h window, far more than the 420px-wide drawer
+    chart can render usefully. The chart compresses to ~3 points per
+    pixel and every sampler-blip-driven micro-gap surfaces as a broken
+    line. Server-side bucketing produces a uniform ~120-point series
+    regardless of window: bucket size = max(60s, ceil(hours×3600/120)).
+    The bucket aggregator emits AVG(rtt_ms) for alive samples in the
+    bucket (None when the whole bucket is dead, so the polyline's
+    skip-don't-synthesize logic renders it as a real gap), majority
+    `alive` flag, and AVG(loss_pct). Bucket midpoint timestamp lets
+    the SPA's gap-detection adapt — at 12min buckets the gap threshold
+    auto-derives to ~30min, hiding sub-bucket sampler noise that
+    isn't actionable. Small windows (≤2h) skip the bucket pass since
+    raw samples are already chart-friendly.
     """
     h = max(1, min(168, int(hours or 1)))
     hid = (host_id or "").strip()
     if not hid:
         return {"points": [], "error": "host_id required"}
-    # Reach into the sampler module's read helper (same pattern the
-    # NE-only path uses with ``host_metrics_sampler.recent_samples``).
     from logic import ping_sampler as _ping_sampler
     since = int(time.time() - h * 3600)
+    # Read enough raw samples to cover the window cleanly even when the
+    # sampler ran below its cadence (e.g. operator turned ping interval
+    # down to 30s). 90 samples/hour × hours = headroom for the bucket
+    # aggregator without truncating recent data.
+    raw_limit = max(120, h * 90)
     try:
-        rows = _ping_sampler.recent_samples(hid, since, limit=h * 60)
+        rows = _ping_sampler.recent_samples(hid, since, limit=raw_limit)
     except Exception as e:
         return {"points": [], "error": f"ping_sampler: {e}"}
-    return {"points": rows, "error": None}
+    # Small windows (≤2h) — return raw. 1h = ~60 points, 2h = ~120.
+    # Below the target density anyway; bucketing would round-trip-distort
+    # without helping rendering.
+    target_points = 120
+    if h <= 2 or len(rows) <= target_points:
+        return {"points": rows, "error": None}
+    bucket_s = max(60, int((h * 3600) / target_points))
+    buckets: dict[int, dict] = {}
+    for r in rows:
+        ts = int(r.get("ts") or 0)
+        if not ts:
+            continue
+        # Floor to bucket-start.
+        bts = (ts // bucket_s) * bucket_s
+        b = buckets.get(bts)
+        if b is None:
+            b = {"rtt_sum": 0.0, "rtt_n": 0,
+                 "alive_n": 0, "total_n": 0,
+                 "loss_sum": 0.0,
+                 "rtt_min_min": None, "rtt_max_max": None}
+            buckets[bts] = b
+        b["total_n"] += 1
+        if r.get("alive"):
+            b["alive_n"] += 1
+            rtt = r.get("rtt_ms")
+            if rtt is not None:
+                b["rtt_sum"] += float(rtt)
+                b["rtt_n"] += 1
+        rmin = r.get("rtt_min_ms")
+        rmax = r.get("rtt_max_ms")
+        if rmin is not None:
+            b["rtt_min_min"] = rmin if b["rtt_min_min"] is None else min(b["rtt_min_min"], rmin)
+        if rmax is not None:
+            b["rtt_max_max"] = rmax if b["rtt_max_max"] is None else max(b["rtt_max_max"], rmax)
+        b["loss_sum"] += float(r.get("loss_pct") or 0.0)
+    # Bucket midpoint timestamp = floor + half-bucket so the x-axis
+    # places each point in the centre of its window, not at the edge.
+    half = bucket_s // 2
+    points = []
+    for bts in sorted(buckets.keys()):
+        b = buckets[bts]
+        total = b["total_n"] or 1
+        # All-dead bucket — no alive sample to average. DROP from the
+        # response entirely (don't emit `rtt_ms: null`): the absent
+        # bucket creates a time-gap that the SPA's polyline gap-detection
+        # picks up, rendering the period as a real break in the line.
+        # This is symmetric with the "sampler missed N ticks" case —
+        # both yield gaps; the operator reads either as "no usable
+        # latency reading for this window."
+        if b["rtt_n"] <= 0:
+            continue
+        rtt_avg = b["rtt_sum"] / b["rtt_n"]
+        # Majority alive flag — bucket considered alive iff > 50% of
+        # its samples reported alive. Mixed-alive buckets still emit
+        # the rtt_avg (computed from alive samples only) so the line
+        # reflects "average latency when reachable" across the window.
+        alive_majority = b["alive_n"] * 2 > total
+        points.append({
+            "ts":         bts + half,
+            "alive":      alive_majority,
+            "rtt_ms":     rtt_avg,
+            "rtt_min_ms": b["rtt_min_min"],
+            "rtt_max_ms": b["rtt_max_max"],
+            "loss_pct":   b["loss_sum"] / total,
+            # Surface bucket metadata for the SPA's gap-aware renderer
+            # + future tooltip "average over N samples in this 12min
+            # bucket" copy. Optional — consumers fall back gracefully.
+            "_bucket_seconds": bucket_s,
+            "_samples_in_bucket": total,
+        })
+    return {"points": points, "error": None, "bucket_seconds": bucket_s}
 
 
 @app.get("/api/hosts/{host_id}/beszel/services")
@@ -13668,12 +13889,16 @@ async def api_hosts_snmp_history(
     # PocketBase already does this via its `_pick_stat_type` aggregation
     # tier; this brings the local sampler-backed providers in line.
     bucket = 0
-    if h > 24:
-        # Target ~96 points = roughly one point per hour at 7d, every
-        # 30 min at 48h. Previous 200-point target produced ~3024s
-        # buckets on 7d (still 168 raw-ish points = too noisy on the
-        # SVG). Tightened per operator feedback.
-        target_points = 96
+    # Bucket more aggressively: any window where the natural raw count
+    # exceeds the target density gets server-side aggregation. At the
+    # default 5-min SNMP cadence (300s), 6h+ windows accumulate >72 raw
+    # points and start crowding the 420px-wide SVG. Bucketing to a
+    # uniform target of ~120 points hides micro-gaps and produces a
+    # consistent visual density across 1h / 6h / 24h / 7d. The 2h
+    # threshold below mirrors the ping endpoint — short windows stay
+    # raw because they're already chart-friendly.
+    if h > 2:
+        target_points = 120
         bucket = max(60, int(h * 3600 / target_points))
     try:
         with db_conn() as c:

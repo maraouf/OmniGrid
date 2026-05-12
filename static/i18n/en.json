@@ -2988,7 +2988,9 @@
     "provider_sample_count_title": "Number of rows in this host's {provider} sample table — gives a snapshot of how much history is available for charts and trend analysis on this provider for this host.",
     "drawer": {
       "not_found": "Host not found: {id}"
-    }
+    },
+    "provider_sample_interval": "Every {every}",
+    "provider_sample_interval_title": "How often the {provider} sampler ticks for this host ({seconds} seconds applied). Resolves any \"0 = inherit\" sentinel to the actual effective value the loop sleeps for."
   },
   "stale_marker": {
     "tooltip": "Last live data {age} ago — value restored from cache snapshot",

@@ -109,6 +109,9 @@ const CURATED_REFRESH_FIELDS = new Set([
   // stamped by `_merge_one_host` on /api/hosts/one/{id}; surfaces under
   // the "Updated Xs ago" chip subtitle in the host drawer.
   'provider_sample_counts',
+  // Per-provider effective sampler interval (seconds) — third chip
+  // subtitle line. Same stamping path as provider_sample_counts.
+  'provider_sample_intervals',
   // CPU / memory / disk / swap rollups.
   'cpu_percent', 'mem_percent', 'disk_percent',
   'host_cpu_percent', 'host_mem_total', 'host_mem_used',
@@ -26317,6 +26320,33 @@ function app() {
       const v = map[name];
       return Number.isFinite(+v) ? +v : 0;
     },
+    // Per-provider effective sampler interval in seconds. Backend
+    // (`_provider_sample_intervals`) has already resolved the
+    // "0 = inherit" sentinel + applied each sampler's floor, so this
+    // value matches the actual asyncio.sleep cadence the loop ticks at.
+    // 0 when the per-host probe hasn't run yet (cold-load skeleton);
+    // chip subtitle hides on 0.
+    providerSampleInterval(h, name) {
+      if (!h || !name) return 0;
+      const map = h.provider_sample_intervals;
+      if (!map || typeof map !== 'object') return 0;
+      const v = map[name];
+      return Number.isFinite(+v) ? +v : 0;
+    },
+    // Human-friendly "Every Ns" / "Every Nm" / "Every Nm Ks" cadence
+    // label for the chip subtitle. Routes through the same locale
+    // formatter the SPA uses for last-OK ages so it reads naturally
+    // alongside "Updated 24s ago". Returns empty string on 0 so the
+    // caller's x-show gate hides cleanly.
+    providerSampleIntervalLabel(h, name) {
+      const s = this.providerSampleInterval(h, name);
+      if (!s) return '';
+      if (s < 60) return s + 's';
+      const m = Math.floor(s / 60);
+      const rem = s - m * 60;
+      if (rem === 0) return m + 'm';
+      return m + 'm ' + rem + 's';
+    },
     // Resume-button busy-state map. Keyed `<host_id>:<provider>` so
     // simultaneous resumes on different providers don't collide.
     providerResumeBusy: {},
@@ -28527,10 +28557,17 @@ function app() {
         // `ts` for back-compat with any consumer expecting the raw
         // pocketbase column name. Pre-fix the x-axis was blank because
         // xAxisFromSeries pulled from `.t` which was undefined.
+        // Server now buckets when hours > 2 (see api_hosts_ping_history)
+        // so `rtt_ms` may legitimately be null for a bucket that was
+        // entirely down (no alive samples to average). Preserve null
+        // through to the chart helper so the polyline's
+        // skip-don't-synthesize path renders the period as a gap
+        // rather than plotting a fake 0ms latency point.
         const points = (d.points || []).map(p => ({
           t:        Number(p.ts) || 0,
           ts:       Number(p.ts) || 0,
-          rtt:      Number(p.rtt_ms) || 0,
+          rtt:      (p.rtt_ms === null || p.rtt_ms === undefined)
+                       ? null : (Number(p.rtt_ms) || 0),
           alive:    !!p.alive,
           loss_pct: Number(p.loss_pct) || 0,
         }));
