@@ -329,7 +329,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # has its OWN tunable rather than sharing with the auth cooldown
     # — Ping has no notion of "credential lockout"; the cool-down here
     # purely throttles probes against an unreachable host.
-    "tuning_ping_interval_seconds":      ("PING_INTERVAL_SECONDS", 60, 10, 3600),
+    # Ping sampler tick cadence (seconds). Same inherit semantics as
+    # the other per-provider sample-interval knobs (Beszel / Pulse /
+    # NE / SNMP) — 0 = use the global `tuning_stats_sample_interval_seconds`;
+    # > 0 overrides per-Ping. Distinct knob exists because operators
+    # often want Ping to tick FASTER than the data-bearing samplers
+    # (sub-minute reachability checks against routers / 5G modems)
+    # without bumping the global cadence. Range 0..3600.
+    "tuning_ping_interval_seconds":      ("PING_INTERVAL_SECONDS", 0, 0, 3600),
     "tuning_ping_concurrency":           ("PING_CONCURRENCY", 16, 1, 128),
     "tuning_ping_probe_timeout_seconds": ("PING_PROBE_TIMEOUT_SECONDS", 2, 1, 30),
     "tuning_ping_cooldown_seconds":      ("PING_COOLDOWN_SECONDS", 300, 30, 3600),
