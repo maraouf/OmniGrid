@@ -10582,25 +10582,61 @@ function app() {
       tuning_snmp_sample_interval_seconds:          'tuning_stats_sample_interval_seconds',
     },
     // Compose the "Effective: <X>" / "Inherited: <X>" label for one
-    // tunable. When the tunable has a known inherit-source AND its
-    // own effective is 0 (the "0 = inherit" sentinel), the label
-    // resolves through the source tunable's effective value and
-    // renders as "Inherited: <source-effective>". Otherwise it
-    // renders the plain "Effective: <X>" label.
+    // tunable. Consults the LIVE form value first (so emptying / zeroing
+    // the input immediately flips the chip to the inherit form, even
+    // before Save) and falls back to the server-side effective from
+    // the GET response when the form value is undefined.
+    //
+    // Inherit semantics: when the tunable has a known inherit-source
+    // AND its resolved value is 0 / empty (the "0 = inherit" sentinel),
+    // the chip reads "Inherited: <source-effective> (from <source-key>)"
+    // — resolved through the source tunable's CURRENT label so a chain
+    // of edits in one Save renders correctly without a reload.
     tuningEffectiveLabel(key) {
-      const row = (this.tuningEffective || {})[key] || {};
-      const eff = row.effective;
+      const formMap   = this.tuningForm || {};
+      const effMap    = this.tuningEffective || {};
+      const formRaw   = formMap[key];
+      const serverRow = effMap[key] || {};
+      const isBlankForm = (formRaw === '' || formRaw === null || formRaw === '0' || formRaw === 0);
+      // Resolved value the chip should display when NOT inheriting:
+      // form takes precedence (operator's pending edit), else server-
+      // effective. Coerced to Number for the bool-bound check below.
+      let resolved;
+      if (formRaw !== undefined && formRaw !== '' && formRaw !== null) {
+        const n = Number(formRaw);
+        resolved = Number.isFinite(n) ? n : formRaw;
+      } else {
+        resolved = serverRow.effective;
+      }
       const source = this._tuningInheritSource[key];
-      if (source && (eff === 0 || eff === '0' || eff === null || eff === undefined)) {
-        const srcRow = (this.tuningEffective || {})[source] || {};
-        const srcEff = srcRow.effective;
-        if (srcEff !== undefined && srcEff !== null && srcEff !== '') {
-          return this.t('admin.config.inherited_label', { value: srcEff, source: source })
-              || ('Inherited: ' + srcEff);
+      // Trigger inherit-label when the key has a known source AND the
+      // resolved value is empty / 0 / undefined. `isBlankForm` covers
+      // the operator-just-emptied case; the `resolved === 0` case
+      // covers the freshly-loaded "0 = inherit" sentinel.
+      const inheriting = !!source && (
+        isBlankForm
+        || resolved === 0 || resolved === '0'
+        || resolved === null || resolved === undefined
+      );
+      if (inheriting) {
+        // Source's resolved value — same form-first precedence so a
+        // pending edit on the SOURCE tunable propagates to the
+        // inheritor's chip immediately.
+        const srcFormRaw = formMap[source];
+        let srcResolved;
+        if (srcFormRaw !== undefined && srcFormRaw !== '' && srcFormRaw !== null) {
+          const sn = Number(srcFormRaw);
+          srcResolved = Number.isFinite(sn) ? sn : srcFormRaw;
+        } else {
+          srcResolved = ((effMap[source] || {}).effective);
+        }
+        if (srcResolved !== undefined && srcResolved !== null && srcResolved !== '') {
+          return this.t('admin.config.inherited_label', { value: srcResolved, source: source })
+              || ('Inherited: ' + srcResolved + ' (from ' + source + ')');
         }
       }
-      return this.t('admin.config.effective_label', { value: eff })
-          || ('Effective: ' + (eff === undefined ? '' : eff));
+      return this.t('admin.config.effective_label', { value: resolved })
+          || ('Effective: ' + (resolved === undefined ? '' : resolved));
     },
     async loadTuning() {
       try {
