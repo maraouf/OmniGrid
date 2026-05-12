@@ -5002,6 +5002,81 @@ body.ai-pinned > .og-app-shell--ai-pinned {
     font-size: var(--fs-sm);
 }
 
+/* Release-notes block in single-update popups. Injected by
+ * `_fetchReleaseNotesHtml`. Scrollable body so long GitHub release
+ * notes don't push the popup off-screen — operator scrolls within
+ * the bordered pre instead of resizing the dialog itself. */
+.release-notes-block {
+    margin-top: var(--s-4);
+    padding: var(--s-3);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    text-align: start;
+}
+
+.release-notes-block--empty {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    flex-wrap: wrap;
+}
+
+.release-notes-head {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--s-2);
+}
+
+.release-notes-label {
+    font-weight: 600;
+    color: var(--text);
+    font-size: var(--fs-sm);
+}
+
+.release-notes-tag {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 1px var(--s-2);
+    color: var(--text-dim);
+    font-size: var(--fs-xs);
+}
+
+.release-notes-link {
+    color: var(--primary);
+    font-size: var(--fs-xs);
+    text-decoration: none;
+    margin-inline-start: auto;
+}
+
+.release-notes-link:hover {
+    text-decoration: underline;
+}
+
+/* Scrollable body — max-height capped so the popup overall stays
+ * visible. `pre` preserves the markdown source's line breaks +
+ * indentation; word-wrap so very long lines fold instead of horizontal
+ * scrolling. Mono font matches code-block conventions GitHub uses in
+ * its release-notes markdown. */
+.release-notes-body {
+    max-height: 240px;
+    overflow-y: auto;
+    margin: 0;
+    padding: var(--s-3);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 .swal2-confirm,
 .swal2-cancel {
     border-radius: var(--r-lg) !important;

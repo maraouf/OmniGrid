@@ -1650,6 +1650,32 @@ def _item_context(container_or_service_id: str) -> tuple[str, Optional[str]]:
     return (container_or_service_id[:12], None)
 
 
+@app.get("/api/registry/release-notes")
+async def api_registry_release_notes(
+    image: str,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Best-effort release-notes lookup for an image.
+
+    Walks the registry's OCI labels (`org.opencontainers.image.source` +
+    `.version`), detects GitHub-hosted sources, and pulls the matching
+    Release's body markdown from GitHub's public API. Falls back to a
+    bare source-URL response when the source isn't a recognised host or
+    the matching release doesn't exist. Used by the single-update popup
+    in the SPA (stacks + standalone containers); bulk updates skip the
+    fetch to keep that surface clean.
+    """
+    image = (image or "").strip()
+    if not image:
+        raise HTTPException(400, "image query param required")
+    try:
+        result = await registry.get_release_notes(image)
+    except Exception as e:  # noqa: BLE001
+        print(f"[release-notes] api lookup failed for {image!r}: {e}")
+        result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    return result
+
+
 @app.post("/api/update/stack/{stack_id}")
 async def api_update_stack(
     stack_id: int, bg: BackgroundTasks, request: Request,
@@ -14059,7 +14085,15 @@ async def api_hosts_snmp_history(
             "disk_total":       (int(r[18]) if r[18] is not None else None),
             "disk_used":        (int(r[19]) if r[19] is not None else None),
         })
-    return {"points": points, "error": None}
+    # Surface `bucket_seconds` to the SPA so rate-computation helpers
+    # (`snmpThroughputBpsSeries` / iface throughput / etc.) can scale
+    # their gap-detection threshold to the actual server-side bucket
+    # cadence. 0 when the response wasn't bucketed (≤2h windows pass
+    # raw samples through). Without this, the SPA's static 3600s cap
+    # rejected EVERY consecutive-pair delta on 7d windows (5040s
+    # buckets) and the throughput chart fell through to "Collecting
+    # data" forever.
+    return {"points": points, "error": None, "bucket_seconds": bucket}
 
 
 @app.get("/api/hosts/{host_id}/disk-projection")

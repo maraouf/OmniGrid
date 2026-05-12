@@ -2589,7 +2589,9 @@
     "bulk_remove_html": "<div>Stops and deletes the following stopped container(s) (force + volumes). Cannot be undone.</div><ul>{items}{more}</ul>",
     "reset_password_title": "Reset password for {name}?",
     "reset_password_label": "New password (min 8 characters)",
-    "reset_button": "Reset"
+    "reset_button": "Reset",
+    "release_notes_label": "What's new",
+    "release_notes_view_on_source": "View on source"
   },
   "password": {
     "strength": {
