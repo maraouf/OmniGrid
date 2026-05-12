@@ -409,7 +409,15 @@
         "empty": "No rows for this table.",
         "footer_total": "Total {total} (outer: {outer})",
         "mismatch_warn": "TOTAL MISMATCH — sum of per-host rows ≠ outer count",
-        "match_ok": "Totals match ✓"
+        "match_ok": "Totals match ✓",
+        "row_open_title": "Click to open this host's drawer",
+        "row_orphan_title": "No curated host with this id — sample rows are orphaned (host was deleted from Admin → Hosts)",
+        "alias_address": "Curated `address` (probe target)",
+        "alias_beszel": "Beszel agent name",
+        "alias_pulse": "Pulse guest name",
+        "alias_snmp": "SNMP target",
+        "alias_webmin": "Webmin Miniserv URL",
+        "orphan_marker": "(no longer curated — host removed from Admin → Hosts)"
       }
     },
     "database": {
@@ -2968,7 +2976,10 @@
     "live_mode": " · live (push)",
     "probe_error": "Host probe error: {error}",
     "provider_sample_count": "{count} samples",
-    "provider_sample_count_title": "Number of rows in this host's {provider} sample table — gives a snapshot of how much history is available for charts and trend analysis on this provider for this host."
+    "provider_sample_count_title": "Number of rows in this host's {provider} sample table — gives a snapshot of how much history is available for charts and trend analysis on this provider for this host.",
+    "drawer": {
+      "not_found": "Host not found: {id}"
+    }
   },
   "stale_marker": {
     "tooltip": "Last live data {age} ago — value restored from cache snapshot",

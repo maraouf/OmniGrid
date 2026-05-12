@@ -26541,6 +26541,27 @@ function app() {
         }
       } catch (_) { /* best-effort; charts catch up via drawer-poll timer */ }
     },
+    // Open the host drawer by id — looks up the host object from
+    // `this.hosts` and navigates to the Hosts view first if the
+    // operator clicked from somewhere else (e.g. Stats → Samples
+    // drill-down popup). Toast when the id isn't in the curated
+    // list so orphaned sample rows don't navigate to nowhere.
+    openHostDrawerById(hostId) {
+      const id = (hostId || '').toString().trim();
+      if (!id) return;
+      const list = Array.isArray(this.hosts) ? this.hosts : [];
+      const host = list.find(h => h && (h.id === id || h.host === id));
+      if (!host) {
+        this.showToast(
+          this.t('hosts_extra.drawer.not_found', { id })
+          || ('Host not found: ' + id),
+          'error',
+        );
+        return;
+      }
+      if (this.view !== 'hosts') this.view = 'hosts';
+      this.openHostDrawer(host);
+    },
     openHostDrawer(host) {
       if (!host) return;
       this.drawerHost = host;
