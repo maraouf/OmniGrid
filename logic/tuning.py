@@ -461,6 +461,21 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # can throttle Beszel sampling independently of NE / Pulse /
     # Webmin. Range 0..3600.
     "tuning_beszel_sample_interval_seconds": ("BESZEL_SAMPLE_INTERVAL_SECONDS", 0, 0, 3600),
+    # Pulse sampler tick cadence (seconds). Same inherit-semantics as
+    # the Beszel knob above — 0 = use the global
+    # `tuning_stats_sample_interval_seconds`; > 0 overrides per-Pulse.
+    # Distinct knob so a fleet with a noisy / large Pulse hub
+    # (Proxmox cluster with hundreds of guests) can throttle Pulse
+    # sampling independently of NE / Beszel / Webmin. Range 0..3600.
+    "tuning_pulse_sample_interval_seconds": ("PULSE_SAMPLE_INTERVAL_SECONDS", 0, 0, 3600),
+    # node-exporter sampler tick cadence (seconds). Same inherit-
+    # semantics — 0 = use `tuning_stats_sample_interval_seconds`;
+    # > 0 overrides per-NE. Distinct knob so operators can sample
+    # node-exporter at a different cadence than the hub-based
+    # providers (e.g. NE every 60s for fine-grained CPU / mem /
+    # disk traces, while keeping Beszel / Pulse on the slower
+    # 300s default to avoid hub load). Range 0..3600.
+    "tuning_node_exporter_sample_interval_seconds": ("NODE_EXPORTER_SAMPLE_INTERVAL_SECONDS", 0, 0, 3600),
     # NOTE: per-host Beszel cache TTLs were briefly declared here for parity
     # with the Webmin pair but never wired to a consumer — Beszel is a BATCH
     # probe (one hub fetch → map of all hosts) so per-host TTLs are

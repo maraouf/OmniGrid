@@ -2907,6 +2907,8 @@ class SettingsIn(BaseModel):
     tuning_beszel_failure_pause_rounds: Optional[str] = None
     tuning_beszel_probe_timeout_seconds: Optional[str] = None
     tuning_beszel_sample_interval_seconds: Optional[str] = None
+    tuning_pulse_sample_interval_seconds: Optional[str] = None
+    tuning_node_exporter_sample_interval_seconds: Optional[str] = None
     tuning_pulse_failure_pause_rounds: Optional[str] = None
     tuning_pulse_probe_timeout_seconds: Optional[str] = None
     tuning_webmin_probe_timeout_seconds: Optional[str] = None

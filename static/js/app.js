@@ -1220,6 +1220,7 @@ function app() {
     _perProviderTuneKeys: {
       node_exporter: [
         'tuning_node_exporter_probe_timeout_seconds',
+        'tuning_node_exporter_sample_interval_seconds',
         'tuning_node_exporter_failure_pause_rounds',
       ],
       beszel: [
@@ -1230,6 +1231,7 @@ function app() {
       pulse: [
         'tuning_pulse_failure_pause_rounds',
         'tuning_pulse_probe_timeout_seconds',
+        'tuning_pulse_sample_interval_seconds',
       ],
       webmin: [
         'tuning_webmin_probe_timeout_seconds',
@@ -1315,6 +1317,12 @@ function app() {
       'tuning_beszel_sample_interval_seconds',
       'tuning_pulse_failure_pause_rounds',
       'tuning_pulse_probe_timeout_seconds',
+      // Pulse + NE per-sampler interval overrides — mirror the
+      // Beszel knob's shape (0 = inherit `tuning_stats_sample_interval_seconds`,
+      // > 0 = override). Rendered in Settings → Host stats →
+      // Pulse / NE respectively via `_perProviderTuneKeys`.
+      'tuning_pulse_sample_interval_seconds',
+      'tuning_node_exporter_sample_interval_seconds',
       'tuning_webmin_probe_timeout_seconds',
       'tuning_node_exporter_failure_pause_rounds',
       'tuning_ping_failure_pause_rounds',
