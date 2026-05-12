@@ -5022,6 +5022,37 @@ body.ai-pinned > .og-app-shell--ai-pinned {
     flex-wrap: wrap;
 }
 
+/* Loading variant — replaces the body <pre> with a compact spinner +
+ * "Loading release notes..." copy until the async fetch resolves and
+ * the block's outerHTML is swapped for the real content. */
+.release-notes-block--loading .release-notes-head {
+    margin-bottom: 0;
+}
+
+.release-notes-spinner {
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    display: inline-block;
+    animation: release-notes-spin 0.7s linear infinite;
+}
+
+.release-notes-loading-text {
+    color: var(--text-dim);
+    font-size: var(--fs-xs);
+    font-style: italic;
+}
+
+@keyframes release-notes-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .release-notes-spinner { animation: none; }
+}
+
 .release-notes-head {
     display: flex;
     align-items: center;

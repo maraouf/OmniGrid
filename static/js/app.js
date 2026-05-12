@@ -30877,73 +30877,148 @@ function app() {
       if (items.length !== 1) return '';
       return items[0].image || '';
     },
-    // Best-effort release-notes fetch for one image. Returns the
-    // HTML block to inject into the confirm-dialog body — empty
-    // string when the lookup fails OR the registry didn't expose a
-    // source label. The block uses `.update-popup-release` for the
-    // scrollable container so long markdown bodies (multi-paragraph
-    // GitHub release notes) don't push the popup off-screen.
-    async _fetchReleaseNotesHtml(image) {
-      if (!image) return '';
+    // ID anchor for the async release-notes block. The popup HTML
+    // opens with a placeholder bearing this id; once the fetch
+    // resolves, we replace the element's outerHTML with the real
+    // notes block via `_replaceReleaseNotesAsync`. ID is stable so the
+    // DOM lookup is cheap and unambiguous — SweetAlert2 renders one
+    // popup at a time so the single-instance assumption holds.
+    _RELEASE_NOTES_ASYNC_ID: 'omnigrid-release-notes-async',
+    // HTML escape — XSS-safe for untrusted markdown body. Centralised
+    // so the placeholder + final-render paths share the same
+    // implementation.
+    _escapeReleaseHtml(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[c]);
+    },
+    // GitHub-flavoured release notes carry inline commit-hash links
+    // like `[5dc1d27](https://github.com/.../commit/abc)` which read as
+    // noise inside the preformatted view. Strip the whole `[hash](url)`
+    // pattern (7-40 hex digits, http/https URL) so the body reads
+    // cleanly. Issue-references `#123` and bare prose stay intact —
+    // operators can still cross-reference upstream if they want, via
+    // the "View on source" link in the block header.
+    _scrubReleaseNotesBody(body) {
+      if (!body) return '';
+      let out = String(body);
+      // Inline commit-link markdown: `[<7..40-hex>](http(s)://...)`
+      out = out.replace(/\s*\[[0-9a-f]{7,40}\]\(https?:\/\/[^)]+\)/g, '');
+      // Bare commit-URL trailing whitespace: `... https://github.com/.../commit/<hash>`
+      out = out.replace(/\s*https?:\/\/[^\s]+\/commit\/[0-9a-f]{7,40}\b/g, '');
+      // Collapse double/triple newlines that the strip can create.
+      out = out.replace(/\n{3,}/g, '\n\n');
+      return out;
+    },
+    // Build the static placeholder block that the popup opens with.
+    // Shows a centred spinner + "Loading release notes..." copy.
+    // Carries the `_RELEASE_NOTES_ASYNC_ID` id so the async fill can
+    // find + replace it.
+    _releaseNotesPlaceholderHtml() {
+      const lbl = this._escapeReleaseHtml(this.t('dialogs.release_notes_label') || "What's new");
+      const loading = this._escapeReleaseHtml(this.t('dialogs.release_notes_loading') || 'Loading release notes…');
+      return [
+        `<div id="${this._RELEASE_NOTES_ASYNC_ID}" class="release-notes-block release-notes-block--loading">`,
+        `<div class="release-notes-head">`,
+        `<span class="release-notes-label">${lbl}</span>`,
+        `<span class="release-notes-spinner" aria-hidden="true"></span>`,
+        `<span class="release-notes-loading-text">${loading}</span>`,
+        '</div>',
+        '</div>',
+      ].join('');
+    },
+    // Render the resolved release-notes block from one /api/registry/
+    // release-notes response payload. Returns the final HTML string the
+    // async filler injects in place of the placeholder. Empty string
+    // when the lookup yielded nothing actionable — caller removes the
+    // placeholder entirely in that case.
+    _buildReleaseNotesHtml(d) {
+      const esc = this._escapeReleaseHtml.bind(this);
+      const lbl = esc(this.t('dialogs.release_notes_label') || "What's new");
+      if (d && d.ok && d.body) {
+        const scrubbed = this._scrubReleaseNotesBody(d.body);
+        if (!scrubbed.trim()) return '';
+        const linkOut = d.html_url
+          ? `<a href="${esc(d.html_url)}" target="_blank" rel="noopener" class="release-notes-link">${esc(this.t('dialogs.release_notes_view_on_source') || 'View on source')}</a>`
+          : '';
+        return [
+          `<div id="${this._RELEASE_NOTES_ASYNC_ID}" class="release-notes-block">`,
+          `<div class="release-notes-head">`,
+          `<span class="release-notes-label">${lbl}</span>`,
+          `<span class="release-notes-tag mono">${esc(d.tag || '')}</span>`,
+          linkOut,
+          '</div>',
+          `<pre class="release-notes-body scrollbar">${esc(scrubbed)}</pre>`,
+          '</div>',
+        ].join('');
+      }
+      // No release body — surface the source link only when we have
+      // it, so the operator can still investigate. Skip the block
+      // entirely on a hard miss (no source label) to avoid clutter.
+      if (d && d.source_url) {
+        return [
+          `<div id="${this._RELEASE_NOTES_ASYNC_ID}" class="release-notes-block release-notes-block--empty">`,
+          `<span class="release-notes-label">${lbl}</span>`,
+          `<a href="${esc(d.source_url)}" target="_blank" rel="noopener" class="release-notes-link">${esc(d.source_url)}</a>`,
+          '</div>',
+        ].join('');
+      }
+      return '';
+    },
+    // Fire the release-notes fetch + replace the placeholder block in
+    // the open SwAl popup's DOM. Fire-and-forget — caller is the
+    // synchronous `await confirmDialog(...)` path; the popup is already
+    // open by the time this resolves. Defensive: when the operator
+    // closes the popup before the fetch lands, `document.getElementById`
+    // returns null and the replace is a no-op (no error). When the
+    // server returns no body AND no source URL, the placeholder is
+    // removed entirely so the popup doesn't carry a dangling spinner.
+    async _replaceReleaseNotesAsync(image) {
+      if (!image) return;
       try {
         const r = await fetch(`/api/registry/release-notes?image=${encodeURIComponent(image)}`);
-        if (!r.ok) return '';
+        if (!r.ok) {
+          // HTTP failure — remove the placeholder so the popup doesn't
+          // hang on the spinner indefinitely.
+          const el = document.getElementById(this._RELEASE_NOTES_ASYNC_ID);
+          if (el) el.remove();
+          return;
+        }
         const d = await r.json();
-        // Render-time HTML escaper for untrusted markdown body. We do
-        // NOT render the markdown as actual markdown (no parser
-        // included) — instead we present it as preformatted text in a
-        // scrollable <pre>, which preserves the operator's intent
-        // (release notes ARE plain markdown source) and avoids the XSS
-        // surface that an in-browser markdown renderer would add.
-        const esc = (s) => String(s || '').replace(/[&<>"']/g, c => ({
-          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        })[c]);
-        if (d && d.ok && d.body) {
-          const linkOut = d.html_url
-            ? `<a href="${esc(d.html_url)}" target="_blank" rel="noopener" class="release-notes-link">${esc(this.t('dialogs.release_notes_view_on_source') || 'View on source')}</a>`
-            : '';
-          return [
-            '<div class="release-notes-block">',
-            `<div class="release-notes-head">`,
-            `<span class="release-notes-label">${esc(this.t('dialogs.release_notes_label') || "What's new")}</span>`,
-            `<span class="release-notes-tag mono">${esc(d.tag || '')}</span>`,
-            linkOut,
-            '</div>',
-            `<pre class="release-notes-body scrollbar">${esc(d.body)}</pre>`,
-            '</div>',
-          ].join('');
+        const html = this._buildReleaseNotesHtml(d);
+        const el = document.getElementById(this._RELEASE_NOTES_ASYNC_ID);
+        if (!el) return;   // popup closed before fetch resolved
+        if (!html) {
+          el.remove();
+          return;
         }
-        // No release body — surface the source link only when we have
-        // it, so the operator can still investigate. Skip the block
-        // entirely on a hard miss (no source label) to avoid clutter.
-        if (d && d.source_url) {
-          return [
-            '<div class="release-notes-block release-notes-block--empty">',
-            `<span class="release-notes-label">${esc(this.t('dialogs.release_notes_label') || "What's new")}</span>`,
-            `<a href="${esc(d.source_url)}" target="_blank" rel="noopener" class="release-notes-link">${esc(d.source_url)}</a>`,
-            '</div>',
-          ].join('');
-        }
-        return '';
+        el.outerHTML = html;
       } catch (e) {
-        // Network error / parse failure — silent fall-through, the
-        // popup still renders without the release-notes block.
-        return '';
+        // Silent — placeholder removed so popup doesn't carry a
+        // stuck spinner. Operator still gets the actual update path.
+        const el = document.getElementById(this._RELEASE_NOTES_ASYNC_ID);
+        if (el) el.remove();
       }
     },
     async itemAction(item, opts) {
       if (this.isItemBusy(item)) return;
       const skipConfirm = !!(opts && opts.skipConfirm);
       if (!skipConfirm) {
-        // Release-notes hint — single-item path only. Bulk updates and
-        // AI-dispatch (skipConfirm) skip this fetch since the popup is
-        // bypassed entirely. Best-effort; a failure falls through to
-        // the legacy popup body (no release-notes block).
-        const releaseHtml = await this._fetchReleaseNotesHtml(item.image);
+        // Async release-notes hint — popup opens INSTANTLY with a
+        // loading placeholder; fetch runs in parallel and replaces
+        // the placeholder when it resolves. Bulk updates and
+        // AI-dispatch (skipConfirm) bypass this entirely since the
+        // popup itself is bypassed. Pre-fix (#0095 v1) blocked the
+        // popup-open on the registry call → 1-2 second delay where
+        // the operator saw nothing.
         const baseHtml = item.stack_id
           ? this.t('dialogs.update_stack_html', { name: item.stack })
           : this.t('dialogs.recreate_container_html', { name: item.name });
-        const html = baseHtml + releaseHtml;
+        const html = baseHtml + (item.image ? this._releaseNotesPlaceholderHtml() : '');
+        // Fire-and-forget — the await on `confirmDialog` below opens
+        // the popup synchronously; the async filler races against the
+        // operator's click + the popup's DOM lifecycle.
+        if (item.image) this._replaceReleaseNotesAsync(item.image);
         const ok = item.stack_id
           ? await this.confirmDialog({
               title: this.t('dialogs.update_stack_title'),
@@ -30985,12 +31060,13 @@ function app() {
         // Release notes only fire when the stack has EXACTLY ONE
         // updateable item — multi-service stacks don't have a single
         // "what's new" to surface and the popup would mislead. Pick
-        // the lone item's image if it qualifies; else skip.
+        // the lone item's image if it qualifies; else skip the
+        // placeholder entirely. Popup opens INSTANTLY either way;
+        // async filler replaces the placeholder on resolve.
         const stackImage = this._stackSingleUpdateImage(stack);
-        const releaseHtml = stackImage
-          ? await this._fetchReleaseNotesHtml(stackImage)
-          : '';
-        const html = this.t('dialogs.update_stack_html', { name: stack.name }) + releaseHtml;
+        const html = this.t('dialogs.update_stack_html', { name: stack.name })
+                   + (stackImage ? this._releaseNotesPlaceholderHtml() : '');
+        if (stackImage) this._replaceReleaseNotesAsync(stackImage);
         const ok = await this.confirmDialog({
           title: this.t('dialogs.update_stack_title'),
           html: html,
