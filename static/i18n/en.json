@@ -417,7 +417,14 @@
         "alias_pulse": "Pulse guest name",
         "alias_snmp": "SNMP target",
         "alias_webmin": "Webmin Miniserv URL",
-        "orphan_marker": "(no longer curated — host removed from Admin → Hosts)"
+        "orphan_marker": "(no longer curated — host removed from Admin → Hosts)",
+        "orphan_marker_item": "(container no longer running — sample rows from an old container id)",
+        "prune_button_title": "Delete every row for this host_id from the sample table",
+        "prune_button_aria": "Delete orphan sample rows",
+        "prune_confirm_title": "Delete sample rows?",
+        "prune_confirm_html": "Delete <strong>{count}</strong> rows from <code>{table}</code> for <code>{id}</code>? This is irreversible — the rows are gone from disk after Save.",
+        "prune_confirm_ok": "Delete",
+        "prune_success": "{count} rows deleted for {id}"
       }
     },
     "database": {
@@ -2742,7 +2749,8 @@
     "notification_delete": "Delete notification",
     "settings_update": "Update settings",
     "ai_memory_create": "Create AI memory",
-    "ai_memory_delete": "Delete AI memory"
+    "ai_memory_delete": "Delete AI memory",
+    "samples_prune_orphan": "Prune sample rows"
   },
   "op_status": {
     "running": "running",

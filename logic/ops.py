@@ -165,6 +165,12 @@ OP_TYPES: frozenset[str] = frozenset({
     "settings_update",
     "ai_memory_create",
     "ai_memory_delete",
+    # Per-(table, host_id) sample-row prune. Drives the
+    # Stats → Samples drill-down "Delete orphan rows" button so
+    # operators can clean up rows left behind when a curated host
+    # is deleted from Admin → Hosts. Audit row carries the table
+    # name + host_id + deleted-row count in the events JSON.
+    "samples_prune_orphan",
     # Host sampling resume — operator-initiated unpause. The matching
     # auto-pause path fires from the sampler (no operator) so the pause
     # itself isn't an audit event; the resume IS.

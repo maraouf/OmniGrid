@@ -5810,6 +5810,14 @@ async def api_admin_stats_samples_by_host(
         "host_col":  host_col,
         "rows":      [],
         "total":     0,
+        # Backend-side fresh outer count — fetched in the SAME SELECT
+        # snapshot as the per-host groupings so the SPA's cross-check
+        # compares values from one consistent point in time. Pre-fix
+        # the SPA used the outer count from the Samples page's earlier
+        # `/api/admin/stats/samples` fetch; samplers writing rows
+        # between the two HTTP calls drifted the totals + the modal
+        # falsely flagged "TOTAL MISMATCH".
+        "outer_count": 0,
         "error":     None,
     }
     # Curated metadata lookup — operator-facing label + every per-
@@ -5838,6 +5846,14 @@ async def api_admin_stats_samples_by_host(
         with db_conn() as c:
             # Table + host-col are validated against the canonical
             # whitelist above; safe to embed in the SQL string.
+            # Fresh outer count first — same connection, same
+            # transaction, so the per-host sum + outer total snapshot
+            # at the same wall-clock instant. Eliminates the spurious
+            # "TOTAL MISMATCH" warning operators saw when samplers
+            # wrote rows between the page-load fetch and the drill-
+            # down click.
+            outer_row = c.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()
+            out["outer_count"] = int(outer_row[0] or 0) if outer_row else 0
             rows = c.execute(
                 f'SELECT "{host_col}" AS host_id, COUNT(*) AS rows '
                 f'  FROM "{table}" '
@@ -5865,6 +5881,57 @@ async def api_admin_stats_samples_by_host(
     except Exception as e:
         out["error"] = str(e)
     return out
+
+
+class _SamplesPruneIn(BaseModel):
+    """Body for the orphan-prune endpoint. Both fields required."""
+    table: str
+    host_id: str
+
+
+@app.delete("/api/admin/stats/samples/by-host")
+async def api_admin_stats_samples_prune_orphan(
+    body: _SamplesPruneIn,
+    admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only — delete every row in <table> for one host_id /
+    item_id. Used by the Stats → Samples drill-down "Delete orphan
+    rows" button when a curated host has been removed from Admin →
+    Hosts but the sampler-written rows remain.
+
+    Table name validated against `_SAMPLES_TABLE_HOST_COL`. The
+    host-col name comes from that map too, so neither value is
+    operator input embedded raw into the SQL.
+    """
+    table = (body.table or "").strip()
+    host_id = (body.host_id or "").strip()
+    if not host_id:
+        raise HTTPException(status_code=400, detail="host_id is required")
+    host_col = _SAMPLES_TABLE_HOST_COL.get(table)
+    if not host_col:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown sample table {table!r}. Allowed: "
+                   + ", ".join(sorted(_SAMPLES_TABLE_HOST_COL.keys())),
+        )
+    deleted = 0
+    try:
+        with db_conn() as c:
+            cur = c.execute(
+                f'DELETE FROM "{table}" WHERE "{host_col}" = ?',
+                (host_id,),
+            )
+            deleted = int(cur.rowcount or 0)
+            c.commit()
+            _ops_mod.write_admin_audit(
+                c, "samples_prune_orphan",
+                target_kind="samples_table", target_name=table, target_id=host_id,
+                actor=admin.username,
+                message=f"Pruned {deleted} rows from {table} for {host_col}={host_id}",
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"ok": True, "deleted": deleted, "table": table, "host_id": host_id}
 
 
 @app.get("/api/admin/ai/dashboard")
