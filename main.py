@@ -2368,7 +2368,23 @@ async def api_history_csv_export(
 @app.delete("/api/history")
 async def api_history_clear(_admin: auth.User = Depends(auth.require_admin)):
     with db_conn() as c:
+        # Count first so the audit row can carry the size of the wipe.
+        try:
+            cleared_count = c.execute("SELECT COUNT(*) FROM history").fetchone()[0]
+        except Exception:
+            cleared_count = 0
         c.execute("DELETE FROM history")
+        # Audit row written AFTER the bulk DELETE so it survives the
+        # truncation. The trailing row is the forensic anchor —
+        # destroying the audit trail is itself an audit event.
+        _ops_mod.write_admin_audit(
+            c, "history_cleared",
+            target_kind="history",
+            target_name="all",
+            actor=_admin.username or "operator",
+            message=f"history table cleared by {_admin.username or 'operator'} "
+                    f"({cleared_count} row(s) destroyed)",
+        )
     return {"status": "cleared"}
 
 
@@ -2408,6 +2424,15 @@ async def api_add_ignore(
             "INSERT OR REPLACE INTO ignores(pattern,kind,reason,created) VALUES (?,?,?,?)",
             (ig.pattern, ig.kind, ig.reason or "", time.time()),
         )
+        _ops_mod.write_admin_audit(
+            c, "ignore_create",
+            target_kind="ignore",
+            target_name=ig.pattern,
+            target_id=ig.kind,
+            actor=_admin.username or "operator",
+            message=f"ignore added pattern={ig.pattern!r} kind={ig.kind} "
+                    f"reason={(ig.reason or '').strip()[:120]!r}",
+        )
     _cache["ts"] = 0
     return {"status": "ok"}
 
@@ -2419,6 +2444,13 @@ async def api_del_ignore(
 ):
     with db_conn() as c:
         c.execute("DELETE FROM ignores WHERE pattern=?", (pattern,))
+        _ops_mod.write_admin_audit(
+            c, "ignore_delete",
+            target_kind="ignore",
+            target_name=pattern,
+            actor=_admin.username or "operator",
+            message=f"ignore deleted pattern={pattern!r}",
+        )
     _cache["ts"] = 0
     return {"status": "ok"}
 
@@ -6845,11 +6877,32 @@ async def api_admin_notify_templates_set(
     # time). Single defer-context so the cross-tab settings:updated
     # SSE event fires once even if both fields changed.
     from logic.db import defer_settings_version_bump
+    touched: list[str] = []
     with defer_settings_version_bump():
         if body.title is not None:
             set_setting(title_key, body.title or "")
+            touched.append("title")
         if body.body is not None:
             set_setting(body_key, body.body or "")
+            touched.append("body")
+    # Audit row — admin-edited templates change the copy that every
+    # subsequent event firing emits. Touched-fields list lets the History
+    # row show which half of the template moved without dumping the full
+    # before/after to the events JSON.
+    if touched:
+        try:
+            with db_conn() as c:
+                _ops_mod.write_admin_audit(
+                    c, "notify_template_update",
+                    target_kind="notify_template",
+                    target_name=event,
+                    target_id=",".join(touched),
+                    actor=_admin.username or "operator",
+                    message=f"notification template {event!r} touched "
+                            f"({', '.join(touched)}) by {_admin.username or 'operator'}",
+                )
+        except Exception as e:
+            print(f"[notify] template-update audit-row write failed: {e}")
     return _shape_notify_template_row(event)
 
 
@@ -7605,7 +7658,7 @@ async def api_asset_inventory_refresh(
             return {"ok": False, "count": 0, "ts": 0,
                     "error": "asset_inventory base_url and lifetime_token are required "
                              "for the lifetime-token auth mode"}
-        return await _ai.refresh_cache(
+        result = await _ai.refresh_cache(
             base_url,
             verify_tls=_asset_inventory_verify_tls(),
             auth_mode=_ai.AUTH_MODE_LIFETIME_TOKEN,
@@ -7615,6 +7668,8 @@ async def api_asset_inventory_refresh(
             min_value=min_value,
             max_value=max_value,
         )
+        _audit_asset_refresh(_admin, result, "lifetime_token")
+        return result
     token_url = (get_setting("asset_inventory_token_url", "") or "").strip()
     client_id = (get_setting("asset_inventory_client_id", "") or "").strip()
     client_secret = get_setting("asset_inventory_client_secret", "") or ""
@@ -7623,7 +7678,7 @@ async def api_asset_inventory_refresh(
         return {"ok": False, "count": 0, "ts": 0,
                 "error": "asset_inventory_* settings are incomplete — "
                          "configure base_url / token_url / client_id / client_secret"}
-    return await _ai.refresh_cache(
+    result = await _ai.refresh_cache(
         base_url,
         token_url=token_url,
         client_id=client_id,
@@ -7631,6 +7686,43 @@ async def api_asset_inventory_refresh(
         scope=scope,
         verify_tls=_asset_inventory_verify_tls(),
     )
+    _audit_asset_refresh(_admin, result, "oauth2")
+    return result
+
+
+def _audit_asset_refresh(admin: auth.User, result: dict, auth_mode: str) -> None:
+    """Write a `history` row for an operator-initiated asset-inventory
+    refresh. Reuses the existing scheduler-kind `asset_inventory_refresh`
+    op_type so both paths land in one filter row; actor field distinguishes
+    operator-vs-scheduler-driven runs.
+    """
+    try:
+        from logic.ops import assert_op_type as _assert_op_type
+        _assert_op_type("asset_inventory_refresh")
+        ok = bool(result and result.get("ok"))
+        with db_conn() as c:
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, 'asset_inventory_refresh', 'asset_inventory', ?, NULL, NULL, "
+                "        ?, 0.0, ?, ?, ?)",
+                (
+                    time.time(), auth_mode,
+                    "success" if ok else "error",
+                    json.dumps([{
+                        "ts": time.time(),
+                        "level": "info" if ok else "error",
+                        "msg": f"asset_inventory manual refresh by {admin.username or 'operator'}: "
+                               f"ok={ok} count={result.get('count') if result else 0} "
+                               f"auth_mode={auth_mode}",
+                    }]),
+                    (result.get("error") if result else None) or None,
+                    admin.username or "operator",
+                ),
+            )
+    except Exception as e:
+        print(f"[asset_inventory] manual-refresh audit-row write failed: {e}")
 
 
 def _asset_inventory_verify_tls() -> bool:
@@ -10798,6 +10890,27 @@ async def api_hosts_config_set(
         _invalidate_host_provider_config_cache()
     except Exception as e:
         print(f"[hosts] host_provider_config cache invalidate failed: {e}")
+    # Audit row — full-replace of the curated host list is the single
+    # largest operator-visible mutation in the app (provider mappings,
+    # SNMP credentials, ping toggles). The message carries the row
+    # count so the History pane gives a hint about the size of the change
+    # without dumping the JSON. Diff-stats (added / removed / modified)
+    # are deliberately deferred — they'd need a snapshot of the
+    # pre-save list, which doubles the query cost on every Save; the
+    # row-count signal is enough for "did the operator save anything
+    # surprising?" triage.
+    try:
+        with db_conn() as c:
+            _ops_mod.write_admin_audit(
+                c, "hosts_config_update",
+                target_kind="hosts_config",
+                target_name=f"{len(saved)} row(s)",
+                actor=_u.username or "operator",
+                message=f"hosts_config full-replace by {_u.username or 'operator'}: "
+                        f"{len(saved)} row(s) persisted",
+            )
+    except Exception as e:
+        print(f"[hosts] config-update audit-row write failed: {e}")
     return {"hosts": saved, "count": len(saved)}
 
 
@@ -11008,6 +11121,30 @@ async def api_hosts_resume_sampling(
     if cooldown_cleared:
         print(f"[hosts] {host_id!r} resume-sampling cleared cooldowns: {cooldown_cleared}")
     invalidate_host_provider_cache()
+    # Admin audit row — operator-initiated unpause is an audit event
+    # even though the matching auto-pause was a sampler-driven write.
+    try:
+        from logic.ops import assert_op_type as _assert_op_type
+        _assert_op_type("host_resume_sampling")
+        with db_conn() as c:
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, ?, 'host', ?, ?, NULL, 'success', 0.0, ?, NULL, ?)",
+                (
+                    time.time(), "host_resume_sampling",
+                    host_id, host_id,
+                    json.dumps([{
+                        "ts": time.time(), "level": "info",
+                        "msg": f"host sampling resumed by {_u.username or 'operator'}; "
+                               f"cleared={bool(cleared)} cooldowns_cleared={len(cooldown_cleared)}",
+                    }]),
+                    _u.username or "operator",
+                ),
+            )
+    except Exception as e:
+        print(f"[hosts] resume-sampling: audit-row write failed: {e}")
     return {
         "host_id": host_id,
         "cleared": bool(cleared),
@@ -11178,6 +11315,31 @@ async def api_hosts_provider_resume(
         )
     except Exception as ee:
         print(f"[events] host:failure_state_changed publish failed: {ee}")
+    # Admin audit row — per-(provider, host) resume is an operator-
+    # initiated event. The matching auto-pause was a sampler write so it
+    # isn't audited; the resume IS.
+    try:
+        from logic.ops import assert_op_type as _assert_op_type
+        _assert_op_type("host_provider_resume")
+        with db_conn() as c:
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, ?, 'host', ?, ?, NULL, 'success', 0.0, ?, NULL, ?)",
+                (
+                    time.time(), "host_provider_resume",
+                    f"{provider}:{host_id}", host_id,
+                    json.dumps([{
+                        "ts": time.time(), "level": "info",
+                        "msg": f"{provider} resume on host {host_id} by {_u.username or 'operator'}; "
+                               f"cleared={bool(cleared)} cooldowns_cleared={len(cooldown_cleared)}",
+                    }]),
+                    _u.username or "operator",
+                ),
+            )
+    except Exception as e:
+        print(f"[hosts] provider/{provider}/resume: audit-row write failed: {e}")
     return {
         "host_id": host_id,
         "provider": provider,
@@ -14133,6 +14295,31 @@ async def api_admin_reauth(
                       "(SSO user). Use the typed-hostname confirm path.",
         }
     if not auth.verify_password(pw, stored):
+        # Audit the failure path — success is invisible by design (reauth
+        # is a stepping stone). A per-event audit row surfaces who-tried-
+        # when so the operator can spot brute-force-like patterns without
+        # spelunking the per-IP login limiter's logs.
+        try:
+            from logic.ops import assert_op_type as _assert_op_type
+            _assert_op_type("admin_reauth_failed")
+            with db_conn() as c:
+                c.execute(
+                    "INSERT INTO history "
+                    "(ts, op_type, target_kind, target_name, target_id, "
+                    " target_stack, status, duration, events, error, actor) "
+                    "VALUES (?, 'admin_reauth_failed', 'auth', ?, ?, NULL, "
+                    "        'error', 0.0, ?, 'reauth failed', ?)",
+                    (
+                        time.time(), u.username, str(u.id),
+                        json.dumps([{
+                            "ts": time.time(), "level": "warn",
+                            "msg": f"admin reauth failed for {u.username}",
+                        }]),
+                        u.username,
+                    ),
+                )
+        except Exception as e:
+            print(f"[auth] admin_reauth_failed audit-row write failed: {e}")
         # Don't differentiate "wrong password" from "no user" — same
         # generic message reduces password-probing signal. The local-
         # auth login rate-limiter already covers brute force; we
@@ -14502,6 +14689,15 @@ async def api_hosts_bulk_snmp_vendors(
             )
     except Exception as e:  # noqa: BLE001
         print(f"[hosts:bulk] snmp-vendors SSE publish failed: {e}")
+    # Audit rows — one row per affected host so the History tab + per-host
+    # Timeline both surface the change. Same shape as the pause/resume
+    # bulk paths.
+    _bulk_write_history_rows(
+        applied,
+        op_type="hosts_bulk_snmp_vendors",
+        actor=actor,
+        started_ts=time.time(),
+    )
     print(f"[hosts:bulk] snmp-vendors by {actor} mode={mode} "
           f"vendors={sorted(cleaned_input)}: {len(applied)} applied, "
           f"{len(missing)} missing, {len(errors)} errors")
@@ -14606,6 +14802,14 @@ async def api_hosts_bulk_snmp_tunables(
             )
     except Exception as e:  # noqa: BLE001
         print(f"[hosts:bulk] snmp-tunables SSE publish failed: {e}")
+    # Audit rows — one row per affected host; same shape as the
+    # snmp-vendors sister + the pause/resume bulk paths.
+    _bulk_write_history_rows(
+        applied,
+        op_type="hosts_bulk_snmp_tunables",
+        actor=actor,
+        started_ts=time.time(),
+    )
     print(f"[hosts:bulk] snmp-tunables by {actor} "
           f"clear={body.clear} wc={wc} wcb={wcb}: "
           f"{len(applied)} applied, {len(missing)} missing, {len(errors)} errors")
@@ -15463,6 +15667,30 @@ async def api_auth_providers(request: Request):
 @app.post("/api/notify-test")
 async def api_notify_test(_admin: auth.User = Depends(auth.require_admin)):
     await notify("🔔 OmniGrid test", "Notifications are wired up correctly!", "success")
+    # Audit row — test-fires of real notifications (Apprise / app medium)
+    # are side-effects on subscribers; the audit trail surfaces who-fired-
+    # when so a noise complaint can be triaged back to the source.
+    try:
+        from logic.ops import assert_op_type as _assert_op_type
+        _assert_op_type("notify_test")
+        with db_conn() as c:
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, 'notify_test', 'notify', 'test', NULL, NULL, "
+                "        'success', 0.0, ?, NULL, ?)",
+                (
+                    time.time(),
+                    json.dumps([{
+                        "ts": time.time(), "level": "info",
+                        "msg": f"test notification fired by {_admin.username or 'operator'}",
+                    }]),
+                    _admin.username or "operator",
+                ),
+            )
+    except Exception as e:
+        print(f"[notify] notify_test audit-row write failed: {e}")
     return {"status": "sent"}
 
 
@@ -15893,6 +16121,29 @@ async def api_logs(
 
 @app.delete("/api/logs")
 async def api_logs_clear(_admin: auth.User = Depends(auth.require_admin)):
+    # Audit row BEFORE the clear so the forensic anchor survives even
+    # the very destruction it records. Same pattern as DELETE /api/history.
+    try:
+        from logic.ops import assert_op_type as _assert_op_type
+        _assert_op_type("logs_clear")
+        with db_conn() as c:
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, 'logs_clear', 'logs', 'in-memory', NULL, NULL, "
+                "        'success', 0.0, ?, NULL, ?)",
+                (
+                    time.time(),
+                    json.dumps([{
+                        "ts": time.time(), "level": "info",
+                        "msg": f"in-memory log buffer cleared by {_admin.username or 'operator'}",
+                    }]),
+                    _admin.username or "operator",
+                ),
+            )
+    except Exception as e:
+        print(f"[logs] audit-row write failed before clear: {e}")
     _logs.clear()
     return {"ok": True}
 
@@ -17717,6 +17968,28 @@ async def api_me_totp_enroll_confirm(
         auth.set_user_totp_secret(
             c, user.id, encrypted_secret, encrypted_codes_json,
         )
+        # Audit — user self-service TOTP enrolment is a security-sensitive
+        # state change that admin-side ops can't see otherwise.
+        try:
+            from logic.ops import assert_op_type as _assert_op_type
+            _assert_op_type("totp_self_enroll")
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, 'totp_self_enroll', 'auth', ?, ?, NULL, "
+                "        'success', 0.0, ?, NULL, ?)",
+                (
+                    time.time(), user.username, str(user.id),
+                    json.dumps([{
+                        "ts": time.time(), "level": "info",
+                        "msg": f"TOTP enrolled by user {user.username}",
+                    }]),
+                    user.username,
+                ),
+            )
+        except Exception as e:
+            print(f"[totp] self-enroll audit-row write failed: {e}")
     print(f"[totp] {user.username} enrolled")
     return {
         "ok": True,
@@ -17741,6 +18014,26 @@ async def api_me_totp_regenerate_codes(
         backup_plain = totp.generate_backup_codes(10)
         encrypted = totp.encrypt_backup_codes(backup_plain)
         auth.update_user_totp_backup_codes(c, user.id, encrypted)
+        try:
+            from logic.ops import assert_op_type as _assert_op_type
+            _assert_op_type("totp_self_regenerate_codes")
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, 'totp_self_regenerate_codes', 'auth', ?, ?, NULL, "
+                "        'success', 0.0, ?, NULL, ?)",
+                (
+                    time.time(), user.username, str(user.id),
+                    json.dumps([{
+                        "ts": time.time(), "level": "info",
+                        "msg": f"TOTP backup codes regenerated by user {user.username}",
+                    }]),
+                    user.username,
+                ),
+            )
+        except Exception as e:
+            print(f"[totp] self-regenerate audit-row write failed: {e}")
     print(f"[totp] {user.username} regenerated backup codes")
     return {"ok": True, "backup_codes": backup_plain}
 
@@ -17777,6 +18070,26 @@ async def api_me_totp_disable(
         if not auth.verify_password(body.password, stored):
             raise HTTPException(401, "Current password is incorrect.")
         auth.clear_user_totp(c, user.id)
+        try:
+            from logic.ops import assert_op_type as _assert_op_type
+            _assert_op_type("totp_self_disable")
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, 'totp_self_disable', 'auth', ?, ?, NULL, "
+                "        'success', 0.0, ?, NULL, ?)",
+                (
+                    time.time(), user.username, str(user.id),
+                    json.dumps([{
+                        "ts": time.time(), "level": "info",
+                        "msg": f"TOTP self-disabled by user {user.username}",
+                    }]),
+                    user.username,
+                ),
+            )
+        except Exception as e:
+            print(f"[totp] self-disable audit-row write failed: {e}")
     print(f"[totp] {user.username} disabled")
     return {"ok": True}
 
@@ -18045,6 +18358,27 @@ async def api_me_webauthn_register_finish(
                 status_code=409,
                 detail="This passkey is already enrolled.",
             )
+        try:
+            from logic.ops import assert_op_type as _assert_op_type
+            _assert_op_type("passkey_self_register")
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, 'passkey_self_register', 'auth', ?, ?, NULL, "
+                "        'success', 0.0, ?, NULL, ?)",
+                (
+                    time.time(), user.username, str(row_id),
+                    json.dumps([{
+                        "ts": time.time(), "level": "info",
+                        "msg": f"passkey {friendly!r} registered by user {user.username} "
+                               f"(rp_id={state.get('rp_id') or '?'})",
+                    }]),
+                    user.username,
+                ),
+            )
+        except Exception as e:
+            print(f"[webauthn] self-register audit-row write failed: {e}")
     print(f"[webauthn] {user.username} enrolled passkey "
           f"id={row_id} name={friendly!r}")
     return {
@@ -18067,6 +18401,27 @@ async def api_me_webauthn_delete(
     _webauthn_self_guard(user)
     with db_conn() as c:
         ok = auth.delete_user_credential(c, user.id, credential_row_id)
+        if ok:
+            try:
+                from logic.ops import assert_op_type as _assert_op_type
+                _assert_op_type("passkey_self_delete")
+                c.execute(
+                    "INSERT INTO history "
+                    "(ts, op_type, target_kind, target_name, target_id, "
+                    " target_stack, status, duration, events, error, actor) "
+                    "VALUES (?, 'passkey_self_delete', 'auth', ?, ?, NULL, "
+                    "        'success', 0.0, ?, NULL, ?)",
+                    (
+                        time.time(), user.username, str(credential_row_id),
+                        json.dumps([{
+                            "ts": time.time(), "level": "info",
+                            "msg": f"passkey id={credential_row_id} revoked by user {user.username}",
+                        }]),
+                        user.username,
+                    ),
+                )
+            except Exception as e:
+                print(f"[webauthn] self-delete audit-row write failed: {e}")
     if not ok:
         raise HTTPException(status_code=404, detail="Passkey not found.")
     print(f"[webauthn] {user.username} revoked passkey id={credential_row_id}")
