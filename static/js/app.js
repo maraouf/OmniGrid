@@ -3280,17 +3280,25 @@ function app() {
     // against the outer per-table count rendered on the Samples page.
     async openStatsSamplesDrillDown(row) {
       if (!row || !row.name) return;
-      const outerCount = Number(row.rows || 0);
       const label = (row.provider || '') + ' — ' + (row.name || '');
       this.statsSamplesDrillDown = {
         open:    true,
         loading: true,
         table:   row.name,
+        // Provider tag exposed to row-context helpers (e.g. the
+        // Portainer `stats_samples` table uses `item_id` referring
+        // to containers, NOT hosts — so the "no longer curated"
+        // marker text + the orphan-delete button copy adapt).
+        provider: (row.provider || '').toLowerCase(),
+        host_col: '',
         label:   label,
         rows:    [],
         total:   0,
-        outer:   outerCount,
+        outer:   Number(row.rows || 0),  // stale-fallback only — backend overwrites with fresh snapshot
         error:   '',
+        // Per-row prune busy-state map keyed by host_id. Prevents
+        // rapid clicks on the same Delete button from firing twice.
+        pruning: {},
       };
       try {
         const r = await fetch('/api/admin/stats/samples/by-host?table='
@@ -3302,6 +3310,15 @@ function app() {
         }
         this.statsSamplesDrillDown.rows  = Array.isArray(d.rows) ? d.rows : [];
         this.statsSamplesDrillDown.total = Number(d.total || 0);
+        this.statsSamplesDrillDown.host_col = d.host_col || '';
+        // Backend's fresh outer_count is the authoritative number for
+        // the cross-check (sampled in the same SELECT snapshot as the
+        // per-host GROUP BY, so they MUST match unless there's a real
+        // SQL bug). The stale `row.rows` from the Samples-page load
+        // stays as a fallback only.
+        if (d.outer_count !== undefined && d.outer_count !== null) {
+          this.statsSamplesDrillDown.outer = Number(d.outer_count);
+        }
         if (d.error) this.statsSamplesDrillDown.error = d.error;
       } catch (e) {
         this.statsSamplesDrillDown.error = (e && e.message) || String(e);
@@ -3311,9 +3328,72 @@ function app() {
     },
     closeStatsSamplesDrillDown() {
       this.statsSamplesDrillDown = {
-        open: false, loading: false, table: '', label: '',
-        rows: [], total: 0, outer: 0, error: '',
+        open: false, loading: false, table: '', provider: '',
+        host_col: '', label: '', rows: [], total: 0, outer: 0,
+        error: '', pruning: {},
       };
+    },
+    // Delete all rows in <table> for one host_id (orphan or
+    // intentional cleanup). Audit-logged on the backend via the
+    // `samples_prune_orphan` op_type so History shows what got
+    // pruned + when + by whom.
+    async pruneStatsSampleRows(row) {
+      if (!row || !row.host_id) return;
+      const table = this.statsSamplesDrillDown.table;
+      if (!table) return;
+      if (this.statsSamplesDrillDown.pruning[row.host_id]) return;
+      const hostId = row.host_id;
+      const rowCount = Number(row.rows || 0).toLocaleString();
+      const ok = await this.confirmDialog({
+        title: this.t('stats.samples.drill_down.prune_confirm_title')
+               || 'Delete sample rows?',
+        html:  this.t('stats.samples.drill_down.prune_confirm_html', { id: hostId, count: rowCount, table })
+               || ('Delete <strong>' + rowCount + '</strong> rows from <code>' + table
+                   + '</code> for <code>' + hostId + '</code>? This cannot be undone.'),
+        icon: 'warning',
+        confirmText: this.t('stats.samples.drill_down.prune_confirm_ok') || 'Delete',
+        confirmColor: this._cssVar('--danger'),
+        focusConfirm: false,
+      });
+      if (!ok) return;
+      this.statsSamplesDrillDown.pruning[row.host_id] = true;
+      try {
+        const r = await fetch('/api/admin/stats/samples/by-host', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ table, host_id: hostId }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.showToast(this.t('toasts.failed_with_error', {
+            error: (d && d.detail) || ('HTTP ' + r.status),
+          }), 'error');
+          return;
+        }
+        this.showToast(
+          this.t('stats.samples.drill_down.prune_success', {
+            count: Number(d.deleted || 0).toLocaleString(), id: hostId,
+          }) || (Number(d.deleted || 0).toLocaleString() + ' rows deleted for ' + hostId),
+          'success',
+        );
+        // Re-fetch the drill-down so the row disappears + totals update.
+        const refreshed = await fetch('/api/admin/stats/samples/by-host?table='
+                                       + encodeURIComponent(table));
+        const refData = await refreshed.json().catch(() => ({}));
+        if (refreshed.ok) {
+          this.statsSamplesDrillDown.rows  = Array.isArray(refData.rows) ? refData.rows : [];
+          this.statsSamplesDrillDown.total = Number(refData.total || 0);
+          if (refData.outer_count !== undefined && refData.outer_count !== null) {
+            this.statsSamplesDrillDown.outer = Number(refData.outer_count);
+          }
+        }
+      } catch (e) {
+        this.showToast(this.t('toasts.failed_with_error', {
+          error: (e && e.message) || String(e),
+        }), 'error');
+      } finally {
+        this.statsSamplesDrillDown.pruning[row.host_id] = false;
+      }
     },
     async loadStatsIncidents(hours) {
       const h = Number(hours) || this.statsIncidentsHours || 168;
@@ -28889,14 +28969,40 @@ function app() {
     // read across providers. Post-fix every chart's axis labels are
     // [tMin, …, tMax] so the same pixel position means the same
     // wall-clock time across every drawer chart.
-    xAxisFromSeries(systemId, slots = 5) {
+    // Tick-count resolver for host-drawer charts. Operator-flagged:
+    // 6h should show 6 ticks (one per hour), 7d should show 7 ticks
+    // (one per day). Pre-fix every chart used a hardcoded `slots=5`
+    // regardless of range. The map below pairs each picker range
+    // with a tick count that lines up with the unit-time interval:
+    //   1h  → 6 ticks (one per ~10 min)
+    //   6h  → 6 ticks (one per hour)
+    //   24h → 6 ticks (one per 4 hours)
+    //   7d  → 7 ticks (one per day)
+    // Any future range (or call site that explicitly overrides the
+    // default) falls back to the passed value.
+    _hostChartTickCount(rangeHours) {
+      const r = Number(rangeHours || this.hostHistoryRange) || 1;
+      if (r === 1)   return 6;
+      if (r === 6)   return 6;
+      if (r === 24)  return 6;
+      if (r === 168) return 7;
+      return 5;
+    },
+    xAxisFromSeries(systemId, slots) {
       const entry = this.hostHistory[systemId];
       if (!entry || !entry.series || entry.series.length < 2) return [];
+      // Range-aware default — caller may still pin a specific count
+      // by passing a non-default integer. The legacy `slots=5` call
+      // sites (every drawer-chart consumer pre-fix) intentionally
+      // route through the resolver so the new tick counts apply
+      // uniformly.
+      const _RANGE_DEFAULTED = (slots === undefined || slots === null || slots === 5);
+      const n = _RANGE_DEFAULTED ? this._hostChartTickCount() : Math.max(2, Number(slots) || 5);
       const dom = this._drawerTimeDomain();
       const span = Math.max(1, dom.tMaxSec - dom.tMinSec);
       const out = [];
-      for (let i = 0; i < slots; i++) {
-        const ts = dom.tMinSec + Math.round((i / (slots - 1)) * span);
+      for (let i = 0; i < n; i++) {
+        const ts = dom.tMinSec + Math.round((i / (n - 1)) * span);
         out.push(this._fmtAxisTime(ts));
       }
       return out;

@@ -238,6 +238,7 @@
                   <tr>
                     <th class="text-start px-4 py-2" x-text="t('stats.samples.drill_down.col_host')"></th>
                     <th class="text-end px-4 py-2" x-text="t('stats.samples.drill_down.col_rows')"></th>
+                    <th class="px-2 py-2 w-12"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -283,23 +284,50 @@
                                 :title="t('stats.samples.drill_down.alias_webmin')"
                                 x-text="'webmin: ' + row.webmin_name"></span>
                         </div>
-                        <!-- Orphan marker — row exists in the sample
-                             table but the curated host has been
-                             deleted from `hosts_config`. Operator
-                             can prune via the History → port_scan
-                             / etc. retention flows; for samples
-                             tables there's no direct delete (the
-                             sampler-driven prune runs on the
-                             retention-day cutoff). -->
+                        <!-- Orphan marker. Context-aware: the
+                             Portainer `stats_samples` table uses
+                             `item_id` (container ids like
+                             `ctn:abc123`) which won't match a curated
+                             HOST id by design — those are containers,
+                             not hosts. Render a distinct "container
+                             no longer running" marker for that case
+                             instead of the misleading "host removed"
+                             text. -->
                         <div class="fs-3xs italic text-[var(--text-faint)] mt-0.5"
-                             x-show="!row.curated && row.host_id"
-                             x-text="t('stats.samples.drill_down.orphan_marker')"></div>
+                             x-show="!row.curated && row.host_id">
+                          <span x-show="statsSamplesDrillDown.host_col === 'item_id'"
+                                x-text="t('stats.samples.drill_down.orphan_marker_item')"></span>
+                          <span x-show="statsSamplesDrillDown.host_col !== 'item_id'"
+                                x-text="t('stats.samples.drill_down.orphan_marker')"></span>
+                        </div>
                       </td>
-                      <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.rows || 0).toLocaleString()"></td>
+                      <td class="px-4 py-2 mono text-end font-semibold align-top" x-text="Number(row.rows || 0).toLocaleString()"></td>
+                      <!-- Delete-orphan column. Only renders for orphan
+                           rows (host_id has no matching curated entry).
+                           Click → SwAl confirm → DELETE backend → modal
+                           re-fetches so the row disappears. Audited as
+                           `samples_prune_orphan`. -->
+                      <td class="px-2 py-2 text-end align-top">
+                        <button type="button"
+                                x-show="!row.curated && row.host_id"
+                                @click.stop="pruneStatsSampleRows(row)"
+                                :disabled="statsSamplesDrillDown.pruning[row.host_id]"
+                                class="user-action-btn user-action-btn--danger"
+                                :title="t('stats.samples.drill_down.prune_button_title')"
+                                :aria-label="t('stats.samples.drill_down.prune_button_aria')">
+                          <svg width="13" height="13"
+                               :class="statsSamplesDrillDown.pruning[row.host_id] ? 'spin-md' : ''"
+                               aria-hidden="true">
+                            <use :href="statsSamplesDrillDown.pruning[row.host_id]
+                                        ? '/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw'
+                                        : '/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2'"/>
+                          </svg>
+                        </button>
+                      </td>
                     </tr>
                   </template>
                   <tr x-show="!(statsSamplesDrillDown.rows || []).length">
-                    <td colspan="2" class="text-center py-6 text-[var(--text-faint)]"
+                    <td colspan="3" class="text-center py-6 text-[var(--text-faint)]"
                         x-text="t('stats.samples.drill_down.empty')"></td>
                   </tr>
                 </tbody>
