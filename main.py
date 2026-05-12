@@ -2650,16 +2650,14 @@ class SettingsIn(BaseModel):
     # -----------------------------------------------------------------
     ai_enabled: Optional[bool] = None
     ai_active_provider: Optional[str] = None
-    ai_max_tokens: Optional[int] = None
     # Provider fallback chain — opt-in resilience. When `ai_fallback_enabled`
     # is true AND the active provider returns a transient overload (HTTP
     # 429 / 502 / 503 / 504), the call walks `ai_fallback_order` (CSV of
-    # provider ids in operator-defined priority) up to `ai_fallback_max_depth`
-    # deep. Disabled providers + providers with no API key are skipped at
+    # provider ids in operator-defined priority) up to the fallback depth
+    # tunable. Disabled providers + providers with no API key are skipped at
     # the route layer before the fallback wrapper runs.
     ai_fallback_enabled: Optional[bool] = None
     ai_fallback_order: Optional[str] = None  # CSV, e.g. "claude,chatgpt,deepseek"
-    ai_fallback_max_depth: Optional[int] = None
     ai_provider_claude_enabled: Optional[bool] = None
     ai_provider_claude_model: Optional[str] = None
     ai_provider_claude_base_url: Optional[str] = None
@@ -2877,8 +2875,6 @@ class SettingsIn(BaseModel):
     tuning_beszel_failure_pause_rounds: Optional[str] = None
     tuning_beszel_probe_timeout_seconds: Optional[str] = None
     tuning_beszel_sample_interval_seconds: Optional[str] = None
-    tuning_beszel_host_cache_ttl_seconds: Optional[str] = None
-    tuning_beszel_host_fail_cache_ttl_seconds: Optional[str] = None
     tuning_pulse_failure_pause_rounds: Optional[str] = None
     tuning_pulse_probe_timeout_seconds: Optional[str] = None
     tuning_webmin_probe_timeout_seconds: Optional[str] = None
@@ -2921,6 +2917,13 @@ class SettingsIn(BaseModel):
     tuning_ssh_default_port: Optional[str] = None
     tuning_snmp_default_port: Optional[str] = None
     tuning_ping_default_port: Optional[str] = None
+    # ICMP inter-packet spacing (ms) — operator-tunable so commercial
+    # firewall anti-flood rules don't reject the burst. Consumed in
+    # `logic/ping.py:_icmp_ping`.
+    tuning_ping_packet_interval_ms: Optional[str] = None
+    # SSH terminal entrypoint wall-clocks — TUN-MED-003.
+    tuning_ssh_terminal_connect_timeout_seconds: Optional[str] = None
+    tuning_ssh_terminal_login_timeout_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -14668,6 +14671,7 @@ async def _run_port_scan_async(
     started:       float,
     h:             dict,
     actor:         str,
+    client_id:     Optional[str] = None,
 ) -> None:
     """Run a port scan + persist results out-of-band from the request.
 
@@ -14871,7 +14875,7 @@ async def _run_port_scan_async(
                 "error":       "timeout",
                 "ports_open":  0,
                 "udp_open":    len(partial_udp_open),
-            })
+            }, client_id=client_id)
         except Exception:  # noqa: BLE001
             pass
         return
@@ -14885,7 +14889,7 @@ async def _run_port_scan_async(
                 "host_id": hid, "scan_id": scan_id, "ok": False,
                 "target":  target,
                 "error":   f"{type(e).__name__}: {e}",
-            })
+            }, client_id=client_id)
         except Exception:  # noqa: BLE001
             pass
         return
@@ -15108,7 +15112,7 @@ async def _run_port_scan_async(
             # the SPA from showing "(0 new since last scan)" when
             # there IS no last scan.
             "is_first_scan": bool(is_first_scan),
-        })
+        }, client_id=client_id)
     except Exception:  # noqa: BLE001
         pass
 
@@ -15116,6 +15120,7 @@ async def _run_port_scan_async(
 @app.post("/api/hosts/{host_id}/port-scan")
 async def api_hosts_port_scan(
     host_id: str,
+    request: Request,
     body:    Optional[PortScanIn] = None,
     _admin:  auth.User = Depends(auth.require_admin),
 ):
@@ -15286,6 +15291,7 @@ async def api_hosts_port_scan(
             started=started,
             h=h,
             actor=actor,
+            client_id=_request_client_id(request),
         ),
         label=f"port_scan:{hid}:{scan_id[:8]}",
     )
