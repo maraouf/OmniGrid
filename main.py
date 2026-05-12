@@ -5812,6 +5812,28 @@ async def api_admin_stats_samples_by_host(
         "total":     0,
         "error":     None,
     }
+    # Curated metadata lookup — operator-facing label + every per-
+    # provider name alias for each host_id, so the drill-down popup
+    # can show "Which physical host is this?" instead of a bare id.
+    # Rows whose host_id ISN'T in `hosts_config` (orphaned samples
+    # from a deleted curated row) get a null label so the SPA
+    # renders an "(no longer curated)" marker.
+    curated_meta: dict[str, dict] = {}
+    try:
+        for h in _load_hosts_config():
+            hid = (h.get("id") or "").strip()
+            if not hid:
+                continue
+            curated_meta[hid] = {
+                "label":       (h.get("label") or "").strip() or None,
+                "address":     (h.get("address") or "").strip() or None,
+                "beszel_name": (h.get("beszel_name") or "").strip() or None,
+                "pulse_name":  (h.get("pulse_name") or "").strip() or None,
+                "snmp_name":   (h.get("snmp_name") or "").strip() or None,
+                "webmin_name": (h.get("webmin_name") or "").strip() or None,
+            }
+    except Exception:
+        pass
     try:
         with db_conn() as c:
             # Table + host-col are validated against the canonical
@@ -5822,13 +5844,22 @@ async def api_admin_stats_samples_by_host(
                 f' GROUP BY "{host_col}" '
                 f' ORDER BY COUNT(*) DESC, "{host_col}" ASC'
             ).fetchall()
-            shaped = [
-                {
-                    "host_id": (r["host_id"] if hasattr(r, "keys") else r[0]) or "",
-                    "rows":    int(r["rows"] if hasattr(r, "keys") else r[1] or 0),
-                }
-                for r in rows
-            ]
+            shaped = []
+            for r in rows:
+                hid  = (r["host_id"] if hasattr(r, "keys") else r[0]) or ""
+                cnt  = int(r["rows"] if hasattr(r, "keys") else r[1] or 0)
+                meta = curated_meta.get(hid) or {}
+                shaped.append({
+                    "host_id":     hid,
+                    "rows":        cnt,
+                    "label":       meta.get("label"),
+                    "address":     meta.get("address"),
+                    "beszel_name": meta.get("beszel_name"),
+                    "pulse_name":  meta.get("pulse_name"),
+                    "snmp_name":   meta.get("snmp_name"),
+                    "webmin_name": meta.get("webmin_name"),
+                    "curated":     bool(meta),
+                })
             out["rows"] = shaped
             out["total"] = sum(r["rows"] for r in shaped)
     except Exception as e:

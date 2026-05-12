@@ -242,8 +242,59 @@
                 </thead>
                 <tbody>
                   <template x-for="row in (statsSamplesDrillDown.rows || [])" :key="row.host_id || '<unknown>'">
-                    <tr class="border-t border-[var(--border)]">
-                      <td class="px-4 py-2 mono fs-xs" x-text="row.host_id || '—'"></td>
+                    <tr class="border-t border-[var(--border)]"
+                        :class="row.curated ? 'cursor-pointer hover:bg-[var(--surface-2)] transition' : 'opacity-70'"
+                        @click="if (row.curated && row.host_id) { closeStatsSamplesDrillDown(); openHostDrawerById(row.host_id); }"
+                        :title="row.curated ? t('stats.samples.drill_down.row_open_title') : t('stats.samples.drill_down.row_orphan_title')">
+                      <td class="px-4 py-2">
+                        <div class="mono fs-xs" x-text="row.host_id || '—'"></div>
+                        <!-- Curated label — operator-readable "what
+                             is this host?". Renders dim under the
+                             host_id when set. -->
+                        <div class="fs-3xs text-[var(--text-dim)] mt-0.5"
+                             x-show="row.label"
+                             x-text="row.label"></div>
+                        <!-- Per-provider name aliases — useful when
+                             the operator pastes a Beszel / Pulse /
+                             SNMP / Webmin name from a different UI
+                             and needs to match it back to the curated
+                             id. Each chip only renders when the alias
+                             is set + DIFFERS from the curated id. -->
+                        <div class="flex flex-wrap gap-1 mt-1 fs-3xs"
+                             x-show="(row.address && row.address !== row.host_id) || (row.beszel_name && row.beszel_name !== row.host_id) || (row.pulse_name && row.pulse_name !== row.host_id) || (row.snmp_name && row.snmp_name !== row.host_id) || (row.webmin_name && row.webmin_name !== row.host_id)">
+                          <span x-show="row.address && row.address !== row.host_id"
+                                class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
+                                :title="t('stats.samples.drill_down.alias_address')"
+                                x-text="row.address"></span>
+                          <span x-show="row.beszel_name && row.beszel_name !== row.host_id"
+                                class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
+                                :title="t('stats.samples.drill_down.alias_beszel')"
+                                x-text="'beszel: ' + row.beszel_name"></span>
+                          <span x-show="row.pulse_name && row.pulse_name !== row.host_id"
+                                class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
+                                :title="t('stats.samples.drill_down.alias_pulse')"
+                                x-text="'pulse: ' + row.pulse_name"></span>
+                          <span x-show="row.snmp_name && row.snmp_name !== row.host_id"
+                                class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
+                                :title="t('stats.samples.drill_down.alias_snmp')"
+                                x-text="'snmp: ' + row.snmp_name"></span>
+                          <span x-show="row.webmin_name && row.webmin_name !== row.host_id"
+                                class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
+                                :title="t('stats.samples.drill_down.alias_webmin')"
+                                x-text="'webmin: ' + row.webmin_name"></span>
+                        </div>
+                        <!-- Orphan marker — row exists in the sample
+                             table but the curated host has been
+                             deleted from `hosts_config`. Operator
+                             can prune via the History → port_scan
+                             / etc. retention flows; for samples
+                             tables there's no direct delete (the
+                             sampler-driven prune runs on the
+                             retention-day cutoff). -->
+                        <div class="fs-3xs italic text-[var(--text-faint)] mt-0.5"
+                             x-show="!row.curated && row.host_id"
+                             x-text="t('stats.samples.drill_down.orphan_marker')"></div>
+                      </td>
                       <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.rows || 0).toLocaleString()"></td>
                     </tr>
                   </template>
