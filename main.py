@@ -9336,7 +9336,52 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     except Exception as e:  # noqa: BLE001
         print(f"[hosts] snapshot save failed for {h.get('id')!r}: {e}")
 
+    # Per-host per-provider sample row counts — surfaces under the
+    # "Updated Xs ago" subtitle in the host drawer's enabled-agents
+    # chip strip so the user can see at a glance how much history is
+    # available per provider for THIS host. Single multi-table SELECT
+    # per host so the fan-out cost stays bounded; failures swallowed
+    # since this is a UX hint, not load-bearing.
+    try:
+        merged["provider_sample_counts"] = _provider_sample_counts(h["id"])
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts] provider_sample_counts failed for {h.get('id')!r}: {e}")
+        merged["provider_sample_counts"] = {}
+
     return merged, providers_hit
+
+
+def _provider_sample_counts(host_id: str) -> dict:
+    """Return ``{<provider>: count}`` for the curated provider lineup,
+    keyed by the same provider names ``hostEnabledAgents`` emits on the
+    SPA side. Each value is the raw row count in the matching
+    `host_<provider>_samples` table (or `ping_samples` / etc.) for
+    THIS host. Best-effort — missing tables (fresh deploy, schema not
+    yet created) yield 0; never raises.
+    """
+    out: dict[str, int] = {}
+    # `(provider_name, sql)` pairs. Provider name matches `agent.name`
+    # in `hostEnabledAgents`. SQL is parameterised on `host_id`.
+    queries = (
+        ("ping",          "SELECT COUNT(*) FROM ping_samples WHERE host_id = ?"),
+        ("snmp",          "SELECT COUNT(*) FROM host_snmp_samples WHERE host_id = ?"),
+        ("beszel",        "SELECT COUNT(*) FROM host_beszel_samples WHERE host_id = ?"),
+        ("pulse",         "SELECT COUNT(*) FROM host_pulse_samples WHERE host_id = ?"),
+        ("webmin",        "SELECT COUNT(*) FROM host_webmin_samples WHERE host_id = ?"),
+        ("node_exporter", "SELECT COUNT(*) FROM host_metrics_samples WHERE host_id = ?"),
+    )
+    try:
+        with db_conn() as c:
+            for name, sql in queries:
+                try:
+                    row = c.execute(sql, (host_id,)).fetchone()
+                    out[name] = int(row[0]) if row else 0
+                except Exception:
+                    # Missing table on fresh deploy / sampler never ran.
+                    out[name] = 0
+    except Exception:
+        return {}
+    return out
 
 
 # True when a host id matches a Swarm node hostname (long-form OR
@@ -9789,6 +9834,15 @@ def _shape_host_api_row(
         # markers cleanly when a provider recovers.
         "_stale_fields":   list(s.get("_stale_fields") or []),
         "_stale_ts":       float(s.get("_stale_ts") or 0.0),
+        # Per-provider sample row counts — populated by
+        # `_provider_sample_counts(host_id)` from inside `_merge_one_host`
+        # (per-host probe path only; bulk /api/hosts/list path leaves it
+        # empty to keep that query cheap). Surfaces under the
+        # "Updated Xs ago" subtitle in the host drawer's enabled-agents
+        # chip strip — gives the user a snapshot of how much history
+        # is available per provider for THIS host. {} when the per-host
+        # probe hasn't run yet (cold-load `/api/hosts/list` skeleton).
+        "provider_sample_counts": dict(s.get("provider_sample_counts") or {}),
         # Permanent-fail tracking. All four fields are non-zero
         # only when the host_metrics_sampler has recorded consecutive
         # failures for this host. `sampling_paused: true` triggers the

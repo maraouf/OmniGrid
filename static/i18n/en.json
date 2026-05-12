@@ -2938,7 +2938,9 @@
     "polled_every": " · polled every {interval}",
     "polling_off": " · polling off",
     "live_mode": " · live (push)",
-    "probe_error": "Host probe error: {error}"
+    "probe_error": "Host probe error: {error}",
+    "provider_sample_count": "{count} samples",
+    "provider_sample_count_title": "Number of rows in this host's {provider} sample table — gives a snapshot of how much history is available for charts and trend analysis on this provider for this host."
   },
   "stale_marker": {
     "tooltip": "Last live data {age} ago — value restored from cache snapshot",

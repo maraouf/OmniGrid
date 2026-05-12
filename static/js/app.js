@@ -105,6 +105,10 @@ const CURATED_REFRESH_FIELDS = new Set([
   // webmin: {paused, ...}}` populated only when the provider has
   // a row in `host_failure_state`. Empty object for healthy hosts.
   'provider_pause_state',
+  // Per-(provider, host) row counts from the local sample tables —
+  // stamped by `_merge_one_host` on /api/hosts/one/{id}; surfaces under
+  // the "Updated Xs ago" chip subtitle in the host drawer.
+  'provider_sample_counts',
   // CPU / memory / disk / swap rollups.
   'cpu_percent', 'mem_percent', 'disk_percent',
   'host_cpu_percent', 'host_mem_total', 'host_mem_used',
@@ -26012,6 +26016,19 @@ function app() {
       const ts = this.providerLastOkSeconds(h, name);
       if (!ts) return '';
       return this.fmtAgo(ts * 1000);
+    },
+    // Per-(provider, host) row count from the provider's local samples
+    // table. Reads `h.provider_sample_counts[<name>]` populated by the
+    // backend's `_merge_one_host` (per-host probe path only — bulk
+    // /api/hosts/list path leaves the map empty so the chip subtitle
+    // hides until the drawer triggers /api/hosts/one/{id}). 0 when the
+    // probe hasn't run yet OR the provider's sample table is empty.
+    providerSampleCount(h, name) {
+      if (!h || !name) return 0;
+      const map = h.provider_sample_counts;
+      if (!map || typeof map !== 'object') return 0;
+      const v = map[name];
+      return Number.isFinite(+v) ? +v : 0;
     },
     // Resume-button busy-state map. Keyed `<host_id>:<provider>` so
     // simultaneous resumes on different providers don't collide.
