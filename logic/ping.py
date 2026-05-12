@@ -153,10 +153,15 @@ async def _probe_icmp(host: str, count: int, timeout_seconds: float) -> dict:
     # thread-pool so we don't stall every other probe in the sampler
     # tick. Threadpool fan-out cost is trivial vs the wire latency.
     import functools
+    from logic.tuning import tuning_int as _tuning_int
     loop = asyncio.get_running_loop()
+    # ICMP inter-packet spacing — operator-tunable so commercial-firewall
+    # anti-flood rules don't reject the burst. Tunable holds milliseconds;
+    # icmplib expects seconds (float).
+    _interval_s = _tuning_int("tuning_ping_packet_interval_ms") / 1000.0
     func = functools.partial(
         icmplib.ping, host,
-        count=count, interval=0.2, timeout=timeout_seconds,
+        count=count, interval=_interval_s, timeout=timeout_seconds,
         privileged=False,  # unprivileged uses ICMP_FILTER socket type
     )
     h = await loop.run_in_executor(None, func)

@@ -685,7 +685,8 @@
     "copy": "Copy",
     "failed_generic": "Failed",
     "download": "Download",
-    "restore": "Restore"
+    "restore": "Restore",
+    "continue": "Continue"
   },
   "states": {
     "healthy": "healthy",
@@ -792,7 +793,13 @@
       "loading_ports": "Loading open ports…",
       "load_failed": "Could not load open ports for this scan.",
       "no_open": "No open ports recorded for this scan."
-    }
+    },
+    "ai_palette": {
+      "no_prompt": "(no prompt)",
+      "no_answer": "(no answer)"
+    },
+    "status_running": "Running",
+    "status_dry_run": "Dry run"
   },
   "settings": {
     "title": "Settings",
@@ -1704,14 +1711,6 @@
           "label": "Beszel sampler interval (seconds)",
           "help": "Cadence at which the lifespan `host_beszel_sampler` writes one row per Beszel-tracked host into the local `host_beszel_samples` table. 0 = use the global `tuning_stats_sample_interval_seconds` (default 300s) — same fallback Pulse / Webmin samplers use, keeps the four samplers ticking on the same heartbeat. Distinct knob exists so a fleet with a noisy / large Beszel hub can throttle Beszel sampling independently. Range 0..3600. Default 0 (= inherit)."
         },
-        "tuning_beszel_host_cache_ttl_seconds": {
-          "label": "Beszel per-host success cache TTL (seconds)",
-          "help": "How long a SUCCESSFUL per-host Beszel probe (run during `_merge_one_host`) is cached before the next call re-fetches. Burst refreshes (SPA fan-out, drawer reopens) within the window skip the hub fetch and reuse the last known-good stats. Default 30 seconds. Lower for live-feeling drawer reopens; raise to cut hub load on large fleets. Pairs with the failure-cache TTL — a fresh failure on a previously-cached success drops the success entry immediately."
-        },
-        "tuning_beszel_host_fail_cache_ttl_seconds": {
-          "label": "Beszel per-host failure cache TTL (seconds)",
-          "help": "How long a FAILED per-host Beszel probe is cached so a SPA fan-out burst doesn't re-burn N parallel hub fetches against an unreachable hub. Default 5 seconds — tight enough that recovery is felt within one Hosts-tab refresh cycle, long enough to dedupe a fan-out burst. Operators with a flapping Beszel hub may want 30s+ to suppress spam."
-        },
         "tuning_pulse_failure_pause_rounds": {
           "label": "Pulse auto-pause threshold (rounds)",
           "help": "After this many consecutive rounds where the Pulse hub fetch SUCCEEDED but this specific host was missing from the hub map (or reported status=down/paused/unreachable), the (pulse, host) pair is marked auto-paused — subsequent merges are SKIPPED until the operator clicks Resume on the Pulse chip. Hub-level outages don't count. Default 5. Set 0 to disable. Range 0..50."
@@ -1751,6 +1750,18 @@
         "tuning_ping_default_port": {
           "label": "Ping default port",
           "help": "Default TCP port for the Ping host-stats provider's TCP-connect probe. Consumed when a curated host's `ping.port` is unset. Default 443 (HTTPS — universally reachable through firewalls). Range 1..65535. Live — takes effect on the next sampler tick."
+        },
+        "tuning_ping_packet_interval_ms": {
+          "label": "ICMP inter-packet spacing (milliseconds)",
+          "help": "Time between successive ICMP echo packets in a single ping burst. Sub-quarter-second spacing can trip IDS / anti-flood rules on commercial firewalls (UBNT EdgeRouter, Sophos, Palo Alto). Raise if your monitored targets sit behind aggressive flood-protection; lower for tighter sampling on a private LAN. Default 200ms — matches icmplib's own default. Range 100..2000ms. Takes effect on the next ping_sampler tick."
+        },
+        "tuning_ssh_terminal_connect_timeout_seconds": {
+          "label": "SSH terminal connect timeout (seconds)",
+          "help": "Wall-clock cap on the initial TCP+SSH handshake for the interactive SSH terminal (Admin → SSH → terminal). Once connected, the login-timeout tunable below covers the auth handshake. Raise for WAN-routed targets on slow links; lower for strict-watchdog setups where a stuck connect should fail fast. Default 20s. Range 5..120s. Takes effect on the next terminal-open click."
+        },
+        "tuning_ssh_terminal_login_timeout_seconds": {
+          "label": "SSH terminal login timeout (seconds)",
+          "help": "Wall-clock cap on the post-connect SSH authentication phase (PubKey attempts, password prompt, banner exchange). Distinct from the connect timeout above. Same trade-off — raise for slow-auth servers (LDAP-backed sshd, PAM password lookups), lower for tighter failure detection. Default 20s. Range 5..120s. Takes effect on the next terminal-open click."
         }
       },
       "totp": {
@@ -1986,7 +1997,8 @@
       "method_totp": "Password + TOTP",
       "method_passkey": "Passkey",
       "method_oidc": "OIDC (Authentik)",
-      "method_bootstrap": "Bootstrap admin"
+      "method_bootstrap": "Bootstrap admin",
+      "method_webauthn": "Passkey (WebAuthn)"
     },
     "tokens": {
       "create_title": "Create API token",
@@ -2258,7 +2270,31 @@
       "schedule_update_sub": "Modify an existing scheduled job",
       "schedule_delete": "Delete schedule",
       "schedule_delete_sub": "Remove a scheduled job permanently",
-      "destructive_confirm": "This action affects live state — proceed?"
+      "destructive_confirm": "This action affects live state — proceed?",
+      "update_stack": "Update stack",
+      "update_stack_sub": "Pull updates for the named stack and redeploy",
+      "update_container": "Update container",
+      "update_container_sub": "Recreate the named container with the latest image",
+      "restart_service": "Restart service",
+      "restart_service_sub": "Force-update the named Swarm service (no image pull)",
+      "restart_container": "Restart container",
+      "restart_container_sub": "Restart the named standalone container",
+      "remove_container": "Remove container",
+      "remove_container_sub": "Delete the named stopped / orphan container",
+      "prune_node": "Prune node",
+      "prune_node_sub": "docker system prune --volumes on the named node",
+      "hosts_bulk_pause": "Pause hosts",
+      "hosts_bulk_pause_sub": "Pause sampling on the selected host group",
+      "hosts_bulk_resume": "Resume hosts",
+      "hosts_bulk_resume_sub": "Resume sampling on the selected host group",
+      "backup_create": "Create backup",
+      "backup_create_sub": "Snapshot the SQLite DB + avatars to a zip",
+      "ai_memory_create": "Remember this",
+      "ai_memory_create_sub": "Add a memory the AI will recall in future conversations",
+      "ai_memory_delete": "Forget memory",
+      "ai_memory_delete_sub": "Remove an AI memory by exact text",
+      "schedule_run_now": "Run schedule now",
+      "schedule_run_now_sub": "Fire a named schedule immediately, bypassing its interval"
     },
     "bulk": {
       "matched_label": "{matched} match · {selected} selected",
@@ -2313,7 +2349,9 @@
         "source_webmin": "Webmin",
         "stale_label": "Stale",
         "stale_title": "The most recent sample is {minutes} minutes old. The underlying provider may have stopped reporting; treat the projection as cached, not live.",
-        "confidence_title": "Linear-regression fit quality. R² = {r2}, samples = {samples}. High ≥ 0.85 R² AND ≥ 60 samples. Medium ≥ 0.60 R² OR ≥ 30 samples. Low otherwise — projection is operating on a noisier fit and the exhaustion estimate has wide error bars."
+        "confidence_title": "Linear-regression fit quality. R² = {r2}, samples = {samples}. High ≥ 0.85 R² AND ≥ 60 samples. Medium ≥ 0.60 R² OR ≥ 30 samples. Low otherwise — projection is operating on a noisier fit and the exhaustion estimate has wide error bars.",
+        "source_snmp": "SNMP sampler",
+        "source_beszel": "Beszel sampler"
       }
     },
     "admin": {
@@ -2478,7 +2516,8 @@
     "passkey_revoke_failed": "Could not revoke passkey",
     "passkey_login_failed": "Passkey sign-in failed",
     "passkey_browser_unsupported": "This browser doesn't support passkeys",
-    "passkey_server_unsupported": "Passkey support isn't installed on this server"
+    "passkey_server_unsupported": "Passkey support isn't installed on this server",
+    "failed": "Failed"
   },
   "dialogs": {
     "update_stack_title": "Update stack",
@@ -2798,7 +2837,8 @@
     },
     "no_data": {
       "title": "No data from any enabled provider",
-      "body": "OmniGrid could not match this host to {providers}. Open the {debug_label} panel below to see what each provider returned and where the match failed."
+      "body": "OmniGrid could not match this host to {providers}. Open the {debug_label} panel below to see what each provider returned and where the match failed.",
+      "no_providers": "any provider"
     },
     "provider_count_one": "1 provider",
     "provider_count_many": "{count} providers",
@@ -3724,7 +3764,11 @@
       "confirm_wrong_host": "Hostname confirmation did not match — aborted.",
       "destructive_hint": "This command matched a destructive pattern. Type the hostname to confirm.",
       "copied_output": "Copied SSH output"
-    }
+    },
+    "ai_action_no_target": "AI action requires a target — name an item or open one in the drawer first.",
+    "ai_memory_added": "Memory added",
+    "ai_memory_forgotten": "Memory forgotten",
+    "ai_memory_no_text": "AI memory directive missing text payload."
   },
   "admin_port_scan": {
     "title": "Port Scan",
@@ -3846,5 +3890,8 @@
       "exit_code": "shell exited (code {code})",
       "xterm_missing": "xterm.js failed to load — refresh the page and try again"
     }
+  },
+  "charts": {
+    "swap": "Swap"
   }
 }

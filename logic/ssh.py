@@ -1178,6 +1178,11 @@ async def open_shell(
         f"target={resolved.get('user')}@{resolved.get('host')}:{resolved.get('port')} "
         f"preferred_auth={preferred!r} term_size={cols}x{rows}"
     )
+    # Operator-tunable wall-clocks — TUN-MED-003. Per-call read so
+    # Admin → Config edits take effect on the next session.
+    from logic.tuning import tuning_int as _tuning_int
+    _conn_timeout = float(_tuning_int("tuning_ssh_terminal_connect_timeout_seconds"))
+    _login_timeout = float(_tuning_int("tuning_ssh_terminal_login_timeout_seconds"))
     try:
         conn = await asyncssh.connect(
             host=resolved["host"],
@@ -1188,11 +1193,15 @@ async def open_shell(
             agent_path=None,
             password=ssh_password,
             preferred_auth=",".join(preferred),
-            connect_timeout=20.0,
-            login_timeout=20.0,
-            # Keepalive on the SSH side mirrors the WS-ping cadence in
-            # the route handler. Keeps idle proxies + NATs from killing
-            # an otherwise-healthy session.
+            connect_timeout=_conn_timeout,
+            login_timeout=_login_timeout,
+            # Keepalive on the SSH side mirrors `tuning_ssh_ws_heartbeat_seconds`
+            # (the WS-ping cadence in the route handler). Both default to ~25s
+            # but live on independent knobs — keep these coupled when tuning
+            # one, audit the other. Keeps idle proxies + NATs from killing
+            # an otherwise-healthy session. Kept as a coupled constant
+            # rather than a separate tunable per TUN-LOW-005 — operators
+            # who need to retune this should bump the WS heartbeat too.
             keepalive_interval=15,
         )
     except asyncssh.PermissionDenied as e:

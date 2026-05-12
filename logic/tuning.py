@@ -461,16 +461,12 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # can throttle Beszel sampling independently of NE / Pulse /
     # Webmin. Range 0..3600.
     "tuning_beszel_sample_interval_seconds": ("BESZEL_SAMPLE_INTERVAL_SECONDS", 0, 0, 3600),
-    # Beszel per-host probe success cache TTL (seconds). Mirrors
-    # `tuning_webmin_host_cache_ttl_seconds`. Successful per-host
-    # `_merge_one_host` Beszel reads cache for this many seconds so
-    # SPA fan-out bursts don't re-probe. Default 30.
-    "tuning_beszel_host_cache_ttl_seconds": ("BESZEL_HOST_CACHE_TTL_SECONDS", 30, 0, 300),
-    # Beszel per-host failure cache TTL (seconds). Mirrors
-    # `tuning_webmin_host_fail_cache_ttl_seconds`. Failed per-host
-    # Beszel reads cache for this many seconds so a fan-out burst
-    # doesn't re-burn N parallel hub fetches. Default 5.
-    "tuning_beszel_host_fail_cache_ttl_seconds": ("BESZEL_HOST_FAIL_CACHE_TTL_SECONDS", 5, 0, 300),
+    # NOTE: per-host Beszel cache TTLs were briefly declared here for parity
+    # with the Webmin pair but never wired to a consumer — Beszel is a BATCH
+    # probe (one hub fetch → map of all hosts) so per-host TTLs are
+    # architecturally wrong; the 10s batch cache in `_get_host_provider_state`
+    # already collapses N parallel callers to one hub fetch. Deleted to avoid
+    # the "knob does nothing" drift class.
     # Pulse per-host auto-pause threshold. Same hub-based contract as
     # Beszel — only counts when hub fetch succeeded but the host wasn't
     # found OR Pulse reported the host status as down. 0 = disabled.
@@ -651,6 +647,23 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # `hosts_config[].ping.port` always wins when set. Default 443
     # (universally-reachable through firewalls; HTTPS).
     "tuning_ping_default_port": ("PING_DEFAULT_PORT", 443, 1, 65535),
+
+    # ICMP inter-packet spacing (milliseconds) for the `icmplib.ping`
+    # path. Sub-quarter-second packets can trip IDS / rate-limit
+    # anti-flood on commercial firewalls (UBNT EdgeRouter / Sophos /
+    # Palo Alto) — operators ping-monitoring through such gear may
+    # need to raise this. Default 200ms (icmplib's own default).
+    "tuning_ping_packet_interval_ms": ("PING_PACKET_INTERVAL_MS", 200, 100, 2000),
+
+    # SSH terminal connect timeout (seconds) for the interactive WS
+    # session entrypoint. Operators with WAN-routed targets may need
+    # to raise; strict-watchdog setups may lower. Default 20s.
+    "tuning_ssh_terminal_connect_timeout_seconds": ("SSH_TERMINAL_CONNECT_TIMEOUT_SECONDS", 20, 5, 120),
+
+    # SSH terminal login timeout (seconds) — wall-clock cap on the
+    # auth handshake (post-connect, pre-shell). Same operator
+    # trade-off as the connect timeout above. Default 20s.
+    "tuning_ssh_terminal_login_timeout_seconds": ("SSH_TERMINAL_LOGIN_TIMEOUT_SECONDS", 20, 5, 120),
 }
 
 

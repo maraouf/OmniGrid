@@ -1221,8 +1221,6 @@ function app() {
       beszel: [
         'tuning_beszel_probe_timeout_seconds',
         'tuning_beszel_sample_interval_seconds',
-        'tuning_beszel_host_cache_ttl_seconds',
-        'tuning_beszel_host_fail_cache_ttl_seconds',
         'tuning_beszel_failure_pause_rounds',
       ],
       pulse: [
@@ -1257,6 +1255,7 @@ function app() {
         'tuning_ping_concurrency',
         'tuning_ping_probe_timeout_seconds',
         'tuning_ping_cooldown_seconds',
+        'tuning_ping_packet_interval_ms',
         'tuning_ping_failure_pause_rounds',
       ],
     },
@@ -1273,13 +1272,12 @@ function app() {
       // Config save path.
       'tuning_beszel_probe_timeout_seconds',
       'tuning_beszel_sample_interval_seconds',
-      'tuning_beszel_host_cache_ttl_seconds',
-      'tuning_beszel_host_fail_cache_ttl_seconds',
       // Ping provider tunables (rendered in Host stats → Ping).
       'tuning_ping_interval_seconds',
       'tuning_ping_concurrency',
       'tuning_ping_probe_timeout_seconds',
       'tuning_ping_cooldown_seconds',
+      'tuning_ping_packet_interval_ms',
       // SNMP provider tunables (rendered in Host stats → SNMP).
       'tuning_snmp_probe_timeout_seconds',
       'tuning_snmp_wall_clock_budget_seconds',
@@ -1311,8 +1309,6 @@ function app() {
       'tuning_beszel_failure_pause_rounds',
       'tuning_beszel_probe_timeout_seconds',
       'tuning_beszel_sample_interval_seconds',
-      'tuning_beszel_host_cache_ttl_seconds',
-      'tuning_beszel_host_fail_cache_ttl_seconds',
       'tuning_pulse_failure_pause_rounds',
       'tuning_pulse_probe_timeout_seconds',
       'tuning_webmin_probe_timeout_seconds',
@@ -1389,6 +1385,9 @@ function app() {
       // SSH WebSocket heartbeat cadence — rendered under Admin →
       // SSH alongside the other SSH knobs.
       'tuning_ssh_ws_heartbeat_seconds',
+      // SSH terminal connect / login wall-clocks (TUN-MED-003).
+      'tuning_ssh_terminal_connect_timeout_seconds',
+      'tuning_ssh_terminal_login_timeout_seconds',
       // Per-provider default ports — promoted out of plain settings.
       'tuning_ssh_default_port',
       'tuning_snmp_default_port',
@@ -5025,6 +5024,7 @@ function app() {
         'tuning_ping_concurrency',
         'tuning_ping_probe_timeout_seconds',
         'tuning_ping_cooldown_seconds',
+        'tuning_ping_packet_interval_ms',
         'tuning_ping_failure_pause_rounds',
       ];
     },
@@ -8779,9 +8779,13 @@ function app() {
         if ((this.sshSettings.password || '').trim() !== '') {
           body.ssh_default_password = this.sshSettings.password;
         }
-        // SSH-section tunable — included in the same POST so the
-        // SSH Save commits it alongside the rest of the SSH config.
-        for (const k of ['tuning_ssh_ws_heartbeat_seconds']) {
+        // SSH-section tunables — included in the same POST so the
+        // SSH Save commits them alongside the rest of the SSH config.
+        for (const k of [
+          'tuning_ssh_ws_heartbeat_seconds',
+          'tuning_ssh_terminal_connect_timeout_seconds',
+          'tuning_ssh_terminal_login_timeout_seconds',
+        ]) {
           const v = (this.tuningForm || {})[k];
           body[k] = (v == null ? '' : String(v).trim());
         }
@@ -15997,12 +16001,12 @@ function app() {
         { id: 'refresh-now',
           label: t('command_palette.action.refresh_now', 'Trigger gather refresh now'),
           sub:   t('command_palette.action.refresh_now_sub', 'Force /api/items refetch + image-digest probe'),
-          verbs: ['refresh', 'gather', 'reload', 'sync'],
+          verbs: ['refresh', 'gather', 'sync'],
           run:   () => { this.refresh(true); } },
         { id: 'reload-spa',
           label: t('command_palette.action.reload_spa', 'Reload SPA'),
           sub:   t('command_palette.action.reload_spa_sub', 'Hard-reload the page'),
-          verbs: ['reload', 'refresh'],
+          verbs: ['reload'],
           run:   () => { location.reload(); } },
 
         // Re-test connections (only when the helper exists)

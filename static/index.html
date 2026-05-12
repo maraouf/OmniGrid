@@ -2853,6 +2853,10 @@
                   :class="historyFilters.status==='success' ? 'active' : ''" class="filter-chip" x-text="t('history.status_success')"></button>
           <button type="button" @click="historyApplyFilter(() => historyFilters.status = 'error')"
                   :class="historyFilters.status==='error' ? 'active' : ''" class="filter-chip" x-text="t('history.status_error')"></button>
+          <button type="button" @click="historyApplyFilter(() => historyFilters.status = 'running')"
+                  :class="historyFilters.status==='running' ? 'active' : ''" class="filter-chip" x-text="t('history.status_running')"></button>
+          <button type="button" @click="historyApplyFilter(() => historyFilters.status = 'dry_run')"
+                  :class="historyFilters.status==='dry_run' ? 'active' : ''" class="filter-chip" x-text="t('history.status_dry_run')"></button>
         </div>
         <!-- Op-type filter — labels resolved via `opTypeLabel(v)` which
              consults `t('op_types.<v>')` first then falls back to a

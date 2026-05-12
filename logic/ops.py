@@ -168,6 +168,28 @@ OP_TYPES: frozenset[str] = frozenset({
 })
 
 
+# Canonical op-status enum.
+#
+# Backend writes one of these into the `history.status` column. The History tab
+# filter chips + i18n labels iterate this set so a new status added here only
+# needs a matching `history.status_<name>` key + a filter chip; consumers stay
+# in lock-step.
+#
+# Currently emitted:
+#   - "running"   — Operation in-flight (set in Operation.__init__, replaced on
+#                   completion with "success" or "error").
+#   - "success"   — Op completed without exception.
+#   - "error"     — Op raised; `error` column carries the exception text.
+#   - "dry_run"   — SSH-preview / port-scan-preview path that intentionally did
+#                   not perform the destructive side-effect.
+OP_STATUSES: frozenset[str] = frozenset({
+    "running",
+    "success",
+    "error",
+    "dry_run",
+})
+
+
 def assert_op_type(op_type: str) -> None:
     """Validate that `op_type` is in the canonical registry. Logs a WARN
     line for unknown values rather than raising, so a typo in a new
