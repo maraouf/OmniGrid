@@ -1839,7 +1839,11 @@ function app() {
               });
               return;
             }
-            _idleDebug('enqueueing host', { id: nextId, total: hosts.length, seen: seen.size });
+            // (Was a `_idleDebug('enqueueing host', ...)` console call —
+            // dropped per operator request; happy-path enqueue is too
+            // noisy in the console once the gate is verified working.
+            // The skip-reason calls above still fire to surface gate
+            // misconfigs.)
             // Route through the shared queue so the worker cap
             // applies. The function name reads "lazy" but it IS
             // the canonical entry point used by every refresh
