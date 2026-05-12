@@ -1762,6 +1762,14 @@
         "tuning_ssh_terminal_login_timeout_seconds": {
           "label": "SSH terminal login timeout (seconds)",
           "help": "Wall-clock cap on the post-connect SSH authentication phase (PubKey attempts, password prompt, banner exchange). Distinct from the connect timeout above. Same trade-off — raise for slow-auth servers (LDAP-backed sshd, PAM password lookups), lower for tighter failure detection. Default 20s. Range 5..120s. Takes effect on the next terminal-open click."
+        },
+        "tuning_pulse_sample_interval_seconds": {
+          "label": "Pulse sampler interval (seconds)",
+          "help": "Cadence at which the lifespan `host_pulse_sampler` writes one row per Pulse-tracked guest into the local `host_pulse_samples` table. 0 = use the global `tuning_stats_sample_interval_seconds` (default 300s) — keeps Pulse on the same heartbeat as the other samplers. Distinct knob exists so a fleet with a noisy / large Pulse hub (Proxmox cluster with hundreds of guests) can throttle Pulse sampling independently. Range 0..3600. Default 0 (= inherit)."
+        },
+        "tuning_node_exporter_sample_interval_seconds": {
+          "label": "node-exporter sampler interval (seconds)",
+          "help": "Cadence at which `host_metrics_sampler` probes node-exporter on each curated host and writes one row per host into `host_metrics_samples`. 0 = use the global `tuning_stats_sample_interval_seconds` (default 300s). > 0 overrides per-NE so operators can sample node-exporter at a finer cadence (e.g. 60s for tight CPU / mem / disk traces) while keeping the hub-based providers on the slower default. The outer sampler tick is auto-resolved to the MIN of NE / SNMP / global so neither sub-sampler gets starved by a slow override on a sibling. Range 0..3600. Default 0 (= inherit)."
         }
       },
       "totp": {

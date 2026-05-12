@@ -230,7 +230,12 @@ async def host_pulse_sampler_loop() -> None:
     iter_count = 0
     try:
         while True:
-            interval = max(30, int(tuning.tuning_int("tuning_stats_sample_interval_seconds")) or 300)
+            # Pulse-specific interval > 0 overrides the global stats
+            # interval; 0 = inherit (legacy / parity with Beszel knob).
+            pulse_interval = int(tuning.tuning_int("tuning_pulse_sample_interval_seconds"))
+            interval = (pulse_interval if pulse_interval > 0
+                        else int(tuning.tuning_int("tuning_stats_sample_interval_seconds"))) or 300
+            interval = max(30, interval)
             iter_count += 1
             # Unconditional per-iteration log — fires BEFORE the
             # active / curated gates so silent-sleep paths are

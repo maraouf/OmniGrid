@@ -1237,38 +1237,68 @@ def _prune_old_samples() -> int:
         return 0
 
 
+def _resolve_outer_interval() -> int:
+    """Outer-loop tick interval — the SMALLEST of the per-sampler
+    cadences so neither NE nor SNMP gets starved when an operator
+    sets one slower than the other. Per-sampler ``*_due`` gates inside
+    the loop ensure each sub-probe only fires at its own cadence.
+    """
+    global_iv = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+    ne_iv     = tuning.tuning_int("tuning_node_exporter_sample_interval_seconds")
+    snmp_iv   = tuning.tuning_int("tuning_snmp_sample_interval_seconds")
+    candidates = [global_iv or 300]
+    if ne_iv > 0:
+        candidates.append(ne_iv)
+    if snmp_iv > 0:
+        candidates.append(snmp_iv)
+    return max(30, min(candidates))
+
+
 async def host_metrics_sampler_loop() -> None:
-    """Lifespan-managed sampler. One tick per
-    ``tuning_stats_sample_interval_seconds`` (DB > env > default).
-    SNMP probes can have their own cadence via
-    ``tuning_snmp_sample_interval_seconds`` — when set > 0 they
-    run only when ``now - last_snmp >= snmp_interval``; when 0 they
-    inherit the global cadence (legacy behaviour)."""
+    """Lifespan-managed sampler. Outer loop ticks at the MINIMUM of
+    every configured per-sampler cadence; per-sampler ``*_due`` gates
+    inside the loop fire each sub-probe at its own cadence.
+
+    Cadence resolution per sub-sampler (DB > env > default):
+      - node-exporter: ``tuning_node_exporter_sample_interval_seconds``
+        when > 0, else ``tuning_stats_sample_interval_seconds``.
+      - SNMP: ``tuning_snmp_sample_interval_seconds`` when > 0, else
+        ``tuning_stats_sample_interval_seconds``.
+    """
     _last_counters.clear()
     # Wait a beat so DB tables exist + hosts_config is loaded before the
     # first probe. Same pattern as host_net_sampler / stats_sampler.
-    interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+    interval = _resolve_outer_interval()
     await asyncio.sleep(min(60, interval))
     tick = 0
     last_snmp_ts = 0.0
+    last_ne_ts = 0.0
     while True:
         try:
             active = _active_providers()
-            if "node_exporter" not in active:
-                pass  # dormant — keep ticking so toggle takes effect live
-            else:
-                hosts = _load_curated_hosts()
-                if hosts:
-                    sem = asyncio.Semaphore(tuning.tuning_int("tuning_host_metrics_probe_concurrency"))
-                    # operator-tunable timeout shared with the
-                    # other NE consumers in main.py. Pre-fix this was
-                    # 15s while the other sites used 10s — drift class.
-                    _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
-                    async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as client:
-                        await asyncio.gather(
-                            *(_probe_one(client, h, sem) for h in hosts),
-                            return_exceptions=True,
-                        )
+            now_ts = time.time()
+            # NE-aware permanent-fail tracking. Independent of SNMP.
+            # NE cadence is independent of the outer loop when
+            # `tuning_node_exporter_sample_interval_seconds > 0`.
+            # Falls back to the global stats interval when 0 so legacy
+            # deployments keep their existing behaviour.
+            if "node_exporter" in active:
+                ne_interval_cfg = tuning.tuning_int("tuning_node_exporter_sample_interval_seconds")
+                ne_due = (ne_interval_cfg <= 0) or (now_ts - last_ne_ts >= ne_interval_cfg)
+                if ne_due:
+                    hosts = _load_curated_hosts()
+                    if hosts:
+                        sem = asyncio.Semaphore(tuning.tuning_int("tuning_host_metrics_probe_concurrency"))
+                        # operator-tunable timeout shared with the
+                        # other NE consumers in main.py. Pre-fix this was
+                        # 15s while the other sites used 10s — drift class.
+                        _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
+                        async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as client:
+                            await asyncio.gather(
+                                *(_probe_one(client, h, sem) for h in hosts),
+                                return_exceptions=True,
+                            )
+                    last_ne_ts = now_ts
             # SNMP-aware permanent-fail tracking. Independent of
             # the NE block above (a host can have NE off + SNMP on, or
             # both, or neither). Failure-state rows are keyed
@@ -1281,7 +1311,6 @@ async def host_metrics_sampler_loop() -> None:
             # keep their existing behaviour.
             if "snmp" in active:
                 snmp_interval = tuning.tuning_int("tuning_snmp_sample_interval_seconds")
-                now_ts = time.time()
                 snmp_due = (snmp_interval <= 0) or (now_ts - last_snmp_ts >= snmp_interval)
                 if snmp_due:
                     snmp_hosts = _load_curated_snmp_hosts()
@@ -1293,7 +1322,7 @@ async def host_metrics_sampler_loop() -> None:
                             return_exceptions=True,
                         )
                     last_snmp_ts = now_ts
-            interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+            interval = _resolve_outer_interval()
             days = tuning.tuning_int("tuning_stats_history_days")
             if tick % max(1, 3600 // interval) == 0:
                 n = _prune_old_samples()
