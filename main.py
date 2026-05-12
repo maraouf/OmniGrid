@@ -13478,37 +13478,65 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
     """Generic time-series bucketing for drawer-chart endpoints.
 
     Takes a list of dicts where each dict has a `t` (or `ts`) epoch-
-    seconds field plus numeric metric fields, returns a bucketed list
-    of the same shape with ~``target_points`` points evenly spread
-    across the window. Numeric fields are averaged across each bucket;
-    non-numeric fields are dropped (lists / dicts / JSON blobs); the
-    bucket's emitted `t`/`ts` is the bucket midpoint so the SVG x-axis
-    centres each point in its window.
+    seconds field plus arbitrary metric fields. Returns a bucketed list
+    of ~``target_points`` points evenly spread across the window. Field
+    handling per-bucket:
+
+    - **scalar numeric** (int/float, not bool): averaged across samples.
+    - **dict of numeric leaves** (e.g. Beszel `temps: {cpu_thermal: 49}`):
+      averaged per-leaf so the chart's per-sensor lines still render.
+      Sensor keys that appear in only some samples in the bucket are
+      averaged across the samples that have them.
+    - **list of numeric elements** (e.g. `cpus: [10, 10, 8]`,
+      `la: [0.19, 0.3, 0.43]`): element-wise averaged; output list
+      length = max input length, missing positions averaged across the
+      samples that had them.
+    - **anything else** (list of dicts, dict of dicts, strings, bools,
+      JSON blobs): last-in-bucket wins so the structural shape survives
+      and the chart's downstream consumers still find their nested keys.
+      Slight fidelity loss vs averaging but the chart STAYS FUNCTIONAL
+      across 24h / 7d windows (pre-fix the field was dropped entirely
+      and the chart fell through to "Collecting data").
 
     Short windows (≤2h) AND already-small series (len ≤ target) skip
     the bucket pass entirely — they're already chart-friendly. Buckets
-    with NO numeric data are dropped so the SPA's time-based gap
-    detection renders them as real breaks in the line (matches the
-    ping-history skip-all-dead-bucket convention).
+    with no scalar-numeric data AND no dict/list metric data are
+    dropped so the SPA's time-based gap detection renders them as real
+    breaks in the line.
 
     Sampler-floor + min-bucket-width is 60s so we never produce a
-    bucket smaller than a typical sampler tick. Same `max(60, ceil(
-    hours*3600/target))` formula every drawer-chart endpoint uses.
+    bucket smaller than a typical sampler tick.
     """
     if not series or hours <= 2 or len(series) <= target_points:
         return series
     bucket_s = max(60, int((hours * 3600) / target_points))
     half = bucket_s // 2
-    buckets: dict = {}
-    # First pass — discover which keys carry numeric data so we don't
-    # try to bucket-average lists / dicts / JSON blobs.
+    # Discover field-kind from the first sample so the inner loop can
+    # branch without per-row introspection. Keys can be:
+    #   "scalar" → sum + count, AVG at emit
+    #   "dict"   → per-leaf sum + count, AVG dict at emit
+    #   "list"   → per-index sum + count, AVG list at emit
+    #   "other"  → last-in-bucket wins
     sample = series[0] if series else {}
-    metric_keys: list[str] = []
+    kinds: dict[str, str] = {}
     for k, v in sample.items():
         if k in ("t", "ts"):
             continue
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            metric_keys.append(k)
+        if isinstance(v, bool):
+            kinds[k] = "other"
+        elif isinstance(v, (int, float)):
+            kinds[k] = "scalar"
+        elif isinstance(v, dict) and v and all(
+            isinstance(x, (int, float)) and not isinstance(x, bool) for x in v.values()
+        ):
+            kinds[k] = "dict"
+        elif isinstance(v, list) and v and all(
+            isinstance(x, (int, float)) and not isinstance(x, bool) for x in v
+        ):
+            kinds[k] = "list"
+        else:
+            kinds[k] = "other"
+    buckets: dict = {}
     for r in series:
         ts = int(r.get("t") or r.get("ts") or 0)
         if not ts:
@@ -13516,30 +13544,77 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
         bts = (ts // bucket_s) * bucket_s
         b = buckets.get(bts)
         if b is None:
-            b = {"_sums": {k: 0.0 for k in metric_keys},
-                 "_ns":   {k: 0   for k in metric_keys}}
+            b = {"scalar_sum": {}, "scalar_n": {},
+                 "dict_sum":   {}, "dict_n":   {},
+                 "list_sum":   {}, "list_n":   {},
+                 "other_last": {}}
             buckets[bts] = b
-        for k in metric_keys:
+        for k, kind in kinds.items():
             v = r.get(k)
             if v is None:
                 continue
-            try:
-                fv = float(v)
-            except (TypeError, ValueError):
-                continue
-            b["_sums"][k] += fv
-            b["_ns"][k]   += 1
+            if kind == "scalar":
+                try:
+                    fv = float(v)
+                except (TypeError, ValueError):
+                    continue
+                b["scalar_sum"][k] = b["scalar_sum"].get(k, 0.0) + fv
+                b["scalar_n"][k]   = b["scalar_n"].get(k, 0) + 1
+            elif kind == "dict" and isinstance(v, dict):
+                ds = b["dict_sum"].setdefault(k, {})
+                dn = b["dict_n"].setdefault(k, {})
+                for leaf, lv in v.items():
+                    try:
+                        flv = float(lv)
+                    except (TypeError, ValueError):
+                        continue
+                    ds[leaf] = ds.get(leaf, 0.0) + flv
+                    dn[leaf] = dn.get(leaf, 0) + 1
+            elif kind == "list" and isinstance(v, list):
+                ls = b["list_sum"].setdefault(k, [])
+                ln = b["list_n"].setdefault(k, [])
+                for idx, lv in enumerate(v):
+                    try:
+                        flv = float(lv)
+                    except (TypeError, ValueError):
+                        continue
+                    while len(ls) <= idx:
+                        ls.append(0.0)
+                        ln.append(0)
+                    ls[idx] += flv
+                    ln[idx] += 1
+            else:
+                # "other" → last-in-bucket wins. Iteration order through
+                # `series` is oldest-first so the final write IS the
+                # latest sample in the bucket.
+                b["other_last"][k] = v
     out: list = []
-    use_t = ("t" in sample)
     for bts in sorted(buckets.keys()):
         b = buckets[bts]
-        # Drop fully-empty buckets so the gap-detection fires.
-        if not any(n > 0 for n in b["_ns"].values()):
+        # Drop fully-empty buckets — every kind contributed zero data.
+        # Allows the SPA's gap-detection to surface the gap honestly.
+        if (not any(n > 0 for n in b["scalar_n"].values())
+                and not b["dict_sum"]
+                and not b["list_sum"]
+                and not b["other_last"]):
             continue
         row: dict = {}
-        for k in metric_keys:
-            n = b["_ns"][k]
-            row[k] = (b["_sums"][k] / n) if n > 0 else 0
+        for k, n in b["scalar_n"].items():
+            row[k] = (b["scalar_sum"][k] / n) if n > 0 else 0
+        for k, ds in b["dict_sum"].items():
+            dn = b["dict_n"].get(k, {})
+            row[k] = {
+                leaf: (ds[leaf] / dn[leaf]) if dn.get(leaf, 0) > 0 else 0
+                for leaf in ds.keys()
+            }
+        for k, ls in b["list_sum"].items():
+            ln = b["list_n"].get(k, [])
+            row[k] = [
+                (ls[i] / ln[i]) if i < len(ln) and ln[i] > 0 else 0
+                for i in range(len(ls))
+            ]
+        for k, v in b["other_last"].items():
+            row[k] = v
         mid = bts + half
         row["t"]  = mid
         row["ts"] = mid
