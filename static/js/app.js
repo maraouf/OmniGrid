@@ -18802,6 +18802,15 @@ function app() {
         sign_out:  'logout',
         sign_off:  'logout',
         logoff:    'logout',
+        // Refresh / reload — `ALLOWED_PALETTE_ACTIONS` declares the
+        // bare verb forms but the SPA's descriptor ids are kebab-suffixed
+        // (`refresh-now` for the gather refresh, `reload-spa` for the
+        // page hard-reload). Without these aliases an AI emitting bare
+        // `ACTION: refresh` / `ACTION: reload` silently no-ops because
+        // the kebab fall-through (`refresh` / `reload`) doesn't match
+        // any descriptor.
+        refresh:   'refresh-now',
+        reload:    'reload-spa',
         // Cleanup synonyms — the AI prompt teaches the model the
         // canonical `cleanup_stopped` id but operators may type the
         // kebab form (`cleanup-stopped`) verbatim too.

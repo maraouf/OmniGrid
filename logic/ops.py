@@ -165,6 +165,47 @@ OP_TYPES: frozenset[str] = frozenset({
     "settings_update",
     "ai_memory_create",
     "ai_memory_delete",
+    # Host sampling resume — operator-initiated unpause. The matching
+    # auto-pause path fires from the sampler (no operator) so the pause
+    # itself isn't an audit event; the resume IS.
+    "host_resume_sampling",
+    "host_provider_resume",
+    # Diagnostic data destruction — DELETE /api/logs wipes the in-memory
+    # buffer. Audit before the clear so the forensic anchor survives.
+    "logs_clear",
+    # User self-service 2FA enrolment — admin-driven equivalents already
+    # audited (totp_admin_disabled / totp_force_set). The self-service
+    # paths mutate auth state and belong on the audit trail too.
+    "totp_self_enroll",
+    "totp_self_disable",
+    "totp_self_regenerate_codes",
+    "passkey_self_register",
+    "passkey_self_delete",
+    # Step-up auth FAILURE path. Success is invisible by design (reauth
+    # is a stepping stone). Failures are operator-visible attempts that
+    # the per-IP login limiter catches in aggregate; a per-event audit row
+    # surfaces who-tried-when.
+    "admin_reauth_failed",
+    # Notification side-channels.
+    "notify_test",
+    # Audit-trail destruction — DELETE /api/history wipes every row.
+    # The trailing audit row is written AFTER the bulk delete so it
+    # survives; the row's actor surfaces who-cleared-when.
+    "history_cleared",
+    # Ignore-pattern CRUD — affects gather filtering, operator-visible
+    # behaviour change.
+    "ignore_create",
+    "ignore_delete",
+    # Notification template overrides — admin-edited title/body that
+    # changes the copy on every subsequent event firing.
+    "notify_template_update",
+    # Curated host list full-replace — single largest single-shot
+    # mutation; rebuilds provider mappings, may rotate SNMP credentials.
+    "hosts_config_update",
+    # Bulk SNMP config mutators — already audited siblings to the
+    # `hosts_bulk_pause` / `hosts_bulk_resume` pair.
+    "hosts_bulk_snmp_vendors",
+    "hosts_bulk_snmp_tunables",
 })
 
 
