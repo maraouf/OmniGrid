@@ -276,7 +276,7 @@
               </span>
             </div>
             <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_notification_retention_days'] || {}).effective })"></span>
+                  x-text="tuningEffectiveLabel('tuning_notification_retention_days')"></span>
           </div>
         </div>
         <div class="mt-4 pt-3 border-t border-[var(--border)]" x-show="tuningLoaded">
@@ -311,7 +311,7 @@
               </span>
             </div>
             <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_notification_page_size'] || {}).effective })"></span>
+                  x-text="tuningEffectiveLabel('tuning_notification_page_size')"></span>
           </div>
         </div>
 

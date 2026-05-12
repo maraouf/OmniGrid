@@ -62,8 +62,16 @@
                   </thead>
                   <tbody>
                     <template x-for="row in ((statsSamples.tables || []).slice().sort((a, b) => (b.rows || 0) - (a.rows || 0)))" :key="row.name">
-                      <tr class="border-t border-[var(--border)]"
-                          :class="row.error ? 'opacity-60' : ''">
+                      <!-- Whole-row click opens the per-provider
+                           drill-down modal. Error rows + zero-row
+                           rows skip the open (no useful detail to
+                           render). `cursor: pointer` only when the
+                           row is openable so the affordance is
+                           honest. -->
+                      <tr class="border-t border-[var(--border)] hover:bg-[var(--surface-2)] transition"
+                          :class="row.error ? 'opacity-60 cursor-default' : (Number(row.rows || 0) > 0 ? 'cursor-pointer' : 'cursor-default')"
+                          @click="if (!row.error && Number(row.rows || 0) > 0) openStatsSamplesDrillDown(row)"
+                          :title="(!row.error && Number(row.rows || 0) > 0) ? t('stats.samples.drill_down.open_title') : ''">
                         <td class="px-4 py-2 mono fs-xs">
                           <span class="chip pill-custom fs-3xs uppercase"
                                 :style="providerChipStyle(row.provider)"
@@ -177,4 +185,89 @@
 
           </div>
         </section>
+
+        <!-- Per-provider drill-down modal. Opens on row click in the
+             per-table breakdown above; lists every host's row count
+             for the picked sample-bearing table sorted DESC. Footer
+             total cross-checks against the outer per-table count
+             (operator-flagged: "make sure the total count matches on
+             both, sum of all hosts displayed in popup is equal the
+             outside number"). Click backdrop / Esc / ✕ to close. -->
+        <div x-show="statsSamplesDrillDown.open"
+             class="fixed inset-0 z-50 flex items-center justify-center p-4"
+             style="background: var(--backdrop)"
+             @click.self="closeStatsSamplesDrillDown()"
+             @keydown.escape.window="if (statsSamplesDrillDown.open) closeStatsSamplesDrillDown()"
+             x-cloak>
+          <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md shadow-lg w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <!-- Header -->
+            <div class="p-4 border-b border-[var(--border)] flex justify-between items-center gap-3">
+              <div class="min-w-0">
+                <h3 class="font-semibold fs-md truncate"
+                    x-text="t('stats.samples.drill_down.title', { label: statsSamplesDrillDown.label })"></h3>
+                <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                   x-text="t('stats.samples.drill_down.hint')"></p>
+              </div>
+              <button type="button"
+                      class="user-action-btn"
+                      @click="closeStatsSamplesDrillDown()"
+                      :title="t('actions.close')"
+                      :aria-label="t('actions.close')">
+                <svg width="14" height="14" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Loading state -->
+            <div x-show="statsSamplesDrillDown.loading" class="loading-state">
+              <span class="spin-lg" aria-hidden="true"></span>
+              <span x-text="t('loading.section')"></span>
+            </div>
+
+            <!-- Error banner -->
+            <div x-show="!statsSamplesDrillDown.loading && statsSamplesDrillDown.error"
+                 class="m-4 rounded-md p-3 fs-xs bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]"
+                 x-text="statsSamplesDrillDown.error"></div>
+
+            <!-- Body — per-host rows (sorted DESC server-side). -->
+            <div x-show="!statsSamplesDrillDown.loading && !statsSamplesDrillDown.error"
+                 class="flex-1 overflow-y-auto scrollbar">
+              <table class="w-full fs-sm">
+                <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)] sticky top-0">
+                  <tr>
+                    <th class="text-start px-4 py-2" x-text="t('stats.samples.drill_down.col_host')"></th>
+                    <th class="text-end px-4 py-2" x-text="t('stats.samples.drill_down.col_rows')"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="row in (statsSamplesDrillDown.rows || [])" :key="row.host_id || '<unknown>'">
+                    <tr class="border-t border-[var(--border)]">
+                      <td class="px-4 py-2 mono fs-xs" x-text="row.host_id || '—'"></td>
+                      <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.rows || 0).toLocaleString()"></td>
+                    </tr>
+                  </template>
+                  <tr x-show="!(statsSamplesDrillDown.rows || []).length">
+                    <td colspan="2" class="text-center py-6 text-[var(--text-faint)]"
+                        x-text="t('stats.samples.drill_down.empty')"></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Footer — total cross-checks the outer row count. A
+                 mismatch is a SQL bug, not an expected divergence. -->
+            <div x-show="!statsSamplesDrillDown.loading && !statsSamplesDrillDown.error"
+                 class="p-4 border-t border-[var(--border)] flex justify-between items-center fs-xs bg-[var(--surface-2)]">
+              <span class="text-[var(--text-dim)]"
+                    x-text="t('stats.samples.drill_down.footer_total', { total: Number(statsSamplesDrillDown.total || 0).toLocaleString(), outer: Number(statsSamplesDrillDown.outer || 0).toLocaleString() })"></span>
+              <span x-show="Number(statsSamplesDrillDown.total || 0) !== Number(statsSamplesDrillDown.outer || 0)"
+                    class="text-[var(--danger)] font-semibold"
+                    x-text="t('stats.samples.drill_down.mismatch_warn')"></span>
+              <span x-show="Number(statsSamplesDrillDown.total || 0) === Number(statsSamplesDrillDown.outer || 0) && Number(statsSamplesDrillDown.total || 0) > 0"
+                    class="text-[var(--success)]"
+                    x-text="t('stats.samples.drill_down.match_ok')"></span>
+            </div>
+          </div>
+        </div>
       </div>

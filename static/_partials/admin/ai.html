@@ -103,7 +103,7 @@
                   </span>
                 </div>
                 <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                      x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ai_max_tokens'] || {}).effective })"></span>
+                      x-text="tuningEffectiveLabel('tuning_ai_max_tokens')"></span>
               </div>
               <p class="fs-2xs text-[var(--text-faint)] mt-1"
                  x-text="t('admin.config.fields.tuning_ai_max_tokens.help')"></p>
@@ -182,7 +182,7 @@
                     </span>
                   </div>
                   <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ai_retry_backoff_ms'] || {}).effective })"></span>
+                        x-text="tuningEffectiveLabel('tuning_ai_retry_backoff_ms')"></span>
                 </div>
                 <p class="fs-2xs text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_retry_backoff_ms.help')"></p>
@@ -218,7 +218,7 @@
                     </span>
                   </div>
                   <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ai_retry_first_attempt_max_ms'] || {}).effective })"></span>
+                        x-text="tuningEffectiveLabel('tuning_ai_retry_first_attempt_max_ms')"></span>
                 </div>
                 <p class="fs-2xs text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.help')"></p>
@@ -259,7 +259,7 @@
                     </span>
                   </div>
                   <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ai_sidebar_width_px'] || {}).effective })"></span>
+                        x-text="tuningEffectiveLabel('tuning_ai_sidebar_width_px')"></span>
                 </div>
                 <p class="fs-2xs text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.help')"></p>
@@ -318,7 +318,7 @@
                     </span>
                   </div>
                   <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ai_log_context_hours'] || {}).effective })"></span>
+                        x-text="tuningEffectiveLabel('tuning_ai_log_context_hours')"></span>
                 </div>
                 <p class="fs-2xs text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_log_context_hours.help')"></p>
@@ -356,7 +356,7 @@
                     </span>
                   </div>
                   <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ai_log_context_lines'] || {}).effective })"></span>
+                        x-text="tuningEffectiveLabel('tuning_ai_log_context_lines')"></span>
                 </div>
                 <p class="fs-2xs text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_log_context_lines.help')"></p>

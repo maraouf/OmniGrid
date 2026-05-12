@@ -399,6 +399,17 @@
         "legend_total": "Total: {n}",
         "legend_days": "Buckets: {n}",
         "range_label": "Time range"
+      },
+      "drill_down": {
+        "open_title": "Click to see which hosts produced these rows",
+        "title": "Per-host breakdown — {label}",
+        "hint": "Row counts in the selected sample-bearing table, sorted by count (highest first). The footer total must equal the outer row count shown on the Samples page — a mismatch is a SQL bug, not an expected divergence.",
+        "col_host": "Host",
+        "col_rows": "Rows",
+        "empty": "No rows for this table.",
+        "footer_total": "Total {total} (outer: {outer})",
+        "mismatch_warn": "TOTAL MISMATCH — sum of per-host rows ≠ outer count",
+        "match_ok": "Totals match ✓"
       }
     },
     "database": {
@@ -1786,7 +1797,8 @@
         "max_failures_hint": "3 to 20.",
         "lockout_minutes_label": "Lockout duration (minutes)",
         "lockout_minutes_hint": "1 to 1440 (24h)."
-      }
+      },
+      "inherited_label": "Inherited: {value} (from {source})"
     },
     "debug": {
       "title": "Debug & diagnostics",

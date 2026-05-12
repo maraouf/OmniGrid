@@ -5756,6 +5756,83 @@ async def api_admin_stats_samples(
     return out
 
 
+# Canonical roster of sample-bearing tables — mirrored from the spec
+# inside `api_admin_stats_samples`. Pulled out to module scope so the
+# drill-down endpoint can validate the operator-passed `?table=` param
+# WITHOUT executing the bigger summary query. Each entry maps the
+# table name to the host-id column (most tables use `host_id`; the
+# Portainer `stats_samples` table uses `item_id` instead).
+_SAMPLES_TABLE_HOST_COL: dict[str, str] = {
+    "ping_samples":            "host_id",
+    "host_snmp_samples":       "host_id",
+    "host_snmp_iface_samples": "host_id",
+    "host_snmp_temp_samples":  "host_id",
+    "host_beszel_samples":     "host_id",
+    "host_beszel_services":    "host_id",
+    "host_pulse_samples":      "host_id",
+    "host_webmin_samples":     "host_id",
+    "host_metrics_samples":    "host_id",
+    "host_net_samples":        "host_id",
+    "stats_samples":           "item_id",
+    "host_port_scans":         "host_id",
+    "host_failure_events":     "host_id",
+}
+
+
+@app.get("/api/admin/stats/samples/by-host")
+async def api_admin_stats_samples_by_host(
+    table: str,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only — per-host (or per-item) row counts for ONE sample-
+    bearing table. Drives the Stats → Samples drill-down popup: click
+    a provider chip → modal lists every host with its row count sorted
+    DESC. The footer total (SUM(rows)) cross-checks against the outer
+    per-table row count rendered on the Samples page; a mismatch is a
+    SQL bug, not an expected divergence.
+
+    `table` MUST be in the canonical `_SAMPLES_TABLE_HOST_COL` map —
+    arbitrary operator input is NOT interpolated into the SQL.
+    """
+    table = (table or "").strip()
+    host_col = _SAMPLES_TABLE_HOST_COL.get(table)
+    if not host_col:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown sample table {table!r}. Allowed: "
+                   + ", ".join(sorted(_SAMPLES_TABLE_HOST_COL.keys())),
+        )
+    out: dict = {
+        "table":     table,
+        "host_col":  host_col,
+        "rows":      [],
+        "total":     0,
+        "error":     None,
+    }
+    try:
+        with db_conn() as c:
+            # Table + host-col are validated against the canonical
+            # whitelist above; safe to embed in the SQL string.
+            rows = c.execute(
+                f'SELECT "{host_col}" AS host_id, COUNT(*) AS rows '
+                f'  FROM "{table}" '
+                f' GROUP BY "{host_col}" '
+                f' ORDER BY COUNT(*) DESC, "{host_col}" ASC'
+            ).fetchall()
+            shaped = [
+                {
+                    "host_id": (r["host_id"] if hasattr(r, "keys") else r[0]) or "",
+                    "rows":    int(r["rows"] if hasattr(r, "keys") else r[1] or 0),
+                }
+                for r in rows
+            ]
+            out["rows"] = shaped
+            out["total"] = sum(r["rows"] for r in shaped)
+    except Exception as e:
+        out["error"] = str(e)
+    return out
+
+
 @app.get("/api/admin/ai/dashboard")
 async def api_admin_ai_dashboard(
     hours: int = 24,

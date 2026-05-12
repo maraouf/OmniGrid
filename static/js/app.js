@@ -1514,6 +1514,19 @@ function app() {
     statsDatabaseLoaded: false,
     statsSamples: {},
     statsSamplesLoaded: false,
+    // Per-provider drill-down modal — opens on chip click in the
+    // Samples breakdown table. `open` toggles visibility; the other
+    // fields carry the in-flight fetch state + the resolved data.
+    statsSamplesDrillDown: {
+      open:    false,
+      loading: false,
+      table:   '',     // canonical sample-bearing table name
+      label:   '',     // operator-friendly heading (provider + kind)
+      rows:    [],     // [{host_id, rows}, ...] sorted DESC server-side
+      total:   0,      // SUM(rows) — cross-checks against outer count
+      outer:   0,      // outer per-table row count for the cross-check
+      error:   '',
+    },
     statsIncidents: {},
     statsIncidentsLoaded: false,
     statsIncidentsHours: 168,
@@ -3254,6 +3267,46 @@ function app() {
       } catch (_) {} finally {
         this.statsSamplesLoaded = true;
       }
+    },
+    // Per-provider drill-down modal — fetches per-host row counts for
+    // ONE sample-bearing table, sorted DESC. Footer total cross-checks
+    // against the outer per-table count rendered on the Samples page.
+    async openStatsSamplesDrillDown(row) {
+      if (!row || !row.name) return;
+      const outerCount = Number(row.rows || 0);
+      const label = (row.provider || '') + ' — ' + (row.name || '');
+      this.statsSamplesDrillDown = {
+        open:    true,
+        loading: true,
+        table:   row.name,
+        label:   label,
+        rows:    [],
+        total:   0,
+        outer:   outerCount,
+        error:   '',
+      };
+      try {
+        const r = await fetch('/api/admin/stats/samples/by-host?table='
+                              + encodeURIComponent(row.name));
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.statsSamplesDrillDown.error = (d && d.detail) || ('HTTP ' + r.status);
+          return;
+        }
+        this.statsSamplesDrillDown.rows  = Array.isArray(d.rows) ? d.rows : [];
+        this.statsSamplesDrillDown.total = Number(d.total || 0);
+        if (d.error) this.statsSamplesDrillDown.error = d.error;
+      } catch (e) {
+        this.statsSamplesDrillDown.error = (e && e.message) || String(e);
+      } finally {
+        this.statsSamplesDrillDown.loading = false;
+      }
+    },
+    closeStatsSamplesDrillDown() {
+      this.statsSamplesDrillDown = {
+        open: false, loading: false, table: '', label: '',
+        rows: [], total: 0, outer: 0, error: '',
+      };
     },
     async loadStatsIncidents(hours) {
       const h = Number(hours) || this.statsIncidentsHours || 168;
@@ -10514,6 +10567,40 @@ function app() {
     // walks THIS list so a relocated tunable still round-trips.
     _allTuningKeys() {
       return (this.tuningKeys || []).concat(this.relocatedTuningKeys || []);
+    },
+    // Per-tunable inherit-source map. Each entry: tunable that has
+    // "0 = inherit" semantics → the source tunable it falls back to
+    // when its effective is 0. Drives `tuningEffectiveLabel(key)` so
+    // the Admin → Config form reads "Inherited: 300s" instead of the
+    // misleading "Effective: 0". Keep this in lockstep with the
+    // sampler-side resolver fallbacks (e.g. `host_pulse_sampler` and
+    // `host_metrics_sampler._resolve_outer_interval`).
+    _tuningInheritSource: {
+      tuning_beszel_sample_interval_seconds:        'tuning_stats_sample_interval_seconds',
+      tuning_pulse_sample_interval_seconds:         'tuning_stats_sample_interval_seconds',
+      tuning_node_exporter_sample_interval_seconds: 'tuning_stats_sample_interval_seconds',
+      tuning_snmp_sample_interval_seconds:          'tuning_stats_sample_interval_seconds',
+    },
+    // Compose the "Effective: <X>" / "Inherited: <X>" label for one
+    // tunable. When the tunable has a known inherit-source AND its
+    // own effective is 0 (the "0 = inherit" sentinel), the label
+    // resolves through the source tunable's effective value and
+    // renders as "Inherited: <source-effective>". Otherwise it
+    // renders the plain "Effective: <X>" label.
+    tuningEffectiveLabel(key) {
+      const row = (this.tuningEffective || {})[key] || {};
+      const eff = row.effective;
+      const source = this._tuningInheritSource[key];
+      if (source && (eff === 0 || eff === '0' || eff === null || eff === undefined)) {
+        const srcRow = (this.tuningEffective || {})[source] || {};
+        const srcEff = srcRow.effective;
+        if (srcEff !== undefined && srcEff !== null && srcEff !== '') {
+          return this.t('admin.config.inherited_label', { value: srcEff, source: source })
+              || ('Inherited: ' + srcEff);
+        }
+      }
+      return this.t('admin.config.effective_label', { value: eff })
+          || ('Effective: ' + (eff === undefined ? '' : eff));
     },
     async loadTuning() {
       try {
@@ -18797,6 +18884,66 @@ function app() {
         };
       }
       if (Object.keys(stats).length) ctx.stats = stats;
+      // Tunables — always-present compact map of {key: effective_value}
+      // so the AI can answer "what's the Pulse sample interval?" /
+      // "show me the Webmin probe budget" without the operator having
+      // opened Admin → Config. Sourced from `tuningEffective` (Admin →
+      // Config GET response) when loaded; falls back to `tuningForm`
+      // (live form values) when not. Captures every key in the
+      // canonical `_allTuningKeys()` union so a new TUNABLE auto-
+      // surfaces here as soon as it's added to the resolver.
+      try {
+        const effMap = (this.tuningEffective && typeof this.tuningEffective === 'object')
+          ? this.tuningEffective : {};
+        const formMap = (this.tuningForm && typeof this.tuningForm === 'object')
+          ? this.tuningForm : {};
+        const allKeys = (typeof this._allTuningKeys === 'function')
+          ? this._allTuningKeys() : [];
+        const tunables = {};
+        for (const k of allKeys) {
+          const eff = effMap[k];
+          if (eff && (eff.effective !== undefined && eff.effective !== null)) {
+            tunables[k] = eff.effective;
+          } else if (formMap[k] !== undefined && formMap[k] !== '' && formMap[k] !== null) {
+            const n = Number(formMap[k]);
+            tunables[k] = Number.isFinite(n) ? n : formMap[k];
+          }
+        }
+        if (Object.keys(tunables).length) ctx.tunables = tunables;
+      } catch (_) { /* defensive — never block context build */ }
+      // Settings — non-secret subset of the live `this.settings` so
+      // the AI can answer "is Beszel enabled?" / "what's the Apprise
+      // tag?". Secret-suffix keys (token / password / api_key /
+      // secret / private_key / passphrase) are NEVER included; the
+      // SPA only carries `_set` flags for those, so even a wrong
+      // iteration here can't leak material. Master toggles + active-
+      // source CSV + per-provider URL + verify-tls + the chip-colour
+      // overrides are the operator-visible state the AI typically
+      // needs to ground.
+      try {
+        const s = this.settings || {};
+        const settingsPicked = {};
+        const secretSuffixes = /(_token|_password|_secret|_api_key|_private_key|_passphrase)$/;
+        for (const k of Object.keys(s)) {
+          if (secretSuffixes.test(k)) continue;
+          const v = s[k];
+          // Skip empty strings + nulls — they're "not set" rather than
+          // operator-meaningful state; the AI shouldn't need to know
+          // every blank field. Also skip objects / arrays past a small
+          // size cap to avoid bloating the prompt with JSON blobs.
+          if (v === '' || v === null || v === undefined) continue;
+          if (typeof v === 'object') {
+            try {
+              const j = JSON.stringify(v);
+              if (j.length > 400) continue;
+              settingsPicked[k] = v;
+            } catch (_) { /* skip */ }
+            continue;
+          }
+          settingsPicked[k] = v;
+        }
+        if (Object.keys(settingsPicked).length) ctx.settings = settingsPicked;
+      } catch (_) { /* defensive */ }
       return ctx;
     },
     // Resolve a snake_case action ID emitted by the AI palette
