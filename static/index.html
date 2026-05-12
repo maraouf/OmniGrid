@@ -4097,6 +4097,20 @@
                                 class="text-[9.5px] text-[var(--text-faint)] mono ps-0.5"
                                 :title="t('hosts_extra.provider_last_ok_title', { provider: agent.name })"
                                 x-text="t('hosts_extra.provider_last_ok', { age: providerLastOkAge(h, agent.name) })"></span>
+                          <!-- Per-(provider, host) row count from the
+                               provider's local samples table. Read from
+                               `h.provider_sample_counts[<name>]` (stamped
+                               by `_merge_one_host` on /api/hosts/one/{id}
+                               only — bulk /api/hosts/list path skips the
+                               COUNT(*) round-trips). Hidden until the
+                               per-host probe has run (cold-load skeleton
+                               leaves the map empty). Locale-formatted
+                               thousands separator for fleets with
+                               millions of rows. -->
+                          <span x-show="providerSampleCount(h, agent.name) > 0"
+                                class="text-[9.5px] text-[var(--text-faint)] mono ps-0.5"
+                                :title="t('hosts_extra.provider_sample_count_title', { provider: agent.name })"
+                                x-text="t('hosts_extra.provider_sample_count', { count: Number(providerSampleCount(h, agent.name)).toLocaleString() })"></span>
                         </div>
                       </template>
                     </div>
