@@ -2848,6 +2848,9 @@ class SettingsIn(BaseModel):
     # Webmin probe outer budget (shared by /api/hosts and
     # /api/hosts/one).
     tuning_webmin_probe_budget_seconds: Optional[str] = None
+    # Webmin sampler tick budget — outer wall-clock cap for one
+    # `host_webmin_sampler` tick. 0 = auto-derive.
+    tuning_webmin_sampler_budget_seconds: Optional[str] = None
     # node-exporter per-host probe timeout (shared by /api/hosts,
     # /api/hosts/one, the debug endpoint, and host_metrics_sampler).
     tuning_node_exporter_probe_timeout_seconds: Optional[str] = None

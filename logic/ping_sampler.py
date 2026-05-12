@@ -262,14 +262,32 @@ def _prune_old_samples() -> int:
         return 0
 
 
+def _resolve_ping_interval() -> int:
+    """Ping-specific interval > 0 overrides the global stats interval;
+    0 = inherit (parity with Beszel / Pulse / NE / SNMP sample-interval
+    knobs). Floors at 10s so a misconfigured "almost zero" override
+    can't pin the loop. Default falls back to 300s when both the
+    Ping-specific knob AND the global knob are unset.
+    """
+    ping_iv = tuning.tuning_int("tuning_ping_interval_seconds")
+    if ping_iv > 0:
+        return max(10, ping_iv)
+    global_iv = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+    return max(10, global_iv or 300)
+
+
 async def ping_sampler_loop() -> None:
     """Lifespan-managed sampler. One tick per
-    ``tuning_ping_interval_seconds`` (DB > env > default; default 60s).
+    ``tuning_ping_interval_seconds`` (DB > env > default). When set to
+    0 (the inherit sentinel — same shape as Beszel / Pulse / NE / SNMP
+    sample-interval knobs), falls back to
+    ``tuning_stats_sample_interval_seconds`` so Ping ticks on the same
+    heartbeat as the data-bearing samplers.
 
     Dormant when ``"ping"`` isn't in ``host_stats_source`` — keeps
     ticking so the operator can flip ping on without restarting.
     """
-    interval = tuning.tuning_int("tuning_ping_interval_seconds")
+    interval = _resolve_ping_interval()
     await asyncio.sleep(min(30, interval))
     tick = 0
     while True:
@@ -285,7 +303,7 @@ async def ping_sampler_loop() -> None:
                         *(_probe_one(h, sem) for h in hosts),
                         return_exceptions=True,
                     )
-            interval = tuning.tuning_int("tuning_ping_interval_seconds")
+            interval = _resolve_ping_interval()
             days = tuning.tuning_int("tuning_stats_history_days")
             if tick % max(1, 3600 // interval) == 0:
                 n = _prune_old_samples()

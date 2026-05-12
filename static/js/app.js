@@ -1236,6 +1236,7 @@ function app() {
       webmin: [
         'tuning_webmin_probe_timeout_seconds',
         'tuning_webmin_probe_budget_seconds',
+        'tuning_webmin_sampler_budget_seconds',
         'tuning_webmin_host_cache_ttl_seconds',
         'tuning_webmin_host_fail_cache_ttl_seconds',
         'tuning_webmin_failure_pause_rounds',
@@ -1268,9 +1269,15 @@ function app() {
     relocatedTuningKeys: [
       'tuning_log_retention_days', // → Admin → Logs
       'tuning_webmin_probe_budget_seconds', // → Settings → Host stats → Webmin
+      'tuning_webmin_sampler_budget_seconds', // → Settings → Host stats → Webmin (sampler tick budget)
       'tuning_node_exporter_probe_timeout_seconds', // → Settings → Host stats → NE
       'tuning_webmin_host_cache_ttl_seconds', // → Settings → Host stats → Webmin
       'tuning_webmin_host_fail_cache_ttl_seconds',// → Settings → Host stats → Webmin
+      // Swarm autoheal cooldown — fires from the `swarm_agent_health`
+      // schedule kind, not visible in any host-stats section. Listed
+      // here so the save round-trip + dirty tracking still pick it up
+      // even though it lives in the generic Admin → Config form.
+      'tuning_swarm_autoheal_cooldown_minutes',
       // Beszel section tunables — rendered in Settings → Host stats
       // → Beszel via `_perProviderTuneKeys.beszel`. Listed here so
       // saveHostStats picks them up alongside the other provider
@@ -10580,6 +10587,7 @@ function app() {
       tuning_pulse_sample_interval_seconds:         'tuning_stats_sample_interval_seconds',
       tuning_node_exporter_sample_interval_seconds: 'tuning_stats_sample_interval_seconds',
       tuning_snmp_sample_interval_seconds:          'tuning_stats_sample_interval_seconds',
+      tuning_ping_interval_seconds:                 'tuning_stats_sample_interval_seconds',
     },
     // Compose the "Effective: <X>" / "Inherited: <X>" label for one
     // tunable. Consults the LIVE form value first (so emptying / zeroing
