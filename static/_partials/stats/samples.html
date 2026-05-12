@@ -308,17 +308,22 @@
                            re-fetches so the row disappears. Audited as
                            `samples_prune_orphan`. -->
                       <td class="px-2 py-2 text-end align-top">
+                        <!-- Defensive map-or-empty access so a state-
+                             shape change can't reintroduce the
+                             "Delete looks permanently disabled" bug
+                             (Alpine's error-trap falls back to truthy
+                             when reading `[key]` on undefined). -->
                         <button type="button"
                                 x-show="!row.curated && row.host_id"
                                 @click.stop="pruneStatsSampleRows(row)"
-                                :disabled="statsSamplesDrillDown.pruning[row.host_id]"
+                                :disabled="!!(statsSamplesDrillDown.pruning || {})[row.host_id]"
                                 class="user-action-btn user-action-btn--danger"
                                 :title="t('stats.samples.drill_down.prune_button_title')"
                                 :aria-label="t('stats.samples.drill_down.prune_button_aria')">
                           <svg width="13" height="13"
-                               :class="statsSamplesDrillDown.pruning[row.host_id] ? 'spin-md' : ''"
+                               :class="(statsSamplesDrillDown.pruning || {})[row.host_id] ? 'spin-md' : ''"
                                aria-hidden="true">
-                            <use :href="statsSamplesDrillDown.pruning[row.host_id]
+                            <use :href="(statsSamplesDrillDown.pruning || {})[row.host_id]
                                         ? '/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw'
                                         : '/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2'"/>
                           </svg>

@@ -1528,11 +1528,19 @@ function app() {
       open:    false,
       loading: false,
       table:   '',     // canonical sample-bearing table name
+      provider: '',    // lowercased provider tag — drives context-aware orphan marker (item_id vs host_id)
+      host_col: '',    // backend-reported host-id column name (`host_id` for hosts, `item_id` for Portainer stats_samples)
       label:   '',     // operator-friendly heading (provider + kind)
-      rows:    [],     // [{host_id, rows}, ...] sorted DESC server-side
+      rows:    [],     // [{host_id, rows, label, address, *_name, curated}, ...] sorted DESC server-side
       total:   0,      // SUM(rows) — cross-checks against outer count
-      outer:   0,      // outer per-table row count for the cross-check
+      outer:   0,      // outer per-table row count (set fresh by backend's outer_count)
       error:   '',
+      // Per-row prune busy-state map keyed by host_id. MUST be in the
+      // initial state declaration so Alpine's first reactive read of
+      // `pruning[row.host_id]` from the modal markup doesn't throw a
+      // "cannot read property of undefined" — the error-trap fallback
+      // would otherwise render the Delete button as disabled.
+      pruning: {},
     },
     statsIncidents: {},
     statsIncidentsLoaded: false,
