@@ -26860,6 +26860,13 @@ function app() {
           loading: false,
           error: d.error || '',
           points: Array.isArray(d.points) ? d.points : [],
+          // Server-side bucket cadence for the returned series. Lets
+          // rate-computation helpers (`snmpThroughputBpsSeries`) scale
+          // their gap-detection threshold to the actual cadence rather
+          // than the hardcoded 3600s cap that rejected every delta on
+          // 7d windows (5040s buckets) → empty throughput chart.
+          // 0 when the response wasn't bucketed (≤2h windows).
+          bucket_seconds: Number(d.bucket_seconds) || 0,
           loadedAt: Date.now(),
         };
       } catch (e) {
@@ -27751,9 +27758,19 @@ function app() {
     // always 0 because there's no predecessor to diff against. dir ∈
     // {'rx', 'tx'}.
     snmpThroughputBpsSeries(hostId, dir) {
-      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      const entry = this.hostSnmpHistory[hostId] || {};
+      const series = entry.points || [];
       if (series.length < 2) return [];
       const fieldKey = 'net_' + dir + '_total_bytes';
+      // Dt cap scales with the server-side bucket cadence — pre-fix a
+      // hardcoded 3600s cap rejected every delta on 7d windows where
+      // buckets are 5040s+ wide, so the throughput chart fell through
+      // to "Collecting data". Backend now stamps `bucket_seconds` on
+      // the response (0 when unbucketed). Cap = max(3600, bucket × 3)
+      // so one missed bucket is tolerated as a real continuous-rate
+      // segment, but a multi-bucket outage gap is still skipped.
+      const bucketS = Number(entry.bucket_seconds) || 0;
+      const dtCap = Math.max(3600, bucketS * 3);
       // skip-don't-synthesize: out-of-bounds deltas (counter
       // wrap, reboot, gap, null) emit `null` so `_snmpPolyPoints`
       // omits the point from the polyline. Pre-fix this filled with
@@ -27766,7 +27783,7 @@ function app() {
         const dt = (b.ts || 0) - (a.ts || 0);
         const av = a[fieldKey], bv = b[fieldKey];
         if (av == null || bv == null) continue;
-        if (dt < 1 || dt > 3600) continue;       // gap or doubled tick
+        if (dt < 1 || dt > dtCap) continue;       // gap or doubled tick
         const db = bv - av;
         if (db < 0 || db > 10 * 1024 * 1024 * 1024) continue;   // wrap / reboot / 10 GB cap
         out[i] = db / dt;
@@ -28097,15 +28114,21 @@ function app() {
     // / counter rollover, near-zero timespan, hour-plus gap, > 10 000
     // pages = absurd-rate guard against agent glitches).
     snmpPagesPerDaySeries(hostId) {
-      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      const entry = this.hostSnmpHistory[hostId] || {};
+      const series = entry.points || [];
       if (series.length < 2) return [];
+      // Same bucket-aware dt cap as snmpThroughputBpsSeries — 7d windows
+      // bucket to 5040s, blowing past a static 3600s cap and zeroing
+      // the entire series.
+      const bucketS = Number(entry.bucket_seconds) || 0;
+      const dtCap = Math.max(3600, bucketS * 3);
       const out = new Array(series.length).fill(0);
       for (let i = 1; i < series.length; i++) {
         const a = series[i - 1], b = series[i];
         const dt = (b.ts || 0) - (a.ts || 0);
         const av = a.printer_page_count, bv = b.printer_page_count;
         if (av == null || bv == null) continue;
-        if (dt < 1 || dt > 3600) continue;
+        if (dt < 1 || dt > dtCap) continue;
         const dp = bv - av;
         if (dp < 0 || dp > 10000) continue;
         out[i] = (dp / dt) * 86400;     // pages per day
@@ -30841,20 +30864,96 @@ function app() {
       return (resp && resp.error) || fallback || '';
     },
 
+    // When a stack carries EXACTLY ONE item with `status==='update'`,
+    // return that item's image so the update-popup can surface release
+    // notes for it. Multi-service stacks return '' so the caller skips
+    // the fetch — "what's new for stack X" with N images doesn't have
+    // a single answer and the popup would mislead.
+    _stackSingleUpdateImage(stack) {
+      if (!stack) return '';
+      const items = (this.items || []).filter(it =>
+        it && it.stack_id === stack.stack_id && it.status === 'update' && it.image
+      );
+      if (items.length !== 1) return '';
+      return items[0].image || '';
+    },
+    // Best-effort release-notes fetch for one image. Returns the
+    // HTML block to inject into the confirm-dialog body — empty
+    // string when the lookup fails OR the registry didn't expose a
+    // source label. The block uses `.update-popup-release` for the
+    // scrollable container so long markdown bodies (multi-paragraph
+    // GitHub release notes) don't push the popup off-screen.
+    async _fetchReleaseNotesHtml(image) {
+      if (!image) return '';
+      try {
+        const r = await fetch(`/api/registry/release-notes?image=${encodeURIComponent(image)}`);
+        if (!r.ok) return '';
+        const d = await r.json();
+        // Render-time HTML escaper for untrusted markdown body. We do
+        // NOT render the markdown as actual markdown (no parser
+        // included) — instead we present it as preformatted text in a
+        // scrollable <pre>, which preserves the operator's intent
+        // (release notes ARE plain markdown source) and avoids the XSS
+        // surface that an in-browser markdown renderer would add.
+        const esc = (s) => String(s || '').replace(/[&<>"']/g, c => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[c]);
+        if (d && d.ok && d.body) {
+          const linkOut = d.html_url
+            ? `<a href="${esc(d.html_url)}" target="_blank" rel="noopener" class="release-notes-link">${esc(this.t('dialogs.release_notes_view_on_source') || 'View on source')}</a>`
+            : '';
+          return [
+            '<div class="release-notes-block">',
+            `<div class="release-notes-head">`,
+            `<span class="release-notes-label">${esc(this.t('dialogs.release_notes_label') || "What's new")}</span>`,
+            `<span class="release-notes-tag mono">${esc(d.tag || '')}</span>`,
+            linkOut,
+            '</div>',
+            `<pre class="release-notes-body scrollbar">${esc(d.body)}</pre>`,
+            '</div>',
+          ].join('');
+        }
+        // No release body — surface the source link only when we have
+        // it, so the operator can still investigate. Skip the block
+        // entirely on a hard miss (no source label) to avoid clutter.
+        if (d && d.source_url) {
+          return [
+            '<div class="release-notes-block release-notes-block--empty">',
+            `<span class="release-notes-label">${esc(this.t('dialogs.release_notes_label') || "What's new")}</span>`,
+            `<a href="${esc(d.source_url)}" target="_blank" rel="noopener" class="release-notes-link">${esc(d.source_url)}</a>`,
+            '</div>',
+          ].join('');
+        }
+        return '';
+      } catch (e) {
+        // Network error / parse failure — silent fall-through, the
+        // popup still renders without the release-notes block.
+        return '';
+      }
+    },
     async itemAction(item, opts) {
       if (this.isItemBusy(item)) return;
       const skipConfirm = !!(opts && opts.skipConfirm);
       if (!skipConfirm) {
+        // Release-notes hint — single-item path only. Bulk updates and
+        // AI-dispatch (skipConfirm) skip this fetch since the popup is
+        // bypassed entirely. Best-effort; a failure falls through to
+        // the legacy popup body (no release-notes block).
+        const releaseHtml = await this._fetchReleaseNotesHtml(item.image);
+        const baseHtml = item.stack_id
+          ? this.t('dialogs.update_stack_html', { name: item.stack })
+          : this.t('dialogs.recreate_container_html', { name: item.name });
+        const html = baseHtml + releaseHtml;
         const ok = item.stack_id
           ? await this.confirmDialog({
               title: this.t('dialogs.update_stack_title'),
-              html: this.t('dialogs.update_stack_html', { name: item.stack }),
+              html: html,
               icon: 'warning', confirmText: this.t('actions.update_stack'),
               focusConfirm: true,
             })
           : await this.confirmDialog({
               title: this.t('dialogs.recreate_container_title'),
-              html: this.t('dialogs.recreate_container_html', { name: item.name }),
+              html: html,
               icon: 'warning', confirmText: this.t('actions.recreate'),
               focusConfirm: true,
             });
@@ -30883,9 +30982,18 @@ function app() {
       if (this.isStackBusy(stack)) return;
       const skipConfirm = !!(opts && opts.skipConfirm);
       if (!skipConfirm) {
+        // Release notes only fire when the stack has EXACTLY ONE
+        // updateable item — multi-service stacks don't have a single
+        // "what's new" to surface and the popup would mislead. Pick
+        // the lone item's image if it qualifies; else skip.
+        const stackImage = this._stackSingleUpdateImage(stack);
+        const releaseHtml = stackImage
+          ? await this._fetchReleaseNotesHtml(stackImage)
+          : '';
+        const html = this.t('dialogs.update_stack_html', { name: stack.name }) + releaseHtml;
         const ok = await this.confirmDialog({
           title: this.t('dialogs.update_stack_title'),
-          html: this.t('dialogs.update_stack_html', { name: stack.name }),
+          html: html,
           icon: 'warning', confirmText: this.t('actions.update_stack'),
           focusConfirm: true,
         });
