@@ -1921,6 +1921,58 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
         # When the relevant Stats sub-page hasn't been opened the
         # block is absent — the AI should suggest the operator open
         # the corresponding Stats tab to populate it.
+        # Tunables — always-present compact map of every operator-
+        # tunable knob's effective value. SPA forwards from the live
+        # `tuningEffective` (Admin → Config GET) when loaded, else
+        # from `tuningForm`. The AI should answer "what's the Pulse
+        # sample interval?" / "what's the Webmin probe budget?" /
+        # "how often do we sample node-exporter?" from this block
+        # instead of guessing or pointing at the Admin page.
+        tunables = ctx.get("tunables") if isinstance(ctx.get("tunables"), dict) else None
+        if tunables:
+            try:
+                import json as _json
+                tn_json = _json.dumps(tunables, separators=(",", ":"), default=str)
+                if len(tn_json) > 6000:
+                    tn_json = tn_json[:6000] + "...<truncated>"
+                parts.append("\n".join([
+                    "Tunables context (effective values, DB > env > default per "
+                    "`logic.tuning.TUNABLES`):",
+                    tn_json,
+                    "Use these to answer questions about cadence / timeout / threshold / "
+                    "retention / cap values. Units are encoded in the key name "
+                    "(`*_seconds` / `*_minutes` / `*_days` / `*_count` / `*_concurrency`). "
+                    "Sample-interval semantics: per-provider knobs (Beszel / Pulse / NE / "
+                    "SNMP) with value 0 inherit `tuning_stats_sample_interval_seconds`; > 0 "
+                    "overrides that provider only.",
+                ]))
+            except Exception:
+                pass
+        # Settings — non-secret subset of the live SPA settings state.
+        # Master toggles + active-source CSV + per-provider URL + chip
+        # colours + retention counts. Secret keys (token / password /
+        # api_key / secret / private_key / passphrase suffixes) are
+        # NEVER included; only `_set` flags surface so the AI can
+        # report "Beszel password is set" without seeing the material.
+        settings = ctx.get("settings") if isinstance(ctx.get("settings"), dict) else None
+        if settings:
+            try:
+                import json as _json
+                st_json = _json.dumps(settings, separators=(",", ":"), default=str)
+                if len(st_json) > 6000:
+                    st_json = st_json[:6000] + "...<truncated>"
+                parts.append("\n".join([
+                    "Settings context (non-secret operator configuration):",
+                    st_json,
+                    "Use these to answer questions about enabled providers / hub URLs / "
+                    "active sources / chip colours / per-event notification toggles. Secret "
+                    "fields (any key ending in `_token` / `_password` / `_secret` / "
+                    "`_api_key` / `_private_key` / `_passphrase`) are NEVER in this block — "
+                    "if the operator asks about a secret value, tell them you can't see it "
+                    "but the `*_set` flag indicates whether it's persisted.",
+                ]))
+            except Exception:
+                pass
         stats = ctx.get("stats") if isinstance(ctx.get("stats"), dict) else None
         if stats:
             try:

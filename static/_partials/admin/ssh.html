@@ -271,7 +271,7 @@
               </span>
             </div>
             <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ssh_ws_heartbeat_seconds'] || {}).effective })"></span>
+                  x-text="tuningEffectiveLabel('tuning_ssh_ws_heartbeat_seconds')"></span>
           </div>
         </div>
 
@@ -312,7 +312,7 @@
               </span>
             </div>
             <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ssh_terminal_connect_timeout_seconds'] || {}).effective })"></span>
+                  x-text="tuningEffectiveLabel('tuning_ssh_terminal_connect_timeout_seconds')"></span>
           </div>
         </div>
 
@@ -349,7 +349,7 @@
               </span>
             </div>
             <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_ssh_terminal_login_timeout_seconds'] || {}).effective })"></span>
+                  x-text="tuningEffectiveLabel('tuning_ssh_terminal_login_timeout_seconds')"></span>
           </div>
         </div>
 

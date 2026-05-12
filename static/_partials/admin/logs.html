@@ -172,7 +172,7 @@
               </span>
             </div>
             <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_log_retention_days'] || {}).effective })"></span>
+                  x-text="tuningEffectiveLabel('tuning_log_retention_days')"></span>
           </div>
           <!-- Section-owned save — commits ONLY the Logs section's
                tunable (`tuning_log_retention_days`) so a click here

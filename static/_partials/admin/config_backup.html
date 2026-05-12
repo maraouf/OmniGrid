@@ -147,7 +147,7 @@
                 </span>
               </div>
               <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                    x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_config_backup_retention_count'] || {}).effective })"></span>
+                    x-text="tuningEffectiveLabel('tuning_config_backup_retention_count')"></span>
             </div>
             <!-- Help paragraph — same shape as the per-tunable help
                  strings rendered in Admin → Config. Falls back to a
