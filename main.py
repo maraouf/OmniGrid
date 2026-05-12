@@ -5826,22 +5826,76 @@ async def api_admin_stats_samples_by_host(
     # Rows whose host_id ISN'T in `hosts_config` (orphaned samples
     # from a deleted curated row) get a null label so the SPA
     # renders an "(no longer curated)" marker.
+    #
+    # Special case: when host_col == "item_id" (the Portainer
+    # `stats_samples` table), each row is a CONTAINER or SERVICE
+    # not a host — look up against `_cache['items']` instead of
+    # `hosts_config`. Operator gets a meaningful label
+    # ("traefik" / "stack/service_name") instead of a bare
+    # `svc:abc123` hex.
     curated_meta: dict[str, dict] = {}
-    try:
-        for h in _load_hosts_config():
-            hid = (h.get("id") or "").strip()
-            if not hid:
-                continue
-            curated_meta[hid] = {
-                "label":       (h.get("label") or "").strip() or None,
-                "address":     (h.get("address") or "").strip() or None,
-                "beszel_name": (h.get("beszel_name") or "").strip() or None,
-                "pulse_name":  (h.get("pulse_name") or "").strip() or None,
-                "snmp_name":   (h.get("snmp_name") or "").strip() or None,
-                "webmin_name": (h.get("webmin_name") or "").strip() or None,
-            }
-    except Exception:
-        pass
+    if host_col == "item_id":
+        # Portainer items: id, name, stack, image, type. Live items
+        # populate `_cache['items']` from `_gather()`; rows in
+        # stats_samples whose id ISN'T in the live cache are stale
+        # samples from containers / services that no longer exist.
+        #
+        # Defensive: if `_cache['items']` is empty (e.g. operator hit
+        # Stats → Samples right after server restart, before the SPA's
+        # `/api/items` has ever fired), every lookup misses and every
+        # item shows as orphan. Block on a fresh `_gather()` first so
+        # the cache populates before we walk it. Capped at 30s wall-
+        # clock so an unreachable Portainer can't hang the drill-down
+        # endpoint indefinitely.
+        if not (_cache.get("items") or []):
+            try:
+                await asyncio.wait_for(_gather(), timeout=30.0)
+            except (asyncio.TimeoutError, Exception):
+                pass  # best-effort; the lookup below silently misses if gather failed
+        try:
+            for it in (_cache.get("items") or []):
+                iid = (it.get("id") or "").strip()
+                if not iid:
+                    continue
+                name  = (it.get("name") or "").strip() or None
+                stack = (it.get("stack") or "").strip() or None
+                image = (it.get("image") or "").strip() or None
+                itype = (it.get("type") or "").strip() or None
+                # Composite label — prefix `stack/` when the item is
+                # stack-managed; bare name otherwise. Operators reading
+                # the modal see "monitoring/grafana" instead of
+                # "svc:f3a2…", or just "watchtower" for a standalone
+                # container.
+                composite = name
+                if stack and name:
+                    composite = f"{stack}/{name}"
+                curated_meta[iid] = {
+                    "label":       composite,
+                    "address":     image,          # show image where address would go for hosts
+                    "beszel_name": None,
+                    "pulse_name":  None,
+                    "snmp_name":   None,
+                    "webmin_name": None,
+                    "_kind":       itype,          # service / container / orphan
+                }
+        except Exception:
+            pass
+    else:
+        try:
+            for h in _load_hosts_config():
+                hid = (h.get("id") or "").strip()
+                if not hid:
+                    continue
+                curated_meta[hid] = {
+                    "label":       (h.get("label") or "").strip() or None,
+                    "address":     (h.get("address") or "").strip() or None,
+                    "beszel_name": (h.get("beszel_name") or "").strip() or None,
+                    "pulse_name":  (h.get("pulse_name") or "").strip() or None,
+                    "snmp_name":   (h.get("snmp_name") or "").strip() or None,
+                    "webmin_name": (h.get("webmin_name") or "").strip() or None,
+                }
+        except Exception:
+            pass
     try:
         with db_conn() as c:
             # Table + host-col are validated against the canonical

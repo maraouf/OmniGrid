@@ -263,10 +263,18 @@
                              is set + DIFFERS from the curated id. -->
                         <div class="flex flex-wrap gap-1 mt-1 fs-3xs"
                              x-show="(row.address && row.address !== row.host_id) || (row.beszel_name && row.beszel_name !== row.host_id) || (row.pulse_name && row.pulse_name !== row.host_id) || (row.snmp_name && row.snmp_name !== row.host_id) || (row.webmin_name && row.webmin_name !== row.host_id)">
+                          <!-- `address` field carries TWO different
+                               meanings depending on the table:
+                                 - host_col === 'item_id': the
+                                   container's image (e.g.
+                                   "traefik:v2.10"). Chip title shifts
+                                   to "Image".
+                                 - else: the curated host's `address`
+                                   field (canonical probe target). -->
                           <span x-show="row.address && row.address !== row.host_id"
                                 class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
-                                :title="t('stats.samples.drill_down.alias_address')"
-                                x-text="row.address"></span>
+                                :title="statsSamplesDrillDown.host_col === 'item_id' ? t('stats.samples.drill_down.alias_image') : t('stats.samples.drill_down.alias_address')"
+                                x-text="(statsSamplesDrillDown.host_col === 'item_id' ? 'image: ' : '') + row.address"></span>
                           <span x-show="row.beszel_name && row.beszel_name !== row.host_id"
                                 class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
                                 :title="t('stats.samples.drill_down.alias_beszel')"

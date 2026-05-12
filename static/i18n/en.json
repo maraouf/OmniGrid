@@ -424,7 +424,8 @@
         "prune_confirm_title": "Delete sample rows?",
         "prune_confirm_html": "Delete <strong>{count}</strong> rows from <code>{table}</code> for <code>{id}</code>? This is irreversible — the rows are gone from disk after Save.",
         "prune_confirm_ok": "Delete",
-        "prune_success": "{count} rows deleted for {id}"
+        "prune_success": "{count} rows deleted for {id}",
+        "alias_image": "Container image (Portainer stats_samples uses container ids; the chip shows what image was running)"
       }
     },
     "database": {
