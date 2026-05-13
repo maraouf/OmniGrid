@@ -18838,6 +18838,12 @@ function app() {
       };
       const fmtItem = (i) => {
         const out = { name: i.name || '' };
+        // Parent stack name — lets the AI match operator queries like
+        // "the Seerr stack" / "homarr stack" against items even when
+        // the container's bare name doesn't carry the stack prefix.
+        // Pre-fix the field was dropped during context shaping so
+        // stack-vs-container disambiguation relied solely on `type`.
+        if (i.stack)   out.stack = i.stack;
         if (i.status)  out.status = i.status;
         if (i.health)  out.health = i.health;
         if (i.type)    out.type = i.type;
@@ -18847,7 +18853,13 @@ function app() {
         return out;
       };
       const hostsCtx = (this.hosts || []).slice(0, 30).map(fmtHost).filter(h => h.id);
-      const itemsCtx = (this.items || []).slice(0, 30).map(fmtItem).filter(i => i.name);
+      // Items cap raised from 30 → 60. On a home-lab fleet with 40+
+      // containers and stacks the bare 30-cap silently dropped half
+      // the items off the end of the alphabetical-ish slice, so the
+      // AI couldn't answer "why did Seerr fail" — overseerr / jellyseerr
+      // landed past position 30. 60 entries comfortably fits typical
+      // fleet sizes; token cost is bounded by `fmtItem`'s small shape.
+      const itemsCtx = (this.items || []).slice(0, 60).map(fmtItem).filter(i => i.name);
       // Topbar weather widget — when the operator has it enabled and
       // the proxy fetched a payload, include the compact summary so
       // the AI can answer "what's the weather like?" without refusing
