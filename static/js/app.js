@@ -27005,6 +27005,11 @@ function app() {
           loading: false,
           error: d.error || '',
           ifaces,
+          // Server-side bucket cadence — lets snmpIfaceBpsSeries scale
+          // its dt cap so the per-port chart doesn't blank on 7d+
+          // windows where the bucket size exceeds the static 3600s cap.
+          // 0 when the response wasn't bucketed (≤2h windows).
+          bucket_seconds: Number(d.bucket_seconds) || 0,
           loadedAt: Date.now(),
         };
       } catch (e) {
@@ -27020,12 +27025,21 @@ function app() {
     // to the points length. Skip-don't-synthesize on out-of-bounds
     // deltas: same bounds as `snmpThroughputBpsSeries`.
     snmpIfaceBpsSeries(hostId, ifname) {
-      const ifaces = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
+      const entry = this.hostSnmpIfaceHistory[hostId] || {};
+      const ifaces = entry.ifaces || {};
       const series = ifaces[ifname] || [];
       if (series.length < 2) return { in: [], out: [], times: [] };
+      // Bucket-aware dt cap — pre-fix the hardcoded 3600s cap zeroed
+      // every delta on 7d windows once the backend started bucketing
+      // iface_history (5040s buckets at 7d × 120 target points).
+      // Same fix shape as snmpThroughputBpsSeries: cap scales to
+      // max(3600, bucket × 3) so one missed bucket is still tolerated
+      // but multi-bucket outage gaps are still skipped.
+      const bucketS = Number(entry.bucket_seconds) || 0;
+      const dtCap = Math.max(3600, bucketS * 3);
       // skip-don't-synthesize. Same null-slot pattern as
       // `snmpThroughputBpsSeries`. First slot null (no predecessor);
-      // any out-of-bounds delta (wrap / reboot / gap > 1h / null
+      // any out-of-bounds delta (wrap / reboot / gap > dtCap / null
       // counter / > 10 GB) leaves the slot null instead of plotting
       // a synthesized 0 that visually merges with a real idle iface.
       const inBps = new Array(series.length).fill(null);
@@ -27034,7 +27048,7 @@ function app() {
       for (let i = 1; i < series.length; i++) {
         const a = series[i - 1], b = series[i];
         const dt = (b.ts || 0) - (a.ts || 0);
-        if (dt < 1 || dt > 3600) continue;
+        if (dt < 1 || dt > dtCap) continue;
         const ai = a.in_bytes, bi = b.in_bytes;
         if (ai != null && bi != null) {
           const di = bi - ai;
