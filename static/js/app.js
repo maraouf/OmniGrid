@@ -27139,6 +27139,74 @@ function app() {
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
       return this._snmpPathGapped(vals, 100, { times: s.times });
     },
+    // Operator-flagged: APC UPS lance interface at ~37 B/s on a
+    // 100 Mbps fallback link = 0.0003% utilization — flat at the
+    // bottom of a hardcoded 0..100% Y-axis. The chart looked empty
+    // even though the data was correct. Auto-rescale fixes it.
+    //
+    // Returns the Y-axis max (% of link capacity) for ONE host's
+    // utilization chart — the smallest "nice" round number ≥ the
+    // max value across the top-5 visible ifaces. Snaps to 100 / 10 /
+    // 1 / 0.1 / 0.01 / 0.001 so the Y-axis labels read cleanly.
+    // High-traffic switches still render 0..100% as before.
+    snmpIfaceUtilizationYMax(hostId, h) {
+      const top = this.snmpTopIfacesByThroughput(hostId, 5);
+      if (!top || !top.length) return 100;
+      let peak = 0;
+      for (const t of top) {
+        const vals = this.snmpIfaceUtilizationSeries(hostId, t.name, h);
+        for (const v of vals) {
+          if (v != null && v > peak) peak = v;
+        }
+      }
+      if (peak <= 0)     return 100;            // truly idle → keep traditional scale
+      if (peak >= 50)    return 100;            // typical busy switch / router
+      if (peak >= 10)    return 50;
+      if (peak >= 1)     return 10;
+      if (peak >= 0.1)   return 1;
+      if (peak >= 0.01)  return 0.1;
+      if (peak >= 0.001) return 0.01;
+      return 0.001;
+    },
+    // Y-axis tick labels for the auto-rescaled util chart. Three
+    // ticks (top / mid / bottom) so they line up with the existing
+    // `.metric-y-axis` flex `justify-content: space-between` rhythm.
+    // Format adapts: integer % at ≥ 1, two decimals at < 1, three
+    // decimals at < 0.1 — operators reading "0.001%" on the
+    // bottom-of-card UPS chart still see real precision.
+    snmpIfaceUtilizationYAxisLabels(hostId, h) {
+      const yMax = this.snmpIfaceUtilizationYMax(hostId, h);
+      const fmt = (v) => {
+        if (v >= 1) return Math.round(v) + '%';
+        if (v >= 0.1) return v.toFixed(2) + '%';
+        return v.toFixed(3) + '%';
+      };
+      return [fmt(yMax), fmt(yMax / 2), '0%'];
+    },
+    // Variant of `snmpIfaceUtilizationLine` that scales 0..yMax
+    // instead of 0..100. The SVG y-coordinate system is still
+    // 0..100 (the `metric-svg` viewBox uses 100 as the height-
+    // reference for the polyline path generator), so we pass
+    // `refMax=yMax` to `_snmpPathGapped` to stretch the data to
+    // fill the chart vertically.
+    snmpIfaceUtilizationLineScaled(hostId, ifname, h) {
+      const vals = this.snmpIfaceUtilizationSeries(hostId, ifname, h);
+      if (!vals.length) return '';
+      const yMax = this.snmpIfaceUtilizationYMax(hostId, h);
+      const s = this.snmpIfaceBpsSeries(hostId, ifname);
+      return this._snmpPathGapped(vals, yMax, { times: s.times });
+    },
+    // Format helper for the legend's per-iface util % chip. Pre-fix
+    // `Math.round(pct)` rendered "~0%" for any sub-1% value, masking
+    // the real activity. Now: ≥ 1 → integer %, < 1 → two decimals,
+    // < 0.1 → three decimals.
+    snmpIfaceUtilizationPctLabel(hostId, ifname, h) {
+      const pct = this.snmpIfaceUtilizationPct(hostId, ifname, h);
+      if (pct == null) return '';
+      if (pct >= 1)   return Math.round(pct) + '%';
+      if (pct >= 0.1) return pct.toFixed(2) + '%';
+      return pct.toFixed(3) + '%';
+    },
     // Gap-aware path string for one iface's bps series scaled to refMax.
     // Consumer renders via SVG `<path :d>` not `<polyline :points>` so
     // counter-wrap / reboot / gap nulls show as visual breaks.
@@ -27762,15 +27830,18 @@ function app() {
       const series = entry.points || [];
       if (series.length < 2) return [];
       const fieldKey = 'net_' + dir + '_total_bytes';
-      // Dt cap scales with the server-side bucket cadence — pre-fix a
+      // Dt cap scales with the server-side bucket cadence. Pre-fix a
       // hardcoded 3600s cap rejected every delta on 7d windows where
-      // buckets are 5040s+ wide, so the throughput chart fell through
-      // to "Collecting data". Backend now stamps `bucket_seconds` on
-      // the response (0 when unbucketed). Cap = max(3600, bucket × 3)
-      // so one missed bucket is tolerated as a real continuous-rate
-      // segment, but a multi-bucket outage gap is still skipped.
+      // buckets are 5040s+ wide. Bumped to `bucket × 6` after operators
+      // reported empty 7d charts on hosts where the SNMP sampler
+      // intermittently fails (APC UPS / OPNsense-on-flaky-mgmt-LAN
+      // pattern) — gaps of 3-5 missing buckets are normal and SHOULD
+      // bridge cleanly. The 10 GB delta cap below still catches genuine
+      // counter wraps / reboots. dtCap = max(7200, bucketS × 6) lets
+      // 5-bucket gaps render as a continuous line; longer outages
+      // (≥ 6 missing buckets) still break the polyline as a real gap.
       const bucketS = Number(entry.bucket_seconds) || 0;
-      const dtCap = Math.max(3600, bucketS * 3);
+      const dtCap = Math.max(7200, bucketS * 6);
       // skip-don't-synthesize: out-of-bounds deltas (counter
       // wrap, reboot, gap, null) emit `null` so `_snmpPolyPoints`
       // omits the point from the polyline. Pre-fix this filled with

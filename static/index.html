@@ -6053,9 +6053,15 @@
                                tooltip still surface the full "assumed
                                100 Mbps" caveat for operators who want
                                the detail. -->
+                          <!-- Pre-fix `Math.round(pct)` rendered "~0%"
+                               for any sub-1% value, masking the real
+                               activity. `snmpIfaceUtilizationPctLabel`
+                               switches to two-decimal / three-decimal
+                               precision below 1% so the operator sees
+                               the actual rate. -->
                           <span class="text-[var(--text-faint)]"
                                 x-text="snmpIfaceUtilizationPct(h.id, iface.name, h) != null
-                                          ? ' ' + (snmpIfaceLinkSpeedAssumed(h.id, iface.name, h) ? '~' : '') + Math.round(snmpIfaceUtilizationPct(h.id, iface.name, h)) + '%'
+                                          ? ' ' + (snmpIfaceLinkSpeedAssumed(h.id, iface.name, h) ? '~' : '') + snmpIfaceUtilizationPctLabel(h.id, iface.name, h)
                                           : ''"></span>
                           <span x-show="snmpIfaceLinkSpeedAssumed(h.id, iface.name, h)"
                                 class="text-[var(--warning)]">*</span>
@@ -6065,18 +6071,25 @@
                   </div>
                   <template x-if="snmpHasIfaceUtilization(h.id, h)">
                     <div class="metric-card-body">
+                      <!-- Auto-rescaled Y-axis. Pre-fix the labels read
+                           a fixed `0% / 50% / 100%` even when the peak
+                           was 0.0003% (APC UPS lance), making the chart
+                           appear flat. Now: `snmpIfaceUtilizationYAxisLabels`
+                           returns labels matching `snmpIfaceUtilizationYMax`'s
+                           nice-snap value, and `snmpIfaceUtilizationLineScaled`
+                           stretches the polyline to fill that Y range. -->
                       <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisPercent()" :key="'util-y-' + i"><span x-text="l"></span></template>
+                        <template x-for="(l, i) in snmpIfaceUtilizationYAxisLabels(h.id, h)" :key="'util-y-' + i"><span x-text="l"></span></template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
                         <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
                         <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
                         <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                        <path fill="none" stroke-width="1.5" stroke="var(--success)" :d="(snmpTopIfacesByThroughput(h.id, 5)[0] ? snmpIfaceUtilizationLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[0].name, h) : '')"></path>
-                        <path fill="none" stroke-width="1.5" stroke="var(--info)"    :d="(snmpTopIfacesByThroughput(h.id, 5)[1] ? snmpIfaceUtilizationLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[1].name, h) : '')"></path>
-                        <path fill="none" stroke-width="1.5" stroke="var(--warning)" :d="(snmpTopIfacesByThroughput(h.id, 5)[2] ? snmpIfaceUtilizationLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[2].name, h) : '')"></path>
-                        <path fill="none" stroke-width="1.5" stroke="var(--danger)"  :d="(snmpTopIfacesByThroughput(h.id, 5)[3] ? snmpIfaceUtilizationLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[3].name, h) : '')"></path>
-                        <path fill="none" stroke-width="1.5" stroke="var(--primary)" :d="(snmpTopIfacesByThroughput(h.id, 5)[4] ? snmpIfaceUtilizationLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[4].name, h) : '')"></path>
+                        <path fill="none" stroke-width="1.5" stroke="var(--success)" :d="(snmpTopIfacesByThroughput(h.id, 5)[0] ? snmpIfaceUtilizationLineScaled(h.id, snmpTopIfacesByThroughput(h.id, 5)[0].name, h) : '')"></path>
+                        <path fill="none" stroke-width="1.5" stroke="var(--info)"    :d="(snmpTopIfacesByThroughput(h.id, 5)[1] ? snmpIfaceUtilizationLineScaled(h.id, snmpTopIfacesByThroughput(h.id, 5)[1].name, h) : '')"></path>
+                        <path fill="none" stroke-width="1.5" stroke="var(--warning)" :d="(snmpTopIfacesByThroughput(h.id, 5)[2] ? snmpIfaceUtilizationLineScaled(h.id, snmpTopIfacesByThroughput(h.id, 5)[2].name, h) : '')"></path>
+                        <path fill="none" stroke-width="1.5" stroke="var(--danger)"  :d="(snmpTopIfacesByThroughput(h.id, 5)[3] ? snmpIfaceUtilizationLineScaled(h.id, snmpTopIfacesByThroughput(h.id, 5)[3].name, h) : '')"></path>
+                        <path fill="none" stroke-width="1.5" stroke="var(--primary)" :d="(snmpTopIfacesByThroughput(h.id, 5)[4] ? snmpIfaceUtilizationLineScaled(h.id, snmpTopIfacesByThroughput(h.id, 5)[4].name, h) : '')"></path>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'util-x-' + i"><span x-text="l"></span></template>
