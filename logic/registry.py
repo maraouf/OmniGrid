@@ -273,6 +273,54 @@ def _parse_github_source(source_url: str) -> Optional[tuple[str, str]]:
         return None
 
 
+# Rolling / pseudo-tag values that DON'T identify a release. When the
+# image's `org.opencontainers.image.version` label carries one of these,
+# `get_release_notes` treats it as "no version" and falls through to the
+# `/releases/latest` GitHub path. Pre-fix, netdata/netdata:latest (and
+# every other rolling-tag image whose version label was itself "latest"
+# or empty) silently fell to the source-link-only response.
+_ROLLING_TAG_SENTINELS = frozenset({
+    "latest", "edge", "nightly", "stable", "master", "main",
+    "dev", "develop", "beta", "rc", "unstable", "rolling",
+    "", "none",
+})
+
+
+async def _fetch_github_latest_release(
+    client: httpx.AsyncClient, owner: str, repo: str,
+) -> Optional[dict]:
+    """Pull the `latest` published release from GitHub's API.
+
+    Fallback for rolling-tag images (`:latest`, `:edge`, etc.) where the
+    image's version label is itself a rolling pseudo-tag and there's no
+    specific release to query. Returns the same shape as
+    `_fetch_github_release_notes` so callers can branch uniformly.
+    """
+    h = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "OmniGrid",
+    }
+    gh_tok = os.getenv("GITHUB_TOKEN", "")
+    if gh_tok:
+        h["Authorization"] = f"Bearer {gh_tok}"
+    try:
+        url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+        r = await client.get(url, headers=h, follow_redirects=True)
+        if r.status_code == 200:
+            body = r.json()
+            tag = body.get("tag_name") or ""
+            return {
+                "name":         body.get("name") or tag or "latest",
+                "body":         body.get("body") or "",
+                "html_url":     body.get("html_url") or f"https://github.com/{owner}/{repo}/releases/latest",
+                "published_at": body.get("published_at") or "",
+                "tag":          tag,
+            }
+    except Exception as e:
+        print(f"[release-notes] github {owner}/{repo} latest: {e}")
+    return None
+
+
 async def _fetch_github_release_notes(
     client: httpx.AsyncClient, owner: str, repo: str, tag: str,
 ) -> Optional[dict]:
@@ -354,11 +402,23 @@ async def get_release_notes(image: str) -> dict:
             or ""
         ).strip()
         version_label = (labels.get("org.opencontainers.image.version") or "").strip()
+        # Identify "specific" vs "rolling" tag values. A tag is specific
+        # when it points at a real release (e.g. `1.45.6`, `v2.0.0`,
+        # `nginx-1.27`) — those query GitHub by exact tag. Rolling tags
+        # (`latest`, `edge`, `nightly`, empty, etc.) fall through to the
+        # `/releases/latest` GitHub fallback so rolling-tag images still
+        # surface meaningful release notes.
+        def _is_specific(t: str) -> bool:
+            return bool(t) and t.lower() not in _ROLLING_TAG_SENTINELS
         # Choose the tag we ASK release-notes for. Prefer the ref's tag
-        # (operator-visible "what they're pulling") unless it's the
-        # rolling `latest` — then use the version label baked into the
-        # image's config blob.
-        tag = ref_tag if (ref_tag and ref_tag != "latest") else version_label
+        # (operator-visible "what they're pulling") when it's specific;
+        # else try the version label; else "" → triggers latest fallback.
+        if _is_specific(ref_tag):
+            tag = ref_tag
+        elif _is_specific(version_label):
+            tag = version_label
+        else:
+            tag = ""
         if not source_url:
             out = {
                 "ok": False,
@@ -370,21 +430,37 @@ async def get_release_notes(image: str) -> dict:
             _release_notes_cache[image] = {"ts": time.time(), "data": out}
             return out
         # GitHub path (handles ghcr.io images whose source label points
-        # at github.com).
+        # at github.com). Try the specific-tag lookup first when we have
+        # a real version; on miss OR for rolling-tag images, fall through
+        # to `/releases/latest` so we still return something useful.
         gh = _parse_github_source(source_url)
-        if gh and tag:
+        if gh:
             owner, gh_repo = gh
-            release = await _fetch_github_release_notes(client, owner, gh_repo, tag)
+            release: Optional[dict] = None
+            used_tag = tag
+            if tag:
+                release = await _fetch_github_release_notes(client, owner, gh_repo, tag)
+            if release is None:
+                latest = await _fetch_github_latest_release(client, owner, gh_repo)
+                if latest:
+                    release = latest
+                    used_tag = latest.get("tag") or "latest"
             if release:
                 out = {
                     "ok":          True,
                     "source_url":  source_url,
                     "source_host": "github.com",
-                    "tag":         tag,
+                    "tag":         used_tag,
                     "name":        release["name"],
                     "body":        release["body"],
                     "html_url":    release["html_url"],
                     "published_at": release["published_at"],
+                    # Flag whether the response came from the tagged
+                    # lookup or the latest-release fallback. Lets the
+                    # SPA surface "Latest release: X" prefix when the
+                    # image was pinned at a rolling tag and we couldn't
+                    # match a specific release.
+                    "is_latest_fallback": (tag != used_tag or not tag),
                 }
                 _release_notes_cache[image] = {"ts": time.time(), "data": out}
                 return out
