@@ -30892,23 +30892,42 @@ function app() {
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
       })[c]);
     },
-    // GitHub-flavoured release notes carry inline commit-hash links
-    // like `[5dc1d27](https://github.com/.../commit/abc)` which read as
-    // noise inside the preformatted view. Strip the whole `[hash](url)`
-    // pattern (7-40 hex digits, http/https URL) so the body reads
-    // cleanly. Issue-references `#123` and bare prose stay intact —
-    // operators can still cross-reference upstream if they want, via
-    // the "View on source" link in the block header.
+    // GitHub-flavoured release notes carry many URL variants — commit
+    // hashes, PR refs, user mentions, doc links, heading anchors —
+    // which read as noise inside the preformatted view. Strategy: keep
+    // the link TEXT, drop the URL. Pre-fix only commit-hash links were
+    // stripped; netdata-style release notes (`[v2.10.2](https://...)`,
+    // `[#22232](https://...)`, `[@ktsaou](https://...)`, `[Netdata
+    // Learn](https://...)`) survived as `[text](url)` literals in the
+    // rendered `<pre>` block.
     _scrubReleaseNotesBody(body) {
       if (!body) return '';
       let out = String(body);
-      // Inline commit-link markdown: `[<7..40-hex>](http(s)://...)`
-      out = out.replace(/\s*\[[0-9a-f]{7,40}\]\(https?:\/\/[^)]+\)/g, '');
-      // Bare commit-URL trailing whitespace: `... https://github.com/.../commit/<hash>`
-      out = out.replace(/\s*https?:\/\/[^\s]+\/commit\/[0-9a-f]{7,40}\b/g, '');
-      // Collapse double/triple newlines that the strip can create.
+      // Empty HTML heading anchors GitHub adds for permalinks: `<a id="x"></a>`
+      out = out.replace(/<a\s+id=["'][^"']*["']\s*><\/a>/gi, '');
+      // HTML <a href="..."> with inner text → keep text only.
+      out = out.replace(/<a\s+href=["'][^"']*["'][^>]*>([\s\S]*?)<\/a>/gi, '$1');
+      // Markdown image refs (rare in release notes but worth handling
+      // before the generic link rule so we don't keep `![alt]` orphans).
+      // `![alt](url)` → `alt`.
+      out = out.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, '$1');
+      // Markdown links: `[text](url)` → `text`. Empty text → drop the
+      // whole thing (e.g. `[](url)` is just a wrapper around a URL).
+      out = out.replace(/\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, (m, txt) => {
+        return (txt || '').trim() || '';
+      });
+      // Bare URLs in prose (`https://example.com/x` standalone): drop
+      // the URL but leave the surrounding punctuation. Catches things
+      // like "see https://...for details".
+      out = out.replace(/https?:\/\/[^\s)]+/g, '');
+      // Tidy: collapse the spaces a URL strip can leave (e.g. "see  for
+      // details") + collapse triple+ newlines + drop trailing whitespace
+      // on each line + tidy empty `()` left by bare-URL inside parens.
+      out = out.replace(/\(\s*\)/g, '');
+      out = out.replace(/[ \t]{2,}/g, ' ');
       out = out.replace(/\n{3,}/g, '\n\n');
-      return out;
+      out = out.split('\n').map(l => l.replace(/[ \t]+$/, '')).join('\n');
+      return out.trim();
     },
     // Build the static placeholder block that the popup opens with.
     // Shows a centred spinner + "Loading release notes..." copy.
