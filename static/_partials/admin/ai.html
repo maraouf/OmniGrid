@@ -282,6 +282,44 @@
                 <p class="fs-2xs text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.help')"></p>
               </div>
+              <!-- AI conversation persist cadence (ms). Same shape as
+                   the sidebar-width input row above. Read by the SPA's
+                   `_aiPersistInterval` once on init. -->
+              <div class="mt-3">
+                <label class="block fs-xs font-medium mb-1"
+                       x-text="t('admin.config.fields.tuning_ai_conversation_persist_interval_ms.label')"></label>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="number"
+                         x-model="tuningForm['tuning_ai_conversation_persist_interval_ms']"
+                         :placeholder="tuningPlaceholder('tuning_ai_conversation_persist_interval_ms')"
+                         :min="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).min"
+                         :max="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).max"
+                         :disabled="!isAdmin() || tuningSaving"
+                         class="w-44 mono fs-sm py-1">
+                  <div class="bounds-chips" role="group"
+                       :aria-label="t('admin.config.bounds.group_label')">
+                    <span class="bounds-chip bounds-chip--min"
+                          :title="t('admin.config.bounds.min_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                      <span x-text="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).min"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--max"
+                          :title="t('admin.config.bounds.max_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                      <span x-text="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).max"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--default"
+                          :title="t('admin.config.bounds.default_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                      <span x-text="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).default"></span>
+                    </span>
+                  </div>
+                  <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                        x-text="tuningEffectiveLabel('tuning_ai_conversation_persist_interval_ms')"></span>
+                </div>
+                <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                   x-text="t('admin.config.fields.tuning_ai_conversation_persist_interval_ms.help')"></p>
+              </div>
               <!-- AI log-context window — how many hours of persistent
                    log files the palette injects per call. Default 168
                    (7 days). Pre-fix the AI saw only the in-memory

@@ -134,9 +134,13 @@
     /* AI sidebar drawer width — runtime-tunable via the
        `tuning_ai_sidebar_width_px` TUNABLE; consumed inside the
        `.ai-sidebar-drawer` ruleset via `var(--ai-sidebar-width,
-       460px)`. Declared on :root for IDE awareness + fail-loud
-       if a future consumer drops the fallback. */
-    --ai-sidebar-width: 460px;
+       480px)`. Declared on :root for IDE awareness + fail-loud
+       if a future consumer drops the fallback. MUST match the
+       TUNABLES authoritative default in `logic/tuning.py:TUNABLES`
+       and the SPA-side fallback (`|| 480`) so all three layers agree
+       on the initial-paint width — any divergence reads as a visible
+       width jump on first render before /api/me hydrates. */
+    --ai-sidebar-width: 480px;
     /* Floating launcher + sidebar drawer shadows. Pre-fix the
        AI sidebar block hard-coded rgba(0,0,0,.25) / rgba(0,0,0,.35)
        inline; tokenising matches the rest of the stylesheet's
@@ -438,8 +442,11 @@
     --pill-warning-bg: rgba(217, 119, 6, .10);
     --pill-warning-br: rgba(217, 119, 6, .30);
     --pill-warning-fg: #b45309;
-    /* AI sidebar drawer width + shadows — see :root[dark] for rationale. */
-    --ai-sidebar-width: 460px;
+    /* AI sidebar drawer width + shadows — see :root[dark] for rationale.
+       MUST match the TUNABLES default in `logic/tuning.py` and the SPA
+       fallback in `static/index.html` so the CSS / SPA / backend
+       triplet agrees on the initial-paint width. */
+    --ai-sidebar-width: 480px;
     --ai-shadow-launcher: 0 4px 12px rgba(0, 0, 0, .15);
     --ai-shadow-drawer:   0 0 24px rgba(0, 0, 0, .10);
     --pill-degraded-bg: rgba(217, 119, 6, .10);
@@ -1499,7 +1506,7 @@ button.health-chip:hover {
 .health-breakdown-popover .axis-bar {
     position: relative;
     height: 6px;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     background: var(--surface-3);
     overflow: hidden;
 }
@@ -1510,7 +1517,7 @@ button.health-chip:hover {
     bottom: 0;
     width: var(--w);
     background: var(--c);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
 }
 
 /* follow-up — clickable chips must meet the touch-target rule on
@@ -2070,7 +2077,7 @@ details summary::-webkit-details-marker {
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
-    padding: 4px;
+    padding: var(--s-2);
     cursor: pointer;
     color: var(--text-dim);
     line-height: 0;
@@ -5329,6 +5336,15 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   font-weight: 500;
 }
 
+/* Inset the keyboard-focus ring so it sits inside the rounded fill
+ * rather than overlapping the active row's `--primary-soft` tint.
+ * Without this, the global *:focus-visible 2px outline would render
+ * just outside the row border-radius, fighting the soft-tint
+ * background and reading as visual noise. */
+.page-sidebar-item:focus-visible {
+  outline-offset: -2px;
+}
+
 /* Subtle icon next to each sidebar label. Faint by default so
    the label still leads visually; hover/active rows let the parent
    `color` cascade through `currentColor` on the SVG <use>, lifting
@@ -7423,40 +7439,3 @@ select.field-invalid {
     margin-block-start: var(--s-1);
 }
 
-/* ---------------------------------------------------------------------------
-   Stats → Samples — daily-totals bar chart (last 90 days)
-   ---------------------------------------------------------------------------
-   Single-series bar chart; pure CSS via flex + percentage heights so
-   we don't need an SVG path renderer for one column-per-day. The
-   chart container declares `--samples-max` (peak count across the
-   window) via inline style; each bar's `--bar-h` is the per-day
-   percent-of-max. Hover reveals the date + count via the bar's
-   `:title` attr (no JS tooltip needed).
-*/
-.samples-daily-chart {
-    display: flex;
-    align-items: flex-end;
-    gap: 1px;
-    height: 120px;
-    width: 100%;
-    padding-block-end: var(--s-1);
-}
-.samples-daily-bar {
-    flex: 1 1 0;
-    min-width: 2px;
-    height: 100%;
-    display: flex;
-    align-items: flex-end;
-    cursor: default;
-}
-.samples-daily-bar-fill {
-    display: block;
-    width: 100%;
-    height: var(--bar-h, 2%);
-    background: color-mix(in srgb, var(--primary) 70%, transparent);
-    border-radius: 1px 1px 0 0;
-    transition: background-color 0.15s;
-}
-.samples-daily-bar:hover .samples-daily-bar-fill {
-    background: var(--primary);
-}

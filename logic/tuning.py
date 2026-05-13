@@ -151,6 +151,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # strip, wider than 720 covers most secondary content on a
     # standard laptop.
     "tuning_ai_sidebar_width_px": ("AI_SIDEBAR_WIDTH_PX", 480, 320, 720),
+    # AI sidebar conversation-persist cadence (milliseconds). The
+    # sidebar checks for changes every N ms and writes through to
+    # `/api/me/ui-prefs` when the conversation signature changes.
+    # Default 2000ms; operators on slow networks / low-power devices
+    # can raise to 5000-10000ms. Range 500..30000ms. Takes effect on
+    # the NEXT page load (interval doesn't re-arm mid-session).
+    "tuning_ai_conversation_persist_interval_ms":
+        ("AI_CONVERSATION_PERSIST_INTERVAL_MS", 2000, 500, 30000),
     # AI conversation export — toggles the export-to-txt /
     # export-to-json buttons in the AI sidebar header. Default ON
     # (1). Disable to hide the export affordance entirely (e.g. in
@@ -559,6 +567,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # so the user-side popup picks up the resolved value without a
     # restart.
     "tuning_notification_page_size":      ("NOTIFICATION_PAGE_SIZE", 25, 5, 200),
+    # Notifications popup poll cadence (seconds) — fallback for when the
+    # SSE stream is disconnected AND the operator has the popup open. The
+    # popup live-updates via SSE under normal conditions; this knob only
+    # controls the polling fall-back. Default 30s; operators on slow
+    # connections / power-saving devices can raise. Read by the SPA via
+    # `me.client_config.notifications_poll_seconds` (× 1000 → ms).
+    "tuning_notifications_poll_interval_seconds":
+        ("NOTIFICATIONS_POLL_INTERVAL_SECONDS", 30, 5, 300),
     # AI provider auto-retry on transient upstream overload (HTTP 429
     # / 502 / 503 / 504). Enabled by default — when an AI palette /
     # host-filter call hits one of those statuses on the FIRST attempt

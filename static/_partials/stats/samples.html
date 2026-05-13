@@ -51,17 +51,38 @@
                 <table class="w-full fs-sm">
                   <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
                     <tr>
-                      <th class="text-start px-4 py-2" x-text="t('stats.samples.tables.col_provider')"></th>
-                      <th class="text-start px-4 py-2" x-text="t('stats.samples.tables.col_name')"></th>
-                      <th class="text-start px-4 py-2" x-text="t('stats.samples.tables.col_kind')"></th>
-                      <th class="text-end px-4 py-2" x-text="t('stats.samples.tables.col_rows')"></th>
-                      <th class="text-end px-4 py-2" x-text="t('stats.samples.tables.col_hosts')"></th>
-                      <th class="text-start px-4 py-2" x-text="t('stats.samples.tables.col_oldest')"></th>
-                      <th class="text-start px-4 py-2" x-text="t('stats.samples.tables.col_newest')"></th>
+                      <th class="text-start px-4 py-2 cursor-pointer select-none hover:text-[var(--text)]"
+                          @click="sortStatsSamplesBy('provider')">
+                        <span x-text="t('stats.samples.tables.col_provider') + _statsSamplesSortIndicator('provider')"></span>
+                      </th>
+                      <th class="text-start px-4 py-2 cursor-pointer select-none hover:text-[var(--text)]"
+                          @click="sortStatsSamplesBy('name')">
+                        <span x-text="t('stats.samples.tables.col_name') + _statsSamplesSortIndicator('name')"></span>
+                      </th>
+                      <th class="text-start px-4 py-2 cursor-pointer select-none hover:text-[var(--text)]"
+                          @click="sortStatsSamplesBy('kind')">
+                        <span x-text="t('stats.samples.tables.col_kind') + _statsSamplesSortIndicator('kind')"></span>
+                      </th>
+                      <th class="text-end px-4 py-2 cursor-pointer select-none hover:text-[var(--text)]"
+                          @click="sortStatsSamplesBy('rows')">
+                        <span x-text="t('stats.samples.tables.col_rows') + _statsSamplesSortIndicator('rows')"></span>
+                      </th>
+                      <th class="text-end px-4 py-2 cursor-pointer select-none hover:text-[var(--text)]"
+                          @click="sortStatsSamplesBy('unique_hosts')">
+                        <span x-text="t('stats.samples.tables.col_hosts') + _statsSamplesSortIndicator('unique_hosts')"></span>
+                      </th>
+                      <th class="text-start px-4 py-2 cursor-pointer select-none hover:text-[var(--text)]"
+                          @click="sortStatsSamplesBy('oldest_ts')">
+                        <span x-text="t('stats.samples.tables.col_oldest') + _statsSamplesSortIndicator('oldest_ts')"></span>
+                      </th>
+                      <th class="text-start px-4 py-2 cursor-pointer select-none hover:text-[var(--text)]"
+                          @click="sortStatsSamplesBy('newest_ts')">
+                        <span x-text="t('stats.samples.tables.col_newest') + _statsSamplesSortIndicator('newest_ts')"></span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    <template x-for="row in ((statsSamples.tables || []).slice().sort((a, b) => (b.rows || 0) - (a.rows || 0)))" :key="row.name">
+                    <template x-for="row in _statsSamplesSorted()" :key="row.name">
                       <!-- Whole-row click opens the per-provider
                            drill-down modal. Error rows + zero-row
                            rows skip the open (no useful detail to
@@ -130,9 +151,9 @@
                       <button type="button"
                               @click="_runWithBusy('stats_samples', () => loadStatsSamples(opt))"
                               :disabled="_loadBusy.stats_samples === true"
-                              :class="(statsSamples.range || statsSamplesRange) === opt ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                              :class="(statsSamples.range || statsSamplesRange) === opt ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                               class="px-2 py-0.5 rounded fs-xs font-medium transition"
-                              x-text="opt"></button>
+                              x-text="t('stats.range.range_' + opt)"></button>
                     </template>
                   </div>
                   <!-- Inline spinner — same `spin-md` glyph as the

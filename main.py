@@ -2856,6 +2856,7 @@ class SettingsIn(BaseModel):
     # SPA reads via me.client_config.ai_sidebar_width_px and applies
     # via inline style on the <aside> root.
     tuning_ai_sidebar_width_px: Optional[str] = None
+    tuning_ai_conversation_persist_interval_ms: Optional[str] = None
     # AI conversation export — gates the export-to-txt / export-to-json
     # buttons in the AI sidebar header. 0 = hide, 1 = show (default).
     tuning_ai_conversation_export_enabled: Optional[str] = None
@@ -2957,6 +2958,7 @@ class SettingsIn(BaseModel):
     # prune_notifications schedule kind.
     tuning_notification_retention_days: Optional[str] = None
     tuning_notification_page_size: Optional[str] = None
+    tuning_notifications_poll_interval_seconds: Optional[str] = None
     # AI provider auto-retry on transient upstream overload (HTTP
     # 429 / 502 / 503 / 504). Rendered in Admin → AI Integration via
     # `relocatedTuningKeys` (NOT the generic Process tunables form).
@@ -17876,6 +17878,11 @@ async def api_me(request: Request):
             # ai-sidebar-drawer reads this and applies via inline
             # style on the <aside> root. Mobile layout ignores it.
             "ai_sidebar_width_px": tuning.tuning_int("tuning_ai_sidebar_width_px"),
+            # AI sidebar conversation-persist cadence (ms). Consumed by
+            # the SPA's `_aiPersistInterval` setup — see static/js/app.js.
+            "ai_conversation_persist_ms": tuning.tuning_int(
+                "tuning_ai_conversation_persist_interval_ms"
+            ),
             # AI conversation export — gates the "Export TXT" /
             # "Export JSON" buttons in the AI sidebar header.
             # 0 = hide buttons, 1 = show. Default 1.
@@ -17905,6 +17912,12 @@ async def api_me(request: Request):
             # both write-time (TUNABLES bounds) and read-time
             # (`tuning_int` clamps).
             "notifications_page_size": tuning.tuning_int("tuning_notification_page_size"),
+            # Notifications popup polling fallback cadence (seconds).
+            # Consumed by the SPA's $watch on showNotificationsPopup —
+            # only used when SSE is disconnected AND the popup is open.
+            "notifications_poll_seconds": tuning.tuning_int(
+                "tuning_notifications_poll_interval_seconds"
+            ),
             # Sampler tick cadence (used by the SNMP "warming up" banner
             # so the "~N min" hint reflects the operator's configured
             # interval rather than a stale literal). Stored as seconds;

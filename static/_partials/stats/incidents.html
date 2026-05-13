@@ -12,12 +12,12 @@
               <!-- Window picker — 1h / 24h / 7d / 30d. Mirrors the
                    range pickers used elsewhere in the app. -->
               <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
-                <template x-for="opt in [[1,'1h'],[24,'24h'],[168,'7d'],[720,'30d']]" :key="opt[0]">
+                <template x-for="opt in [[1,'range_1h'],[24,'range_24h'],[168,'range_7d'],[720,'range_30d']]" :key="opt[0]">
                   <button type="button"
                           @click="loadStatsIncidents(opt[0])"
-                          :class="statsIncidentsHours === opt[0] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                          :class="statsIncidentsHours === opt[0] ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                           class="px-2 py-0.5 rounded fs-xs font-medium transition"
-                          x-text="opt[1]"></button>
+                          x-text="t('stats.range.' + opt[1])"></button>
                 </template>
               </div>
               <button type="button"
