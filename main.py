@@ -14425,15 +14425,39 @@ async def api_hosts_snmp_temp_history(
     if not hid:
         return {"probes": {}, "error": "host_id required"}
     since = int(time.time() - h * 3600)
+    # Server-side bucketing — same pattern as snmp_history / iface_history.
+    # 7d × 12 samples/hr × 16 probes = ~32k raw points before bucketing.
+    # Temperature readings are INSTANTANEOUS (not counters), so AVG per
+    # bucket is the right aggregate. Threshold `h > 2`; target ~120
+    # points per probe.
+    bucket = 0
+    if h > 2:
+        target_points = 120
+        bucket = max(60, int(h * 3600 / target_points))
     try:
         with db_conn() as c:
-            rows = c.execute(
-                "SELECT ts, probe_idx, probe_name, value_c "
-                "FROM host_snmp_temp_samples "
-                "WHERE host_id=? AND ts >= ? "
-                "ORDER BY probe_idx ASC, ts ASC LIMIT ?",
-                (hid, since, h * 60 * 16),
-            ).fetchall()
+            if bucket > 0:
+                # Bucket key includes `probe_idx` so each probe's series
+                # stays separate. MAX(probe_name) picks any value within
+                # the bucket — operator-renames are rare so consistency
+                # across the bucket is preserved.
+                rows = c.execute(
+                    "SELECT MIN(ts) AS ts, probe_idx, "
+                    "MAX(probe_name) AS probe_name, AVG(value_c) AS value_c "
+                    "FROM host_snmp_temp_samples "
+                    "WHERE host_id=? AND ts >= ? "
+                    "GROUP BY probe_idx, ts / ? "
+                    "ORDER BY probe_idx ASC, ts ASC LIMIT ?",
+                    (hid, since, bucket, h * 60 * 16),
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    "SELECT ts, probe_idx, probe_name, value_c "
+                    "FROM host_snmp_temp_samples "
+                    "WHERE host_id=? AND ts >= ? "
+                    "ORDER BY probe_idx ASC, ts ASC LIMIT ?",
+                    (hid, since, h * 60 * 16),
+                ).fetchall()
     except Exception as e:
         return {"probes": {}, "error": f"snmp_temp_history: {e}"}
     probes: dict = {}
@@ -14442,15 +14466,19 @@ async def api_hosts_snmp_temp_history(
         if not idx:
             continue
         name = r[2] or f"temp-{idx}"
-        bucket = probes.setdefault(idx, {"name": name, "points": []})
+        probe_bucket = probes.setdefault(idx, {"name": name, "points": []})
         # Pick the freshest probe_name we've seen — operator-renamed
         # probes (rare) propagate forward this way.
-        bucket["name"] = name
-        bucket["points"].append({
+        probe_bucket["name"] = name
+        probe_bucket["points"].append({
             "ts": int(r[0]),
             "c":  (float(r[3]) if r[3] is not None else None),
         })
-    return {"probes": probes, "error": None}
+    # Surface bucket cadence for consistency with the sibling endpoints
+    # (SPA doesn't currently consume it for temp charts — temperatures
+    # are instantaneous values not counter rates — but the field is
+    # available for future symmetry).
+    return {"probes": probes, "error": None, "bucket_seconds": bucket}
 
 
 @app.get("/api/hosts/{host_id}/triage")
