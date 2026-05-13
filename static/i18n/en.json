@@ -518,6 +518,14 @@
         "label": "Tunables",
         "sub": "{overridden} overridden from defaults"
       }
+    },
+    "range": {
+      "range_1h": "1h",
+      "range_6h": "6h",
+      "range_24h": "24h",
+      "range_7d": "7d",
+      "range_30d": "30d",
+      "range_90d": "90d"
     }
   },
   "profile": {
@@ -1805,6 +1813,14 @@
         "tuning_webmin_sampler_budget_seconds": {
           "label": "Webmin sampler tick budget (seconds)",
           "help": "Outer wall-clock cap for one Webmin sampler tick (fans out per-host `_probe_one_host` calls). Without an outer cap a single wedged Webmin host can starve the whole tick. 0 = auto-derive from `probe_timeout × hosts capped at 5 min` — safe default for fleets < 60 hosts. Operators with very large fleets can pin a higher value if their per-host probe is fast and they want a bigger fan-out window. Range 0..600s. Resolved per-tick."
+        },
+        "tuning_notifications_poll_interval_seconds": {
+          "label": "Notifications popup poll cadence (seconds)",
+          "help": "How often the notifications popup polls /api/notifications when the SSE stream is disconnected AND the popup is open. Under normal conditions the popup live-updates via SSE — this knob ONLY controls the fall-back when SSE drops. Default 30s. Operators on slow connections / power-saving devices may want to raise (e.g. 60s); operators wanting near-live recovery after an SSE drop may want 5-10s. Range 5..300s. Takes effect on the next popup open."
+        },
+        "tuning_ai_conversation_persist_interval_ms": {
+          "label": "AI conversation persist cadence (ms)",
+          "help": "How often the AI sidebar checks for changes in the active conversation and writes the snapshot through to /api/me/ui-prefs. Default 2000ms (2 seconds). Operators on slow connections or low-power devices can raise this (e.g. 5000-10000ms) to reduce sync churn; aggressive setups wanting near-instant recovery on accidental tab close can lower toward the 500ms floor. Range 500..30000ms. Takes effect on the NEXT page load — the interval doesn't re-arm its cadence mid-session."
         }
       },
       "totp": {
@@ -2233,7 +2249,12 @@
     "search_no_match": "no match",
     "search_prev": "Previous match",
     "search_next": "Next match",
-    "mode_help": "Approval mode: AI proposes actions and waits for your confirm before running them. Autonomous mode: AI runs safe actions immediately without asking; destructive actions still confirm."
+    "mode_help": "Approval mode: AI proposes actions and waits for your confirm before running them. Autonomous mode: AI runs safe actions immediately without asking; destructive actions still confirm.",
+    "disk_projection": {
+      "aria_label": "{host} disk usage projection",
+      "band_high_95": "High (95% upper)",
+      "band_low_95": "Low (95% lower)"
+    }
   },
   "ai_memory": {
     "title": "AI Memory",

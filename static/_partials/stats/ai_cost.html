@@ -200,9 +200,9 @@
                       <button type="button"
                               @click="_runWithBusy('stats_ai_cost', () => loadStatsAiCost(opt))"
                               :disabled="_loadBusy.stats_ai_cost === true"
-                              :class="(statsAiCost.range || statsAiCostRange) === opt ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                              :class="(statsAiCost.range || statsAiCostRange) === opt ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                               class="px-2 py-0.5 rounded fs-xs font-medium transition"
-                              x-text="opt"></button>
+                              x-text="t('stats.range.range_' + opt)"></button>
                     </template>
                   </div>
                   <svg x-show="_loadBusy.stats_ai_cost === true"
@@ -213,11 +213,11 @@
               </div>
               <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('stats.ai_cost.rt_trend.hint')"></p>
 
-              <!-- Bar chart — single-series; reuses the
-                   `.samples-daily-chart` rule family from
-                   `static/css/style.css`. Each bar's height is
-                   percent-of-max within the window. Hover the bar →
-                   the date + ms + job count in the title. -->
+              <!-- Bar chart — single-series; rendered via the SVG
+                   helper below. Earlier iterations used a CSS-only
+                   `.samples-daily-chart` rule family; that path was
+                   superseded by the SVG renderer and the CSS rules
+                   removed as dead code. -->
               <!-- SVG bar chart with proper X + Y axes and gridlines.
                    Renderer is `_renderAiCostTrendChart(points, range)`
                    in static/js/app.js — same shape as the Samples

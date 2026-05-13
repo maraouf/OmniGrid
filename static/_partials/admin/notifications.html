@@ -314,6 +314,41 @@
                   x-text="tuningEffectiveLabel('tuning_notification_page_size')"></span>
           </div>
         </div>
+        <div class="mt-4 pt-3 border-t border-[var(--border)]" x-show="tuningLoaded">
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.tuning_notifications_poll_interval_seconds.label')"></label>
+          <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
+             x-text="t('admin.config.fields.tuning_notifications_poll_interval_seconds.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_notifications_poll_interval_seconds']"
+                   :placeholder="tuningPlaceholder('tuning_notifications_poll_interval_seconds')"
+                   :min="(tuningEffective['tuning_notifications_poll_interval_seconds'] || {}).min"
+                   :max="(tuningEffective['tuning_notifications_poll_interval_seconds'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
+              <span class="bounds-chip bounds-chip--min"
+                    :title="t('admin.config.bounds.min_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_notifications_poll_interval_seconds'] || {}).min"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_notifications_poll_interval_seconds'] || {}).max"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                <span x-text="(tuningEffective['tuning_notifications_poll_interval_seconds'] || {}).default"></span>
+              </span>
+            </div>
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                  x-text="tuningEffectiveLabel('tuning_notifications_poll_interval_seconds')"></span>
+          </div>
+        </div>
 
         <!-- Page-level Save — flushes the apprise / events form AND
              the notification-retention + page-size tunables in one

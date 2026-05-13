@@ -1346,6 +1346,7 @@ function app() {
       // dial in the same place).
       'tuning_notification_retention_days',
       'tuning_notification_page_size',
+      'tuning_notifications_poll_interval_seconds',
       // AI provider auto-retry on transient upstream overload —
       // rendered in Admin → AI Integration alongside the existing
       // master toggle / active-provider / max-tokens fields. Per
@@ -1367,6 +1368,9 @@ function app() {
       // preference: it's an AI-feature UI control, not a generic
       // tunable. Reads via `me.client_config.ai_sidebar_width_px`.
       'tuning_ai_sidebar_width_px',
+      // AI sidebar conversation-persist cadence (ms) — same admin
+      // section. Reads via `me.client_config.ai_conversation_persist_ms`.
+      'tuning_ai_conversation_persist_interval_ms',
       // AI conversation export master toggle — surfaced as a
       // checkbox under Admin → AI Integration. Reads via
       // `me.client_config.ai_conversation_export_enabled`; SPA hides
@@ -2315,6 +2319,15 @@ function app() {
         const last = arr[arr.length - 1] || {};
         return arr.length + ':' + (last.ts || 0) + ':' + (last.role || '') + ':' + (last.text || '').length;
       };
+      // Operator-tunable cadence — defaults to 2s. Slow networks /
+      // low-power devices can raise it via Admin → Config →
+      // `tuning_ai_conversation_persist_interval_ms` to e.g. 5000ms.
+      // Read from `me.client_config.ai_conversation_persist_ms` once
+      // when the interval is armed; a Save in Admin → Config takes
+      // effect on the next page load (the interval doesn't reload
+      // its cadence mid-flight).
+      const _aiPersistMs = (this.me && this.me.client_config
+        && Number(this.me.client_config.ai_conversation_persist_ms)) || 2000;
       this._aiPersistInterval = setInterval(() => {
         try {
           const sig = _computeAiConvSig();
@@ -2323,7 +2336,7 @@ function app() {
             this.persistAiConversation();
           }
         } catch (_) { /* never let a failed tick kill the interval */ }
-      }, 2000);
+      }, _aiPersistMs);
       // beforeunload — write through synchronously via navigator.sendBeacon
       // so the request lands even though the page is unloading. Falls
       // back to localStorage-only when sendBeacon is unavailable
@@ -2395,10 +2408,19 @@ function app() {
       this.$watch('showNotificationsPopup', open => {
         if (open) {
           if (this._notificationsPollHandle) clearInterval(this._notificationsPollHandle);
+          // Operator-tunable poll cadence — when SSE is disconnected
+          // AND the notifications popup is open, fall back to polling
+          // at this interval. Defaults to 30s; operators on slow
+          // connections / power-saving devices can raise it without
+          // touching code. Routed through `me.client_config` so a
+          // Save in Admin → Config takes effect on the next popup
+          // open without a page reload.
+          const pollSec = (this.me && this.me.client_config
+            && Number(this.me.client_config.notifications_poll_seconds)) || 30;
           this._notificationsPollHandle = setInterval(() => {
             if (this._sseConnected) return;
             if (this.showNotificationsPopup) this.loadNotifications();
-          }, 30000);
+          }, pollSec * 1000);
         } else if (this._notificationsPollHandle) {
           clearInterval(this._notificationsPollHandle);
           this._notificationsPollHandle = null;
@@ -3279,6 +3301,51 @@ function app() {
     // Persisted in-session only — defaults back to 90d on reload so
     // the chart's wide-window default re-establishes itself.
     statsSamplesRange: '90d',
+    // Per-table breakdown sort state. Operator-flagged: every column
+    // sortable, default by `rows` desc. Clicking the same column flips
+    // direction; clicking a different column switches to it (default
+    // desc for numeric / oldest_ts / newest_ts, asc for string columns).
+    statsSamplesSortBy: 'rows',
+    statsSamplesSortDir: 'desc',
+    _statsSamplesSorted() {
+      const rows = (this.statsSamples && this.statsSamples.tables) || [];
+      const col = this.statsSamplesSortBy || 'rows';
+      const dir = this.statsSamplesSortDir === 'asc' ? 1 : -1;
+      const isNum = (col === 'rows' || col === 'unique_hosts'
+                     || col === 'oldest_ts' || col === 'newest_ts');
+      return rows.slice().sort((a, b) => {
+        let av = a ? a[col] : null;
+        let bv = b ? b[col] : null;
+        if (isNum) {
+          av = Number(av) || 0;
+          bv = Number(bv) || 0;
+          return (av - bv) * dir;
+        }
+        av = (av == null ? '' : String(av)).toLowerCase();
+        bv = (bv == null ? '' : String(bv)).toLowerCase();
+        if (av < bv) return -1 * dir;
+        if (av > bv) return  1 * dir;
+        return 0;
+      });
+    },
+    sortStatsSamplesBy(col) {
+      if (this.statsSamplesSortBy === col) {
+        // Same column → flip direction.
+        this.statsSamplesSortDir = (this.statsSamplesSortDir === 'asc') ? 'desc' : 'asc';
+      } else {
+        this.statsSamplesSortBy = col;
+        // Sensible default direction per column type: numeric / time
+        // columns sort desc-first (largest / newest); string columns
+        // sort asc-first (alphabetical).
+        const isNum = (col === 'rows' || col === 'unique_hosts'
+                       || col === 'oldest_ts' || col === 'newest_ts');
+        this.statsSamplesSortDir = isNum ? 'desc' : 'asc';
+      }
+    },
+    _statsSamplesSortIndicator(col) {
+      if (this.statsSamplesSortBy !== col) return '';
+      return this.statsSamplesSortDir === 'asc' ? ' ▲' : ' ▼';
+    },
     async loadStatsSamples(range) {
       const r_arg = (range || this.statsSamplesRange || '90d').toString();
       this.statsSamplesRange = r_arg;
@@ -10001,6 +10068,7 @@ function app() {
       const notifTunables = {
         retention: (tf.tuning_notification_retention_days ?? '').toString(),
         page_size: (tf.tuning_notification_page_size ?? '').toString(),
+        poll_seconds: (tf.tuning_notifications_poll_interval_seconds ?? '').toString(),
       };
       return JSON.stringify({
         enabled: !!s.apprise_enabled,
@@ -13507,6 +13575,8 @@ function app() {
         // AI Integration partial so they belong on the AI Save.
         'tuning_ai_sidebar_width_px',
         'tuning_ai_conversation_export_enabled',
+        // Sidebar conversation-persist cadence (ms). Same admin section.
+        'tuning_ai_conversation_persist_interval_ms',
         // Log-context window + cap — how many hours / lines of
         // persistent logs the palette injects per call.
         'tuning_ai_log_context_hours',
@@ -20013,10 +20083,17 @@ function app() {
         + 'class="ai-resp-chart-axis">' + p + '%</text>'
       )).join('');
       // X-axis labels: first / now / last (formatted as MMM DD).
+      // Locale-aware via Intl.DateTimeFormat — pre-fix the month names
+      // were a hardcoded English array, so operators in non-en locales
+      // saw English ticks regardless of their language setting.
       const fmtDate = (ts) => {
         const d = new Date(ts * 1000);
-        const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
-        return m + ' ' + d.getDate();
+        try {
+          return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        } catch (_) {
+          const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+          return m + ' ' + d.getDate();
+        }
       };
       const xLabels = (
         '<text x="' + xOf(tFirst) + '" y="' + (H - 6) + '" text-anchor="start" class="ai-resp-chart-axis">'
@@ -20031,14 +20108,25 @@ function app() {
         '<line x1="' + xOf(tNow) + '" y1="' + PT + '" x2="' + xOf(tNow) + '" y2="' + (H - PB) + '" '
         + 'stroke="var(--text-faint)" stroke-width="1" stroke-dasharray="3,3"/>'
       );
+      // i18n-aware accessible name + band tooltip text. Pre-fix the
+      // SVG `aria-label` and band-edge `<title>` were bare English
+      // literals — same drift class as the AI fenced-code copy button
+      // caught in the 2026-05-08 review. Each falls back to its English
+      // form when the key isn't translated yet.
+      const ariaLabel = (t('ai_sidebar.disk_projection.aria_label', { host: hostId })
+                        || (hostId + ' disk usage projection'));
+      const bandHighTitle = (t('ai_sidebar.disk_projection.band_high_95')
+                             || 'High (95% upper)');
+      const bandLowTitle  = (t('ai_sidebar.disk_projection.band_low_95')
+                             || 'Low (95% lower)');
       const svg = ('<svg viewBox="0 0 ' + W + ' ' + H + '" '
         + 'preserveAspectRatio="xMidYMid meet" class="ai-resp-chart-svg" '
-        + 'role="img" aria-label="' + esc(hostId + ' disk usage projection') + '">'
+        + 'role="img" aria-label="' + esc(ariaLabel) + '">'
         + yTicks
         + '<path d="' + areaPath + '" class="ai-resp-chart-area"/>'
         + (projBand ? '<path d="' + projBand + '" class="ai-resp-chart-band"/>' : '')
-        + (projHighEdge ? '<path d="' + projHighEdge + '" class="ai-resp-chart-band-edge"><title>High (95% upper)</title></path>' : '')
-        + (projLowEdge  ? '<path d="' + projLowEdge  + '" class="ai-resp-chart-band-edge"><title>Low (95% lower)</title></path>' : '')
+        + (projHighEdge ? '<path d="' + projHighEdge + '" class="ai-resp-chart-band-edge"><title>' + esc(bandHighTitle) + '</title></path>' : '')
+        + (projLowEdge  ? '<path d="' + projLowEdge  + '" class="ai-resp-chart-band-edge"><title>' + esc(bandLowTitle) + '</title></path>' : '')
         + '<path d="' + histStroke + '" class="ai-resp-chart-line ai-resp-chart-line--hist" fill="none"/>'
         + (projStroke ? '<path d="' + projStroke + '" class="ai-resp-chart-line ai-resp-chart-line--proj" fill="none"/>' : '')
         + nowLine
@@ -31146,9 +31234,9 @@ function app() {
         // loading placeholder; fetch runs in parallel and replaces
         // the placeholder when it resolves. Bulk updates and
         // AI-dispatch (skipConfirm) bypass this entirely since the
-        // popup itself is bypassed. Pre-fix (#0095 v1) blocked the
-        // popup-open on the registry call → 1-2 second delay where
-        // the operator saw nothing.
+        // popup itself is bypassed. The earlier synchronous variant
+        // blocked popup-open on the registry call → 1-2 second delay
+        // where the operator saw nothing.
         const baseHtml = item.stack_id
           ? this.t('dialogs.update_stack_html', { name: item.stack })
           : this.t('dialogs.recreate_container_html', { name: item.name });

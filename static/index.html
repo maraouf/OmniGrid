@@ -3014,13 +3014,18 @@
 
     <!-- ===== SETTINGS VIEW ===== -->
     <div x-show="view==='settings'" class="page-layout">
-      <aside class="page-sidebar">
+      <aside class="page-sidebar"
+             role="tablist" aria-orientation="vertical"
+             :aria-label="t('settings.title')">
         <div class="page-sidebar-header">
           <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/></svg>
           <span x-text="t('settings.title')"></span>
         </div>
         <template x-for="s in settingsSections" :key="s.id">
-          <button type="button" @click="settingsSection = s.id"
+          <button type="button" role="tab"
+                  :aria-selected="settingsSection === s.id ? 'true' : 'false'"
+                  :tabindex="settingsSection === s.id ? 0 : -1"
+                  @click="settingsSection = s.id"
                   :class="settingsSection === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'">
             <svg width="14" height="14" class="page-sidebar-icon" aria-hidden="true"><use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#icon-' + s.icon"/></svg>
             <span x-text="t('settings.sections.' + s.id)"></span>
@@ -3062,13 +3067,18 @@
           </template>
         </select>
       </div>
-      <aside class="page-sidebar">
+      <aside class="page-sidebar"
+             role="tablist" aria-orientation="vertical"
+             :aria-label="t('nav.admin')">
         <div class="page-sidebar-header">
           <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
           <span x-text="t('nav.admin')"></span>
         </div>
         <template x-for="s in adminSections" :key="s.id">
-          <button type="button" @click="openAdminTab(s.id)"
+          <button type="button" role="tab"
+                  :aria-selected="adminTab === s.id ? 'true' : 'false'"
+                  :tabindex="adminTab === s.id ? 0 : -1"
+                  @click="openAdminTab(s.id)"
                   :class="adminTab === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'">
             <svg width="14" height="14" class="page-sidebar-icon" aria-hidden="true"><use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-' + s.icon"/></svg>
             <span x-text="t('admin.sections.' + s.id)"></span>
@@ -3116,13 +3126,18 @@
           </template>
         </select>
       </div>
-      <aside class="page-sidebar">
+      <aside class="page-sidebar"
+             role="tablist" aria-orientation="vertical"
+             :aria-label="t('nav.stats')">
         <div class="page-sidebar-header">
           <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/></svg>
           <span x-text="t('nav.stats')"></span>
         </div>
         <template x-for="s in statsSections" :key="s.id">
-          <button type="button" @click="openStatsTab(s.id)"
+          <button type="button" role="tab"
+                  :aria-selected="statsTab === s.id ? 'true' : 'false'"
+                  :tabindex="statsTab === s.id ? 0 : -1"
+                  @click="openStatsTab(s.id)"
                   :class="statsTab === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'">
             <svg width="14" height="14" class="page-sidebar-icon" aria-hidden="true"><use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-' + s.icon"/></svg>
             <span x-text="t('stats.sections.' + s.id)"></span>
