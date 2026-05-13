@@ -14341,20 +14341,48 @@ async def api_hosts_snmp_iface_history(
     if not hid:
         return {"ifaces": {}, "error": "host_id required"}
     since = int(time.time() - h * 3600)
+    # Server-side bucketing on long windows so the per-port chart
+    # doesn't accumulate ~2000 points per iface × 5 ifaces ≈ 10k points
+    # at 7d. Same shape as the SNMP main-history endpoint: bucket
+    # threshold is `h > 2`, target ~120 points per iface, bucket
+    # cadence = max(60, hours*3600/120). MAX of in_bytes / out_bytes /
+    # link_speed_mbps in each bucket because the counters are
+    # MONOTONIC — last-value-in-bucket is what the rate computation
+    # needs.
+    bucket = 0
+    if h > 2:
+        target_points = 120
+        bucket = max(60, int(h * 3600 / target_points))
     try:
         with db_conn() as c:
-            # Row-count ceiling — guard against runaway payload on a
-            # 48-port switch × 168-hour window. h * 60 samples/hr × 64
-            # ifaces is a safe upper bound; the index on (host_id, ts
-            # DESC) makes this read fast but the JSON payload + chart-
-            # build loop are still linear in row count.
-            rows = c.execute(
-                "SELECT ts, ifname, in_bytes, out_bytes, link_speed_mbps "
-                "FROM host_snmp_iface_samples "
-                "WHERE host_id=? AND ts >= ? "
-                "ORDER BY ifname ASC, ts ASC LIMIT ?",
-                (hid, since, h * 60 * 64),
-            ).fetchall()
+            if bucket > 0:
+                # Bucket key includes `ifname` so each interface gets
+                # its own ~120-point series (otherwise the GROUP BY
+                # would mix samples across ifaces in the same time
+                # bucket).
+                rows = c.execute(
+                    "SELECT MIN(ts) AS ts, ifname, "
+                    "MAX(in_bytes) AS in_bytes, MAX(out_bytes) AS out_bytes, "
+                    "MAX(link_speed_mbps) AS link_speed_mbps "
+                    "FROM host_snmp_iface_samples "
+                    "WHERE host_id=? AND ts >= ? "
+                    "GROUP BY ifname, ts / ? "
+                    "ORDER BY ifname ASC, ts ASC LIMIT ?",
+                    (hid, since, bucket, h * 60 * 64),
+                ).fetchall()
+            else:
+                # Row-count ceiling — guard against runaway payload on a
+                # 48-port switch × 168-hour window. h * 60 samples/hr × 64
+                # ifaces is a safe upper bound; the index on (host_id, ts
+                # DESC) makes this read fast but the JSON payload + chart-
+                # build loop are still linear in row count.
+                rows = c.execute(
+                    "SELECT ts, ifname, in_bytes, out_bytes, link_speed_mbps "
+                    "FROM host_snmp_iface_samples "
+                    "WHERE host_id=? AND ts >= ? "
+                    "ORDER BY ifname ASC, ts ASC LIMIT ?",
+                    (hid, since, h * 60 * 64),
+                ).fetchall()
     except Exception as e:
         return {"ifaces": {}, "error": f"snmp_iface_history: {e}"}
     ifaces: dict = {}
@@ -14370,7 +14398,11 @@ async def api_hosts_snmp_iface_history(
             # device doesn't expose it.
             "link_speed_mbps": (int(r[4]) if r[4] is not None else None),
         })
-    return {"ifaces": ifaces, "error": None}
+    # Surface `bucket_seconds` so the SPA's rate-computation helper
+    # (`snmpIfaceBpsSeries`) can scale its dt cap to the bucket cadence.
+    # 0 when the response wasn't bucketed (≤2h windows pass raw rows
+    # through).
+    return {"ifaces": ifaces, "error": None, "bucket_seconds": bucket}
 
 
 @app.get("/api/hosts/{host_id}/snmp/temp_history")
