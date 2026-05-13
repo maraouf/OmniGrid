@@ -27037,11 +27037,19 @@ function app() {
       // but multi-bucket outage gaps are still skipped.
       const bucketS = Number(entry.bucket_seconds) || 0;
       const dtCap = Math.max(3600, bucketS * 3);
+      // Byte-delta cap scales with dt — same reasoning as the
+      // snmpThroughputBpsSeries fix. Static 10 GB ceiling at 5min raw
+      // = generous; at 7d buckets it's a per-bucket-MB/s straitjacket
+      // that filters every delta on hosts pushing >16 Mbit/s sustained.
+      // Scaled cap = max(10 GB, dt × 125 MB/s) gives 1 Gbit/s headroom.
+      const _BYTE_RATE_CEILING = 125 * 1024 * 1024;
+      const _STATIC_BYTE_FLOOR = 10 * 1024 * 1024 * 1024;
       // skip-don't-synthesize. Same null-slot pattern as
       // `snmpThroughputBpsSeries`. First slot null (no predecessor);
       // any out-of-bounds delta (wrap / reboot / gap > dtCap / null
-      // counter / > 10 GB) leaves the slot null instead of plotting
-      // a synthesized 0 that visually merges with a real idle iface.
+      // counter / > scaled byteCap) leaves the slot null instead of
+      // plotting a synthesized 0 that visually merges with a real
+      // idle iface.
       const inBps = new Array(series.length).fill(null);
       const outBps = new Array(series.length).fill(null);
       const times = series.map(p => p.ts);
@@ -27049,15 +27057,16 @@ function app() {
         const a = series[i - 1], b = series[i];
         const dt = (b.ts || 0) - (a.ts || 0);
         if (dt < 1 || dt > dtCap) continue;
+        const byteCap = Math.max(_STATIC_BYTE_FLOOR, dt * _BYTE_RATE_CEILING);
         const ai = a.in_bytes, bi = b.in_bytes;
         if (ai != null && bi != null) {
           const di = bi - ai;
-          if (di >= 0 && di <= 10 * 1024 * 1024 * 1024) inBps[i] = di / dt;
+          if (di >= 0 && di <= byteCap) inBps[i] = di / dt;
         }
         const ao = a.out_bytes, bo = b.out_bytes;
         if (ao != null && bo != null) {
           const dout = bo - ao;
-          if (dout >= 0 && dout <= 10 * 1024 * 1024 * 1024) outBps[i] = dout / dt;
+          if (dout >= 0 && dout <= byteCap) outBps[i] = dout / dt;
         }
       }
       return { in: inBps, out: outBps, times };
@@ -27868,6 +27877,18 @@ function app() {
       // (≥ 6 missing buckets) still break the polyline as a real gap.
       const bucketS = Number(entry.bucket_seconds) || 0;
       const dtCap = Math.max(7200, bucketS * 6);
+      // Byte-delta cap also scales with `dt`. Pre-fix the static 10 GB
+      // ceiling was tuned for 5-min raw cadence (~35 MB/s sustained per
+      // delta) — comfortable for typical home-LAN. At 7d buckets (5040s)
+      // 10 GB allows only ~16 Mbit/s sustained; anything busier got
+      // filtered as if it were a counter wrap, leaving the chart empty
+      // on hosts whose gateway pushes >100 Mbit/s during peak hours.
+      // Cap is now `max(10 GB, dt × 125 MB/s)` — 125 MB/s = 1 Gbit/s
+      // headroom per second of bucket width. Counter wrap (negative
+      // delta or 2^64-scale jumps) is still caught by `db < 0` and the
+      // generous-but-bounded ceiling.
+      const _BYTE_RATE_CEILING = 125 * 1024 * 1024;          // 125 MB/s = 1 Gbit/s
+      const _STATIC_BYTE_FLOOR = 10 * 1024 * 1024 * 1024;    // 10 GB preserves prior behaviour for raw cadence
       // skip-don't-synthesize: out-of-bounds deltas (counter
       // wrap, reboot, gap, null) emit `null` so `_snmpPolyPoints`
       // omits the point from the polyline. Pre-fix this filled with
@@ -27882,7 +27903,8 @@ function app() {
         if (av == null || bv == null) continue;
         if (dt < 1 || dt > dtCap) continue;       // gap or doubled tick
         const db = bv - av;
-        if (db < 0 || db > 10 * 1024 * 1024 * 1024) continue;   // wrap / reboot / 10 GB cap
+        const byteCap = Math.max(_STATIC_BYTE_FLOOR, dt * _BYTE_RATE_CEILING);
+        if (db < 0 || db > byteCap) continue;     // wrap / reboot / scaled cap
         out[i] = db / dt;
       }
       return out;

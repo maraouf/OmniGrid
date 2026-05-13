@@ -13537,31 +13537,60 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
         return series
     bucket_s = max(60, int((hours * 3600) / target_points))
     half = bucket_s // 2
-    # Discover field-kind from the first sample so the inner loop can
-    # branch without per-row introspection. Keys can be:
+    # Discover field-kind by scanning the WHOLE series for the first
+    # non-empty value per key. Pre-fix this only looked at sample[0] —
+    # fields that are sparse-populated (Beszel `temps` / `gpus` — agent
+    # omits the field on ticks where the sensor wasn't readable) got
+    # classified as "other" when sample[0] happened to be empty / None,
+    # then last-in-bucket wins routed empty {} into output buckets and
+    # the chart saw zero sensors.
+    #
+    # Per-key kind classification:
     #   "scalar" → sum + count, AVG at emit
     #   "dict"   → per-leaf sum + count, AVG dict at emit
     #   "list"   → per-index sum + count, AVG list at emit
-    #   "other"  → last-in-bucket wins
-    sample = series[0] if series else {}
-    kinds: dict[str, str] = {}
-    for k, v in sample.items():
-        if k in ("t", "ts"):
-            continue
-        if isinstance(v, bool):
-            kinds[k] = "other"
-        elif isinstance(v, (int, float)):
-            kinds[k] = "scalar"
-        elif isinstance(v, dict) and v and all(
-            isinstance(x, (int, float)) and not isinstance(x, bool) for x in v.values()
-        ):
-            kinds[k] = "dict"
-        elif isinstance(v, list) and v and all(
-            isinstance(x, (int, float)) and not isinstance(x, bool) for x in v
-        ):
-            kinds[k] = "list"
-        else:
-            kinds[k] = "other"
+    #   "other"  → last-in-bucket wins (kept for structural fields like
+    #              list-of-dicts e.g. `gpus`, bool flags, strings)
+    def _classify_key(series_local: list, key: str) -> str:
+        for r in series_local:
+            if not isinstance(r, dict):
+                continue
+            v = r.get(key)
+            if v is None:
+                continue
+            if isinstance(v, bool):
+                return "other"
+            if isinstance(v, (int, float)):
+                return "scalar"
+            if isinstance(v, dict):
+                # Need at least ONE leaf to classify as dict-of-numerics.
+                # All values must be numeric.
+                if not v:
+                    continue   # empty dict — keep scanning for a populated tick
+                if all(isinstance(x, (int, float)) and not isinstance(x, bool)
+                       for x in v.values()):
+                    return "dict"
+                return "other"
+            if isinstance(v, list):
+                if not v:
+                    continue   # empty list — keep scanning
+                if all(isinstance(x, (int, float)) and not isinstance(x, bool)
+                       for x in v):
+                    return "list"
+                return "other"
+            return "other"
+        # Entirely empty / null across the whole series — "other" so an
+        # empty value lands in `other_last` and the row stays consistent
+        # with the source.
+        return "other"
+    # Collect every key that appears in ANY sample, not just sample[0].
+    all_keys: set[str] = set()
+    for r in series:
+        if isinstance(r, dict):
+            for k in r.keys():
+                if k not in ("t", "ts"):
+                    all_keys.add(k)
+    kinds: dict[str, str] = {k: _classify_key(series, k) for k in all_keys}
     buckets: dict = {}
     for r in series:
         ts = int(r.get("t") or r.get("ts") or 0)
