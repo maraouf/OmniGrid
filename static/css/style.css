@@ -2644,27 +2644,39 @@ details summary::-webkit-details-marker {
     color: var(--danger);
 }
 
-/* Host-row sparkline modifier — extends the legacy `.spark` chrome to
-   match the width of the stat-bar above it (full column / card width),
-   bumps the height so the trend is legible at a glance, and pairs with
-   a soft area-fill `<path>` for visual weight. Used by every host-row
-   sparkline (mobile-card metric + desktop-table CPU/Mem/Disk cells).
-   Legacy stacks/services rows keep the narrow 80px-max-width variant
-   because they sit alongside an item name, not under a full-width bar. */
-.spark--host {
+/* Full-width sparkline modifier — extends the legacy `.spark` chrome
+   to match the width of the stat-bar above it (full column / card
+   width), bumps the height so the trend is legible at a glance, and
+   pairs with a soft area-fill `<path>` for visual weight. Used by
+   every host-row sparkline AND the Nodes-view per-host CPU / Mem /
+   Disk cards AND the Services-view CPU / Mem cells. `.spark--host`
+   is kept as a back-compat alias; new consumers use `.spark--full`. */
+.spark--host,
+.spark--full {
     max-width: none;
     height: 18px;
     margin-top: var(--s-2);
 }
-.spark--host path.spark-line {
+.spark--host path.spark-line,
+.spark--full path.spark-line {
     stroke-width: 1.5;
     stroke-linejoin: round;
     stroke-linecap: round;
 }
-.spark--host path.spark-area {
+.spark--host path.spark-area,
+.spark--full path.spark-area {
     fill: currentColor;
     fill-opacity: 0.16;
     stroke: none;
+}
+/* Nodes/Services use `<polyline>` (from sparkPoints helper) instead
+   of `<path>` — apply the same stroke / cap polish to those too so
+   width + thickness behave consistently across the fleet. */
+.spark--full polyline,
+.spark--host polyline {
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    stroke-linecap: round;
 }
 
 /* Hosts-tab per-row charts. Each wrapper sets the ``color`` token that

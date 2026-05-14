@@ -1283,9 +1283,17 @@
                 </td>
                 <td class="hidden md:table-cell stat-cell">
                   <template x-if="statsFor(item).has_stats">
-                    <div class="stat-bar" x-bind="statBarBind(statsFor(item).cpu_percent, 'columns.cpu')" :class="[barLevel(statsFor(item).cpu_percent), (!statsLoaded || isStale(statsFor(item))) ? 'stale' : '']" :style="`--w:${statsFor(item).cpu_percent}%`" :title="staleAge(statsFor(item))">
-                      <div class="fill"></div>
-                      <div class="label" x-text="cpuLabel(statsFor(item).cpu_percent)"></div>
+                    <div>
+                      <div class="stat-bar" x-bind="statBarBind(statsFor(item).cpu_percent, 'columns.cpu')" :class="[barLevel(statsFor(item).cpu_percent), (!statsLoaded || isStale(statsFor(item))) ? 'stale' : '']" :style="`--w:${statsFor(item).cpu_percent}%`" :title="staleAge(statsFor(item))">
+                        <div class="fill"></div>
+                        <div class="label" x-text="cpuLabel(statsFor(item).cpu_percent)"></div>
+                      </div>
+                      <svg x-show="sparkPoints(item, 'cpu')" class="spark spark--full" :class="sparkClass(item, 'cpu')"
+                           viewBox="0 0 60 10" preserveAspectRatio="none"
+                           aria-hidden="true" :title="t('tooltips.cpu_24h')">
+                        <polyline fill="none" stroke="currentColor" :points="sparkPoints(item, 'cpu')"></polyline>
+                      </svg>
+                      <div x-show="!sparkPoints(item, 'cpu')" class="collecting-inline" x-text="t('loading.collecting_data')"></div>
                     </div>
                   </template>
                   <template x-if="!statsFor(item).has_stats">
@@ -1300,6 +1308,12 @@
                         <div class="label" x-text="memPercent(item).toFixed(0) + '%'"></div>
                       </div>
                       <div class="stat-sub" x-text="fmtBytes(statsFor(item).mem_usage) + ' / ' + fmtBytes(statsFor(item).mem_limit)"></div>
+                      <svg x-show="sparkPoints(item, 'mem')" class="spark spark--full" :class="sparkClass(item, 'mem')"
+                           viewBox="0 0 60 10" preserveAspectRatio="none"
+                           aria-hidden="true" :title="t('tooltips.mem_24h')">
+                        <polyline fill="none" stroke="currentColor" :points="sparkPoints(item, 'mem')"></polyline>
+                      </svg>
+                      <div x-show="!sparkPoints(item, 'mem')" class="collecting-inline" x-text="t('loading.collecting_data')"></div>
                     </div>
                   </template>
                   <template x-if="!statsFor(item).has_stats">
@@ -1528,10 +1542,10 @@
                    x-show="nodeStats(node.name).cores"
                    x-text="nodeStats(node.name).cores + ' cores'"></div>
               <svg viewBox="0 0 60 10" preserveAspectRatio="none"
-                   class="spark mt-1"
+                   class="spark spark--full"
                    :class="nodeSparkClass(node.name, 'cpu')"
                    x-show="nodeSparkPoints(node.name, 'cpu')">
-                <polyline fill="none" stroke="currentColor" stroke-width="1" :points="nodeSparkPoints(node.name, 'cpu')"></polyline>
+                <polyline fill="none" stroke="currentColor" :points="nodeSparkPoints(node.name, 'cpu')"></polyline>
               </svg>
             </div>
 
@@ -1562,10 +1576,10 @@
                 <div class="fill"></div>
               </div>
               <svg viewBox="0 0 60 10" preserveAspectRatio="none"
-                   class="spark mt-1"
+                   class="spark spark--full"
                    :class="nodeSparkClass(node.name, 'mem')"
                    x-show="nodeSparkPoints(node.name, 'mem')">
-                <polyline fill="none" stroke="currentColor" stroke-width="1" :points="nodeSparkPoints(node.name, 'mem')"></polyline>
+                <polyline fill="none" stroke="currentColor" :points="nodeSparkPoints(node.name, 'mem')"></polyline>
               </svg>
             </div>
 
