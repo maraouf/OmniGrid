@@ -1,5 +1,6 @@
       <div x-show="statsTab==='dashboard'" class="space-y-4">
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
+                 :aria-busy="_loadBusy.stats_overview === true ? 'true' : 'false'">
           <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
             <div>
               <div class="flex items-center gap-2 mb-2">
@@ -29,9 +30,15 @@
                style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))">
 
             <!-- Users -->
-            <a href="/admin/users"
-               @click.prevent="view='admin'; openAdminTab('users')"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='admin'; openAdminTab('users')"
+               class="stats-card"
+               :aria-label="t('stats.cards.users.label') + ': '
+                            + t('stats.cards.users.sub', {
+                                active:   (statsOverview.users && statsOverview.users.active) || 0,
+                                disabled: Math.max(0, ((statsOverview.users && statsOverview.users.total) || 0) - ((statsOverview.users && statsOverview.users.active) || 0)),
+                                admins:   (statsOverview.users && statsOverview.users.admins) || 0
+                              }).replace(/ · /g, ', ')">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-users"/></svg>
               </div>
@@ -54,12 +61,12 @@
                        admins: (statsOverview.users && statsOverview.users.admins) || 0
                      })"></div>
               </div>
-            </a>
+            </button>
 
             <!-- Sessions -->
-            <a href="/admin/sessions"
-               @click.prevent="view='admin'; openAdminTab('sessions')"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='admin'; openAdminTab('sessions')"
+               class="stats-card">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-monitor"/></svg>
               </div>
@@ -68,12 +75,17 @@
                 <div class="stats-card-value" x-text="(statsOverview.sessions && statsOverview.sessions.total) || 0"></div>
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.sessions.sub')"></div>
               </div>
-            </a>
+            </button>
 
             <!-- Providers (enabled / disabled split) -->
-            <a href="/admin/host_stats"
-               @click.prevent="view='admin'; openAdminTab('host_stats')"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='admin'; openAdminTab('host_stats')"
+               class="stats-card"
+               :aria-label="t('stats.cards.providers.label') + ': '
+                            + t('stats.cards.providers.sub', {
+                                enabled:  ((statsOverview.providers && statsOverview.providers.enabled)  || []).length,
+                                disabled: ((statsOverview.providers && statsOverview.providers.disabled) || []).length
+                              }).replace(/ · /g, ', ')">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/></svg>
               </div>
@@ -94,12 +106,12 @@
                   </template>
                 </div>
               </div>
-            </a>
+            </button>
 
             <!-- Hosts -->
-            <a href="/admin/hosts"
-               @click.prevent="view='admin'; openAdminTab('hosts')"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='admin'; openAdminTab('hosts')"
+               class="stats-card">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/></svg>
               </div>
@@ -111,12 +123,12 @@
                        enabled: (statsOverview.hosts && statsOverview.hosts.enabled) || 0
                      })"></div>
               </div>
-            </a>
+            </button>
 
             <!-- Host groups -->
-            <a href="/admin/host_groups"
-               @click.prevent="view='admin'; openAdminTab('host_groups')"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='admin'; openAdminTab('host_groups')"
+               class="stats-card">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
               </div>
@@ -125,12 +137,12 @@
                 <div class="stats-card-value" x-text="(statsOverview.host_groups && statsOverview.host_groups.total) || 0"></div>
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.host_groups.sub')"></div>
               </div>
-            </a>
+            </button>
 
             <!-- Assets -->
-            <a href="/admin/assets"
-               @click.prevent="view='admin'; openAdminTab('assets')"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='admin'; openAdminTab('assets')"
+               class="stats-card">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-package"/></svg>
               </div>
@@ -139,12 +151,12 @@
                 <div class="stats-card-value" x-text="(statsOverview.assets && statsOverview.assets.total) || 0"></div>
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.assets.sub')"></div>
               </div>
-            </a>
+            </button>
 
             <!-- Nodes -->
-            <a href="/nodes"
-               @click.prevent="view='nodes'"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='nodes'"
+               class="stats-card">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cpu"/></svg>
               </div>
@@ -153,12 +165,12 @@
                 <div class="stats-card-value" x-text="(statsOverview.nodes && statsOverview.nodes.total) || 0"></div>
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.nodes.sub')"></div>
               </div>
-            </a>
+            </button>
 
             <!-- Stacks -->
-            <a href="/stacks"
-               @click.prevent="view='stacks'"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='stacks'"
+               class="stats-card">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
               </div>
@@ -167,12 +179,12 @@
                 <div class="stats-card-value" x-text="(statsOverview.stacks && statsOverview.stacks.total) || 0"></div>
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.stacks.sub')"></div>
               </div>
-            </a>
+            </button>
 
             <!-- Services -->
-            <a href="/services"
-               @click.prevent="view='services'"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='services'"
+               class="stats-card">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-box"/></svg>
               </div>
@@ -181,12 +193,12 @@
                 <div class="stats-card-value" x-text="(statsOverview.services && statsOverview.services.total) || 0"></div>
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.services.sub')"></div>
               </div>
-            </a>
+            </button>
 
             <!-- Containers (replicas of services + standalone containers) -->
-            <a href="/stacks"
-               @click.prevent="view='stacks'"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='stacks'"
+               class="stats-card">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/></svg>
               </div>
@@ -199,12 +211,12 @@
                        standalone: (statsOverview.containers && statsOverview.containers.standalone) || 0
                      })"></div>
               </div>
-            </a>
+            </button>
 
             <!-- Schedules -->
-            <a href="/admin/schedules"
-               @click.prevent="view='admin'; openAdminTab('schedules')"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='admin'; openAdminTab('schedules')"
+               class="stats-card">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-calendar"/></svg>
               </div>
@@ -226,12 +238,12 @@
                        disabled: Math.max(0, ((statsOverview.schedules && statsOverview.schedules.total) || 0) - ((statsOverview.schedules && statsOverview.schedules.enabled) || 0))
                      })"></div>
               </div>
-            </a>
+            </button>
 
             <!-- Backups -->
-            <a href="/admin/backups"
-               @click.prevent="view='admin'; openAdminTab('backups')"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='admin'; openAdminTab('backups')"
+               class="stats-card">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/></svg>
               </div>
@@ -240,12 +252,12 @@
                 <div class="stats-card-value" x-text="(statsOverview.backups && statsOverview.backups.total) || 0"></div>
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.backups.sub')"></div>
               </div>
-            </a>
+            </button>
 
             <!-- Config backups -->
-            <a href="/admin/config_backup"
-               @click.prevent="view='admin'; openAdminTab('config_backup')"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='admin'; openAdminTab('config_backup')"
+               class="stats-card">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-save"/></svg>
               </div>
@@ -254,12 +266,12 @@
                 <div class="stats-card-value" x-text="(statsOverview.config_backups && statsOverview.config_backups.total) || 0"></div>
                 <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.config_backups.sub')"></div>
               </div>
-            </a>
+            </button>
 
             <!-- Tunables -->
-            <a href="/admin/config"
-               @click.prevent="view='admin'; openAdminTab('config')"
-               class="stats-card no-underline">
+            <button type="button"
+               @click="view='admin'; openAdminTab('config')"
+               class="stats-card">
               <div class="stats-card-icon">
                 <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
               </div>
@@ -271,7 +283,7 @@
                        overridden: (statsOverview.tunables && statsOverview.tunables.overridden) || 0
                      })"></div>
               </div>
-            </a>
+            </button>
 
           </div>
         </section>

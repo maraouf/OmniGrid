@@ -1,5 +1,6 @@
       <div x-show="statsTab==='ai_cost'" class="space-y-4">
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
+                 :aria-busy="_loadBusy.stats_ai_cost === true ? 'true' : 'false'">
           <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
             <div>
               <div class="flex items-center gap-2 mb-2">
@@ -200,6 +201,7 @@
                       <button type="button"
                               @click="_runWithBusy('stats_ai_cost', () => loadStatsAiCost(opt))"
                               :disabled="_loadBusy.stats_ai_cost === true"
+                              :aria-pressed="(statsAiCost.range || statsAiCostRange) === opt ? 'true' : 'false'"
                               :class="(statsAiCost.range || statsAiCostRange) === opt ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                               class="px-2 py-0.5 rounded fs-xs font-medium transition"
                               x-text="t('stats.range.range_' + opt)"></button>

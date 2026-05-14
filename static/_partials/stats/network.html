@@ -1,5 +1,6 @@
       <div x-show="statsTab==='network'" class="space-y-4">
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
+                 :aria-busy="_loadBusy.stats_network === true ? 'true' : 'false'">
           <div class="p-5 border-b border-[var(--border)] flex justify-between items-center flex-wrap gap-3">
             <div>
               <div class="flex items-center gap-2 mb-2">
@@ -14,11 +15,14 @@
                    refetches triggered by chip click. Range pickers
                    across Stats charts MUST show a loading indicator on
                    click per operator preference. -->
-              <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
+              <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
+                   role="group"
+                   :aria-label="t('stats.range.aria_label')">
                 <template x-for="opt in [[1,'range_1h'],[24,'range_24h'],[168,'range_7d'],[720,'range_30d'],[2160,'range_90d']]" :key="opt[0]">
                   <button type="button"
                           @click="_runWithBusy('stats_network', () => loadStatsNetwork(opt[0]))"
                           :disabled="_loadBusy.stats_network === true"
+                          :aria-pressed="statsNetworkHours === opt[0] ? 'true' : 'false'"
                           :class="statsNetworkHours === opt[0] ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                           class="px-2 py-0.5 rounded fs-xs font-medium transition"
                           x-text="t('stats.range.' + opt[1])"></button>

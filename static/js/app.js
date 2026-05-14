@@ -20225,6 +20225,28 @@ function app() {
         r2: (r2 !== null) ? r2.toFixed(3) : '—',
         samples: (sampleCount !== null) ? sampleCount : '—',
       }));
+      // WCAG 1.1.1 data alternative — a concise sr-only summary the
+      // screen reader announces alongside the chart's aria-label. AT
+      // users get the numeric current / trend / exhaustion facts that
+      // sighted users read from the chart. Pre-fix the chart was
+      // labelled "X disk usage projection" but had no data alternative
+      // — visually-impaired operators had to query separately.
+      const srSummaryParts = [];
+      if (currentPct !== null) {
+        srSummaryParts.push(t('ai_sidebar.disk_projection.sr_current', { pct: currentPct })
+                            || ('Current usage ' + currentPct + '%'));
+      }
+      if (trendLabel) {
+        srSummaryParts.push(t('ai_sidebar.disk_projection.sr_trend', { trend: trendLabel })
+                            || ('Trend: ' + trendLabel));
+      }
+      if (exhaustionLabel) {
+        srSummaryParts.push(t('ai_sidebar.disk_projection.sr_exhaustion', { msg: exhaustionLabel })
+                            || ('Projection: ' + exhaustionLabel));
+      }
+      const srSummary = srSummaryParts.length
+        ? ('<p class="sr-only">' + esc(srSummaryParts.join('. ')) + '.</p>')
+        : '';
       return (
         '<div class="ai-resp-chart-header">'
         + '<span class="ai-resp-chart-title">' + hidEsc + '</span>'
@@ -20234,7 +20256,7 @@ function app() {
         + ' title="' + confidenceTitle + '">'
         + esc(confLabel) + '</span>'
         + '</div>'
-        + '<div class="ai-resp-chart-body">' + svg + '</div>'
+        + '<div class="ai-resp-chart-body">' + svg + srSummary + '</div>'
         + summaryRow
       );
     },
