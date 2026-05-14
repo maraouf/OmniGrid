@@ -7961,9 +7961,12 @@
                  drawer's panel (debug_panel_enabled setting). Surfaces
                  the cached _cache["nodes_info"] entry + items-on-node
                  count + a diagnostics list explaining why host CPU /
-                 Mem / Disk bars are empty (no provider data, etc.). -->
+                 Mem / Disk bars are empty (no provider data, etc.).
+                 `--compact` modifier shrinks the column min + box
+                 height so two panes fit per row in the 460px node
+                 drawer. -->
             <template x-if="me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false)">
-              <section class="host-debug-panel">
+              <section class="host-debug-panel host-debug-panel--compact">
                 <button type="button"
                         class="host-debug-toggle host-debug-toggle--accent"
                         @click="toggleSubjectDebug('node', drawerNode.name)"
@@ -7998,7 +8001,7 @@
                         </div>
                       </div>
                       <div class="host-debug-grid">
-                        <section class="host-debug-box host-debug-box--wide"
+                        <section class="host-debug-box"
                                  x-show="(subjectsDebug[subjectDebugKey('node', drawerNode.name)].diagnostics || []).length">
                           <header class="host-debug-box-head">
                             <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.diagnostics')"></span>
@@ -8009,7 +8012,7 @@
                             </template>
                           </ul>
                         </section>
-                        <section class="host-debug-box host-debug-box--wide">
+                        <section class="host-debug-box">
                           <header class="host-debug-box-head">
                             <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.items_on_node')"></span>
                             <button type="button" class="host-debug-copy"
@@ -8021,7 +8024,7 @@
                           </header>
                           <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(subjectsDebug[subjectDebugKey('node', drawerNode.name)].items_on_node || {})"></pre>
                         </section>
-                        <section class="host-debug-box host-debug-box--wide">
+                        <section class="host-debug-box">
                           <header class="host-debug-box-head">
                             <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.nodes_info')"></span>
                             <button type="button" class="host-debug-copy"
@@ -8337,9 +8340,11 @@
                record + live_stats entry + per-item stats_samples
                diagnostic so the operator can see WHY drawer
                sparklines / bars are showing "Collecting data" /
-               empty without grepping logs. -->
+               empty without grepping logs. `--compact` modifier
+               shrinks the column min + box height so two panes
+               fit per row in the 500px item drawer. -->
           <template x-if="me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false) && drawerItem.raw_id">
-            <section class="host-debug-panel">
+            <section class="host-debug-panel host-debug-panel--compact">
               <button type="button"
                       class="host-debug-toggle host-debug-toggle--accent"
                       @click="toggleSubjectDebug('item', drawerItem.raw_id)"
@@ -8375,7 +8380,7 @@
                       </div>
                     </div>
                     <div class="host-debug-grid">
-                      <section class="host-debug-box host-debug-box--wide"
+                      <section class="host-debug-box"
                                x-show="(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].diagnostics || []).length">
                         <header class="host-debug-box-head">
                           <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.diagnostics')"></span>
@@ -8386,7 +8391,7 @@
                           </template>
                         </ul>
                       </section>
-                      <section class="host-debug-box host-debug-box--wide"
+                      <section class="host-debug-box"
                                x-show="subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].samples_in_window">
                         <header class="host-debug-box-head">
                           <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.samples_in_window')"></span>
@@ -8399,7 +8404,7 @@
                         </header>
                         <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].samples_in_window)"></pre>
                       </section>
-                      <section class="host-debug-box host-debug-box--wide"
+                      <section class="host-debug-box"
                                x-show="subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].live_stats && Object.keys(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].live_stats).length">
                         <header class="host-debug-box-head">
                           <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.live_stats')"></span>
@@ -8412,7 +8417,7 @@
                         </header>
                         <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].live_stats)"></pre>
                       </section>
-                      <section class="host-debug-box host-debug-box--wide">
+                      <section class="host-debug-box">
                         <header class="host-debug-box-head">
                           <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.cached_record')"></span>
                           <button type="button" class="host-debug-copy"
@@ -8424,7 +8429,7 @@
                         </header>
                         <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].record || {})"></pre>
                       </section>
-                      <section class="host-debug-box host-debug-box--wide"
+                      <section class="host-debug-box"
                                x-show="subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].stack">
                         <header class="host-debug-box-head">
                           <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.stack_rollup')"></span>
