@@ -395,11 +395,27 @@ def list_snapshots() -> list[dict]:
                 "name":  entry.name,
                 "size":  int(st.st_size),
                 "mtime": int(st.st_mtime),
+                "version": _peek_snapshot_version(entry.path),
             })
     except FileNotFoundError:
         return []
     out.sort(key=lambda e: e["mtime"], reverse=True)
     return out
+
+
+def _peek_snapshot_version(path: str):
+    """Read just the `app_version` header out of a saved snapshot
+    without parsing the whole file. Mirrors `logic/backups.py`'s
+    `_read_metadata_version` shape so the SPA's "Produced by" column
+    renders the same way for both flavours of backup. Returns None on
+    any failure — the row still renders, just with a `—` placeholder."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        v = data.get("app_version")
+        return str(v) if v else None
+    except Exception:
+        return None
 
 
 def read_snapshot(name: str) -> dict:

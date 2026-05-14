@@ -184,24 +184,30 @@
             <div x-text="t('admin.config_backup.saved_empty')"></div>
           </div>
 
-          <!-- Saved snapshots table -->
+          <!-- Saved snapshots table — column shape and value styling
+               matches Admin → Backups for cross-tab consistency:
+               thead chrome on a `--surface-2` band, value cells in
+               `mono fs-xs text-[var(--text-dim)]`, plus a "Produced
+               by" column carrying the snapshot's baked-in app_version. -->
           <div x-show="configBackupSaved.length" class="overflow-x-auto scrollbar">
             <table class="w-full fs-sm">
-              <thead>
-                <tr class="text-[var(--text-dim)] fs-xs uppercase">
-                  <th class="text-start py-2 px-2" x-text="t('admin.config_backup.col_name')"></th>
-                  <th class="text-start py-2 px-2" x-text="t('admin.config_backup.col_size')"></th>
-                  <th class="text-start py-2 px-2" x-text="t('admin.config_backup.col_modified')"></th>
-                  <th class="text-end py-2 px-2"></th>
+              <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+                <tr>
+                  <th class="text-start px-4 py-2" x-text="t('columns.name')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.size')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.created')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.produced_by')"></th>
+                  <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
                 </tr>
               </thead>
               <tbody>
                 <template x-for="f in configBackupSaved" :key="f.name">
                   <tr class="border-t border-[var(--border)]">
-                    <td class="py-2 px-2 mono break-all" x-text="f.name"></td>
-                    <td class="py-2 px-2 mono fs-xs" x-text="fmtBytes(f.size)"></td>
-                    <td class="py-2 px-2 fs-xs" x-text="fmtDate(f.mtime)"></td>
-                    <td class="py-2 px-2 text-end">
+                    <td class="px-4 py-2 mono fs-xs" x-text="f.name"></td>
+                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtBytes(f.size)"></td>
+                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtDate(f.mtime)"></td>
+                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="f.version || '—'"></td>
+                    <td class="px-4 py-2 text-end">
                       <!-- Action-button row — same pattern as Admin →
                            Users (`.user-action-btn` 26×26 icon-only
                            buttons + `.user-action-sep` divider before
