@@ -525,7 +525,8 @@
       "range_24h": "24h",
       "range_7d": "7d",
       "range_30d": "30d",
-      "range_90d": "90d"
+      "range_90d": "90d",
+      "aria_label": "Time range"
     }
   },
   "profile": {
@@ -2253,7 +2254,10 @@
     "disk_projection": {
       "aria_label": "{host} disk usage projection",
       "band_high_95": "High (95% upper)",
-      "band_low_95": "Low (95% lower)"
+      "band_low_95": "Low (95% lower)",
+      "sr_current": "Current usage {pct}%",
+      "sr_trend": "Trend: {trend}",
+      "sr_exhaustion": "Projection: {msg}"
     }
   },
   "ai_memory": {
