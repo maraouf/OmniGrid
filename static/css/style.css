@@ -4516,24 +4516,33 @@ body.ai-pinned > .og-app-shell--ai-pinned {
    are narrow because their labels are shorter. */
 .hosts-row-grid {
     display: grid;
+    /* Baseline — CPU / Memory / Disk all equal at 180px. Iterate from
+       here. Columns in order:
+         (1) 26px   — checkbox + chevron + status dot
+         (2) name   — flex column for hostname + provider chips
+         (3) 180px  — CPU
+         (4) 180px  — Memory
+         (5) 180px  — Disk
+         (6) 1fr    — Providers
+         (7) 80px   — Uptime
+         (8) 60px   — Cores
+         (9) 72px   — Arch
+         (10) 84px  — Kernel
+         (11) 40px  — External link */
     grid-template-columns:
         26px
         minmax(280px, 1.4fr)
-        110px
-        260px
-        90px
+        180px
+        180px
+        180px
         minmax(140px, 1fr)
         80px
         60px
         72px
         84px
         40px;
-    /* gap MUST match Tailwind's `gap-3` (12px) — the original inline
-       class used `gap-3` and the visual rhythm depends on that exact
-       width. OmniGrid's token system has `--s-3: 6px` (NOT 12px) — it
-       was easy to reach for the same-numbered token but that halves
-       the gap and crams every column. `--s-5` is the 12px token that
-       matches Tailwind's `gap-3` scale. */
+    /* gap MUST match Tailwind's `gap-3` (12px). OmniGrid's `--s-5`
+       is the 12px token; `--s-3` is 6px (don't confuse them). */
     gap: var(--s-5);
 }
 
