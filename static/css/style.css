@@ -2644,6 +2644,29 @@ details summary::-webkit-details-marker {
     color: var(--danger);
 }
 
+/* Host-row sparkline modifier — extends the legacy `.spark` chrome to
+   match the width of the stat-bar above it (full column / card width),
+   bumps the height so the trend is legible at a glance, and pairs with
+   a soft area-fill `<path>` for visual weight. Used by every host-row
+   sparkline (mobile-card metric + desktop-table CPU/Mem/Disk cells).
+   Legacy stacks/services rows keep the narrow 80px-max-width variant
+   because they sit alongside an item name, not under a full-width bar. */
+.spark--host {
+    max-width: none;
+    height: 18px;
+    margin-top: var(--s-2);
+}
+.spark--host path.spark-line {
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+.spark--host path.spark-area {
+    fill: currentColor;
+    fill-opacity: 0.16;
+    stroke: none;
+}
+
 /* Hosts-tab per-row charts. Each wrapper sets the ``color`` token that
    the nested SVG inherits — the <path>/<polyline>/<line> elements
    reference ``currentColor`` so one swatch per metric cleanly theme-
@@ -4577,11 +4600,25 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 }
 
 .host-mobile-card-metric .value {
-    display: block;
+    /* Inline-block so the sibling `.host-drift-chip` flows on the same
+       line as the percent label instead of wrapping below — previously
+       `display: block` caused the ▲/▼/━ chip to drop to its own row.
+       Vertical-align: baseline keeps the chip's mid-line aligned with
+       the digits' baseline. */
+    display: inline-block;
+    vertical-align: baseline;
     font-size: var(--fs-sm);
     font-family: var(--font-mono);
     color: var(--text-dim);
     margin-bottom: 4px;
+}
+/* Value-line wrapper — when the value + drift chip need to share a
+   row, the row breaks AFTER the chip so the stat-bar still starts on
+   its own line. Achieved via a clearfix-style `display: block` reset
+   on the stat-bar / spark below. */
+.host-mobile-card-metric > .stat-bar,
+.host-mobile-card-metric > .spark {
+    clear: both;
 }
 
 /* Drift-from-baseline chip (IDEA-15). Renders a small ▲/▼/━ glyph
@@ -4594,14 +4631,22 @@ body.ai-pinned > .og-app-shell--ai-pinned {
    numeric percent for visual weight — drift is contextual signal,
    not the headline. */
 .host-drift-chip {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     margin-inline-start: var(--s-2);
-    padding: 0 var(--s-1);
-    border-radius: var(--r-sm);
-    font-size: var(--fs-3xs);
-    line-height: 1.4;
-    font-family: var(--font-mono);
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: var(--fs-2xs);
+    line-height: 1;
+    font-weight: 600;
+    font-family: var(--font-sans);
     vertical-align: middle;
+    /* Min-width keeps the three single-glyph chips (▲ ▼ ━) the same
+       visual size — without it ▼ looks narrower than ▲ and the chip
+       row gets visually noisy. */
+    min-width: 18px;
+    height: 16px;
 }
 .host-drift-chip.drift-above {
     color: var(--danger);

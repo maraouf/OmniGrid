@@ -15615,6 +15615,90 @@ function app() {
       if (!sawNonZero) return '';
       return out.join(' ');
     },
+    // Area-fill companion for `hostInlineSparkline`. Returns the same
+    // line path closed to the baseline so the SVG can render a soft
+    // tinted area UNDER the trend line — visually weighty enough to
+    // read at a glance even when the stroke is thin. Closes per gap-
+    // free run so a NaN-interrupted series doesn't smear the fill
+    // across the gap. Same viewBox geometry as `hostInlineSparkline`
+    // (W=100, H=16, top/bottom padding=1 each).
+    hostInlineSparklineArea(h, metric) {
+      if (!h) return '';
+      const W = 100, H = 16;
+      const PAD_T = 1, PAD_B = 1;
+      const usableH = H - PAD_T - PAD_B;
+      const baseY = H - PAD_B; // 15
+      const FIELD_BNE = { cpu: 'cpu', memory: 'mp', disk: 'dp' };
+      const beszelKey = this.hostHistoryKey ? this.hostHistoryKey(h) : (h.beszel_id || h.id || '');
+      let series = null;
+      let pickValue = null;
+      if (beszelKey) {
+        const e = this.hostHistory && this.hostHistory[beszelKey];
+        const f = FIELD_BNE[metric];
+        if (e && Array.isArray(e.series) && e.series.length >= 2 && f) {
+          series = e.series;
+          pickValue = (r) => Number(r[f]);
+        }
+      }
+      if (!series) {
+        const snmpEntry = this.hostSnmpHistory && this.hostSnmpHistory[h.id];
+        const points = snmpEntry && Array.isArray(snmpEntry.points) ? snmpEntry.points : null;
+        if (points && points.length >= 2) {
+          if (metric === 'cpu') {
+            series = points; pickValue = (p) => Number(p.cpu_used_pct);
+          } else if (metric === 'memory') {
+            series = points;
+            pickValue = (p) => {
+              const tot = Number(p.mem_total) || 0;
+              const used = Number(p.mem_used) || 0;
+              return tot > 0 ? (used / tot) * 100 : NaN;
+            };
+          } else if (metric === 'disk') {
+            series = points;
+            pickValue = (p) => {
+              const tot = Number(p.disk_total) || 0;
+              const used = Number(p.disk_used) || 0;
+              return tot > 0 ? (used / tot) * 100 : NaN;
+            };
+          }
+        }
+      }
+      if (!series || !pickValue) return '';
+      const n = series.length;
+      // Build run-segments: each gap-free run becomes its own closed
+      // sub-path. Empty segments are skipped — gappy series end up as
+      // disconnected filled regions rather than one smeared polygon.
+      const subpaths = [];
+      let current = null; // { firstX, points: [[x,y], ...] }
+      let sawNonZero = false;
+      const flush = () => {
+        if (!current || current.points.length < 2) { current = null; return; }
+        const first = current.points[0];
+        const last = current.points[current.points.length - 1];
+        const parts = [];
+        parts.push(`M${first[0].toFixed(1)},${baseY.toFixed(1)}`);
+        for (const [x, y] of current.points) {
+          parts.push(`L${x.toFixed(1)},${y.toFixed(1)}`);
+        }
+        parts.push(`L${last[0].toFixed(1)},${baseY.toFixed(1)}`);
+        parts.push('Z');
+        subpaths.push(parts.join(' '));
+        current = null;
+      };
+      for (let i = 0; i < n; i++) {
+        const v = pickValue(series[i]);
+        if (!Number.isFinite(v)) { flush(); continue; }
+        if (v > 0) sawNonZero = true;
+        const clamped = Math.max(0, Math.min(100, v));
+        const x = (i / (n - 1)) * W;
+        const y = PAD_T + usableH - (clamped / 100) * usableH;
+        if (!current) current = { firstX: x, points: [] };
+        current.points.push([x, y]);
+      }
+      flush();
+      if (!sawNonZero) return '';
+      return subpaths.join(' ');
+    },
     // True when the host has at least 2 data points for `metric` so the
     // sparkline has something to draw. Drives the SVG's x-show gate so
     // dead / unloaded rows don't render an empty placeholder.
