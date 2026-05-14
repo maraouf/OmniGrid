@@ -1100,10 +1100,10 @@
                           <div class="fill"></div>
                           <div class="label" x-text="cpuLabel(statsFor(item).cpu_percent)"></div>
                         </div>
-                        <svg x-show="sparkPoints(item, 'cpu')" class="spark" :class="sparkClass(item, 'cpu')"
+                        <svg x-show="sparkPoints(item, 'cpu')" class="spark spark--full" :class="sparkClass(item, 'cpu')"
                              viewBox="0 0 60 10" preserveAspectRatio="none"
                              aria-hidden="true" :title="t('tooltips.cpu_24h')">
-                          <polyline fill="none" stroke="currentColor" stroke-width="1" :points="sparkPoints(item, 'cpu')"></polyline>
+                          <polyline fill="none" stroke="currentColor" :points="sparkPoints(item, 'cpu')"></polyline>
                         </svg>
                         <div x-show="!sparkPoints(item, 'cpu')" class="collecting-inline" x-text="t('loading.collecting_data')"></div>
                       </div>
@@ -1120,10 +1120,10 @@
                           <div class="label" x-text="memPercent(item).toFixed(0) + '%'"></div>
                         </div>
                         <div class="stat-sub" x-text="fmtBytes(statsFor(item).mem_usage) + ' / ' + fmtBytes(statsFor(item).mem_limit)"></div>
-                        <svg x-show="sparkPoints(item, 'mem')" class="spark" :class="sparkClass(item, 'mem')"
+                        <svg x-show="sparkPoints(item, 'mem')" class="spark spark--full" :class="sparkClass(item, 'mem')"
                              viewBox="0 0 60 10" preserveAspectRatio="none"
                              aria-hidden="true" :title="t('tooltips.mem_24h')">
-                          <polyline fill="none" stroke="currentColor" stroke-width="1" :points="sparkPoints(item, 'mem')"></polyline>
+                          <polyline fill="none" stroke="currentColor" :points="sparkPoints(item, 'mem')"></polyline>
                         </svg>
                         <div x-show="!sparkPoints(item, 'mem')" class="collecting-inline" x-text="t('loading.collecting_data')"></div>
                       </div>
