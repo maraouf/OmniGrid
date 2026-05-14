@@ -7984,14 +7984,28 @@ function app() {
       });
       let lo = Infinity, hi = -Infinity;
       for (const v of vals) { if (v < lo) lo = v; if (v > hi) hi = v; }
-      // Empty / all-zero series — skip rendering. For 'disk', a backend
-      // that hasn't yet persisted size_root (pre-migration deploy)
-      // returns 0 for every row → flat-zero spark which renders as an
-      // invisible hairline. Return empty string so the `<svg>` x-show
-      // gate hides the sparkline cleanly.
-      if (!Number.isFinite(lo) || hi <= 0) return '';
-      // Keep the sparkline visually centred when the signal is flat.
-      if (hi - lo < 0.5) { lo = Math.max(0, lo - 0.5); hi = lo + 1; }
+      // Empty series → bail (no samples to plot). Disk-specific: when
+      // EVERY sample reports size_root=0 we treat it as "no data" so
+      // pre-migration deploys (where size_root wasn't persisted yet)
+      // hide cleanly instead of rendering an invisible flat-zero
+      // hairline. For CPU / mem an all-zero series is meaningful —
+      // an idle container legitimately reports cpu_percent=0 and
+      // mem_usage may stay flat under the noise floor — so we render
+      // the truthful flat line at the baseline rather than dropping
+      // to the "Collecting data" hint (the data IS being collected,
+      // it's just all zeros).
+      if (!Number.isFinite(lo)) return '';
+      if (key === 'disk' && hi <= 0) return '';
+      // Keep the sparkline visually centred when the signal is flat —
+      // map the flat value to the MIDPOINT of the box (not the
+      // bottom edge) so an idle 0% CPU renders a visible line
+      // instead of being half-clipped by the viewBox boundary. Same
+      // fix `nodeSparkPoints` carries.
+      if (hi - lo < 0.5) {
+        const mid = (lo + hi) / 2;
+        lo = mid - 1;
+        hi = mid + 1;
+      }
       const step = W / (vals.length - 1);
       return vals.map((v, i) => {
         const x = (i * step).toFixed(1);
