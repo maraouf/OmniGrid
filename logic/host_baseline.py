@@ -77,7 +77,7 @@ def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list
     values dict ready for `_baseline_for` to consume.
     """
     out: dict[str, list[float]] = {m: [] for m in METRICS}
-    # CPU / mem / disk — host_metrics_samples (NE + SNMP write here).
+    # CPU / mem / disk — node-exporter writes to host_metrics_samples.
     try:
         rows = c.execute(
             "SELECT cpu_percent, mem_used, mem_total, disk_used, disk_total "
@@ -97,6 +97,50 @@ def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list
                 out["disk_pct"].append(float(du) / float(dt) * 100.0)
     except Exception:
         pass
+    # Same metrics — every per-provider sampler writes to its OWN
+    # table (host_beszel_samples / host_pulse_samples /
+    # host_webmin_samples / host_snmp_samples) because each carries
+    # provider-specific extras (Beszel: load + temps + GPUs + swap;
+    # SNMP: printer page count + battery temp; etc.) that would
+    # bloat host_metrics_samples. Hosts with ONLY a provider that
+    # writes to its own table — Beszel-only, Pulse-only, Webmin-
+    # only, SNMP-only — have no row in host_metrics_samples, so a
+    # baseline computed only from that table would never form for
+    # them and the SPA would never render the ▲/▼/━ drift chip. The
+    # CPU / mem / disk shape is identical across the four tables
+    # (`cpu_percent` + `mem_used/total` + `disk_used/total`; SNMP
+    # uses `cpu_used_pct` instead of `cpu_percent` but the rest
+    # matches), so the merged baseline naturally represents the
+    # union of every provider's samples.
+    _provider_tables = (
+        ("host_beszel_samples", "cpu_percent"),
+        ("host_pulse_samples",  "cpu_percent"),
+        ("host_webmin_samples", "cpu_percent"),
+        ("host_snmp_samples",   "cpu_used_pct"),
+    )
+    for tbl, cpu_col in _provider_tables:
+        try:
+            rows = c.execute(
+                f"SELECT {cpu_col}, mem_used, mem_total, disk_used, disk_total "
+                f"  FROM {tbl} "
+                f" WHERE host_id = ? AND ts >= ?",
+                (host_id, since_ts),
+            ).fetchall()
+            for r in rows:
+                cpu = r[0]
+                if cpu is not None:
+                    out["cpu_pct"].append(float(cpu))
+                mu, mt = r[1], r[2]
+                if mu is not None and mt and mt > 0:
+                    out["mem_pct"].append(float(mu) / float(mt) * 100.0)
+                du, dt = r[3], r[4]
+                if du is not None and dt and dt > 0:
+                    out["disk_pct"].append(float(du) / float(dt) * 100.0)
+        except Exception:
+            # Table may not exist yet on fresh deploys / sampler
+            # never ran — skip silently so the other providers
+            # still contribute.
+            pass
     # Ping RTT — ping_samples carries `rtt_ms` per probe.
     try:
         rows = c.execute(
