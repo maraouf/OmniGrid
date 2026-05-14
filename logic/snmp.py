@@ -970,9 +970,15 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
                 out["host_mem_avail"] = free_sum
                 out["host_mem_percent"] = (used_sum / total * 100.0) if total else 0.0
     # ---- Cisco CPU% (mean across cpmCPUTotal5sec entries) -----------
+    # _coerce_int(None) returns 0 — without an explicit "value present"
+    # check, a vendor that returns SOME cisco_cpu OIDs but not the
+    # cpmCPUTotal5sec leaves yields would coerce to 0 and produce a
+    # bogus "0% CPU" entry. We filter to entries that pysnmp actually
+    # returned (not just zero defaults) by inspecting the raw value
+    # BEFORE coercion.
     cpu_walk = walks.get("cisco_cpu") or {}
     if cpu_walk and existing.get("host_cpu_percent") is None:
-        loads = [_coerce_int(v) for v in cpu_walk.values()]
+        loads = [_coerce_int(v) for v in cpu_walk.values() if v is not None]
         loads = [n for n in loads if 0 <= n <= 100]
         if loads:
             out["host_cpu_percent"] = float(sum(loads)) / len(loads)
@@ -1053,9 +1059,19 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         # poll", so the snmpd's accounting interval matters; net-snmp
         # uses 60s by default. Operators wanting tighter granularity
         # configure shorter intervals on the agent side.
-        cpu_idle = _coerce_int(ucd_mem.get(_OID_UCD_SS_CPU_IDLE))
-        if 0 <= cpu_idle <= 100 and existing.get("host_cpu_percent") is None:
-            out["host_cpu_percent"] = float(max(0, min(100, 100 - cpu_idle)))
+        #
+        # Gate on EXPLICIT OID presence — without it, `_coerce_int(None)`
+        # returns 0, the `0 <= 0 <= 100` check passes, and we publish
+        # `host_cpu_percent = 100 - 0 = 100`. Devices that respond to
+        # parts of the UCD subtree (memory) but not ssCpuIdle (e.g. APC
+        # NMC cards, some embedded SNMP stacks) would then have a
+        # spurious 100% CPU stamped onto the row — which gets persisted
+        # into the snapshot and locks the host card's CPU bar at full
+        # red even after later probes correctly return nothing.
+        if _OID_UCD_SS_CPU_IDLE in ucd_mem and existing.get("host_cpu_percent") is None:
+            cpu_idle = _coerce_int(ucd_mem.get(_OID_UCD_SS_CPU_IDLE))
+            if 0 <= cpu_idle <= 100:
+                out["host_cpu_percent"] = float(max(0, min(100, 100 - cpu_idle)))
     # laLoadInt walk — three rows × 100 (centi-load).
     ucd_load = walks.get("ucd_load") or {}
     if ucd_load:
