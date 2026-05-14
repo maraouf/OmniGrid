@@ -224,6 +224,15 @@ const CURATED_REFRESH_FIELDS = new Set([
   // when the master toggle is off OR no scan has run. `last_port_scan_ts`
   // drives the "Last scanned X ago" label.
   'detected_ports', 'last_port_scan_ts',
+  // Drift-from-baseline classification (IDEA-15) — per-metric
+  // {indicator, value, median, iqr, ...} dict keyed by cpu_pct /
+  // mem_pct / disk_pct / ping_rtt_ms. Empty {} when the host has no
+  // baseline yet (<50 samples in window OR sampler hasn't run yet).
+  // Explicit overlay so a baseline that disappears (host deleted
+  // from hosts_config and re-added, or sample tables pruned beneath
+  // the threshold) collapses the chip cleanly instead of sticking
+  // a stale indicator.
+  'drift',
 ]);
 
 // Copy handler for the AI fenced-code-block copy button. Lives on
@@ -461,6 +470,22 @@ function app() {
     notificationsFilterSeverity: 'all',  // all | info | warning | error | success
     notificationsFilterEvent:    'all',
     notificationsFilterUnread:   false,
+    // Cluster pivot (UX-review IDEA-22 MVP). When on, the popup
+    // groups consecutive notifications sharing (event, target_kind,
+    // target_id) into one row with a "xN" badge — operators on a
+    // busy fleet can pivot a wall of identical "service restarted"
+    // entries into one row each. Off by default so first-time users
+    // see the canonical flat list. Persisted to `ui_prefs.notifications_group_similar`
+    // so the toggle survives reloads / cross-device login.
+    // **Scope**: grouping is page-scoped (current /api/notifications
+    // response only) — full cross-page clustering would need a
+    // server-side ``?cluster=true`` mode, deferred to follow-up.
+    notificationsGroupSimilar: false,
+    // Per-cluster expansion state — set of cluster keys currently
+    // showing their individual items. Cleared on filter / page change
+    // so an expanded cluster on page 1 doesn't leak its open state
+    // onto a cluster with the same key on page 2.
+    _notificationsClusterExpanded: {},
     // Polling fallback for bearer-token clients (SSE skips them per
     // CLAUDE.md). Always running but no-ops when the view isn't open
     // and SSE is healthy.
@@ -1524,6 +1549,21 @@ function app() {
     statsTab: 'dashboard',
     statsOverview: {},
     statsOverviewLoaded: false,
+    // Multi-tab activity registry — { client_id: { actor, view, drawer_host,
+    // admin_tab, settings_section, stats_tab, title, ts } }. Hydrated at SPA
+    // boot from `GET /api/tabs/activity`; updated live via SSE
+    // `tab:activity` / `tab:closed` events. Excludes the calling tab via
+    // backend self-filter so the topbar widget doesn't list us. Drives the
+    // topbar pill + popover per UX-review IDEA-23.
+    tabActivity: {},
+    // Heartbeat in-flight gate so a slow network doesn't stack heartbeats.
+    _tabHeartbeatBusy: false,
+    // Last-published heartbeat snapshot — heartbeat short-circuits when
+    // nothing changed since last post + < 30s elapsed.
+    _tabHeartbeatLast: { ts: 0, signature: '' },
+    // BroadcastChannel for cross-tab focus. `null` when the browser
+    // doesn't support it (Safari < 15.4 / older Firefox).
+    _tabFocusChannel: null,
     statsDatabase: {},
     statsDatabaseLoaded: false,
     statsSamples: {},
@@ -2016,6 +2056,14 @@ function app() {
             // would return true on the very first render because the
             // draft default differs from the just-loaded value.
             this.aiSidebarLauncherHiddenDraft = !!hidden;
+          } catch (_) {}
+          // ui_prefs.notifications_group_similar — Notifications popup
+          // cluster-pivot toggle (UX-review IDEA-22). Operator's choice
+          // persists cross-device so a busy fleet's "group similar"
+          // view survives every reload.
+          try {
+            const gs = m && m.ui_prefs && m.ui_prefs.notifications_group_similar;
+            this.notificationsGroupSimilar = !!gs;
           } catch (_) {}
           // ui_prefs.ai_sidebar_pinned — pin-to-dock mode. When true,
           // the sidebar opens automatically AND stays docked as a
@@ -2638,6 +2686,50 @@ function app() {
       // time-range picker), so most renders are skipped.
       this.hostHistoryNow = Date.now();
       setInterval(() => { this.hostHistoryNow = Date.now(); }, 1000);
+      // Multi-tab activity wiring (UX-review IDEA-23). Boot-hydrate the
+      // sibling-tab map, fire the first heartbeat so OTHER tabs see us,
+      // then arm a 30s tick + cleanup hooks. Cross-tab focus channel
+      // wires up here too (lazy-created in `focusTabByClientId` if not
+      // yet present).
+      try {
+        this._tabActivityHydrate();
+        this._tabActivityHeartbeat();
+        // Re-publish on every navigation event so sibling tabs see the
+        // location change without waiting for the 30s tick.
+        this.$watch('view',             () => this._tabActivityHeartbeat());
+        this.$watch('drawerHost',       () => this._tabActivityHeartbeat());
+        this.$watch('adminTab',         () => this._tabActivityHeartbeat());
+        this.$watch('settingsSection',  () => this._tabActivityHeartbeat());
+        this.$watch('statsTab',         () => this._tabActivityHeartbeat());
+        // Idle heartbeat — keeps the entry alive past the backend's
+        // 90s TTL when the operator hasn't navigated.
+        setInterval(() => { try { this._tabActivityHeartbeat(); } catch (_) {} }, 30000);
+        // Cleanup — DELETE the registry entry when the tab unloads so
+        // sibling tabs see the count drop immediately instead of
+        // waiting for TTL expiry. `pagehide` fires more reliably than
+        // `unload` (mobile + bfcache safe). `keepalive: true` ensures
+        // the request reaches the backend even mid-tab-close.
+        const cleanup = () => {
+          try {
+            fetch('/api/tabs/activity', { method: 'DELETE', keepalive: true });
+          } catch (_) {}
+        };
+        window.addEventListener('pagehide', cleanup);
+        // BroadcastChannel listener — sibling tabs ask THIS tab to
+        // focus itself. Best-effort; cross-window focus is browser-
+        // discretionary, but reliable in same-process tabs.
+        try {
+          if (typeof BroadcastChannel === 'function') {
+            this._tabFocusChannel = new BroadcastChannel('omnigrid-tab-focus');
+            this._tabFocusChannel.addEventListener('message', (ev) => {
+              const cid = ev && ev.data && ev.data.client_id;
+              if (cid && cid === window.__ogClientId) {
+                try { window.focus(); } catch (_) {}
+              }
+            });
+          }
+        } catch (_) { /* BroadcastChannel sandboxed */ }
+      } catch (_) { /* defensive — tab-activity wiring is non-critical */ }
     },
 
     async logout() {
@@ -11203,15 +11295,88 @@ function app() {
           <div><b>${esc(this.t('history.detail.status'))}</b> ${esc(h.status)}</div>
           ${h.error ? `<div class="swal-err"><b>${esc(this.t('history.detail.error'))}</b> ${esc(h.error)}</div>` : ''}
         </div>`;
+      // Diagnose button (UX-review IDEA-14 part of #0097 MVP) — only
+      // surfaces for error rows AND when AI is enabled. Click opens the
+      // AI sidebar pre-loaded with this history row's context (op_type,
+      // target, error text, recent events) so the AI can explain root
+      // cause + suggest a fix. Cheap surface — reuses the existing AI
+      // palette + sidebar machinery; no new endpoint.
+      const aiEnabled = !!(this.aiSidebarSurfaceEnabled && this.aiSidebarSurfaceEnabled());
+      const showDiagnose = (h.status === 'error' || h.error) && aiEnabled;
+      const diagnoseBtn = showDiagnose
+        ? `<button type="button" id="og-history-diagnose-btn" class="btn btn-soft fs-sm">${esc(this.t('history.detail.diagnose') || 'Diagnose with AI')}</button>`
+        : '';
+      const self = this;
       Swal.fire({
         title: h.target_name || h.op_type,
-        html: `${meta}<div class="swal-events">${rows}</div>`,
+        html: `${meta}<div class="swal-events">${rows}</div>${diagnoseBtn ? `<div class="mt-3 flex justify-end">${diagnoseBtn}</div>` : ''}`,
         width: 720,
         showConfirmButton: false,
         showCloseButton: true,
         background: this._cssVar('--surface'),
         color: this._cssVar('--text'),
+        didOpen: () => {
+          if (!showDiagnose) return;
+          const btn = document.getElementById('og-history-diagnose-btn');
+          if (!btn) return;
+          btn.addEventListener('click', () => {
+            try { Swal.close(); } catch (_) {}
+            self._diagnoseHistoryRowWithAi(h);
+          });
+        },
       });
+    },
+    // Open the AI sidebar pre-loaded with a "diagnose this history row"
+    // user-turn. The seeded prompt carries the row's op_type, target,
+    // status, error text, and recent events so the AI can answer
+    // root-cause questions without the operator typing them all out.
+    // Falls back to the AI palette when the sidebar surface is not
+    // available (unlikely — both gates check the same toggles).
+    _diagnoseHistoryRowWithAi(h) {
+      if (!h) return;
+      const parts = [];
+      parts.push(`Diagnose this history row and suggest the most likely root cause + one specific remediation step.`);
+      parts.push(`Op: ${h.op_type || 'unknown'}`);
+      if (h.target_name) parts.push(`Target: ${h.target_name}`);
+      if (h.target_stack) parts.push(`Stack: ${h.target_stack}`);
+      parts.push(`Status: ${h.status || 'unknown'}`);
+      parts.push(`When: ${this.formatTime(h.ts) || '—'}`);
+      if (h.duration) parts.push(`Duration: ${(h.duration || 0).toFixed(2)}s`);
+      if (h.actor) parts.push(`Actor: ${h.actor}`);
+      if (h.error) parts.push(`Error: ${h.error}`);
+      const events = this.parseEvents(h.events) || [];
+      if (events.length) {
+        const tail = events.slice(-8).map(ev =>
+          `[${this.formatTimeShort(ev.ts)} ${ev.level || 'info'}] ${ev.msg || ''}`
+        ).join('\n');
+        parts.push(`Recent events:\n${tail}`);
+      }
+      const prompt = parts.join('\n');
+      try {
+        if (typeof this.openAiSidebar === 'function') this.openAiSidebar();
+        // Stash the prompt into the sidebar's query state and fire its
+        // existing send pipeline. The pipeline records turns + persists
+        // to ui_prefs.ai_conversation, so we route through it rather
+        // than re-implementing send-on-mount logic here. Use `$nextTick`
+        // so the textarea has time to bind to the new value before the
+        // send fires (the sidebar's textarea reads from the state field
+        // at submit time, but the DOM element may need one tick to
+        // reflect the prefill visually).
+        if (typeof this._setAiSidebarQuery === 'function') {
+          this._setAiSidebarQuery(prompt);
+        } else {
+          this.aiSidebarQuery = prompt;
+        }
+        const fire = () => {
+          if (typeof this.sendAiSidebarMessage === 'function') {
+            this.sendAiSidebarMessage();
+          }
+        };
+        if (this.$nextTick) this.$nextTick(fire);
+        else setTimeout(fire, 0);
+      } catch (e) {
+        console.warn('[history] diagnose-with-ai failed', e);
+      }
     },
     // History-row detail renderer for `op_type='port_scan'`. The
     // backend writes a JSON OBJECT in `events` carrying the scan
@@ -11475,6 +11640,9 @@ function app() {
     },
     async _reloadNotificationsPage() {
       this.notificationsLoading = true;
+      // Cluster expansion state is page-scoped — clear so a cluster
+      // expanded on page 1 doesn't leak into page 2.
+      this._notificationsClusterExpanded = {};
       try {
         const r = await fetch('/api/notifications?' + this.notificationsQuery());
         if (!r.ok) { this.notificationsLoading = false; return; }
@@ -11487,6 +11655,100 @@ function app() {
         console.warn('[notifications] page change failed', e);
       }
       this.notificationsLoading = false;
+    },
+    // ---- Notifications cluster pivot (UX-review IDEA-22 MVP) ----
+    // Pivots the current page's notifications into clusters keyed on
+    // (event, target_kind, target_id). Each cluster carries:
+    //   - key: stable identity string for expansion tracking
+    //   - latest: the newest notification (ts max) — drives the row's
+    //     title / body / severity / actor / target chips
+    //   - items: the full set of notifications in this cluster, newest
+    //     first
+    //   - count: items.length
+    //   - earliest_ts / latest_ts: ts range so the row can render
+    //     "12 events between 14:02 and 14:11"
+    //   - unread: count of items with read_at == null (drives the
+    //     unread chip + the cluster mark-all-read button)
+    //   - severity: highest-severity in the cluster (error > warning >
+    //     info > success > unknown) so an error in a sea of info
+    //     surfaces visually
+    // Singleton clusters (one item) get the same shape as flat rows
+    // — the template branches on count to render either path cleanly.
+    notificationClusters() {
+      const list = Array.isArray(this.notifications) ? this.notifications : [];
+      if (!list.length) return [];
+      const rank = { error: 4, warning: 3, info: 2, success: 1 };
+      const out = [];
+      const byKey = new Map();
+      for (const n of list) {
+        const ev = (n && n.event) || '';
+        const tk = (n && n.target_kind) || '';
+        const tid = (n && n.target_id) || '';
+        const key = ev + '||' + tk + '||' + tid;
+        let cluster = byKey.get(key);
+        if (!cluster) {
+          cluster = {
+            key, items: [], count: 0,
+            earliest_ts: n.ts, latest_ts: n.ts,
+            latest: n, severity: n.severity || 'info',
+            unread: 0,
+          };
+          byKey.set(key, cluster);
+          out.push(cluster);
+        }
+        cluster.items.push(n);
+        cluster.count += 1;
+        if (n.ts < cluster.earliest_ts) cluster.earliest_ts = n.ts;
+        if (n.ts > cluster.latest_ts) {
+          cluster.latest_ts = n.ts;
+          cluster.latest = n;
+        }
+        if (n.read_at == null) cluster.unread += 1;
+        const lr = rank[n.severity] || 0;
+        const cr = rank[cluster.severity] || 0;
+        if (lr > cr) cluster.severity = n.severity;
+      }
+      return out;
+    },
+    isNotificationClusterExpanded(key) {
+      return !!(this._notificationsClusterExpanded || {})[key];
+    },
+    toggleNotificationCluster(key) {
+      if (!key) return;
+      const set = this._notificationsClusterExpanded || {};
+      if (set[key]) delete set[key];
+      else set[key] = true;
+      this._notificationsClusterExpanded = { ...set };
+    },
+    // Mark every unread notification in one cluster read. Bulk version
+    // of `markNotificationRead` — fires one PATCH per row through the
+    // existing handler so the SSE notification:read event publishes per
+    // notification (other tabs reconcile each row independently).
+    async markClusterRead(cluster) {
+      if (!cluster || !cluster.items) return;
+      const unread = cluster.items.filter(n => n && n.read_at == null);
+      for (const n of unread) {
+        try { await this.markNotificationRead(n.id); } catch (_) {}
+      }
+    },
+    // Persist the cluster-toggle to ui_prefs so it survives a reload
+    // / cross-device login. Fire-and-forget — best-effort persistence.
+    async _persistNotificationsGroupSimilar() {
+      try {
+        await fetch('/api/me/ui-prefs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prefs: {
+              notifications_group_similar: !!this.notificationsGroupSimilar,
+            },
+          }),
+        });
+        if (this.me && this.me.ui_prefs) {
+          this.me.ui_prefs.notifications_group_similar =
+              !!this.notificationsGroupSimilar;
+        }
+      } catch (_) {}
     },
     // Lightweight unread-count probe — doesn't fetch the list, just the
     // count. Used by init() so the avatar badge has a count BEFORE the
@@ -12344,6 +12606,41 @@ function app() {
       // ("session expires in X minutes") stays current. The event was
       // documented in api.md and CLAUDE.md but had no consumer pre-fix
       // — caught by the SSE-publisher-vs-consumer audit recipe.
+      // Multi-tab activity (UX-review IDEA-23). `tab:activity` updates
+      // the local map in place so the topbar widget re-renders without
+      // a wholesale-replace (the array-mutation rule applies — Alpine
+      // tears down rebound DOM on full-replace). `tab:closed` deletes
+      // the entry. Both are self-filtered by `_isSelfEvent` so this tab
+      // doesn't echo its own heartbeat back into its own list.
+      es.addEventListener('tab:activity', (e) => {
+        onAny();
+        if (this._isSelfEvent(e)) return;
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const p = data.payload || {};
+          const cid = p.client_id;
+          if (!cid) return;
+          // Field-by-field assign so Alpine sees a granular update
+          // instead of a wholesale-replace (preserves popover focus
+          // state when one sibling navigates while popover is open).
+          const cur = this.tabActivity[cid] || {};
+          this.tabActivity[cid] = Object.assign({}, cur, p);
+        } catch (_) {}
+      });
+      es.addEventListener('tab:closed', (e) => {
+        onAny();
+        if (this._isSelfEvent(e)) return;
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const cid = (data.payload || {}).client_id;
+          if (!cid) return;
+          // Defensive — fall back to deleting via reactive proxy. Alpine
+          // catches delete on a reactive object.
+          if (this.tabActivity[cid]) {
+            delete this.tabActivity[cid];
+          }
+        } catch (_) {}
+      });
       es.addEventListener('session:renewed', (e) => {
         onAny();
         if (this._isSelfEvent(e)) return;
@@ -12433,6 +12730,95 @@ function app() {
         if (cid && cid === myId) return true;
       } catch (_) {}
       return false;
+    },
+    // Multi-tab activity (UX-review IDEA-23) -----------------------------
+    // Snapshot of THIS tab's current location for the heartbeat payload.
+    // Walks the SPA's reactive view-state and emits a compact dict that
+    // the backend stamps into the in-process tab registry + broadcasts to
+    // sibling tabs.
+    _tabActivitySnapshot() {
+      const drawerHostId = (this.drawerHost && this.drawerHost.id) || null;
+      // Operator-friendly title — "Hosts → web01" / "Admin → Schedules" /
+      // "Stacks". Surfaced in the topbar popover so operators don't have
+      // to mentally translate raw view ids.
+      const v = (this.view || '').toString();
+      let title = v ? (v.charAt(0).toUpperCase() + v.slice(1)) : '';
+      if (v === 'admin' && this.adminTab)         title = 'Admin → ' + this.adminTab;
+      else if (v === 'settings' && this.settingsSection) title = 'Settings → ' + this.settingsSection;
+      else if (v === 'stats' && this.statsTab)    title = 'Stats → ' + this.statsTab;
+      else if (v === 'hosts' && drawerHostId)     title = 'Hosts → ' + drawerHostId;
+      return {
+        view:             v || null,
+        drawer_host:      drawerHostId,
+        admin_tab:        (this.adminTab || '').toString() || null,
+        settings_section: (this.settingsSection || '').toString() || null,
+        stats_tab:        (this.statsTab || '').toString() || null,
+        title:            title || null,
+      };
+    },
+    // Heartbeat publisher — POSTs the current snapshot to the backend.
+    // Short-circuits when nothing changed AND the last post was < 25s ago
+    // (idle-tab path; the backend's 90s TTL still keeps the entry alive).
+    async _tabActivityHeartbeat() {
+      if (this._tabHeartbeatBusy) return;
+      const snap = this._tabActivitySnapshot();
+      const sig = JSON.stringify(snap);
+      const now = Date.now();
+      const stale = (now - (this._tabHeartbeatLast.ts || 0)) > 25000;
+      if (sig === this._tabHeartbeatLast.signature && !stale) return;
+      this._tabHeartbeatBusy = true;
+      try {
+        await fetch('/api/tabs/activity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(snap),
+        });
+        this._tabHeartbeatLast = { ts: now, signature: sig };
+      } catch (_) { /* best-effort; next tick retries */ }
+      finally { this._tabHeartbeatBusy = false; }
+    },
+    // Boot-time hydration of the local map from the backend's snapshot
+    // so the topbar widget paints sibling tabs immediately, before the
+    // first SSE event lands.
+    async _tabActivityHydrate() {
+      try {
+        const r = await fetch('/api/tabs/activity', { cache: 'no-store' });
+        if (!r.ok) return;
+        const d = await r.json();
+        const fresh = {};
+        for (const t of (d.tabs || [])) {
+          if (t && t.client_id) fresh[t.client_id] = t;
+        }
+        this.tabActivity = fresh;
+      } catch (_) { /* best-effort */ }
+    },
+    // Click-to-focus a sibling tab. Uses BroadcastChannel where available
+    // (every modern browser since 2022); receivers self-match on the id
+    // and call `window.focus()`. Best-effort — cross-window focus is
+    // browser-discretionary, but works reliably when both tabs are in
+    // the same browser process group.
+    focusTabByClientId(cid) {
+      if (!cid || cid === window.__ogClientId) return;
+      try {
+        if (!this._tabFocusChannel && typeof BroadcastChannel === 'function') {
+          this._tabFocusChannel = new BroadcastChannel('omnigrid-tab-focus');
+        }
+        if (this._tabFocusChannel) {
+          this._tabFocusChannel.postMessage({ client_id: cid });
+        }
+      } catch (_) { /* BroadcastChannel disabled / sandboxed */ }
+    },
+    // Sorted view of `tabActivity` for the topbar popover. Newest tab
+    // first (largest `ts`).
+    tabActivityList() {
+      const out = [];
+      const map = this.tabActivity || {};
+      for (const cid of Object.keys(map)) out.push(map[cid]);
+      out.sort((a, b) => (Number(b.ts || 0) - Number(a.ts || 0)));
+      return out;
+    },
+    tabActivityCount() {
+      return this.tabActivityList().length;
     },
     // Single-parse SSE event unwrap. Returns the parsed event object
     // ({type, ts, payload}) when the event should be processed,
@@ -29792,6 +30178,57 @@ function app() {
       if (n < 1) return '<1%';
       return n.toFixed(1) + '%';
     },
+    // -------------------- Drift-from-baseline indicator --------------------
+    // Reads the backend-stamped `h.drift` dict and returns a small
+    // `{indicator, title, tone}` descriptor for one metric, or null when
+    // no baseline exists. ``indicator`` is the ▲/▼/━ glyph; ``tone``
+    // drives the CSS chip colour (`drift-above` / `drift-below` /
+    // `drift-normal`); ``title`` is the localised hover-title with the
+    // median + IQR + sample-count detail so the operator can verify
+    // the baseline state without opening the drawer.
+    //
+    // Metric keys: 'cpu_pct' | 'mem_pct' | 'disk_pct' | 'ping_rtt_ms'.
+    // Returns null when (a) `h.drift` is missing/empty, (b) the metric
+    // isn't in the dict (insufficient samples / degenerate IQR), or
+    // (c) the indicator field is missing — caller hides the chip.
+    hostDriftIndicator(h, metric) {
+      if (!h || !metric) return null;
+      const d = h.drift;
+      if (!d || typeof d !== 'object') return null;
+      const m = d[metric];
+      if (!m || !m.indicator) return null;
+      const ind = String(m.indicator);
+      const tone = ind === '▲' ? 'drift-above'
+                 : ind === '▼' ? 'drift-below'
+                 : 'drift-normal';
+      // Localised hover-title — operator sees the median + IQR detail
+      // and the sample count so they know the baseline isn't being
+      // computed from 3 stray samples. `t()` resolves the
+      // i18n key with the metric name + numeric fills.
+      const formatVal = (v) => {
+        if (v === null || v === undefined || !Number.isFinite(+v)) return '—';
+        if (metric === 'ping_rtt_ms') return (+v).toFixed(1) + ' ms';
+        return (+v).toFixed(1) + '%';
+      };
+      const liveLabel = formatVal(m.value);
+      const medLabel = formatVal(m.median);
+      const iqrLabel = formatVal(m.iqr);
+      const titleKey = 'hosts_extra.drift.title_' + tone.replace('drift-', '');
+      const fallback = (ind === '▲' ? 'Above baseline'
+                       : ind === '▼' ? 'Below baseline'
+                       : 'Within baseline')
+                       + ` — current ${liveLabel}, median ${medLabel}, IQR ±${iqrLabel}`
+                       + ` (n=${m.sample_count || 0})`;
+      let title = fallback;
+      if (typeof this.t === 'function') {
+        const tr = this.t(titleKey, {
+          live: liveLabel, median: medLabel, iqr: iqrLabel,
+          count: m.sample_count || 0,
+        });
+        if (tr && tr !== titleKey) title = tr;
+      }
+      return { indicator: ind, tone, title };
+    },
     // -------------------- Per-host Health Score --------------------
     // Synthesises CPU / Memory / Disk / Provider / Pending-Updates
     // signals into a single 0-100 score per host, with a per-axis
@@ -31175,6 +31612,56 @@ function app() {
         '</div>',
       ].join('');
     },
+    // ---- Stack blast-radius preview (UX-review IDEA-08 MVP) ----
+    // Renders an inline "This will affect: ..." block listing every
+    // service / container in the stack the operator is about to update.
+    // Composed from the already-cached `stack.items` array so there's
+    // no extra fetch + the popup stays fast. Counts services + their
+    // replicas + standalone containers separately so the operator
+    // distinguishes "1 service × 3 replicas restart" from "3 separate
+    // services restart". Returns '' for stacks with no items so the
+    // dialog body skips the block cleanly. Per the CSS-no-fallbacks
+    // rule, every chrome rule lives in `.blast-radius-block` family
+    // declared in `static/css/style.css` — not inlined here.
+    _renderStackBlastRadius(stack) {
+      if (!stack || !Array.isArray(stack.items) || !stack.items.length) return '';
+      const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+      const items = stack.items;
+      let services = 0, replicas = 0, containers = 0, orphans = 0;
+      const lines = [];
+      for (const it of items) {
+        if (!it) continue;
+        const type = it.type || '';
+        if (type === 'service') {
+          services += 1;
+          replicas += Number(it.desired || 0) || 0;
+        } else if (type === 'orphan') {
+          orphans += 1;
+        } else {
+          containers += 1;
+        }
+        const updateChip = it.update_available
+          ? ` <span class="blast-radius-chip blast-radius-chip--update">${esc(this.t('blast_radius.has_update') || 'update available')}</span>`
+          : '';
+        lines.push(`<li class="blast-radius-item">`
+          + `<span class="blast-radius-type">${esc(type || 'item')}</span> `
+          + `<span class="blast-radius-name mono">${esc(it.name || '—')}</span>`
+          + updateChip
+          + `</li>`);
+      }
+      const summary = this.t('blast_radius.summary', {
+        services, replicas, containers, orphans,
+        total: items.length,
+      }) || `${items.length} item(s): ${services} service(s) × ${replicas} replicas, ${containers} container(s), ${orphans} orphan(s).`;
+      const head = esc(this.t('blast_radius.label') || 'This will affect:');
+      return [
+        '<div class="blast-radius-block">',
+        `<div class="blast-radius-head"><span class="blast-radius-label">${head}</span></div>`,
+        `<div class="blast-radius-summary">${esc(summary)}</div>`,
+        `<ul class="blast-radius-list scrollbar">${lines.join('')}</ul>`,
+        '</div>',
+      ].join('');
+    },
     // Render the resolved release-notes block from one /api/registry/
     // release-notes response payload. Returns the final HTML string the
     // async filler injects in place of the placeholder. Empty string
@@ -31312,7 +31799,14 @@ function app() {
         // placeholder entirely. Popup opens INSTANTLY either way;
         // async filler replaces the placeholder on resolve.
         const stackImage = this._stackSingleUpdateImage(stack);
+        // Blast-radius preview (UX-review IDEA-08 MVP) — surfaces the
+        // services / containers the stack update will touch so the
+        // operator sees the full scope BEFORE confirming. Pure SPA
+        // composition over the already-cached stack.items — no extra
+        // fetch.
+        const blastHtml = this._renderStackBlastRadius(stack);
         const html = this.t('dialogs.update_stack_html', { name: stack.name })
+                   + blastHtml
                    + (stackImage ? this._releaseNotesPlaceholderHtml() : '');
         if (stackImage) this._replaceReleaseNotesAsync(stackImage);
         const ok = await this.confirmDialog({

@@ -443,6 +443,15 @@ async def _lifespan(app: FastAPI):
         _host_beszel_sampler.host_beszel_sampler_loop(),
         name="host-beszel-sampler",
     )
+    # Per-host baseline sampler (UX-review IDEA-15) — recomputes
+    # 30-day rolling median + IQR for cpu_pct / mem_pct / disk_pct /
+    # ping_rtt_ms once per hour. Drives the ▲/▼/━ drift indicator
+    # on every Hosts row + the per-host enrichment in `_merge_one_host`.
+    from logic import host_baseline_sampler as _host_baseline_sampler
+    host_baseline_sampler = asyncio.create_task(
+        _host_baseline_sampler.host_baseline_sampler_loop(),
+        name="host-baseline-sampler",
+    )
     # Persistent-log pruner — sweeps /app/data/logs/ once per
     # hour, deletes any omnigrid-YYYY-MM-DD.log older than the
     # operator-tunable retention window.
@@ -452,7 +461,7 @@ async def _lifespan(app: FastAPI):
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (log_pruner, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
+        for task in (log_pruner, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
             task.cancel()
             try:
                 await task
@@ -837,6 +846,25 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_snmp_temp_samples_host_probe_ts
             ON host_snmp_temp_samples(host_id, probe_idx, ts DESC);
+
+        -- Per-host rolling baseline (median + IQR) for drift detection.
+        -- One row per (host_id, metric) — UPSERT on every recompute.
+        -- Metric is one of: cpu_pct / mem_pct / disk_pct / ping_rtt_ms /
+        -- disk_fill_rate_bps. Computed hourly by `host_baseline_sampler`
+        -- from the matching time-series table (host_metrics_samples for
+        -- cpu/mem/disk; ping_samples for rtt). Drives the ▲/▼/━ drift
+        -- indicator on every Hosts row.
+        CREATE TABLE IF NOT EXISTS host_baselines (
+            host_id     TEXT NOT NULL,
+            metric      TEXT NOT NULL,
+            median      REAL,
+            iqr         REAL,
+            sample_count INTEGER,
+            computed_ts INTEGER NOT NULL,
+            PRIMARY KEY (host_id, metric)
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_baselines_computed_ts
+            ON host_baselines(computed_ts DESC);
 
         -- Append-only transition log for the host pause/resume
         -- lifecycle. Pre-fix the timeline endpoint synthesised
@@ -9629,6 +9657,20 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
         print(f"[hosts] provider_sample_intervals failed for {h.get('id')!r}: {e}")
         merged["provider_sample_intervals"] = {}
 
+    # Drift-from-baseline enrichment (IDEA-15). Reads the cached
+    # `host_baselines` row for THIS host and classifies each live
+    # metric (CPU% / mem% / disk% / ping RTT) as ▲ / ▼ / ━ vs the
+    # 30-day rolling median ± IQR. Returns {} when no baseline has
+    # been computed yet (<50 samples in the window OR sampler hasn't
+    # run yet) — the SPA hides the chip in that case. Cheap read
+    # (single SELECT keyed on host_id); failures swallowed.
+    try:
+        from logic import host_baseline as _baseline
+        merged["drift"] = _baseline.host_drift_for_api(h["id"], merged)
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts] drift compute failed for {h.get('id')!r}: {e}")
+        merged["drift"] = {}
+
     return merged, providers_hit
 
 
@@ -10190,6 +10232,15 @@ def _shape_host_api_row(
         # forever even after a successful scan.
         "detected_ports":    s.get("detected_ports") or [],
         "last_port_scan_ts": int(s.get("last_port_scan_ts") or 0),
+        # Drift-from-baseline classification (IDEA-15). Populated by
+        # `_merge_one_host` from logic.host_baseline.host_drift_for_api,
+        # keyed by metric (cpu_pct / mem_pct / disk_pct / ping_rtt_ms).
+        # Each value carries `indicator` (▲/▼/━), `value` (live), and
+        # the cached `median` / `iqr` / `sample_count` / `computed_ts`.
+        # Empty dict when no baseline exists for this host yet (<50
+        # samples in window OR sampler hasn't run yet) — SPA hides
+        # the chip in that case.
+        "drift": dict(s.get("drift") or {}),
     }
 
 
@@ -16604,6 +16655,123 @@ async def api_notifications_delete(
     except Exception as _e:
         print(f"[notify] delete SSE publish dropped: {_e}")
     return {"id": nid, "deleted": True, "unread_count": unread_count}
+
+
+# ============================================================================
+# Multi-tab activity registry — operators routinely run 3-5 OmniGrid tabs in
+# parallel (one for stacks, one per debugging host, one for AI sidebar).
+# Tracking each tab's current location lets the topbar widget show "you have
+# 3 tabs open: Tab 2 = Stacks, Tab 3 = web01 drawer" + click-to-focus.
+# Per UX-review IDEA-23.
+#
+# Storage: in-process dict. Single-replica deploy = no need for SQLite. TTL
+# expiry on stale heartbeats so closed-without-cleanup tabs (browser crash /
+# kill -9) don't pile up forever. Read by the topbar widget; written by the
+# SPA on every navigation event + on a 30s heartbeat tick.
+# ============================================================================
+_TAB_ACTIVITY_TTL_SECONDS = 90
+# {client_id: {"actor", "view", "drawer_host", "admin_tab", "settings_section",
+#              "stats_tab", "title", "ts"}}
+_tab_activity_registry: dict[str, dict] = {}
+
+
+def _tab_activity_prune() -> None:
+    """Drop entries whose last heartbeat is older than the TTL. Called on
+    every read so the live registry stays clean without a sweeper task."""
+    cutoff = time.time() - _TAB_ACTIVITY_TTL_SECONDS
+    stale = [cid for cid, ent in _tab_activity_registry.items()
+             if (ent.get("ts") or 0) < cutoff]
+    for cid in stale:
+        _tab_activity_registry.pop(cid, None)
+
+
+class _TabActivityIn(BaseModel):
+    """Body for the heartbeat endpoint. Every field optional — the SPA
+    sends only what's relevant to the current location."""
+    view: Optional[str] = None
+    drawer_host: Optional[str] = None
+    admin_tab: Optional[str] = None
+    settings_section: Optional[str] = None
+    stats_tab: Optional[str] = None
+    title: Optional[str] = None
+
+
+@app.post("/api/tabs/activity")
+async def api_tabs_activity_heartbeat(
+    body: _TabActivityIn,
+    request: Request,
+):
+    """Per-tab heartbeat. Updates the in-process registry + broadcasts a
+    `tab:activity` SSE event so OTHER tabs see the location change in
+    real time. Originating tab self-filters via the `client_id` echo
+    (matches the existing event-bus self-filter pattern).
+
+    Auth — relies on the global middleware's `/api/*` enforcement; no
+    explicit dep needed. The middleware sets `request.state.user` when
+    auth succeeds; we read the username off it for the `actor` field.
+    """
+    cid = _request_client_id(request)
+    if not cid:
+        return {"ok": False, "reason": "no client id"}
+    user = getattr(request.state, "user", None)
+    actor = (getattr(user, "username", None) or "ui") if user else "ui"
+    entry = {
+        "actor":            actor,
+        "view":             (body.view or "").strip() or None,
+        "drawer_host":      (body.drawer_host or "").strip() or None,
+        "admin_tab":        (body.admin_tab or "").strip() or None,
+        "settings_section": (body.settings_section or "").strip() or None,
+        "stats_tab":        (body.stats_tab or "").strip() or None,
+        "title":            (body.title or "").strip() or None,
+        "ts":               time.time(),
+    }
+    _tab_activity_registry[cid] = entry
+    _tab_activity_prune()
+    try:
+        _events.publish(
+            "tab:activity",
+            {"client_id": cid, **entry},
+            client_id=cid,   # self-filter: originating tab won't echo
+        )
+    except Exception as _e:
+        print(f"[tabs] activity SSE publish dropped: {_e}")
+    return {"ok": True}
+
+
+@app.delete("/api/tabs/activity")
+async def api_tabs_activity_close(request: Request):
+    """Tab-close cleanup — fired from the SPA's `pagehide` event so
+    other tabs see the entry vanish immediately instead of waiting for
+    the 90s TTL."""
+    cid = _request_client_id(request)
+    if not cid:
+        return {"ok": False, "reason": "no client id"}
+    _tab_activity_registry.pop(cid, None)
+    try:
+        _events.publish(
+            "tab:closed",
+            {"client_id": cid},
+            client_id=cid,
+        )
+    except Exception as _e:
+        print(f"[tabs] close SSE publish dropped: {_e}")
+    return {"ok": True}
+
+
+@app.get("/api/tabs/activity")
+async def api_tabs_activity_list(request: Request):
+    """Snapshot of every active tab. Excludes the calling tab via
+    `client_id` self-filter so the SPA's first-render doesn't display
+    its own entry. Used at SPA boot to seed the local map before the
+    SSE stream catches up."""
+    cid = _request_client_id(request)
+    _tab_activity_prune()
+    out = []
+    for tcid, ent in _tab_activity_registry.items():
+        if cid and tcid == cid:
+            continue
+        out.append({"client_id": tcid, **ent})
+    return {"tabs": out}
 
 
 @app.get("/api/healthz")
