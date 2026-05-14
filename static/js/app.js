@@ -31708,9 +31708,14 @@ function app() {
     // rule, every chrome rule lives in `.blast-radius-block` family
     // declared in `static/css/style.css` — not inlined here.
     _renderStackBlastRadius(stack) {
-      if (!stack || !Array.isArray(stack.items) || !stack.items.length) return '';
+      if (!stack) return '';
+      // The stack object itself doesn't carry an `items` array — the
+      // SPA's top-level `this.items` is the source of truth (same
+      // shape `_stackSingleUpdateImage` uses). Filter by `stack_id`
+      // to get every item that belongs to this stack.
+      const items = (this.items || []).filter(it => it && it.stack_id === stack.stack_id);
+      if (!items.length) return '';
       const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-      const items = stack.items;
       let services = 0, replicas = 0, containers = 0, orphans = 0;
       const lines = [];
       for (const it of items) {
