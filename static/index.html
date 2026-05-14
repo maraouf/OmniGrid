@@ -2371,7 +2371,7 @@
 
       <div x-show="hostsConfigured" class="hosts-desktop-table rounded border border-[var(--border)] overflow-hidden bg-[var(--surface)]">
         <!-- Header row — mirrors Beszel's columns. -->
-        <div class="grid grid-cols-[26px_minmax(280px,1.4fr)_110px_260px_90px_minmax(140px,1fr)_80px_60px_72px_84px_40px] gap-3 px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+        <div class="hosts-row-grid px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
           <div></div>
           <div x-text="t('columns.host')"></div>
           <div x-text="t('columns.platform')"></div>
@@ -2444,7 +2444,7 @@
                  Dead / unmatched rows get a muted cursor and no
                  hover tint so the operator gets the same visual
                  signal the red/grey status dot already implies. -->
-            <div class="grid grid-cols-[26px_minmax(280px,1.4fr)_110px_260px_90px_minmax(140px,1fr)_80px_60px_72px_84px_40px] gap-3 px-4 py-3 items-center"
+            <div class="hosts-row-grid px-4 py-3 items-center"
                  :class="[isHostExpandable(h) ? 'cursor-pointer hover:bg-[var(--row-hover)]' : 'cursor-default opacity-75', isStale(h) ? 'row-stale-flash' : '']"
                  @click="toggleHost(h.host)">
               <!-- Checkbox + Chevron + status dot. Checkbox gated on
