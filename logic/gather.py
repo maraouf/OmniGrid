@@ -266,9 +266,19 @@ def save_host_snapshots(nodes_info: dict) -> int:
     for host, info in nodes_info.items():
         if not isinstance(info, dict) or not info:
             continue
+        # Stale-restored fields (filled by `apply_host_snapshot_fallback`
+        # from a previous snapshot, NOT by this gather's live probes)
+        # MUST NOT be re-saved verbatim — otherwise a one-off bad value
+        # that landed in the snapshot once keeps re-saving itself forever
+        # via stale → restore → save → restore loop, even after the
+        # provider stopped returning that field. Drop them; if the live
+        # probe genuinely starts returning the field again later, the
+        # snapshot will pick it up on that gather.
+        stale_keys = set(info.get("_stale_fields") or [])
         clean = {
             k: v for k, v in info.items()
-            if (not str(k).startswith("_")) or str(k).startswith("_meta_")
+            if ((not str(k).startswith("_")) or str(k).startswith("_meta_"))
+            and k not in stale_keys
         }
         if _is_urlish(clean.get("host_firmware")):
             clean.pop("host_firmware", None)
