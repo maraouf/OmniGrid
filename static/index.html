@@ -7956,6 +7956,89 @@
                 <button type="button" class="btn btn-ghost fs-sm" @click="drawerNode=null" x-text="t('actions.cancel')"></button>
               </div>
             </section>
+
+            <!-- Debug panel — admin-only, same gating as the host
+                 drawer's panel (debug_panel_enabled setting). Surfaces
+                 the cached _cache["nodes_info"] entry + items-on-node
+                 count + a diagnostics list explaining why host CPU /
+                 Mem / Disk bars are empty (no provider data, etc.). -->
+            <template x-if="me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false)">
+              <section class="host-debug-panel">
+                <button type="button"
+                        class="host-debug-toggle host-debug-toggle--accent"
+                        @click="toggleSubjectDebug('node', drawerNode.name)"
+                        :aria-expanded="subjectsDebugOpen[subjectDebugKey('node', drawerNode.name)] ? 'true' : 'false'">
+                  <svg width="12" height="12" class="flip-rtl" aria-hidden="true"
+                       :style="subjectsDebugOpen[subjectDebugKey('node', drawerNode.name)] ? 'transform: rotate(90deg)' : ''"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+                  <svg width="14" height="14" class="host-debug-toggle-icon" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-bug"/></svg>
+                  <span x-text="subjectsDebugOpen[subjectDebugKey('node', drawerNode.name)] ? t('debug_panel.hide') : t('debug_panel.show')"></span>
+                </button>
+                <div x-show="subjectsDebugOpen[subjectDebugKey('node', drawerNode.name)]" class="host-debug-body">
+                  <template x-if="subjectsDebugLoading[subjectDebugKey('node', drawerNode.name)]">
+                    <div class="host-debug-loading">
+                      <span class="spin-lg" aria-hidden="true"></span>
+                      <span x-text="t('debug_panel.probing')"></span>
+                    </div>
+                  </template>
+                  <template x-if="subjectsDebug[subjectDebugKey('node', drawerNode.name)] && subjectsDebug[subjectDebugKey('node', drawerNode.name)]._error">
+                    <div class="host-debug-error" x-text="t('debug_panel.error_prefix', { error: subjectsDebug[subjectDebugKey('node', drawerNode.name)]._error })"></div>
+                  </template>
+                  <template x-if="subjectsDebug[subjectDebugKey('node', drawerNode.name)] && !subjectsDebug[subjectDebugKey('node', drawerNode.name)]._error">
+                    <div class="host-debug-content">
+                      <div class="host-debug-toolbar">
+                        <div class="host-debug-toolbar-actions">
+                          <button type="button" class="btn btn-ghost fs-xs inline-flex items-center gap-1"
+                                  @click="loadSubjectDebug('node', drawerNode.name)"
+                                  :disabled="!!subjectsDebugLoading[subjectDebugKey('node', drawerNode.name)]"
+                                  :title="t('debug_panel.refresh_title')">
+                            <svg width="14" height="14" aria-hidden="true"
+                                 :class="subjectsDebugLoading[subjectDebugKey('node', drawerNode.name)] ? 'spin-md' : ''"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/></svg>
+                            <span x-text="t('debug_panel.refresh')"></span>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="host-debug-grid">
+                        <section class="host-debug-box host-debug-box--wide"
+                                 x-show="(subjectsDebug[subjectDebugKey('node', drawerNode.name)].diagnostics || []).length">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.diagnostics')"></span>
+                          </header>
+                          <ul class="host-debug-json scrollbar" style="margin:0; padding-inline-start: var(--s-5); list-style: disc;">
+                            <template x-for="msg in (subjectsDebug[subjectDebugKey('node', drawerNode.name)].diagnostics || [])" :key="msg">
+                              <li class="fs-xs" x-text="msg"></li>
+                            </template>
+                          </ul>
+                        </section>
+                        <section class="host-debug-box host-debug-box--wide">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.items_on_node')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(subjectsDebug[subjectDebugKey('node', drawerNode.name)].items_on_node, 'debug_panel.labels.items_on_node')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.items_on_node')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(subjectsDebug[subjectDebugKey('node', drawerNode.name)].items_on_node || {})"></pre>
+                        </section>
+                        <section class="host-debug-box host-debug-box--wide">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.nodes_info')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(subjectsDebug[subjectDebugKey('node', drawerNode.name)].nodes_info, 'debug_panel.labels.nodes_info')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.nodes_info')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(subjectsDebug[subjectDebugKey('node', drawerNode.name)].nodes_info || {})"></pre>
+                        </section>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </section>
+            </template>
           </div>
         </div>
       </template>
@@ -8248,6 +8331,118 @@
               <div class="mt-1 fs-sm mono" x-text="drawerItem.updated"></div>
             </div>
           </div>
+
+          <!-- Debug panel — admin-only, same gating as the host
+               drawer's panel. Surfaces _cache["items"]/[stacks] raw
+               record + live_stats entry + per-item stats_samples
+               diagnostic so the operator can see WHY drawer
+               sparklines / bars are showing "Collecting data" /
+               empty without grepping logs. -->
+          <template x-if="me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false) && drawerItem.raw_id">
+            <section class="host-debug-panel">
+              <button type="button"
+                      class="host-debug-toggle host-debug-toggle--accent"
+                      @click="toggleSubjectDebug('item', drawerItem.raw_id)"
+                      :aria-expanded="subjectsDebugOpen[subjectDebugKey('item', drawerItem.raw_id)] ? 'true' : 'false'">
+                <svg width="12" height="12" class="flip-rtl" aria-hidden="true"
+                     :style="subjectsDebugOpen[subjectDebugKey('item', drawerItem.raw_id)] ? 'transform: rotate(90deg)' : ''"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+                <svg width="14" height="14" class="host-debug-toggle-icon" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-bug"/></svg>
+                <span x-text="subjectsDebugOpen[subjectDebugKey('item', drawerItem.raw_id)] ? t('debug_panel.hide') : t('debug_panel.show')"></span>
+                <span class="host-debug-hint" x-show="!subjectsDebugOpen[subjectDebugKey('item', drawerItem.raw_id)]" x-text="t('debug_panel.hint')"></span>
+              </button>
+              <div x-show="subjectsDebugOpen[subjectDebugKey('item', drawerItem.raw_id)]" class="host-debug-body">
+                <template x-if="subjectsDebugLoading[subjectDebugKey('item', drawerItem.raw_id)]">
+                  <div class="host-debug-loading">
+                    <span class="spin-lg" aria-hidden="true"></span>
+                    <span x-text="t('debug_panel.probing')"></span>
+                  </div>
+                </template>
+                <template x-if="subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)] && subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)]._error">
+                  <div class="host-debug-error" x-text="t('debug_panel.error_prefix', { error: subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)]._error })"></div>
+                </template>
+                <template x-if="subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)] && !subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)]._error">
+                  <div class="host-debug-content">
+                    <div class="host-debug-toolbar">
+                      <div class="host-debug-toolbar-actions">
+                        <button type="button" class="btn btn-ghost fs-xs inline-flex items-center gap-1"
+                                @click="loadSubjectDebug('item', drawerItem.raw_id)"
+                                :disabled="!!subjectsDebugLoading[subjectDebugKey('item', drawerItem.raw_id)]"
+                                :title="t('debug_panel.refresh_title')">
+                          <svg width="14" height="14" aria-hidden="true"
+                               :class="subjectsDebugLoading[subjectDebugKey('item', drawerItem.raw_id)] ? 'spin-md' : ''"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/></svg>
+                          <span x-text="t('debug_panel.refresh')"></span>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="host-debug-grid">
+                      <section class="host-debug-box host-debug-box--wide"
+                               x-show="(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].diagnostics || []).length">
+                        <header class="host-debug-box-head">
+                          <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.diagnostics')"></span>
+                        </header>
+                        <ul class="host-debug-json scrollbar" style="margin:0; padding-inline-start: var(--s-5); list-style: disc;">
+                          <template x-for="msg in (subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].diagnostics || [])" :key="msg">
+                            <li class="fs-xs" x-text="msg"></li>
+                          </template>
+                        </ul>
+                      </section>
+                      <section class="host-debug-box host-debug-box--wide"
+                               x-show="subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].samples_in_window">
+                        <header class="host-debug-box-head">
+                          <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.samples_in_window')"></span>
+                          <button type="button" class="host-debug-copy"
+                                  @click="copyDebugJson(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].samples_in_window, 'debug_panel.labels.samples_in_window')"
+                                  :aria-label="copyAriaLabel('debug_panel.labels.samples_in_window')"
+                                  :title="t('debug_panel.copy_title')">
+                            <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
+                          </button>
+                        </header>
+                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].samples_in_window)"></pre>
+                      </section>
+                      <section class="host-debug-box host-debug-box--wide"
+                               x-show="subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].live_stats && Object.keys(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].live_stats).length">
+                        <header class="host-debug-box-head">
+                          <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.live_stats')"></span>
+                          <button type="button" class="host-debug-copy"
+                                  @click="copyDebugJson(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].live_stats, 'debug_panel.labels.live_stats')"
+                                  :aria-label="copyAriaLabel('debug_panel.labels.live_stats')"
+                                  :title="t('debug_panel.copy_title')">
+                            <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
+                          </button>
+                        </header>
+                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].live_stats)"></pre>
+                      </section>
+                      <section class="host-debug-box host-debug-box--wide">
+                        <header class="host-debug-box-head">
+                          <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.cached_record')"></span>
+                          <button type="button" class="host-debug-copy"
+                                  @click="copyDebugJson(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].record, 'debug_panel.labels.cached_record')"
+                                  :aria-label="copyAriaLabel('debug_panel.labels.cached_record')"
+                                  :title="t('debug_panel.copy_title')">
+                            <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
+                          </button>
+                        </header>
+                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].record || {})"></pre>
+                      </section>
+                      <section class="host-debug-box host-debug-box--wide"
+                               x-show="subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].stack">
+                        <header class="host-debug-box-head">
+                          <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.stack_rollup')"></span>
+                          <button type="button" class="host-debug-copy"
+                                  @click="copyDebugJson(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].stack, 'debug_panel.labels.stack_rollup')"
+                                  :aria-label="copyAriaLabel('debug_panel.labels.stack_rollup')"
+                                  :title="t('debug_panel.copy_title')">
+                            <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
+                          </button>
+                        </header>
+                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(subjectsDebug[subjectDebugKey('item', drawerItem.raw_id)].stack || {})"></pre>
+                      </section>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </section>
+          </template>
         </div>
       </template>
     </aside>
