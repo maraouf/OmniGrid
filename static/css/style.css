@@ -4528,7 +4528,13 @@ body.ai-pinned > .og-app-shell--ai-pinned {
         72px
         84px
         40px;
-    gap: var(--s-3);
+    /* gap MUST match Tailwind's `gap-3` (12px) — the original inline
+       class used `gap-3` and the visual rhythm depends on that exact
+       width. OmniGrid's token system has `--s-3: 6px` (NOT 12px) — it
+       was easy to reach for the same-numbered token but that halves
+       the gap and crams every column. `--s-5` is the 12px token that
+       matches Tailwind's `gap-3` scale. */
+    gap: var(--s-5);
 }
 
 .host-mobile-card {
