@@ -4502,6 +4502,35 @@ body.ai-pinned > .og-app-shell--ai-pinned {
     .hosts-mobile-cards  { display: block; }
 }
 
+/* Hosts desktop table grid template — extracted into a real CSS rule
+   instead of relying on Tailwind v4's in-browser JIT to parse an
+   extremely long `grid-cols-[...]` arbitrary value (operators
+   reported the columns rendering at uniform width even after edits
+   to the inline class string; the JIT runtime appears to cache
+   class definitions per page-load and doesn't always regenerate
+   rules when the class string changes). With the rule declared
+   here, the column widths apply regardless of JIT timing. Both the
+   header row and every data row carry this class. Memory column is
+   intentionally the widest (260px) so the `XX.X% (X.X GB/Y.Y GB)
+   ━` label + drift pill fit on a single line; Disk and CPU columns
+   are narrow because their labels are shorter. */
+.hosts-row-grid {
+    display: grid;
+    grid-template-columns:
+        26px
+        minmax(280px, 1.4fr)
+        110px
+        260px
+        90px
+        minmax(140px, 1fr)
+        80px
+        60px
+        72px
+        84px
+        40px;
+    gap: var(--s-3);
+}
+
 .host-mobile-card {
     background: var(--surface);
     border: 1px solid var(--border);
