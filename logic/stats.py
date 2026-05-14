@@ -129,7 +129,8 @@ def _snapshot_stats_to_db() -> int:
     # the time-series with phantom duplicates.
     rows = [
         (ts, item_id, s.get("cpu_percent") or 0.0,
-         s.get("mem_usage") or 0, s.get("mem_limit") or 0)
+         s.get("mem_usage") or 0, s.get("mem_limit") or 0,
+         s.get("size_root") or 0)
         for item_id, s in snap.items()
         if s.get("has_stats") and not s.get("_stale")
     ]
@@ -137,8 +138,8 @@ def _snapshot_stats_to_db() -> int:
         return 0
     with db_conn() as c:
         c.executemany(
-            "INSERT INTO stats_samples (ts, item_id, cpu, mem_used, mem_limit) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO stats_samples (ts, item_id, cpu, mem_used, mem_limit, size_root) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             rows,
         )
     return len(rows)
@@ -182,9 +183,11 @@ async def stats_sampler_loop() -> None:
 
 
 def stats_history(item_ids: list[str], since: float) -> dict[str, list[dict]]:
-    """Return ``{item_id: [{ts, cpu, mem_used, mem_limit}, ...]}`` for the
-    given ids back to ``since`` (epoch seconds), oldest-first. Empty list
-    per missing id.
+    """Return ``{item_id: [{ts, cpu, mem_used, mem_limit, size_root}, ...]}``
+    for the given ids back to ``since`` (epoch seconds), oldest-first.
+    Empty list per missing id. `size_root` is the per-item image-disk
+    footprint snapshot (bytes) — feeds the Disk sparkline on Stacks /
+    Services / Nodes rows.
     """
     if not item_ids:
         return {}
@@ -192,7 +195,7 @@ def stats_history(item_ids: list[str], since: float) -> dict[str, list[dict]]:
     out: dict[str, list[dict]] = {i: [] for i in item_ids}
     with db_conn() as c:
         rows = c.execute(
-            f"SELECT item_id, ts, cpu, mem_used, mem_limit FROM stats_samples "
+            f"SELECT item_id, ts, cpu, mem_used, mem_limit, size_root FROM stats_samples "
             f"WHERE ts >= ? AND item_id IN ({placeholders}) "
             f"ORDER BY ts ASC",
             (since, *item_ids),
@@ -203,6 +206,7 @@ def stats_history(item_ids: list[str], since: float) -> dict[str, list[dict]]:
             "cpu": r["cpu"],
             "mem_used": r["mem_used"],
             "mem_limit": r["mem_limit"],
+            "size_root": r["size_root"],
         })
     return out
 

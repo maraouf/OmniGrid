@@ -7964,10 +7964,24 @@ function app() {
       const vals = rows.map(r => {
         if (key === 'cpu') return r.cpu || 0;
         if (key === 'mem') return r.mem_limit ? (r.mem_used / r.mem_limit) * 100 : 0;
+        // 'disk' → per-item image-disk footprint (size_root, bytes).
+        // Snapshot of the image's bytes-on-disk at each sampler tick;
+        // sparkline shows image-size drift over time (catches image
+        // bloat from rolling-tag updates). Auto-rescales to the
+        // window's lo/hi via the shared min-max normalisation below
+        // so a flat-ish image renders centred rather than pinned to
+        // the bottom edge.
+        if (key === 'disk') return r.size_root || 0;
         return 0;
       });
       let lo = Infinity, hi = -Infinity;
       for (const v of vals) { if (v < lo) lo = v; if (v > hi) hi = v; }
+      // Empty / all-zero series — skip rendering. For 'disk', a backend
+      // that hasn't yet persisted size_root (pre-migration deploy)
+      // returns 0 for every row → flat-zero spark which renders as an
+      // invisible hairline. Return empty string so the `<svg>` x-show
+      // gate hides the sparkline cleanly.
+      if (!Number.isFinite(lo) || hi <= 0) return '';
       // Keep the sparkline visually centred when the signal is flat.
       if (hi - lo < 0.5) { lo = Math.max(0, lo - 0.5); hi = lo + 1; }
       const step = W / (vals.length - 1);
@@ -15203,10 +15217,11 @@ function app() {
         if (!rows) continue;
         for (const r of rows) {
           const bin = Math.round((r.ts || 0) / BIN) * BIN;
-          const agg = byBin.get(bin) || { ts: bin, cpu: 0, mem_used: 0, mem_limit: 0 };
+          const agg = byBin.get(bin) || { ts: bin, cpu: 0, mem_used: 0, mem_limit: 0, size_root: 0 };
           agg.cpu += r.cpu || 0;
           agg.mem_used += r.mem_used || 0;
           agg.mem_limit += r.mem_limit || 0;
+          agg.size_root += r.size_root || 0;
           byBin.set(bin, agg);
         }
       }
@@ -15216,8 +15231,23 @@ function app() {
       const vals = sorted.map(r => {
         if (key === 'cpu') return r.cpu;
         if (key === 'mem') return r.mem_limit ? (r.mem_used / r.mem_limit) * 100 : 0;
+        // 'disk' → summed image-disk footprint across every item on this
+        // node. Auto-rescaled to the window's lo/hi via the shared min-
+        // max normalisation below — captures fleet-wide image-bytes
+        // drift even when no single item grew much. Backend's stats_samples
+        // table gained a `size_root` column; pre-migration deploys return
+        // 0 for every row so the auto-rescale flat-zero gate hides the
+        // sparkline cleanly.
+        if (key === 'disk') return r.size_root || 0;
         return 0;
       });
+      // 'disk'-specific early-bail: when no row carries a real
+      // size_root value (pre-migration deploys or hosts whose
+      // sampler hasn't run since the schema update), every value is
+      // 0. Without this gate, the flat-line treatment below would
+      // render a misleading flat line at H/2. Returning '' hides
+      // the SVG via x-show, keeping the cell clean.
+      if (key === 'disk' && vals.every(v => !v)) return '';
       let lo = Infinity, hi = -Infinity;
       for (const v of vals) { if (v < lo) lo = v; if (v > hi) hi = v; }
       // Flat / idle series — center the line in the box rather than
@@ -15250,7 +15280,17 @@ function app() {
     nodeSparkClass(host, key) {
       const st = this.nodeStats(host);
       if (!st.hasStats) return 'muted';
-      const v = key === 'cpu' ? this.nodeCpuPercent(host) : this.nodeMemPercent(host);
+      let v;
+      if (key === 'cpu') v = this.nodeCpuPercent(host);
+      else if (key === 'disk') {
+        // Prefer host disk percent (node-exporter) when available;
+        // fall back to the docker-daemon disk percent otherwise.
+        v = (typeof this.hostDiskPercent === 'function' && st.hasHostStats)
+          ? this.hostDiskPercent(host)
+          : (typeof this.nodeDiskPercent === 'function' ? this.nodeDiskPercent(host) : 0);
+      } else {
+        v = this.nodeMemPercent(host);
+      }
       return this.barLevel(v);
     },
 
