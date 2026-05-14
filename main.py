@@ -12177,6 +12177,222 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
     }
 
 
+def _item_samples_in_window(item_id: str, since_hours: int) -> dict:
+    """Count stats_samples rows for ONE item within a sliding window.
+
+    Returns the same shape the host-debug panel uses for the
+    `samples_in_window` block so the SPA can render the two
+    diagnostics identically.
+    """
+    expected_interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+    out = {
+        "hours": int(max(1, since_hours)),
+        "count": 0,
+        "expected_interval_s": expected_interval,
+    }
+    if not item_id:
+        return out
+    now = int(time.time())
+    cutoff = now - out["hours"] * 3600
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT ts FROM stats_samples "
+                "WHERE item_id = ? AND ts >= ? ORDER BY ts ASC",
+                (item_id, cutoff),
+            ).fetchall()
+    except Exception as e:
+        out["error"] = str(e)
+        return out
+    timestamps = [int(r[0]) for r in rows]
+    out["count"] = len(timestamps)
+    if timestamps:
+        out["oldest_ts"] = timestamps[0]
+        out["newest_ts"] = timestamps[-1]
+        out["newest_age_s"] = now - timestamps[-1]
+        if len(timestamps) >= 2:
+            gaps = [timestamps[i + 1] - timestamps[i]
+                    for i in range(len(timestamps) - 1)]
+            gaps.sort()
+            out["median_gap_s"] = gaps[len(gaps) // 2]
+    return out
+
+
+@app.get("/api/debug/subject")
+async def api_debug_subject(
+    kind: str = "",
+    id: str = "",
+    since_hours: int = 1,
+    _u: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only diagnostic for the Stacks / Services / Nodes drawers.
+
+    `kind=item` resolves against `_cache["items"]` (covers services,
+    standalone containers, orphans, AND the synthetic stack rows).
+    `kind=node` resolves against the Swarm node map.
+
+    Returns a JSON dump of the cached record + the per-item stats
+    snapshot + a `samples_in_window` block (same shape as
+    /api/hosts/debug for diagnostic-rendering reuse) + a
+    human-readable `diagnostics` list explaining why drawer charts
+    might be showing "Collecting data" or empty bars.
+
+    Lightweight by design — no fresh probes against Portainer or
+    providers. Reads the same `_cache` / `_stats_cache` / DB tables
+    the live drawer already consumes.
+    """
+    if kind not in ("item", "node"):
+        raise HTTPException(400, "kind must be 'item' or 'node'")
+    if not id:
+        raise HTTPException(400, "id query param required")
+
+    out: dict[str, Any] = {"kind": kind, "id": id}
+    diagnostics: list[str] = []
+    since_hours_clamped = max(1, min(168, int(since_hours or 1)))
+
+    if kind == "item":
+        items = _cache.get("items") or []
+        record = next(
+            (it for it in items
+             if it.get("id") == id
+             or it.get("raw_id") == id
+             or (it.get("raw_id") or "").startswith(id)),
+            None,
+        )
+        if record is None:
+            raise HTTPException(404, f"no item with id={id!r}")
+        out["record"] = record
+
+        # Stack rollup if this item is part of one
+        stack_name = (record.get("stack") or "").strip()
+        if stack_name:
+            for st in (_cache.get("stacks") or []):
+                if st.get("name") == stack_name:
+                    out["stack"] = st
+                    break
+
+        # Live stats entry (cpu_percent / mem_usage / has_stats / has_size)
+        live_stats = (_stats_cache.get("stats") or {}).get(record.get("id")) or {}
+        out["live_stats"] = live_stats
+
+        # Historical sample density — drives the "why is my chart empty"
+        # diagnostic. stats_samples is item-keyed so we can answer per-row.
+        sw = _item_samples_in_window(record.get("id"), since_hours_clamped)
+        out["samples_in_window"] = sw
+
+        if not live_stats:
+            diagnostics.append(
+                "live_stats is empty — _stats_cache has no entry for "
+                "this item. Either the sampler has not ticked since the "
+                "item appeared, OR the Portainer /stats call failed for "
+                "this container (check the agent on the item's node)."
+            )
+        else:
+            if live_stats.get("has_stats") is False:
+                diagnostics.append(
+                    "live_stats.has_stats=false — Portainer "
+                    "/containers/{id}/stats returned no usable data. "
+                    "Bar will show '—'; sparkline will be empty until "
+                    "stats start returning."
+                )
+            if live_stats.get("has_size") is False:
+                diagnostics.append(
+                    "live_stats.has_size=false — Portainer ?size=1 "
+                    "enrichment failed. Disk bar + sparkline are empty "
+                    "because there's no size_root to plot."
+                )
+
+        if sw.get("count", 0) == 0:
+            diagnostics.append(
+                f"stats_samples has 0 rows for this item in the past "
+                f"{since_hours_clamped}h. Sampler has not persisted any "
+                f"history yet — drawer charts show 'Collecting data' "
+                f"until at least 2 samples land (sampler interval ~"
+                f"{sw.get('expected_interval_s', 300)}s)."
+            )
+        elif sw.get("count", 0) < 2:
+            diagnostics.append(
+                f"Only {sw['count']} sample in the past "
+                f"{since_hours_clamped}h. Drawer charts need ≥2 points "
+                f"to render a line — wait one more sampler tick "
+                f"(~{sw.get('expected_interval_s', 300)}s)."
+            )
+        else:
+            age = int(sw.get("newest_age_s") or 0)
+            expected = int(sw.get("expected_interval_s") or 300)
+            if age > expected * 3:
+                diagnostics.append(
+                    f"Newest stats_samples row is {age}s old "
+                    f"(>3× expected interval {expected}s) — sampler "
+                    f"may have stalled. Charts continue rendering the "
+                    f"last-known data but will look 'frozen'."
+                )
+            gap = int(sw.get("median_gap_s") or 0)
+            if gap > expected * 1.5:
+                diagnostics.append(
+                    f"Median gap between consecutive samples is {gap}s "
+                    f"— above 1.5× the configured {expected}s interval. "
+                    f"Sampler is ticking slower than expected; check "
+                    f"Admin → Logs for [stats] warnings."
+                )
+
+        out["diagnostics"] = diagnostics
+        return out
+
+    # ----- kind == "node" --------------------------------------------
+    nodes_map = _cache.get("nodes") or {}
+    # _cache["nodes"] is {NodeID: hostname}; accept either as the id.
+    node_id = None
+    hostname = None
+    for nid, hn in nodes_map.items():
+        if nid == id or hn == id:
+            node_id = nid
+            hostname = hn
+            break
+    if hostname is None:
+        raise HTTPException(404, f"no node with id={id!r}")
+    out["node_id"] = node_id
+    out["hostname"] = hostname
+
+    items = _cache.get("items") or []
+    items_on_node = [it for it in items if it.get("node") == hostname]
+    by_status: dict[str, int] = {}
+    by_health: dict[str, int] = {}
+    for it in items_on_node:
+        s = str(it.get("status") or "unknown")
+        by_status[s] = by_status.get(s, 0) + 1
+        h = str(it.get("health") or "unknown")
+        by_health[h] = by_health.get(h, 0) + 1
+    out["items_on_node"] = {
+        "count": len(items_on_node),
+        "by_status": by_status,
+        "by_health": by_health,
+        "names": [it.get("name") for it in items_on_node[:50]],
+    }
+
+    # Merged host-stats blob (same dict the host drawer renders from)
+    nodes_info = (_cache.get("nodes_info") or {}).get(hostname) or {}
+    out["nodes_info"] = nodes_info
+
+    if not items_on_node:
+        diagnostics.append(
+            f"No items mapped to hostname={hostname!r}. Portainer's "
+            f"task list returned nothing for this node — Swarm may "
+            f"have evicted it OR the Portainer agent there is "
+            f"unreachable."
+        )
+    if not nodes_info:
+        diagnostics.append(
+            f"nodes_info has no entry for hostname={hostname!r}. No "
+            f"host-stats provider (Beszel / Pulse / node-exporter / "
+            f"Webmin / SNMP / Ping) reported data for this node, so "
+            f"host CPU / Memory / Disk bars stay empty."
+        )
+
+    out["diagnostics"] = diagnostics
+    return out
+
+
 @app.get("/api/hosts/debug")
 async def api_hosts_debug(
     id: str = "",

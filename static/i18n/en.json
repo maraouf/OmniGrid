@@ -3440,7 +3440,13 @@
       "samples_in_window": "Samples in window",
       "asset_raw": "Asset · Raw",
       "asset_shape": "Asset · Shape",
-      "chart_data": "Chart data"
+      "chart_data": "Chart data",
+      "diagnostics": "Diagnostics",
+      "live_stats": "Live stats (in-memory cache)",
+      "cached_record": "Cached record",
+      "stack_rollup": "Stack rollup",
+      "items_on_node": "Items on node",
+      "nodes_info": "Merged host-stats blob (nodes_info)"
     },
     "hints": {
       "merged": "after _merge_best",

@@ -652,6 +652,14 @@ function app() {
     // first open lazy-loads the data.
     hostBeszelServicesOpen: {},
     hostsDebugOpen: {},      // {host_id: true} = panel is expanded
+    // Per-subject debug payloads for the Stacks / Services / Nodes
+    // drawers — admin-only, lazily fetched when the operator opens the
+    // drawer's Debug panel. Keyed by `kind:id` (e.g. "item:abc12345"
+    // or "node:web01.example.com") so item-id-vs-node-id collisions
+    // can't happen.
+    subjectsDebug: {},        // {key: payload}
+    subjectsDebugLoading: {}, // {key: true} while fetch is in flight
+    subjectsDebugOpen: {},    // {key: true} = panel is expanded
     // Per-host expand/collapse state for high-count Server health
     // sub-sections (Physical disks / Voltages). Default-collapsed when
     // the section's row count exceeds the dense-layout threshold (12);
@@ -25947,6 +25955,55 @@ function app() {
         if (!this.hostsDebug[hostId] && !this.hostsDebugLoading[hostId]) {
           await this.loadHostDebug(hostId);
         }
+      }
+    },
+    // ----- Stacks / Services / Nodes drawer debug panel ----------
+    // Shared helpers keyed by `kind:id`. `kind` is 'item' (covers
+    // services / standalone containers / orphans / stack rollups
+    // surfaced via drawerItem) or 'node' (drawerNode). Same fetch +
+    // open-toggle + loading-state shape as the host-debug panel, so
+    // the markup can reuse the existing `.host-debug-*` CSS family
+    // verbatim for visual consistency.
+    subjectDebugKey(kind, id) { return `${kind}:${id || ''}`; },
+    async toggleSubjectDebug(kind, id) {
+      if (!kind || !id) return;
+      const key = this.subjectDebugKey(kind, id);
+      const open = !this.subjectsDebugOpen[key];
+      this.subjectsDebugOpen = { ...this.subjectsDebugOpen, [key]: open };
+      if (open && !this.subjectsDebug[key] && !this.subjectsDebugLoading[key]) {
+        await this.loadSubjectDebug(kind, id);
+      }
+    },
+    async loadSubjectDebug(kind, id) {
+      if (!kind || !id) return;
+      const key = this.subjectDebugKey(kind, id);
+      this.subjectsDebugLoading = { ...this.subjectsDebugLoading, [key]: true };
+      try {
+        const r = await fetch(
+          '/api/debug/subject'
+          + '?kind=' + encodeURIComponent(kind)
+          + '&id=' + encodeURIComponent(id)
+          + '&since_hours=1'
+        );
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          this.subjectsDebug = {
+            ...this.subjectsDebug,
+            [key]: { _error: j.detail || `HTTP ${r.status}` },
+          };
+          return;
+        }
+        const d = await r.json();
+        this.subjectsDebug = { ...this.subjectsDebug, [key]: d };
+      } catch (e) {
+        this.subjectsDebug = {
+          ...this.subjectsDebug,
+          [key]: { _error: `Network: ${e.message}` },
+        };
+      } finally {
+        this.subjectsDebugLoading = {
+          ...this.subjectsDebugLoading, [key]: false,
+        };
       }
     },
     // Jump to the host-drawer debug panel from another surface
