@@ -4578,7 +4578,11 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 .host-mobile-card-metrics {
     margin-top: var(--s-4);
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    /* Memory column takes ~47% of the row so the drift pill
+       fits on the same line as the percent + bytes label
+       (`80.0% (12 GB/15 GB) —`). CPU + Disk get narrower
+       shares since their labels are shorter. */
+    grid-template-columns: 1fr 1.6fr 0.85fr;
     gap: var(--s-4);
 }
 
