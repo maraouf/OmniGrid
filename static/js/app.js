@@ -29003,9 +29003,25 @@ function app() {
             const seriesHasTemps = next.some(r => r && r.temps && Object.keys(r.temps).length > 0);
             const seriesHasGpu = next.some(r => r && Number(r.gpu_pwr) > 0);
             if (!seriesHasTemps && liveTemps && Object.keys(liveTemps).length > 0) {
-              last.temps = liveTemps;
+              // Backfill the LIVE per-sensor reading across EVERY series
+              // row, not just the last one — Beszel's hub doesn't always
+              // persist `stats.t` in the aggregated `system_stats`
+              // collection (the live `systems` collection has them but
+              // the history doesn't), and stamping only the LAST row
+              // produces a single-point SVG path (`M x,y` with no `L`)
+              // which renders as nothing. Backfilling gives the chart a
+              // flat horizontal line at the current temp — visible
+              // signal that the chart card is alive even when historical
+              // temp data is missing. When historical data lands later
+              // (`seriesHasTemps === true`) this branch is skipped and
+              // the real per-tick variation renders.
               const vals = Object.values(liveTemps).map(v => Number(v)).filter(Number.isFinite);
-              last.temp_max = vals.length ? Math.max(...vals) : 0;
+              const maxTemp = vals.length ? Math.max(...vals) : 0;
+              for (const row of next) {
+                if (!row) continue;
+                row.temps = liveTemps;
+                row.temp_max = maxTemp;
+              }
             }
             if (!seriesHasGpu && liveGpus.length) {
               let pwrSum = 0, usageSum = 0, vUsedSum = 0, vTotSum = 0, n = 0;
