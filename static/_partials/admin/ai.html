@@ -151,6 +151,25 @@
                 <p class="fs-2xs text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_retry_enabled.help')"></p>
               </div>
+              <!-- AI conversation export master toggle. Grouped with
+                   the retry-enabled checkbox above so the section reads
+                   as "checkboxes first, then text tunables". Stored as
+                   0/1 via tuning_int; the SPA's sidebar-header export
+                   buttons gate on the resolved
+                   `me.client_config.ai_conversation_export_enabled`. -->
+              <div class="mb-3">
+                <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
+                  <input type="checkbox"
+                         x-model="tuningForm['tuning_ai_conversation_export_enabled']"
+                         true-value="1" false-value="0"
+                         :disabled="!isAdmin() || tuningSaving">
+                  <span x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.label')"></span>
+                </label>
+                <div class="fs-2xs text-[var(--text-faint)] mt-1"
+                     x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_conversation_export_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
+                <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                   x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.help')"></p>
+              </div>
               <!-- Backoff in milliseconds. -->
               <div class="mb-3">
                 <label class="block fs-xs font-medium mb-1"
@@ -263,24 +282,6 @@
                 </div>
                 <p class="fs-2xs text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.help')"></p>
-              </div>
-              <!-- AI conversation export master toggle. Same shape as
-                   the retry-enabled checkbox above so the visual rhythm
-                   matches. Stored as 0/1 via tuning_int; the SPA's
-                   sidebar-header export buttons gate on the resolved
-                   `me.client_config.ai_conversation_export_enabled`. -->
-              <div class="mt-3">
-                <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
-                  <input type="checkbox"
-                         x-model="tuningForm['tuning_ai_conversation_export_enabled']"
-                         true-value="1" false-value="0"
-                         :disabled="!isAdmin() || tuningSaving">
-                  <span x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.label')"></span>
-                </label>
-                <div class="fs-2xs text-[var(--text-faint)] mt-1"
-                     x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_conversation_export_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                   x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.help')"></p>
               </div>
               <!-- AI conversation persist cadence (ms). Same shape as
                    the sidebar-width input row above. Read by the SPA's
