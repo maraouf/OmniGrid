@@ -6766,6 +6766,13 @@ body.login {
     padding: var(--s-1) var(--s-3);
     font-size: var(--fs-xs);
 }
+/* Compact panels hide the "— compare raw providers..." hint suffix
+ * inside the toggle button so the resting content-width stays tight.
+ * The host drawer panel is wide enough to absorb the hint without
+ * looking stretched; the narrower drawers aren't. */
+.host-debug-panel--compact > .host-debug-toggle .host-debug-hint {
+    display: none;
+}
 .host-debug-panel--compact .host-debug-grid {
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: var(--s-2);
