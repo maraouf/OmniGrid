@@ -568,6 +568,54 @@
         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
         <span x-text="t('events.dropped_label', { count: _sseDropped })"></span>
       </div>
+      <!-- Multi-tab activity pill (UX-review IDEA-23). Shows when ≥ 1
+           sibling tab is open. Click to expand a popover listing each
+           tab's location with click-to-focus via BroadcastChannel.
+           Hidden when only this tab is open (no value in showing
+           "1 tab"). Operator can hide entirely via Settings → Profile
+           → `topbar_show_tabs_widget` (default on). -->
+      <div class="tabs-pill order-4 sm:order-none"
+           x-show="tabActivityCount() > 0 && (!me || !me.ui_prefs || me.ui_prefs.topbar_show_tabs_widget !== false)"
+           x-data="{ open: false }"
+           @click.outside="open = false"
+           :title="t('topbar.tabs.title', { count: tabActivityCount() + 1 })">
+        <button type="button"
+                @click="open = !open"
+                class="tabs-pill-btn"
+                :aria-expanded="open ? 'true' : 'false'"
+                :aria-label="t('topbar.tabs.aria', { count: tabActivityCount() + 1 })">
+          <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
+          <span x-text="t('topbar.tabs.label', { count: tabActivityCount() + 1 })"></span>
+        </button>
+        <!-- Popover — sibling tab list. Newest tab first. Click a row
+             to focus that tab via BroadcastChannel. Closing the
+             popover doesn't close the tabs themselves. -->
+        <div class="tabs-pill-popover" x-show="open" x-cloak>
+          <div class="tabs-pill-header" x-text="t('topbar.tabs.popover_title')"></div>
+          <template x-for="t in tabActivityList()" :key="t.client_id">
+            <button type="button"
+                    @click="focusTabByClientId(t.client_id); open = false"
+                    class="tabs-pill-row"
+                    :title="t('topbar.tabs.row_focus_title')">
+              <div class="tabs-pill-row-title" x-text="t.title || t.view || '—'"></div>
+              <div class="tabs-pill-row-meta">
+                <span x-show="t.actor" x-text="t.actor"></span>
+                <span x-show="t.ts"
+                      class="tabs-pill-row-age"
+                      x-text="(function(){
+                        const s = Math.max(0, Math.round((Date.now() - Number(t.ts || 0) * 1000) / 1000));
+                        if (s < 60) return s + 's';
+                        if (s < 3600) return Math.round(s / 60) + 'm';
+                        return Math.round(s / 3600) + 'h';
+                      })()"></span>
+              </div>
+            </button>
+          </template>
+          <div x-show="!tabActivityList().length"
+               class="tabs-pill-empty"
+               x-text="t('topbar.tabs.popover_empty')"></div>
+        </div>
+      </div>
       <!-- Theme + Hotkeys — small icon buttons. On mobile they live at
            order-4 alongside the language picker so they don't get
            shoved to a new row by the wide SYNC/STATS pills below. -->
@@ -2245,6 +2293,13 @@
               <div class="host-mobile-card-metric" x-show="hostHasCpuMetric(h)">
                 <span class="name" x-text="t('columns.cpu')"></span>
                 <span class="value" x-text="(h.cpu_percent || 0).toFixed(1) + '%'"></span>
+                <template x-if="hostDriftIndicator(h, 'cpu_pct')">
+                  <span class="host-drift-chip"
+                        :class="hostDriftIndicator(h, 'cpu_pct').tone"
+                        :title="hostDriftIndicator(h, 'cpu_pct').title"
+                        :aria-label="hostDriftIndicator(h, 'cpu_pct').title"
+                        x-text="hostDriftIndicator(h, 'cpu_pct').indicator"></span>
+                </template>
                 <div class="stat-bar" x-bind="statBarBind(Math.round(Math.min(100, h.cpu_percent || 0)), 'columns.cpu')"
                      :class="[barLevel(h.cpu_percent), isStaleField(h, 'host_cpu_percent') ? 'stale' : '']"
                      :style="'--w: ' + Math.round(Math.min(100, h.cpu_percent || 0)) + '%'"
@@ -2261,6 +2316,13 @@
                 <span class="name" x-text="t('columns.memory')"></span>
                 <span class="value"
                       x-text="((h.mem_percent !== undefined && h.mem_percent !== null) ? Number(h.mem_percent) : memPercentOf(h)).toFixed(1) + '%'"></span>
+                <template x-if="hostDriftIndicator(h, 'mem_pct')">
+                  <span class="host-drift-chip"
+                        :class="hostDriftIndicator(h, 'mem_pct').tone"
+                        :title="hostDriftIndicator(h, 'mem_pct').title"
+                        :aria-label="hostDriftIndicator(h, 'mem_pct').title"
+                        x-text="hostDriftIndicator(h, 'mem_pct').indicator"></span>
+                </template>
                 <div class="stat-bar" x-bind="statBarBind(Math.round(h.mem_percent || memPercentOf(h)), 'columns.memory')"
                      :class="[barLevel(h.mem_percent || memPercentOf(h)), (isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? 'stale' : '']"
                      :style="'--w: ' + ((h.mem_percent !== undefined && h.mem_percent !== null) ? Number(h.mem_percent) : memPercentOf(h)).toFixed(1) + '%'"
@@ -2277,6 +2339,13 @@
                 <span class="name" x-text="t('columns.disk')"></span>
                 <span class="value"
                       x-text="fmtPercentLabel(h.disk_percent || diskPercentOf(h))"></span>
+                <template x-if="hostDriftIndicator(h, 'disk_pct')">
+                  <span class="host-drift-chip"
+                        :class="hostDriftIndicator(h, 'disk_pct').tone"
+                        :title="hostDriftIndicator(h, 'disk_pct').title"
+                        :aria-label="hostDriftIndicator(h, 'disk_pct').title"
+                        x-text="hostDriftIndicator(h, 'disk_pct').indicator"></span>
+                </template>
                 <div class="stat-bar" x-bind="statBarBind(Math.round(h.disk_percent || diskPercentOf(h)), 'columns.disk')"
                      :class="[barLevel(h.disk_percent || diskPercentOf(h)), (isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? 'stale' : '']"
                      :style="'--w: ' + ((h.disk_percent || diskPercentOf(h)) > 0 ? Math.max(1, Math.round(h.disk_percent || diskPercentOf(h))) : 0) + '%'"
@@ -2605,8 +2674,16 @@
                          viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
                       <path fill="none" stroke="currentColor" stroke-width="1" :d="hostInlineSparkline(h, 'cpu')"/>
                     </svg>
-                    <div class="fs-2xs mono mt-1"
-                         x-text="(h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ')' : '')"></div>
+                    <div class="fs-2xs mono mt-1">
+                      <span x-text="(h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ')' : '')"></span>
+                      <template x-if="hostDriftIndicator(h, 'cpu_pct')">
+                        <span class="host-drift-chip"
+                              :class="hostDriftIndicator(h, 'cpu_pct').tone"
+                              :title="hostDriftIndicator(h, 'cpu_pct').title"
+                              :aria-label="hostDriftIndicator(h, 'cpu_pct').title"
+                              x-text="hostDriftIndicator(h, 'cpu_pct').indicator"></span>
+                      </template>
+                    </div>
                   </div>
                 </template>
               </div>
@@ -2633,6 +2710,13 @@
                       <span x-text="((h.mem_percent !== undefined && h.mem_percent !== null) ? Number(h.mem_percent) : memPercentOf(h)).toFixed(1) + '%'"></span>
                       <span class="text-[var(--text-faint)]" x-show="h.mem_total"
                             x-text="' (' + fmtBytes(h.mem_used) + '/' + fmtBytes(h.mem_total) + ')'"></span>
+                      <template x-if="hostDriftIndicator(h, 'mem_pct')">
+                        <span class="host-drift-chip"
+                              :class="hostDriftIndicator(h, 'mem_pct').tone"
+                              :title="hostDriftIndicator(h, 'mem_pct').title"
+                              :aria-label="hostDriftIndicator(h, 'mem_pct').title"
+                              x-text="hostDriftIndicator(h, 'mem_pct').indicator"></span>
+                      </template>
                     </div>
                   </div>
                 </template>
@@ -2678,6 +2762,13 @@
                       <span x-text="fmtPercentLabel(h.disk_percent || diskPercentOf(h))"></span>
                       <span class="text-[var(--text-faint)]" x-show="h.disk_total"
                             x-text="' (' + fmtBytes(h.disk_used) + '/' + fmtBytes(h.disk_total) + ')'"></span>
+                      <template x-if="hostDriftIndicator(h, 'disk_pct')">
+                        <span class="host-drift-chip"
+                              :class="hostDriftIndicator(h, 'disk_pct').tone"
+                              :title="hostDriftIndicator(h, 'disk_pct').title"
+                              :aria-label="hostDriftIndicator(h, 'disk_pct').title"
+                              x-text="hostDriftIndicator(h, 'disk_pct').indicator"></span>
+                      </template>
                     </div>
                   </div>
                 </template>
@@ -8412,6 +8503,20 @@
                    @change="loadNotifications()">
             <span x-text="t('notifications.filter_unread_only')"></span>
           </label>
+
+          <!-- Cluster-pivot toggle (UX-review IDEA-22). When on, rows
+               with identical (event, target_kind, target_id) collapse
+               into one cluster row with a count badge — operators on
+               a busy fleet pivot from "47 service restart" rows to
+               one row per (service, event). Persists to
+               `ui_prefs.notifications_group_similar` so the operator's
+               choice survives reloads / cross-device login. -->
+          <label class="ms-2 inline-flex items-center gap-1"
+                 :title="t('notifications.group_similar_help')">
+            <input type="checkbox" x-model="notificationsGroupSimilar"
+                   @change="_persistNotificationsGroupSimilar()">
+            <span x-text="t('notifications.group_similar')"></span>
+          </label>
         </div>
 
         <div class="p-4 space-y-3">
@@ -8424,7 +8529,10 @@
                class="text-center py-16 text-[var(--text-faint)] text-sm"
                x-text="t('notifications.empty')"></div>
 
-          <div x-show="!notificationsLoading && notifications.length > 0"
+          <!-- Flat list — default mode, every notification gets its own
+               row. Branch on `notificationsGroupSimilar` so the cluster
+               path stays out of the DOM when the toggle is off. -->
+          <div x-show="!notificationsLoading && notifications.length > 0 && !notificationsGroupSimilar"
                class="space-y-2">
             <template x-for="n in notifications" :key="n.id">
               <article class="notification-row"
@@ -8451,6 +8559,97 @@
                     <span class="fs-xs text-[var(--text-faint)]"
                           x-show="n.target_kind && n.target_id"
                           x-text="n.target_kind + ': ' + n.target_id"></span>
+                  </div>
+                </div>
+              </article>
+            </template>
+          </div>
+
+          <!-- Clustered list — pivots rows by (event, target_kind,
+               target_id). Each cluster header shows count + range +
+               latest row's title. Click the row OR the chevron to
+               expand the cluster's individual items inline. Singleton
+               clusters (count===1) skip the expansion affordance and
+               render identically to a flat row. -->
+          <div x-show="!notificationsLoading && notifications.length > 0 && notificationsGroupSimilar"
+               class="space-y-2">
+            <template x-for="c in notificationClusters()" :key="c.key">
+              <article class="notification-row notification-cluster"
+                       :class="[
+                         (c.unread > 0) ? 'notification-row--unread' : 'notification-row--read',
+                         isNotificationClusterExpanded(c.key) ? 'notification-cluster--expanded' : '',
+                       ]"
+                       :data-severity="c.severity || 'info'">
+                <span :class="notificationDotClass(c.severity)" aria-hidden="true"></span>
+                <div class="notification-row-body">
+                  <div class="notification-row-header">
+                    <span class="notification-row-title">
+                      <span x-text="c.latest.title || c.latest.event || ''"></span>
+                      <span x-show="c.count > 1"
+                            class="notification-cluster-count"
+                            :title="t('notifications.cluster_count_title', { count: c.count })"
+                            x-text="'×' + c.count"></span>
+                    </span>
+                    <span class="notification-row-meta">
+                      <span class="fs-xs text-[var(--text-faint)]"
+                            x-text="fmtAgo(c.latest_ts * 1000)"></span>
+                      <button type="button" x-show="c.unread > 0"
+                              @click="markClusterRead(c)"
+                              class="btn btn-ghost fs-xs"
+                              :title="t('notifications.mark_cluster_read_title', { count: c.unread })"
+                              x-text="t('notifications.mark_cluster_read')"></button>
+                      <button type="button" x-show="c.count > 1"
+                              @click="toggleNotificationCluster(c.key)"
+                              class="btn btn-ghost fs-xs notification-cluster-toggle"
+                              :aria-expanded="isNotificationClusterExpanded(c.key) ? 'true' : 'false'"
+                              :title="isNotificationClusterExpanded(c.key) ? t('notifications.collapse') : t('notifications.expand')"
+                              :aria-label="isNotificationClusterExpanded(c.key) ? t('notifications.collapse') : t('notifications.expand')"
+                              x-text="isNotificationClusterExpanded(c.key) ? '▴' : '▾'"></button>
+                    </span>
+                  </div>
+                  <div class="notification-row-sub" x-show="c.latest.body" x-text="c.latest.body"></div>
+                  <div class="notification-row-footer">
+                    <span class="chip" x-show="c.latest.event" x-text="c.latest.event"></span>
+                    <span class="fs-xs text-[var(--text-faint)]"
+                          x-show="c.latest.actor"
+                          x-text="'@' + c.latest.actor"></span>
+                    <span class="fs-xs text-[var(--text-faint)]"
+                          x-show="c.latest.target_kind && c.latest.target_id"
+                          x-text="c.latest.target_kind + ': ' + c.latest.target_id"></span>
+                    <span class="fs-xs text-[var(--text-faint)]"
+                          x-show="c.count > 1"
+                          x-text="t('notifications.cluster_range', {
+                            earliest: fmtAgo(c.earliest_ts * 1000),
+                            latest: fmtAgo(c.latest_ts * 1000)
+                          })"></span>
+                  </div>
+                  <!-- Expanded items list — only rendered when this
+                       cluster's key is in the expansion set. Each
+                       sub-row reuses the flat-row markup at a smaller
+                       indent so visually they read as "instances of
+                       the parent cluster". -->
+                  <div class="notification-cluster-items"
+                       x-show="isNotificationClusterExpanded(c.key)">
+                    <template x-for="n in c.items" :key="n.id">
+                      <article class="notification-row notification-cluster-item"
+                               :class="(n.read_at == null) ? 'notification-row--unread' : 'notification-row--read'"
+                               :data-severity="n.severity || 'info'">
+                        <span :class="notificationDotClass(n.severity)" aria-hidden="true"></span>
+                        <div class="notification-row-body">
+                          <div class="notification-row-header">
+                            <span class="notification-row-title fs-sm" x-text="n.title || n.event || ''"></span>
+                            <span class="notification-row-meta">
+                              <span class="fs-xs text-[var(--text-faint)]" x-text="fmtAgo(n.ts * 1000)"></span>
+                              <button type="button" x-show="n.read_at == null"
+                                      @click="markNotificationRead(n.id)"
+                                      class="btn btn-ghost fs-xs"
+                                      x-text="t('notifications.mark_read')"></button>
+                            </span>
+                          </div>
+                          <div class="notification-row-sub fs-xs" x-show="n.body" x-text="n.body"></div>
+                        </div>
+                      </article>
+                    </template>
                   </div>
                 </div>
               </article>

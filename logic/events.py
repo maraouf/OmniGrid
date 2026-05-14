@@ -220,7 +220,12 @@ def publish(
     # events still publish + dispatch normally; only the trace print is
     # silenced. Add new type prefixes here when a publisher's volume
     # outweighs its diagnostic value.
-    if not type_.startswith("host:provider_"):
+    # Tab activity events fire from EVERY tab on EVERY navigation +
+    # 30s heartbeat — multi-tab operators easily produce dozens of
+    # events per minute. Same suppression as `host:provider_*`: the
+    # event still publishes + dispatches; only the trace print is
+    # silenced.
+    if not type_.startswith("host:provider_") and not type_.startswith("tab:"):
         if _ident:
             print(f"[events] publish {type_} id={_ident}")
         else:

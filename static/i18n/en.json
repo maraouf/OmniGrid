@@ -85,6 +85,14 @@
     "filter_severity": "Severity:",
     "filter_event": "Event:",
     "filter_unread_only": "Unread only",
+    "group_similar": "Group similar",
+    "group_similar_help": "Cluster notifications sharing the same event and target into one row with a count badge. Page-scoped — clusters span the current page only.",
+    "cluster_count_title": "{count} notifications in this cluster",
+    "cluster_range": "Spanning {earliest} → {latest}",
+    "mark_cluster_read": "Mark cluster read",
+    "mark_cluster_read_title": "Mark {count} unread notification(s) in this cluster as read",
+    "expand": "Expand",
+    "collapse": "Collapse",
     "unread_count": "{count} unread",
     "showing_count": "Showing {from}–{to} of {total} (page {page} of {pages})",
     "load_more": "Load more",
@@ -190,7 +198,15 @@
     "refreshing_bg_title": "A background gather is in flight — the response you're looking at is from the prior snapshot, fresh data lands on the next poll. The topbar Refresh spinner only fires for foreground fetches; this pill surfaces the background activity that round-3 of the spinner fix removed from the spinner gate.",
     "theme_title": "Theme: {pref} (click to cycle)",
     "hotkeys_title": "Keyboard shortcuts (?)",
-    "cleanup_title": "Remove all {count} stopped/failed container(s)"
+    "cleanup_title": "Remove all {count} stopped/failed container(s)",
+    "tabs": {
+      "title": "You have {count} tabs open ({count_minus_1, plural, =1 {1 sibling tab} other {# sibling tabs}})",
+      "aria": "{count} OmniGrid tabs open in this browser",
+      "label": "{count} tabs",
+      "popover_title": "Other OmniGrid tabs",
+      "popover_empty": "No sibling tabs.",
+      "row_focus_title": "Click to focus that tab (best-effort cross-window focus)"
+    }
   },
   "events": {
     "live_label": "Live",
@@ -815,7 +831,8 @@
       "actor": "Actor:",
       "duration": "Duration:",
       "status": "Status:",
-      "error": "Error:"
+      "error": "Error:",
+      "diagnose": "Diagnose with AI"
     },
     "clear_confirm_title": "Clear all history?",
     "clear_confirm_html": "<div>This will permanently delete all past update records.</div>",
@@ -2588,6 +2605,11 @@
     "passkey_server_unsupported": "Passkey support isn't installed on this server",
     "failed": "Failed"
   },
+  "blast_radius": {
+    "label": "This will affect:",
+    "summary": "{total} item(s): {services} service(s) × {replicas} replicas, {containers} container(s), {orphans} orphan(s).",
+    "has_update": "update available"
+  },
   "dialogs": {
     "update_stack_title": "Update stack",
     "update_stack_html": "<code>{name}</code><ul><li>Prune removed services</li><li>Re-pull all images</li><li>Redeploy the stack</li></ul>",
@@ -2796,6 +2818,11 @@
   },
   "hosts_extra": {
     "probe_title": "Probe took {elapsed} (status: {status})",
+    "drift": {
+      "title_above": "Above baseline — current {live}, 30-day median {median}, IQR ±{iqr} (n={count})",
+      "title_below": "Below baseline — current {live}, 30-day median {median}, IQR ±{iqr} (n={count})",
+      "title_normal": "Within baseline — current {live}, 30-day median {median}, IQR ±{iqr} (n={count})"
+    },
     "bulk": {
       "bar_aria": "Bulk host actions",
       "selected": "{count} selected",
