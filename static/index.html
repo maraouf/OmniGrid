@@ -2306,10 +2306,11 @@
                      :title="isStaleField(h, 'host_cpu_percent') ? staleAge(h) : ''">
                   <div class="fill"></div>
                 </div>
-                <svg x-show="hostHasInlineSpark(h, 'cpu')" class="spark"
+                <svg x-show="hostHasInlineSpark(h, 'cpu')" class="spark spark--host"
                      :class="hostSparkClass(h, 'cpu')"
                      viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                  <path fill="none" stroke="currentColor" stroke-width="1" :d="hostInlineSparkline(h, 'cpu')"/>
+                  <path class="spark-area" :d="hostInlineSparklineArea(h, 'cpu')"/>
+                  <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'cpu')"/>
                 </svg>
               </div>
               <div class="host-mobile-card-metric" x-show="hostHasMemMetric(h)">
@@ -2329,10 +2330,11 @@
                      :title="(isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? staleAge(h) : ''">
                   <div class="fill"></div>
                 </div>
-                <svg x-show="hostHasInlineSpark(h, 'memory')" class="spark"
+                <svg x-show="hostHasInlineSpark(h, 'memory')" class="spark spark--host"
                      :class="hostSparkClass(h, 'memory')"
                      viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                  <path fill="none" stroke="currentColor" stroke-width="1" :d="hostInlineSparkline(h, 'memory')"/>
+                  <path class="spark-area" :d="hostInlineSparklineArea(h, 'memory')"/>
+                  <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'memory')"/>
                 </svg>
               </div>
               <div class="host-mobile-card-metric" x-show="hostHasDiskMetric(h)">
@@ -2352,10 +2354,11 @@
                      :title="(isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? staleAge(h) : ''">
                   <div class="fill"></div>
                 </div>
-                <svg x-show="hostHasInlineSpark(h, 'disk')" class="spark"
+                <svg x-show="hostHasInlineSpark(h, 'disk')" class="spark spark--host"
                      :class="hostSparkClass(h, 'disk')"
                      viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                  <path fill="none" stroke="currentColor" stroke-width="1" :d="hostInlineSparkline(h, 'disk')"/>
+                  <path class="spark-area" :d="hostInlineSparklineArea(h, 'disk')"/>
+                  <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'disk')"/>
                 </svg>
               </div>
             </div>
@@ -2669,10 +2672,11 @@
                          :title="t('columns.cpu') + ': ' + (h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ' cores)' : '') + (isStaleField(h, 'host_cpu_percent') ? ' — ' + staleAge(h) : '')">
                       <div class="fill"></div>
                     </div>
-                    <svg x-show="hostHasInlineSpark(h, 'cpu')" class="spark"
+                    <svg x-show="hostHasInlineSpark(h, 'cpu')" class="spark spark--host"
                          :class="hostSparkClass(h, 'cpu')"
                          viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                      <path fill="none" stroke="currentColor" stroke-width="1" :d="hostInlineSparkline(h, 'cpu')"/>
+                      <path class="spark-area" :d="hostInlineSparklineArea(h, 'cpu')"/>
+                      <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'cpu')"/>
                     </svg>
                     <div class="fs-2xs mono mt-1">
                       <span x-text="(h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ')' : '')"></span>
@@ -2701,10 +2705,11 @@
                          :title="t('columns.memory') + ': ' + ((h.mem_percent !== undefined && h.mem_percent !== null) ? Number(h.mem_percent) : memPercentOf(h)).toFixed(1) + '%' + (h.mem_total ? ' (' + fmtBytes(h.mem_used) + ' / ' + fmtBytes(h.mem_total) + ')' : '') + ((isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? ' — ' + staleAge(h) : '')">
                       <div class="fill"></div>
                     </div>
-                    <svg x-show="hostHasInlineSpark(h, 'memory')" class="spark"
+                    <svg x-show="hostHasInlineSpark(h, 'memory')" class="spark spark--host"
                          :class="hostSparkClass(h, 'memory')"
                          viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                      <path fill="none" stroke="currentColor" stroke-width="1" :d="hostInlineSparkline(h, 'memory')"/>
+                      <path class="spark-area" :d="hostInlineSparklineArea(h, 'memory')"/>
+                      <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'memory')"/>
                     </svg>
                     <div class="fs-2xs mono mt-1">
                       <span x-text="((h.mem_percent !== undefined && h.mem_percent !== null) ? Number(h.mem_percent) : memPercentOf(h)).toFixed(1) + '%'"></span>
@@ -2753,10 +2758,11 @@
                          :title="hostDiskBarTitle(h)">
                       <div class="fill"></div>
                     </div>
-                    <svg x-show="hostHasInlineSpark(h, 'disk')" class="spark"
+                    <svg x-show="hostHasInlineSpark(h, 'disk')" class="spark spark--host"
                          :class="hostSparkClass(h, 'disk')"
                          viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                      <path fill="none" stroke="currentColor" stroke-width="1" :d="hostInlineSparkline(h, 'disk')"/>
+                      <path class="spark-area" :d="hostInlineSparklineArea(h, 'disk')"/>
+                      <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'disk')"/>
                     </svg>
                     <div class="fs-2xs mono mt-1">
                       <span x-text="fmtPercentLabel(h.disk_percent || diskPercentOf(h))"></span>
