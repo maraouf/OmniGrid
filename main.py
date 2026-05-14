@@ -619,7 +619,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS stats_samples (
             ts REAL NOT NULL,
             item_id TEXT NOT NULL,
-            cpu REAL, mem_used REAL, mem_limit REAL
+            cpu REAL, mem_used REAL, mem_limit REAL,
+            size_root REAL
         );
         CREATE INDEX IF NOT EXISTS idx_stats_samples_item_ts
             ON stats_samples(item_id, ts DESC);
@@ -1151,6 +1152,13 @@ def init_db():
             # NULL when the delta is out of bounds.
             "ALTER TABLE host_metrics_samples ADD COLUMN disk_read_bps REAL",
             "ALTER TABLE host_metrics_samples ADD COLUMN disk_write_bps REAL",
+            # Per-item image-disk footprint (`size_root` in bytes) — added
+            # so Stacks / Services / Containers can render a disk sparkline
+            # mirroring the CPU / Memory ones. Pre-fix `stats_samples` only
+            # stored CPU + memory, so disk had no time-series and the UI
+            # could only show a CURRENT snapshot bar. Sampler writes
+            # `s.get("size_root")` each tick.
+            "ALTER TABLE stats_samples ADD COLUMN size_root REAL",
             # wall-clock of the MOST RECENT probe failure.
             # ``first_failure_ts`` already records the start of the
             # streak; this is the timestamp of the latest failed

@@ -1134,9 +1134,16 @@
                   </td>
                   <td class="hidden xl:table-cell stat-cell">
                     <template x-if="statsFor(item).has_size">
-                      <div class="stat-bar info" x-bind="statBarBind(diskPercent(item), 'columns.disk')" :class="(!statsLoaded || isStale(statsFor(item))) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
-                        <div class="fill"></div>
-                        <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
+                      <div>
+                        <div class="stat-bar info" x-bind="statBarBind(diskPercent(item), 'columns.disk')" :class="(!statsLoaded || isStale(statsFor(item))) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
+                          <div class="fill"></div>
+                          <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
+                        </div>
+                        <svg x-show="sparkPoints(item, 'disk')" class="spark spark--full" :class="sparkClass(item, 'cpu')"
+                             viewBox="0 0 60 10" preserveAspectRatio="none"
+                             aria-hidden="true" :title="t('tooltips.disk_24h')">
+                          <polyline fill="none" stroke="currentColor" :points="sparkPoints(item, 'disk')"></polyline>
+                        </svg>
                       </div>
                     </template>
                     <template x-if="!statsFor(item).has_size">
@@ -1322,9 +1329,16 @@
                 </td>
                 <td class="hidden xl:table-cell stat-cell">
                   <template x-if="statsFor(item).has_size">
-                    <div class="stat-bar info" x-bind="statBarBind(diskPercent(item), 'columns.disk')" :class="(!statsLoaded || isStale(statsFor(item))) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
-                      <div class="fill"></div>
-                      <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
+                    <div>
+                      <div class="stat-bar info" x-bind="statBarBind(diskPercent(item), 'columns.disk')" :class="(!statsLoaded || isStale(statsFor(item))) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
+                        <div class="fill"></div>
+                        <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
+                      </div>
+                      <svg x-show="sparkPoints(item, 'disk')" class="spark spark--full" :class="sparkClass(item, 'cpu')"
+                           viewBox="0 0 60 10" preserveAspectRatio="none"
+                           aria-hidden="true" :title="t('tooltips.disk_24h')">
+                        <polyline fill="none" stroke="currentColor" :points="sparkPoints(item, 'disk')"></polyline>
+                      </svg>
                     </div>
                   </template>
                   <template x-if="!statsFor(item).has_size">
@@ -1604,6 +1618,12 @@
                        :style="'--w: ' + hostDiskPercent(node.name) + '%'">
                     <div class="fill"></div>
                   </div>
+                  <svg viewBox="0 0 60 10" preserveAspectRatio="none"
+                       class="spark spark--full"
+                       :class="nodeSparkClass(node.name, 'disk')"
+                       x-show="nodeSparkPoints(node.name, 'disk')">
+                    <polyline fill="none" stroke="currentColor" :points="nodeSparkPoints(node.name, 'disk')"></polyline>
+                  </svg>
                   <div class="fs-3xs text-[var(--text-faint)] mt-1"
                        x-text="t('nodes.docker_disk_label', { value: (nodeStats(node.name).hasSize ? fmtBytes(nodeStats(node.name).dockerDisk) : '—') })"></div>
                 </div>
@@ -1622,6 +1642,12 @@
                        :style="'--w: ' + nodeDiskPercent(node.name) + '%'">
                     <div class="fill"></div>
                   </div>
+                  <svg viewBox="0 0 60 10" preserveAspectRatio="none"
+                       class="spark spark--full"
+                       :class="nodeSparkClass(node.name, 'disk')"
+                       x-show="nodeSparkPoints(node.name, 'disk')">
+                    <polyline fill="none" stroke="currentColor" :points="nodeSparkPoints(node.name, 'disk')"></polyline>
+                  </svg>
                 </div>
               </template>
             </div>
