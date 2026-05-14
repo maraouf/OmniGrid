@@ -6750,6 +6750,38 @@ body.login {
     border-top: 1px dashed var(--border);
 }
 
+/* Compact variant for the Stacks / Services / Nodes drawer debug
+ * panels — those drawers are 460-500px wide so the host-debug
+ * defaults (280px column min + 360px box height) read as one column
+ * of very tall cards. The compact override drops the column min so
+ * two fit per row in the narrow drawer AND caps box height tighter
+ * so the panel doesn't dominate the drawer scroll. Also pins the
+ * toggle button to content-width (defence-in-depth — `inline-flex`
+ * should already shrink-wrap but the visible regression had it
+ * stretching, possibly via an upstream flex parent). */
+.host-debug-panel--compact > .host-debug-toggle {
+    align-self: flex-start;
+    width: auto;
+    max-width: max-content;
+    padding: var(--s-1) var(--s-3);
+    font-size: var(--fs-xs);
+}
+.host-debug-panel--compact .host-debug-grid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--s-2);
+}
+.host-debug-panel--compact .host-debug-box,
+.host-debug-panel--compact .host-debug-box--wide {
+    min-height: 0;
+    max-height: 200px;
+}
+.host-debug-panel--compact .host-debug-box-head {
+    padding: var(--s-1) var(--s-2);
+}
+.host-debug-panel--compact .host-debug-json {
+    font-size: var(--fs-2xs);
+}
+
 .host-debug-toggle {
     display: inline-flex;
     align-items: center;
