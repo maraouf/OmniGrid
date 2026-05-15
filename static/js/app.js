@@ -1468,6 +1468,9 @@ function app() {
       // SSH terminal connect / login wall-clocks.
       'tuning_ssh_terminal_connect_timeout_seconds',
       'tuning_ssh_terminal_login_timeout_seconds',
+      // SSH terminal connection-close wait timeout — caps how long
+      // `conn.wait_closed()` blocks after a terminal session ends.
+      'tuning_ssh_close_timeout_seconds',
       // Per-provider default ports — promoted out of plain settings.
       'tuning_ssh_default_port',
       'tuning_snmp_default_port',
@@ -9216,11 +9219,7 @@ function app() {
         }
         // SSH-section tunables — included in the same POST so the
         // SSH Save commits them alongside the rest of the SSH config.
-        for (const k of [
-          'tuning_ssh_ws_heartbeat_seconds',
-          'tuning_ssh_terminal_connect_timeout_seconds',
-          'tuning_ssh_terminal_login_timeout_seconds',
-        ]) {
+        for (const k of this._sshSectionTuningKeys()) {
           const v = (this.tuningForm || {})[k];
           body[k] = (v == null ? '' : String(v).trim());
         }
@@ -14071,6 +14070,27 @@ function app() {
       // Defer baseline capture one tick so Alpine's reactive
       // assignments above are reflected in the snapshot.
       this.$nextTick(() => { this._aiBaselineSnapshot = this._aiSnapshot(); });
+    },
+    // SSH section's own tunables — `saveSshSettings` includes these
+    // in its `/api/settings` POST body so the SSH Save button commits
+    // them along with the rest of the SSH config (master toggle,
+    // default user / port / FQDN suffix, known-hosts, destructive
+    // patterns, custom actions). Adding a new SSH tunable: add it here
+    // AND to `relocatedTuningKeys` AND to the SettingsIn backend model.
+    _sshSectionTuningKeys() {
+      return [
+        // WS heartbeat cadence (server ping interval keeping the
+        // terminal websocket alive past upstream-proxy idle timers).
+        'tuning_ssh_ws_heartbeat_seconds',
+        // Terminal connect + login timeouts (TCP / auth handshake caps).
+        'tuning_ssh_terminal_connect_timeout_seconds',
+        'tuning_ssh_terminal_login_timeout_seconds',
+        // Connection-close wait timeout — caps how long
+        // `conn.wait_closed()` blocks after a terminal session ends.
+        // Per-use read inside `ws_ssh_terminal` so a Save here takes
+        // effect on the next session teardown without restart.
+        'tuning_ssh_close_timeout_seconds',
+      ];
     },
     // AI section's own tunables — saveAiSettings includes these in
     // its `/api/settings` POST body so the AI Save button commits

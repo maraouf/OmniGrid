@@ -756,6 +756,15 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # auth handshake (post-connect, pre-shell). Same operator
     # trade-off as the connect timeout above. Default 20s.
     "tuning_ssh_terminal_login_timeout_seconds": ("SSH_TERMINAL_LOGIN_TIMEOUT_SECONDS", 20, 5, 120),
+
+    # SSH terminal connection-close wait timeout (seconds) — wall-clock
+    # cap on `conn.wait_closed()` after a terminal session ends. Default
+    # 5s. Lower on flaky networks where the FIN never arrives (close
+    # blocks forever, audit row stays open); raise if you genuinely care
+    # about clean teardown and tolerate longer audit-close delays.
+    # Range 1..60. Per-use read inside `ws_ssh_terminal` so a Save in
+    # Admin → SSH takes effect on the next session-close without restart.
+    "tuning_ssh_close_timeout_seconds": ("SSH_CLOSE_TIMEOUT_SECONDS", 5, 1, 60),
 }
 
 
