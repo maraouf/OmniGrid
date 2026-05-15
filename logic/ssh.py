@@ -1178,7 +1178,7 @@ async def open_shell(
         f"target={resolved.get('user')}@{resolved.get('host')}:{resolved.get('port')} "
         f"preferred_auth={preferred!r} term_size={cols}x{rows}"
     )
-    # Operator-tunable wall-clocks — TUN-MED-003. Per-call read so
+    # Operator-tunable wall-clocks. Per-call read so
     # Admin → Config edits take effect on the next session.
     from logic.tuning import tuning_int as _tuning_int
     _conn_timeout = float(_tuning_int("tuning_ssh_terminal_connect_timeout_seconds"))
@@ -1200,8 +1200,8 @@ async def open_shell(
             # but live on independent knobs — keep these coupled when tuning
             # one, audit the other. Keeps idle proxies + NATs from killing
             # an otherwise-healthy session. Kept as a coupled constant
-            # rather than a separate tunable per TUN-LOW-005 — operators
-            # who need to retune this should bump the WS heartbeat too.
+            # rather than a separate tunable — operators who need to retune
+            # this should bump the WS heartbeat too (the two are coupled).
             keepalive_interval=15,
         )
     except asyncssh.PermissionDenied as e:

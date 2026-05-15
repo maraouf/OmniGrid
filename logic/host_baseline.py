@@ -1,12 +1,13 @@
 """Per-host rolling-baseline computer for drift detection.
 
-UX-review IDEA-15 (drift-from-baseline indicator). For each curated
+Drift-from-baseline indicator. For each curated
 host, computes the 30-day rolling median + IQR (interquartile range)
-of four metrics — CPU%, mem%, disk-fill-rate (bytes/sec), ping RTT
-(ms). The Hosts view renders a ▲ (above baseline) / ▼ (below) / ━
-(within baseline) chip next to each metric so operators can spot
-"is web01's CPU at 60% normal or abnormal?" at a glance — anomaly
-detection without ML complexity, just statistics.
+of four metrics — CPU% (`cpu_pct`), memory% (`mem_pct`), disk-fill%
+(`disk_pct`), ping RTT in milliseconds (`ping_rtt_ms`). The Hosts
+view renders a ▲ (above baseline) / ▼ (below) / ━ (within baseline)
+chip next to each metric so operators can spot "is web01's CPU at
+60% normal or abnormal?" at a glance — anomaly detection without ML
+complexity, just statistics.
 
 **Skip-don't-synthesize discipline.** When a host has < 50 samples in
 the 30-day window, the baseline isn't computed — we don't know what
@@ -42,7 +43,17 @@ _WINDOW_DAYS = 30
 
 
 def _percentile(values: list[float], p: float) -> Optional[float]:
-    """Linear-interpolation percentile. `values` must be sorted."""
+    """Linear-interpolation percentile. `values` must be sorted.
+
+    Gate dependency note: in this module the helper is only ever called
+    from `_baseline_for`, which short-circuits at `n < _MIN_SAMPLES`
+    (50). The empty-list + single-element branches below are
+    defence-in-depth for callers added LATER; do NOT remove them. If
+    you reuse this helper from a new call site, audit the input
+    invariants — the implementation assumes a sorted, non-empty list
+    of numeric values and skips bounds checks beyond the single-
+    element early-return.
+    """
     if not values:
         return None
     if len(values) == 1:
@@ -75,15 +86,30 @@ def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list
     """Pull every baseline-eligible sample for one host within the
     rolling window. One pass per source table; returns the per-metric
     values dict ready for `_baseline_for` to consume.
+
+    Per-table SQL `LIMIT` caps the row count so a worst-case host
+    (all 5 source tables active, 30-day window, 5-min sampling) can't
+    OOM Python's list-append-then-sort path. The cap is generous —
+    well above `_MIN_SAMPLES (50) × len(METRICS) (4)` — so a busy
+    host's IQR stays accurate while a runaway sampler can't fill the
+    process heap. ORDER BY ts DESC keeps the NEWEST samples (most
+    representative of current workload) when the cap fires.
     """
     out: dict[str, list[float]] = {m: [] for m in METRICS}
+    # Per-table sample-row cap. 20000 ≈ 70 days at 5-min cadence per
+    # table, so the 30-day window can't hit it under normal sampling;
+    # only fleets that sampled at sub-minute granularity for the full
+    # window will trip it, and they get a slightly newer-skewed
+    # baseline instead of an OOM.
+    _PER_TABLE_LIMIT = 20000
     # CPU / mem / disk — node-exporter writes to host_metrics_samples.
     try:
         rows = c.execute(
             "SELECT cpu_percent, mem_used, mem_total, disk_used, disk_total "
             "  FROM host_metrics_samples "
-            " WHERE host_id = ? AND ts >= ?",
-            (host_id, since_ts),
+            " WHERE host_id = ? AND ts >= ? "
+            " ORDER BY ts DESC LIMIT ?",
+            (host_id, since_ts, _PER_TABLE_LIMIT),
         ).fetchall()
         for r in rows:
             cpu = r[0]
@@ -123,8 +149,9 @@ def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list
             rows = c.execute(
                 f"SELECT {cpu_col}, mem_used, mem_total, disk_used, disk_total "
                 f"  FROM {tbl} "
-                f" WHERE host_id = ? AND ts >= ?",
-                (host_id, since_ts),
+                f" WHERE host_id = ? AND ts >= ? "
+                f" ORDER BY ts DESC LIMIT ?",
+                (host_id, since_ts, _PER_TABLE_LIMIT),
             ).fetchall()
             for r in rows:
                 cpu = r[0]
@@ -144,8 +171,10 @@ def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list
     # Ping RTT — ping_samples carries `rtt_ms` per probe.
     try:
         rows = c.execute(
-            "SELECT rtt_ms FROM ping_samples WHERE host_id = ? AND ts >= ? AND rtt_ms IS NOT NULL",
-            (host_id, since_ts),
+            "SELECT rtt_ms FROM ping_samples "
+            " WHERE host_id = ? AND ts >= ? AND rtt_ms IS NOT NULL "
+            " ORDER BY ts DESC LIMIT ?",
+            (host_id, since_ts, _PER_TABLE_LIMIT),
         ).fetchall()
         for r in rows:
             v = r[0]
@@ -189,6 +218,13 @@ def compute_baselines(host_id: str) -> dict[str, dict]:
                     "median": median, "iqr": iqr, "sample_count": n,
                 }
             c.commit()
+    except (KeyboardInterrupt, SystemExit):
+        # NEVER swallow lifecycle exceptions — the asyncio sampler
+        # task relies on CancelledError propagating to honour
+        # shutdown signals (it's a sync function called from the
+        # async sampler loop, but propagating the same family of
+        # interpreter-control exceptions is the documented contract).
+        raise
     except Exception as e:
         print(f"[host_baseline] {host_id} compute failed: {e}")
     return out
@@ -216,6 +252,11 @@ def load_baselines(host_id: str) -> dict[str, dict]:
                     "sample_count": int(r[3]) if r[3] is not None else 0,
                     "computed_ts":  int(r[4]) if r[4] is not None else 0,
                 }
+    except (KeyboardInterrupt, SystemExit):
+        # See note in `compute_baselines` — propagate interpreter-
+        # control exceptions so the asyncio caller's cancellation
+        # contract still holds.
+        raise
     except Exception as e:
         print(f"[host_baseline] {host_id} load failed: {e}")
     return out

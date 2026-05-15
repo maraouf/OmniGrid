@@ -4681,7 +4681,7 @@ body.ai-pinned > .og-app-shell--ai-pinned {
     clear: both;
 }
 
-/* Drift-from-baseline chip (IDEA-15). Renders a small ▲/▼/━ glyph
+/* Drift-from-baseline chip. Renders a small ▲/▼/━ glyph
    next to the host's CPU / Mem / Disk percent label. Three tone
    variants map to the indicator: ▲ = above baseline (potentially
    over-utilised), ▼ = below baseline (under-utilised vs the host's
@@ -5202,7 +5202,7 @@ body.ai-pinned > .og-app-shell--ai-pinned {
     font-style: italic;
 }
 
-/* Blast-radius preview (UX-review IDEA-08 MVP). Inlined inside the
+/* Blast-radius preview. Inlined inside the
    stack-update confirmDialog so operators see WHICH services /
    containers will be affected before confirming. Same visual rhythm as
    `.release-notes-block` — bordered surface-2 panel above the
@@ -6098,7 +6098,7 @@ button:focus:not(:focus-visible) {
     align-items: center;
 }
 
-/* Cluster-pivot row variants (UX-review IDEA-22). A cluster is a
+/* Cluster-pivot row variants. A cluster is a
    collapsed group of (event, target_kind, target_id)-identical
    notifications. The header reuses `.notification-row` chrome so the
    visual rhythm matches flat-list rows; the multiplier badge + expand
@@ -7664,7 +7664,7 @@ select.field-invalid {
     color: var(--pill-update-fg);
 }
 
-/* Multi-tab activity pill (UX-review IDEA-23). Topbar pill that shows
+/* Multi-tab activity pill. Topbar pill that shows
  * "N tabs" when sibling tabs are active; click expands a popover
  * listing each tab's location with click-to-focus via BroadcastChannel.
  * Same shape as the SSE pill so the topbar reads as a coherent row of

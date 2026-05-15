@@ -212,6 +212,16 @@ OP_TYPES: frozenset[str] = frozenset({
     # `hosts_bulk_pause` / `hosts_bulk_resume` pair.
     "hosts_bulk_snmp_vendors",
     "hosts_bulk_snmp_tunables",
+    # Authentication audit-trail — login / logout / OIDC-login. The
+    # Apprise `user_login` notification event is a SEPARATE channel
+    # (operator-toggleable side-channel); the history row is the
+    # first-class forensic record ("who signed in at 2am from IP X
+    # yesterday?"). Both write paths need INSERT INTO history at the
+    # success path's top. Logout writes a row too — the session-revoke
+    # audit row only covers admin-initiated revokes, not self-logout.
+    "user_login",
+    "user_logout",
+    "oidc_login",
 })
 
 

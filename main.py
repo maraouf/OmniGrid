@@ -443,7 +443,7 @@ async def _lifespan(app: FastAPI):
         _host_beszel_sampler.host_beszel_sampler_loop(),
         name="host-beszel-sampler",
     )
-    # Per-host baseline sampler (UX-review IDEA-15) — recomputes
+    # Per-host baseline sampler — recomputes
     # 30-day rolling median + IQR for cpu_pct / mem_pct / disk_pct /
     # ping_rtt_ms once per hour. Drives the ▲/▼/━ drift indicator
     # on every Hosts row + the per-host enrichment in `_merge_one_host`.
@@ -850,8 +850,8 @@ def init_db():
 
         -- Per-host rolling baseline (median + IQR) for drift detection.
         -- One row per (host_id, metric) — UPSERT on every recompute.
-        -- Metric is one of: cpu_pct / mem_pct / disk_pct / ping_rtt_ms /
-        -- disk_fill_rate_bps. Computed hourly by `host_baseline_sampler`
+        -- Metric is one of: cpu_pct / mem_pct / disk_pct / ping_rtt_ms.
+        -- Computed hourly by `host_baseline_sampler`
         -- from the matching time-series table (host_metrics_samples for
         -- cpu/mem/disk; ping_samples for rtt). Drives the ▲/▼/━ drift
         -- indicator on every Hosts row.
@@ -2861,6 +2861,8 @@ class SettingsIn(BaseModel):
     swarm_autoheal_bootstrap_enabled: Optional[str] = None
     tuning_stats_history_days: Optional[str] = None
     tuning_stats_sample_interval_seconds: Optional[str] = None
+    tuning_host_baseline_recompute_interval_seconds: Optional[str] = None
+    tuning_host_baseline_first_tick_delay_seconds: Optional[str] = None
     # host_metrics_sampler permanent-fail window. Same DB-key
     # naming + bounds-check via TUNABLES as the others.
     tuning_host_permanent_fail_window_seconds: Optional[str] = None
@@ -3029,7 +3031,7 @@ class SettingsIn(BaseModel):
     # firewall anti-flood rules don't reject the burst. Consumed in
     # `logic/ping.py:_icmp_ping`.
     tuning_ping_packet_interval_ms: Optional[str] = None
-    # SSH terminal entrypoint wall-clocks — TUN-MED-003.
+    # SSH terminal entrypoint wall-clocks.
     tuning_ssh_terminal_connect_timeout_seconds: Optional[str] = None
     tuning_ssh_terminal_login_timeout_seconds: Optional[str] = None
     # -----------------------------------------------------------------
@@ -9665,7 +9667,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
         print(f"[hosts] provider_sample_intervals failed for {h.get('id')!r}: {e}")
         merged["provider_sample_intervals"] = {}
 
-    # Drift-from-baseline enrichment (IDEA-15). Reads the cached
+    # Drift-from-baseline enrichment. Reads the cached
     # `host_baselines` row for THIS host and classifies each live
     # metric (CPU% / mem% / disk% / ping RTT) as ▲ / ▼ / ━ vs the
     # 30-day rolling median ± IQR. Returns {} when no baseline has
@@ -10240,15 +10242,16 @@ def _shape_host_api_row(
         # forever even after a successful scan.
         "detected_ports":    s.get("detected_ports") or [],
         "last_port_scan_ts": int(s.get("last_port_scan_ts") or 0),
-        # Drift-from-baseline classification (IDEA-15). Populated by
+        # Drift-from-baseline classification. Populated by
         # `_merge_one_host` from logic.host_baseline.host_drift_for_api,
         # keyed by metric (cpu_pct / mem_pct / disk_pct / ping_rtt_ms).
         # Each value carries `indicator` (▲/▼/━), `value` (live), and
         # the cached `median` / `iqr` / `sample_count` / `computed_ts`.
         # Empty dict when no baseline exists for this host yet (<50
         # samples in window OR sampler hasn't run yet) — SPA hides
-        # the chip in that case.
-        "drift": dict(s.get("drift") or {}),
+        # the chip in that case. `_merge_one_host` is the only writer
+        # and it always stamps a dict, so no defensive coerce needed.
+        "drift": s.get("drift") or {},
     }
 
 
@@ -12184,7 +12187,16 @@ def _item_samples_in_window(item_id: str, since_hours: int) -> dict:
     `samples_in_window` block so the SPA can render the two
     diagnostics identically.
     """
-    expected_interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+    # Defensive — `tuning_int` clamps to (lo, hi) per the resolver so a
+    # corrupt DB row can't OOB, but a fully-broken DB state could still
+    # raise. The debug panel must stay resilient even when the rest of
+    # OmniGrid is down — that's its job. Fall back to the default
+    # value baked into TUNABLES (180s for the stats sampler) so the
+    # endpoint returns a sensible-shape payload instead of 500-ing.
+    try:
+        expected_interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+    except Exception:
+        expected_interval = 180
     out = {
         "hours": int(max(1, since_hours)),
         "count": 0,
@@ -12252,13 +12264,24 @@ async def api_debug_subject(
 
     if kind == "item":
         items = _cache.get("items") or []
-        record = next(
-            (it for it in items
-             if it.get("id") == id
-             or it.get("raw_id") == id
-             or (it.get("raw_id") or "").startswith(id)),
-            None,
-        )
+        # Prefix matching is intentional for `svc:<12hex>` / `ctn:<12hex>`
+        # short forms the SPA passes in. But a short bare id (e.g. `s`)
+        # would prefix-match the FIRST item whose raw_id starts with
+        # `s` — operator clicks "Debug" on item A and the panel renders
+        # item Z's data. Gate the prefix branch on (a) the `svc:` /
+        # `ctn:` prefix (legitimate short form), OR (b) minimum length
+        # ≥ 12 chars (long enough to be a real id hash). Bare-id
+        # equality at line 12266-67 still works for the full hash.
+        def _id_matches(it: dict) -> bool:
+            if it.get("id") == id or it.get("raw_id") == id:
+                return True
+            rid = it.get("raw_id") or ""
+            if not rid or not id:
+                return False
+            looks_short_form = id.startswith(("svc:", "ctn:"))
+            long_enough = len(id) >= 12
+            return (looks_short_form or long_enough) and rid.startswith(id)
+        record = next((it for it in items if _id_matches(it)), None)
         if record is None:
             raise HTTPException(404, f"no item with id={id!r}")
         out["record"] = record
@@ -16886,7 +16909,7 @@ async def api_notifications_delete(
 # parallel (one for stacks, one per debugging host, one for AI sidebar).
 # Tracking each tab's current location lets the topbar widget show "you have
 # 3 tabs open: Tab 2 = Stacks, Tab 3 = web01 drawer" + click-to-focus.
-# Per UX-review IDEA-23.
+# Multi-tab activity tracking.
 #
 # Storage: in-process dict. Single-replica deploy = no need for SQLite. TTL
 # expiry on stale heartbeats so closed-without-cleanup tabs (browser crash /
@@ -17637,6 +17660,16 @@ async def api_local_login(
             c, u.id, ip, request.headers.get("user-agent"),
             auth_method="password",
         )
+        # Audit-trail row — first-class forensic record of the sign-in
+        # (the Apprise notification above is a SEPARATE side-channel
+        # opt-in; the history row is the canonical "who signed in
+        # when" audit anchor).
+        _ops_mod.write_admin_audit(
+            c, "user_login",
+            target_kind="user", target_name=u.username, target_id=u.username,
+            actor=u.username,
+            message=f"Signed in via local-auth from {ip}",
+        )
     csrf = auth.generate_csrf_token()
     resp = JSONResponse({"username": u.username, "role": u.role, "source": u.auth_source})
     auth.set_session_cookie(resp, cookie_value, expires_at, request)
@@ -17755,6 +17788,14 @@ async def api_local_login_totp(
         cookie_value, expires_at = auth.create_session(
             c, user_id, ip, request.headers.get("user-agent"),
             auth_method="totp",
+        )
+        # Audit-trail row — same shape as the legacy single-factor
+        # path. The Apprise notification below is a side-channel.
+        _ops_mod.write_admin_audit(
+            c, "user_login",
+            target_kind="user", target_name=u.username, target_id=u.username,
+            actor=u.username,
+            message=f"Signed in via local-auth (2FA TOTP{' + backup code' if used_backup else ''}) from {ip}",
         )
     if used_backup:
         print(f"[totp] {u.username} used backup code")
@@ -18096,6 +18137,14 @@ async def api_local_login_webauthn_finish(
             c, user_id, ip, request.headers.get("user-agent"),
             auth_method="passkey",
         )
+        # Audit-trail row — same shape as the legacy single-factor +
+        # TOTP paths. The Apprise notification is a side-channel.
+        _ops_mod.write_admin_audit(
+            c, "user_login",
+            target_kind="user", target_name=u.username, target_id=u.username,
+            actor=u.username,
+            message=f"Signed in via local-auth (2FA passkey/WebAuthn cred {stored['id']}) from {ip}",
+        )
     print(f"[webauthn] {u.username} verified successfully (cred {stored['id']})")
     csrf = auth.generate_csrf_token()
     resp = JSONResponse({
@@ -18173,11 +18222,22 @@ async def api_change_password(
 @app.post("/api/local-auth/logout")
 async def api_local_logout(request: Request):
     cookie = request.cookies.get(auth.COOKIE_NAME)
+    actor = _actor_from(request)
     if cookie:
         token_id = auth.parse_session_cookie(cookie)
         if token_id:
             with db_conn() as c:
                 auth.delete_session(c, token_id)
+                # Audit row — first-class forensic record of the
+                # self-logout. `session_revoke` covers admin-initiated
+                # session kills; this op_type covers user-initiated
+                # ones so both flow into the same audit surface.
+                _ops_mod.write_admin_audit(
+                    c, "user_logout",
+                    target_kind="user", target_name=actor, target_id=actor,
+                    actor=actor,
+                    message="Signed out via local-auth logout",
+                )
     resp = JSONResponse({"ok": True})
     auth.clear_session_cookies(resp, request)
     return resp

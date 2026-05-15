@@ -266,19 +266,21 @@ def save_host_snapshots(nodes_info: dict) -> int:
     for host, info in nodes_info.items():
         if not isinstance(info, dict) or not info:
             continue
-        # Stale-restored fields (filled by `apply_host_snapshot_fallback`
-        # from a previous snapshot, NOT by this gather's live probes)
-        # MUST NOT be re-saved verbatim — otherwise a one-off bad value
-        # that landed in the snapshot once keeps re-saving itself forever
-        # via stale → restore → save → restore loop, even after the
-        # provider stopped returning that field. Drop them; if the live
-        # probe genuinely starts returning the field again later, the
-        # snapshot will pick it up on that gather.
-        stale_keys = set(info.get("_stale_fields") or [])
+        # Stale-restored fields ARE re-saved. The earlier "drop stale
+        # before save" filter (intended to break the APC UPS phantom-
+        # 100% loop) made the 24h grace cap in
+        # `apply_host_snapshot_fallback` unreachable — stale fields
+        # vanished after one cycle, so `_meta_stale_since` never had
+        # a chance to fire its age-cap. The phantom-value issue is
+        # addressed UPSTREAM by the SNMP probe fix that gates
+        # `host_cpu_percent` on explicit OID presence; the read-side
+        # grace cap handles long-term cleanup of any value that's
+        # still stuck stale past the configured window
+        # (`tuning_host_snapshot_stale_field_max_age_hours`, default
+        # 24h). Belt-and-braces, not duplicated.
         clean = {
             k: v for k, v in info.items()
-            if ((not str(k).startswith("_")) or str(k).startswith("_meta_"))
-            and k not in stale_keys
+            if (not str(k).startswith("_")) or str(k).startswith("_meta_")
         }
         if _is_urlish(clean.get("host_firmware")):
             clean.pop("host_firmware", None)

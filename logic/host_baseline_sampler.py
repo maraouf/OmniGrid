@@ -1,5 +1,5 @@
 """Lifespan-managed baseline sampler — recomputes per-host baselines
-once an hour for drift-from-baseline detection (UX-review IDEA-15).
+once an hour for drift-from-baseline detection.
 
 Per CLAUDE.md "Background-task startup rule" this is started inside
 FastAPI's `lifespan` handler, not at module import. Cancellation is
@@ -18,15 +18,18 @@ import time
 
 from logic import host_baseline as _baseline
 from logic.db import db_conn, get_setting
+from logic.tuning import tuning_int as _tuning_int
 
 
-# Hourly cadence. Operator-tunable knob declined for the MVP — the
-# computation is cheap (~1 SELECT per host per metric) and operators
-# rarely need finer granularity than "once an hour" on a 30-day
-# rolling window. Add to `TUNABLES` if a future fleet's volume
-# justifies it.
-_INTERVAL_SECONDS = 3600
-_FIRST_TICK_DELAY = 60
+# Operator-tunable cadence + first-tick delay. Per-use reads (not
+# module-import-time) so Admin → Config edits take effect on the
+# next tick without a restart.
+def _interval_seconds() -> int:
+    return _tuning_int("tuning_host_baseline_recompute_interval_seconds")
+
+
+def _first_tick_delay() -> int:
+    return _tuning_int("tuning_host_baseline_first_tick_delay_seconds")
 
 
 def _curated_host_ids() -> list[str]:
@@ -54,14 +57,15 @@ def _curated_host_ids() -> list[str]:
 
 async def host_baseline_sampler_loop() -> None:
     """Lifespan-managed loop. Walks every curated host once per
-    `_INTERVAL_SECONDS` and refreshes their baselines.
+    `tuning_host_baseline_recompute_interval_seconds` and refreshes
+    their baselines.
 
     Cancellation: re-raises `asyncio.CancelledError` so the lifespan
     cleanup completes promptly. Per-host failures don't fail the
     whole tick — `compute_baselines` swallows + logs internally.
     """
     print("[host_baseline_sampler] lifespan started")
-    await asyncio.sleep(_FIRST_TICK_DELAY)
+    await asyncio.sleep(_first_tick_delay())
     tick = 0
     try:
         while True:
@@ -86,7 +90,7 @@ async def host_baseline_sampler_loop() -> None:
             except Exception as e:  # noqa: BLE001
                 print(f"[host_baseline_sampler] tick {tick} error: {e}")
             try:
-                await asyncio.sleep(_INTERVAL_SECONDS)
+                await asyncio.sleep(_interval_seconds())
             except asyncio.CancelledError:
                 raise
     except asyncio.CancelledError:

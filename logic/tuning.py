@@ -65,6 +65,18 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_swarm_autoheal_cooldown_minutes":   ("SWARM_AUTOHEAL_COOLDOWN_MINUTES", 30, 1, 1440),
     "tuning_stats_history_days":            ("STATS_HISTORY_DAYS",             7,  1,  365),
     "tuning_stats_sample_interval_seconds": ("STATS_SAMPLE_INTERVAL_SECONDS", 300, 30,  3600),
+    # host_baseline_sampler cadence — controls how often the lifespan
+    # task recomputes per-host rolling baselines for drift detection.
+    # Baselines move slowly (30-day rolling window) so hourly is the
+    # default; high-churn fleets (workload changes weekly) may want
+    # 30min, stable fleets (workload monotonic) may dial up to 6h to
+    # free DB cycles. Floor 60s prevents accidentally busy-looping;
+    # ceiling 86400 (24h) prevents accidentally disabling.
+    "tuning_host_baseline_recompute_interval_seconds": ("HOST_BASELINE_RECOMPUTE_INTERVAL_SECONDS", 3600, 60, 86400),
+    # First-tick delay — gives schema migrations time to land before
+    # the sampler reads `host_baselines`. Operators rebooting under
+    # heavy load can raise; default is comfortably fast.
+    "tuning_host_baseline_first_tick_delay_seconds":   ("HOST_BASELINE_FIRST_TICK_DELAY_SECONDS",     60,  5,  600),
     # host_metrics_sampler permanent-fail window. After this many
     # seconds of consecutive probe failures the sampler auto-pauses the
     # host (no more probe attempts) until the operator resumes via

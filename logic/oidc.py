@@ -636,6 +636,19 @@ async def callback(request: Request):
             c, u.id, ip, request.headers.get("user-agent"),
             auth_method="oidc",
         )
+        # Audit-trail row — first-class forensic record of the
+        # SSO sign-in. The Apprise `user_login` notification below
+        # is a SEPARATE side-channel; the history row is the
+        # canonical audit anchor. `oidc_login` op_type distinguishes
+        # this from local-auth `user_login` rows so the History tab
+        # can filter / report on SSO vs local separately.
+        from logic.ops import write_admin_audit as _write_admin_audit
+        _write_admin_audit(
+            c, "oidc_login",
+            target_kind="user", target_name=u.username, target_id=u.username,
+            actor=u.username,
+            message=f"Signed in via Authentik OIDC from {ip}",
+        )
 
     # Server-side path retrieval — `state` is the server-generated
     # nonce already verified against the cookie above (line ~446's
