@@ -930,6 +930,18 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     # (POST /api/schedules/{id}/run) the Admin table's "Run now"
     # button uses.
     "schedule_run_now",
+    # Synonym IDs — same SPA descriptors as the canonical entries
+    # above, accepted by the backend so the AI can emit whichever
+    # operator-natural phrasing the user typed without the SPA's
+    # `_actionDescriptorById` alias needing to know about a fresh
+    # snake_case variant first. SPA's alias map resolves these to
+    # the canonical descriptor (`hosts-bulk-pause`,
+    # `mark-all-notifications-read`, etc.).
+    "bulk_pause_hosts",
+    "bulk_resume_hosts",
+    "prune_stopped",
+    "clear_notifications",
+    "notifications_clear_all",
 })
 
 
@@ -1210,6 +1222,16 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - \"run the <name> schedule now\" / \"fire the <name> "
     "schedule\" → `ACTION: schedule_run_now` + `ACTION_ITEM: "
     "<schedule-name>`\n"
+    " - \"clean up stopped containers\" / \"prune stopped\" → "
+    "`ACTION: cleanup_stopped` (or `prune_stopped` synonym — both "
+    "route to the same SPA flow with inline-confirm chip)\n"
+    " - \"mark every notification as read\" / \"clear "
+    "notifications\" → `ACTION: mark_all_notifications_read` "
+    "(synonyms `clear_notifications` / `notifications_clear_all` "
+    "also accepted)\n"
+    " - \"pause all hosts\" / \"bulk pause hosts\" → `ACTION: "
+    "hosts_bulk_pause` OR `ACTION: bulk_pause_hosts` (same "
+    "dispatch — emit whichever feels natural; mirror for resume)\n"
     "ALWAYS pair the destructive action with ACTION_ITEM (or "
     "ACTION_HOSTS for bulk-host ops). If you don't know the exact "
     "name the operator means, ASK them to clarify rather than "
