@@ -804,10 +804,24 @@ async def _run_prune_all_nodes(params: dict) -> tuple[str, Awaitable[tuple[int, 
     succeeded, otherwise 'error'.
     """
     nodes_info = (gather._cache.get("nodes_info") or {})
-    hostnames = sorted(nodes_info.keys())
+    # Filter to ACTUAL Swarm nodes — `nodes_info` is the shared host
+    # inventory that ALSO accumulates non-Docker curated hosts (WiFi
+    # routers / managed switches / UPSes seen via SNMP / Ping / Pulse).
+    # Swarm nodes carry a `role` field (manager / worker) stamped by
+    # the Portainer /nodes walk in gather; non-Swarm curated hosts
+    # populate only the host_* telemetry keys and have no `role`.
+    # Pre-fix the prune fan-out fired `docker system prune` on every
+    # key in `nodes_info` — operators saw "🧹 Prune complete on
+    # <wifi-router-hostname>" notifications with "Reclaimed 0 B across
+    # 0 containers / 0 images" output (the smoking gun: nothing to
+    # prune because the host doesn't run Docker).
+    hostnames = sorted(
+        h for h, info in nodes_info.items()
+        if isinstance(info, dict) and (info.get("role") or "").strip()
+    )
     if not hostnames:
         raise ValueError(
-            "prune_all_nodes: no nodes visible in cache — is Portainer reachable?"
+            "prune_all_nodes: no Swarm nodes visible in cache — is Portainer reachable?"
         )
 
     parent_id = "sched-" + secrets.token_hex(4)
