@@ -1496,6 +1496,14 @@
           "label": "Sampler interval (seconds)",
           "help": "Cadence for every lifespan-managed sampler: container stats → stats_samples, node-exporter network counters → host_net_samples, full host metrics → host_metrics_samples. Lower it for finer-grained sparklines + faster response in the Net I/O fallback chart (cost: N× more rows in SQLite for the same retention window — re-tune `tuning_stats_history_days` together if you halve this). Raise it on a Pi / underpowered host to reduce sampler CPU. Default 300s (5 min). Takes effect on the NEXT tick after Save (current sleep finishes first)."
         },
+        "tuning_host_baseline_recompute_interval_seconds": {
+          "label": "Host baseline recompute interval (seconds)",
+          "help": "Cadence at which the lifespan `host_baseline_sampler` walks every curated host and refreshes its rolling 30-day median + IQR baseline for drift detection (▲ / ▼ / ━ chips on each Hosts row). Default 3600s (hourly). Baselines move SLOWLY (30-day window — yesterday's data shifts the median by ~3% in a steady fleet) so finer cadence wastes DB cycles. High-churn fleets (workload changes weekly) may want 1800s; stable fleets (workload monotonic) may dial up to 21600s (6h) to free DB cycles for other samplers. Range 60..86400. Takes effect on the next tick after Save (current sleep finishes first)."
+        },
+        "tuning_host_baseline_first_tick_delay_seconds": {
+          "label": "Host baseline first-tick delay (seconds)",
+          "help": "How long the host-baseline sampler waits after lifespan-start before the first tick fires. Gives schema migrations (the additive `host_baselines` CREATE TABLE in init_db) time to land before the sampler reads / writes the table. Default 60s. Raise it on a heavily-loaded boot where migrations take longer than a minute; lower it to start baselining sooner on a fast container. Range 5..600. Takes effect on the next container restart (the value is read once when the sampler starts)."
+        },
         "tuning_host_permanent_fail_window_seconds": {
           "label": "Host sampling pause window (seconds)",
           "help": "After this many seconds of CONSECUTIVE probe failures (no successful sample landed in this window), the host_metrics_sampler stops sampling that host entirely — no more probe attempts, no more failure rows in the log. The host shows a paused badge in the Hosts table and an explanatory banner in the drawer. Resume manually via the drawer's \"Resume sampling\" button. Lower it to react faster to dead hosts (less log noise from a host that crashed); raise it to tolerate longer transient outages without auto-pausing (e.g. a host that reboots every Sunday for an hour). Default 900s (15 min)."
@@ -2779,6 +2787,9 @@
     "totp_force_set": "TOTP force-set",
     "hosts_bulk_pause": "hosts bulk pause",
     "hosts_bulk_resume": "hosts bulk resume",
+    "user_login": "Sign in",
+    "user_logout": "Sign out",
+    "oidc_login": "Sign in (Authentik / OIDC)",
     "user_create": "Create user",
     "user_update": "Update user",
     "user_delete": "Delete user",

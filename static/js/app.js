@@ -224,7 +224,7 @@ const CURATED_REFRESH_FIELDS = new Set([
   // when the master toggle is off OR no scan has run. `last_port_scan_ts`
   // drives the "Last scanned X ago" label.
   'detected_ports', 'last_port_scan_ts',
-  // Drift-from-baseline classification (IDEA-15) — per-metric
+  // Drift-from-baseline classification — per-metric
   // {indicator, value, median, iqr, ...} dict keyed by cpu_pct /
   // mem_pct / disk_pct / ping_rtt_ms. Empty {} when the host has no
   // baseline yet (<50 samples in window OR sampler hasn't run yet).
@@ -470,7 +470,7 @@ function app() {
     notificationsFilterSeverity: 'all',  // all | info | warning | error | success
     notificationsFilterEvent:    'all',
     notificationsFilterUnread:   false,
-    // Cluster pivot (UX-review IDEA-22 MVP). When on, the popup
+    // Cluster pivot. When on, the popup
     // groups consecutive notifications sharing (event, target_kind,
     // target_id) into one row with a "xN" badge — operators on a
     // busy fleet can pivot a wall of identical "service restarted"
@@ -1158,6 +1158,8 @@ function app() {
       'tuning_swarm_agent_unhealthy_threshold',
       'tuning_stats_history_days',
       'tuning_stats_sample_interval_seconds',
+      'tuning_host_baseline_recompute_interval_seconds',
+      'tuning_host_baseline_first_tick_delay_seconds',
       // permanent-fail window (was a separate card with its own
       // Save button until the operator asked for it to be a regular
       // tunable). Backend's `_record_failure` reads it via
@@ -1444,7 +1446,7 @@ function app() {
       // SSH WebSocket heartbeat cadence — rendered under Admin →
       // SSH alongside the other SSH knobs.
       'tuning_ssh_ws_heartbeat_seconds',
-      // SSH terminal connect / login wall-clocks (TUN-MED-003).
+      // SSH terminal connect / login wall-clocks.
       'tuning_ssh_terminal_connect_timeout_seconds',
       'tuning_ssh_terminal_login_timeout_seconds',
       // Per-provider default ports — promoted out of plain settings.
@@ -1562,7 +1564,7 @@ function app() {
     // boot from `GET /api/tabs/activity`; updated live via SSE
     // `tab:activity` / `tab:closed` events. Excludes the calling tab via
     // backend self-filter so the topbar widget doesn't list us. Drives the
-    // topbar pill + popover per UX-review IDEA-23.
+    // topbar pill + popover for multi-tab activity tracking.
     tabActivity: {},
     // Heartbeat in-flight gate so a slow network doesn't stack heartbeats.
     _tabHeartbeatBusy: false,
@@ -2066,7 +2068,7 @@ function app() {
             this.aiSidebarLauncherHiddenDraft = !!hidden;
           } catch (_) {}
           // ui_prefs.notifications_group_similar — Notifications popup
-          // cluster-pivot toggle (UX-review IDEA-22). Operator's choice
+          // cluster-pivot toggle. Operator's choice
           // persists cross-device so a busy fleet's "group similar"
           // view survives every reload.
           try {
@@ -2694,7 +2696,7 @@ function app() {
       // time-range picker), so most renders are skipped.
       this.hostHistoryNow = Date.now();
       setInterval(() => { this.hostHistoryNow = Date.now(); }, 1000);
-      // Multi-tab activity wiring (UX-review IDEA-23). Boot-hydrate the
+      // Multi-tab activity wiring. Boot-hydrate the
       // sibling-tab map, fire the first heartbeat so OTHER tabs see us,
       // then arm a 30s tick + cleanup hooks. Cross-tab focus channel
       // wires up here too (lazy-created in `focusTabByClientId` if not
