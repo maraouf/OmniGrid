@@ -11255,10 +11255,10 @@ function app() {
     // Request-version counter for `loadHistory` — every fetch
     // increments this; the response handler drops stale responses
     // (those whose version is older than the latest fired request).
-    // PERF-LOW finding from code review 2026-05-08-2: typing in a
-    // filter input that fires a debounced refetch + an SSE-driven
-    // `history:appended` reload + an operator-initiated paging
-    // change can stack 3-N concurrent /api/history requests. The
+    // Typing in a filter input that fires a debounced refetch + an
+    // SSE-driven `history:appended` reload + an operator-initiated
+    // paging change can stack 3-N concurrent /api/history requests.
+    // The
     // newest response should win, but TCP / proxy ordering is not
     // guaranteed — a stale response landing AFTER a newer one
     // would clobber the fresh state via the in-place reconcile.
@@ -11698,7 +11698,7 @@ function app() {
       }
       this.notificationsLoading = false;
     },
-    // ---- Notifications cluster pivot (UX-review IDEA-22 MVP) ----
+    // ---- Notifications cluster pivot (MVP) ----
     // Pivots the current page's notifications into clusters keyed on
     // (event, target_kind, target_id). Each cluster carries:
     //   - key: stable identity string for expansion tracking

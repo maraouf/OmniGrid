@@ -1333,8 +1333,8 @@ _BACKGROUND_TASKS: set = set()
 # (deadlock, infinite loop, hung await) sits in the set forever
 # because the done_callback never fires. Without a cap a leaky
 # spawn site could grow the set unbounded over a long-running
-# deploy. PERF-LOW finding from code review 2026-05-08-2: every
-# spawn-from-handler today goes through `_spawn_background_task`
+# deploy. Every spawn-from-handler today goes through
+# `_spawn_background_task`
 # which keeps the count bounded by the actual in-flight work, so
 # the cap is theoretical — but it's defence-in-depth for a future
 # regression. When the set hits the cap, drop the oldest tasks
@@ -1956,12 +1956,41 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
                 op.log("No overlay network matches that subnet — error may have already cleared", "warn")
                 op.done("error", f"no overlay network matched subnet {subnet}")
                 return
+            # Multiple-matches handling. Two real-world cases:
+            # 1. ALL matches share the SAME name (e.g. `netdata_default`
+            #    × 3 on the same subnet) — this IS the VXLAN-orphan
+            #    signature: Docker accumulated orphan overlays from
+            #    failed redeploys. Safe to delete all of them; Swarm
+            #    auto-creates ONE fresh overlay on the next service
+            #    deploy. Process every match through the full
+            #    strip-rm-restore flow below.
+            # 2. Matches with DIFFERENT names → genuinely ambiguous
+            #    (subnet collision across unrelated stacks). Refuse so
+            #    the operator can pick the right one manually.
             if len(matches) > 1:
-                names = ", ".join(n.get("Name", "?") for n in matches)
-                raise RuntimeError(f"refusing — multiple networks match subnet {subnet}: {names}")
+                unique_names = {n.get("Name", "?") for n in matches}
+                if len(unique_names) > 1:
+                    names = ", ".join(n.get("Name", "?") for n in matches)
+                    raise RuntimeError(
+                        f"refusing — multiple DIFFERENT networks match "
+                        f"subnet {subnet}: {names}. Resolve manually."
+                    )
+                op.log(
+                    f"Found {len(matches)} orphan overlays matching "
+                    f"subnet {subnet} all named {next(iter(unique_names))!r}"
+                    f" — processing each through strip-rm-restore",
+                    "warn",
+                )
+            # Process the FIRST match through the full flow below; if
+            # there were extras (orphan family), the trailing for-loop
+            # after step 7 cleans them up too (they're guaranteed not
+            # to be referenced by any service spec since only ONE
+            # network can be the live reference for the service that
+            # named it, the others are by definition orphans).
             net = matches[0]
             net_id = net.get("Id") or ""
             net_name = net.get("Name") or net_id[:12]
+            extra_orphans = matches[1:]  # cleaned up after step 7
             op.log(f"Matched overlay network {net_name!r} (id={net_id[:12]})")
             # Step 3 — list every service in the endpoint and find
             # which ones reference the target network in their spec.
@@ -2146,6 +2175,38 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
                 except Exception as e:
                     op.log(f"WARN — restore exception for service {sid[:12]}: {e}", "error")
 
+            # Step 7.5 — orphan-family cleanup. When multiple
+            # networks matched the same subnet AND shared the same
+            # name, the loop above processed the first match through
+            # the full strip-rm-restore; the remaining matches are
+            # by definition orphans (Docker only routes service
+            # references to ONE network, the rest are dead overlays
+            # left behind by failed redeploys). Best-effort direct
+            # rm — log + skip on per-orphan failure so one stuck
+            # orphan doesn't block the others.
+            for orphan in extra_orphans:
+                orphan_id = orphan.get("Id") or ""
+                orphan_name = orphan.get("Name") or orphan_id[:12]
+                if not orphan_id:
+                    continue
+                op.log(f"Removing orphan overlay {orphan_name!r} (id={orphan_id[:12]})")
+                try:
+                    r = await client.delete(
+                        f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                        f"/docker/networks/{orphan_id}",
+                        headers=portainer.headers(),
+                    )
+                    if r.status_code >= 400:
+                        op.log(
+                            f"WARN — orphan rm failed for {orphan_name!r}: "
+                            f"HTTP {r.status_code}: {r.text[:200]}",
+                            "error",
+                        )
+                    else:
+                        op.log(f"Orphan {orphan_name!r} removed", "success")
+                except Exception as e:
+                    op.log(f"WARN — orphan rm exception for {orphan_name!r}: {e}", "error")
+
             # Step 8 — force-update the originally-targeted service
             # one more time so the operator sees an immediate redeploy
             # attempt (in case the strip+restore dance already
@@ -2174,8 +2235,10 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
                     raise RuntimeError(f"service update HTTP {r.status_code}: {r.text[:300]}")
         op.log("Cleanup complete — watch for new task to come up", "success")
         op.done("success")
-        # Stamp the network name onto the op for the SPA toast.
-        op.network_name = net_name
+        # net_name is already inlined into the notify body below; no
+        # need to stamp it onto `op` (Operation uses __slots__ which
+        # rejects attribute assignment outside the declared set, AND
+        # nothing downstream reads `op.network_name` anyway).
         from logic.ops import notify as _notify
         await _notify(
             f"🧹 Stale overlay cleaned: {net_name}",
@@ -6650,9 +6713,9 @@ async def api_ai_palette(
             levels=["error", "warn"],
             limit=_log_limit,
         )
-        # SEC-MED — redact common secret patterns (Bearer tokens,
-        # password / api_key / token-shaped values, AWS access-key
-        # IDs) BEFORE shipping log text to the third-party LLM. The
+        # Redact common secret patterns (Bearer tokens, password /
+        # api_key / token-shaped values, AWS access-key IDs) BEFORE
+        # shipping log text to the third-party LLM. The
         # log buffer can carry sensitive values from misformatted
         # log lines (e.g. an upstream that prints `Bearer abc123` in
         # an error trace), and the AI palette ships these to an
@@ -19985,14 +20048,13 @@ async def api_admin_disable_totp(
                 message=f"2FA disabled for {target.username} by {admin.username}",
             )
         except Exception as e:
-            # BUG-LOW from code review 2026-05-08-2: defensive log +
-            # continue is correct (don't roll back the credential
-            # change just because the audit row failed), but a silent
-            # `print` to stderr meant the operator looking at History
-            # saw no record of the change. Escalate to a notification
-            # so the operator sees the missing audit trail in-app +
-            # Apprise. The credential change ITSELF persisted via
-            # `auth.disable_totp` at line ~16266 — the notification
+            # Defensive log + continue is correct (don't roll back the
+            # credential change just because the audit row failed), but
+            # a silent `print` to stderr meant the operator looking at
+            # History saw no record of the change. Escalate to a
+            # notification so the operator sees the missing audit trail
+            # in-app + Apprise. The credential change ITSELF persisted
+            # via `auth.disable_totp` at line ~16266 — the notification
             # carries the disabled-target + the SQL failure detail.
             print(f"[totp] audit-log insert failed: {e}")
             try:
