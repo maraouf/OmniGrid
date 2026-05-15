@@ -143,6 +143,49 @@
               <p class="fs-xs text-[var(--text-faint)] mt-1"
                  x-text="t('settings.portainer.swarm_autoheal_bootstrap_hint') || 'On first boot, when Portainer is configured AND no equivalent row exists, OmniGrid auto-creates a 5-minute swarm_agent_health schedule so the autoheal action fires without manual setup. Disable this BEFORE the first boot if you prefer to manage the schedule yourself. Once a schedule exists (auto or manual), this toggle has no further effect — deleting the auto-created row leaves it deleted.'"></p>
             </div>
+            <!-- Portainer write-op timeout tiers — operator-tunable
+                 wall-clocks for the three categories of outbound
+                 Portainer API call (short = restart / inspect,
+                 medium = recreate / single-container ops, long =
+                 full stack deploy / image pull). Section-owned save:
+                 editing flips the same amber ring as the rest of the
+                 Portainer form; `savePortainerSettings()` POSTs them
+                 in the same body. Same bounds-chips + effective-label
+                 shape every Admin → Config row uses. -->
+            <div x-show="tuningLoaded && isAdmin()" class="pt-3 border-t border-[var(--border)] space-y-3">
+              <h4 class="fs-sm font-semibold text-[var(--text)]"
+                  x-text="t('settings.portainer.tunables_heading')"></h4>
+              <template x-for="key in ['tuning_portainer_op_timeout_short_seconds',
+                                        'tuning_portainer_op_timeout_medium_seconds',
+                                        'tuning_portainer_op_timeout_long_seconds']"
+                        :key="key">
+                <div>
+                  <div class="flex flex-wrap items-center gap-3 mb-1">
+                    <label class="fs-xs font-medium"
+                           x-text="t('admin.config.fields.' + key + '.label')"></label>
+                    <input type="number"
+                           x-model="tuningForm[key]"
+                           :disabled="isReadonly() || !settings.portainer_enabled"
+                           :min="(tuningBounds[key] || {}).lo"
+                           :max="(tuningBounds[key] || {}).hi"
+                           class="w-24 fs-xs">
+                    <div class="flex flex-wrap items-center gap-1.5 fs-2xs text-[var(--text-faint)]">
+                      <span class="px-1.5 py-0.5 rounded border border-[var(--border)]"
+                            x-text="t('admin.config.bounds_default') + ' ' + ((tuningBounds[key] || {}).default ?? '')"></span>
+                      <span class="px-1.5 py-0.5 rounded border border-[var(--border)]"
+                            x-text="t('admin.config.bounds_min') + ' ' + ((tuningBounds[key] || {}).lo ?? '')"></span>
+                      <span class="px-1.5 py-0.5 rounded border border-[var(--border)]"
+                            x-text="t('admin.config.bounds_max') + ' ' + ((tuningBounds[key] || {}).hi ?? '')"></span>
+                    </div>
+                    <span class="fs-2xs text-[var(--text-faint)]"
+                          x-show="tuningEffective[key] != null"
+                          x-text="t('admin.config.effective') + ' ' + tuningEffective[key]"></span>
+                  </div>
+                  <p class="fs-xs text-[var(--text-faint)]"
+                     x-text="t('admin.config.fields.' + key + '.help')"></p>
+                </div>
+              </template>
+            </div>
             <div x-show="isAdmin()" class="flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
               <!-- Save is GATED on a successful Test when the service
                    is enabled — admins can't ship a typo'd URL / API key

@@ -1169,7 +1169,8 @@
       "swarm_autoheal_notify": "Notify only (default)",
       "swarm_autoheal_restart": "Auto-restart agent service",
       "swarm_autoheal_bootstrap_label": "Auto-create default swarm_agent_health schedule",
-      "swarm_autoheal_bootstrap_hint": "On first boot, when Portainer is configured AND no equivalent row exists, OmniGrid auto-creates a 5-minute swarm_agent_health schedule so the autoheal action fires without manual setup. Disable this BEFORE the first boot if you prefer to manage the schedule yourself. Once a schedule exists (auto or manual), this toggle has no further effect — deleting the auto-created row leaves it deleted."
+      "swarm_autoheal_bootstrap_hint": "On first boot, when Portainer is configured AND no equivalent row exists, OmniGrid auto-creates a 5-minute swarm_agent_health schedule so the autoheal action fires without manual setup. Disable this BEFORE the first boot if you prefer to manage the schedule yourself. Once a schedule exists (auto or manual), this toggle has no further effect — deleting the auto-created row leaves it deleted.",
+      "tunables_heading": "Portainer operation timeouts"
     },
     "ignores": {
       "title": "Ignore list",
@@ -3794,6 +3795,7 @@
   },
   "admin_assets": {
     "title": "Asset Inventory",
+    "tunables_heading": "Asset inventory tunables",
     "intro": "Pull an asset catalogue (vendor / model / serial / location) from your asset-management upstream. Pick one of two auth modes below. Manually refreshed — the cache at /app/data/asset_inventory.json is the source of truth the host drawer reads from.",
     "auth_mode_label": "Authentication mode",
     "auth_mode_oauth2": "OAuth2 (username / password)",
