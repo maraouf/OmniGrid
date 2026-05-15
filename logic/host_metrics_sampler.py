@@ -801,8 +801,16 @@ async def _probe_one(
         if state and state["paused"]:
             return
         now = time.time()
+        # Per-use read so Admin → Config edits to the NE probe timeout
+        # land on the next sampler tick. Defensive fallback to the
+        # legacy hardcoded 10s if `tuning_int` raises (corrupt DB).
         try:
-            stats = await _ne.probe_node(client, ne_url, timeout=10.0)
+            _ne_to = float(tuning.tuning_int(
+                "tuning_node_exporter_probe_timeout_seconds"))
+        except Exception:
+            _ne_to = 10.0
+        try:
+            stats = await _ne.probe_node(client, ne_url, timeout=_ne_to)
         except Exception as e:
             print(f"[host_metrics_sampler] {hid!r} probe error: {e}")
             await _record_failure(hid, now, str(e))

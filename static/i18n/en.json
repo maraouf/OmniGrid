@@ -1520,6 +1520,14 @@
           "label": "Portainer op timeout — long (seconds)",
           "help": "Wall-clock cap for image-pull-heavy Portainer write-ops — stack update, container update, container retag-to-latest. Default 600s. Raise on slow registries / large stacks. Range 60..3600. Takes effect on the next op."
         },
+        "tuning_asset_inventory_token_timeout_seconds": {
+          "label": "Asset inventory — token probe timeout (seconds)",
+          "help": "Wall-clock cap for the OAuth2 `client_credentials` token-probe handshake against the asset-inventory API. Default 10s. Operators behind a slow corporate network or with the asset API behind a tunnel can bump this to 30-60s; tight-watchdog deploys can lower to 3-5s. Range 2..120. Takes effect on the next probe."
+        },
+        "tuning_asset_inventory_fetch_timeout_seconds": {
+          "label": "Asset inventory — asset fetch timeout (seconds)",
+          "help": "Wall-clock cap for the paginated `GET /assets` (and lifetime-token equivalent) fetch against the asset-inventory API. Default 15s. Large fleets / slow upstreams may need 60-120s; the cache is manual-refresh only so the timeout only fires when the operator clicks Refresh. Range 2..300. Takes effect on the next fetch."
+        },
         "tuning_host_permanent_fail_window_seconds": {
           "label": "Host sampling pause window (seconds)",
           "help": "After this many seconds of CONSECUTIVE probe failures (no successful sample landed in this window), the host_metrics_sampler stops sampling that host entirely — no more probe attempts, no more failure rows in the log. The host shows a paused badge in the Hosts table and an explanatory banner in the drawer. Resume manually via the drawer's \"Resume sampling\" button. Lower it to react faster to dead hosts (less log noise from a host that crashed); raise it to tolerate longer transient outages without auto-pausing (e.g. a host that reboots every Sunday for an hour). Default 900s (15 min)."
