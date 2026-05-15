@@ -2074,13 +2074,14 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
                         f"{r.status_code}: {r.text[:200]}"
                     )
 
-            # Step 5 — wait briefly for Swarm to converge the spec
-            # edits (the network reference drops once the orchestrator
-            # acks the update). Poll the network's Containers field a
-            # few times rather than blind-sleep.
+            # Step 5 — wait for Swarm to converge the spec edits.
+            # Containers-empty is only HALF the signal — Swarm tasks
+            # in "shutting down" state can still hold the network for
+            # a few extra seconds after the orchestrator acks the
+            # spec update. Poll up to 30s total at 0.5s ticks.
             if ref_services:
                 op.log("Waiting for service convergence (network reference to drop)")
-                for attempt in range(20):  # ~10s total at 0.5s
+                for attempt in range(60):  # ~30s total at 0.5s
                     await asyncio.sleep(0.5)
                     try:
                         net_check = await portainer.pg(
@@ -2096,14 +2097,40 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
                         # as success and proceed.
                         break
 
-            # Step 6 — remove the network.
+            # Step 6 — remove the network. Retry-on-"in use by task"
+            # because Swarm tasks transition through a "shutdown"
+            # state where they STILL hold the network resource for a
+            # few seconds after the orchestrator marked them for
+            # removal. The `Containers` check above only sees DOCKER
+            # containers; Swarm tasks are a separate layer. So even
+            # after Containers={} the rm may still 400. Retry every
+            # 1s for up to 30s — typically a single task drains in
+            # 5-15s.
             op.log(f"Removing overlay {net_name!r}")
-            r = await client.delete(
-                f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
-                f"/docker/networks/{net_id}",
-                headers=portainer.headers(),
-            )
-            if r.status_code >= 400:
+            r = None
+            for rm_attempt in range(31):  # initial + 30 retries
+                r = await client.delete(
+                    f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                    f"/docker/networks/{net_id}",
+                    headers=portainer.headers(),
+                )
+                if r.status_code < 400:
+                    break
+                raw_txt = r.text[:300]
+                # Only retry the "in use by task" transient — other
+                # 400s (e.g. permission denied, network not found)
+                # break out immediately.
+                if "in use by task" in raw_txt and rm_attempt < 30:
+                    if rm_attempt == 0:
+                        op.log(
+                            "Network still held by a draining Swarm task — "
+                            "polling until released (up to 30s)",
+                            "warn",
+                        )
+                    await asyncio.sleep(1.0)
+                    continue
+                break
+            if r is not None and r.status_code >= 400:
                 raw_text = r.text[:300]
                 # If the rm STILL fails after stripping the spec refs
                 # (e.g. a service we couldn't reach is holding the
@@ -17242,8 +17269,7 @@ async def api_tabs_activity_heartbeat(
     cid = _request_client_id(request)
     if not cid:
         return {"ok": False, "reason": "no client id"}
-    user = getattr(request.state, "user", None)
-    actor = (getattr(user, "username", None) or "ui") if user else "ui"
+    actor = _actor_from(request)
     entry = {
         "actor":            actor,
         "view":             (body.view or "").strip() or None,
