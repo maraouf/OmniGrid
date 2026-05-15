@@ -158,6 +158,22 @@ def _verify_tls() -> bool:
     return bool(_settings().get("oidc_verify_tls", True))
 
 
+def _http_timeout_seconds() -> float:
+    """Resolve the outbound HTTP wall-clock for every oidc.py call site.
+
+    Per-use read of the ``tuning_oidc_http_timeout_seconds`` TUNABLE so
+    a Save in Admin → Authentik OIDC takes effect on the next call
+    without restart. Defensive fallback to legacy 15s on tunable-
+    resolver failure — keeps OIDC working if the tuning module is
+    misconfigured rather than blocking auth entirely.
+    """
+    try:
+        from logic.tuning import tuning_int as _tuning_int
+        return float(_tuning_int("tuning_oidc_http_timeout_seconds"))
+    except Exception:
+        return 15.0
+
+
 def is_configured() -> bool:
     """True when OIDC is enabled AND the three mandatory values are set.
 
@@ -185,7 +201,7 @@ async def _fetch_discovery(issuer: str) -> dict:
     if cached and cached[1] > now:
         return cached[0]
     url = issuer.rstrip("/") + "/.well-known/openid-configuration"
-    async with httpx.AsyncClient(timeout=15.0, verify=_verify_tls()) as client:
+    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=_verify_tls()) as client:
         r = await client.get(url)
         if r.status_code != 200:
             raise HTTPException(
@@ -206,7 +222,7 @@ async def _fetch_jwks(issuer: str, jwks_uri: str, force: bool = False) -> dict:
         cached = _jwks_cache.get(issuer)
         if cached and cached[1] > now:
             return cached[0]
-    async with httpx.AsyncClient(timeout=15.0, verify=_verify_tls()) as client:
+    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=_verify_tls()) as client:
         r = await client.get(jwks_uri)
         if r.status_code != 200:
             raise HTTPException(
@@ -246,7 +262,7 @@ async def test_discovery(issuer_url: str, verify_tls: Optional[bool] = None) -> 
     url = issuer_url.rstrip("/") + "/.well-known/openid-configuration"
     effective_verify = _verify_tls() if verify_tls is None else bool(verify_tls)
     try:
-        async with httpx.AsyncClient(timeout=10.0, verify=effective_verify) as client:
+        async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=effective_verify) as client:
             r = await client.get(url)  # lgtm[py/full-ssrf]
         if r.status_code == 200:
             # Basic sanity check: discovery doc must advertise the three
@@ -523,7 +539,7 @@ async def callback(request: Request):
 
     # Token exchange. Authentik accepts client credentials in either the
     # Authorization header or the body; we use the body for clarity.
-    async with httpx.AsyncClient(timeout=15.0, verify=_verify_tls()) as client:
+    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=_verify_tls()) as client:
         token_resp = await client.post(
             token_ep,
             data={
