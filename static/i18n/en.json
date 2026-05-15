@@ -1504,6 +1504,22 @@
           "label": "Host baseline first-tick delay (seconds)",
           "help": "How long the host-baseline sampler waits after lifespan-start before the first tick fires. Gives schema migrations (the additive `host_baselines` CREATE TABLE in init_db) time to land before the sampler reads / writes the table. Default 60s. Raise it on a heavily-loaded boot where migrations take longer than a minute; lower it to start baselining sooner on a fast container. Range 5..600. Takes effect on the next container restart (the value is read once when the sampler starts)."
         },
+        "tuning_kick_gather_timeout_seconds": {
+          "label": "Cold-cache gather kick timeout (seconds)",
+          "help": "Wall-clock cap for the cold-cache `_gather()` call that drill-down endpoints (like the Stats → Samples per-(table, host_id) drill-in) trigger when `_cache[\"items\"]` is empty. Without this cap an unreachable Portainer could hang the endpoint indefinitely. Default 30s — enough headroom for a typical Portainer fan-out + registry digest probe. Operators with large fleets / slow registries hit it during incidents; bump to 60-120s in those environments. Range 5..300. Takes effect on the next drill-down lookup."
+        },
+        "tuning_portainer_op_timeout_short_seconds": {
+          "label": "Portainer op timeout — short (seconds)",
+          "help": "Wall-clock cap for quick Portainer write-ops — container restart + container remove. Default 120s. Lower it to fail-fast on a flaky agent; raise it on slow networks. Range 10..600. Takes effect on the next op."
+        },
+        "tuning_portainer_op_timeout_medium_seconds": {
+          "label": "Portainer op timeout — medium (seconds)",
+          "help": "Wall-clock cap for service-level Portainer write-ops — restart service, restart Swarm agent, prune node. Default 300s. Range 30..1800. Takes effect on the next op."
+        },
+        "tuning_portainer_op_timeout_long_seconds": {
+          "label": "Portainer op timeout — long (seconds)",
+          "help": "Wall-clock cap for image-pull-heavy Portainer write-ops — stack update, container update, container retag-to-latest. Default 600s. Raise on slow registries / large stacks. Range 60..3600. Takes effect on the next op."
+        },
         "tuning_host_permanent_fail_window_seconds": {
           "label": "Host sampling pause window (seconds)",
           "help": "After this many seconds of CONSECUTIVE probe failures (no successful sample landed in this window), the host_metrics_sampler stops sampling that host entirely — no more probe attempts, no more failure rows in the log. The host shows a paused badge in the Hosts table and an explanatory banner in the drawer. Resume manually via the drawer's \"Resume sampling\" button. Lower it to react faster to dead hosts (less log noise from a host that crashed); raise it to tolerate longer transient outages without auto-pausing (e.g. a host that reboots every Sunday for an hour). Default 900s (15 min)."
@@ -3068,7 +3084,9 @@
       "body": "Last live update {age} ago. {count} field(s) restored from the snapshot — values dimmed below are not live.",
       "title_bulk": "Provider unreachable — every metric below is cached",
       "body_bulk": "Last live update {age} ago. The full host telemetry is being served from the snapshot. Per-field warning markers are suppressed because they'd appear on every row — check the chips above for which provider went down.",
-      "providers_cached": "Cached providers: {providers}"
+      "providers_cached": "Cached providers: {providers}",
+      "grace_remaining": "⚠ Stale data will be discarded in {remaining}",
+      "grace_remaining_title": "After the configured grace window (default 24h) the cached value is dropped and the field reads as 'no data'. Investigate the provider's connectivity before this fires."
     },
     "paused_banner": {
       "title": "{count} provider(s) auto-paused on this host",

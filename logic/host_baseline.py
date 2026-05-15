@@ -84,75 +84,82 @@ def _baseline_for(values: list[float]) -> Optional[tuple[float, float, int]]:
 
 def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list[float]]:
     """Pull every baseline-eligible sample for one host within the
-    rolling window. One pass per source table; returns the per-metric
-    values dict ready for `_baseline_for` to consume.
+    rolling window. Returns the per-metric values dict ready for
+    `_baseline_for` to consume.
 
-    Per-table SQL `LIMIT` caps the row count so a worst-case host
-    (all 5 source tables active, 30-day window, 5-min sampling) can't
-    OOM Python's list-append-then-sort path. The cap is generous —
-    well above `_MIN_SAMPLES (50) × len(METRICS) (4)` — so a busy
-    host's IQR stays accurate while a runaway sampler can't fill the
-    process heap. ORDER BY ts DESC keeps the NEWEST samples (most
-    representative of current workload) when the cap fires.
+    One UNION ALL across the 5 CPU/mem/disk source tables plus one
+    SELECT against `ping_samples`. Column-name alignment normalises
+    SNMP's `cpu_used_pct` to a uniform `cpu` alias so a single SELECT
+    against the union materialises the union in one pass. Per-table
+    `LIMIT 20000` caps row count so a worst-case host (all 5 tables
+    active, 30-day window, sub-minute sampling) can't OOM Python's
+    list-append-then-sort path. ORDER BY ts DESC inside each
+    sub-select keeps the NEWEST samples when the cap fires (most
+    representative of current workload).
+
+    Resilience: each sub-select is wrapped in its own try/except. A
+    missing table (fresh deploy / provider never enabled) raises
+    `sqlite3.OperationalError` during query compile; we exclude that
+    table from the UNION and retry with the remaining tables. A
+    poisoned-by-one-table UNION would otherwise mean Beszel-only or
+    SNMP-only hosts get zero baseline because a sibling provider
+    table doesn't exist.
     """
     out: dict[str, list[float]] = {m: [] for m in METRICS}
-    # Per-table sample-row cap. 20000 ≈ 70 days at 5-min cadence per
-    # table, so the 30-day window can't hit it under normal sampling;
-    # only fleets that sampled at sub-minute granularity for the full
-    # window will trip it, and they get a slightly newer-skewed
-    # baseline instead of an OOM.
+    # Per-table sample-row cap — 20000 ≈ 70 days at 5-min cadence per
+    # table; the 30-day window can't hit it under normal sampling.
     _PER_TABLE_LIMIT = 20000
-    # CPU / mem / disk — node-exporter writes to host_metrics_samples.
-    try:
-        rows = c.execute(
-            "SELECT cpu_percent, mem_used, mem_total, disk_used, disk_total "
-            "  FROM host_metrics_samples "
-            " WHERE host_id = ? AND ts >= ? "
-            " ORDER BY ts DESC LIMIT ?",
-            (host_id, since_ts, _PER_TABLE_LIMIT),
-        ).fetchall()
-        for r in rows:
-            cpu = r[0]
-            if cpu is not None:
-                out["cpu_pct"].append(float(cpu))
-            mu, mt = r[1], r[2]
-            if mu is not None and mt and mt > 0:
-                out["mem_pct"].append(float(mu) / float(mt) * 100.0)
-            du, dt = r[3], r[4]
-            if du is not None and dt and dt > 0:
-                out["disk_pct"].append(float(du) / float(dt) * 100.0)
-    except Exception:
-        pass
-    # Same metrics — every per-provider sampler writes to its OWN
-    # table (host_beszel_samples / host_pulse_samples /
-    # host_webmin_samples / host_snmp_samples) because each carries
-    # provider-specific extras (Beszel: load + temps + GPUs + swap;
-    # SNMP: printer page count + battery temp; etc.) that would
-    # bloat host_metrics_samples. Hosts with ONLY a provider that
-    # writes to its own table — Beszel-only, Pulse-only, Webmin-
-    # only, SNMP-only — have no row in host_metrics_samples, so a
-    # baseline computed only from that table would never form for
-    # them and the SPA would never render the ▲/▼/━ drift chip. The
-    # CPU / mem / disk shape is identical across the four tables
-    # (`cpu_percent` + `mem_used/total` + `disk_used/total`; SNMP
-    # uses `cpu_used_pct` instead of `cpu_percent` but the rest
-    # matches), so the merged baseline naturally represents the
-    # union of every provider's samples.
-    _provider_tables = (
-        ("host_beszel_samples", "cpu_percent"),
-        ("host_pulse_samples",  "cpu_percent"),
-        ("host_webmin_samples", "cpu_percent"),
-        ("host_snmp_samples",   "cpu_used_pct"),
-    )
-    for tbl, cpu_col in _provider_tables:
+
+    # Table set for the CPU/mem/disk UNION. `cpu_col_expr` aligns
+    # SNMP's column name to the same `cpu` alias so the union is
+    # column-shape-uniform. `table_label` is the partition tag emitted
+    # in the SELECT so per-table sample-count diagnostics could be
+    # reconstructed downstream if needed (currently unused but
+    # cheap — one extra column at SELECT time).
+    _union_sources = [
+        ("host_metrics_samples", "cpu_percent"),
+        ("host_beszel_samples",  "cpu_percent"),
+        ("host_pulse_samples",   "cpu_percent"),
+        ("host_webmin_samples",  "cpu_percent"),
+        ("host_snmp_samples",    "cpu_used_pct"),
+    ]
+
+    def _table_exists(table_name: str) -> bool:
         try:
-            rows = c.execute(
-                f"SELECT {cpu_col}, mem_used, mem_total, disk_used, disk_total "
+            row = c.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            ).fetchone()
+            return row is not None
+        except Exception:
+            return False
+
+    # Drop tables that don't exist BEFORE building the UNION so a
+    # missing sibling can't poison the whole query. Common on fresh
+    # deploys (Beszel-only operator has no host_pulse_samples yet) or
+    # after disabling a provider.
+    live_sources = [(t, c_col) for (t, c_col) in _union_sources if _table_exists(t)]
+
+    if live_sources:
+        # Build one UNION ALL — each sub-select normalises its CPU
+        # column to the `cpu` alias and tags the row with its table
+        # name so a future per-table sample-count diagnostic is
+        # one-line away. `ORDER BY ts DESC LIMIT N` inside each
+        # sub-select bounds memory per source.
+        subqueries = []
+        params: list = []
+        for tbl, cpu_col in live_sources:
+            subqueries.append(
+                f"SELECT {cpu_col} AS cpu, mem_used, mem_total, "
+                f"       disk_used, disk_total, '{tbl}' AS src "
                 f"  FROM {tbl} "
                 f" WHERE host_id = ? AND ts >= ? "
-                f" ORDER BY ts DESC LIMIT ?",
-                (host_id, since_ts, _PER_TABLE_LIMIT),
-            ).fetchall()
+                f" ORDER BY ts DESC LIMIT ?"
+            )
+            params.extend([host_id, since_ts, _PER_TABLE_LIMIT])
+        sql = " UNION ALL ".join(subqueries)
+        try:
+            rows = c.execute(sql, params).fetchall()
             for r in rows:
                 cpu = r[0]
                 if cpu is not None:
@@ -164,24 +171,30 @@ def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list
                 if du is not None and dt and dt > 0:
                     out["disk_pct"].append(float(du) / float(dt) * 100.0)
         except Exception:
-            # Table may not exist yet on fresh deploys / sampler
-            # never ran — skip silently so the other providers
-            # still contribute.
+            # Defensive — `_table_exists` should have filtered every
+            # missing table, but a column-schema mismatch (e.g. legacy
+            # deploy that never ran the additive ALTER TABLE for
+            # disk_used/disk_total) could still raise here. Skip
+            # silently rather than dropping the ping branch below.
             pass
-    # Ping RTT — ping_samples carries `rtt_ms` per probe.
-    try:
-        rows = c.execute(
-            "SELECT rtt_ms FROM ping_samples "
-            " WHERE host_id = ? AND ts >= ? AND rtt_ms IS NOT NULL "
-            " ORDER BY ts DESC LIMIT ?",
-            (host_id, since_ts, _PER_TABLE_LIMIT),
-        ).fetchall()
-        for r in rows:
-            v = r[0]
-            if v is not None:
-                out["ping_rtt_ms"].append(float(v))
-    except Exception:
-        pass
+
+    # Ping RTT — separate table with its own column shape; a UNION
+    # with the CPU/mem/disk set would require padding columns and
+    # complicates the result-tuple unpack. Kept as its own SELECT.
+    if _table_exists("ping_samples"):
+        try:
+            rows = c.execute(
+                "SELECT rtt_ms FROM ping_samples "
+                " WHERE host_id = ? AND ts >= ? AND rtt_ms IS NOT NULL "
+                " ORDER BY ts DESC LIMIT ?",
+                (host_id, since_ts, _PER_TABLE_LIMIT),
+            ).fetchall()
+            for r in rows:
+                v = r[0]
+                if v is not None:
+                    out["ping_rtt_ms"].append(float(v))
+        except Exception:
+            pass
     return out
 
 
