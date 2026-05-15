@@ -1164,6 +1164,8 @@ function app() {
       'tuning_portainer_op_timeout_short_seconds',
       'tuning_portainer_op_timeout_medium_seconds',
       'tuning_portainer_op_timeout_long_seconds',
+      'tuning_asset_inventory_token_timeout_seconds',
+      'tuning_asset_inventory_fetch_timeout_seconds',
       // permanent-fail window (was a separate card with its own
       // Save button until the operator asked for it to be a regular
       // tunable). Backend's `_record_failure` reads it via
@@ -2956,6 +2958,32 @@ function app() {
       // change. Blank = keep current; the operator hasn't typed anything.
       if ((f.client_secret  || '').length > 0) return true;
       if ((f.lifetime_token || '').length > 0) return true;
+      // Asset-inventory-scoped tunables wired into THIS section's
+      // Save so editing them flips the same amber ring as the rest of
+      // the asset form. Mirror of the notifications panel pattern
+      // (`notifTunables` in `_appriseSnapshot`). Comparing tuningForm
+      // values to the previously-saved baseline (`_tuningBaseline`
+      // captured at loadTuning) — when the operator hits Save, the
+      // POST body includes these keys + `loadTuning()` after-save
+      // resets the baseline so dirty flips back to false.
+      const tf = this.tuningForm || {};
+      const baselineStr = this._tuningBaseline || '';
+      // Re-parse baseline to read the two asset tunables. Defensive
+      // — if the baseline string ever fails to parse, fall back to
+      // empty strings so the comparison just looks at current form
+      // values.
+      let baseline = {};
+      try { baseline = baselineStr ? JSON.parse(baselineStr) : {}; }
+      catch (_e) { baseline = {}; }
+      const tunableKeys = [
+        'tuning_asset_inventory_token_timeout_seconds',
+        'tuning_asset_inventory_fetch_timeout_seconds',
+      ];
+      for (const k of tunableKeys) {
+        const cur = (tf[k] == null ? '' : String(tf[k]).trim());
+        const base = (baseline[k] == null ? '' : String(baseline[k]).trim());
+        if (cur !== base) return true;
+      }
       return false;
     },
 
@@ -24360,6 +24388,46 @@ function app() {
       if (this.assetForm.lifetime_token && this.assetForm.lifetime_token.trim()) {
         body.asset_inventory_lifetime_token = this.assetForm.lifetime_token.trim();
       }
+      // Asset-inventory-scoped tunables — section-owned save commits
+      // them alongside the plain settings so editing flips the same
+      // amber ring as the rest of the form. Per-key int + bounds
+      // validation mirrors `saveTuning()` so we surface a friendly
+      // toast on out-of-range values instead of a backend 400.
+      const tf = this.tuningForm || {};
+      const assetTunableKeys = [
+        'tuning_asset_inventory_token_timeout_seconds',
+        'tuning_asset_inventory_fetch_timeout_seconds',
+      ];
+      for (const k of assetTunableKeys) {
+        const raw = tf[k];
+        if (raw === '' || raw == null) {
+          body[k] = '';
+          continue;
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = (this.tuningEffective || {})[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+            min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+            max: eff.max,
+          }), 'error');
+          return;
+        }
+        body[k] = String(raw).trim();
+      }
       this.assetSaving = true;
       try {
         const r = await fetch('/api/settings', {
@@ -24373,6 +24441,10 @@ function app() {
         }
         this.showToast(this.t('admin_assets.saved'), 'success');
         await this.loadSettings();
+        // Re-read tuning baseline so `assetDirty()` flips back to
+        // false after a successful save (mirrors loadTuning's reset
+        // pattern that the global saveTuning path uses).
+        await this.loadTuning();
         this.assetTestResult = null;
       } catch (e) {
         this.showToast(this.t('admin_assets.save_failed') + ': ' + e.message, 'error');

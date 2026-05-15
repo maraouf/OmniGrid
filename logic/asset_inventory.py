@@ -27,6 +27,26 @@ from typing import Any, Optional
 import httpx
 
 from logic import errors as _err
+from logic.tuning import tuning_int as _tuning_int
+
+
+# Per-use TUNABLES readers — operator can override via Admin → Config
+# without restarting. Defensive fallback to the legacy hardcoded
+# values if `tuning_int` raises (corrupt DB state — the debug surface
+# of asset-inventory must stay usable even when other tunables are
+# broken).
+def _token_timeout_seconds() -> float:
+    try:
+        return float(_tuning_int("tuning_asset_inventory_token_timeout_seconds"))
+    except Exception:
+        return 10.0
+
+
+def _fetch_timeout_seconds() -> float:
+    try:
+        return float(_tuning_int("tuning_asset_inventory_fetch_timeout_seconds"))
+    except Exception:
+        return 15.0
 
 # track the operator's `DB_PATH` data dir convention. Reading
 # DB_PATH lazily via os.environ keeps the constant import-time-safe
@@ -57,9 +77,12 @@ async def probe_token(
     client_secret: str,
     scope: str = "",
     verify_tls: bool = True,
-    timeout: float = 10.0,
+    timeout: Optional[float] = None,
 ) -> dict:
     """Run the OAuth2 client_credentials flow once.
+
+    `timeout` defaults to `tuning_asset_inventory_token_timeout_seconds`
+    via per-use read (legacy hardcoded 10s if the tunable is corrupt).
 
     Returns ``{"ok": bool, "token_type": str, "expires_in": int,
     "access_token": str, "error": str}``. The access token is RETURNED
@@ -69,6 +92,8 @@ async def probe_token(
     if not token_url or not client_id or not client_secret:
         return {"ok": False, "token_type": "", "expires_in": 0,
                 "access_token": "", "error": "missing token_url / client_id / client_secret"}
+    if timeout is None:
+        timeout = _token_timeout_seconds()
     base_data: dict[str, str] = {"grant_type": "client_credentials"}
     if scope:
         base_data["scope"] = scope
@@ -197,16 +222,21 @@ async def fetch_assets(
     token: str,
     list_path: str = DEFAULT_LIST_PATH,
     verify_tls: bool = True,
-    timeout: float = 15.0,
+    timeout: Optional[float] = None,
 ) -> dict:
     """Fetch the asset list. Returns ``{"ok", "assets", "error"}``.
 
     ``base_url`` + ``list_path`` are concatenated into the full URL; we
     don't hardcode ``/assets`` so operators can point at whatever the
     upstream actually exposes.
+
+    `timeout` defaults to `tuning_asset_inventory_fetch_timeout_seconds`
+    via per-use read (legacy hardcoded 15s if the tunable is corrupt).
     """
     if not base_url or not token:
         return {"ok": False, "assets": [], "error": "missing base_url / token"}
+    if timeout is None:
+        timeout = _fetch_timeout_seconds()
     from logic.url_safety import is_safe_http_url as _safe_url
     if not _safe_url(base_url):
         return {"ok": False, "assets": [],
@@ -499,9 +529,12 @@ async def fetch_assets_lifetime_token(
     min_value: Optional[int] = None,
     max_value: Optional[int] = None,
     verify_tls: bool = True,
-    timeout: float = 15.0,
+    timeout: Optional[float] = None,
 ) -> dict:
     """Fetch assets via <asset-api-host>'s lifetime-token auth flavour.
+
+    `timeout` defaults to `tuning_asset_inventory_fetch_timeout_seconds`
+    via per-use read (legacy hardcoded 15s if the tunable is corrupt).
 
     POST form-encoded to ``endpoint_url`` (full URL — already includes
     the list path) with ``X-Authorization: Bearer <token>`` plus two
@@ -530,6 +563,8 @@ async def fetch_assets_lifetime_token(
         )
         return {"ok": False, "assets": [], "error": og_err.message,
                 "error_code": og_err.code, "error_params": og_err.params}
+    if timeout is None:
+        timeout = _fetch_timeout_seconds()
 
     # Shared base body — service/action are always forwarded when set so
     # upstream's specific error code (Ex3537 for missing service, etc.)

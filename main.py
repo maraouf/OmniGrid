@@ -3124,6 +3124,8 @@ class SettingsIn(BaseModel):
     tuning_portainer_op_timeout_short_seconds: Optional[str] = None
     tuning_portainer_op_timeout_medium_seconds: Optional[str] = None
     tuning_portainer_op_timeout_long_seconds: Optional[str] = None
+    tuning_asset_inventory_token_timeout_seconds: Optional[str] = None
+    tuning_asset_inventory_fetch_timeout_seconds: Optional[str] = None
     # host_metrics_sampler permanent-fail window. Same DB-key
     # naming + bounds-check via TUNABLES as the others.
     tuning_host_permanent_fail_window_seconds: Optional[str] = None

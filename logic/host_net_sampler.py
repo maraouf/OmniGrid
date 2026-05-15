@@ -141,8 +141,16 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
     if _is_paused(hid):
         return
     now = time.time()
+    # Per-use read so Admin → Config edits to the NE probe timeout
+    # land on the next sampler tick. Defensive fallback to the legacy
+    # hardcoded 10s if `tuning_int` raises (corrupt DB state).
     try:
-        stats = await _ne.probe_node(client, ne_url, timeout=10.0)
+        _ne_to = float(tuning.tuning_int(
+            "tuning_node_exporter_probe_timeout_seconds"))
+    except Exception:
+        _ne_to = 10.0
+    try:
+        stats = await _ne.probe_node(client, ne_url, timeout=_ne_to)
     except Exception as e:
         # Per-host failure isolation — log and move on. Next tick
         # retries; no cumulative state to clean up beyond the cached
@@ -239,7 +247,22 @@ async def host_net_sampler_loop() -> None:
             else:
                 hosts = _load_curated_hosts()
                 if hosts:
-                    async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
+                    # Outer AsyncClient timeout is the ceiling for any
+                    # request that doesn't carry its own per-request
+                    # override. `_probe_one` calls `probe_node` with an
+                    # explicit per-call timeout (also read from the
+                    # NE-probe TUNABLE), so this ceiling is essentially
+                    # a defence-in-depth fallback. We deliberately set
+                    # it to the SAME tunable + a 50% headroom so the
+                    # outer never trips before the inner per-call cap.
+                    # Defensive fallback to 15s on tunable resolver
+                    # failure.
+                    try:
+                        _outer_to = float(tuning.tuning_int(
+                            "tuning_node_exporter_probe_timeout_seconds")) * 1.5
+                    except Exception:
+                        _outer_to = 15.0
+                    async with httpx.AsyncClient(verify=False, timeout=_outer_to) as client:
                         # Sequential over hosts — NE probes are already
                         # cheap and this keeps the sampler's load on each
                         # host to at most one request per interval.

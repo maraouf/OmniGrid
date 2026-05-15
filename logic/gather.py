@@ -1359,7 +1359,15 @@ async def _gather_impl() -> None:
             except Exception:
                 overrides = {}
             ne_hosts_cfg = _load_hosts_config_for_gather()
-            async with httpx.AsyncClient(verify=False, timeout=10.0) as ne_client:
+            # Per-use read so Admin → Config edits land on the next gather
+            # without a restart. Defensive fallback to legacy 10s if the
+            # tunable resolver raises (corrupt DB state).
+            try:
+                from logic.tuning import tuning_int as _tuning_int
+                _ne_to = float(_tuning_int("tuning_node_exporter_probe_timeout_seconds"))
+            except Exception:
+                _ne_to = 10.0
+            async with httpx.AsyncClient(verify=False, timeout=_ne_to) as ne_client:
                 async def _ne_probe(h):
                     # Resolution order for the target URL:
                     # 1. explicit per-host override from the overrides map

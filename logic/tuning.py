@@ -95,6 +95,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_portainer_op_timeout_short_seconds":       ("PORTAINER_OP_TIMEOUT_SHORT_SECONDS",         120, 10,  600),
     "tuning_portainer_op_timeout_medium_seconds":      ("PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS",        300, 30, 1800),
     "tuning_portainer_op_timeout_long_seconds":        ("PORTAINER_OP_TIMEOUT_LONG_SECONDS",          600, 60, 3600),
+    # Asset-inventory outbound HTTP wall-clocks. Two tiers — token
+    # probe (OAuth2 client_credentials handshake, default 10s) and
+    # asset fetch (paginated /assets pull, default 15s). Operators on
+    # slow corporate networks or with the asset API behind a tunnel
+    # can bump these; tight-watchdog deploys can lower. Range floors
+    # prevent accidentally disabling.
+    "tuning_asset_inventory_token_timeout_seconds":    ("ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS",       10,  2,  120),
+    "tuning_asset_inventory_fetch_timeout_seconds":    ("ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS",       15,  2,  300),
     # host_metrics_sampler permanent-fail window. After this many
     # seconds of consecutive probe failures the sampler auto-pauses the
     # host (no more probe attempts) until the operator resumes via
