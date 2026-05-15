@@ -674,6 +674,22 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # fallback chain even when the master toggle is on).
     "tuning_ai_fallback_max_depth": ("AI_FALLBACK_MAX_DEPTH", 1, 0, 3),
 
+    # AI provider — outbound HTTP wall-clock for the lightweight
+    # one-token "test connection" probe. Default 15s — enough for a
+    # slow network plus a cold model warm-up; bump to 30-60s on flaky
+    # links. Range 2..120. Per-use read inside `logic.ai.test_provider`
+    # so a Save in Admin → AI Integration takes effect on the next Test
+    # click without restart.
+    "tuning_ai_http_timeout_seconds": ("AI_HTTP_TIMEOUT_SECONDS", 15, 2, 120),
+
+    # AI provider — outbound HTTP wall-clock for the real chat-completion
+    # call. Default 30s — covers most short prompts at reasonable model
+    # latency; raise to 60-120s for long-context prompts or slower
+    # reasoning models. Range 5..300. Per-use read inside
+    # `logic.ai.ask_provider` so a Save in Admin → AI Integration takes
+    # effect on the next call without restart.
+    "tuning_ai_extended_http_timeout_seconds": ("AI_EXTENDED_HTTP_TIMEOUT_SECONDS", 30, 5, 300),
+
     # ----- Backups ----------------------------------------------------------
 
     # Number of recent backup zips to keep on disk (under

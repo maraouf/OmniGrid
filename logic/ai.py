@@ -374,7 +374,7 @@ async def test_provider(
     api_key: str,
     model: str | None = None,
     base_url: str | None = None,
-    timeout: float = 15.0,
+    timeout: float | None = None,
 ) -> dict:
     """Single entry-point used by `/api/admin/ai/{provider}/test`.
 
@@ -386,6 +386,11 @@ async def test_provider(
     The caller is responsible for pulling the API key out of the saved
     settings (see CLAUDE.md's keep-current-if-blank contract) — this
     function takes the cleartext key as an argument.
+
+    ``timeout`` defaults to the live ``tuning_ai_http_timeout_seconds``
+    TUNABLE (15s default) so a Save in Admin → AI Integration takes
+    effect on the next Test click without restart. Defensive fallback
+    to legacy 15s on tunable-resolver failure.
     """
     p = (provider or "").strip().lower()
     if p not in SUPPORTED_PROVIDERS:
@@ -400,6 +405,13 @@ async def test_provider(
             "detail": "API key is not set. Save a key first or paste one into the form before testing.",
             "response_time_ms": 0,
         }
+
+    if timeout is None:
+        try:
+            from logic.tuning import tuning_int as _tuning_int
+            timeout = float(_tuning_int("tuning_ai_http_timeout_seconds"))
+        except Exception:
+            timeout = 15.0
 
     started = time.time()
     try:
@@ -606,7 +618,7 @@ async def ask_provider(
     model: str | None = None,
     base_url: str | None = None,
     max_tokens: int = 512,
-    timeout: float = 30.0,
+    timeout: float | None = None,
 ) -> dict:
     """Ask one provider for a chat completion. Returns
     ``{ok, text, detail, response_time_ms, provider, model, tokens}``.
@@ -616,12 +628,24 @@ async def ask_provider(
     by the Cmd-K palette's "Ask AI" surface and any future feature
     that needs a model response. Preserves the keep-current-if-blank
     secret contract — the caller resolves the saved API key.
+
+    ``timeout`` defaults to the live
+    ``tuning_ai_extended_http_timeout_seconds`` TUNABLE (30s default)
+    so a Save in Admin → AI Integration takes effect on the next call
+    without restart. Defensive fallback to legacy 30s on tunable-resolver
+    failure.
     """
     p = (provider or "").strip().lower()
     if p not in SUPPORTED_PROVIDERS:
         return {"ok": False, "status": 0, "provider": p,
                 "detail": f"Unsupported provider: {provider}",
                 "response_time_ms": 0}
+    if timeout is None:
+        try:
+            from logic.tuning import tuning_int as _tuning_int
+            timeout = float(_tuning_int("tuning_ai_extended_http_timeout_seconds"))
+        except Exception:
+            timeout = 30.0
     if not (api_key or "").strip():
         return {"ok": False, "status": 0, "provider": p,
                 "detail": "API key is not set. Configure it in Admin → AI Integration first.",

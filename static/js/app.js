@@ -1428,6 +1428,13 @@ function app() {
       // tunables.
       'tuning_ai_log_context_hours',
       'tuning_ai_log_context_lines',
+      // AI provider HTTP timeouts — rendered in Admin → AI Integration
+      // alongside the rest of the AI form. `tuning_ai_http_timeout_seconds`
+      // caps the Test-connection probe; `tuning_ai_extended_http_timeout_seconds`
+      // caps the real chat-completion call. Per-use reads inside
+      // `logic.ai.test_provider` / `ask_provider`.
+      'tuning_ai_http_timeout_seconds',
+      'tuning_ai_extended_http_timeout_seconds',
       // Port-scan tunables — rendered in Admin → Port Scan, NOT
       // the generic Config form. Each routes through TUNABLES so
       // the operator can adjust without redeploy.
@@ -14094,6 +14101,13 @@ function app() {
         // persistent logs the palette injects per call.
         'tuning_ai_log_context_hours',
         'tuning_ai_log_context_lines',
+        // Outbound HTTP wall-clocks for the Test-connection probe
+        // (one-token ping, 15s default) + real chat-completion call
+        // (30s default). Per-use reads inside `logic.ai.test_provider`
+        // / `ask_provider` so a Save here takes effect on the next
+        // round-trip without restart.
+        'tuning_ai_http_timeout_seconds',
+        'tuning_ai_extended_http_timeout_seconds',
       ];
     },
     async saveAiSettings() {

@@ -3277,6 +3277,13 @@ class SettingsIn(BaseModel):
     # for the palette's user-prompt context, capped at N lines.
     tuning_ai_log_context_hours: Optional[str] = None
     tuning_ai_log_context_lines: Optional[str] = None
+    # AI provider outbound HTTP wall-clocks — Test-connection probe
+    # (lightweight one-token ping, 15s default) + real chat-completion
+    # call (30s default). Per-use reads inside `logic.ai.test_provider`
+    # / `ask_provider`. Rendered in Admin → AI Integration via
+    # `relocatedTuningKeys` (NOT the generic Process tunables form).
+    tuning_ai_http_timeout_seconds: Optional[str] = None
+    tuning_ai_extended_http_timeout_seconds: Optional[str] = None
     # Backup retention count + SSH WebSocket heartbeat — same
     # 4-step audit-fix promotion; consumed via `tuning_int(...)`;
     # rendered in Admin → Backups and Admin → SSH respectively.

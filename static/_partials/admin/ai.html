@@ -63,6 +63,22 @@
                 <span x-text="t('admin.ai.active_provider_disabled_warning')"></span>
               </p>
             </div>
+            <!-- AI Integration tunables — top-level heading + intro for
+                 the WHOLE tunables section that follows (output cap,
+                 retry, fallback depth, sidebar layout, persist cadence,
+                 log context, HTTP timeouts). Replaces the prior pattern
+                 where "Auto-retry on transient overload" implicitly
+                 headed everything beneath it even though it only
+                 described the retry knobs. -->
+            <div x-show="tuningLoaded" class="pt-3 mt-2 border-t border-[var(--border)]">
+              <div class="flex items-center gap-2 mb-2">
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+                <h3 class="font-semibold fs-sm"
+                    x-text="t('admin.ai.tunables_heading')"></h3>
+              </div>
+              <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
+                 x-text="t('admin.ai.tunables_intro')"></p>
+            </div>
             <!-- Max response tokens — applied to every provider's chat
                  completion request. Bumped when a provider's response
                  keeps coming back truncated (Gemini 2.5 Pro thinking
@@ -400,6 +416,50 @@
                 <p class="fs-2xs text-[var(--text-faint)] mt-1"
                    x-text="t('admin.config.fields.tuning_ai_log_context_lines.help')"></p>
               </div>
+              <!-- AI provider outbound HTTP timeouts — Test-connection
+                   probe (lightweight one-token ping) + real chat-completion
+                   call. Per-use reads inside `logic.ai.test_provider`
+                   / `ask_provider` so a Save here takes effect on the
+                   next round-trip without restart. -->
+              <template x-for="key in ['tuning_ai_http_timeout_seconds',
+                                        'tuning_ai_extended_http_timeout_seconds']"
+                        :key="key">
+                <div class="mt-3">
+                  <label class="block fs-xs font-medium mb-1"
+                         x-text="t('admin.config.fields.' + key + '.label')"></label>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <input type="number"
+                           x-model="tuningForm[key]"
+                           :placeholder="tuningPlaceholder(key)"
+                           :min="(tuningEffective[key] || {}).min"
+                           :max="(tuningEffective[key] || {}).max"
+                           :disabled="!isAdmin() || tuningSaving"
+                           class="w-44 mono fs-sm py-1">
+                    <div class="bounds-chips" role="group"
+                         :aria-label="t('admin.config.bounds.group_label')">
+                      <span class="bounds-chip bounds-chip--min"
+                            :title="t('admin.config.bounds.min_title')">
+                        <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                        <span x-text="(tuningEffective[key] || {}).min"></span>
+                      </span>
+                      <span class="bounds-chip bounds-chip--max"
+                            :title="t('admin.config.bounds.max_title')">
+                        <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                        <span x-text="(tuningEffective[key] || {}).max"></span>
+                      </span>
+                      <span class="bounds-chip bounds-chip--default"
+                            :title="t('admin.config.bounds.default_title')">
+                        <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                        <span x-text="(tuningEffective[key] || {}).default"></span>
+                      </span>
+                    </div>
+                    <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                          x-text="tuningEffectiveLabel(key)"></span>
+                  </div>
+                  <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                     x-text="t('admin.config.fields.' + key + '.help')"></p>
+                </div>
+              </template>
             </div>
             <!-- Provider fallback chain — opt-in resilience surface.
                  When enabled, a transient overload (HTTP 429 / 502 /
