@@ -256,6 +256,8 @@
              bounds-chips + effective-label shape every Admin →
              Config row uses. -->
         <div x-show="tuningLoaded" class="mt-3 pt-3 border-t border-[var(--border)] space-y-3">
+          <h4 class="fs-sm font-semibold text-[var(--text)]"
+              x-text="t('admin_assets.tunables_heading')"></h4>
           <template x-for="key in ['tuning_asset_inventory_token_timeout_seconds',
                                     'tuning_asset_inventory_fetch_timeout_seconds']"
                     :key="key">

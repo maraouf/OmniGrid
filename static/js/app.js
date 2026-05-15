@@ -1161,11 +1161,6 @@ function app() {
       'tuning_host_baseline_recompute_interval_seconds',
       'tuning_host_baseline_first_tick_delay_seconds',
       'tuning_kick_gather_timeout_seconds',
-      'tuning_portainer_op_timeout_short_seconds',
-      'tuning_portainer_op_timeout_medium_seconds',
-      'tuning_portainer_op_timeout_long_seconds',
-      'tuning_asset_inventory_token_timeout_seconds',
-      'tuning_asset_inventory_fetch_timeout_seconds',
       // permanent-fail window (was a separate card with its own
       // Save button until the operator asked for it to be a regular
       // tunable). Backend's `_record_failure` reads it via
@@ -1315,6 +1310,17 @@ function app() {
       'tuning_webmin_probe_budget_seconds', // → Settings → Host stats → Webmin
       'tuning_webmin_sampler_budget_seconds', // → Settings → Host stats → Webmin (sampler tick budget)
       'tuning_node_exporter_probe_timeout_seconds', // → Settings → Host stats → NE
+      // Asset Inventory outbound HTTP timeouts — rendered in
+      // Admin → Asset Inventory next to URL / client ID / etc.
+      // Section-owned save via assetDirty() / saveAssetSettings().
+      'tuning_asset_inventory_token_timeout_seconds',
+      'tuning_asset_inventory_fetch_timeout_seconds',
+      // Portainer write-op timeout tiers — rendered in Admin →
+      // Portainer alongside URL / API key / endpoint ID. Section-
+      // owned save via portainerDirty() / savePortainerSettings().
+      'tuning_portainer_op_timeout_short_seconds',
+      'tuning_portainer_op_timeout_medium_seconds',
+      'tuning_portainer_op_timeout_long_seconds',
       'tuning_webmin_host_cache_ttl_seconds', // → Settings → Host stats → Webmin
       'tuning_webmin_host_fail_cache_ttl_seconds',// → Settings → Host stats → Webmin
       // Swarm autoheal cooldown — fires from the `swarm_agent_health`
@@ -8593,6 +8599,28 @@ function app() {
       if (this.portainerForm.api_key && this.portainerForm.api_key.trim()) {
         body.portainer_api_key = this.portainerForm.api_key;
       }
+      // Portainer-scoped tunables — included in the same POST body so
+      // editing them flips dirty + saves through THIS section, not the
+      // generic Admin → Config form. Validate int + bounds locally
+      // first so a typo'd value doesn't make the whole Save fail; the
+      // backend re-clamps but explicit local errors are friendlier.
+      const tf = this.tuningForm || {};
+      const tunableKeys = [
+        'tuning_portainer_op_timeout_short_seconds',
+        'tuning_portainer_op_timeout_medium_seconds',
+        'tuning_portainer_op_timeout_long_seconds',
+      ];
+      for (const k of tunableKeys) {
+        const raw = tf[k];
+        if (raw == null || String(raw).trim() === '') continue;
+        const n = parseInt(raw, 10);
+        const bounds = (this.tuningBounds || {})[k] || {};
+        if (!Number.isFinite(n) || (bounds.lo != null && n < bounds.lo) || (bounds.hi != null && n > bounds.hi)) {
+          this.showToast(this.t('toasts.save_failed'), 'error');
+          return;
+        }
+        body[k] = String(n);
+      }
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -8603,6 +8631,10 @@ function app() {
           // loadSettings() below re-captures the baseline.
           this.showToast(this.t('toasts.portainer_saved'));
           await this.loadSettings();
+          // Re-read tuning baseline so portainerDirty() flips back to
+          // false after a successful save that included tunable
+          // changes.
+          await this.loadTuning();
           this.portainerTestResult = null;
           // Trigger a forced refresh so the dashboard populates with data
           // from the newly-configured endpoint.
@@ -10811,7 +10843,32 @@ function app() {
         autohealBootstrap: !!(this.settings || {}).swarm_autoheal_bootstrap_enabled,
       });
     },
-    portainerDirty() { return this._portainerBaseline !== this._portainerSnapshot(); },
+    portainerDirty() {
+      if (this._portainerBaseline !== this._portainerSnapshot()) return true;
+      // Portainer-scoped tunables wired into THIS section's Save so
+      // editing them flips the same amber ring as the rest of the
+      // Portainer form. Mirror of the asset_inventory + AI / NE
+      // patterns. Compare tuningForm against the previously-saved
+      // `_tuningBaseline`; Save body includes these keys + the
+      // post-save `loadTuning()` resets the baseline so dirty
+      // flips back to false on success.
+      const tf = this.tuningForm || {};
+      const baselineStr = this._tuningBaseline || '';
+      let baseline = {};
+      try { baseline = baselineStr ? JSON.parse(baselineStr) : {}; }
+      catch (_e) { baseline = {}; }
+      const tunableKeys = [
+        'tuning_portainer_op_timeout_short_seconds',
+        'tuning_portainer_op_timeout_medium_seconds',
+        'tuning_portainer_op_timeout_long_seconds',
+      ];
+      for (const k of tunableKeys) {
+        const cur = (tf[k] == null ? '' : String(tf[k]).trim());
+        const base = (baseline[k] == null ? '' : String(baseline[k]).trim());
+        if (cur !== base) return true;
+      }
+      return false;
+    },
     _oidcSnapshot() {
       const f = this.oidcForm || {};
       const s = this.oidcStatus || {};
