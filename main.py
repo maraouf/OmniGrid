@@ -3304,6 +3304,10 @@ class SettingsIn(BaseModel):
     # SSH terminal entrypoint wall-clocks.
     tuning_ssh_terminal_connect_timeout_seconds: Optional[str] = None
     tuning_ssh_terminal_login_timeout_seconds: Optional[str] = None
+    # SSH terminal connection-close wait timeout — caps how long
+    # `conn.wait_closed()` blocks after a terminal session ends.
+    # Rendered in Admin → SSH via `relocatedTuningKeys`.
+    tuning_ssh_close_timeout_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -14116,8 +14120,16 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
                 conn.close()
             except Exception:
                 pass
+            # Per-use read of the SSH conn-close timeout TUNABLE so a
+            # Save in Admin → SSH takes effect on the next session
+            # teardown without restart. Defensive fallback to legacy 5s
+            # on tunable-resolver failure.
             try:
-                await asyncio.wait_for(conn.wait_closed(), timeout=5.0)
+                _ssh_close_to = float(tuning.tuning_int("tuning_ssh_close_timeout_seconds"))
+            except Exception:
+                _ssh_close_to = 5.0
+            try:
+                await asyncio.wait_for(conn.wait_closed(), timeout=_ssh_close_to)
             except Exception:
                 pass
         _ssh_terminal_audit_close(

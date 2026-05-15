@@ -1373,6 +1373,8 @@
       }
     },
     "notifications": {
+      "tunables_heading": "Notifications tunables",
+      "tunables_intro": "Operator-tunable knobs for the notifications surface — DB retention window (how long to keep in-app entries), per-page count for the popup pagination, and SPA poll cadence. All edits commit through the notifications Save button alongside the per-medium / per-event toggles.",
       "mediums_title": "Delivery channels",
       "medium_help": "Each enabled event fans out to every channel below. Turn one off to silence it without disabling events globally — for example keep in-app on while quieting Apprise during a maintenance window.",
       "medium_app": "In-app notifications page",
@@ -1859,6 +1861,10 @@
         "tuning_ssh_terminal_login_timeout_seconds": {
           "label": "SSH terminal login timeout (seconds)",
           "help": "Wall-clock cap on the post-connect SSH authentication phase (PubKey attempts, password prompt, banner exchange). Distinct from the connect timeout above. Same trade-off — raise for slow-auth servers (LDAP-backed sshd, PAM password lookups), lower for tighter failure detection. Default 20s. Range 5..120s. Takes effect on the next terminal-open click."
+        },
+        "tuning_ssh_close_timeout_seconds": {
+          "label": "SSH connection-close wait timeout (seconds)",
+          "help": "Wall-clock cap on `conn.wait_closed()` after a terminal session ends. Default 5s. Lower on flaky networks where the FIN never arrives (close blocks forever, audit row stays open); raise if you genuinely care about clean teardown and tolerate longer audit-close delays. Range 1..60. Takes effect on the next session-close."
         },
         "tuning_pulse_sample_interval_seconds": {
           "label": "Pulse sampler interval (seconds)",

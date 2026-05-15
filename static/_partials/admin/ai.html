@@ -124,26 +124,13 @@
               <p class="fs-2xs text-[var(--text-faint)] mt-1"
                  x-text="t('admin.config.fields.tuning_ai_max_tokens.help')"></p>
             </div>
-            <!-- Auto-retry on transient upstream overload (HTTP 429 /
-                 502 / 503 / 504). Three tunables — `tuning_ai_retry_*` —
-                 are surfaced HERE in the AI tab via `relocatedTuningKeys`
-                 instead of the generic Process tunables form, per user
-                 request. State + Save flow comes from the same
-                 `tuningForm` / `tuningEffective` / `saveTuning` Alpine
-                 machinery the Process tunables form uses, so the
-                 dedicated retry-Save button below saves ALL tunables
-                 (not just retry knobs) — the Process tunables form
-                 saves the same way. Disabled inputs while AI master
-                 toggle is off, since retry has no effect when AI is
-                 disabled. -->
+            <!-- Auto-retry knobs (master toggle + backoff + first-attempt
+                 cap). Disabled inputs while AI master toggle is off,
+                 since retry has no effect when AI is disabled. The
+                 section heading + intro live above the `tuning_ai_max_tokens`
+                 block (canonical "AI Integration tunables" header that
+                 covers every knob in this section). -->
             <div class="pt-3 mt-2 border-t border-[var(--border)]" x-show="tuningLoaded">
-              <div class="flex items-center gap-2 mb-2">
-                <svg width="13" height="13" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/></svg>
-                <h3 class="font-semibold fs-sm"
-                    x-text="t('admin.ai.retry.heading')"></h3>
-              </div>
-              <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
-                 x-text="t('admin.ai.retry.help')"></p>
               <!-- Master toggle (0/1 encoded as int per TUNABLES contract). -->
               <div class="mb-3">
                 <!-- Checkbox encodes 0/1 — checked → "1", unchecked → "0".

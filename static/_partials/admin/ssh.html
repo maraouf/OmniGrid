@@ -353,6 +353,48 @@
           </div>
         </div>
 
+        <!-- Connection-close wait timeout — wall-clock cap on
+             `conn.wait_closed()` after a terminal session ends. Lower
+             on flaky networks where the FIN never arrives (close blocks
+             forever, audit row stays open); raise if you genuinely care
+             about clean teardown. -->
+        <div class="mt-4" x-show="tuningLoaded">
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.tuning_ssh_close_timeout_seconds.label')"></label>
+          <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
+             x-text="t('admin.config.fields.tuning_ssh_close_timeout_seconds.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_ssh_close_timeout_seconds']"
+                   @input="markSshSettingsDirty()"
+                   :placeholder="tuningPlaceholder('tuning_ssh_close_timeout_seconds')"
+                   :min="(tuningEffective['tuning_ssh_close_timeout_seconds'] || {}).min"
+                   :max="(tuningEffective['tuning_ssh_close_timeout_seconds'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
+              <span class="bounds-chip bounds-chip--min"
+                    :title="t('admin.config.bounds.min_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_ssh_close_timeout_seconds'] || {}).min"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_ssh_close_timeout_seconds'] || {}).max"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                <span x-text="(tuningEffective['tuning_ssh_close_timeout_seconds'] || {}).default"></span>
+              </span>
+            </div>
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                  x-text="tuningEffectiveLabel('tuning_ssh_close_timeout_seconds')"></span>
+          </div>
+        </div>
+
         <!-- Test on a host — admin-only smoke probe that resolves the
              effective ssh_user / port / key path for one curated host
              and runs `whoami` over a one-shot connection. Lives BELOW

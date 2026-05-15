@@ -235,16 +235,20 @@
              event toggles where operators editing notifications
              actually look for it. Same `tuningForm` / `tuningEffective` /
              `saveTuning` Alpine state as the Process tunables form. -->
-        <!-- Notifications retention + page-size tunables. Pre-fix
-             these were each wrapped in their own surface-2-bordered
-             inner box (icon + h4 + body), creating a double-bordered
-             treatment unique to this tab. Unified to the canonical
-             pattern used by every other admin tab (Portainer / AI /
-             SSH / Logs / NE / Webmin / Ping / SNMP / Port Scan): a
-             plain border-top separator + label + help + bounds-chips
-             input row. Same `tuningForm` / `tuningEffective` Alpine
-             state; only visual chrome changed. -->
+        <!-- Notifications tunables — canonical header pattern (icon +
+             h3 + intro paragraph) matching every other admin tab
+             (Portainer / AI / SSH / Logs / NE / Webmin / Ping / SNMP /
+             Port Scan / Asset Inventory). All edits commit through the
+             notifications Save button alongside the per-medium /
+             per-event toggles. -->
         <div class="mt-4 pt-3 border-t border-[var(--border)]" x-show="tuningLoaded">
+          <div class="flex items-center gap-2 mb-1">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+            <h3 class="font-semibold fs-sm"
+                x-text="t('admin.notifications.tunables_heading')"></h3>
+          </div>
+          <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
+             x-text="t('admin.notifications.tunables_intro')"></p>
           <label class="block fs-xs font-medium mb-1"
                  x-text="t('admin.config.fields.tuning_notification_retention_days.label')"></label>
           <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
