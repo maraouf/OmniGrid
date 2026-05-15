@@ -187,7 +187,7 @@ async def probe_ping(
     *,
     port: int = 443,
     transport: str = "tcp",
-    timeout_seconds: float = 2.0,
+    timeout_seconds: Optional[float] = None,
     count: int = 3,
 ) -> dict:
     """Probe one host. See module docstring for the contract.
@@ -198,11 +198,23 @@ async def probe_ping(
       - ``"icmp"`` — raw ICMP echo via ``icmplib``. Falls back to TCP
         on ImportError / SocketPermissionError.
 
+    ``timeout_seconds`` defaults to the live
+    ``tuning_ping_probe_timeout_seconds`` TUNABLE (2s default) so a Save
+    in Admin → Host stats → Ping takes effect on the next probe without
+    restart. Defensive fallback to legacy 2s on tunable-resolver
+    failure. Explicit caller-supplied values bypass the resolver.
+
     Returns the ping-result dict; never raises (errors land in the
     ``error`` field). Cooldown is consulted up-front: if the
     (host, port) pair is in cooldown, returns immediately with
     ``alive=False, error="cooldown"`` and skips the wire entirely.
     """
+    if timeout_seconds is None:
+        try:
+            from logic.tuning import tuning_int as _tuning_int
+            timeout_seconds = float(_tuning_int("tuning_ping_probe_timeout_seconds"))
+        except Exception:
+            timeout_seconds = 2.0
     host_clean = (host or "").strip()
     if not host_clean:
         return {

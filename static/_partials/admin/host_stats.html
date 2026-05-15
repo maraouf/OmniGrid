@@ -596,15 +596,23 @@
           <p class="fs-2xs text-[var(--text-faint)]"
              x-html="t('settings.host_stats.webmin_aliases_hint_html')"></p>
 
-          <!-- Webmin tunables — three knobs moved here from the
-               generic Process tunables section per operator request
-                so operators tweaking Webmin creds have
-               every related knob ready to hand. Same `tuningForm` /
-               `tuningEffective` Alpine state. ONE shared Save button
-               at the bottom rather than per-card (Save POSTs the
-               full tuningForm regardless of which knob changed). -->
+          <!-- Webmin provider tunables — canonical header pattern
+               (icon + h3 + intro paragraph) matching every other admin
+               tab (AI / Asset Inventory / Portainer / Notifications /
+               NE / SSH / Beszel / Pulse / Ping). Covers probe budget,
+               sampler budget, per-host probe timeout, per-host success
+               + failure cache TTLs, and per-(provider, host) auto-pause
+               threshold. All edits commit through the Webmin section's
+               Save button. -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
                x-show="tuningLoaded">
+            <div class="flex items-center gap-2 mb-1">
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+              <h3 class="font-semibold fs-sm"
+                  x-text="t('settings.host_stats.tunables_heading_webmin')"></h3>
+            </div>
+            <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+               x-text="t('settings.host_stats.tunables_intro_webmin')"></p>
             <template x-for="key in _perProviderTuneKeys.webmin" :key="key">
               <div class="space-y-1">
                 <label class="block fs-xs font-medium"
@@ -767,11 +775,22 @@
                x-text="pingTestResult && pingTestResult.pending
                        ? t('actions.testing')
                        : (pingTestResult ? ((pingTestResult.ok ? '✓ ' : '✗ ') + (pingTestResult.detail || '')) : '')"></div>
-          <!-- Ping tunables — same Alpine state as the other tunable
-               cards (tuningForm / tuningEffective). Renders inline so
-               operators tweaking ping have everything to hand. -->
+          <!-- Ping provider tunables — canonical header pattern
+               (icon + h3 + intro paragraph) matching every other admin
+               tab (AI / Asset Inventory / Portainer / Notifications /
+               NE / SSH / Beszel / Pulse). Covers sampler interval, fan-
+               out concurrency, probe timeout, cooldown, ICMP packet
+               spacing, and per-(provider, host) auto-pause threshold.
+               All edits commit through the Ping section's Save button. -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
                x-show="tuningLoaded">
+            <div class="flex items-center gap-2 mb-1">
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+              <h3 class="font-semibold fs-sm"
+                  x-text="t('settings.host_stats.tunables_heading_ping')"></h3>
+            </div>
+            <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+               x-text="t('settings.host_stats.tunables_intro_ping')"></p>
             <template x-for="key in _perProviderTuneKeys.ping" :key="key">
               <div class="space-y-1">
                 <label class="block fs-xs font-medium"
@@ -1018,10 +1037,24 @@
                        ? t('actions.testing')
                        : (snmpTestResult ? ((snmpTestResult.ok ? '✓ ' : '✗ ') + (snmpTestResult.detail || '')) : '')"></div>
 
-          <!-- Tunables — SNMP probe timeout + concurrency. Same Alpine
-               state pattern as the other relocated tunables. -->
+          <!-- SNMP provider tunables — canonical header pattern
+               (icon + h3 + intro paragraph) matching every other admin
+               tab (AI / Asset Inventory / Portainer / Notifications /
+               NE / SSH / Beszel / Pulse / Ping / Webmin). Covers probe
+               timeout, wall-clock budget, fan-out concurrency, per-
+               host walk concurrency, sample interval, per-host success
+               + failure cache TTLs, unreachable cooldown, and per-
+               (provider, host) auto-pause threshold. All edits commit
+               through the SNMP section's Save button. -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
                x-show="tuningLoaded">
+            <div class="flex items-center gap-2 mb-1">
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+              <h3 class="font-semibold fs-sm"
+                  x-text="t('settings.host_stats.tunables_heading_snmp')"></h3>
+            </div>
+            <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+               x-text="t('settings.host_stats.tunables_intro_snmp')"></p>
             <template x-for="key in _perProviderTuneKeys.snmp" :key="key">
               <div class="space-y-1">
                 <label class="block fs-xs font-medium"

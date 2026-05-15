@@ -882,6 +882,12 @@
       "tunables_intro_beszel": "Operator-tunable knobs for the Beszel provider — probe timeout (caps how long a single hub fetch can wait), sampler interval (0 = inherit the global stats sampler cadence), and per-(provider, host) auto-pause threshold. All edits commit through the Beszel section's Save button.",
       "tunables_heading_pulse": "Pulse tunables",
       "tunables_intro_pulse": "Operator-tunable knobs for the Pulse provider — probe timeout (caps how long a single `/api/state` fetch can wait), sampler interval (0 = inherit the global stats sampler cadence), and per-(provider, host) auto-pause threshold. All edits commit through the Pulse section's Save button.",
+      "tunables_heading_ping": "Ping tunables",
+      "tunables_intro_ping": "Operator-tunable knobs for the Ping provider — sampler interval, fan-out concurrency, per-probe timeout, cooldown after failed probes, ICMP inter-packet spacing, and per-(provider, host) auto-pause threshold. All edits commit through the Ping section's Save button.",
+      "tunables_heading_webmin": "Webmin tunables",
+      "tunables_intro_webmin": "Operator-tunable knobs for the Webmin provider — outer probe budget (per-host wall-clock for the three-tier XML / JSON / HTML-scrape fallback), sampler tick budget, per-host probe timeout, per-host success + failure cache TTLs, and per-(provider, host) auto-pause threshold. All edits commit through the Webmin section's Save button.",
+      "tunables_heading_snmp": "SNMP tunables",
+      "tunables_intro_snmp": "Operator-tunable knobs for the SNMP provider — probe timeout, wall-clock budget per host, fan-out concurrency across hosts, per-host walk concurrency (vendor MIBs), sampler interval (0 = inherit global), per-host success + failure cache TTLs, unreachable cooldown, and per-(provider, host) auto-pause threshold. All edits commit through the SNMP section's Save button.",
       "desc": "Configure the data sources OmniGrid uses to surface host telemetry, reachability, and update state. Pick any combination of: node-exporter (Prometheus :9100 scrape), Beszel (agent + Hub), Pulse (Proxmox VE / PBS / PMG), Webmin (Miniserv module probes), and Ping (TCP/ICMP reachability + RTT). Each provider contributes what it knows; the merge layer surfaces a unified view per host.",
       "source_label": "Data source",
       "source_none": "None (Docker-only)",
@@ -1908,9 +1914,9 @@
         "required_users_label": "Require 2FA for read-only accounts",
         "required_hint": "Forced enrolment runs at login: a user without 2FA gets the QR + verification step before the cookie is issued.",
         "max_failures_label": "Lockout after N failed codes",
-        "max_failures_hint": "3 to 20.",
+        "max_failures_hint": "How many consecutive wrong TOTP codes from one user trigger a temporary lockout on their account. Lower it (3-5) for stricter brute-force defence; raise (8-15) when users are typing codes manually from a phone authenticator and fat-fingers happen regularly. Backup codes count against the same threshold. Lockout duration is set by the next field.",
         "lockout_minutes_label": "Lockout duration (minutes)",
-        "lockout_minutes_hint": "1 to 1440 (24h)."
+        "lockout_minutes_hint": "How long a user is locked out after hitting the failure threshold above. Short (5-15 min) keeps legitimate fat-finger lockouts brief; long (60-1440 min) makes brute-force attacks impractical. The lockout clears on its own when the timer expires; an admin can also reset a locked user via Admin → Users."
       },
       "inherited_label": "Inherited: {value} (from {source})"
     },
