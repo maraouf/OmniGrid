@@ -1170,7 +1170,8 @@
       "swarm_autoheal_restart": "Auto-restart agent service",
       "swarm_autoheal_bootstrap_label": "Auto-create default swarm_agent_health schedule",
       "swarm_autoheal_bootstrap_hint": "On first boot, when Portainer is configured AND no equivalent row exists, OmniGrid auto-creates a 5-minute swarm_agent_health schedule so the autoheal action fires without manual setup. Disable this BEFORE the first boot if you prefer to manage the schedule yourself. Once a schedule exists (auto or manual), this toggle has no further effect — deleting the auto-created row leaves it deleted.",
-      "tunables_heading": "Portainer operation timeouts"
+      "tunables_heading": "Portainer operation timeouts",
+      "tunables_intro": "Wall-clock caps for the three categories of Portainer write-op. Short covers fast endpoints (container restart, inspect). Medium covers service-level ops (restart service, prune node, restart Swarm agent). Long covers image-pull-heavy ops (stack update, container update, retag-to-latest). Lower to fail-fast on a flaky agent; raise on slow networks / large stacks. All edits commit through the Portainer Save button (no fresh Test required — tunable edits don't affect connectivity)."
     },
     "ignores": {
       "title": "Ignore list",
@@ -1275,6 +1276,8 @@
       "active_provider_disabled_warning": "The active provider is currently disabled — enable it in its card below before any AI call can succeed.",
       "max_tokens_label": "Max response tokens",
       "max_tokens_hint": "Maximum tokens the model is allowed to emit per response. Applied to every provider. Default 1024 (clamped 64–32000). Lower to cap costs on a paid tier; raise when responses keep coming back truncated.",
+      "tunables_heading": "AI Integration tunables",
+      "tunables_intro": "Every numeric / boolean knob below routes through the TUNABLES system (DB > env > default + bounds-clamp). Covers output-token cap, transient-overload retry, provider fallback depth, sidebar layout, conversation-persist cadence, log-context window, and outbound HTTP timeouts. All edits flip the Save button's amber ring; one Save commits everything in a single round-trip alongside the master toggle / active provider / per-provider credentials.",
       "retry": {
         "heading": "Auto-retry on transient overload",
         "help": "When an AI call hits HTTP 429 / 502 / 503 / 504 (rate-limit or upstream-overloaded — e.g. Gemini's 'high demand' message) AND the first attempt was fast, retry once after a short backoff before propagating the failure to the modal. Auth failures, model-not-found, payload-too-large, and other 4xx / 5xx errors do NOT retry — they're operator-fixable.",
@@ -1528,6 +1531,14 @@
         "tuning_asset_inventory_fetch_timeout_seconds": {
           "label": "Asset inventory — asset fetch timeout (seconds)",
           "help": "Wall-clock cap for the paginated `GET /assets` (and lifetime-token equivalent) fetch against the asset-inventory API. Default 15s. Large fleets / slow upstreams may need 60-120s; the cache is manual-refresh only so the timeout only fires when the operator clicks Refresh. Range 2..300. Takes effect on the next fetch."
+        },
+        "tuning_ai_http_timeout_seconds": {
+          "label": "AI provider — Test-connection timeout (seconds)",
+          "help": "Wall-clock cap for the lightweight one-token Test-connection probe that fires when the admin clicks Test in Admin → AI Integration. Default 15s. Slow networks or cold-start models may need 30-60s; tight-watchdog deploys can lower to 5-10s. Range 2..120. Takes effect on the next Test click."
+        },
+        "tuning_ai_extended_http_timeout_seconds": {
+          "label": "AI provider — chat-completion timeout (seconds)",
+          "help": "Wall-clock cap for the real chat-completion call (Cmd-K palette, AI sidebar, host-drawer chart questions). Default 30s. Long-context prompts or slower reasoning models may need 60-120s; quick-fire workflows can lower to 15-20s. Range 5..300. Takes effect on the next call."
         },
         "tuning_host_permanent_fail_window_seconds": {
           "label": "Host sampling pause window (seconds)",
@@ -3796,6 +3807,7 @@
   "admin_assets": {
     "title": "Asset Inventory",
     "tunables_heading": "Asset inventory tunables",
+    "tunables_intro": "Outbound HTTP wall-clocks for the asset-inventory API. The token-probe handshake is a lightweight one-shot call; the asset fetch is a paginated read across every known asset record. Slow upstream / tunneled deploys may need longer caps; tight-watchdog deploys can lower. All edits commit through the Asset Inventory Save button.",
     "intro": "Pull an asset catalogue (vendor / model / serial / location) from your asset-management upstream. Pick one of two auth modes below. Manually refreshed — the cache at /app/data/asset_inventory.json is the source of truth the host drawer reads from.",
     "auth_mode_label": "Authentication mode",
     "auth_mode_oauth2": "OAuth2 (username / password)",

@@ -153,36 +153,56 @@
                  in the same body. Same bounds-chips + effective-label
                  shape every Admin → Config row uses. -->
             <div x-show="tuningLoaded && isAdmin()" class="pt-3 border-t border-[var(--border)] space-y-3">
-              <h4 class="fs-sm font-semibold text-[var(--text)]"
-                  x-text="t('settings.portainer.tunables_heading')"></h4>
+              <div class="flex items-center gap-2 mb-1">
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+                <h3 class="font-semibold fs-sm"
+                    x-text="t('settings.portainer.tunables_heading')"></h3>
+              </div>
+              <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+                 x-text="t('settings.portainer.tunables_intro')"></p>
               <template x-for="key in ['tuning_portainer_op_timeout_short_seconds',
                                         'tuning_portainer_op_timeout_medium_seconds',
                                         'tuning_portainer_op_timeout_long_seconds']"
                         :key="key">
                 <div>
-                  <div class="flex flex-wrap items-center gap-3 mb-1">
-                    <label class="fs-xs font-medium"
-                           x-text="t('admin.config.fields.' + key + '.label')"></label>
+                  <!-- Canonical order: title → help → textbox + bounds.
+                       Matches the AI Integration partial pattern. -->
+                  <label class="block fs-xs font-medium mb-1"
+                         x-text="t('admin.config.fields.' + key + '.label')"></label>
+                  <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+                     x-text="t('admin.config.fields.' + key + '.help')"></p>
+                  <div class="flex flex-wrap items-center gap-2">
                     <input type="number"
                            x-model="tuningForm[key]"
+                           :placeholder="tuningPlaceholder(key)"
+                           :min="(tuningEffective[key] || {}).min"
+                           :max="(tuningEffective[key] || {}).max"
                            :disabled="isReadonly() || !settings.portainer_enabled"
-                           :min="(tuningBounds[key] || {}).lo"
-                           :max="(tuningBounds[key] || {}).hi"
-                           class="w-24 fs-xs">
-                    <div class="flex flex-wrap items-center gap-1.5 fs-2xs text-[var(--text-faint)]">
-                      <span class="px-1.5 py-0.5 rounded border border-[var(--border)]"
-                            x-text="t('admin.config.bounds_default') + ' ' + ((tuningBounds[key] || {}).default ?? '')"></span>
-                      <span class="px-1.5 py-0.5 rounded border border-[var(--border)]"
-                            x-text="t('admin.config.bounds_min') + ' ' + ((tuningBounds[key] || {}).lo ?? '')"></span>
-                      <span class="px-1.5 py-0.5 rounded border border-[var(--border)]"
-                            x-text="t('admin.config.bounds_max') + ' ' + ((tuningBounds[key] || {}).hi ?? '')"></span>
+                           class="w-44 mono fs-sm py-1">
+                    <div class="bounds-chips" role="group"
+                         :aria-label="t('admin.config.bounds.group_label')">
+                      <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title')">
+                        <svg width="11" height="11" aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+                        </svg>
+                        <span x-text="(tuningEffective[key] || {}).min"></span>
+                      </span>
+                      <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
+                        <svg width="11" height="11" aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+                        </svg>
+                        <span x-text="(tuningEffective[key] || {}).max"></span>
+                      </span>
+                      <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
+                        <svg width="11" height="11" aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+                        </svg>
+                        <span x-text="(tuningEffective[key] || {}).default"></span>
+                      </span>
                     </div>
-                    <span class="fs-2xs text-[var(--text-faint)]"
-                          x-show="tuningEffective[key] != null"
-                          x-text="t('admin.config.effective') + ' ' + tuningEffective[key]"></span>
+                    <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                          x-text="tuningEffectiveLabel(key)"></span>
                   </div>
-                  <p class="fs-xs text-[var(--text-faint)]"
-                     x-text="t('admin.config.fields.' + key + '.help')"></p>
                 </div>
               </template>
             </div>
