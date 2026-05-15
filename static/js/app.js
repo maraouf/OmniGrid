@@ -11337,7 +11337,7 @@ function app() {
           <div><b>${esc(this.t('history.detail.status'))}</b> ${esc(h.status)}</div>
           ${h.error ? `<div class="swal-err"><b>${esc(this.t('history.detail.error'))}</b> ${esc(h.error)}</div>` : ''}
         </div>`;
-      // Diagnose button (UX-review IDEA-14 part of #0097 MVP) — only
+      // Diagnose button MVP — only
       // surfaces for error rows AND when AI is enabled. Click opens the
       // AI sidebar pre-loaded with this history row's context (op_type,
       // target, error text, recent events) so the AI can explain root
@@ -12648,7 +12648,7 @@ function app() {
       // ("session expires in X minutes") stays current. The event was
       // documented in api.md and CLAUDE.md but had no consumer pre-fix
       // — caught by the SSE-publisher-vs-consumer audit recipe.
-      // Multi-tab activity (UX-review IDEA-23). `tab:activity` updates
+      // Multi-tab activity. `tab:activity` updates
       // the local map in place so the topbar widget re-renders without
       // a wholesale-replace (the array-mutation rule applies — Alpine
       // tears down rebound DOM on full-replace). `tab:closed` deletes
@@ -12773,7 +12773,7 @@ function app() {
       } catch (_) {}
       return false;
     },
-    // Multi-tab activity (UX-review IDEA-23) -----------------------------
+    // Multi-tab activity ------------------------------------------------
     // Snapshot of THIS tab's current location for the heartbeat payload.
     // Walks the SPA's reactive view-state and emits a compact dict that
     // the backend stamps into the in-process tab registry + broadcasts to
@@ -31873,7 +31873,7 @@ function app() {
         '</div>',
       ].join('');
     },
-    // ---- Stack blast-radius preview (UX-review IDEA-08 MVP) ----
+    // ---- Stack blast-radius preview (MVP) ----
     // Renders an inline "This will affect: ..." block listing every
     // service / container in the stack the operator is about to update.
     // Composed from the already-cached `stack.items` array so there's
@@ -32065,7 +32065,7 @@ function app() {
         // placeholder entirely. Popup opens INSTANTLY either way;
         // async filler replaces the placeholder on resolve.
         const stackImage = this._stackSingleUpdateImage(stack);
-        // Blast-radius preview (UX-review IDEA-08 MVP) — surfaces the
+        // Blast-radius preview (MVP) — surfaces the
         // services / containers the stack update will touch so the
         // operator sees the full scope BEFORE confirming. Pure SPA
         // composition over the already-cached stack.items — no extra
