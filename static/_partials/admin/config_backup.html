@@ -112,16 +112,20 @@
                so the Save handler is a degenerate `saveConfigBackupSection`. -->
           <div x-show="tuningLoaded"
                class="mb-4 pb-4 border-b border-[var(--border)]">
-            <div class="flex flex-wrap items-center gap-3 mb-2">
-              <label class="fs-xs font-medium"
-                     x-text="t('admin.config.fields.tuning_config_backup_retention_count.label')"></label>
+            <!-- Canonical layout: label → help → textbox+bounds.
+                 Matches the AI / Asset Inventory / Portainer pattern. -->
+            <label class="block fs-xs font-medium mb-1"
+                   x-text="t('admin.config.fields.tuning_config_backup_retention_count.label')"></label>
+            <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+               x-text="t('admin.config.fields.tuning_config_backup_retention_count.help')"></p>
+            <div class="flex flex-wrap items-center gap-2 mb-3">
               <input type="number"
                      x-model="tuningForm['tuning_config_backup_retention_count']"
                      :placeholder="tuningPlaceholder('tuning_config_backup_retention_count')"
                      :min="(tuningEffective['tuning_config_backup_retention_count'] || {}).min"
                      :max="(tuningEffective['tuning_config_backup_retention_count'] || {}).max"
                      :disabled="!isAdmin() || tuningSaving || configBackupBusy"
-                     class="w-32 mono fs-sm py-1">
+                     class="w-44 mono fs-sm py-1">
               <div class="bounds-chips" role="group"
                    :aria-label="t('admin.config.bounds.group_label')">
                 <span class="bounds-chip bounds-chip--min"
@@ -146,15 +150,9 @@
                   <span x-text="(tuningEffective['tuning_config_backup_retention_count'] || {}).default"></span>
                 </span>
               </div>
-              <span class="fs-xs text-[var(--text-dim)] ms-auto"
+              <span class="fs-2xs text-[var(--text-faint)] ms-auto"
                     x-text="tuningEffectiveLabel('tuning_config_backup_retention_count')"></span>
             </div>
-            <!-- Help paragraph — same shape as the per-tunable help
-                 strings rendered in Admin → Config. Falls back to a
-                 hint-key if the new help-key isn't translated yet,
-                 so non-en locales still get something sensible. -->
-            <p class="fs-2xs text-[var(--text-faint)] mt-1 mb-3"
-               x-text="t('admin.config.fields.tuning_config_backup_retention_count.help')"></p>
             <!-- Section-owned Save button — dirty/undirty pulse via
                  `configBackupSectionDirty()`. Disabled when not dirty
                  OR when the row is busy (existing `configBackupBusy`
