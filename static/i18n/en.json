@@ -876,6 +876,8 @@
     },
     "host_stats": {
       "title": "Providers",
+      "tunables_heading_node_exporter": "node-exporter tunables",
+      "tunables_intro_node_exporter": "Operator-tunable knobs for the node-exporter provider — probe timeout (caps how long a single per-host scrape can wait), sampler interval (cadence of the lifespan sampler that warms the per-host time-series), and per-(provider, host) auto-pause threshold. All edits commit through the NE section's Save button.",
       "desc": "Configure the data sources OmniGrid uses to surface host telemetry, reachability, and update state. Pick any combination of: node-exporter (Prometheus :9100 scrape), Beszel (agent + Hub), Pulse (Proxmox VE / PBS / PMG), Webmin (Miniserv module probes), and Ping (TCP/ICMP reachability + RTT). Each provider contributes what it knows; the merge layer surfaces a unified view per host.",
       "source_label": "Data source",
       "source_none": "None (Docker-only)",
@@ -3958,6 +3960,8 @@
   "admin_ssh": {
     "title": "SSH",
     "intro": "Global SSH credentials OmniGrid uses to run one-shot commands on a host from its drawer. Admin-only, dry-run-first, audit-logged. Per-host overrides (user / port / disabled) live in Admin → Hosts under each row's SSH section.",
+    "tunables_heading": "SSH tunables",
+    "tunables_intro": "Operator-tunable knobs for the SSH terminal — WS heartbeat cadence (keeps the websocket alive past reverse-proxy idle timers), TCP connect timeout (caps the initial socket handshake), login timeout (caps the post-connect auth handshake), and connection-close wait (caps how long `conn.wait_closed()` blocks at session teardown). All edits commit through the SSH section's Save button.",
     "clear_key_title": "Erase the stored SSH private key (and its passphrase). Cannot be undone — paste a new key after to restore access.",
     "clear_passphrase_title": "Erase the stored passphrase. The private key stays; the runner will try to parse it unprotected.",
     "clear_password_title": "Erase the stored default password. Per-host password overrides still apply.",

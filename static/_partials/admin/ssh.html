@@ -228,17 +228,21 @@
              the keep-current-if-blank contract on credentials). The
              divider is ABOVE the Test block — separates the form
              fields above from the Test+Save group below. -->
-        <!-- SSH WebSocket heartbeat — server-side ping cadence that
-             keeps the SSH-terminal WS alive past idle-timeouts in the
-             reverse proxy. Routed through TUNABLES so the operator can
-             tune without redeploy; resolved per-iteration in the
-             heartbeat loop so a save takes effect on the next tick
-             without forcing a terminal reconnect. Surfaced HERE
-             (Admin → SSH) via `relocatedTuningKeys` instead of the
-             generic Process tunables form. Rendered BEFORE the
-             "Test on a host" widget so all configuration controls land
-             above the test action — operators tweak then test. -->
+        <!-- SSH tunables — canonical header pattern (icon + h3 + intro
+             paragraph) matching every other admin tab (Portainer / AI /
+             Asset Inventory / Notifications / NE provider). Covers WS
+             heartbeat cadence, terminal connect / login timeouts, and
+             connection-close wait. All edits commit through the SSH
+             section's Save button. Rendered BEFORE the "Test on a host"
+             widget so configuration lands above the test action. -->
         <div class="mt-4 pt-3 border-t border-[var(--border)]" x-show="tuningLoaded">
+          <div class="flex items-center gap-2 mb-1">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+            <h3 class="font-semibold fs-sm"
+                x-text="t('admin_ssh.tunables_heading')"></h3>
+          </div>
+          <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
+             x-text="t('admin_ssh.tunables_intro')"></p>
           <label class="block fs-xs font-medium mb-1"
                  x-text="t('admin.config.fields.tuning_ssh_ws_heartbeat_seconds.label')"></label>
           <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
