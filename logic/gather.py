@@ -497,6 +497,26 @@ def apply_host_snapshot_fallback(
         # full recovery would leave a stale prior map behind in the
         # snapshot, only updated on the next outage.
         info["_meta_stale_since"] = meta_stale_since
+        # Derived per-field grace-remaining map — operator-facing UX:
+        # when a stale field is within 20% of its grace expiry, the
+        # SPA renders a countdown banner ("stale data will be
+        # discarded in 4h") so operators investigate BEFORE the
+        # data silently drops. Computed at apply-time from
+        # `_meta_stale_since` + the configured `grace_window_s`;
+        # not stored (re-derived every gather). Empty when no
+        # stale field is within the warning window.
+        warn_threshold_s = grace_window_s * 0.8
+        grace_remaining: dict[str, float] = {}
+        for key, first_ts in meta_stale_since.items():
+            try:
+                age = max(0.0, now - float(first_ts))
+            except (TypeError, ValueError):
+                continue
+            if age >= warn_threshold_s:
+                remaining = max(0.0, grace_window_s - age)
+                grace_remaining[key] = remaining
+        if grace_remaining:
+            info["_meta_stale_grace_remaining_s"] = grace_remaining
 
 
 def seed_nodes_info_from_snapshots() -> int:

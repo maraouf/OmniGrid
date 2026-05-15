@@ -53,6 +53,20 @@ import httpx
 
 from logic import events, gather, metrics, portainer
 from logic.db import db_conn, get_setting, get_setting_bool
+from logic.tuning import tuning_int as _tuning_int
+
+
+def _portainer_op_timeout(tier: str) -> float:
+    """Resolve a Portainer write-op timeout via the TUNABLES tier
+    knobs (short / medium / long). Per-use read so Admin → Config
+    edits take effect on the next op without a restart. Defensive
+    fallback to the previous hardcoded value if the tunable read
+    raises (corrupt DB state)."""
+    fallback = {"short": 120.0, "medium": 300.0, "long": 600.0}.get(tier, 300.0)
+    try:
+        return float(_tuning_int(f"tuning_portainer_op_timeout_{tier}_seconds"))
+    except Exception:
+        return fallback
 
 MAX_OPS = 50
 
@@ -1548,7 +1562,7 @@ async def do_update_stack(
         op.log(f"Starting stack update (id={stack_id}, retag={retag_to_latest}"
                + (f", new_tag={new_tag!r}" if retag_to_latest else "")
                + ")")
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=600.0) as client:
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("long")) as client:
             stack = await portainer.pg(client, f"/api/stacks/{stack_id}")
             op.log(f"Resolved stack: {stack['Name']}")
             try:
@@ -1606,7 +1620,7 @@ async def do_update_container(op: Operation, container_id: str) -> None:
         node = portainer.node_for_container(gather.get_cache(), container_id)
         op.log("Recreating container with PullImage=true"
                + (f" on node '{node}'" if node else ""))
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=600.0) as client:
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("long")) as client:
             # `json={}` is REQUIRED — Portainer's recreate endpoint
             # rejects an empty request body with
             # `HTTP 400 {"message":"Invalid request payload","details":"EOF"}`
@@ -1713,7 +1727,7 @@ async def do_retag_container_to_latest(
     try:
         node = portainer.node_for_container(gather.get_cache(), container_id)
         op.log("Inspecting container" + (f" on node '{node}'" if node else ""))
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=600.0) as client:
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("long")) as client:
             inspect_url = (
                 f"{portainer.PORTAINER_URL}/api/endpoints/"
                 f"{portainer.PORTAINER_ENDPOINT_ID}"
@@ -1952,7 +1966,7 @@ async def do_restart_container(op: Operation, container_id: str) -> None:
     try:
         node = portainer.node_for_container(gather.get_cache(), container_id)
         op.log("Restarting container" + (f" on node '{node}'" if node else ""))
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=120.0) as client:
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("short")) as client:
             r = await client.post(
                 f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
                 f"/docker/containers/{container_id}/restart",
@@ -1983,7 +1997,7 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
             op.log(f"Removing container on node '{node}' (force=true, v=true)")
         else:
             op.log("Removing container (force=true, v=true)")
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=120.0) as client:
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("short")) as client:
             r = await client.delete(
                 f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
                 f"/docker/containers/{container_id}?force=true&v=true",
@@ -2020,7 +2034,7 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
 async def do_restart_service(op: Operation, service_id: str) -> None:
     try:
         op.log("Fetching current service spec")
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=300.0) as client:
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("medium")) as client:
             svc = await portainer.pg(
                 client,
                 f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services/{service_id}",
@@ -2114,7 +2128,7 @@ async def do_restart_swarm_agent(op: Operation) -> None:
     rather than risk restarting the wrong service.
     """
     try:
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=300.0) as client:
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("medium")) as client:
             op.log("Discovering Portainer agent service")
             sid, sname, matches = await discover_swarm_agent_service(client)
             if not matches:
@@ -2193,7 +2207,7 @@ async def do_prune_node(op: Operation, hostname: str) -> dict:
         ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
         h = portainer.headers(agent_target=hostname)
 
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=300.0) as client:
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("medium")) as client:
             async def _prune(path: str, label: str, counter_key):
                 """POST one of Docker's /prune endpoints. Log per step;
                 one failing sub-call (e.g. volumes/prune with nothing

@@ -77,6 +77,24 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # the sampler reads `host_baselines`. Operators rebooting under
     # heavy load can raise; default is comfortably fast.
     "tuning_host_baseline_first_tick_delay_seconds":   ("HOST_BASELINE_FIRST_TICK_DELAY_SECONDS",     60,  5,  600),
+    # Wall-clock cap for the cold-cache `_gather()` kick on cache-
+    # missing drill-down endpoints. Default 30s — enough headroom for
+    # a typical Portainer fan-out. Operators with large fleets / slow
+    # registries hit this on incident-mode lookups; bump to 60-120s
+    # in those environments. Floor 5s prevents accidentally disabling.
+    "tuning_kick_gather_timeout_seconds":              ("KICK_GATHER_TIMEOUT_SECONDS",                30,  5,  300),
+    # Portainer write-op wall-clocks. Three tiers — short for quick
+    # container restart / remove (default 120s), medium for service-
+    # level ops + prune (default 300s), long for stack updates +
+    # image-pull-heavy paths (default 600s). Operators on slow
+    # networks / large stacks / slow registries hit these timeouts
+    # under incident load; raise the appropriate tier when the
+    # specific op-class is consistently timing out. Lower tiers'
+    # ceilings are intentionally tighter than the upper tiers'
+    # floors so admins can't accidentally invert the ordering.
+    "tuning_portainer_op_timeout_short_seconds":       ("PORTAINER_OP_TIMEOUT_SHORT_SECONDS",         120, 10,  600),
+    "tuning_portainer_op_timeout_medium_seconds":      ("PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS",        300, 30, 1800),
+    "tuning_portainer_op_timeout_long_seconds":        ("PORTAINER_OP_TIMEOUT_LONG_SECONDS",          600, 60, 3600),
     # host_metrics_sampler permanent-fail window. After this many
     # seconds of consecutive probe failures the sampler auto-pauses the
     # host (no more probe attempts) until the operator resumes via

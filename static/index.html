@@ -3618,6 +3618,16 @@
                     <div x-show="(h._stale_fields || []).length > 0"
                          class="fs-2xs text-[var(--text-faint)] mono mt-1 break-all"
                          x-text="(h._stale_fields || []).join(', ')"></div>
+                    <!-- Stale-grace countdown — surfaces ONLY when at
+                         least one field is within 20% of its 24h grace
+                         expiry. Gives the operator a "you have X left
+                         to investigate before this data silently
+                         drops" heads-up so a long-running outage
+                         doesn't slip past unnoticed. -->
+                    <div x-show="staleGraceRemainingSeconds(h) !== null"
+                         class="fs-xs text-[var(--warning)] font-semibold mt-1"
+                         :title="t('host_drawer.stale.grace_remaining_title')"
+                         x-text="t('host_drawer.stale.grace_remaining', { remaining: staleGraceRemainingLabel(h) })"></div>
                   </div>
                 </div>
               </template>

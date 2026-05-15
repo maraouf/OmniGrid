@@ -1160,6 +1160,10 @@ function app() {
       'tuning_stats_sample_interval_seconds',
       'tuning_host_baseline_recompute_interval_seconds',
       'tuning_host_baseline_first_tick_delay_seconds',
+      'tuning_kick_gather_timeout_seconds',
+      'tuning_portainer_op_timeout_short_seconds',
+      'tuning_portainer_op_timeout_medium_seconds',
+      'tuning_portainer_op_timeout_long_seconds',
       // permanent-fail window (was a separate card with its own
       // Save button until the operator asked for it to be a regular
       // tunable). Backend's `_record_failure` reads it via
@@ -14776,6 +14780,39 @@ function app() {
       const sf = obj._stale_fields;
       return Array.isArray(sf) && sf.indexOf(field) !== -1;
     },
+    // Stale-grace countdown — surfaces when at least ONE field is
+    // within 20% of its 24h grace expiry. Backend stamps
+    // `_meta_stale_grace_remaining_s` (a `{key: seconds_remaining}`
+    // map) at apply-time when any field crosses the warning
+    // threshold. Returns the smallest remaining seconds across all
+    // fields (worst-case for the operator), or null when no field
+    // is in the warning window. The drawer banner reads this so
+    // operators get a "data will be discarded in X" countdown
+    // BEFORE the silent drop.
+    staleGraceRemainingSeconds(obj) {
+      if (!obj) return null;
+      const m = obj._meta_stale_grace_remaining_s;
+      if (!m || typeof m !== 'object') return null;
+      let smallest = null;
+      for (const k in m) {
+        const v = +m[k];
+        if (Number.isFinite(v) && v >= 0) {
+          if (smallest === null || v < smallest) smallest = v;
+        }
+      }
+      return smallest;
+    },
+    // Operator-facing human label for the smallest remaining grace
+    // window. Returns "" when no field is in the warning window
+    // (banner suppresses cleanly).
+    staleGraceRemainingLabel(obj) {
+      const s = this.staleGraceRemainingSeconds(obj);
+      if (s === null || s === undefined) return '';
+      if (s < 60) return Math.round(s) + 's';
+      if (s < 3600) return Math.round(s / 60) + 'm';
+      if (s < 86400) return (s / 3600).toFixed(1) + 'h';
+      return (s / 86400).toFixed(1) + 'd';
+    },
     // True when the bulk of this host's snapshot-eligible fields are
     // stale (i.e. an entire provider went down vs a transient one-key
     // blip). The drawer's banner widens to a more explicit message
@@ -15887,7 +15924,7 @@ function app() {
             subnet: failingSubnet,
             service_id: item.raw_id,
             help: this.t('drawer.task_error_action_cleanup_overlay_help')
-                  || 'Uses the Portainer API to find the overlay network matching the failing subnet, verifies no other containers are using it, and removes it. Docker recreates the network + a fresh VXLAN interface when the service is force-updated immediately after. No SSH required. Safe for single-stack overlay networks (the typical compose-deploy pattern); aborts cleanly when the network is shared.',
+                  || 'Uses the Portainer API to find the overlay network matching the failing subnet, verifies no other containers are using it, and removes it. Docker recreates the network + a fresh VXLAN interface when the service is force-updated immediately after. No SSH required. **Precondition:** the network must NOT be actively referenced by any service — Swarm refuses `network rm` while a service spec still names it. If your service is the ONLY consumer, try Force-restart first (rotates the task off the stale VXLAN, sometimes enough on its own); if that fails AND the network is now orphan-ish, this button finishes the job. For a shared / actively-used network, escalate to the SSH path.',
             danger: true,
           });
         }
@@ -30404,6 +30441,17 @@ function app() {
     // Returns null when (a) `h.drift` is missing/empty, (b) the metric
     // isn't in the dict (insufficient samples / degenerate IQR), or
     // (c) the indicator field is missing — caller hides the chip.
+    // Canonical accessor for the baseline metric roster. Reads from
+    // `/api/me`'s `client_config.baseline_metrics` so the SPA iterates
+    // the API contract instead of a hardcoded list. Falls back to the
+    // four metrics that shipped originally — keeps the call-site
+    // working on a stale `me` payload or during the brief init window
+    // before `/api/me` lands.
+    hostBaselineMetrics() {
+      const fromApi = ((this.me && this.me.client_config) || {}).baseline_metrics;
+      if (Array.isArray(fromApi) && fromApi.length) return fromApi;
+      return ['cpu_pct', 'mem_pct', 'disk_pct', 'ping_rtt_ms'];
+    },
     hostDriftIndicator(h, metric) {
       if (!h || !metric) return null;
       const d = h.drift;

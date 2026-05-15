@@ -85,6 +85,7 @@ from logic.version import APP_VERSION, read_version
 from logic import db as _db  # noqa: E402
 from logic.db import DB_PATH, db_conn, get_setting, get_setting_bool, set_setting, active_host_stats_providers  # noqa: E402,F401
 from logic import tuning  # noqa: E402
+from logic import host_baseline as _host_baseline  # noqa: E402
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
 
@@ -1962,19 +1963,111 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
             net_id = net.get("Id") or ""
             net_name = net.get("Name") or net_id[:12]
             op.log(f"Matched overlay network {net_name!r} (id={net_id[:12]})")
-            # Step 3 — inspect to check live containers.
+            # Step 3 — list every service in the endpoint and find
+            # which ones reference the target network in their spec.
+            # Pure-`Containers`-check is insufficient: Swarm rejects
+            # `network rm` while ANY service references the network in
+            # its spec, even with zero running tasks. We need to know
+            # the full reference set so the recovery flow can edit
+            # exactly those services + restore them after.
+            op.log("Scanning services for network references")
+            all_services = await portainer.pg(
+                client,
+                f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services",
+            )
+            if not isinstance(all_services, list):
+                raise RuntimeError("Portainer returned non-list for /docker/services")
+            ref_services: list[dict] = []  # services to strip + restore
+            for s in all_services:
+                spec = (s or {}).get("Spec") or {}
+                nets = ((spec.get("TaskTemplate") or {}).get("Networks") or [])
+                if any(
+                    (n.get("Target") in (net_id, net_name)) for n in nets
+                ):
+                    ref_services.append(s)
+            ref_names = [s.get("Spec", {}).get("Name", s.get("ID", "?")[:12])
+                         for s in ref_services]
+            op.log(f"Network referenced by {len(ref_services)} service(s): "
+                   f"{', '.join(ref_names) if ref_names else '(none)'}")
+
+            # If the referencing set is empty AND no containers, the
+            # original direct-rm path works. Try it first.
             inspect = await portainer.pg(
                 client,
                 f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
                 f"/docker/networks/{net_id}",
             )
             containers = (inspect.get("Containers") or {}) if isinstance(inspect, dict) else {}
-            if containers:
+            if containers and not ref_services:
                 names = ", ".join(c.get("Name", "?") for c in containers.values())
                 raise RuntimeError(
-                    f"refusing — network {net_name!r} still has live containers: {names}"
+                    f"refusing — network {net_name!r} still has live "
+                    f"containers (and no Swarm service spec references): "
+                    f"{names}. Manually stop those containers first."
                 )
-            # Step 4 — remove the network.
+
+            # Step 4 — if services reference the network, strip the
+            # reference from each, perform the rm, then restore. This
+            # is the Swarm-native recovery for "VXLAN sandbox-join
+            # failed" / "stale overlay" — Docker auto-creates a fresh
+            # overlay (with a new VXLAN id) on the next deploy after we
+            # restore the reference. The intermediate spec edit lets
+            # the `network rm` succeed where the operator's manual
+            # force-restart can't (because force-restart doesn't drop
+            # the spec reference).
+            originals: dict[str, dict] = {}  # service_id → {"version", "networks"}
+            for s in ref_services:
+                sid = s.get("ID") or ""
+                spec = s.get("Spec") or {}
+                version = (s.get("Version") or {}).get("Index", 0)
+                tt = spec.get("TaskTemplate") or {}
+                nets = list(tt.get("Networks") or [])
+                originals[sid] = {"version": version, "networks": nets}
+                # Strip the offending network from the spec.
+                stripped = [n for n in nets
+                            if n.get("Target") not in (net_id, net_name)]
+                new_spec = dict(spec)
+                new_tt = dict(tt)
+                new_tt["Networks"] = stripped
+                new_tt["ForceUpdate"] = int(new_tt.get("ForceUpdate", 0)) + 1
+                new_spec["TaskTemplate"] = new_tt
+                op.log(f"Stripping network from service {spec.get('Name', sid[:12])!r}")
+                r = await client.post(
+                    f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                    f"/docker/services/{sid}/update?version={version}",
+                    headers=portainer.headers(),
+                    json=new_spec,
+                )
+                if r.status_code >= 400:
+                    raise RuntimeError(
+                        f"failed to strip network from service "
+                        f"{spec.get('Name', sid[:12])}: HTTP "
+                        f"{r.status_code}: {r.text[:200]}"
+                    )
+
+            # Step 5 — wait briefly for Swarm to converge the spec
+            # edits (the network reference drops once the orchestrator
+            # acks the update). Poll the network's Containers field a
+            # few times rather than blind-sleep.
+            if ref_services:
+                op.log("Waiting for service convergence (network reference to drop)")
+                for attempt in range(20):  # ~10s total at 0.5s
+                    await asyncio.sleep(0.5)
+                    try:
+                        net_check = await portainer.pg(
+                            client,
+                            f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                            f"/docker/networks/{net_id}",
+                        )
+                        if not (net_check.get("Containers") or {}):
+                            break
+                    except Exception:
+                        # network may already be gone (rare; another
+                        # concurrent caller could have raced us). Treat
+                        # as success and proceed.
+                        break
+
+            # Step 6 — remove the network.
             op.log(f"Removing overlay {net_name!r}")
             r = await client.delete(
                 f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
@@ -1982,29 +2075,103 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
                 headers=portainer.headers(),
             )
             if r.status_code >= 400:
-                raise RuntimeError(f"network rm HTTP {r.status_code}: {r.text[:300]}")
+                raw_text = r.text[:300]
+                # If the rm STILL fails after stripping the spec refs
+                # (e.g. a service we couldn't reach is holding the
+                # ref, or convergence didn't land in time), restore
+                # the spec edits before raising so the operator's
+                # services aren't left network-less.
+                _restore_errors: list[str] = []
+                for sid, orig in originals.items():
+                    try:
+                        cur = await portainer.pg(
+                            client,
+                            f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                            f"/docker/services/{sid}",
+                        )
+                        cur_spec = cur.get("Spec") or {}
+                        cur_version = (cur.get("Version") or {}).get("Index", orig["version"])
+                        cur_tt = dict(cur_spec.get("TaskTemplate") or {})
+                        cur_tt["Networks"] = orig["networks"]
+                        cur_tt["ForceUpdate"] = int(cur_tt.get("ForceUpdate", 0)) + 1
+                        cur_spec["TaskTemplate"] = cur_tt
+                        await client.post(
+                            f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                            f"/docker/services/{sid}/update?version={cur_version}",
+                            headers=portainer.headers(),
+                            json=cur_spec,
+                        )
+                    except Exception as _re:
+                        _restore_errors.append(f"{sid[:12]}: {_re}")
+                err_tail = (" RESTORE-FAILED for: " + "; ".join(_restore_errors)
+                            if _restore_errors else
+                            " (service network references restored)")
+                raise RuntimeError(
+                    f"network rm HTTP {r.status_code}: {raw_text}"
+                    + err_tail
+                )
             op.log("Overlay network removed", "success")
-            # Step 5 — force-update the affected service so a new
-            # task spawns onto a freshly-created overlay (Docker
-            # auto-creates the network when the service references
-            # its name on the next deploy attempt).
-            op.log("Force-updating service to redeploy")
-            svc = await portainer.pg(
-                client,
-                f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services/{service_id}",
-            )
-            version = svc["Version"]["Index"]
-            spec = svc["Spec"]
-            spec.setdefault("TaskTemplate", {})
-            spec["TaskTemplate"]["ForceUpdate"] = int(spec["TaskTemplate"].get("ForceUpdate", 0)) + 1
-            r = await client.post(
-                f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
-                f"/docker/services/{service_id}/update?version={version}",
-                headers=portainer.headers(),
-                json=spec,
-            )
-            if r.status_code >= 400:
-                raise RuntimeError(f"service update HTTP {r.status_code}: {r.text[:300]}")
+
+            # Step 7 — restore the network references on every service
+            # we stripped. Swarm auto-creates the overlay on the next
+            # deploy (with a fresh VXLAN id, which is the whole point
+            # of this exercise).
+            for sid, orig in originals.items():
+                try:
+                    cur = await portainer.pg(
+                        client,
+                        f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                        f"/docker/services/{sid}",
+                    )
+                    cur_spec = cur.get("Spec") or {}
+                    cur_version = (cur.get("Version") or {}).get("Index", orig["version"])
+                    cur_tt = dict(cur_spec.get("TaskTemplate") or {})
+                    cur_tt["Networks"] = orig["networks"]
+                    cur_tt["ForceUpdate"] = int(cur_tt.get("ForceUpdate", 0)) + 1
+                    cur_spec["TaskTemplate"] = cur_tt
+                    op.log(f"Restoring network reference on service {cur_spec.get('Name', sid[:12])!r}")
+                    r2 = await client.post(
+                        f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                        f"/docker/services/{sid}/update?version={cur_version}",
+                        headers=portainer.headers(),
+                        json=cur_spec,
+                    )
+                    if r2.status_code >= 400:
+                        op.log(
+                            f"WARN — restore failed for service "
+                            f"{cur_spec.get('Name', sid[:12])}: "
+                            f"HTTP {r2.status_code}: {r2.text[:200]}",
+                            "error",
+                        )
+                except Exception as e:
+                    op.log(f"WARN — restore exception for service {sid[:12]}: {e}", "error")
+
+            # Step 8 — force-update the originally-targeted service
+            # one more time so the operator sees an immediate redeploy
+            # attempt (in case the strip+restore dance already
+            # converged the service's tasks back to running). The
+            # restore step above only fires for services in
+            # `ref_services`; the targeted service may or may not have
+            # been one of them. Re-fetch and bump ForceUpdate so the
+            # task respawns onto the freshly-created overlay.
+            if service_id and service_id not in originals:
+                op.log(f"Force-updating originally-targeted service")
+                svc = await portainer.pg(
+                    client,
+                    f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services/{service_id}",
+                )
+                version = svc["Version"]["Index"]
+                spec = svc["Spec"]
+                spec.setdefault("TaskTemplate", {})
+                spec["TaskTemplate"]["ForceUpdate"] = int(spec["TaskTemplate"].get("ForceUpdate", 0)) + 1
+                r = await client.post(
+                    f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                    f"/docker/services/{service_id}/update?version={version}",
+                    headers=portainer.headers(),
+                    json=spec,
+                )
+                if r.status_code >= 400:
+                    raise RuntimeError(f"service update HTTP {r.status_code}: {r.text[:300]}")
         op.log("Cleanup complete — watch for new task to come up", "success")
         op.done("success")
         # Stamp the network name onto the op for the SPA toast.
@@ -2863,6 +3030,10 @@ class SettingsIn(BaseModel):
     tuning_stats_sample_interval_seconds: Optional[str] = None
     tuning_host_baseline_recompute_interval_seconds: Optional[str] = None
     tuning_host_baseline_first_tick_delay_seconds: Optional[str] = None
+    tuning_kick_gather_timeout_seconds: Optional[str] = None
+    tuning_portainer_op_timeout_short_seconds: Optional[str] = None
+    tuning_portainer_op_timeout_medium_seconds: Optional[str] = None
+    tuning_portainer_op_timeout_long_seconds: Optional[str] = None
     # host_metrics_sampler permanent-fail window. Same DB-key
     # naming + bounds-check via TUNABLES as the others.
     tuning_host_permanent_fail_window_seconds: Optional[str] = None
@@ -5917,12 +6088,18 @@ async def api_admin_stats_samples_by_host(
         # Stats → Samples right after server restart, before the SPA's
         # `/api/items` has ever fired), every lookup misses and every
         # item shows as orphan. Block on a fresh `_gather()` first so
-        # the cache populates before we walk it. Capped at 30s wall-
-        # clock so an unreachable Portainer can't hang the drill-down
-        # endpoint indefinitely.
+        # the cache populates before we walk it. Wall-clock cap via
+        # `tuning_kick_gather_timeout_seconds` so an unreachable
+        # Portainer (large stacks, slow registry probes) can't hang
+        # the drill-down endpoint indefinitely. Default 30s.
         if not (_cache.get("items") or []):
             try:
-                await asyncio.wait_for(_gather(), timeout=30.0)
+                _kick_timeout = float(tuning.tuning_int(
+                    "tuning_kick_gather_timeout_seconds"))
+            except Exception:
+                _kick_timeout = 30.0
+            try:
+                await asyncio.wait_for(_gather(), timeout=_kick_timeout)
             except (asyncio.TimeoutError, Exception):
                 pass  # best-effort; the lookup below silently misses if gather failed
         try:
@@ -8004,29 +8181,17 @@ def _audit_asset_refresh(admin: auth.User, result: dict, auth_mode: str) -> None
     operator-vs-scheduler-driven runs.
     """
     try:
-        from logic.ops import assert_op_type as _assert_op_type
-        _assert_op_type("asset_inventory_refresh")
         ok = bool(result and result.get("ok"))
         with db_conn() as c:
-            c.execute(
-                "INSERT INTO history "
-                "(ts, op_type, target_kind, target_name, target_id, "
-                " target_stack, status, duration, events, error, actor) "
-                "VALUES (?, 'asset_inventory_refresh', 'asset_inventory', ?, NULL, NULL, "
-                "        ?, 0.0, ?, ?, ?)",
-                (
-                    time.time(), auth_mode,
-                    "success" if ok else "error",
-                    json.dumps([{
-                        "ts": time.time(),
-                        "level": "info" if ok else "error",
-                        "msg": f"asset_inventory manual refresh by {admin.username or 'operator'}: "
-                               f"ok={ok} count={result.get('count') if result else 0} "
-                               f"auth_mode={auth_mode}",
-                    }]),
-                    (result.get("error") if result else None) or None,
-                    admin.username or "operator",
-                ),
+            _ops_mod.write_admin_audit(
+                c, "asset_inventory_refresh",
+                target_kind="asset_inventory", target_name=auth_mode,
+                actor=admin.username or "operator",
+                status="success" if ok else "error",
+                message=(f"asset_inventory manual refresh by {admin.username or 'operator'}: "
+                         f"ok={ok} count={result.get('count') if result else 0} "
+                         f"auth_mode={auth_mode}"),
+                error=(result.get("error") if result else None) or None,
             )
     except Exception as e:
         print(f"[asset_inventory] manual-refresh audit-row write failed: {e}")
@@ -11563,24 +11728,13 @@ async def api_hosts_resume_sampling(
     # Admin audit row — operator-initiated unpause is an audit event
     # even though the matching auto-pause was a sampler-driven write.
     try:
-        from logic.ops import assert_op_type as _assert_op_type
-        _assert_op_type("host_resume_sampling")
         with db_conn() as c:
-            c.execute(
-                "INSERT INTO history "
-                "(ts, op_type, target_kind, target_name, target_id, "
-                " target_stack, status, duration, events, error, actor) "
-                "VALUES (?, ?, 'host', ?, ?, NULL, 'success', 0.0, ?, NULL, ?)",
-                (
-                    time.time(), "host_resume_sampling",
-                    host_id, host_id,
-                    json.dumps([{
-                        "ts": time.time(), "level": "info",
-                        "msg": f"host sampling resumed by {_u.username or 'operator'}; "
-                               f"cleared={bool(cleared)} cooldowns_cleared={len(cooldown_cleared)}",
-                    }]),
-                    _u.username or "operator",
-                ),
+            _ops_mod.write_admin_audit(
+                c, "host_resume_sampling",
+                target_kind="host", target_name=host_id, target_id=host_id,
+                actor=_u.username or "operator",
+                message=(f"host sampling resumed by {_u.username or 'operator'}; "
+                         f"cleared={bool(cleared)} cooldowns_cleared={len(cooldown_cleared)}"),
             )
     except Exception as e:
         print(f"[hosts] resume-sampling: audit-row write failed: {e}")
@@ -11758,24 +11912,14 @@ async def api_hosts_provider_resume(
     # initiated event. The matching auto-pause was a sampler write so it
     # isn't audited; the resume IS.
     try:
-        from logic.ops import assert_op_type as _assert_op_type
-        _assert_op_type("host_provider_resume")
         with db_conn() as c:
-            c.execute(
-                "INSERT INTO history "
-                "(ts, op_type, target_kind, target_name, target_id, "
-                " target_stack, status, duration, events, error, actor) "
-                "VALUES (?, ?, 'host', ?, ?, NULL, 'success', 0.0, ?, NULL, ?)",
-                (
-                    time.time(), "host_provider_resume",
-                    f"{provider}:{host_id}", host_id,
-                    json.dumps([{
-                        "ts": time.time(), "level": "info",
-                        "msg": f"{provider} resume on host {host_id} by {_u.username or 'operator'}; "
-                               f"cleared={bool(cleared)} cooldowns_cleared={len(cooldown_cleared)}",
-                    }]),
-                    _u.username or "operator",
-                ),
+            _ops_mod.write_admin_audit(
+                c, "host_provider_resume",
+                target_kind="host",
+                target_name=f"{provider}:{host_id}", target_id=host_id,
+                actor=_u.username or "operator",
+                message=(f"{provider} resume on host {host_id} by {_u.username or 'operator'}; "
+                         f"cleared={bool(cleared)} cooldowns_cleared={len(cooldown_cleared)}"),
             )
     except Exception as e:
         print(f"[hosts] provider/{provider}/resume: audit-row write failed: {e}")
@@ -12240,7 +12384,11 @@ async def api_debug_subject(
     """Admin-only diagnostic for the Stacks / Services / Nodes drawers.
 
     `kind=item` resolves against `_cache["items"]` (covers services,
-    standalone containers, orphans, AND the synthetic stack rows).
+    standalone containers, orphans).
+    `kind=stack` resolves against `_cache["stacks"]` for the rollup
+    view — surfaces the stack's item list + aggregate counts +
+    per-stack diagnostic flags directly, without the legacy
+    items-cache prefix-match quirk.
     `kind=node` resolves against the Swarm node map.
 
     Returns a JSON dump of the cached record + the per-item stats
@@ -12253,8 +12401,8 @@ async def api_debug_subject(
     providers. Reads the same `_cache` / `_stats_cache` / DB tables
     the live drawer already consumes.
     """
-    if kind not in ("item", "node"):
-        raise HTTPException(400, "kind must be 'item' or 'node'")
+    if kind not in ("item", "stack", "node"):
+        raise HTTPException(400, "kind must be 'item', 'stack', or 'node'")
     if not id:
         raise HTTPException(400, "id query param required")
 
@@ -12358,6 +12506,99 @@ async def api_debug_subject(
                     f"Sampler is ticking slower than expected; check "
                     f"Admin → Logs for [stats] warnings."
                 )
+
+        out["diagnostics"] = diagnostics
+        return out
+
+    if kind == "stack":
+        # First-class stack rollup lookup — no items-cache prefix
+        # quirk. `_cache["stacks"]` is the per-gather rolled-up list
+        # of `{name, stack_id, items[], total, updates, errors, ...}`.
+        # Match on both `name` and `stack_id` so the SPA can pass
+        # either identifier.
+        stacks = _cache.get("stacks") or []
+        record = next(
+            (st for st in stacks
+             if st.get("name") == id
+             or str(st.get("stack_id") or "") == str(id)),
+            None,
+        )
+        if record is None:
+            raise HTTPException(404, f"no stack with id={id!r}")
+        out["record"] = record
+
+        # Per-item samples-in-window aggregate. The stack rollup
+        # carries an `items` array of full item records — sum the
+        # sample counts so the operator can see "stack-wide, X
+        # samples landed in the past hour" without drilling into
+        # every member.
+        item_count = len(record.get("items") or [])
+        total_samples = 0
+        items_with_samples = 0
+        oldest_ts = None
+        newest_ts = None
+        for it in (record.get("items") or []):
+            iid = it.get("id")
+            if not iid:
+                continue
+            sw = _item_samples_in_window(iid, since_hours_clamped)
+            n = int(sw.get("count") or 0)
+            total_samples += n
+            if n > 0:
+                items_with_samples += 1
+                if oldest_ts is None or (sw.get("oldest_ts") and sw["oldest_ts"] < oldest_ts):
+                    oldest_ts = sw.get("oldest_ts")
+                if newest_ts is None or (sw.get("newest_ts") and sw["newest_ts"] > newest_ts):
+                    newest_ts = sw.get("newest_ts")
+        out["samples_in_window"] = {
+            "hours": since_hours_clamped,
+            "total_samples_across_items": total_samples,
+            "items_with_samples": items_with_samples,
+            "items_total": item_count,
+            "oldest_ts": oldest_ts,
+            "newest_ts": newest_ts,
+        }
+
+        # Aggregate by-status / by-health for one-line stack health
+        # summary — same shape the by_status / by_health blocks on
+        # `kind=node` produce so the SPA can render either with one
+        # template path.
+        by_status: dict[str, int] = {}
+        by_health: dict[str, int] = {}
+        for it in (record.get("items") or []):
+            s = str(it.get("status") or "unknown")
+            by_status[s] = by_status.get(s, 0) + 1
+            h = str(it.get("health") or "unknown")
+            by_health[h] = by_health.get(h, 0) + 1
+        out["aggregate"] = {
+            "by_status": by_status,
+            "by_health": by_health,
+        }
+
+        if item_count == 0:
+            diagnostics.append(
+                "Stack has no items in `_cache[\"stacks\"][i].items` "
+                "— either every member was filtered out (ignored / "
+                "wrong stack tag) OR the gather hasn't run since the "
+                "stack was deployed."
+            )
+        elif items_with_samples == 0:
+            diagnostics.append(
+                f"None of the {item_count} items in this stack have "
+                f"any stats_samples rows in the past "
+                f"{since_hours_clamped}h. Either every container is "
+                f"newly-started (sampler hasn't ticked yet) OR the "
+                f"Portainer /stats call is failing across the stack "
+                f"(agent unreachable on the items' nodes)."
+            )
+        elif items_with_samples < item_count:
+            diagnostics.append(
+                f"{items_with_samples} of {item_count} items have "
+                f"samples; the other "
+                f"{item_count - items_with_samples} are silent — "
+                f"check the per-item drawer for which ones are "
+                f"missing data."
+            )
 
         out["diagnostics"] = diagnostics
         return out
@@ -15311,23 +15552,12 @@ async def api_admin_reauth(
         # when so the operator can spot brute-force-like patterns without
         # spelunking the per-IP login limiter's logs.
         try:
-            from logic.ops import assert_op_type as _assert_op_type
-            _assert_op_type("admin_reauth_failed")
             with db_conn() as c:
-                c.execute(
-                    "INSERT INTO history "
-                    "(ts, op_type, target_kind, target_name, target_id, "
-                    " target_stack, status, duration, events, error, actor) "
-                    "VALUES (?, 'admin_reauth_failed', 'auth', ?, ?, NULL, "
-                    "        'error', 0.0, ?, 'reauth failed', ?)",
-                    (
-                        time.time(), u.username, str(u.id),
-                        json.dumps([{
-                            "ts": time.time(), "level": "warn",
-                            "msg": f"admin reauth failed for {u.username}",
-                        }]),
-                        u.username,
-                    ),
+                _ops_mod.write_admin_audit(
+                    c, "admin_reauth_failed",
+                    target_kind="auth", target_name=u.username, target_id=str(u.id),
+                    actor=u.username, status="error", error="reauth failed",
+                    message=f"admin reauth failed for {u.username}",
                 )
         except Exception as e:
             print(f"[auth] admin_reauth_failed audit-row write failed: {e}")
@@ -16682,23 +16912,12 @@ async def api_notify_test(_admin: auth.User = Depends(auth.require_admin)):
     # are side-effects on subscribers; the audit trail surfaces who-fired-
     # when so a noise complaint can be triaged back to the source.
     try:
-        from logic.ops import assert_op_type as _assert_op_type
-        _assert_op_type("notify_test")
         with db_conn() as c:
-            c.execute(
-                "INSERT INTO history "
-                "(ts, op_type, target_kind, target_name, target_id, "
-                " target_stack, status, duration, events, error, actor) "
-                "VALUES (?, 'notify_test', 'notify', 'test', NULL, NULL, "
-                "        'success', 0.0, ?, NULL, ?)",
-                (
-                    time.time(),
-                    json.dumps([{
-                        "ts": time.time(), "level": "info",
-                        "msg": f"test notification fired by {_admin.username or 'operator'}",
-                    }]),
-                    _admin.username or "operator",
-                ),
+            _ops_mod.write_admin_audit(
+                c, "notify_test",
+                target_kind="notify", target_name="test",
+                actor=_admin.username or "operator",
+                message=f"test notification fired by {_admin.username or 'operator'}",
             )
     except Exception as e:
         print(f"[notify] notify_test audit-row write failed: {e}")
@@ -17252,23 +17471,12 @@ async def api_logs_clear(_admin: auth.User = Depends(auth.require_admin)):
     # Audit row BEFORE the clear so the forensic anchor survives even
     # the very destruction it records. Same pattern as DELETE /api/history.
     try:
-        from logic.ops import assert_op_type as _assert_op_type
-        _assert_op_type("logs_clear")
         with db_conn() as c:
-            c.execute(
-                "INSERT INTO history "
-                "(ts, op_type, target_kind, target_name, target_id, "
-                " target_stack, status, duration, events, error, actor) "
-                "VALUES (?, 'logs_clear', 'logs', 'in-memory', NULL, NULL, "
-                "        'success', 0.0, ?, NULL, ?)",
-                (
-                    time.time(),
-                    json.dumps([{
-                        "ts": time.time(), "level": "info",
-                        "msg": f"in-memory log buffer cleared by {_admin.username or 'operator'}",
-                    }]),
-                    _admin.username or "operator",
-                ),
+            _ops_mod.write_admin_audit(
+                c, "logs_clear",
+                target_kind="logs", target_name="in-memory",
+                actor=_admin.username or "operator",
+                message=f"in-memory log buffer cleared by {_admin.username or 'operator'}",
             )
     except Exception as e:
         print(f"[logs] audit-row write failed before clear: {e}")
@@ -18403,6 +18611,15 @@ async def api_me(request: Request):
                 "default_port": tuning.tuning_int("tuning_ping_default_port"),
                 "use_icmp":     get_setting_bool("ping_use_icmp", False),
             },
+            # Per-host drift baseline metric roster — single source of
+            # truth for the SPA's drift-chip rendering. Backend's
+            # `logic/host_baseline.py:METRICS` is canonical; surfacing
+            # the tuple here lets the SPA iterate the API contract
+            # instead of hardcoding a parallel literal. Adding a new
+            # metric to METRICS (e.g. `swap_pct`) now propagates to
+            # the SPA on the next `/api/me` round-trip without a
+            # paired SPA edit.
+            "baseline_metrics": list(_host_baseline.METRICS),
             # AI integration master state — surfaced so the SPA's
             # Cmd-K palette can decide whether to render the "Ask AI"
             # synthetic row. SPA gates on
@@ -19147,22 +19364,11 @@ async def api_me_totp_enroll_confirm(
         # Audit — user self-service TOTP enrolment is a security-sensitive
         # state change that admin-side ops can't see otherwise.
         try:
-            from logic.ops import assert_op_type as _assert_op_type
-            _assert_op_type("totp_self_enroll")
-            c.execute(
-                "INSERT INTO history "
-                "(ts, op_type, target_kind, target_name, target_id, "
-                " target_stack, status, duration, events, error, actor) "
-                "VALUES (?, 'totp_self_enroll', 'auth', ?, ?, NULL, "
-                "        'success', 0.0, ?, NULL, ?)",
-                (
-                    time.time(), user.username, str(user.id),
-                    json.dumps([{
-                        "ts": time.time(), "level": "info",
-                        "msg": f"TOTP enrolled by user {user.username}",
-                    }]),
-                    user.username,
-                ),
+            _ops_mod.write_admin_audit(
+                c, "totp_self_enroll",
+                target_kind="auth", target_name=user.username, target_id=str(user.id),
+                actor=user.username,
+                message=f"TOTP enrolled by user {user.username}",
             )
         except Exception as e:
             print(f"[totp] self-enroll audit-row write failed: {e}")
@@ -19191,22 +19397,11 @@ async def api_me_totp_regenerate_codes(
         encrypted = totp.encrypt_backup_codes(backup_plain)
         auth.update_user_totp_backup_codes(c, user.id, encrypted)
         try:
-            from logic.ops import assert_op_type as _assert_op_type
-            _assert_op_type("totp_self_regenerate_codes")
-            c.execute(
-                "INSERT INTO history "
-                "(ts, op_type, target_kind, target_name, target_id, "
-                " target_stack, status, duration, events, error, actor) "
-                "VALUES (?, 'totp_self_regenerate_codes', 'auth', ?, ?, NULL, "
-                "        'success', 0.0, ?, NULL, ?)",
-                (
-                    time.time(), user.username, str(user.id),
-                    json.dumps([{
-                        "ts": time.time(), "level": "info",
-                        "msg": f"TOTP backup codes regenerated by user {user.username}",
-                    }]),
-                    user.username,
-                ),
+            _ops_mod.write_admin_audit(
+                c, "totp_self_regenerate_codes",
+                target_kind="auth", target_name=user.username, target_id=str(user.id),
+                actor=user.username,
+                message=f"TOTP backup codes regenerated by user {user.username}",
             )
         except Exception as e:
             print(f"[totp] self-regenerate audit-row write failed: {e}")
@@ -19247,22 +19442,11 @@ async def api_me_totp_disable(
             raise HTTPException(401, "Current password is incorrect.")
         auth.clear_user_totp(c, user.id)
         try:
-            from logic.ops import assert_op_type as _assert_op_type
-            _assert_op_type("totp_self_disable")
-            c.execute(
-                "INSERT INTO history "
-                "(ts, op_type, target_kind, target_name, target_id, "
-                " target_stack, status, duration, events, error, actor) "
-                "VALUES (?, 'totp_self_disable', 'auth', ?, ?, NULL, "
-                "        'success', 0.0, ?, NULL, ?)",
-                (
-                    time.time(), user.username, str(user.id),
-                    json.dumps([{
-                        "ts": time.time(), "level": "info",
-                        "msg": f"TOTP self-disabled by user {user.username}",
-                    }]),
-                    user.username,
-                ),
+            _ops_mod.write_admin_audit(
+                c, "totp_self_disable",
+                target_kind="auth", target_name=user.username, target_id=str(user.id),
+                actor=user.username,
+                message=f"TOTP self-disabled by user {user.username}",
             )
         except Exception as e:
             print(f"[totp] self-disable audit-row write failed: {e}")
@@ -19535,23 +19719,12 @@ async def api_me_webauthn_register_finish(
                 detail="This passkey is already enrolled.",
             )
         try:
-            from logic.ops import assert_op_type as _assert_op_type
-            _assert_op_type("passkey_self_register")
-            c.execute(
-                "INSERT INTO history "
-                "(ts, op_type, target_kind, target_name, target_id, "
-                " target_stack, status, duration, events, error, actor) "
-                "VALUES (?, 'passkey_self_register', 'auth', ?, ?, NULL, "
-                "        'success', 0.0, ?, NULL, ?)",
-                (
-                    time.time(), user.username, str(row_id),
-                    json.dumps([{
-                        "ts": time.time(), "level": "info",
-                        "msg": f"passkey {friendly!r} registered by user {user.username} "
-                               f"(rp_id={state.get('rp_id') or '?'})",
-                    }]),
-                    user.username,
-                ),
+            _ops_mod.write_admin_audit(
+                c, "passkey_self_register",
+                target_kind="auth", target_name=user.username, target_id=str(row_id),
+                actor=user.username,
+                message=(f"passkey {friendly!r} registered by user {user.username} "
+                         f"(rp_id={state.get('rp_id') or '?'})"),
             )
         except Exception as e:
             print(f"[webauthn] self-register audit-row write failed: {e}")
@@ -19579,22 +19752,12 @@ async def api_me_webauthn_delete(
         ok = auth.delete_user_credential(c, user.id, credential_row_id)
         if ok:
             try:
-                from logic.ops import assert_op_type as _assert_op_type
-                _assert_op_type("passkey_self_delete")
-                c.execute(
-                    "INSERT INTO history "
-                    "(ts, op_type, target_kind, target_name, target_id, "
-                    " target_stack, status, duration, events, error, actor) "
-                    "VALUES (?, 'passkey_self_delete', 'auth', ?, ?, NULL, "
-                    "        'success', 0.0, ?, NULL, ?)",
-                    (
-                        time.time(), user.username, str(credential_row_id),
-                        json.dumps([{
-                            "ts": time.time(), "level": "info",
-                            "msg": f"passkey id={credential_row_id} revoked by user {user.username}",
-                        }]),
-                        user.username,
-                    ),
+                _ops_mod.write_admin_audit(
+                    c, "passkey_self_delete",
+                    target_kind="auth", target_name=user.username,
+                    target_id=str(credential_row_id),
+                    actor=user.username,
+                    message=f"passkey id={credential_row_id} revoked by user {user.username}",
                 )
             except Exception as e:
                 print(f"[webauthn] self-delete audit-row write failed: {e}")
@@ -19811,27 +19974,15 @@ async def api_admin_disable_totp(
         auth.clear_user_totp(c, user_id)
         # Audit row -- mirrors the ssh_run pattern above.
         try:
-            # Defence-in-depth assert — this raw INSERT bypasses the
-            # `new_op` write path so the OP_TYPES validator wouldn't
-            # otherwise fire. CLAUDE.md "Direct INSERT INTO history
-            # bypasses assert_op_type" rule applies.
-            from logic.ops import assert_op_type as _assert_op_type
-            _assert_op_type("totp_admin_disabled")
-            c.execute(
-                "INSERT INTO history "
-                "(ts, op_type, target_kind, target_name, target_id, "
-                " target_stack, status, duration, events, error, actor) "
-                "VALUES (?, ?, 'auth', ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    time.time(), "totp_admin_disabled",
-                    target.username, str(user_id), None,
-                    "success", 0.0,
-                    json.dumps([{
-                        "ts": time.time(), "level": "info",
-                        "msg": f"2FA disabled for {target.username} by {admin.username}",
-                    }]),
-                    None, admin.username,
-                ),
+            # `write_admin_audit` calls `assert_op_type` internally and
+            # uses the same column shape so the audit row lands
+            # identically to the previous direct-INSERT.
+            _ops_mod.write_admin_audit(
+                c, "totp_admin_disabled",
+                target_kind="auth",
+                target_name=target.username, target_id=str(user_id),
+                actor=admin.username,
+                message=f"2FA disabled for {target.username} by {admin.username}",
             )
         except Exception as e:
             # BUG-LOW from code review 2026-05-08-2: defensive log +
@@ -19901,28 +20052,13 @@ async def api_admin_totp_force(
             return {"ok": True, "force_required": bool(body.force), "no_change": True}
         auth.set_user_totp_force_required(c, user_id, bool(body.force))
         try:
-            # Defence-in-depth assert — raw INSERT bypasses `new_op`,
-            # so the OP_TYPES validator wouldn't otherwise fire.
-            from logic.ops import assert_op_type as _assert_op_type
-            _assert_op_type("totp_force_set")
-            c.execute(
-                "INSERT INTO history "
-                "(ts, op_type, target_kind, target_name, target_id, "
-                " target_stack, status, duration, events, error, actor) "
-                "VALUES (?, ?, 'auth', ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    time.time(), "totp_force_set",
-                    target.username, str(user_id), None,
-                    "success", 0.0,
-                    json.dumps([{
-                        "ts": time.time(), "level": "info",
-                        "msg": (
-                            f"2FA force-required {'enabled' if body.force else 'cleared'} "
-                            f"for {target.username} by {admin.username}"
-                        ),
-                    }]),
-                    None, admin.username,
-                ),
+            _ops_mod.write_admin_audit(
+                c, "totp_force_set",
+                target_kind="auth",
+                target_name=target.username, target_id=str(user_id),
+                actor=admin.username,
+                message=(f"2FA force-required {'enabled' if body.force else 'cleared'} "
+                         f"for {target.username} by {admin.username}"),
             )
         except Exception as e:
             # Same escalation as totp_admin_disabled — surface the
