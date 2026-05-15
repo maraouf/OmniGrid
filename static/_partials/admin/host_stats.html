@@ -94,14 +94,20 @@
                x-text="t('settings.host_stats.overrides_hint')"></p>
           </div>
 
-          <!-- NE probe timeout — moved here from the generic Process
-               tunables section so operators editing NE config have
-               the timeout knob ready to hand. Same `tuningForm` /
-               `tuningEffective` Alpine state. Disabled when NE isn't
-               an active provider so the disabled state matches the
-               other fields above. -->
+          <!-- NE provider tunables — canonical header pattern (icon +
+               h3 + intro paragraph) matching every other admin tab
+               (Portainer / AI / SSH / Logs / Asset Inventory /
+               Notifications). All edits commit through the NE-section
+               Save alongside the URL template + per-host overrides. -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
                x-show="tuningLoaded">
+            <div class="flex items-center gap-2 mb-1">
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+              <h3 class="font-semibold fs-sm"
+                  x-text="t('settings.host_stats.tunables_heading_node_exporter')"></h3>
+            </div>
+            <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+               x-text="t('settings.host_stats.tunables_intro_node_exporter')"></p>
             <template x-for="key in _perProviderTuneKeys.node_exporter" :key="key">
               <div class="space-y-1">
                 <label class="block fs-xs font-medium"
