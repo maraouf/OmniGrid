@@ -306,7 +306,7 @@ async def fetch_system_history(
     hours: int = 1,
     stat_type: Optional[str] = None,
     verify_tls: bool = True,
-    timeout: float = 15.0,
+    timeout: Optional[float] = None,
     host_id: Optional[str] = None,
 ) -> dict:
     """Return the last ``hours`` of ``system_stats`` rows for one system.
@@ -314,7 +314,14 @@ async def fetch_system_history(
     Powers the Hosts tab's expanded time-series charts (CPU / Mem /
     Disk / Net). Filter uses PocketBase's ``(system='ID' && type='1m')``
     syntax and sorts oldest-first so the frontend can render left→right
-    without reversing. Result shape:
+    without reversing.
+
+    ``timeout`` defaults to the live ``tuning_beszel_probe_timeout_seconds``
+    TUNABLE (15s default) so a Save in Admin → Host stats → Beszel
+    takes effect on the next call without restart. Defensive fallback
+    to legacy 15s on tunable-resolver failure.
+
+    Result shape:
 
         {"series": [{"t": epoch_s, "cpu": float, "mp": float,
                       "dp": float, "b": bytes_per_sec, ...}, ...],
@@ -329,6 +336,15 @@ async def fetch_system_history(
     """
     if not (base_url and identity and password and system_id):
         return {"series": [], "error": "missing hub credentials or system id"}
+    # Resolve timeout default via TUNABLES (per-use read so a Save in
+    # Admin → Host stats → Beszel takes effect on the next call without
+    # restart). Defensive fallback to legacy 15s on resolver failure.
+    if timeout is None:
+        try:
+            from logic.tuning import tuning_int as _tuning_int
+            timeout = float(_tuning_int("tuning_beszel_probe_timeout_seconds"))
+        except Exception:
+            timeout = 15.0
     # Pick aggregation tier from the window when caller didn't override.
     # Explicit value wins so the test endpoints / operator probes still
     # work the legacy way.
@@ -1071,7 +1087,7 @@ async def probe_hub(
     identity: str,
     password: str,
     verify_tls: bool = True,
-    timeout: float = 15.0,
+    timeout: Optional[float] = None,
 ) -> dict:
     """Fetch every system from a Beszel hub, keyed by host name.
 
@@ -1083,9 +1099,22 @@ async def probe_hub(
     field (the label the operator gave the system in Beszel's UI). For
     OmniGrid's node mapping to work, operators should name each
     system in Beszel to match the Docker Swarm hostname.
+
+    ``timeout`` defaults to the live ``tuning_beszel_probe_timeout_seconds``
+    TUNABLE (15s default) so a Save in Admin → Host stats → Beszel
+    takes effect on the next probe without restart. Defensive fallback
+    to legacy 15s on resolver failure. Explicit caller-supplied values
+    (e.g. the shorter 10s "Test connection" probe in `main.py`) skip
+    the resolver path entirely.
     """
     if not base_url or not identity or not password:
         return {"systems": {}, "error": "beszel: missing url / identity / password"}
+    if timeout is None:
+        try:
+            from logic.tuning import tuning_int as _tuning_int
+            timeout = float(_tuning_int("tuning_beszel_probe_timeout_seconds"))
+        except Exception:
+            timeout = 15.0
     # Defence-in-depth on the admin-only Beszel hub URL setting. CodeQL
     # py/full-ssrf flags every `client.get(url, ...)` below as the URL
     # flows from a settings field — see ``logic/url_safety.py`` for the

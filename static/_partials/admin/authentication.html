@@ -55,27 +55,73 @@
             <p class="fs-xs text-[var(--text-faint)] -mt-1 ms-6"
                x-text="t('admin.config.totp.required_hint')"></p>
 
+            <!-- Lockout knobs — same visual treatment as TUNABLES
+                 (label + help + textbox + bounds-chips with min / max /
+                 default). They remain plain settings (saved through
+                 `saveTotpPolicy()`, not the tuning pipeline) but render
+                 with the same chrome so the form matches the rest of
+                 the admin surface. -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-              <label class="block">
-                <span class="block fs-xs text-[var(--text-dim)] mb-1"
-                      x-text="t('admin.config.totp.max_failures_label')"></span>
-                <input type="number" min="3" max="20" step="1"
-                       x-model.number="settings.totp_lockout_max_failures"
-                       :disabled="!isAdmin() || !settings.totp_allowed"
-                       class="w-32 mono fs-sm">
-                <span class="block fs-2xs text-[var(--text-faint)] mt-1"
-                      x-text="t('admin.config.totp.max_failures_hint')"></span>
-              </label>
-              <label class="block">
-                <span class="block fs-xs text-[var(--text-dim)] mb-1"
-                      x-text="t('admin.config.totp.lockout_minutes_label')"></span>
-                <input type="number" min="1" max="1440" step="1"
-                       x-model.number="settings.totp_lockout_minutes"
-                       :disabled="!isAdmin() || !settings.totp_allowed"
-                       class="w-32 mono fs-sm">
-                <span class="block fs-2xs text-[var(--text-faint)] mt-1"
-                      x-text="t('admin.config.totp.lockout_minutes_hint')"></span>
-              </label>
+              <div>
+                <label class="block fs-xs font-medium mb-1"
+                       x-text="t('admin.config.totp.max_failures_label')"></label>
+                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+                   x-text="t('admin.config.totp.max_failures_hint')"></p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="number" min="3" max="20" step="1"
+                         x-model.number="settings.totp_lockout_max_failures"
+                         :disabled="!isAdmin() || !settings.totp_allowed"
+                         class="w-32 mono fs-sm py-1">
+                  <div class="bounds-chips" role="group"
+                       :aria-label="t('admin.config.bounds.group_label')">
+                    <span class="bounds-chip bounds-chip--min"
+                          :title="t('admin.config.bounds.min_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                      <span>3</span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--max"
+                          :title="t('admin.config.bounds.max_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                      <span>20</span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--default"
+                          :title="t('admin.config.bounds.default_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                      <span>5</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label class="block fs-xs font-medium mb-1"
+                       x-text="t('admin.config.totp.lockout_minutes_label')"></label>
+                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+                   x-text="t('admin.config.totp.lockout_minutes_hint')"></p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="number" min="1" max="1440" step="1"
+                         x-model.number="settings.totp_lockout_minutes"
+                         :disabled="!isAdmin() || !settings.totp_allowed"
+                         class="w-32 mono fs-sm py-1">
+                  <div class="bounds-chips" role="group"
+                       :aria-label="t('admin.config.bounds.group_label')">
+                    <span class="bounds-chip bounds-chip--min"
+                          :title="t('admin.config.bounds.min_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                      <span>1</span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--max"
+                          :title="t('admin.config.bounds.max_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                      <span>1440</span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--default"
+                          :title="t('admin.config.bounds.default_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                      <span>15</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">

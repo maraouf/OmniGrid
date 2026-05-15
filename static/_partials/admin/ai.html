@@ -142,6 +142,8 @@
               <div class="mb-3">
                 <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_max_tokens.label')"></label>
+                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+                   x-text="t('admin.config.fields.tuning_ai_max_tokens.help')"></p>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
                          x-model="tuningForm['tuning_ai_max_tokens']"
@@ -171,13 +173,13 @@
                   <span class="fs-2xs text-[var(--text-faint)] ms-auto"
                         x-text="tuningEffectiveLabel('tuning_ai_max_tokens')"></span>
                 </div>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                   x-text="t('admin.config.fields.tuning_ai_max_tokens.help')"></p>
               </div>
               <!-- Backoff in milliseconds. -->
               <div class="mb-3">
                 <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_retry_backoff_ms.label')"></label>
+                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+                   x-text="t('admin.config.fields.tuning_ai_retry_backoff_ms.help')"></p>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
                          x-model="tuningForm['tuning_ai_retry_backoff_ms']"
@@ -207,13 +209,13 @@
                   <span class="fs-2xs text-[var(--text-faint)] ms-auto"
                         x-text="tuningEffectiveLabel('tuning_ai_retry_backoff_ms')"></span>
                 </div>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                   x-text="t('admin.config.fields.tuning_ai_retry_backoff_ms.help')"></p>
               </div>
               <!-- First-attempt-max-duration gate (ms). -->
               <div>
                 <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.label')"></label>
+                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+                   x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.help')"></p>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
                          x-model="tuningForm['tuning_ai_retry_first_attempt_max_ms']"
@@ -243,8 +245,6 @@
                   <span class="fs-2xs text-[var(--text-faint)] ms-auto"
                         x-text="tuningEffectiveLabel('tuning_ai_retry_first_attempt_max_ms')"></span>
                 </div>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                   x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.help')"></p>
               </div>
               <!-- AI sidebar drawer width — operator-tunable so the
                    same drawer adapts cleanly across viewport sizes.
@@ -255,6 +255,8 @@
               <div class="mt-3">
                 <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.label')"></label>
+                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+                   x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.help')"></p>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
                          x-model="tuningForm['tuning_ai_sidebar_width_px']"
@@ -284,8 +286,6 @@
                   <span class="fs-2xs text-[var(--text-faint)] ms-auto"
                         x-text="tuningEffectiveLabel('tuning_ai_sidebar_width_px')"></span>
                 </div>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                   x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.help')"></p>
               </div>
               <!-- AI conversation persist cadence (ms). Same shape as
                    the sidebar-width input row above. Read by the SPA's
@@ -293,6 +293,8 @@
               <div class="mt-3">
                 <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_conversation_persist_interval_ms.label')"></label>
+                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+                   x-text="t('admin.config.fields.tuning_ai_conversation_persist_interval_ms.help')"></p>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
                          x-model="tuningForm['tuning_ai_conversation_persist_interval_ms']"
@@ -322,8 +324,6 @@
                   <span class="fs-2xs text-[var(--text-faint)] ms-auto"
                         x-text="tuningEffectiveLabel('tuning_ai_conversation_persist_interval_ms')"></span>
                 </div>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                   x-text="t('admin.config.fields.tuning_ai_conversation_persist_interval_ms.help')"></p>
               </div>
               <!-- AI log-context window — how many hours of persistent
                    log files the palette injects per call. Default 168
@@ -334,6 +334,8 @@
               <div class="mt-3">
                 <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_log_context_hours.label')"></label>
+                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+                   x-text="t('admin.config.fields.tuning_ai_log_context_hours.help')"></p>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
                          x-model="tuningForm['tuning_ai_log_context_hours']"
@@ -363,8 +365,6 @@
                   <span class="fs-2xs text-[var(--text-faint)] ms-auto"
                         x-text="tuningEffectiveLabel('tuning_ai_log_context_hours')"></span>
                 </div>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                   x-text="t('admin.config.fields.tuning_ai_log_context_hours.help')"></p>
               </div>
               <!-- AI log-context cap — hard upper bound on number of
                    error+warn lines injected per call. Newest-last so
@@ -372,6 +372,8 @@
               <div class="mt-3">
                 <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.fields.tuning_ai_log_context_lines.label')"></label>
+                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+                   x-text="t('admin.config.fields.tuning_ai_log_context_lines.help')"></p>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="number"
                          x-model="tuningForm['tuning_ai_log_context_lines']"
@@ -401,8 +403,6 @@
                   <span class="fs-2xs text-[var(--text-faint)] ms-auto"
                         x-text="tuningEffectiveLabel('tuning_ai_log_context_lines')"></span>
                 </div>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                   x-text="t('admin.config.fields.tuning_ai_log_context_lines.help')"></p>
               </div>
               <!-- AI provider outbound HTTP timeouts — Test-connection
                    probe (lightweight one-token ping) + real chat-completion
@@ -415,6 +415,8 @@
                 <div class="mt-3">
                   <label class="block fs-xs font-medium mb-1"
                          x-text="t('admin.config.fields.' + key + '.label')"></label>
+                  <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+                     x-text="t('admin.config.fields.' + key + '.help')"></p>
                   <div class="flex flex-wrap items-center gap-2">
                     <input type="number"
                            x-model="tuningForm[key]"
@@ -444,8 +446,6 @@
                     <span class="fs-2xs text-[var(--text-faint)] ms-auto"
                           x-text="tuningEffectiveLabel(key)"></span>
                   </div>
-                  <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                     x-text="t('admin.config.fields.' + key + '.help')"></p>
                 </div>
               </template>
             </div>
