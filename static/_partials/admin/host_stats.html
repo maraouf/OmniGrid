@@ -435,9 +435,22 @@
                        ? t('actions.testing')
                        : (pulseTestResult ? ((pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult.detail || '')) : '')"></div>
           <p class="fs-2xs text-[var(--text-faint)]" x-text="t('settings.host_stats.pulse_aliases_hint')"></p>
-          <!-- Pulse auto-pause threshold. -->
+          <!-- Pulse provider tunables — canonical header pattern
+               (icon + h3 + intro paragraph) matching every other admin
+               tab (AI / Asset Inventory / Portainer / Notifications /
+               NE / SSH / Beszel). Covers probe timeout, sampler
+               interval (0 = inherit global), and the auto-pause
+               threshold. All edits commit through the Pulse section's
+               Save button. -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
                x-show="tuningLoaded">
+            <div class="flex items-center gap-2 mb-1">
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+              <h3 class="font-semibold fs-sm"
+                  x-text="t('settings.host_stats.tunables_heading_pulse')"></h3>
+            </div>
+            <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+               x-text="t('settings.host_stats.tunables_intro_pulse')"></p>
             <template x-for="key in _perProviderTuneKeys.pulse" :key="key">
               <div class="space-y-1">
                 <label class="block fs-xs font-medium"

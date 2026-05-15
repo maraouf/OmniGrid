@@ -880,6 +880,8 @@
       "tunables_intro_node_exporter": "Operator-tunable knobs for the node-exporter provider — probe timeout (caps how long a single per-host scrape can wait), sampler interval (cadence of the lifespan sampler that warms the per-host time-series), and per-(provider, host) auto-pause threshold. All edits commit through the NE section's Save button.",
       "tunables_heading_beszel": "Beszel tunables",
       "tunables_intro_beszel": "Operator-tunable knobs for the Beszel provider — probe timeout (caps how long a single hub fetch can wait), sampler interval (0 = inherit the global stats sampler cadence), and per-(provider, host) auto-pause threshold. All edits commit through the Beszel section's Save button.",
+      "tunables_heading_pulse": "Pulse tunables",
+      "tunables_intro_pulse": "Operator-tunable knobs for the Pulse provider — probe timeout (caps how long a single `/api/state` fetch can wait), sampler interval (0 = inherit the global stats sampler cadence), and per-(provider, host) auto-pause threshold. All edits commit through the Pulse section's Save button.",
       "desc": "Configure the data sources OmniGrid uses to surface host telemetry, reachability, and update state. Pick any combination of: node-exporter (Prometheus :9100 scrape), Beszel (agent + Hub), Pulse (Proxmox VE / PBS / PMG), Webmin (Miniserv module probes), and Ping (TCP/ICMP reachability + RTT). Each provider contributes what it knows; the merge layer surfaces a unified view per host.",
       "source_label": "Data source",
       "source_none": "None (Docker-only)",

@@ -8,22 +8,22 @@
           <p class="fs-xs text-[var(--text-faint)] mb-3 max-w-[720px]"
              x-text="t('admin.debug.intro')"></p>
 
-          <!-- Master toggle — operator-flagged "remove the shadow box
-               behind the checkbox; not part of the page": dropped the
-               wrapper `border + bg-[var(--surface-2)] + p-3` so the
-               checkbox sits directly on the section background. -->
-          <label class="flex items-start gap-3 cursor-pointer select-none">
-            <input type="checkbox"
-                   x-model="settings.debug_panel_enabled"
-                   :disabled="!isAdmin()"
-                   class="mt-0.5">
-            <span class="flex-1">
-              <span class="fs-md font-medium block"
-                    x-text="t('admin_hosts.debug_panel_toggle_label')"></span>
-              <span class="fs-xs text-[var(--text-faint)] block mt-0.5 leading-snug"
-                    x-text="t('admin_hosts.debug_panel_toggle_hint')"></span>
-            </span>
-          </label>
+          <!-- Master toggle — canonical AI-checkbox-tunable shape:
+               inline-flex label + checkbox + visible name, then a
+               separate help paragraph below. Matches the AI Integration
+               section's `tuning_ai_retry_enabled` / `tuning_ai_conversation_export_enabled`
+               checkboxes for visual consistency across admin panels. -->
+          <div class="mb-3">
+            <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
+              <input type="checkbox"
+                     x-model="settings.debug_panel_enabled"
+                     :disabled="!isAdmin()"
+                     class="cursor-pointer">
+              <span x-text="t('admin_hosts.debug_panel_toggle_label')"></span>
+            </label>
+            <p class="fs-2xs text-[var(--text-faint)] mt-1 leading-snug"
+               x-text="t('admin_hosts.debug_panel_toggle_hint')"></p>
+          </div>
 
           <!-- Save button + dirty indicator — same pattern as the
                other admin tabs (Apprise / OpenMeteo / Portainer / OIDC /

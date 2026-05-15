@@ -56,12 +56,13 @@
                x-text="t('admin.config.totp.required_hint')"></p>
 
             <!-- Lockout knobs — same visual treatment as TUNABLES
-                 (label + help + textbox + bounds-chips with min / max /
+                 (label → help → textbox + bounds-chips with min / max /
                  default). They remain plain settings (saved through
                  `saveTotpPolicy()`, not the tuning pipeline) but render
                  with the same chrome so the form matches the rest of
-                 the admin surface. -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                 the admin surface. Each field stacks on its own line —
+                 no side-by-side grid. -->
+            <div class="space-y-4 pt-2">
               <div>
                 <label class="block fs-xs font-medium mb-1"
                        x-text="t('admin.config.totp.max_failures_label')"></label>
@@ -71,7 +72,7 @@
                   <input type="number" min="3" max="20" step="1"
                          x-model.number="settings.totp_lockout_max_failures"
                          :disabled="!isAdmin() || !settings.totp_allowed"
-                         class="w-32 mono fs-sm py-1">
+                         class="w-44 mono fs-sm py-1">
                   <div class="bounds-chips" role="group"
                        :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
@@ -101,7 +102,7 @@
                   <input type="number" min="1" max="1440" step="1"
                          x-model.number="settings.totp_lockout_minutes"
                          :disabled="!isAdmin() || !settings.totp_allowed"
-                         class="w-32 mono fs-sm py-1">
+                         class="w-44 mono fs-sm py-1">
                   <div class="bounds-chips" role="group"
                        :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
