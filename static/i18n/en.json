@@ -1195,6 +1195,8 @@
     },
     "oidc": {
       "title": "Authentik OIDC (SSO)",
+      "tunables_heading": "OIDC tunables",
+      "tunables_intro": "Outbound HTTP wall-clock for every OIDC call — discovery-doc GET, JWKS fetch, token exchange at callback, and the admin Test-connection probe. Lower on fast-fail watchdog deploys; raise when the IdP sits behind a slow corporate proxy or VPN. All edits commit through the OIDC Save button.",
       "description": "OpenID Connect provider. Works with any compliant IdP; the label says Authentik because that's our reference setup.",
       "enabled": "Enabled",
       "disabled": "Disabled",
@@ -1877,6 +1879,10 @@
         "tuning_ssh_close_timeout_seconds": {
           "label": "SSH connection-close wait timeout (seconds)",
           "help": "Wall-clock cap on `conn.wait_closed()` after a terminal session ends. Default 5s. Lower on flaky networks where the FIN never arrives (close blocks forever, audit row stays open); raise if you genuinely care about clean teardown and tolerate longer audit-close delays. Range 1..60. Takes effect on the next session-close."
+        },
+        "tuning_oidc_http_timeout_seconds": {
+          "label": "OIDC HTTP timeout (seconds)",
+          "help": "Wall-clock cap for every OIDC outbound HTTP call — discovery-doc GET, JWKS fetch, token exchange at callback, and the admin Test-connection probe. Default 15s. Lower (8-10s) on fast-fail watchdog deploys; raise (30-60s) when the IdP is behind a slow corporate proxy or VPN. Range 2..120. Takes effect on the next round-trip."
         },
         "tuning_pulse_sample_interval_seconds": {
           "label": "Pulse sampler interval (seconds)",

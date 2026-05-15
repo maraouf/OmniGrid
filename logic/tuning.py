@@ -765,6 +765,15 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Range 1..60. Per-use read inside `ws_ssh_terminal` so a Save in
     # Admin → SSH takes effect on the next session-close without restart.
     "tuning_ssh_close_timeout_seconds": ("SSH_CLOSE_TIMEOUT_SECONDS", 5, 1, 60),
+
+    # OIDC HTTP wall-clock (seconds) — covers every outbound call in
+    # `logic/oidc.py`: discovery-doc GET, JWKS fetch, token exchange,
+    # and the admin "Test connection" probe. Default 15s. Lower on
+    # fast-fail watchdog deploys (8-10s); raise to 30-60s when the
+    # IdP is behind a slow corporate proxy / VPN. Range 2..120. Per-use
+    # read inside each oidc.py call site so a Save in Admin → Authentik
+    # OIDC takes effect on the next round-trip without restart.
+    "tuning_oidc_http_timeout_seconds": ("OIDC_HTTP_TIMEOUT_SECONDS", 15, 2, 120),
 }
 
 

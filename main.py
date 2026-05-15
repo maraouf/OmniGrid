@@ -3308,6 +3308,11 @@ class SettingsIn(BaseModel):
     # `conn.wait_closed()` blocks after a terminal session ends.
     # Rendered in Admin → SSH via `relocatedTuningKeys`.
     tuning_ssh_close_timeout_seconds: Optional[str] = None
+    # OIDC outbound HTTP wall-clock — covers discovery / JWKS / token
+    # exchange / Test-connection probe. Per-use reads inside oidc.py
+    # at every call site. Rendered in Admin → Authentik OIDC via
+    # `relocatedTuningKeys` (NOT the generic Process tunables form).
+    tuning_oidc_http_timeout_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in

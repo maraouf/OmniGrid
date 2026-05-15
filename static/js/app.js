@@ -1471,6 +1471,10 @@ function app() {
       // SSH terminal connection-close wait timeout — caps how long
       // `conn.wait_closed()` blocks after a terminal session ends.
       'tuning_ssh_close_timeout_seconds',
+      // OIDC outbound HTTP wall-clock — covers discovery / JWKS /
+      // token exchange / Test-connection probe. Rendered in Admin →
+      // Authentik OIDC via section-owned save.
+      'tuning_oidc_http_timeout_seconds',
       // Per-provider default ports — promoted out of plain settings.
       'tuning_ssh_default_port',
       'tuning_snmp_default_port',
@@ -8500,6 +8504,24 @@ function app() {
       if (this.oidcForm.client_secret && this.oidcForm.client_secret.trim()) {
         body.oidc_client_secret = this.oidcForm.client_secret;
       }
+      // OIDC-scoped tunables — included in the same POST body so editing
+      // them flips dirty + saves through THIS section, not the generic
+      // Admin → Config form. Validate int + bounds locally first so a
+      // typo'd value doesn't make the whole Save fail; the backend
+      // re-clamps but explicit local errors are friendlier.
+      const tf = this.tuningForm || {};
+      const tunableKeys = ['tuning_oidc_http_timeout_seconds'];
+      for (const k of tunableKeys) {
+        const raw = tf[k];
+        if (raw == null || String(raw).trim() === '') continue;
+        const n = parseInt(raw, 10);
+        const bounds = (this.tuningBounds || {})[k] || {};
+        if (!Number.isFinite(n) || (bounds.lo != null && n < bounds.lo) || (bounds.hi != null && n > bounds.hi)) {
+          this.showToast(this.t('toasts.save_failed'), 'error');
+          return;
+        }
+        body[k] = String(n);
+      }
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -8511,6 +8533,9 @@ function app() {
           // clear here under the unified pattern.
           this.showToast(this.t('toasts.oidc_saved'));
           await this.loadSettings();
+          // Re-read tuning baseline so oidcDirty() flips back to false
+          // after a successful save that included tunable changes.
+          await this.loadTuning();
           this.oidcTestResult = null;
         } else {
           const j = await r.json().catch(() => ({}));
@@ -10898,7 +10923,27 @@ function app() {
         baseGroupCS: s.group_case_sensitive !== false,
       });
     },
-    oidcDirty()      { return this._oidcBaseline      !== this._oidcSnapshot(); },
+    oidcDirty() {
+      if (this._oidcBaseline !== this._oidcSnapshot()) return true;
+      // OIDC-scoped tunables wired into THIS section's Save so editing
+      // them flips the same amber ring as the rest of the OIDC form.
+      // Mirror of the Portainer / asset-inventory / AI / NE patterns.
+      // Compare tuningForm against the previously-saved `_tuningBaseline`;
+      // Save body includes these keys + the post-save `loadTuning()`
+      // resets the baseline so dirty flips back to false on success.
+      const tf = this.tuningForm || {};
+      const baselineStr = this._tuningBaseline || '';
+      let baseline = {};
+      try { baseline = baselineStr ? JSON.parse(baselineStr) : {}; }
+      catch (_e) { baseline = {}; }
+      const tunableKeys = ['tuning_oidc_http_timeout_seconds'];
+      for (const k of tunableKeys) {
+        const cur = (tf[k] == null ? '' : String(tf[k]).trim());
+        const base = (baseline[k] == null ? '' : String(baseline[k]).trim());
+        if (cur !== base) return true;
+      }
+      return false;
+    },
     // Test-before-Save snapshot for Asset Inventory. Mirrors the
     // Portainer / OIDC `_xSnapshot()` pattern but covers BOTH auth
     // modes (oauth2 and lifetime_token) so an admin can Test in either
