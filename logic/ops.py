@@ -1109,7 +1109,11 @@ async def _notify_medium_apprise(
     tag = get_setting("apprise_tag", "")
     body = body or title  # Apprise rejects empty bodies.
     try:
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=15.0) as client:
+        # Apprise piggy-backs on Portainer's `VERIFY_TLS` for HTTPS
+        # verify — same canonical helper. Timeout is independent of
+        # the Portainer-write-op tiers because Apprise is a fire-and-
+        # forget notify channel, not a write op.
+        async with portainer.write_client(timeout=15.0) as client:
             payload = {
                 "title": title,
                 "body": body,
@@ -1562,7 +1566,7 @@ async def do_update_stack(
         op.log(f"Starting stack update (id={stack_id}, retag={retag_to_latest}"
                + (f", new_tag={new_tag!r}" if retag_to_latest else "")
                + ")")
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("long")) as client:
+        async with portainer.write_client(timeout=_portainer_op_timeout("long")) as client:
             stack = await portainer.pg(client, f"/api/stacks/{stack_id}")
             op.log(f"Resolved stack: {stack['Name']}")
             try:
@@ -1620,7 +1624,7 @@ async def do_update_container(op: Operation, container_id: str) -> None:
         node = portainer.node_for_container(gather.get_cache(), container_id)
         op.log("Recreating container with PullImage=true"
                + (f" on node '{node}'" if node else ""))
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("long")) as client:
+        async with portainer.write_client(timeout=_portainer_op_timeout("long")) as client:
             # `json={}` is REQUIRED — Portainer's recreate endpoint
             # rejects an empty request body with
             # `HTTP 400 {"message":"Invalid request payload","details":"EOF"}`
@@ -1727,7 +1731,7 @@ async def do_retag_container_to_latest(
     try:
         node = portainer.node_for_container(gather.get_cache(), container_id)
         op.log("Inspecting container" + (f" on node '{node}'" if node else ""))
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("long")) as client:
+        async with portainer.write_client(timeout=_portainer_op_timeout("long")) as client:
             inspect_url = (
                 f"{portainer.PORTAINER_URL}/api/endpoints/"
                 f"{portainer.PORTAINER_ENDPOINT_ID}"
@@ -1966,7 +1970,7 @@ async def do_restart_container(op: Operation, container_id: str) -> None:
     try:
         node = portainer.node_for_container(gather.get_cache(), container_id)
         op.log("Restarting container" + (f" on node '{node}'" if node else ""))
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("short")) as client:
+        async with portainer.write_client(timeout=_portainer_op_timeout("short")) as client:
             r = await client.post(
                 f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
                 f"/docker/containers/{container_id}/restart",
@@ -1997,7 +2001,7 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
             op.log(f"Removing container on node '{node}' (force=true, v=true)")
         else:
             op.log("Removing container (force=true, v=true)")
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("short")) as client:
+        async with portainer.write_client(timeout=_portainer_op_timeout("short")) as client:
             r = await client.delete(
                 f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
                 f"/docker/containers/{container_id}?force=true&v=true",
@@ -2034,7 +2038,7 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
 async def do_restart_service(op: Operation, service_id: str) -> None:
     try:
         op.log("Fetching current service spec")
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("medium")) as client:
+        async with portainer.write_client(timeout=_portainer_op_timeout("medium")) as client:
             svc = await portainer.pg(
                 client,
                 f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services/{service_id}",
@@ -2128,7 +2132,7 @@ async def do_restart_swarm_agent(op: Operation) -> None:
     rather than risk restarting the wrong service.
     """
     try:
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("medium")) as client:
+        async with portainer.write_client(timeout=_portainer_op_timeout("medium")) as client:
             op.log("Discovering Portainer agent service")
             sid, sname, matches = await discover_swarm_agent_service(client)
             if not matches:
@@ -2207,7 +2211,7 @@ async def do_prune_node(op: Operation, hostname: str) -> dict:
         ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
         h = portainer.headers(agent_target=hostname)
 
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_portainer_op_timeout("medium")) as client:
+        async with portainer.write_client(timeout=_portainer_op_timeout("medium")) as client:
             async def _prune(path: str, label: str, counter_key):
                 """POST one of Docker's /prune endpoints. Log per step;
                 one failing sub-call (e.g. volumes/prune with nothing

@@ -20,7 +20,8 @@ without restart.
 """
 import os
 import sqlite3
-from typing import Optional
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, Optional
 
 import httpx
 
@@ -215,6 +216,33 @@ def __getattr__(name: str):
     if name == "VERIFY_TLS":
         return _verify_tls()
     raise AttributeError(f"module 'logic.portainer' has no attribute {name!r}")
+
+
+@asynccontextmanager
+async def write_client(timeout: float = 60.0) -> AsyncIterator[httpx.AsyncClient]:
+    """Yield an `httpx.AsyncClient` pre-configured with Portainer's
+    `VERIFY_TLS` setting + the supplied wall-clock cap.
+
+    Centralises the boilerplate every Portainer write op duplicated —
+    `async with httpx.AsyncClient(verify=portainer.VERIFY_TLS,
+    timeout=X)` × 9 sites in `logic/ops.py`. Per CLAUDE.md "Vendor /
+    capability key sets need ONE source of truth" — the verify + ssl
+    config should be in one place so future TLS-handling changes
+    (CA bundle path, retries, etc.) only need one edit.
+
+    Caller passes the timeout in seconds; typically wired to the
+    three Portainer-write-op TUNABLE tiers:
+        tuning_portainer_op_timeout_short_seconds   (default 120)
+        tuning_portainer_op_timeout_medium_seconds  (default 300)
+        tuning_portainer_op_timeout_long_seconds    (default 600)
+
+    Sample usage:
+        from logic import portainer
+        async with portainer.write_client(timeout=600.0) as client:
+            await client.post(...)
+    """
+    async with httpx.AsyncClient(verify=_verify_tls(), timeout=timeout) as client:
+        yield client
 
 
 def headers(agent_target: Optional[str] = None) -> dict[str, str]:

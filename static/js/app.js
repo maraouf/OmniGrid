@@ -19830,9 +19830,23 @@ function app() {
         prune_docker:         'prune-node',
         hosts_bulk_pause:     'hosts-bulk-pause',
         pause_hosts:          'hosts-bulk-pause',
+        // bulk_pause_hosts / bulk_resume_hosts — operator-natural
+        // phrasings the AI emits when the user says "pause all hosts"
+        // / "resume all hosts" without the `hosts_*` prefix.
+        bulk_pause_hosts:     'hosts-bulk-pause',
+        bulk_resume_hosts:    'hosts-bulk-resume',
         hosts_bulk_resume:    'hosts-bulk-resume',
         resume_hosts:         'hosts-bulk-resume',
         unpause_hosts:        'hosts-bulk-resume',
+        // prune_stopped / clear_notifications / notifications_clear_all
+        // — operator synonyms for the existing cleanup-stopped +
+        // mark-all-notifications-read descriptors. The AI emits
+        // whichever phrasing feels natural ("prune stopped containers"
+        // / "clear notifications" / "mark all read") and the SPA
+        // resolves to the same dispatch path.
+        prune_stopped:        'cleanup-stopped',
+        clear_notifications:  'mark-all-notifications-read',
+        notifications_clear_all: 'mark-all-notifications-read',
         backup_create:        'backup-create',
         create_backup:        'backup-create',
         snapshot_backup:      'backup-create',
