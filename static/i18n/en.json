@@ -1147,7 +1147,7 @@
       }
     },
     "notifications": {
-      "title": "Apprise notifications",
+      "title": "Notifications",
       "url_format_prefix": "URL format:",
       "url_format_suffix": "is the bundle name you saved in the Apprise web UI (not a tag). A <b>404</b> response means no config with that key exists on the server.",
       "url_placeholder": "http://apprise.example.com:8005/notify/<config-key>",

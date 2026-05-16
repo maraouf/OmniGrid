@@ -14,7 +14,13 @@
              `localStorage.hostStatsTab`. Adding a sixth provider
              (SNMP) is one line on this strip + one new tab
              body below. -->
-        <div class="flex items-center gap-1 border-b border-[var(--border)] mb-4 overflow-x-auto overflow-y-hidden scrollbar"
+        <!-- Provider tab strip — blue-pill active state matching the
+             Admin → Notifications tabs. Pre-fix the active tab carried
+             only a bottom-border accent + tinted text; operator-feedback
+             preferred the higher-contrast pill style. Active tab fills
+             with --primary + reads in --text-on-primary; inactive tabs
+             keep the muted text + hover-on-surface-2 affordance. -->
+        <div class="flex flex-wrap items-center gap-1 mb-4 pb-2 border-b border-[var(--border)] overflow-x-auto overflow-y-hidden scrollbar"
              role="tablist" aria-orientation="horizontal" :aria-label="t('settings.host_stats.tablist_label')">
           <template x-for="tab in [
             ['node_exporter', t('settings.host_stats.source_node_exporter')],
@@ -35,20 +41,19 @@
                     @keydown.home.prevent="setHostStatsTab(HOST_STATS_TAB_ORDER[0])"
                     @keydown.end.prevent="setHostStatsTab(HOST_STATS_TAB_ORDER[HOST_STATS_TAB_ORDER.length - 1])"
                     :class="hostStatsTab === tab[0]
-                      ? 'text-[var(--text)] border-[var(--primary)]'
-                      : 'text-[var(--text-dim)] hover:text-[var(--text)] border-transparent'"
-                    class="px-3 py-1.5 fs-sm font-medium border-b-2 -mb-[1px] transition flex items-center gap-1.5 whitespace-nowrap">
+                      ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
+                      : 'text-[var(--text-dim)] hover:bg-[var(--surface-2)]'"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded fs-xs font-medium whitespace-nowrap">
               <span class="w-1.5 h-1.5 rounded-full"
                     :class="hasHostStatsSource(tab[0]) ? 'dot-on' : 'dot-off'"
                     :title="hasHostStatsSource(tab[0]) ? t('settings.host_stats.tab_active_dot') : t('settings.host_stats.tab_inactive_dot')"></span>
               <!-- mono provider icon painted in the operator-
-                   customised chip colour. Active tab gets the
-                   full provider colour; inactive tabs use a muted
-                   token-driven foreground so the strip doesn't read
-                   like six saturated buttons all at once. -->
+                   customised chip colour. Active tab: icon uses the
+                   --text-on-primary token so it reads against the
+                   blue fill; inactive tabs keep the muted token. -->
               <span class="provider-icon"
                     :style="hostStatsTab === tab[0]
-                      ? providerIconStyle(tab[0])
+                      ? ('--provider-icon-url: url(/img/icons/' + providerIconSlug(tab[0]) + '.svg); color: var(--text-on-primary);')
                       : ('--provider-icon-url: url(/img/icons/' + providerIconSlug(tab[0]) + '.svg); color: var(--text-faint);')"
                     aria-hidden="true"></span>
               <span x-text="tab[1]"></span>

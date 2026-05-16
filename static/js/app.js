@@ -9892,6 +9892,29 @@ function app() {
         for (const k of (this.notifyMediumKeys || [])) {
           if (k in payload) payload[k] = payload[k] ? 'true' : 'false';
         }
+        // Boolean fields whose SettingsIn declarations are `Optional[str]`
+        // (the canonical string-on-the-wire contract every other boolean
+        // setting uses). Without this normalisation the SPA POSTs the
+        // raw JS bool and Pydantic rejects with `string_type`. Each
+        // entry is the in-form field name on `this.settings`.
+        const boolToStringFields = [
+          'telegram_verify_tls',
+          'swarm_autoheal_bootstrap_enabled',
+        ];
+        for (const k of boolToStringFields) {
+          if (k in payload && typeof payload[k] === 'boolean') {
+            payload[k] = payload[k] ? 'true' : 'false';
+          }
+        }
+        // `ai_fallback_order` is an Array on the form but SettingsIn
+        // declares `Optional[str]` (CSV-on-the-wire). The AI section's
+        // own Save path normalises this via `.join(',')`; the generic
+        // saveSettings path also ships it on `{...this.settings}`, so
+        // we must coerce here too.
+        if (Array.isArray(payload.ai_fallback_order)) {
+          payload.ai_fallback_order = payload.ai_fallback_order
+            .filter(Boolean).join(',');
+        }
         const r = await fetch('/api/settings', {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify(payload),
