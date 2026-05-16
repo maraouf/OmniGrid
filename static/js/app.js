@@ -396,9 +396,10 @@ function app() {
     currentClock: '',
     weather: null,
     // Public IP + ISP lookup cache for AI palette context.
-    // `publicIp.enabled` is the backend's `ai_public_ip_enabled` gate;
-    // `_publicIpFetchedAt` is the local last-fetch ts so we don't
-    // re-probe more than once per 10 min (matches the backend's TTL).
+    // `publicIp.enabled` is the backend's `tuning_public_ip_enabled`
+    // gate; `_publicIpFetchedAt` is the local last-fetch ts so we
+    // don't re-probe more than once per cache window (matches the
+    // backend's `tuning_public_ip_cache_ttl_seconds` TTL).
     publicIp: null,
     _publicIpFetchedAt: 0,
     _clockTimer: null,
@@ -1367,6 +1368,20 @@ function app() {
       'tuning_portainer_op_timeout_short_seconds',
       'tuning_portainer_op_timeout_medium_seconds',
       'tuning_portainer_op_timeout_long_seconds',
+      // Public IP — standalone subsystem with its own Admin → Public
+      // IP section. Master toggle (1/0) + cache TTL + fetch timeout.
+      // Section-owned save via publicIpSectionDirty() / savePublicIpSection().
+      'tuning_public_ip_enabled',
+      'tuning_public_ip_cache_ttl_seconds',
+      'tuning_public_ip_fetch_timeout_seconds',
+      // Telegram listener long-poll + outer-HTTP timeouts — rendered
+      // inside Admin → Notifications → Telegram tab next to the bot-
+      // token / chat-id / api-base inputs. Section save piggy-backs on
+      // the existing notifications-save chain (see _appriseSnapshot et
+      // al.) so an edit there commits through the same Save click as
+      // the other Telegram fields.
+      'tuning_telegram_long_poll_timeout_seconds',
+      'tuning_telegram_http_timeout_seconds',
       // Gather fan-out client timeout + orphan-probe per-call timeout —
       // also rendered in Admin → Portainer (gather talks to Portainer).
       'tuning_gather_client_timeout_seconds',
@@ -1611,6 +1626,7 @@ function app() {
       { id: 'host_groups',    label: 'Host Groups',     icon: 'layers' },
       { id: 'hosts',          label: 'Hosts',           icon: 'server' },
       { id: 'ssh',            label: 'SSH',             icon: 'terminal' },
+      { id: 'public_ip',      label: 'Public IP',       icon: 'globe' },
       { id: 'port_scan',      label: 'Port Scan',       icon: 'search' },
       { id: 'assets',         label: 'Asset inventory', icon: 'package' },
       { id: 'ai',             label: 'AI integration',  icon: 'zap' },
@@ -4815,6 +4831,12 @@ function app() {
     // the spinner / "Saving…" label fires the same way as the
     // per-section Save buttons did pre-fix.
     hostStatsSaving: false,
+    // Admin → Public IP state. `publicIpSaving` gates the section
+    // Save button; `publicIpTestResult` carries the most-recent
+    // /api/public-ip JSON response for the operator-visible result
+    // panel under the buttons row.
+    publicIpSaving: false,
+    publicIpTestResult: '',
 
     async saveHostStats() {
       this.hostStatsSaving = true;
@@ -5231,6 +5253,105 @@ function app() {
         this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
       } finally {
         this.hostStatsSaving = false;
+      }
+    },
+
+    // Admin → Public IP — section-owned save for the three
+    // public-IP tunables. Master toggle is the
+    // `tuning_public_ip_enabled` int (1/0); cache TTL + fetch
+    // timeout are operator-tunable numerics. No plain settings — the
+    // entire feature config is in TUNABLES so the migration shape is
+    // clean.
+    _publicIpSectionTuningKeys() {
+      return [
+        'tuning_public_ip_enabled',
+        'tuning_public_ip_cache_ttl_seconds',
+        'tuning_public_ip_fetch_timeout_seconds',
+      ];
+    },
+    publicIpSectionDirty() {
+      try {
+        const baseline = this._tuningBaselineMap();
+        for (const k of this._publicIpSectionTuningKeys()) {
+          const cur = (this.tuningForm || {})[k];
+          const curStr = (cur == null ? '' : String(cur).trim());
+          const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+          if (curStr !== baseStr) return true;
+        }
+      } catch (_) {}
+      return false;
+    },
+    async savePublicIpSection() {
+      if (this.publicIpSaving) return;
+      // Validate every tunable against its declared (min, max) bounds
+      // BEFORE the POST so a typo lands a toast instead of a partial
+      // save.
+      for (const k of this._publicIpSectionTuningKeys()) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) continue;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = this.tuningEffective[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+          }), 'error');
+          return;
+        }
+      }
+      this.publicIpSaving = true;
+      try {
+        const body = {};
+        for (const k of this._publicIpSectionTuningKeys()) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        // Re-baseline tunables + invalidate the SPA's public-IP
+        // cache so the next AI palette call sees the new gate state.
+        await Promise.all([this.loadSettings(), this.loadTuning()]);
+        try { this.publicIp = null; this._publicIpFetchedAt = 0; } catch (_) {}
+        this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+      } catch (e) {
+        this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+      } finally {
+        this.publicIpSaving = false;
+      }
+    },
+    async testPublicIpLookup() {
+      // Surface the canonical lookup output (the same shape every
+      // consumer sees) so the operator can confirm end-to-end without
+      // leaving the admin tab.
+      this.publicIpTestResult = '';
+      try {
+        const r = await fetch('/api/public-ip', { credentials: 'same-origin' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.publicIpTestResult = 'HTTP ' + r.status + ': ' + (j.detail || JSON.stringify(j));
+        } else {
+          this.publicIpTestResult = JSON.stringify(j, null, 2);
+        }
+      } catch (e) {
+        this.publicIpTestResult = 'fetch failed: ' + (e && e.message ? e.message : String(e));
       }
     },
 
@@ -8424,6 +8545,8 @@ function app() {
         this.settings.telegram_chat_id       = (d.telegram_chat_id || '').toString();
         this.settings.telegram_thread_id     = (d.telegram_thread_id || '').toString();
         this.settings.telegram_verify_tls    = (d.telegram_verify_tls !== false);
+        // Operator-tunable Bot API base URL — blank = upstream default.
+        this.settings.telegram_api_base      = (d.telegram_api_base || '').toString();
         // Phase 2 — listener config.
         this.settings.telegram_listener_enabled  = !!d.telegram_listener_enabled;
         this.settings.telegram_allow_destructive = !!d.telegram_allow_destructive;
@@ -10584,6 +10707,13 @@ function app() {
         chat_id:    (s.telegram_chat_id || '').trim(),
         thread_id:  (s.telegram_thread_id || '').trim(),
         verify_tls: !!s.telegram_verify_tls,
+        // Operator-tunable Bot API base URL — blank = upstream default.
+        api_base:   (s.telegram_api_base || '').trim(),
+        // Listener long-poll + outer-HTTP timeouts (TUNABLES). Read
+        // from tuningForm so an edit in the Telegram tab flips the
+        // same amber Save ring as the per-medium toggles.
+        long_poll:  (tf.tuning_telegram_long_poll_timeout_seconds ?? '').toString(),
+        http_to:    (tf.tuning_telegram_http_timeout_seconds ?? '').toString(),
         // Pending secret: any operator-typed value in the in-form
         // input is dirty. The DB-saved baseline never carries the raw
         // token (write-only), only the _set flag — so an empty form
@@ -11731,6 +11861,10 @@ function app() {
         if (s.telegram_chat_id   != null) payload.telegram_chat_id   = s.telegram_chat_id;
         if (s.telegram_thread_id != null) payload.telegram_thread_id = s.telegram_thread_id;
         payload.telegram_verify_tls = s.telegram_verify_tls ? 'true' : 'false';
+        // Operator-tunable Bot API base URL — blank string is the
+        // legitimate "clear override / fall back to upstream default"
+        // signal, so always send it.
+        if (s.telegram_api_base != null) payload.telegram_api_base = (s.telegram_api_base || '').toString();
         // Telegram Phase 2 listener config
         payload.telegram_listener_enabled  = s.telegram_listener_enabled ? 'true' : 'false';
         payload.telegram_allow_destructive = s.telegram_allow_destructive ? 'true' : 'false';
@@ -11746,6 +11880,12 @@ function app() {
           'tuning_notification_retention_days',
           'tuning_notification_page_size',
           'tuning_notifications_poll_interval_seconds',
+          // Telegram listener long-poll + outer-HTTP timeouts. Live
+          // alongside the Telegram section UI in this same partial; an
+          // edit lands through the Providers Save click rather than
+          // requiring a round-trip to Admin → Config.
+          'tuning_telegram_long_poll_timeout_seconds',
+          'tuning_telegram_http_timeout_seconds',
         ]) {
           if (tf[k] != null && String(tf[k]).trim() !== '') payload[k] = String(tf[k]).trim();
         }
@@ -19932,10 +20072,11 @@ function app() {
     // + values — observed regression on the AI sidebar before this
     // helper was extracted.
     // Fetch the public-IP block lazily before each AI palette call.
-    // Backend gates on `ai_public_ip_enabled` (default OFF) and
-    // caches for 10 min — this SPA-side cache layers on top so a
-    // burst of palette calls inside the same 10-min window doesn't
-    // re-fetch even from the warm backend cache. Fire-and-forget;
+    // Backend gates on `tuning_public_ip_enabled` (default OFF) and
+    // caches per `tuning_public_ip_cache_ttl_seconds` — this SPA-side
+    // cache layers on top so a burst of palette calls inside the
+    // same cache window doesn't re-fetch even from the warm backend
+    // cache. Fire-and-forget;
     // a slow/failing fetch never blocks the AI call.
     async _ensurePublicIp() {
       const now = Date.now();
@@ -20318,9 +20459,9 @@ function app() {
       };
       if (weatherCtx) ctx.weather = weatherCtx;
       // Public IP + ISP / ASN — operator-opt-in via the
-      // `ai_public_ip_enabled` setting. The SPA caches the last
+      // `tuning_public_ip_enabled` tunable. The SPA caches the last
       // /api/public-ip response on `this.publicIp` so repeated AI
-      // calls don't re-fetch; the backend has its own 10-min cache
+      // calls don't re-fetch; the backend has its own cache
       // so even uncached SPA-side calls cost at most one ifconfig.co
       // round-trip per cache window. Skipped cleanly when the setting
       // is off (backend returns enabled:false) so the prompt-builder

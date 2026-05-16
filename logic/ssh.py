@@ -114,6 +114,7 @@ DEFAULT_DESTRUCTIVE_PATTERNS = (
 from logic.cooldown import Cooldown
 from logic import tuning as _tuning
 from logic.tuning import Tunable as _Tunable
+from logic.settings_keys import Settings
 _auth_cooldown_timer = Cooldown(
     seconds_fn=lambda: _tuning.tuning_int(_Tunable.AUTH_FAILURE_COOLDOWN_SECONDS)
 )
@@ -141,21 +142,21 @@ def get_global_ssh_settings() -> dict:
     from logic.db import get_setting
     from logic import tuning as _tuning
     return {
-        "user":         (get_setting("ssh_default_user", "") or "").strip(),
+        "user":         (get_setting(Settings.SSH_DEFAULT_USER, "") or "").strip(),
         "port":         _tuning.tuning_int(_Tunable.SSH_DEFAULT_PORT),
-        "private_key":  get_setting("ssh_default_private_key", "") or "",
-        "passphrase":   get_setting("ssh_default_private_key_passphrase", "") or "",
+        "private_key":  get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY, "") or "",
+        "passphrase":   get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY_PASSPHRASE, "") or "",
         # Password auth fallback — used when private_key is blank, or
         # when the per-host override specifies a password. Returned in
         # the clear here (consumed by run_command); the /api/settings
         # shaper redacts via the ``password_set`` flag pattern.
-        "password":     get_setting("ssh_default_password", "") or "",
+        "password":     get_setting(Settings.SSH_DEFAULT_PASSWORD, "") or "",
         # FQDN suffix appended to bare hostnames during resolve.
         # Normalised on save to include the leading dot.
-        "fqdn_suffix":  get_setting("ssh_fqdn_suffix", "") or "",
-        "known_hosts":  get_setting("ssh_default_known_hosts", "") or "",
+        "fqdn_suffix":  get_setting(Settings.SSH_FQDN_SUFFIX, "") or "",
+        "known_hosts":  get_setting(Settings.SSH_DEFAULT_KNOWN_HOSTS, "") or "",
         "destructive_patterns": (
-            get_setting("ssh_destructive_patterns", "") or ""
+            get_setting(Settings.SSH_DESTRUCTIVE_PATTERNS, "") or ""
         ).strip(),
     }
 
@@ -284,7 +285,7 @@ def _groups_for_host(record: Optional[dict], *, verbose: bool = True) -> tuple[O
         _log(f"[ssh] _groups_for_host id={rid!r}: custom_number={cn!r} not int-parseable")
         return (None, None)
     from logic.db import get_setting
-    raw = get_setting("host_groups", "") or ""
+    raw = get_setting(Settings.HOST_GROUPS, "") or ""
     if not raw.strip():
         _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups setting is empty — no groups defined")
         return (None, None)
@@ -428,7 +429,7 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     # settings table — flipping the switch back on resumes service
     # without re-typing. Note this short-circuits BEFORE the heavier
     # per-host walk, so the cost stays at one DB read.
-    if (_get_setting("ssh_enabled", "true") or "true").lower() != "true":
+    if (_get_setting(Settings.SSH_ENABLED, "true") or "true").lower() != "true":
         return {
             "host":              "",
             "user":              g["user"],
@@ -441,7 +442,7 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
             "password_source":   "",
             "error":             "SSH disabled in Admin → SSH (master switch off)",
         }
-    _groups_raw = _get_setting("host_groups", "") or ""
+    _groups_raw = _get_setting(Settings.HOST_GROUPS, "") or ""
     _new_sig = _compute_resolve_signature(record, g, _groups_raw)
     verbose = _resolve_input_sig.get(host_id) != _new_sig
     _resolve_input_sig[host_id] = _new_sig

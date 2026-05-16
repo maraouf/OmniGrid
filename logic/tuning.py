@@ -8,9 +8,35 @@ without a restart — every consumer calls ``tuning_int(...)`` at the
 point of use rather than caching it at module import.
 """
 import os
+import sqlite3
 from enum import Enum
 
 from logic.db import get_setting
+
+
+def _read_raw_tunable(db_key: str, env_var: str) -> tuple[str, str]:
+    """Resolve the raw DB + env strings for one tunable.
+
+    Returns ``(raw_db, env_raw)`` — both as bare strings (no parsing,
+    no clamping). DB unreachable (config-error boot path) returns an
+    empty ``raw_db`` rather than raising. Shared by :func:`tuning_int`
+    and :func:`effective_state` so the DB-vs-env precedence and the
+    narrow exception class stay in one place.
+    """
+    try:
+        raw_db = (get_setting(db_key) or "").strip()
+    except (sqlite3.Error, RuntimeError, OSError):
+        # DB unreachable. Specific paths covered:
+        #   sqlite3.Error    — corrupt DB / lock / I/O error mid-query.
+        #   RuntimeError     — `db_conn()` raises this when DB_PATH is
+        #                      unset (config-error boot path before the
+        #                      .env has been provisioned).
+        #   OSError          — DB file inaccessible at the filesystem
+        #                      level (path doesn't exist / permission).
+        # Any of these → skip straight to env / default rather than
+        # propagating the boot-path failure into every tunable read.
+        raw_db = ""
+    return raw_db, os.getenv(env_var, "")
 
 
 class Tunable(str, Enum):
@@ -96,6 +122,9 @@ class Tunable(str, Enum):
     PORTAINER_OP_TIMEOUT_LONG_SECONDS = "tuning_portainer_op_timeout_long_seconds"
     PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS = "tuning_portainer_op_timeout_medium_seconds"
     PORTAINER_OP_TIMEOUT_SHORT_SECONDS = "tuning_portainer_op_timeout_short_seconds"
+    PUBLIC_IP_CACHE_TTL_SECONDS = "tuning_public_ip_cache_ttl_seconds"
+    PUBLIC_IP_ENABLED = "tuning_public_ip_enabled"
+    PUBLIC_IP_FETCH_TIMEOUT_SECONDS = "tuning_public_ip_fetch_timeout_seconds"
     PULSE_FAILURE_PAUSE_ROUNDS = "tuning_pulse_failure_pause_rounds"
     PULSE_PROBE_TIMEOUT_SECONDS = "tuning_pulse_probe_timeout_seconds"
     PULSE_SAMPLE_INTERVAL_SECONDS = "tuning_pulse_sample_interval_seconds"
@@ -136,6 +165,8 @@ class Tunable(str, Enum):
     STATS_UNTARGETED_TIMEOUT_SECONDS = "tuning_stats_untargeted_timeout_seconds"
     SWARM_AGENT_UNHEALTHY_THRESHOLD = "tuning_swarm_agent_unhealthy_threshold"
     SWARM_AUTOHEAL_COOLDOWN_MINUTES = "tuning_swarm_autoheal_cooldown_minutes"
+    TELEGRAM_HTTP_TIMEOUT_SECONDS = "tuning_telegram_http_timeout_seconds"
+    TELEGRAM_LONG_POLL_TIMEOUT_SECONDS = "tuning_telegram_long_poll_timeout_seconds"
     WEBMIN_FAILURE_PAUSE_ROUNDS = "tuning_webmin_failure_pause_rounds"
     WEBMIN_HOST_CACHE_TTL_SECONDS = "tuning_webmin_host_cache_ttl_seconds"
     WEBMIN_HOST_FAIL_CACHE_TTL_SECONDS = "tuning_webmin_host_fail_cache_ttl_seconds"
@@ -149,10 +180,10 @@ class Tunable(str, Enum):
 # source of truth — adding a new knob means one edit here + extending
 # the SettingsIn model + one row in the Admin → Config form.
 TUNABLES: dict[str, tuple[str, int, int, int]] = {
-    "tuning_cache_ttl_seconds":             ("CACHE_TTL_SECONDS",            900, 30,  86400),
-    "tuning_stats_cache_ttl_seconds":       ("STATS_CACHE_TTL_SECONDS",       30,  5,  3600),
-    "tuning_registry_concurrency":          ("REGISTRY_CONCURRENCY",           8,  1,  64),
-    "tuning_stats_concurrency":             ("STATS_CONCURRENCY",             16,  1,  128),
+    "tuning_cache_ttl_seconds": ("CACHE_TTL_SECONDS", 900, 30, 86400),
+    "tuning_stats_cache_ttl_seconds": ("STATS_CACHE_TTL_SECONDS", 30, 5, 3600),
+    "tuning_registry_concurrency": ("REGISTRY_CONCURRENCY", 8, 1, 64),
+    "tuning_stats_concurrency": ("STATS_CONCURRENCY", 16, 1, 128),
     # Per-container stats fetch timeouts. `_one_container_stats` makes
     # up to two HTTP calls per running container per gather:
     # 1. Targeted (with `X-PortainerAgent-Target=<host>`) — fast-fail
@@ -169,7 +200,7 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # can be loosened without a redeploy. Range 1..60s — anything
     # under 1s is too short for the round-trip; anything over 60s
     # would block the whole gather behind one slow container.
-    "tuning_stats_targeted_timeout_seconds":   ("STATS_TARGETED_TIMEOUT_SECONDS", 12, 1, 60),
+    "tuning_stats_targeted_timeout_seconds": ("STATS_TARGETED_TIMEOUT_SECONDS", 12, 1, 60),
     "tuning_stats_untargeted_timeout_seconds": ("STATS_UNTARGETED_TIMEOUT_SECONDS", 10, 1, 60),
     # Swarm agent unhealthy-banner threshold. After N consecutive
     # gather cycles where a Swarm node had ≥1 running task cid but
@@ -194,9 +225,21 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # raised to give manual investigation time before another
     # restart cycle. Notify-mode bypasses the cooldown — only the
     # restart action consumes it.
-    "tuning_swarm_autoheal_cooldown_minutes":   ("SWARM_AUTOHEAL_COOLDOWN_MINUTES", 30, 1, 1440),
-    "tuning_stats_history_days":            ("STATS_HISTORY_DAYS",             7,  1,  365),
-    "tuning_stats_sample_interval_seconds": ("STATS_SAMPLE_INTERVAL_SECONDS", 300, 30,  3600),
+    "tuning_swarm_autoheal_cooldown_minutes": ("SWARM_AUTOHEAL_COOLDOWN_MINUTES", 30, 1, 1440),
+    # Telegram listener long-poll timeout (seconds). Telegram holds the
+    # `getUpdates` connection open this many seconds waiting for an
+    # update before responding. Server-side cap is 50; default 25
+    # balances "fast wake-up on inactivity" with "amortise round-trip
+    # cost on a busy chat". Range 1..50.
+    "tuning_telegram_long_poll_timeout_seconds": ("TELEGRAM_LONG_POLL_TIMEOUT_SECONDS", 25, 1, 50),
+    # Telegram listener outer HTTP wall-clock (seconds). Slightly larger
+    # than the long-poll timeout so Telegram has time to flush the
+    # response after a long-poll wake-up. Default 35 (= 25 + 10). Range
+    # 5..120. Operators behind a tight reverse-proxy `proxy_read_timeout`
+    # may want to lower both this and the long-poll timeout in lock-step.
+    "tuning_telegram_http_timeout_seconds": ("TELEGRAM_HTTP_TIMEOUT_SECONDS", 35, 5, 120),
+    "tuning_stats_history_days": ("STATS_HISTORY_DAYS", 7, 1, 365),
+    "tuning_stats_sample_interval_seconds": ("STATS_SAMPLE_INTERVAL_SECONDS", 300, 30, 3600),
     # host_baseline_sampler cadence — controls how often the lifespan
     # task recomputes per-host rolling baselines for drift detection.
     # Baselines move slowly (30-day rolling window) so hourly is the
@@ -208,13 +251,13 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # First-tick delay — gives schema migrations time to land before
     # the sampler reads `host_baselines`. Operators rebooting under
     # heavy load can raise; default is comfortably fast.
-    "tuning_host_baseline_first_tick_delay_seconds":   ("HOST_BASELINE_FIRST_TICK_DELAY_SECONDS",     60,  5,  600),
+    "tuning_host_baseline_first_tick_delay_seconds": ("HOST_BASELINE_FIRST_TICK_DELAY_SECONDS", 60, 5, 600),
     # Wall-clock cap for the cold-cache `_gather()` kick on cache-
     # missing drill-down endpoints. Default 30s — enough headroom for
     # a typical Portainer fan-out. Operators with large fleets / slow
     # registries hit this on incident-mode lookups; bump to 60-120s
     # in those environments. Floor 5s prevents accidentally disabling.
-    "tuning_kick_gather_timeout_seconds":              ("KICK_GATHER_TIMEOUT_SECONDS",                30,  5,  300),
+    "tuning_kick_gather_timeout_seconds": ("KICK_GATHER_TIMEOUT_SECONDS", 30, 5, 300),
     # Portainer write-op wall-clocks. Three tiers — short for quick
     # container restart / remove (default 120s), medium for service-
     # level ops + prune (default 300s), long for stack updates +
@@ -224,17 +267,32 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # specific op-class is consistently timing out. Lower tiers'
     # ceilings are intentionally tighter than the upper tiers'
     # floors so admins can't accidentally invert the ordering.
-    "tuning_portainer_op_timeout_short_seconds":       ("PORTAINER_OP_TIMEOUT_SHORT_SECONDS",         120, 10,  600),
-    "tuning_portainer_op_timeout_medium_seconds":      ("PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS",        300, 30, 1800),
-    "tuning_portainer_op_timeout_long_seconds":        ("PORTAINER_OP_TIMEOUT_LONG_SECONDS",          600, 60, 3600),
+    "tuning_portainer_op_timeout_short_seconds": ("PORTAINER_OP_TIMEOUT_SHORT_SECONDS", 120, 10, 600),
+    "tuning_portainer_op_timeout_medium_seconds": ("PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS", 300, 30, 1800),
+    "tuning_portainer_op_timeout_long_seconds": ("PORTAINER_OP_TIMEOUT_LONG_SECONDS", 600, 60, 3600),
+    # Public-IP lookup module. Standalone subsystem (NOT AI-related —
+    # the AI palette + Telegram /ip command both consume it but the
+    # feature is independent and toggled from its own Admin → Public IP
+    # section). Default OFF for privacy: enabling authorises outbound
+    # calls to ifconfig.co (third-party JSON service) revealing the
+    # deployment's IP / ISP / ASN / city / country. Range 0..1 (boolean).
+    "tuning_public_ip_enabled": ("PUBLIC_IP_ENABLED", 0, 0, 1),
+    # Public-IP in-process cache TTL. Single deploy hits the upstream
+    # at most ~144 times/day at the 600s default; lower for fresher
+    # geolocation after a WAN failover, raise on rate-limit pressure.
+    # Range 60..3600.
+    "tuning_public_ip_cache_ttl_seconds": ("PUBLIC_IP_CACHE_TTL_SECONDS", 600, 60, 3600),
+    # Public-IP outbound HTTP wall-clock. ifconfig.co normally answers
+    # well under 1s; raise on slow links / proxy paths. Range 2..60.
+    "tuning_public_ip_fetch_timeout_seconds": ("PUBLIC_IP_FETCH_TIMEOUT_SECONDS", 8, 2, 60),
     # Asset-inventory outbound HTTP wall-clocks. Two tiers — token
     # probe (OAuth2 client_credentials handshake, default 10s) and
     # asset fetch (paginated /assets pull, default 15s). Operators on
     # slow corporate networks or with the asset API behind a tunnel
     # can bump these; tight-watchdog deploys can lower. Range floors
     # prevent accidentally disabling.
-    "tuning_asset_inventory_token_timeout_seconds":    ("ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS",       10,  2,  120),
-    "tuning_asset_inventory_fetch_timeout_seconds":    ("ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS",       15,  2,  300),
+    "tuning_asset_inventory_token_timeout_seconds": ("ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS", 10, 2, 120),
+    "tuning_asset_inventory_fetch_timeout_seconds": ("ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS", 15, 2, 300),
     # host_metrics_sampler permanent-fail window. After this many
     # seconds of consecutive probe failures the sampler auto-pauses the
     # host (no more probe attempts) until the operator resumes via
@@ -398,7 +456,7 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     #     still uses `tuning_port_scan_default_concurrency` for its
     #     internal port-probe parallelism.
     "tuning_port_scan_schedule_max_hosts_per_tick": ("PORT_SCAN_SCHEDULE_MAX_HOSTS_PER_TICK", 5, 1, 50),
-    "tuning_port_scan_schedule_min_age_seconds":    ("PORT_SCAN_SCHEDULE_MIN_AGE_SECONDS", 1800, 60, 86400),
+    "tuning_port_scan_schedule_min_age_seconds": ("PORT_SCAN_SCHEDULE_MIN_AGE_SECONDS", 1800, 60, 86400),
     "tuning_port_scan_schedule_per_host_concurrency": ("PORT_SCAN_SCHEDULE_PER_HOST_CONCURRENCY", 1, 1, 4),
     # SSE heartbeat cadence (seconds). The /api/events stream
     # emits a `: keepalive\n\n` comment every N seconds so an idle NPM
@@ -459,7 +517,7 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Upper bound 600s — anything longer is effectively "no cap"
     # and defeats the watchdog's purpose. Default 30s matches the
     # documented per-host probe budget for `/api/hosts/one/{id}`.
-    "tuning_load_busy_max_seconds":         ("LOAD_BUSY_MAX_SECONDS", 30, 5, 600),
+    "tuning_load_busy_max_seconds": ("LOAD_BUSY_MAX_SECONDS", 30, 5, 600),
     # login rate-limit policy. Three knobs grouped (max
     # failures, sliding window, lockout duration). Default mirrors
     # the prior hardcoded policy: 5 failures in 15 min → 15 min
@@ -514,10 +572,10 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # often want Ping to tick FASTER than the data-bearing samplers
     # (sub-minute reachability checks against routers / 5G modems)
     # without bumping the global cadence. Range 0..3600.
-    "tuning_ping_interval_seconds":      ("PING_INTERVAL_SECONDS", 0, 0, 3600),
-    "tuning_ping_concurrency":           ("PING_CONCURRENCY", 16, 1, 128),
+    "tuning_ping_interval_seconds": ("PING_INTERVAL_SECONDS", 0, 0, 3600),
+    "tuning_ping_concurrency": ("PING_CONCURRENCY", 16, 1, 128),
     "tuning_ping_probe_timeout_seconds": ("PING_PROBE_TIMEOUT_SECONDS", 2, 1, 30),
-    "tuning_ping_cooldown_seconds":      ("PING_COOLDOWN_SECONDS", 300, 30, 3600),
+    "tuning_ping_cooldown_seconds": ("PING_COOLDOWN_SECONDS", 300, 30, 3600),
     # SNMP host-stats provider knobs. Two operator-tunable
     # values: the per-probe wall-clock timeout (UDP retransmits live
     # under this budget) and the fan-out concurrency cap that bounds
@@ -527,7 +585,7 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # surface for SNMP — the cool-down purely throttles probes against
     # an unreachable host, same purpose as the auth one).
     "tuning_snmp_probe_timeout_seconds": ("SNMP_PROBE_TIMEOUT_SECONDS", 5, 1, 60),
-    "tuning_snmp_concurrency":           ("SNMP_CONCURRENCY", 16, 1, 128),
+    "tuning_snmp_concurrency": ("SNMP_CONCURRENCY", 16, 1, 128),
     # Wall-clock budget for ONE probe against ONE host. The probe fans
     # out ~60 SNMP GET / WALK operations (sys / HR / IF / ENTITY +
     # vendor-private MIBs for Dell / Cisco / APC / UCD / Synology /
@@ -571,17 +629,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Default 0 (= disabled, falls through to the generic tunable). Set
     # to 1..16 to enable. APC excluded — single-GET probe, concurrency
     # has no effect.
-    "tuning_snmp_walk_concurrency_dell":     ("SNMP_WALK_CONCURRENCY_DELL", 0, 0, 16),
-    "tuning_snmp_walk_concurrency_cisco":    ("SNMP_WALK_CONCURRENCY_CISCO", 0, 0, 16),
+    "tuning_snmp_walk_concurrency_dell": ("SNMP_WALK_CONCURRENCY_DELL", 0, 0, 16),
+    "tuning_snmp_walk_concurrency_cisco": ("SNMP_WALK_CONCURRENCY_CISCO", 0, 0, 16),
     "tuning_snmp_walk_concurrency_synology": ("SNMP_WALK_CONCURRENCY_SYNOLOGY", 0, 0, 16),
-    "tuning_snmp_walk_concurrency_ucd":      ("SNMP_WALK_CONCURRENCY_UCD", 0, 0, 16),
-    "tuning_snmp_walk_concurrency_printer":  ("SNMP_WALK_CONCURRENCY_PRINTER", 0, 0, 16),
+    "tuning_snmp_walk_concurrency_ucd": ("SNMP_WALK_CONCURRENCY_UCD", 0, 0, 16),
+    "tuning_snmp_walk_concurrency_printer": ("SNMP_WALK_CONCURRENCY_PRINTER", 0, 0, 16),
     # SNMP per-host caches, distinct from the Webmin TTL knobs.
     # Pre-fix the SNMP per-host caches reused tuning_webmin_host_cache_ttl_seconds /
     # tuning_webmin_host_fail_cache_ttl_seconds — operator changing the
     # Webmin TTL silently changed SNMP cache behaviour. Each provider's
     # per-host probe cache (success and fail) gets its OWN dial.
-    "tuning_snmp_host_cache_ttl_seconds":      ("SNMP_HOST_CACHE_TTL_SECONDS", 30, 5, 300),
+    "tuning_snmp_host_cache_ttl_seconds": ("SNMP_HOST_CACHE_TTL_SECONDS", 30, 5, 300),
     "tuning_snmp_host_fail_cache_ttl_seconds": ("SNMP_HOST_FAIL_CACHE_TTL_SECONDS", 5, 1, 60),
     # dedicated SNMP unreachable-cool-down dial. Pre-fix
     # SNMP shared `tuning_auth_failure_cooldown_seconds` with Webmin
@@ -736,7 +794,7 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # store. Surfaced to the SPA via /api/me's `client_config.notifications_page_size`
     # so the user-side popup picks up the resolved value without a
     # restart.
-    "tuning_notification_page_size":      ("NOTIFICATION_PAGE_SIZE", 25, 5, 200),
+    "tuning_notification_page_size": ("NOTIFICATION_PAGE_SIZE", 25, 5, 200),
     # Notifications popup poll cadence (seconds) — fallback for when the
     # SSE stream is disconnected AND the operator has the popup open. The
     # popup live-updates via SSE under normal conditions; this knob only
@@ -754,13 +812,13 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # only carries ints. Operator can disable from Admin → AI
     # Integration when the second-attempt latency is more annoying
     # than the modal pop-up.
-    "tuning_ai_retry_enabled":            ("AI_RETRY_ENABLED", 1, 0, 1),
+    "tuning_ai_retry_enabled": ("AI_RETRY_ENABLED", 1, 0, 1),
     # Backoff in milliseconds before the retry attempt. Default 2000ms
     # = 2s — short enough that the operator's typing rhythm isn't
     # broken, long enough that a transient overload usually clears.
     # Range 0..30000 (0 = retry immediately, useful for tests; 30s =
     # generous for slow upstreams under heavy load).
-    "tuning_ai_retry_backoff_ms":         ("AI_RETRY_BACKOFF_MS", 2000, 0, 30000),
+    "tuning_ai_retry_backoff_ms": ("AI_RETRY_BACKOFF_MS", 2000, 0, 30000),
     # First-attempt-max-duration gate. The retry only fires when the
     # FIRST attempt resolved in < this many ms — if the first attempt
     # was already slow, the upstream is genuinely struggling and a
@@ -948,17 +1006,12 @@ def tuning_int(db_key: str) -> int:
     def _clamp(v: int) -> int:
         return max(lo, min(hi, v))
 
-    try:
-        raw = (get_setting(db_key, "") or "").strip()
-    except Exception:
-        # DB unreachable (config-error boot path) — skip straight to env.
-        raw = ""
-    if raw:
+    raw_db, env_raw = _read_raw_tunable(db_key, env_var)
+    if raw_db:
         try:
-            return _clamp(int(raw))
+            return _clamp(int(raw_db))
         except ValueError:
             pass
-    env_raw = os.getenv(env_var, "")
     if env_raw:
         try:
             return _clamp(int(env_raw))
@@ -978,17 +1031,17 @@ def tuning_int(db_key: str) -> int:
 # (e.g. 1h with hourly buckets = 1 bar) are accepted as-is — a single bar is
 # the operator-stated convention for that case.
 STATS_RANGE_SECONDS: dict[str, int] = {
-    "1h":  3600,
+    "1h": 3600,
     "24h": 86400,
-    "7d":  7 * 86400,
+    "7d": 7 * 86400,
     "30d": 30 * 86400,
     "90d": 90 * 86400,
 }
 
 STATS_BUCKET_SECONDS: dict[str, int] = {
-    "1h":  3600,
+    "1h": 3600,
     "24h": 3600,
-    "7d":  86400,
+    "7d": 86400,
     "30d": 86400,
     "90d": 7 * 86400,
 }
@@ -1016,19 +1069,15 @@ def effective_state() -> dict:
     """
     out: dict = {}
     for k, (env_var, default, lo, hi) in TUNABLES.items():
-        try:
-            raw_db = (get_setting(k, "") or "").strip()
-        except Exception:
-            raw_db = ""
-        env_raw = os.getenv(env_var, "")
+        raw_db, env_raw = _read_raw_tunable(k, env_var)
         out[k] = {
-            "db":        raw_db,
-            "env":       env_raw,
-            "default":   default,
+            "db": raw_db,
+            "env": env_raw,
+            "default": default,
             "effective": tuning_int(k),
-            "min":       lo,
-            "max":       hi,
-            "env_var":   env_var,
+            "min": lo,
+            "max": hi,
+            "env_var": env_var,
         }
     return out
 

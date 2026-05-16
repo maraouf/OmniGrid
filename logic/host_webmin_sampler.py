@@ -37,6 +37,7 @@ from logic.db import (
     get_setting,
     active_host_stats_providers as _active_providers,
 )
+from logic.settings_keys import Settings
 
 
 # Same sanity bounds as host_metrics_sampler / host_pulse_sampler.
@@ -61,7 +62,7 @@ def _curated_webmin_hosts() -> list[dict]:
     entry as `{id, url}`. Empty list when Webmin isn't a registered
     provider on the curated row.
     """
-    raw = get_setting("hosts_config", "") or ""
+    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
     if not raw.strip():
         return []
     try:
@@ -71,7 +72,7 @@ def _curated_webmin_hosts() -> list[dict]:
     if not isinstance(parsed, list):
         return []
     try:
-        aliases = json.loads(get_setting("webmin_aliases", "{}") or "{}")
+        aliases = json.loads(get_setting(Settings.WEBMIN_ALIASES, "{}") or "{}")
         if not isinstance(aliases, dict):
             aliases = {}
     except ValueError:
@@ -230,13 +231,13 @@ async def host_webmin_sampler_loop() -> None:
                     print(f"[host_webmin_sampler] iter {iter_count} skip: no curated webmin hosts")
                     await asyncio.sleep(interval)
                     continue
-                user = (get_setting("webmin_user", "") or "").strip()
-                password = (get_setting("webmin_password", "") or "").strip()
+                user = (get_setting(Settings.WEBMIN_USER, "") or "").strip()
+                password = (get_setting(Settings.WEBMIN_PASSWORD, "") or "").strip()
                 if not user or not password:
                     print(f"[host_webmin_sampler] iter {iter_count} skip: missing creds")
                     await asyncio.sleep(interval)
                     continue
-                verify_tls = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
+                verify_tls = (get_setting(Settings.WEBMIN_VERIFY_TLS, "false") or "false").lower() == "true"
                 timeout = float(tuning.tuning_int(Tunable.WEBMIN_PROBE_TIMEOUT_SECONDS)) or 8.0
                 active = _active_providers()
                 # Fan out — one probe per curated host, in parallel

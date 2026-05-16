@@ -35,6 +35,7 @@ from logic import ping as _ping
 from logic import tuning
 from logic.tuning import Tunable as _Tunable
 from logic.db import db_conn, get_setting, get_setting_bool, active_host_stats_providers
+from logic.settings_keys import Settings
 
 
 def _curated_ping_hosts() -> list[dict]:
@@ -52,7 +53,7 @@ def _curated_ping_hosts() -> list[dict]:
     """
     import json as _json
 
-    raw = get_setting("hosts_config", "") or ""
+    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
     if not raw.strip():
         return []
     try:
@@ -63,7 +64,7 @@ def _curated_ping_hosts() -> list[dict]:
         return []
 
     default_port = _resolve_default_port()
-    use_icmp_global = get_setting_bool("ping_use_icmp", False)
+    use_icmp_global = get_setting_bool(Settings.PING_USE_ICMP, False)
     default_transport = "icmp" if (use_icmp_global and _ping.has_icmp_support()) else "tcp"
 
     out: list[dict] = []

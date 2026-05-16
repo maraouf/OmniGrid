@@ -2495,7 +2495,7 @@
                        @change="toggleHostSelection(h.id)"
                        class="hosts-row-select"
                        :aria-label="t('hosts_extra.bulk.row_select_aria', { name: hostDisplayName(h) }) || 'Select host'">
-                <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform" :class="isHostExpanded(h.host) ? 'rotate-90' : (isHostExpandable(h) ? '' : 'opacity-30')"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+                <svg width="13" height="13" stroke-width="2.4" aria-hidden="true" class="text-[var(--text)] transition-transform flex-shrink-0 flip-rtl" :class="isHostExpanded(h.host) ? 'rotate-90' : (isHostExpandable(h) ? '' : 'opacity-30')"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
                 <template x-if="h._loading">
                   <span class="host-loading-spinner" aria-hidden="true"></span>
                 </template>
@@ -3233,6 +3233,7 @@
       <!-- INCLUDE: admin/assets.html -->
       <!-- INCLUDE: admin/ai.html -->
       <!-- INCLUDE: admin/ssh.html -->
+      <!-- INCLUDE: admin/public_ip.html -->
       <!-- INCLUDE: admin/port_scan.html -->
       <!-- INCLUDE: admin/schedules.html -->
       <!-- INCLUDE: admin/backups.html -->

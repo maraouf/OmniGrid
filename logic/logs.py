@@ -36,6 +36,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional, TextIO
+from logic.settings_keys import Settings
 
 
 # How many lines to retain in-memory. 2000 at ~150 bytes/line is ~300 KB —
@@ -74,7 +75,7 @@ def _resolved_tz():
     """
     try:
         from logic.db import get_setting
-        tz_name = (get_setting("scheduler_timezone", "") or "").strip()
+        tz_name = (get_setting(Settings.SCHEDULER_TIMEZONE, "") or "").strip()
         if tz_name:
             from zoneinfo import ZoneInfo
             return ZoneInfo(tz_name)

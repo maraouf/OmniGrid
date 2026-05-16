@@ -57,12 +57,31 @@ from __future__ import annotations
 
 import asyncio
 from typing import Optional
+from logic.settings_keys import Settings
 
 import httpx
 
 
-# Telegram API base. Tokens are appended as ``/bot<token>/<method>``.
-_TELEGRAM_API_BASE = "https://api.telegram.org"
+# Telegram API base default. Tokens are appended as ``/bot<token>/<method>``.
+# Operators can override via the ``telegram_api_base`` setting (Admin →
+# Notifications → Telegram) for self-hosted Bot API gateways or proxy
+# endpoints. Read at use-time via ``_telegram_api_base()`` so a UI edit
+# takes effect on the next send without restart.
+_TELEGRAM_API_BASE_DEFAULT = "https://api.telegram.org"
+
+
+def _telegram_api_base() -> str:
+    """Resolve the Telegram Bot API base URL.
+
+    Reads the operator-tunable ``telegram_api_base`` setting; falls
+    back to the official upstream when blank. Trailing slashes are
+    stripped so the per-send URL composition stays clean.
+    """
+    from logic.db import get_setting
+    raw = (get_setting(Settings.TELEGRAM_API_BASE, "") or "").strip()
+    if not raw:
+        return _TELEGRAM_API_BASE_DEFAULT
+    return raw.rstrip("/")
 
 
 def _severity_emoji(severity: str) -> str:
@@ -141,10 +160,10 @@ async def send(
     # Lazy import — keeps module import cheap when Telegram isn't used.
     from logic.db import get_setting
 
-    token = (bot_token or get_setting("telegram_bot_token", "") or "").strip()
-    chat = (chat_id or get_setting("telegram_chat_id", "") or "").strip()
-    thread = (thread_id or get_setting("telegram_thread_id", "") or "").strip()
-    verify_tls = (get_setting("telegram_verify_tls", "true") or "true").strip().lower() != "false"
+    token = (bot_token or get_setting(Settings.TELEGRAM_BOT_TOKEN, "") or "").strip()
+    chat = (chat_id or get_setting(Settings.TELEGRAM_CHAT_ID, "") or "").strip()
+    thread = (thread_id or get_setting(Settings.TELEGRAM_THREAD_ID, "") or "").strip()
+    verify_tls = (get_setting(Settings.TELEGRAM_VERIFY_TLS, "true") or "true").strip().lower() != "false"
 
     if not token:
         return {"ok": False, "detail": "telegram: bot token not configured", "status": 0}
@@ -170,7 +189,7 @@ async def send(
         except (TypeError, ValueError):
             pass
 
-    url = f"{_TELEGRAM_API_BASE}/bot{token}/sendMessage"
+    url = f"{_telegram_api_base()}/bot{token}/sendMessage"
     try:
         async with httpx.AsyncClient(verify=verify_tls, timeout=15.0) as client:
             r = await client.post(url, json=payload)

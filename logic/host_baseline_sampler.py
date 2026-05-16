@@ -18,6 +18,7 @@ import time
 
 from logic import host_baseline as _baseline
 from logic.db import db_conn, get_setting
+from logic.settings_keys import Settings
 from logic.tuning import Tunable, tuning_int as _tuning_int
 
 
@@ -35,7 +36,7 @@ def _first_tick_delay() -> int:
 def _curated_host_ids() -> list[str]:
     """Resolve every curated host's id from `hosts_config`. Mirrors
     the pattern other samplers use for the per-host fan-out."""
-    raw = (get_setting("hosts_config", "") or "").strip()
+    raw = (get_setting(Settings.HOSTS_CONFIG, "") or "").strip()
     if not raw:
         return []
     try:

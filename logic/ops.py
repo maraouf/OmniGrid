@@ -53,6 +53,7 @@ import httpx
 
 from logic import events, gather, metrics, portainer
 from logic.db import db_conn, get_setting, get_setting_bool
+from logic.settings_keys import Settings, notify_event_key, notify_medium_key, notify_template_body_key, notify_template_title_key
 from logic.tuning import tuning_int as _tuning_int
 
 
@@ -629,8 +630,8 @@ def template_setting_keys(event: str) -> tuple[str, str]:
     audit gate all agree on the spelling.
     """
     return (
-        f"notify_template_{event}_title",
-        f"notify_template_{event}_body",
+        notify_template_title_key(event),
+        notify_template_body_key(event),
     )
 
 
@@ -1118,13 +1119,13 @@ async def _notify_medium_apprise(
     original :func:`notify`. Returns a structured ``{ok, skipped, ...}``
     dict so the caller can log per-medium outcomes.
     """
-    if (get_setting("apprise_enabled", "true") or "true").lower() != "true":
+    if (get_setting(Settings.APPRISE_ENABLED, "true") or "true").lower() != "true":
         # Master toggle keeps the legacy short-circuit semantics; the
         # operator might have wanted to keep the app medium live while
         # silencing Apprise without flipping the per-medium switch.
         print("[notify] apprise skipped — apprise disabled in Admin → Notifications")
         return {"ok": False, "skipped": "apprise_disabled"}
-    url = get_setting("apprise_url", "")
+    url = get_setting(Settings.APPRISE_URL, "")
     if not url:
         print("[notify] apprise skipped — no apprise_url configured")
         return {"ok": False, "skipped": "no_url"}
@@ -1142,7 +1143,7 @@ async def _notify_medium_apprise(
                     user_email = (getattr(_u, "email", "") or "").strip() or None
         except Exception as _e:
             print(f"[notify] apprise user-email lookup failed for '{actor_username}': {_e}")
-    tag = get_setting("apprise_tag", "")
+    tag = get_setting(Settings.APPRISE_TAG, "")
     body = body or title  # Apprise rejects empty bodies.
     try:
         # Apprise piggy-backs on Portainer's `VERIFY_TLS` for HTTPS
@@ -1272,7 +1273,7 @@ def _is_medium_enabled(medium: str) -> bool:
     until the operator opts out from Admin → Notifications.
     """
     default_on = NOTIFY_MEDIUM_DEFAULTS.get(medium, True)
-    return get_setting_bool(f"notify_medium_{medium}", default=default_on)
+    return get_setting_bool(notify_medium_key(medium), default=default_on)
 
 
 async def notify(
@@ -1318,7 +1319,7 @@ async def notify(
     # Per-event admin gate.
     if event:
         default_on = NOTIFY_EVENT_DEFAULTS.get(event, True)
-        if get_setting_bool(f"notify_event_{event}", default=default_on) is False:
+        if get_setting_bool(notify_event_key(event), default=default_on) is False:
             print(f"[notify] skipped — event '{event}' disabled by operator")
             return
     # Template override. Pull the legacy literal `title` / `body` apart

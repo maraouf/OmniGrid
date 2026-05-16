@@ -73,6 +73,7 @@ from logic.db import (
     curated_snmp_hosts as _load_curated_snmp_hosts,
     get_setting as _get_setting,
 )
+from logic.settings_keys import Settings
 
 # Canonical strict-positive helper lives in logic/merge.py — alias it
 # locally so existing call sites stay readable. Kept as a thin alias
@@ -289,6 +290,7 @@ def _get_failure_state(host_id: str, provider: str = "") -> Optional[dict]:
                 (host_id, provider),
             )
             row = cur.fetchone()
+    # noinspection PyBroadException
     except Exception as e:
         print(f"[host_metrics_sampler] {host_id!r}/{provider!r} "
               f"failure-state read error: {e}")
@@ -371,7 +373,7 @@ def _host_provider_config() -> dict[str, set[str]]:
         return _HOST_PROVIDER_CONFIG_CACHE
     out: dict[str, set[str]] = {}
     try:
-        raw = _get_setting("hosts_config", "") or ""
+        raw = _get_setting(Settings.HOSTS_CONFIG) or ""
         if raw:
             import json as _json
             data = _json.loads(raw)
@@ -410,6 +412,7 @@ def _host_provider_config() -> dict[str, set[str]]:
                     ):
                         configured.add("snmp")
                     out[hid] = configured
+    # noinspection PyBroadException
     except Exception as e:
         # DB read failure is non-fatal — fall back to "every provider
         # configured" (legacy behaviour) so a transient blip doesn't
@@ -455,6 +458,7 @@ async def _record_failure(
     # default, so a fallback here is dead code
     try:
         window = int(tuning.tuning_int(Tunable.HOST_PERMANENT_FAIL_WINDOW_SECONDS))
+    # noinspection PyBroadException
     except Exception:
         window = 900
     if window < 60:
@@ -515,6 +519,7 @@ async def _record_failure(
                         "VALUES (?, ?, ?, 'paused', ?, 'sampler')",
                         (now, bare_host, provider or "", err_short),
                     )
+                # noinspection PyBroadException
                 except Exception as ev_err:
                     print(f"[host_metrics_sampler] {log_label!r} "
                           f"failure-event log write failed: {ev_err}")
@@ -575,6 +580,7 @@ async def _record_failure(
                         retry_after=60.0,
                         label=f"host_metrics_sampler {host_id!r}",
                     ))
+                # noinspection PyBroadException
                 except Exception as e:
                     print(f"[host_metrics_sampler] {host_id!r} notify dispatch failed: {e}")
                 # SSE — paused transition. SPA reacts by re-fetching the
@@ -593,6 +599,7 @@ async def _record_failure(
                     if provider:
                         payload["provider"] = provider
                     _events.publish("host:failure_state_changed", payload)
+                # noinspection PyBroadException
                 except Exception as ee:
                     print(f"[events] host:failure_state_changed publish failed: {ee}")
             else:
@@ -602,6 +609,7 @@ async def _record_failure(
                     "WHERE host_id = ? AND provider = ?",
                     (new_fails, now, err_short, host_id, provider),
                 )
+    # noinspection PyBroadException
     except Exception as e:
         print(f"[host_metrics_sampler] {log_label!r} failure-state write error: {e}")
 
@@ -675,6 +683,7 @@ async def record_provider_outcome(
                             (host_id, provider),
                         )
                         deleted += cur.rowcount or 0
+                # noinspection PyBroadException
                 except Exception as e:
                     print(f"[host_metrics_sampler] {log_label} orphan cleanup failed: {e}")
                     deleted = 0
@@ -702,6 +711,7 @@ async def record_provider_outcome(
                     "(host_id, provider, last_ok_ts) VALUES (?, ?, ?)",
                     (host_id, provider, now_ts),
                 )
+        # noinspection PyBroadException
         except Exception as e:
             print(f"[host_metrics_sampler] {log_label} last_ok upsert failed: {e}")
     else:
@@ -758,9 +768,11 @@ def _clear_failure(
                         "VALUES (?, ?, ?, 'recovered', NULL, ?)",
                         (time.time(), host_id, provider or "", actor),
                     )
+                # noinspection PyBroadException
                 except Exception as ev_err:
                     print(f"[host_metrics_sampler] {log_label!r} "
                           f"recovery-event log write failed: {ev_err}")
+    # noinspection PyBroadException
     except Exception as e:
         print(f"[host_metrics_sampler] {log_label!r} failure-state clear error: {e}")
         return
@@ -776,6 +788,7 @@ def _clear_failure(
             if provider:
                 payload["provider"] = provider
             _events.publish("host:failure_state_changed", payload)
+        # noinspection PyBroadException
         except Exception as e:
             print(f"[events] host:failure_state_changed clear publish failed: {e}")
 
@@ -806,10 +819,12 @@ async def _probe_one(
         try:
             _ne_to = float(tuning.tuning_int(
                 Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS))
+        # noinspection PyBroadException
         except Exception:
             _ne_to = 10.0
         try:
             stats = await _ne.probe_node(client, ne_url, timeout=_ne_to)
+        # noinspection PyBroadException
         except Exception as e:
             print(f"[host_metrics_sampler] {hid!r} probe error: {e}")
             await _record_failure(hid, now, str(e))
@@ -849,6 +864,7 @@ async def _probe_one(
                         row["disk_read_bps"], row["disk_write_bps"],
                     ),
                 )
+        # noinspection PyBroadException
         except Exception as e:
             print(f"[host_metrics_sampler] {hid!r} DB insert failed: {e}")
             return
@@ -869,6 +885,7 @@ async def _probe_one(
                 "host_id": hid,
                 "ts": row["ts"],
             })
+        # noinspection PyBroadException
         except Exception as e:  # noqa: BLE001
             print(f"[host_metrics_sampler] {hid!r} history_appended publish failed: {e}")
         net_blurb = (
@@ -914,7 +931,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
         # Resolve target via the SAME chain `_merge_one_host` uses.
         try:
             import json as _json
-            aliases_raw = _get_setting("snmp_aliases", "{}") or "{}"
+            aliases_raw = _get_setting(Settings.SNMP_ALIASES, "{}") or "{}"
             aliases = _json.loads(aliases_raw)
             if not isinstance(aliases, dict):
                 aliases = {}
@@ -946,19 +963,19 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
         _snmp_raw = host.get("snmp")
         snmp_cfg: dict = _snmp_raw if isinstance(_snmp_raw, dict) else {}
         community = (snmp_cfg.get("community") or "").strip() \
-                    or (_get_setting("snmp_default_community", "") or "public")
+                    or (_get_setting(Settings.SNMP_DEFAULT_COMMUNITY) or "public")
         version = ((snmp_cfg.get("version") or "").strip().lower()
-                   or (_get_setting("snmp_default_version", "") or "v2c"))
+                   or (_get_setting(Settings.SNMP_DEFAULT_VERSION) or "v2c"))
         try:
             port = int(snmp_cfg.get("port") or tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT))
         except (TypeError, ValueError):
             port = 161
         v3_user = ((snmp_cfg.get("v3_user") or "").strip()
-                   or _get_setting("snmp_v3_user", "") or "")
+                   or _get_setting(Settings.SNMP_V3_USER) or "")
         v3_auth = ((snmp_cfg.get("v3_auth_key") or "").strip()
-                   or _get_setting("snmp_v3_auth_key", "") or "")
+                   or _get_setting(Settings.SNMP_V3_AUTH_KEY) or "")
         v3_priv = ((snmp_cfg.get("v3_priv_key") or "").strip()
-                   or _get_setting("snmp_v3_priv_key", "") or "")
+                   or _get_setting(Settings.SNMP_V3_PRIV_KEY) or "")
         snmp_timeout = float(tuning.tuning_int(Tunable.SNMP_PROBE_TIMEOUT_SECONDS))
         # Per-host walk_concurrency override (Dell iDRAC / Cisco IMC /
         # Supermicro IPMI need > 1 to fit pysnmp v7's per-walk overhead
@@ -992,6 +1009,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                 walk_concurrency=row_walk_conc,
                 vendors=row_vendors,
             )
+        # noinspection PyBroadException
         except Exception as e:  # noqa: BLE001
             print(f"[host_metrics_sampler] {snmp_key} probe error: {e}")
             await record_provider_outcome(
@@ -1204,6 +1222,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                     "VALUES (?, ?, ?, ?, ?)",
                                     temp_rows,
                                 )
+        # noinspection PyBroadException
         except Exception as e:  # noqa: BLE001
             print(f"[host_metrics_sampler] {snmp_key} snmp_sample insert failed: {e}")
 
@@ -1241,6 +1260,7 @@ def _prune_old_samples() -> int:
             # dedicated `tuning_incidents_retention_days` tunable with
             # 0 = forever as the default, NOT the shared stats window.
             return removed
+    # noinspection PyBroadException
     except Exception as e:
         print(f"[host_metrics_sampler] prune failed: {e}")
         return 0
@@ -1338,6 +1358,7 @@ async def host_metrics_sampler_loop() -> None:
                 if n:
                     print(f"[host_metrics_sampler] pruned {n} rows older than "
                           f"{days}d")
+        # noinspection PyBroadException
         except Exception as e:
             print(f"[host_metrics_sampler] tick error: {e}")
         tick += 1
@@ -1384,6 +1405,7 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
                 "ORDER BY ts ASC LIMIT ?",
                 (host_id, int(since_ts), int(limit)),
             ).fetchall()
+    # noinspection PyBroadException
     except Exception as e:
         print(f"[host_metrics_sampler] recent_samples({host_id!r}) failed: {e}")
         return []
@@ -1402,6 +1424,7 @@ def last_samples(host_id: str, limit: int = 5) -> list[dict]:
                 "ORDER BY ts DESC LIMIT ?",
                 (host_id, int(limit)),
             ).fetchall()
+    # noinspection PyBroadException
     except Exception as e:
         print(f"[host_metrics_sampler] last_samples({host_id!r}) failed: {e}")
         return []

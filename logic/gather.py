@@ -20,6 +20,7 @@ import httpx
 
 from logic import metrics, portainer, registry
 from logic.db import db_conn
+from logic.settings_keys import Settings
 
 
 # Canonical label-value sets for `omnigrid_items_total{status, type}`
@@ -77,7 +78,7 @@ def _load_hosts_config_for_gather() -> list[dict]:
     to their existing host-string behaviour.
     """
     from logic.db import get_setting
-    raw = get_setting("hosts_config", "") or ""
+    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
     if not raw.strip():
         return []
     try:
@@ -1134,12 +1135,12 @@ async def _gather_impl() -> None:
             # not ``name`` (user-editable label), because ``host`` is
             # stable and typically matches what Docker reports.
             import json as _json
-            hub_url = get_setting("beszel_hub_url", "") or ""
-            ident = get_setting("beszel_identity", "") or ""
-            passw = get_setting("beszel_password", "") or ""
-            verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+            hub_url = get_setting(Settings.BESZEL_HUB_URL, "") or ""
+            ident = get_setting(Settings.BESZEL_IDENTITY, "") or ""
+            passw = get_setting(Settings.BESZEL_PASSWORD, "") or ""
+            verify = (get_setting(Settings.BESZEL_VERIFY_TLS, "true") or "true").lower() == "true"
             try:
-                aliases = _json.loads(get_setting("beszel_aliases", "{}") or "{}")
+                aliases = _json.loads(get_setting(Settings.BESZEL_ALIASES, "{}") or "{}")
                 if not isinstance(aliases, dict):
                     aliases = {}
             except ValueError:
@@ -1189,13 +1190,13 @@ async def _gather_impl() -> None:
         if "pulse" in active_sources and df_hosts:
             import json as _json
             from logic import pulse as _pulse
-            pulse_url = get_setting("pulse_url", "") or ""
-            pulse_token = get_setting("pulse_token", "") or ""
-            pulse_verify = (get_setting("pulse_verify_tls", "true")
+            pulse_url = get_setting(Settings.PULSE_URL, "") or ""
+            pulse_token = get_setting(Settings.PULSE_TOKEN, "") or ""
+            pulse_verify = (get_setting(Settings.PULSE_VERIFY_TLS, "true")
                             or "true").lower() == "true"
             try:
                 pulse_aliases_raw = _json.loads(
-                    get_setting("pulse_aliases", "{}") or "{}")
+                    get_setting(Settings.PULSE_ALIASES, "{}") or "{}")
                 if not isinstance(pulse_aliases_raw, dict):
                     pulse_aliases_raw = {}
             except ValueError:
@@ -1245,17 +1246,17 @@ async def _gather_impl() -> None:
             from logic import snmp as _snmp
             from logic import tuning as _tuning
             from logic.tuning import Tunable
-            default_community = get_setting("snmp_default_community", "") or "public"
-            default_version = (get_setting("snmp_default_version", "") or "v2c").strip().lower()
+            default_community = get_setting(Settings.SNMP_DEFAULT_COMMUNITY, "") or "public"
+            default_version = (get_setting(Settings.SNMP_DEFAULT_VERSION, "") or "v2c").strip().lower()
             try:
                 default_port = _tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT)
             except (TypeError, ValueError):
                 default_port = 161
-            v3_user = get_setting("snmp_v3_user", "") or ""
-            v3_auth_key = get_setting("snmp_v3_auth_key", "") or ""
-            v3_priv_key = get_setting("snmp_v3_priv_key", "") or ""
+            v3_user = get_setting(Settings.SNMP_V3_USER, "") or ""
+            v3_auth_key = get_setting(Settings.SNMP_V3_AUTH_KEY, "") or ""
+            v3_priv_key = get_setting(Settings.SNMP_V3_PRIV_KEY, "") or ""
             try:
-                snmp_aliases_raw = json.loads(get_setting("snmp_aliases", "{}") or "{}")
+                snmp_aliases_raw = json.loads(get_setting(Settings.SNMP_ALIASES, "{}") or "{}")
                 if not isinstance(snmp_aliases_raw, dict):
                     snmp_aliases_raw = {}
             except ValueError:
@@ -1355,13 +1356,13 @@ async def _gather_impl() -> None:
         # (Comment previously said "the dict.update" but the actual
         # call is `_merge_best`; same merge semantics, accurate name.)
         if "node_exporter" in active_sources and df_hosts:
-            tpl = get_setting("node_exporter_url_template", "http://{host}:9100/metrics") \
+            tpl = get_setting(Settings.NODE_EXPORTER_URL_TEMPLATE, "http://{host}:9100/metrics") \
                   or "http://{host}:9100/metrics"
             # Per-host URL overrides for nodes where the template's {host}
             # substitution can't reach the exporter (DNS, alternate IP,
             # different port, etc.). Operator edits this JSON via the
             # Host stats settings panel.
-            overrides_raw = get_setting("node_exporter_overrides", "{}") or "{}"
+            overrides_raw = get_setting(Settings.NODE_EXPORTER_OVERRIDES, "{}") or "{}"
             try:
                 overrides = json.loads(overrides_raw)
                 if not isinstance(overrides, dict):
@@ -1415,13 +1416,13 @@ async def _gather_impl() -> None:
         # hosts-without-Webmin keep working unchanged.
         if "webmin" in active_sources and df_hosts:
             from logic import webmin as _webmin
-            user = get_setting("webmin_user", "") or ""
-            passw = get_setting("webmin_password", "") or ""
-            webmin_verify = (get_setting("webmin_verify_tls", "false")
+            user = get_setting(Settings.WEBMIN_USER, "") or ""
+            passw = get_setting(Settings.WEBMIN_PASSWORD, "") or ""
+            webmin_verify = (get_setting(Settings.WEBMIN_VERIFY_TLS, "false")
                              or "false").lower() == "true"
             try:
                 webmin_aliases = json.loads(
-                    get_setting("webmin_aliases", "{}") or "{}"
+                    get_setting(Settings.WEBMIN_ALIASES, "{}") or "{}"
                 )
                 if not isinstance(webmin_aliases, dict):
                     webmin_aliases = {}
