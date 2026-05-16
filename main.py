@@ -36,12 +36,14 @@ from typing import Any, Optional, Set
 # paths. `override=False` keeps any values set in the compose `environment:`
 # block authoritative (e.g. DB_PATH).
 from dotenv import load_dotenv
+
 load_dotenv(os.getenv("ENV_FILE_PATH", "/app/.env"), override=False)
 
 # Install the stdout/stderr tee as early as possible so uvicorn's own
 # startup lines land in the in-memory buffer that powers Admin → Logs.
 # Tee is idempotent + passthrough — Docker logs still see everything.
 from logic import logs as _logs  # noqa: E402
+
 _logs.install()
 
 import httpx
@@ -51,6 +53,7 @@ from fastapi import (
     FastAPI,
     Form,
     HTTPException,
+    Path as FastApiPath,
     Request,
     WebSocket,
     WebSocketDisconnect,
@@ -73,7 +76,7 @@ from pydantic import BaseModel, field_validator
 # managed and will be overwritten on every successful push to main.
 # Rendered in the UI footer and returned by /api/version.
 # ============================================================================
-from logic.version import APP_VERSION, read_version
+from logic.version import read_version
 
 # ============================================================================
 # Config
@@ -87,6 +90,7 @@ from logic.db import DB_PATH, db_conn, get_setting, get_setting_bool, set_settin
 from logic import tuning  # noqa: E402
 from logic.tuning import Tunable  # noqa: E402
 from logic import host_baseline as _host_baseline  # noqa: E402
+
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
 
@@ -106,22 +110,20 @@ from logic.ops import (  # noqa: E402
     NOTIFY_EVENT_DEFAULTS as _NOTIFY_EVENT_DEFAULTS,
 )
 
-
 # TOTP / 2FA policy defaults. DB > default. Same shape as the
 # notify_event_* defaults map above so api_get_settings reads through
 # get_setting / get_setting_bool with these as the fallbacks.
 _TOTP_POLICY_DEFAULTS = {
-    "totp_allowed":               True,
-    "totp_required_for_admins":   False,
-    "totp_required_for_users":    False,
-    "totp_lockout_max_failures":  5,
-    "totp_lockout_minutes":       15,
+    "totp_allowed": True,
+    "totp_required_for_admins": False,
+    "totp_required_for_users": False,
+    "totp_lockout_max_failures": 5,
+    "totp_lockout_minutes": 15,
     # Passkey master toggle. Mirrors `totp_allowed`. When OFF,
     # `register-start` returns 403; existing enrolments stay valid for
     # login until each user revokes (or admin clears via reset).
-    "passkeys_allowed":           True,
+    "passkeys_allowed": True,
 }
-
 
 # TOTP-policy resolution cache. The login flow calls
 # `_resolve_totp_policy()` 6+ times per typical sign-in, each previously
@@ -158,17 +160,21 @@ def _resolve_totp_policy() -> dict:
     cached_ts = _totp_policy_cache.get("ts") or 0.0
     if cached_value is not None and (time.time() - cached_ts) < _TOTP_POLICY_CACHE_TTL_SECONDS:
         return cached_value
+    # `_TOTP_POLICY_DEFAULTS` is a dict mixing bool and int values; dict.get
+    # widens to `bool | int` which the type-checker rejects when passed to
+    # `get_setting_bool(default: bool)`. Cast each default to plain bool at
+    # the call site so the narrowing is explicit.
     resolved = {
-        "totp_allowed":              get_setting_bool(
-            "totp_allowed", _TOTP_POLICY_DEFAULTS.get("totp_allowed", True),
+        "totp_allowed": get_setting_bool(
+            "totp_allowed", bool(_TOTP_POLICY_DEFAULTS.get("totp_allowed", True)),
         ),
-        "totp_required_for_admins":  get_setting_bool(
+        "totp_required_for_admins": get_setting_bool(
             "totp_required_for_admins",
-            _TOTP_POLICY_DEFAULTS.get("totp_required_for_admins", False),
+            bool(_TOTP_POLICY_DEFAULTS.get("totp_required_for_admins", False)),
         ),
-        "totp_required_for_users":   get_setting_bool(
+        "totp_required_for_users": get_setting_bool(
             "totp_required_for_users",
-            _TOTP_POLICY_DEFAULTS.get("totp_required_for_users", False),
+            bool(_TOTP_POLICY_DEFAULTS.get("totp_required_for_users", False)),
         ),
         "totp_lockout_max_failures": int(
             get_setting(
@@ -176,14 +182,14 @@ def _resolve_totp_policy() -> dict:
                 str(_TOTP_POLICY_DEFAULTS.get("totp_lockout_max_failures", 5)),
             ) or _TOTP_POLICY_DEFAULTS.get("totp_lockout_max_failures", 5)
         ),
-        "totp_lockout_minutes":      int(
+        "totp_lockout_minutes": int(
             get_setting(
                 "totp_lockout_minutes",
                 str(_TOTP_POLICY_DEFAULTS.get("totp_lockout_minutes", 15)),
             ) or _TOTP_POLICY_DEFAULTS.get("totp_lockout_minutes", 15)
         ),
-        "passkeys_allowed":          get_setting_bool(
-            "passkeys_allowed", _TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True),
+        "passkeys_allowed": get_setting_bool(
+            "passkeys_allowed", bool(_TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True)),
         ),
     }
     _totp_policy_cache["value"] = resolved
@@ -199,6 +205,7 @@ def _totp_required_for(role: str, policy: Optional[dict] = None) -> bool:
     if role == "admin":
         return bool(p["totp_required_for_admins"])
     return bool(p["totp_required_for_users"])
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
@@ -344,8 +351,8 @@ async def _lifespan(app: FastAPI):
         try:
             sched_audit = schedules.audit_schedule_kinds()
             if (sched_audit.get("missing_async")
-                    or sched_audit.get("name_mismatches")
-                    or sched_audit.get("missing_docstrings")):
+                or sched_audit.get("name_mismatches")
+                or sched_audit.get("missing_docstrings")):
                 print(
                     f"[boot] schedule kinds audit: "
                     f"missing_async={sched_audit.get('missing_async') or []} "
@@ -512,7 +519,6 @@ app = FastAPI(title="OmniGrid", lifespan=_lifespan)
 # module (SQLite section) but the middleware body only runs at request time.
 app.middleware("http")(auth.make_auth_middleware(lambda: db_conn()))
 
-
 # Config-error guard. Registered AFTER auth so Starlette runs it FIRST on
 # each request (middleware is a LIFO stack). When a required config value
 # like DB_PATH is missing, we keep uvicorn up (no crash-loop) and return a
@@ -560,6 +566,7 @@ async def _config_error_guard(request: Request, call_next):
         media_type="text/html",
         status_code=503,
     )
+
 
 # Prometheus metric definitions moved to logic/metrics.py. The cache-age
 # collector is wired below (once _cache exists), and every remaining
@@ -1149,89 +1156,89 @@ def init_db():
         # that gets raised when the column already exists. Safe to re-run on
         # every boot.
         for ddl in (
-            "ALTER TABLE history ADD COLUMN actor TEXT DEFAULT 'ui'",
-            "ALTER TABLE history ADD COLUMN target_stack TEXT",
-            # target_kind taxonomy column — also handled by migration 3
-            # which runs at the end of init_db, but adding it here too
-            # means any code path that touches `target_kind` BEFORE the
-            # migration applies (e.g. an executescript reference earlier
-            # in init_db) doesn't fail. Idempotent via the
-            # OperationalError catch below.
-            "ALTER TABLE history ADD COLUMN target_kind TEXT",
-            # disk I/O rates, derived per-tick by
-            # host_metrics_sampler from node_disk_{read,written}_bytes_total.
-            # Same skip-don't-synthesize discipline as the net rate columns;
-            # NULL when the delta is out of bounds.
-            "ALTER TABLE host_metrics_samples ADD COLUMN disk_read_bps REAL",
-            "ALTER TABLE host_metrics_samples ADD COLUMN disk_write_bps REAL",
-            # Per-item image-disk footprint (`size_root` in bytes) — added
-            # so Stacks / Services / Containers can render a disk sparkline
-            # mirroring the CPU / Memory ones. Pre-fix `stats_samples` only
-            # stored CPU + memory, so disk had no time-series and the UI
-            # could only show a CURRENT snapshot bar. Sampler writes
-            # `s.get("size_root")` each tick.
-            "ALTER TABLE stats_samples ADD COLUMN size_root REAL",
-            # wall-clock of the MOST RECENT probe failure.
-            # ``first_failure_ts`` already records the start of the
-            # streak; this is the timestamp of the latest failed
-            # probe so the drawer can render "last error N seconds
-            # ago" instead of leaving the operator wondering whether
-            # the issue may have already cleared.
-            "ALTER TABLE host_failure_state ADD COLUMN last_failure_ts REAL",
-            # host uptime in SECONDS per SNMP probe. Lets the
-            # drawer surface a current-uptime pill AND detect reboots:
-            # when sample[N].uptime_s < sample[N-1].uptime_s the host
-            # rebooted in the gap (sysUpTime counter resets at boot).
-            # Stored as seconds (not raw TimeTicks) so it matches the
-            # `host_uptime_s` field convention every other provider
-            # uses. Additive — NULL for pre-uptime-column rows.
-            "ALTER TABLE host_snmp_samples ADD COLUMN uptime_s INTEGER",
-            # switch total throughput. Stored as the cumulative
-            # IF-MIB ifHCInOctets / ifHCOutOctets sums (excluding
-            # loopback / docker-bridge / virtual ifaces — same exclusion
-            # set as Beszel / NE). The chart layer computes deltas at
-            # render time. Skip-don't-synthesize: sampler inserts NULL
-            # when SNMP didn't return either counter, so the chart can
-            # tell "host stopped responding" from "0 bps idle".
-            "ALTER TABLE host_snmp_samples ADD COLUMN net_rx_total_bytes INTEGER",
-            "ALTER TABLE host_snmp_samples ADD COLUMN net_tx_total_bytes INTEGER",
-            # printer lifetime page count (Printer-MIB
-            # prtMarkerLifeCount). Cumulative monotonic counter; the
-            # SPA computes per-interval deltas → pages/day for the
-            # sparkline + reads the live value as the lifetime
-            # headline. NULL for non-printer hosts.
-            "ALTER TABLE host_snmp_samples ADD COLUMN printer_page_count INTEGER",
-            # per-iface link speed (Mbps) so the per-port
-            # utilization heatmap can compute throughput ÷ link
-            # capacity. NULL when the agent doesn't expose ifHighSpeed
-            # (older IF-MIB-v1-only devices) — heatmap renders such
-            # ifaces in grey ("unknown speed") instead of red.
-            "ALTER TABLE host_snmp_iface_samples ADD COLUMN link_speed_mbps INTEGER",
-            # APC UPS time-series fields. Sampler writes the live
-            # values per probe so the host drawer can render Output
-            # Load %, Battery %, Battery temperature charts over the
-            # picker window. NULL for non-UPS hosts. Reads come from
-            # `host_load_percent` / `host_battery_percent` /
-            # `host_battery_temp_c` extracted in `logic/snmp.py` via
-            # PowerNet-MIB OIDs (1.3.6.1.4.1.318.1.1.1.x).
-            "ALTER TABLE host_snmp_samples ADD COLUMN load_percent REAL",
-            "ALTER TABLE host_snmp_samples ADD COLUMN battery_percent REAL",
-            "ALTER TABLE host_snmp_samples ADD COLUMN battery_temp_c REAL",
-            # Aggregate disk totals — added so SNMP-only hosts can
-            # render the inline disk sparkline. Pre-fix the table
-            # carried CPU + memory + load + UPS + interface data
-            # but no disk percent, so the SPA's hostInlineSparkline
-            # SNMP fallback explicitly skipped disk ("SNMP series
-            # doesn't carry it"). Operator reported on a dd-wrt +
-            # WDMyCloud NAS where the row's disk bar correctly
-            # showed live percent but the sparkline beneath stayed
-            # absent. Sampler now writes both columns; SPA derives
-            # disk % from the pair (matches the `mem_used/mem_total`
-            # branch's pattern). Aggregate values respect the same
-            # exclude-mounts list `extract_storage` honours, so
-            # phantom rows (dd-wrt's `/opt`) don't pollute history.
-            "ALTER TABLE host_snmp_samples ADD COLUMN disk_total INTEGER",
-            "ALTER TABLE host_snmp_samples ADD COLUMN disk_used INTEGER",
+                "ALTER TABLE history ADD COLUMN actor TEXT DEFAULT 'ui'",
+                "ALTER TABLE history ADD COLUMN target_stack TEXT",
+                # target_kind taxonomy column — also handled by migration 3
+                # which runs at the end of init_db, but adding it here too
+                # means any code path that touches `target_kind` BEFORE the
+                # migration applies (e.g. an executescript reference earlier
+                # in init_db) doesn't fail. Idempotent via the
+                # OperationalError catch below.
+                "ALTER TABLE history ADD COLUMN target_kind TEXT",
+                # disk I/O rates, derived per-tick by
+                # host_metrics_sampler from node_disk_{read,written}_bytes_total.
+                # Same skip-don't-synthesize discipline as the net rate columns;
+                # NULL when the delta is out of bounds.
+                "ALTER TABLE host_metrics_samples ADD COLUMN disk_read_bps REAL",
+                "ALTER TABLE host_metrics_samples ADD COLUMN disk_write_bps REAL",
+                # Per-item image-disk footprint (`size_root` in bytes) — added
+                # so Stacks / Services / Containers can render a disk sparkline
+                # mirroring the CPU / Memory ones. Pre-fix `stats_samples` only
+                # stored CPU + memory, so disk had no time-series and the UI
+                # could only show a CURRENT snapshot bar. Sampler writes
+                # `s.get("size_root")` each tick.
+                "ALTER TABLE stats_samples ADD COLUMN size_root REAL",
+                # wall-clock of the MOST RECENT probe failure.
+                # ``first_failure_ts`` already records the start of the
+                # streak; this is the timestamp of the latest failed
+                # probe so the drawer can render "last error N seconds
+                # ago" instead of leaving the operator wondering whether
+                # the issue may have already cleared.
+                "ALTER TABLE host_failure_state ADD COLUMN last_failure_ts REAL",
+                # host uptime in SECONDS per SNMP probe. Lets the
+                # drawer surface a current-uptime pill AND detect reboots:
+                # when sample[N].uptime_s < sample[N-1].uptime_s the host
+                # rebooted in the gap (sysUpTime counter resets at boot).
+                # Stored as seconds (not raw TimeTicks) so it matches the
+                # `host_uptime_s` field convention every other provider
+                # uses. Additive — NULL for pre-uptime-column rows.
+                "ALTER TABLE host_snmp_samples ADD COLUMN uptime_s INTEGER",
+                # switch total throughput. Stored as the cumulative
+                # IF-MIB ifHCInOctets / ifHCOutOctets sums (excluding
+                # loopback / docker-bridge / virtual ifaces — same exclusion
+                # set as Beszel / NE). The chart layer computes deltas at
+                # render time. Skip-don't-synthesize: sampler inserts NULL
+                # when SNMP didn't return either counter, so the chart can
+                # tell "host stopped responding" from "0 bps idle".
+                "ALTER TABLE host_snmp_samples ADD COLUMN net_rx_total_bytes INTEGER",
+                "ALTER TABLE host_snmp_samples ADD COLUMN net_tx_total_bytes INTEGER",
+                # printer lifetime page count (Printer-MIB
+                # prtMarkerLifeCount). Cumulative monotonic counter; the
+                # SPA computes per-interval deltas → pages/day for the
+                # sparkline + reads the live value as the lifetime
+                # headline. NULL for non-printer hosts.
+                "ALTER TABLE host_snmp_samples ADD COLUMN printer_page_count INTEGER",
+                # per-iface link speed (Mbps) so the per-port
+                # utilization heatmap can compute throughput ÷ link
+                # capacity. NULL when the agent doesn't expose ifHighSpeed
+                # (older IF-MIB-v1-only devices) — heatmap renders such
+                # ifaces in grey ("unknown speed") instead of red.
+                "ALTER TABLE host_snmp_iface_samples ADD COLUMN link_speed_mbps INTEGER",
+                # APC UPS time-series fields. Sampler writes the live
+                # values per probe so the host drawer can render Output
+                # Load %, Battery %, Battery temperature charts over the
+                # picker window. NULL for non-UPS hosts. Reads come from
+                # `host_load_percent` / `host_battery_percent` /
+                # `host_battery_temp_c` extracted in `logic/snmp.py` via
+                # PowerNet-MIB OIDs (1.3.6.1.4.1.318.1.1.1.x).
+                "ALTER TABLE host_snmp_samples ADD COLUMN load_percent REAL",
+                "ALTER TABLE host_snmp_samples ADD COLUMN battery_percent REAL",
+                "ALTER TABLE host_snmp_samples ADD COLUMN battery_temp_c REAL",
+                # Aggregate disk totals — added so SNMP-only hosts can
+                # render the inline disk sparkline. Pre-fix the table
+                # carried CPU + memory + load + UPS + interface data
+                # but no disk percent, so the SPA's hostInlineSparkline
+                # SNMP fallback explicitly skipped disk ("SNMP series
+                # doesn't carry it"). Operator reported on a dd-wrt +
+                # WDMyCloud NAS where the row's disk bar correctly
+                # showed live percent but the sparkline beneath stayed
+                # absent. Sampler now writes both columns; SPA derives
+                # disk % from the pair (matches the `mem_used/mem_total`
+                # branch's pattern). Aggregate values respect the same
+                # exclude-mounts list `extract_storage` honours, so
+                # phantom rows (dd-wrt's `/opt`) don't pollute history.
+                "ALTER TABLE host_snmp_samples ADD COLUMN disk_total INTEGER",
+                "ALTER TABLE host_snmp_samples ADD COLUMN disk_used INTEGER",
         ):
             try:
                 c.execute(ddl)
@@ -1266,6 +1273,7 @@ def init_db():
 # wrapper since portainer.node_for_container takes the cache dict.
 # ============================================================================
 from logic import portainer  # noqa: E402
+
 _headers = portainer.headers
 _pg = portainer.pg
 
@@ -1280,11 +1288,11 @@ def _node_for_container(container_id: str) -> Optional[str]:
 # the file reads unchanged.
 # ============================================================================
 from logic import registry  # noqa: E402
+
 _parse_image_ref = registry.parse_image_ref
 _hub_link = registry.hub_link
 _tag_of = registry.tag_of
 _get_remote_digest = registry.get_remote_digest
-
 
 # ============================================================================
 # Data aggregation moved to logic/gather.py. Local aliases keep the old
@@ -1293,18 +1301,21 @@ _get_remote_digest = registry.get_remote_digest
 # so it's re-exported below with the cache-age collector wiring.
 # ============================================================================
 from logic import gather as _gather_mod  # noqa: E402
+
 _cache = _gather_mod.get_cache()
 _gather = _gather_mod.gather
-_tag_of = registry.tag_of
+# `_tag_of` already aliased above from `registry.tag_of`; redundant
+# re-assignment here was lint-flagged "Redeclared '_tag_of' defined
+# above without usage" — dropped, the upstream alias is canonical.
 _node_attr = _gather_mod._node_attr
 _node_matches = _gather_mod._node_matches
-
 
 # ============================================================================
 # Operations moved to logic/ops.py. Shim aliases for the class + module
 # state + every _do_* handler so route code keeps reading unchanged.
 # ============================================================================
 from logic import ops as _ops_mod  # noqa: E402
+
 Operation = _ops_mod.Operation
 ops = _ops_mod.ops
 ops_order = _ops_mod.ops_order
@@ -1320,12 +1331,12 @@ _do_remove_container = _ops_mod.do_remove_container
 _do_prune_node = _ops_mod.do_prune_node
 _do_restart_swarm_agent = _ops_mod.do_restart_swarm_agent
 
-
 # ============================================================================
 # Stats moved to logic/stats.py. Shim aliases so existing routes + lifespan
 # keep working unchanged.
 # ============================================================================
 from logic import stats as _stats_mod  # noqa: E402
+
 _stats_cache = _stats_mod.get_stats_cache()
 _gather_stats = _stats_mod.gather_stats
 _stats_history = _stats_mod.stats_history
@@ -1355,6 +1366,8 @@ _BACKGROUND_TASKS: set = set()
 # generous: even a fleet-wide port-scan + every host-stats refresh
 # in flight at once shouldn't approach this.
 _BACKGROUND_TASKS_CAP: int = 1000
+
+
 def _spawn_background_task(coro, *, label: str = ""):
     """Wrap `asyncio.create_task` with a strong-reference + cleanup
     callback so spawned tasks aren't GC'd mid-execution.
@@ -1392,6 +1405,7 @@ def _spawn_background_task(coro, *, label: str = ""):
     task = asyncio.create_task(coro)
     _BACKGROUND_TASKS.add(task)
     print(f"[bg] task spawned label={label!r}")
+
     def _on_done(t):
         _BACKGROUND_TASKS.discard(t)
         if t.cancelled():
@@ -1404,6 +1418,7 @@ def _spawn_background_task(coro, *, label: str = ""):
             print(f"[bg] task FAILED label={label!r} exc={type(exc).__name__}: {exc}\n{tb}")
         else:
             print(f"[bg] task done label={label!r}")
+
     task.add_done_callback(_on_done)
     return task
 
@@ -1499,10 +1514,10 @@ async def api_stats(force: bool = False):
     health_map = _get_agent_health() or {}
     unhealthy_agents = [
         {
-            "host":         host,
-            "fails":        int(state.get("fails", 0)),
-            "since_ts":     float(state.get("since_ts", 0.0)),
-            "task_cids":    int(state.get("task_cids", 0)),
+            "host": host,
+            "fails": int(state.get("fails", 0)),
+            "since_ts": float(state.get("since_ts", 0.0)),
+            "task_cids": int(state.get("task_cids", 0)),
         }
         for host, state in health_map.items()
         if int(state.get("fails", 0)) >= threshold
@@ -2645,9 +2660,9 @@ async def api_history(
     )
     return {
         "history": rows,
-        "total":   total,
-        "offset":  max(0, int(offset or 0)),
-        "limit":   max(1, min(int(limit or 100), 5000)),
+        "total": total,
+        "offset": max(0, int(offset or 0)),
+        "limit": max(1, min(int(limit or 100), 5000)),
     }
 
 
@@ -2776,7 +2791,7 @@ async def api_add_ignore(
 
 @app.delete("/api/ignores/{pattern:path}")
 async def api_del_ignore(
-    pattern: str,
+    pattern: str = FastApiPath(...),
     _admin: auth.User = Depends(auth.require_admin),
 ):
     with db_conn() as c:
@@ -3444,10 +3459,10 @@ async def api_get_settings(request: Request):
         # Per-service master switches. Default true so existing
         # deploys don't change behaviour — flip false to short-circuit
         # the service in code AND grey out the inputs in the UI.
-        "apprise_enabled":    (get_setting("apprise_enabled",    "true") or "true").lower() == "true",
+        "apprise_enabled": (get_setting("apprise_enabled", "true") or "true").lower() == "true",
         "open_meteo_enabled": (get_setting("open_meteo_enabled", "true") or "true").lower() == "true",
-        "portainer_enabled":  (get_setting("portainer_enabled",  "true") or "true").lower() == "true",
-        "ssh_enabled":        (get_setting("ssh_enabled",        "true") or "true").lower() == "true",
+        "portainer_enabled": (get_setting("portainer_enabled", "true") or "true").lower() == "true",
+        "ssh_enabled": (get_setting("ssh_enabled", "true") or "true").lower() == "true",
         "asset_inventory_enabled": (get_setting("asset_inventory_enabled", "true") or "true").lower() == "true",
         "apprise_url": get_setting("apprise_url", ""),
         "apprise_tag": get_setting("apprise_tag", ""),
@@ -3456,45 +3471,45 @@ async def api_get_settings(request: Request):
         # swarm_agent_health schedule. Operators flip this to false
         # to opt out before the bootstrap-done latch trips.
         "swarm_autoheal_bootstrap_enabled": (
-            get_setting("swarm_autoheal_bootstrap_enabled", "true") or "true"
-        ).lower() != "false",
+                                                get_setting("swarm_autoheal_bootstrap_enabled", "true") or "true"
+                                            ).lower() != "false",
         # Per-event notification toggles. Resolved through
         # get_setting_bool so the frontend gets clean booleans (no
         # client-side string parsing). Default true preserves the
         # legacy "send everything" behaviour for existing deploys.
-        "notify_event_stack_update_success":      get_setting_bool("notify_event_stack_update_success", True),
-        "notify_event_stack_update_failure":      get_setting_bool("notify_event_stack_update_failure", True),
-        "notify_event_container_update_success":  get_setting_bool("notify_event_container_update_success", True),
-        "notify_event_container_update_failure":  get_setting_bool("notify_event_container_update_failure", True),
+        "notify_event_stack_update_success": get_setting_bool("notify_event_stack_update_success", True),
+        "notify_event_stack_update_failure": get_setting_bool("notify_event_stack_update_failure", True),
+        "notify_event_container_update_success": get_setting_bool("notify_event_container_update_success", True),
+        "notify_event_container_update_failure": get_setting_bool("notify_event_container_update_failure", True),
         "notify_event_container_restart_success": get_setting_bool("notify_event_container_restart_success", True),
         "notify_event_container_restart_failure": get_setting_bool("notify_event_container_restart_failure", True),
-        "notify_event_container_remove_success":  get_setting_bool("notify_event_container_remove_success", True),
-        "notify_event_container_remove_failure":  get_setting_bool("notify_event_container_remove_failure", True),
-        "notify_event_service_restart_success":   get_setting_bool("notify_event_service_restart_success", True),
-        "notify_event_service_restart_failure":   get_setting_bool("notify_event_service_restart_failure", True),
+        "notify_event_container_remove_success": get_setting_bool("notify_event_container_remove_success", True),
+        "notify_event_container_remove_failure": get_setting_bool("notify_event_container_remove_failure", True),
+        "notify_event_service_restart_success": get_setting_bool("notify_event_service_restart_success", True),
+        "notify_event_service_restart_failure": get_setting_bool("notify_event_service_restart_failure", True),
         "notify_event_swarm_agent_restart_success": get_setting_bool("notify_event_swarm_agent_restart_success", True),
         "notify_event_swarm_agent_restart_failure": get_setting_bool("notify_event_swarm_agent_restart_failure", True),
-        "notify_event_swarm_agent_unhealthy":     get_setting_bool("notify_event_swarm_agent_unhealthy", True),
-        "notify_event_swarm_agent_recovered":     get_setting_bool("notify_event_swarm_agent_recovered", True),
-        "notify_event_prune_success":             get_setting_bool("notify_event_prune_success", True),
-        "notify_event_prune_failure":             get_setting_bool("notify_event_prune_failure", True),
+        "notify_event_swarm_agent_unhealthy": get_setting_bool("notify_event_swarm_agent_unhealthy", True),
+        "notify_event_swarm_agent_recovered": get_setting_bool("notify_event_swarm_agent_recovered", True),
+        "notify_event_prune_success": get_setting_bool("notify_event_prune_success", True),
+        "notify_event_prune_failure": get_setting_bool("notify_event_prune_failure", True),
         # Security event — default OFF (login spam is noisy; opt-in).
-        "notify_event_user_login":                get_setting_bool("notify_event_user_login", False),
+        "notify_event_user_login": get_setting_bool("notify_event_user_login", False),
         # System event — fires when host_metrics_sampler auto-
         # pauses a host after the failure window. Default ON.
-        "notify_event_host_paused":               get_setting_bool("notify_event_host_paused", True),
+        "notify_event_host_paused": get_setting_bool("notify_event_host_paused", True),
         # Port-scan provider — default OFF so first-run scanner doesn't
         # flood. Operators flip on after triaging the initial baseline.
-        "notify_event_port_scan_new_port":        get_setting_bool("notify_event_port_scan_new_port", False),
+        "notify_event_port_scan_new_port": get_setting_bool("notify_event_port_scan_new_port", False),
         # TOTP audit-row INSERT failure — warn when audit trail missing.
-        "notify_event_totp_audit_log_failed":     get_setting_bool("notify_event_totp_audit_log_failed", True),
+        "notify_event_totp_audit_log_failed": get_setting_bool("notify_event_totp_audit_log_failed", True),
         # Drawer auto-fix — VXLAN overlay cleanup outcomes.
-        "notify_event_overlay_cleanup_success":   get_setting_bool("notify_event_overlay_cleanup_success", True),
-        "notify_event_overlay_cleanup_failure":   get_setting_bool("notify_event_overlay_cleanup_failure", True),
+        "notify_event_overlay_cleanup_success": get_setting_bool("notify_event_overlay_cleanup_success", True),
+        "notify_event_overlay_cleanup_failure": get_setting_bool("notify_event_overlay_cleanup_failure", True),
         # Per-medium master switches. Defaults from
         # NOTIFY_MEDIUM_DEFAULTS (both ON for back-compat); operators
         # flip individually from Admin → Notifications.
-        "notify_medium_app":     get_setting_bool(
+        "notify_medium_app": get_setting_bool(
             "notify_medium_app",
             _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("app", True),
         ),
@@ -3508,40 +3523,40 @@ async def api_get_settings(request: Request):
             "notify_medium_telegram",
             _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("telegram", False),
         ),
-        "telegram_chat_id":       get_setting("telegram_chat_id", ""),
-        "telegram_thread_id":     get_setting("telegram_thread_id", ""),
-        "telegram_verify_tls":    (get_setting("telegram_verify_tls", "true") or "true").lower() == "true",
+        "telegram_chat_id": get_setting("telegram_chat_id", ""),
+        "telegram_thread_id": get_setting("telegram_thread_id", ""),
+        "telegram_verify_tls": (get_setting("telegram_verify_tls", "true") or "true").lower() == "true",
         # Write-only: surface only a `_set` flag, never the raw token.
         "telegram_bot_token_set": bool((get_setting("telegram_bot_token", "") or "").strip()),
         # Phase 2 — inbound command listener config.
-        "telegram_listener_enabled":   get_setting_bool("telegram_listener_enabled", False),
-        "telegram_allow_destructive":  get_setting_bool("telegram_allow_destructive", False),
+        "telegram_listener_enabled": get_setting_bool("telegram_listener_enabled", False),
+        "telegram_allow_destructive": get_setting_bool("telegram_allow_destructive", False),
         "telegram_authorized_user_ids": get_setting("telegram_authorized_user_ids", ""),
         # TOTP / 2FA policy. Five fields driving the multi-step
         # login flow + Profile enrolment guards + Admin -> Users action
         # enablement. Defaults preserve "no 2FA required" semantics so
         # an upgrade is a no-op until the operator opts in.
-        "totp_allowed":              get_setting_bool(
-            "totp_allowed", _TOTP_POLICY_DEFAULTS.get("totp_allowed", True),
+        "totp_allowed": get_setting_bool(
+            "totp_allowed", bool(_TOTP_POLICY_DEFAULTS.get("totp_allowed", True)),
         ),
-        "totp_required_for_admins":  get_setting_bool(
+        "totp_required_for_admins": get_setting_bool(
             "totp_required_for_admins",
-            _TOTP_POLICY_DEFAULTS.get("totp_required_for_admins", False),
+            bool(_TOTP_POLICY_DEFAULTS.get("totp_required_for_admins", False)),
         ),
-        "totp_required_for_users":   get_setting_bool(
+        "totp_required_for_users": get_setting_bool(
             "totp_required_for_users",
-            _TOTP_POLICY_DEFAULTS.get("totp_required_for_users", False),
+            bool(_TOTP_POLICY_DEFAULTS.get("totp_required_for_users", False)),
         ),
         "totp_lockout_max_failures": int(get_setting(
             "totp_lockout_max_failures",
             str(_TOTP_POLICY_DEFAULTS.get("totp_lockout_max_failures", 5)),
         ) or _TOTP_POLICY_DEFAULTS.get("totp_lockout_max_failures", 5)),
-        "totp_lockout_minutes":      int(get_setting(
+        "totp_lockout_minutes": int(get_setting(
             "totp_lockout_minutes",
             str(_TOTP_POLICY_DEFAULTS.get("totp_lockout_minutes", 15)),
         ) or _TOTP_POLICY_DEFAULTS.get("totp_lockout_minutes", 15)),
-        "passkeys_allowed":          get_setting_bool(
-            "passkeys_allowed", _TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True),
+        "passkeys_allowed": get_setting_bool(
+            "passkeys_allowed", bool(_TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True)),
         ),
         # Open-Meteo upstream (Admin → General). Returned in the
         # clear so the input round-trips and reloads persisted. Blank
@@ -3564,22 +3579,22 @@ async def api_get_settings(request: Request):
         # Asset inventory (<asset-api-host>). Secret is write-only — UI sees
         # a `_set` flag only. Other fields round-trip in the clear.
         "asset_inventory": {
-            "auth_mode":          (get_setting("asset_inventory_auth_mode", "") or "oauth2"),
-            "base_url":           get_setting("asset_inventory_base_url", "") or "",
-            "token_url":          get_setting("asset_inventory_token_url", "") or "",
-            "client_id":          get_setting("asset_inventory_client_id", "") or "",
-            "client_secret_set":  bool(get_setting("asset_inventory_client_secret", "")),
-            "scope":              get_setting("asset_inventory_scope", "") or "",
+            "auth_mode": (get_setting("asset_inventory_auth_mode", "") or "oauth2"),
+            "base_url": get_setting("asset_inventory_base_url", "") or "",
+            "token_url": get_setting("asset_inventory_token_url", "") or "",
+            "client_id": get_setting("asset_inventory_client_id", "") or "",
+            "client_secret_set": bool(get_setting("asset_inventory_client_secret", "")),
+            "scope": get_setting("asset_inventory_scope", "") or "",
             "lifetime_token_set": bool(get_setting("asset_inventory_lifetime_token", "")),
-            "service":            get_setting("asset_inventory_service", "") or "",
-            "action":             get_setting("asset_inventory_action", "") or "",
-            "min_value":          (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
-                                     get_setting("asset_inventory_min_value", "")),
-            "max_value":          (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
-                                     get_setting("asset_inventory_max_value", "")),
-            "edit_url_template":  get_setting("asset_inventory_edit_url_template", "") or "",
+            "service": get_setting("asset_inventory_service", "") or "",
+            "action": get_setting("asset_inventory_action", "") or "",
+            "min_value": (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
+                get_setting("asset_inventory_min_value", "")),
+            "max_value": (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
+                get_setting("asset_inventory_max_value", "")),
+            "edit_url_template": get_setting("asset_inventory_edit_url_template", "") or "",
             # / — TLS verification toggle. Default True.
-            "verify_tls":         (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower() != "false",
+            "verify_tls": (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower() != "false",
         },
         # AI integration — Stage 1 admin surface. Per-provider api_key
         # round-trips as a `_set` boolean only; everything else returns
@@ -3596,7 +3611,7 @@ async def api_get_settings(request: Request):
         # operator can keep using the old saved value OR clear the
         # field to re-pick the new default on the next form load.
         "ai": {
-            "enabled":         (get_setting("ai_enabled", "false") or "false").lower() == "true",
+            "enabled": (get_setting("ai_enabled", "false") or "false").lower() == "true",
             "active_provider": (get_setting("ai_active_provider", "") or "claude"),
             # max_tokens + fallback_max_depth are TUNABLES (DB > env >
             # default with bounds-clamp). /api/me reads them via
@@ -3606,27 +3621,27 @@ async def api_get_settings(request: Request):
             # the consumers + /api/me read via `tuning_int(...)` — same
             # field, two DB keys, /api/settings and /api/me silently
             # diverged.
-            "max_tokens":      tuning.tuning_int(Tunable.AI_MAX_TOKENS),
+            "max_tokens": tuning.tuning_int(Tunable.AI_MAX_TOKENS),
             # Provider fallback chain config — opt-in, off by default so
             # existing deploys don't suddenly start cost-shifting traffic
             # to alternate providers without operator awareness.
-            "fallback_enabled":   (get_setting("ai_fallback_enabled", "false") or "false").lower() == "true",
-            "fallback_order":     get_setting("ai_fallback_order", "") or "",
+            "fallback_enabled": (get_setting("ai_fallback_enabled", "false") or "false").lower() == "true",
+            "fallback_order": get_setting("ai_fallback_order", "") or "",
             "fallback_max_depth": tuning.tuning_int(Tunable.AI_FALLBACK_MAX_DEPTH),
             "providers": {
                 name: {
-                    "enabled":     (get_setting(f"ai_provider_{name}_enabled", "false") or "false").lower() == "true",
-                    "model":       get_setting(f"ai_provider_{name}_model", "") or "",
-                    "base_url":    get_setting(f"ai_provider_{name}_base_url", "") or "",
+                    "enabled": (get_setting(f"ai_provider_{name}_enabled", "false") or "false").lower() == "true",
+                    "model": get_setting(f"ai_provider_{name}_model", "") or "",
+                    "base_url": get_setting(f"ai_provider_{name}_base_url", "") or "",
                     "api_key_set": bool(get_setting(f"ai_provider_{name}_api_key", "")),
                 }
                 for name in _ai_supported_providers()
             },
             "defaults": {
-                "claude":   {"model": "claude-opus-4-7",   "base_url": "https://api.anthropic.com"},
-                "gemini":   {"model": "gemini-2.5-pro",    "base_url": "https://generativelanguage.googleapis.com"},
-                "chatgpt":  {"model": "gpt-4o",            "base_url": "https://api.openai.com"},
-                "deepseek": {"model": "deepseek-chat",     "base_url": "https://api.deepseek.com"},
+                "claude": {"model": "claude-opus-4-7", "base_url": "https://api.anthropic.com"},
+                "gemini": {"model": "gemini-2.5-pro", "base_url": "https://generativelanguage.googleapis.com"},
+                "chatgpt": {"model": "gpt-4o", "base_url": "https://api.openai.com"},
+                "deepseek": {"model": "deepseek-chat", "base_url": "https://api.deepseek.com"},
             },
         },
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
@@ -3688,9 +3703,9 @@ async def api_get_settings(request: Request):
         # to disable the ICMP toggle with a hint when the package is
         # missing.
         "ping": {
-            "enabled":          get_setting_bool("ping_enabled", False),
-            "default_port":     tuning.tuning_int(Tunable.PING_DEFAULT_PORT),
-            "use_icmp":         get_setting_bool("ping_use_icmp", False),
+            "enabled": get_setting_bool("ping_enabled", False),
+            "default_port": tuning.tuning_int(Tunable.PING_DEFAULT_PORT),
+            "use_icmp": get_setting_bool("ping_use_icmp", False),
             "has_icmp_support": (lambda: __import__("logic.ping", fromlist=["has_icmp_support"]).has_icmp_support())(),
         },
         # Port-scan provider — on-demand TCP scanner. Defaults are
@@ -3700,8 +3715,8 @@ async def api_get_settings(request: Request):
         # falls back to `port_scanner.DEFAULT_PORTS` when given an
         # empty list.
         "port_scan": {
-            "enabled":           get_setting_bool("port_scan_enabled", False),
-            "default_ports":     get_setting("port_scan_default_ports", "") or "",
+            "enabled": get_setting_bool("port_scan_enabled", False),
+            "default_ports": get_setting("port_scan_default_ports", "") or "",
             # Per-port timeout + concurrency now flow through TUNABLES
             # (tuning_port_scan_default_timeout_seconds /
             # tuning_port_scan_default_concurrency). The plain-settings
@@ -3710,14 +3725,14 @@ async def api_get_settings(request: Request):
             # path migrate naturally — `tuning_int` resolves DB > env >
             # default and the legacy rows continue to seed the DB
             # value. Per the No-static-config rule.
-            "default_timeout":   tuning.tuning_int(Tunable.PORT_SCAN_DEFAULT_TIMEOUT_SECONDS),
+            "default_timeout": tuning.tuning_int(Tunable.PORT_SCAN_DEFAULT_TIMEOUT_SECONDS),
             "default_concurrency": tuning.tuning_int(Tunable.PORT_SCAN_DEFAULT_CONCURRENCY),
             # Stage 2 (UDP). UDP runs under the master `enabled` toggle
             # (operator-flagged 2026-05-10 to remove the separate
             # `udp_enabled` flag). Field kept on the response for
             # back-compat with older SPA builds; new SPA ignores it.
-            "udp_enabled":         True,
-            "udp_default_ports":   get_setting("port_scan_udp_default_ports", "") or "",
+            "udp_enabled": True,
+            "udp_default_ports": get_setting("port_scan_udp_default_ports", "") or "",
             "udp_default_timeout": tuning.tuning_int(Tunable.PORT_SCAN_UDP_DEFAULT_TIMEOUT_SECONDS),
             "udp_default_concurrency": tuning.tuning_int(Tunable.PORT_SCAN_UDP_DEFAULT_CONCURRENCY),
         },
@@ -3729,21 +3744,21 @@ async def api_get_settings(request: Request):
         # the Ping pattern so the SPA's master toggle disables with a
         # "package missing" hint when pysnmp isn't installed.
         "snmp": {
-            "default_community":   get_setting("snmp_default_community", "public") or "public",
-            "default_version":     (get_setting("snmp_default_version", "v2c") or "v2c").strip().lower(),
-            "default_port":        tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT),
-            "v3_user":             get_setting("snmp_v3_user", "") or "",
-            "v3_auth_key_set":     bool(get_setting("snmp_v3_auth_key", "")),
-            "v3_priv_key_set":     bool(get_setting("snmp_v3_priv_key", "")),
-            "aliases":             json.loads(get_setting("snmp_aliases", "{}") or "{}"),
-            "has_snmp_support":    (lambda: __import__("logic.snmp", fromlist=["has_snmp_support"]).has_snmp_support())(),
+            "default_community": get_setting("snmp_default_community", "public") or "public",
+            "default_version": (get_setting("snmp_default_version", "v2c") or "v2c").strip().lower(),
+            "default_port": tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT),
+            "v3_user": get_setting("snmp_v3_user", "") or "",
+            "v3_auth_key_set": bool(get_setting("snmp_v3_auth_key", "")),
+            "v3_priv_key_set": bool(get_setting("snmp_v3_priv_key", "")),
+            "aliases": json.loads(get_setting("snmp_aliases", "{}") or "{}"),
+            "has_snmp_support": (lambda: __import__("logic.snmp", fromlist=["has_snmp_support"]).has_snmp_support())(),
             # surface the actual ImportError text from logic.snmp's
             # module-level import block so the SPA's hint can show the
             # ROOT CAUSE instead of just "package not installed". Empty
             # string when pysnmp imported cleanly. Operators don't have
             # to grep the server log to figure out which symbol/path
             # is missing — the hint banner shows it inline.
-            "import_error":        (lambda: getattr(
+            "import_error": (lambda: getattr(
                 __import__("logic.snmp", fromlist=["_SNMP_IMPORT_ERROR"]),
                 "_SNMP_IMPORT_ERROR", "",
             ))(),
@@ -3752,12 +3767,12 @@ async def api_get_settings(request: Request):
         # "use the SPA's built-in default" — the SPA's `providerColor()`
         # helper falls back to the same default constant. Round-tripped
         # in the clear (not a secret).
-        "provider_color_beszel":        get_setting("provider_color_beszel", "")        or "",
-        "provider_color_pulse":         get_setting("provider_color_pulse", "")         or "",
+        "provider_color_beszel": get_setting("provider_color_beszel", "") or "",
+        "provider_color_pulse": get_setting("provider_color_pulse", "") or "",
         "provider_color_node_exporter": get_setting("provider_color_node_exporter", "") or "",
-        "provider_color_webmin":        get_setting("provider_color_webmin", "")        or "",
-        "provider_color_ping":          get_setting("provider_color_ping", "")          or "",
-        "provider_color_snmp":          get_setting("provider_color_snmp", "")          or "",
+        "provider_color_webmin": get_setting("provider_color_webmin", "") or "",
+        "provider_color_ping": get_setting("provider_color_ping", "") or "",
+        "provider_color_snmp": get_setting("provider_color_snmp", "") or "",
         # SSH console — global defaults (Admin → SSH). Secrets
         # redacted per CLAUDE.md's ``_set`` flag contract: the browser
         # learns only whether a private key / passphrase has been set.
@@ -3765,16 +3780,16 @@ async def api_get_settings(request: Request):
         # the full blob round-trips. Destructive patterns are operator-
         # editable regex — shown verbatim for the textarea.
         "ssh": {
-            "user":            get_setting("ssh_default_user", "") or "",
-            "port":            tuning.tuning_int(Tunable.SSH_DEFAULT_PORT),
+            "user": get_setting("ssh_default_user", "") or "",
+            "port": tuning.tuning_int(Tunable.SSH_DEFAULT_PORT),
             "private_key_set": bool(get_setting("ssh_default_private_key", "")),
-            "passphrase_set":  bool(get_setting("ssh_default_private_key_passphrase", "")),
-            "password_set":    bool(get_setting("ssh_default_password", "")),
-            "fqdn_suffix":     get_setting("ssh_fqdn_suffix", "") or "",
-            "known_hosts":     get_setting("ssh_default_known_hosts", "") or "",
-            "custom_actions":  (lambda raw:
-                (json.loads(raw) if (raw or "").strip() else [])
-            )(get_setting("ssh_custom_actions", "")),
+            "passphrase_set": bool(get_setting("ssh_default_private_key_passphrase", "")),
+            "password_set": bool(get_setting("ssh_default_password", "")),
+            "fqdn_suffix": get_setting("ssh_fqdn_suffix", "") or "",
+            "known_hosts": get_setting("ssh_default_known_hosts", "") or "",
+            "custom_actions": (lambda raw:
+                               (json.loads(raw) if (raw or "").strip() else [])
+                               )(get_setting("ssh_custom_actions", "")),
             "destructive_patterns": (
                 get_setting("ssh_destructive_patterns", "") or ""
             ),
@@ -3989,10 +4004,10 @@ async def _api_set_settings_inner(s, request, _portainer):
     # Admin -> Config takes effect on the next call instead of waiting
     # out the TTL window. Cheap — just resets the dict.
     if (s.totp_allowed is not None or s.totp_required_for_admins is not None
-            or s.totp_required_for_users is not None
-            or s.totp_lockout_max_failures is not None
-            or s.totp_lockout_minutes is not None
-            or s.passkeys_allowed is not None):
+        or s.totp_required_for_users is not None
+        or s.totp_lockout_max_failures is not None
+        or s.totp_lockout_minutes is not None
+        or s.passkeys_allowed is not None):
         _invalidate_totp_policy_cache()
     # Open-Meteo upstream — strips trailing slashes so `<base>/v1/...`
     # composition in api_weather stays stable whether the operator
@@ -4230,9 +4245,9 @@ async def _api_set_settings_inner(s, request, _portainer):
     import re as _re
     _hex_re = _re.compile(r"^#[0-9a-fA-F]{6}$")
     for _field in (
-        "provider_color_beszel", "provider_color_pulse",
-        "provider_color_node_exporter", "provider_color_webmin",
-        "provider_color_ping", "provider_color_snmp",
+            "provider_color_beszel", "provider_color_pulse",
+            "provider_color_node_exporter", "provider_color_webmin",
+            "provider_color_ping", "provider_color_snmp",
     ):
         _val = getattr(s, _field, None)
         if _val is None:
@@ -4273,10 +4288,10 @@ async def _api_set_settings_inner(s, request, _portainer):
         try:
             import asyncssh as _asyncssh
             pw_candidate = (
-                s.ssh_default_private_key_passphrase
-                if s.ssh_default_private_key_passphrase is not None
-                else (get_setting("ssh_default_private_key_passphrase", "") or "")
-            ) or None
+                               s.ssh_default_private_key_passphrase
+                               if s.ssh_default_private_key_passphrase is not None
+                               else (get_setting("ssh_default_private_key_passphrase", "") or "")
+                           ) or None
             _asyncssh.import_private_key(
                 s.ssh_default_private_key, passphrase=pw_candidate,
             )
@@ -4287,7 +4302,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             )
         set_setting("ssh_default_private_key", s.ssh_default_private_key)
     if s.ssh_default_private_key_passphrase is not None \
-            and s.ssh_default_private_key_passphrase.strip() != "":
+        and s.ssh_default_private_key_passphrase.strip() != "":
         set_setting(
             "ssh_default_private_key_passphrase",
             s.ssh_default_private_key_passphrase,
@@ -4296,7 +4311,7 @@ async def _api_set_settings_inner(s, request, _portainer):
     # convention). Non-empty replaces. No validation needed at save
     # time — asyncssh raises on connect if the password is wrong.
     if s.ssh_default_password is not None \
-            and s.ssh_default_password.strip() != "":
+        and s.ssh_default_password.strip() != "":
         set_setting("ssh_default_password", s.ssh_default_password)
     if s.ssh_fqdn_suffix is not None:
         # Normalise — operator might paste with or without leading dot.
@@ -4374,8 +4389,8 @@ async def _api_set_settings_inner(s, request, _portainer):
             if not title or not cmd:
                 continue
             clean_actions.append({
-                "id":      (a.get("id") or "").strip() or _slugify_action(title),
-                "title":   title[:80],
+                "id": (a.get("id") or "").strip() or _slugify_action(title),
+                "title": title[:80],
                 "command": cmd[:2048],
             })
         set_setting("ssh_custom_actions", json.dumps(clean_actions))
@@ -4507,15 +4522,15 @@ async def _api_set_settings_inner(s, request, _portainer):
                                     clean_ssh["password"] = prior_pw
                                 break
             clean_groups.append({
-                "id":          row_id,
-                "name":        name,
+                "id": row_id,
+                "name": name,
                 "range_start": rs,
-                "range_end":   re_,
-                "order":       order,
+                "range_end": re_,
+                "order": order,
                 "parent_name": parent_name,
-                "ip_range":    ip_range,
-                "number":      number_val,
-                "ssh":         clean_ssh,
+                "ip_range": ip_range,
+                "number": number_val,
+                "ssh": clean_ssh,
             })
 
         # Parent validation — 2-level nesting means the referenced
@@ -4578,6 +4593,7 @@ async def _api_set_settings_inner(s, request, _portainer):
         def _is_parent_child(a: dict, b: dict) -> bool:
             return (a["parent_name"] == b["name"]
                     or b["parent_name"] == a["name"])
+
         n = len(clean_groups)
         for i in range(n):
             for j in range(i + 1, n):
@@ -4586,7 +4602,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                     continue
                 # Standard interval-overlap test.
                 if a["range_start"] <= b["range_end"] \
-                        and b["range_start"] <= a["range_end"]:
+                    and b["range_start"] <= a["range_end"]:
                     raise HTTPException(
                         400,
                         f"host_groups: '{a['name']}' "
@@ -4654,7 +4670,7 @@ async def _api_set_settings_inner(s, request, _portainer):
         set_setting("asset_inventory_verify_tls",
                     "true" if s.asset_inventory_verify_tls else "false")
     if s.asset_inventory_client_secret is not None \
-            and s.asset_inventory_client_secret.strip() != "":
+        and s.asset_inventory_client_secret.strip() != "":
         set_setting("asset_inventory_client_secret",
                     s.asset_inventory_client_secret)
     if s.clear_asset_inventory_client_secret:
@@ -4665,7 +4681,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             mode = "oauth2"
         set_setting("asset_inventory_auth_mode", mode)
     if s.asset_inventory_lifetime_token is not None \
-            and s.asset_inventory_lifetime_token.strip() != "":
+        and s.asset_inventory_lifetime_token.strip() != "":
         set_setting("asset_inventory_lifetime_token",
                     s.asset_inventory_lifetime_token.strip())
     if s.clear_asset_inventory_lifetime_token:
@@ -4734,7 +4750,8 @@ async def _api_set_settings_inner(s, request, _portainer):
         seen = set()
         for p in items:
             if p in valid and p not in seen:
-                cleaned.append(p); seen.add(p)
+                cleaned.append(p);
+                seen.add(p)
         set_setting("ai_fallback_order", ",".join(cleaned))
     for _ai_name in _AI_PROVIDER_NAMES:
         # enabled
@@ -4992,7 +5009,7 @@ def _resolve_ai_fallback_chain(active: str) -> tuple[bool, list[str], dict[str, 
             continue
         creds[name] = {
             "api_key": api_key,
-            "model":   (get_setting(f"ai_provider_{name}_model", "") or "").strip(),
+            "model": (get_setting(f"ai_provider_{name}_model", "") or "").strip(),
             "base_url": (get_setting(f"ai_provider_{name}_base_url", "") or "").strip(),
         }
 
@@ -5204,7 +5221,6 @@ async def api_admin_stats_database(
     intermittently.
     """
     import os as _os
-    import math as _math
     out: dict = {
         "size": {"bytes": 0, "history": []},
         "tables": [],
@@ -5268,9 +5284,9 @@ async def api_admin_stats_database(
                     except Exception:
                         cnt = None
                     tables_info.append({
-                        "name":  tname,
+                        "name": tname,
                         "bytes": int((r["bytes"] if hasattr(r, "keys") else r[1]) or 0),
-                        "rows":  cnt,
+                        "rows": cnt,
                     })
             except Exception:
                 # dbstat unavailable — approximate via row count.
@@ -5351,10 +5367,10 @@ async def api_admin_stats_database(
             low = central * (1.0 - band_factor)
             high = central * (1.0 + band_factor)
             projection.append({
-                "ts":    ts,
+                "ts": ts,
                 "bytes": int(round(central)),
-                "low":   int(round(max(0, low))),
-                "high":  int(round(high)),
+                "low": int(round(max(0, low))),
+                "high": int(round(high)),
             })
         out["projection"] = projection
     except Exception as e:
@@ -5483,10 +5499,10 @@ async def api_admin_stats_network(
                     cur = deduped.get(key)
                     if cur is None:
                         deduped[key] = {
-                            "host_id":    hid,
+                            "host_id": hid,
                             "max_rx_bps": rx,
                             "max_tx_bps": tx,
-                            "aliases":    [],
+                            "aliases": [],
                         }
                     else:
                         # MAX across duplicates — they're sampling the
@@ -5540,11 +5556,11 @@ async def api_admin_stats_network(
                 cur = ded_chatty.get(key)
                 if cur is None:
                     ded_chatty[key] = {
-                        "host_id":     hid,
-                        "bytes_rx":    bx,
-                        "bytes_tx":    bt,
+                        "host_id": hid,
+                        "bytes_rx": bx,
+                        "bytes_tx": bt,
                         "bytes_total": total,
-                        "aliases":     [],
+                        "aliases": [],
                     }
                 else:
                     if total > cur["bytes_total"]:
@@ -5634,8 +5650,8 @@ async def api_admin_stats_network(
             out["timeseries"] = [
                 {
                     "bucket_ts": int(r["bucket_ts"] if hasattr(r, "keys") else r[0]),
-                    "rx_bps":    float((r["rx"] if hasattr(r, "keys") else r[1] or 0) / ticks_per_bucket),
-                    "tx_bps":    float((r["tx"] if hasattr(r, "keys") else r[2] or 0) / ticks_per_bucket),
+                    "rx_bps": float((r["rx"] if hasattr(r, "keys") else r[1] or 0) / ticks_per_bucket),
+                    "tx_bps": float((r["tx"] if hasattr(r, "keys") else r[2] or 0) / ticks_per_bucket),
                 }
                 for r in rows
             ]
@@ -5723,8 +5739,8 @@ async def api_admin_stats_incidents(
             "provider": provider,
             "failures": 0,
             "recoveries": 0,
-            "_pending": {},   # host_id → ts of the latest unmatched paused
-            "_durations": [], # seconds between paused→recovered pairs
+            "_pending": {},  # host_id → ts of the latest unmatched paused
+            "_durations": [],  # seconds between paused→recovered pairs
         })
         if kind == "paused":
             p["failures"] += 1
@@ -5800,7 +5816,7 @@ async def api_admin_stats_ai_cost(
       range             — echo of the resolved range string ('30d' default).
     """
     import time as _time
-    from datetime import datetime as _dt, timedelta as _td
+    from datetime import datetime as _dt
     try:
         from logic.schedules import _scheduler_tz as _stz
         tz = _stz()
@@ -5826,16 +5842,16 @@ async def api_admin_stats_ai_cost(
     lm_end_ts = som_ts - 1
     out: dict = {
         "month_to_date": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
-        "last_month":    {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
+        "last_month": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
         "projected_eom": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
         # Additional headline metrics over the MTD window — surfaced
         # as standalone cards next to the cost cards.
         "mtd_metrics": {
-            "pass_rate":            None,   # 0..1, or None when no success/error rows
+            "pass_rate": None,  # 0..1, or None when no success/error rows
             "avg_response_time_ms": None,
-            "avg_accuracy_score":   None,
-            "success_jobs":         0,
-            "error_jobs":           0,
+            "avg_accuracy_score": None,
+            "success_jobs": 0,
+            "error_jobs": 0,
         },
         "tokens_by_provider_model": [],
         "avg_response_time_trend": [],
@@ -5855,8 +5871,8 @@ async def api_admin_stats_ai_cost(
                 (som_ts, now_ts),
             ).fetchone()
             out["month_to_date"] = {
-                "jobs":     int(r["jobs"] if hasattr(r, "keys") else r[0]),
-                "tokens":   int(r["tokens"] if hasattr(r, "keys") else r[1]),
+                "jobs": int(r["jobs"] if hasattr(r, "keys") else r[0]),
+                "tokens": int(r["tokens"] if hasattr(r, "keys") else r[1]),
                 "cost_usd": float(r["cost"] if hasattr(r, "keys") else r[2]),
             }
             # MTD additional metrics — pass rate / avg RT / avg accuracy.
@@ -5876,11 +5892,11 @@ async def api_admin_stats_ai_cost(
             avg_rt = rr["avg_rt"] if hasattr(rr, "keys") else rr[2]
             avg_acc = rr["avg_acc"] if hasattr(rr, "keys") else rr[3]
             out["mtd_metrics"] = {
-                "pass_rate":            (ok_jobs / denom) if denom else None,
+                "pass_rate": (ok_jobs / denom) if denom else None,
                 "avg_response_time_ms": (float(avg_rt) if avg_rt is not None else None),
-                "avg_accuracy_score":   (float(avg_acc) if avg_acc is not None else None),
-                "success_jobs":         ok_jobs,
-                "error_jobs":           err_jobs,
+                "avg_accuracy_score": (float(avg_acc) if avg_acc is not None else None),
+                "success_jobs": ok_jobs,
+                "error_jobs": err_jobs,
             }
             # Last month full window.
             r = c.execute(
@@ -5891,8 +5907,8 @@ async def api_admin_stats_ai_cost(
                 (lm_start_ts, lm_end_ts),
             ).fetchone()
             out["last_month"] = {
-                "jobs":     int(r["jobs"] if hasattr(r, "keys") else r[0]),
-                "tokens":   int(r["tokens"] if hasattr(r, "keys") else r[1]),
+                "jobs": int(r["jobs"] if hasattr(r, "keys") else r[0]),
+                "tokens": int(r["tokens"] if hasattr(r, "keys") else r[1]),
                 "cost_usd": float(r["cost"] if hasattr(r, "keys") else r[2]),
             }
             # Projection — linear extrapolation from MTD burn rate to EOM.
@@ -5901,8 +5917,8 @@ async def api_admin_stats_ai_cost(
             scale = (elapsed + remaining) / elapsed
             mtd = out["month_to_date"]
             out["projected_eom"] = {
-                "jobs":     int(round(mtd["jobs"] * scale)),
-                "tokens":   int(round(mtd["tokens"] * scale)),
+                "jobs": int(round(mtd["jobs"] * scale)),
+                "tokens": int(round(mtd["tokens"] * scale)),
                 "cost_usd": round(mtd["cost_usd"] * scale, 4),
             }
             # Tokens by (provider, model) over the last 30 days. Skip
@@ -5922,10 +5938,10 @@ async def api_admin_stats_ai_cost(
             out["tokens_by_provider_model"] = [
                 {
                     "provider": r["provider"] if hasattr(r, "keys") else r[0],
-                    "model":    r["model"]    if hasattr(r, "keys") else r[1],
-                    "tokens":   int(r["tokens"] if hasattr(r, "keys") else r[2]),
-                    "cost_usd": float(r["cost"]   if hasattr(r, "keys") else r[3]),
-                    "jobs":     int(r["jobs"]   if hasattr(r, "keys") else r[4]),
+                    "model": r["model"] if hasattr(r, "keys") else r[1],
+                    "tokens": int(r["tokens"] if hasattr(r, "keys") else r[2]),
+                    "cost_usd": float(r["cost"] if hasattr(r, "keys") else r[3]),
+                    "jobs": int(r["jobs"] if hasattr(r, "keys") else r[4]),
                 }
                 for r in rows
             ]
@@ -5958,8 +5974,8 @@ async def api_admin_stats_ai_cost(
             out["avg_response_time_trend"] = [
                 {
                     "bucket_ts": int(r["bucket_ts"] if hasattr(r, "keys") else r[0]),
-                    "avg_ms":    float(r["avg_ms"] if hasattr(r, "keys") else r[1] or 0),
-                    "jobs":      int(r["jobs"] if hasattr(r, "keys") else r[2]),
+                    "avg_ms": float(r["avg_ms"] if hasattr(r, "keys") else r[1] or 0),
+                    "jobs": int(r["jobs"] if hasattr(r, "keys") else r[2]),
                 }
                 for r in rows
             ]
@@ -5974,13 +5990,13 @@ async def api_admin_stats_ai_cost(
             ).fetchall()
             out["top_expensive"] = [
                 {
-                    "id":               int(r["id"] if hasattr(r, "keys") else r[0]),
-                    "ts":               int(r["ts"] if hasattr(r, "keys") else r[1]),
-                    "provider":         r["provider"] if hasattr(r, "keys") else r[2],
-                    "model":            r["model"] if hasattr(r, "keys") else r[3],
-                    "kind":             r["kind"] if hasattr(r, "keys") else r[4],
-                    "total_tokens":     int(r["total_tokens"] if hasattr(r, "keys") else r[5] or 0),
-                    "cost_usd":         float(r["cost_usd"] if hasattr(r, "keys") else r[6]),
+                    "id": int(r["id"] if hasattr(r, "keys") else r[0]),
+                    "ts": int(r["ts"] if hasattr(r, "keys") else r[1]),
+                    "provider": r["provider"] if hasattr(r, "keys") else r[2],
+                    "model": r["model"] if hasattr(r, "keys") else r[3],
+                    "kind": r["kind"] if hasattr(r, "keys") else r[4],
+                    "total_tokens": int(r["total_tokens"] if hasattr(r, "keys") else r[5] or 0),
+                    "cost_usd": float(r["cost_usd"] if hasattr(r, "keys") else r[6]),
                     "response_time_ms": int(r["response_time_ms"] if hasattr(r, "keys") else r[7] or 0),
                 }
                 for r in rows
@@ -6019,19 +6035,19 @@ async def api_admin_stats_samples(
     # but some legacy tables differ) and whether `host_id` exists.
     spec = [
         # (table, provider, kind, ts_col, host_col)
-        ("ping_samples",            "ping",          "ping rtt / reach",  "ts",       "host_id"),
-        ("host_snmp_samples",       "snmp",          "snmp host",         "ts",       "host_id"),
-        ("host_snmp_iface_samples", "snmp",          "snmp per-iface",    "ts",       "host_id"),
-        ("host_snmp_temp_samples",  "snmp",          "snmp per-probe",    "ts",       "host_id"),
-        ("host_beszel_samples",     "beszel",        "beszel per-tick",   "ts",       "host_id"),
-        ("host_beszel_services",    "beszel",        "beszel systemd",    "last_seen_ts", "host_id"),
-        ("host_pulse_samples",      "pulse",         "pulse per-tick",    "ts",       "host_id"),
-        ("host_webmin_samples",     "webmin",        "webmin per-tick",   "ts",       "host_id"),
-        ("host_metrics_samples",    "node_exporter", "ne per-tick",       "ts",       "host_id"),
-        ("host_net_samples",        "node_exporter", "ne net rates",      "ts",       "host_id"),
-        ("stats_samples",           "portainer",     "container stats",   "ts",       "item_id"),
-        ("host_port_scans",         "port_scan",     "open ports",        "ts",       "host_id"),
-        ("host_failure_events",     "events",        "failure log",       "ts",       "host_id"),
+        ("ping_samples", "ping", "ping rtt / reach", "ts", "host_id"),
+        ("host_snmp_samples", "snmp", "snmp host", "ts", "host_id"),
+        ("host_snmp_iface_samples", "snmp", "snmp per-iface", "ts", "host_id"),
+        ("host_snmp_temp_samples", "snmp", "snmp per-probe", "ts", "host_id"),
+        ("host_beszel_samples", "beszel", "beszel per-tick", "ts", "host_id"),
+        ("host_beszel_services", "beszel", "beszel systemd", "last_seen_ts", "host_id"),
+        ("host_pulse_samples", "pulse", "pulse per-tick", "ts", "host_id"),
+        ("host_webmin_samples", "webmin", "webmin per-tick", "ts", "host_id"),
+        ("host_metrics_samples", "node_exporter", "ne per-tick", "ts", "host_id"),
+        ("host_net_samples", "node_exporter", "ne net rates", "ts", "host_id"),
+        ("stats_samples", "portainer", "container stats", "ts", "item_id"),
+        ("host_port_scans", "port_scan", "open ports", "ts", "host_id"),
+        ("host_failure_events", "events", "failure log", "ts", "host_id"),
     ]
     # Bucket-totals — sample-INSERT counts summed across every
     # sample-bearing table, bucketed per the operator-selected range.
@@ -6050,11 +6066,11 @@ async def api_admin_stats_samples(
     # as "Mar 04 – Mar 10" if the renderer wants. For now the group-key
     # is the bucket-anchor's ISO date.
     range_spec = {
-        "1h":  {"sql_offset": "-1 hour",   "bucket_fmt": "%Y-%m-%dT%H:00",  "bucket_seconds": 3600,    "n_buckets": 1},
-        "24h": {"sql_offset": "-24 hours", "bucket_fmt": "%Y-%m-%dT%H:00",  "bucket_seconds": 3600,    "n_buckets": 24},
-        "7d":  {"sql_offset": "-7 days",   "bucket_fmt": "%Y-%m-%d",        "bucket_seconds": 86400,   "n_buckets": 7},
-        "30d": {"sql_offset": "-30 days",  "bucket_fmt": "%Y-%m-%d",        "bucket_seconds": 86400,   "n_buckets": 30},
-        "90d": {"sql_offset": "-90 days",  "bucket_fmt": "%Y-%m-%d",        "bucket_seconds": 604800,  "n_buckets": 13},
+        "1h": {"sql_offset": "-1 hour", "bucket_fmt": "%Y-%m-%dT%H:00", "bucket_seconds": 3600, "n_buckets": 1},
+        "24h": {"sql_offset": "-24 hours", "bucket_fmt": "%Y-%m-%dT%H:00", "bucket_seconds": 3600, "n_buckets": 24},
+        "7d": {"sql_offset": "-7 days", "bucket_fmt": "%Y-%m-%d", "bucket_seconds": 86400, "n_buckets": 7},
+        "30d": {"sql_offset": "-30 days", "bucket_fmt": "%Y-%m-%d", "bucket_seconds": 86400, "n_buckets": 30},
+        "90d": {"sql_offset": "-90 days", "bucket_fmt": "%Y-%m-%d", "bucket_seconds": 604800, "n_buckets": 13},
     }
     sel = range_spec.get(range) or range_spec["90d"]
     bucket_fmt = sel["bucket_fmt"]
@@ -6062,7 +6078,7 @@ async def api_admin_stats_samples(
     out: dict = {
         "tables": [], "grand_total": 0, "errors": [],
         "range": range if range in range_spec else "90d",
-        "daily_totals": [],   # back-compat alias of bucket_totals
+        "daily_totals": [],  # back-compat alias of bucket_totals
         "bucket_totals": [],
     }
     try:
@@ -6096,12 +6112,12 @@ async def api_admin_stats_samples(
                 pass
             for table, provider, kind, ts_col, host_col in spec:
                 row: dict = {
-                    "name":         table,
-                    "provider":     provider,
-                    "kind":         kind,
-                    "rows":         0,
-                    "oldest_ts":    None,
-                    "newest_ts":    None,
+                    "name": table,
+                    "provider": provider,
+                    "kind": kind,
+                    "rows": 0,
+                    "oldest_ts": None,
+                    "newest_ts": None,
                     "unique_hosts": None,
                 }
                 try:
@@ -6199,19 +6215,19 @@ async def api_admin_stats_samples(
 # table name to the host-id column (most tables use `host_id`; the
 # Portainer `stats_samples` table uses `item_id` instead).
 _SAMPLES_TABLE_HOST_COL: dict[str, str] = {
-    "ping_samples":            "host_id",
-    "host_snmp_samples":       "host_id",
+    "ping_samples": "host_id",
+    "host_snmp_samples": "host_id",
     "host_snmp_iface_samples": "host_id",
-    "host_snmp_temp_samples":  "host_id",
-    "host_beszel_samples":     "host_id",
-    "host_beszel_services":    "host_id",
-    "host_pulse_samples":      "host_id",
-    "host_webmin_samples":     "host_id",
-    "host_metrics_samples":    "host_id",
-    "host_net_samples":        "host_id",
-    "stats_samples":           "item_id",
-    "host_port_scans":         "host_id",
-    "host_failure_events":     "host_id",
+    "host_snmp_temp_samples": "host_id",
+    "host_beszel_samples": "host_id",
+    "host_beszel_services": "host_id",
+    "host_pulse_samples": "host_id",
+    "host_webmin_samples": "host_id",
+    "host_metrics_samples": "host_id",
+    "host_net_samples": "host_id",
+    "stats_samples": "item_id",
+    "host_port_scans": "host_id",
+    "host_failure_events": "host_id",
 }
 
 
@@ -6239,10 +6255,10 @@ async def api_admin_stats_samples_by_host(
                    + ", ".join(sorted(_SAMPLES_TABLE_HOST_COL.keys())),
         )
     out: dict = {
-        "table":     table,
-        "host_col":  host_col,
-        "rows":      [],
-        "total":     0,
+        "table": table,
+        "host_col": host_col,
+        "rows": [],
+        "total": 0,
         # Backend-side fresh outer count — fetched in the SAME SELECT
         # snapshot as the per-host groupings so the SPA's cross-check
         # compares values from one consistent point in time. Pre-fix
@@ -6251,7 +6267,7 @@ async def api_admin_stats_samples_by_host(
         # between the two HTTP calls drifted the totals + the modal
         # falsely flagged "TOTAL MISMATCH".
         "outer_count": 0,
-        "error":     None,
+        "error": None,
     }
     # Curated metadata lookup — operator-facing label + every per-
     # provider name alias for each host_id, so the drill-down popup
@@ -6296,7 +6312,7 @@ async def api_admin_stats_samples_by_host(
                 iid = (it.get("id") or "").strip()
                 if not iid:
                     continue
-                name  = (it.get("name") or "").strip() or None
+                name = (it.get("name") or "").strip() or None
                 stack = (it.get("stack") or "").strip() or None
                 image = (it.get("image") or "").strip() or None
                 itype = (it.get("type") or "").strip() or None
@@ -6309,13 +6325,13 @@ async def api_admin_stats_samples_by_host(
                 if stack and name:
                     composite = f"{stack}/{name}"
                 curated_meta[iid] = {
-                    "label":       composite,
-                    "address":     image,          # show image where address would go for hosts
+                    "label": composite,
+                    "address": image,  # show image where address would go for hosts
                     "beszel_name": None,
-                    "pulse_name":  None,
-                    "snmp_name":   None,
+                    "pulse_name": None,
+                    "snmp_name": None,
                     "webmin_name": None,
-                    "_kind":       itype,          # service / container / orphan
+                    "_kind": itype,  # service / container / orphan
                 }
         except Exception:
             pass
@@ -6326,11 +6342,11 @@ async def api_admin_stats_samples_by_host(
                 if not hid:
                     continue
                 curated_meta[hid] = {
-                    "label":       (h.get("label") or "").strip() or None,
-                    "address":     (h.get("address") or "").strip() or None,
+                    "label": (h.get("label") or "").strip() or None,
+                    "address": (h.get("address") or "").strip() or None,
                     "beszel_name": (h.get("beszel_name") or "").strip() or None,
-                    "pulse_name":  (h.get("pulse_name") or "").strip() or None,
-                    "snmp_name":   (h.get("snmp_name") or "").strip() or None,
+                    "pulse_name": (h.get("pulse_name") or "").strip() or None,
+                    "snmp_name": (h.get("snmp_name") or "").strip() or None,
                     "webmin_name": (h.get("webmin_name") or "").strip() or None,
                 }
         except Exception:
@@ -6355,19 +6371,19 @@ async def api_admin_stats_samples_by_host(
             ).fetchall()
             shaped = []
             for r in rows:
-                hid  = (r["host_id"] if hasattr(r, "keys") else r[0]) or ""
-                cnt  = int(r["rows"] if hasattr(r, "keys") else r[1] or 0)
+                hid = (r["host_id"] if hasattr(r, "keys") else r[0]) or ""
+                cnt = int(r["rows"] if hasattr(r, "keys") else r[1] or 0)
                 meta = curated_meta.get(hid) or {}
                 shaped.append({
-                    "host_id":     hid,
-                    "rows":        cnt,
-                    "label":       meta.get("label"),
-                    "address":     meta.get("address"),
+                    "host_id": hid,
+                    "rows": cnt,
+                    "label": meta.get("label"),
+                    "address": meta.get("address"),
                     "beszel_name": meta.get("beszel_name"),
-                    "pulse_name":  meta.get("pulse_name"),
-                    "snmp_name":   meta.get("snmp_name"),
+                    "pulse_name": meta.get("pulse_name"),
+                    "snmp_name": meta.get("snmp_name"),
                     "webmin_name": meta.get("webmin_name"),
-                    "curated":     bool(meta),
+                    "curated": bool(meta),
                 })
             out["rows"] = shaped
             out["total"] = sum(r["rows"] for r in shaped)
@@ -6473,7 +6489,7 @@ async def api_admin_ai_dashboard(
             "avg_response_time_ms": None, "avg_accuracy_score": None,
             "models": [],
             "enabled": (get_setting(f"ai_provider_{n}_enabled", "false") or "false").lower() == "true",
-            "model":   get_setting(f"ai_provider_{n}_model", "") or "",
+            "model": get_setting(f"ai_provider_{n}_model", "") or "",
         }
         for n in _provider_names
     }
@@ -6484,19 +6500,19 @@ async def api_admin_ai_dashboard(
             rows = c.execute(
                 """
                 SELECT provider,
-                       COUNT(*)                                         AS total,
-                       SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS ok,
-                       SUM(CASE WHEN status='error'   THEN 1 ELSE 0 END) AS err,
-                       SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) AS run,
-                       COALESCE(SUM(prompt_tokens),     0)              AS p_tok,
-                       COALESCE(SUM(completion_tokens), 0)              AS c_tok,
-                       COALESCE(SUM(total_tokens),      0)              AS t_tok,
-                       COALESCE(SUM(cost_usd),          0.0)            AS cost,
-                       AVG(response_time_ms)                            AS avg_rt,
-                       AVG(accuracy_score)                              AS avg_acc
-                  FROM ai_jobs
-                 WHERE ts >= ?
-                 GROUP BY provider
+                       COUNT(*)                                            AS total,
+                       SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS ok,
+                       SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END)   AS err,
+                       SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS run,
+                       COALESCE(SUM(prompt_tokens), 0)                     AS p_tok,
+                       COALESCE(SUM(completion_tokens), 0)                 AS c_tok,
+                       COALESCE(SUM(total_tokens), 0)                      AS t_tok,
+                       COALESCE(SUM(cost_usd), 0.0)                        AS cost,
+                       AVG(response_time_ms)                               AS avg_rt,
+                       AVG(accuracy_score)                                 AS avg_acc
+                FROM ai_jobs
+                WHERE ts >= ?
+                GROUP BY provider
                 """,
                 (cutoff,),
             ).fetchall()
@@ -6509,35 +6525,38 @@ async def api_admin_ai_dashboard(
                     "models": [], "enabled": False, "model": "",
                 })
                 bucket["total_jobs"] = int(r["total"] or 0)
-                bucket["success"]    = int(r["ok"] or 0)
-                bucket["error"]      = int(r["err"] or 0)
-                bucket["running"]    = int(r["run"] or 0)
+                bucket["success"] = int(r["ok"] or 0)
+                bucket["error"] = int(r["err"] or 0)
+                bucket["running"] = int(r["run"] or 0)
                 non_running = bucket["success"] + bucket["error"]
                 bucket["pass_rate"] = (bucket["success"] / non_running) if non_running else 0.0
-                bucket["total_tokens"]   = int(r["t_tok"] or 0)
+                bucket["total_tokens"] = int(r["t_tok"] or 0)
                 bucket["total_cost_usd"] = float(r["cost"] or 0.0)
                 bucket["avg_response_time_ms"] = (float(r["avg_rt"]) if r["avg_rt"] is not None else None)
-                bucket["avg_accuracy_score"]   = (float(r["avg_acc"]) if r["avg_acc"] is not None else None)
+                bucket["avg_accuracy_score"] = (float(r["avg_acc"]) if r["avg_acc"] is not None else None)
                 # Roll into summary too.
-                summary["total_jobs"]     += bucket["total_jobs"]
-                summary["success"]        += bucket["success"]
-                summary["error"]          += bucket["error"]
-                summary["running"]        += bucket["running"]
-                summary["prompt_tokens"]  += int(r["p_tok"] or 0)
+                summary["total_jobs"] += bucket["total_jobs"]
+                summary["success"] += bucket["success"]
+                summary["error"] += bucket["error"]
+                summary["running"] += bucket["running"]
+                summary["prompt_tokens"] += int(r["p_tok"] or 0)
                 summary["completion_tokens"] += int(r["c_tok"] or 0)
-                summary["total_tokens"]   += bucket["total_tokens"]
+                summary["total_tokens"] += bucket["total_tokens"]
                 summary["total_cost_usd"] += bucket["total_cost_usd"]
 
             # Per-(provider, model) breakdown.
             mrows = c.execute(
                 """
-                SELECT provider, model,
-                       COUNT(*)                                         AS total,
-                       COALESCE(SUM(total_tokens),  0)                  AS t_tok,
-                       COALESCE(SUM(cost_usd),      0.0)                AS cost
-                  FROM ai_jobs
-                 WHERE ts >= ? AND model IS NOT NULL AND model != ''
-                 GROUP BY provider, model
+                SELECT provider,
+                       model,
+                       COUNT(*)                       AS total,
+                       COALESCE(SUM(total_tokens), 0) AS t_tok,
+                       COALESCE(SUM(cost_usd), 0.0)   AS cost
+                FROM ai_jobs
+                WHERE ts >= ?
+                  AND model IS NOT NULL
+                  AND model != ''
+                GROUP BY provider, model
                 """,
                 (cutoff,),
             ).fetchall()
@@ -6545,8 +6564,8 @@ async def api_admin_ai_dashboard(
                 p = r["provider"] or ""
                 if p in providers:
                     providers[p]["models"].append({
-                        "model":        r["model"] or "",
-                        "total_jobs":   int(r["total"] or 0),
+                        "model": r["model"] or "",
+                        "total_jobs": int(r["total"] or 0),
                         "total_tokens": int(r["t_tok"] or 0),
                         "total_cost_usd": float(r["cost"] or 0.0),
                     })
@@ -6571,30 +6590,30 @@ async def api_admin_ai_dashboard(
             # Hourly trend buckets — drives the time-series cards.
             tr_rows = c.execute(
                 """
-                SELECT (ts / 3600) * 3600                               AS bucket,
-                       COUNT(*)                                         AS total,
-                       SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS ok,
-                       SUM(CASE WHEN status='error'   THEN 1 ELSE 0 END) AS err,
-                       COALESCE(SUM(total_tokens), 0)                   AS t_tok,
-                       COALESCE(SUM(cost_usd),     0.0)                 AS cost,
-                       AVG(accuracy_score)                              AS avg_acc
-                  FROM ai_jobs
-                 WHERE ts >= ?
-                 GROUP BY bucket
-                 ORDER BY bucket ASC
+                SELECT (ts / 3600) * 3600                                  AS bucket,
+                       COUNT(*)                                            AS total,
+                       SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS ok,
+                       SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END)   AS err,
+                       COALESCE(SUM(total_tokens), 0)                      AS t_tok,
+                       COALESCE(SUM(cost_usd), 0.0)                        AS cost,
+                       AVG(accuracy_score)                                 AS avg_acc
+                FROM ai_jobs
+                WHERE ts >= ?
+                GROUP BY bucket
+                ORDER BY bucket ASC
                 """,
                 (cutoff,),
             ).fetchall()
             for r in tr_rows:
                 non_run = int(r["ok"] or 0) + int(r["err"] or 0)
                 trend.append({
-                    "ts":               int(r["bucket"] or 0),
-                    "jobs":             int(r["total"] or 0),
-                    "success":          int(r["ok"] or 0),
-                    "error":            int(r["err"] or 0),
-                    "total_tokens":     int(r["t_tok"] or 0),
-                    "total_cost_usd":   float(r["cost"] or 0.0),
-                    "pass_rate":        (int(r["ok"] or 0) / non_run) if non_run else 0.0,
+                    "ts": int(r["bucket"] or 0),
+                    "jobs": int(r["total"] or 0),
+                    "success": int(r["ok"] or 0),
+                    "error": int(r["err"] or 0),
+                    "total_tokens": int(r["t_tok"] or 0),
+                    "total_cost_usd": float(r["cost"] or 0.0),
+                    "pass_rate": (int(r["ok"] or 0) / non_run) if non_run else 0.0,
                     "avg_accuracy_score": (
                         float(r["avg_acc"]) if r["avg_acc"] is not None else None
                     ),
@@ -6606,13 +6625,13 @@ async def api_admin_ai_dashboard(
 
     return {
         "window_hours": hours,
-        "summary":      summary,
-        "providers":    [providers[n] for n in _provider_names
-                         if n in providers] + [
-                            providers[k] for k in sorted(providers.keys())
-                            if k not in _provider_names
-                        ],
-        "trend":        trend,
+        "summary": summary,
+        "providers": [providers[n] for n in _provider_names
+                      if n in providers] + [
+                         providers[k] for k in sorted(providers.keys())
+                         if k not in _provider_names
+                     ],
+        "trend": trend,
     }
 
 
@@ -6670,13 +6689,13 @@ async def api_admin_ai_jobs(
                     "model": r["model"] or "",
                     "kind": r["kind"] or "",
                     "status": r["status"],
-                    "prompt_tokens":     (int(r["prompt_tokens"])     if r["prompt_tokens"]     is not None else None),
+                    "prompt_tokens": (int(r["prompt_tokens"]) if r["prompt_tokens"] is not None else None),
                     "completion_tokens": (int(r["completion_tokens"]) if r["completion_tokens"] is not None else None),
-                    "total_tokens":      (int(r["total_tokens"])      if r["total_tokens"]      is not None else None),
-                    "cost_usd":          (float(r["cost_usd"])        if r["cost_usd"]          is not None else None),
-                    "response_time_ms":  (int(r["response_time_ms"])  if r["response_time_ms"]  is not None else None),
-                    "accuracy_score":    (float(r["accuracy_score"])  if r["accuracy_score"]    is not None else None),
-                    "error":             r["error"] or "",
+                    "total_tokens": (int(r["total_tokens"]) if r["total_tokens"] is not None else None),
+                    "cost_usd": (float(r["cost_usd"]) if r["cost_usd"] is not None else None),
+                    "response_time_ms": (int(r["response_time_ms"]) if r["response_time_ms"] is not None else None),
+                    "accuracy_score": (float(r["accuracy_score"]) if r["accuracy_score"] is not None else None),
+                    "error": r["error"] or "",
                 })
             count_sql = (
                 f"SELECT COUNT(*) AS n FROM ai_jobs WHERE {' AND '.join(where[:-0] or where)}"
@@ -6689,10 +6708,10 @@ async def api_admin_ai_jobs(
         print(f"[ai] jobs query failed: {e}")
     return {
         "window_hours": hours,
-        "limit":        limit,
-        "offset":       offset,
-        "total":        total,
-        "jobs":         rows,
+        "limit": limit,
+        "offset": offset,
+        "total": total,
+        "jobs": rows,
     }
 
 
@@ -6733,9 +6752,9 @@ async def api_admin_ai_test(
     if not api_key:
         api_key = (get_setting(f"ai_provider_{p}_api_key", "") or "").strip()
     model = (body.get("model") or "").strip() \
-        or (get_setting(f"ai_provider_{p}_model", "") or "").strip()
+            or (get_setting(f"ai_provider_{p}_model", "") or "").strip()
     base_url = (body.get("base_url") or "").strip() \
-        or (get_setting(f"ai_provider_{p}_base_url", "") or "").strip()
+               or (get_setting(f"ai_provider_{p}_base_url", "") or "").strip()
     return await _ai.test_provider(
         p,
         api_key=api_key,
@@ -6925,8 +6944,8 @@ async def api_ai_palette(
     action_ids, cleaned_text = _ai.parse_palette_actions(text)
     if action_ids:
         out["text"] = cleaned_text
-        out["action"] = action_ids[0]   # legacy single-action shape
-        out["actions"] = action_ids     # full ordered list
+        out["action"] = action_ids[0]  # legacy single-action shape
+        out["actions"] = action_ids  # full ordered list
     text = cleaned_text
     action_id = action_ids[0] if action_ids else ""
 
@@ -7076,7 +7095,7 @@ async def api_ai_palette(
             "action_id": action_id or "",
             "hosts": host_ids,
             "context": {
-                "view":  ctx.get("view") if isinstance(ctx, dict) else "",
+                "view": ctx.get("view") if isinstance(ctx, dict) else "",
                 "hosts_count": (len(ctx.get("hosts") or []) if isinstance(ctx, dict) else 0),
                 "items_count": (len(ctx.get("items") or []) if isinstance(ctx, dict) else 0),
             },
@@ -7384,14 +7403,14 @@ async def api_ai_host_filter(
     )
 
     return {
-        "ok":               bool(dsl),
-        "dsl":              dsl,
-        "explanation":      explanation,
-        "provider":         active,
-        "model":            model,
+        "ok": bool(dsl),
+        "dsl": dsl,
+        "explanation": explanation,
+        "provider": active,
+        "model": model,
         "response_time_ms": int((out.get("response_time_ms") or 0) if isinstance(out, dict) else 0),
-        "tokens":           (out.get("tokens") if isinstance(out, dict) else None) or {},
-        "detail":           err_detail or None,
+        "tokens": (out.get("tokens") if isinstance(out, dict) else None) or {},
+        "detail": err_detail or None,
     }
 
 
@@ -7449,7 +7468,7 @@ class NotifyTemplateIn(BaseModel):
     (Webmin password, Portainer API key, etc.).
     """
     title: Optional[str] = None
-    body:  Optional[str] = None
+    body: Optional[str] = None
 
 
 class NotifyTemplatePreviewIn(BaseModel):
@@ -7459,7 +7478,7 @@ class NotifyTemplatePreviewIn(BaseModel):
     resolved strings + metadata about which placeholders fired.
     """
     title: Optional[str] = None
-    body:  Optional[str] = None
+    body: Optional[str] = None
 
 
 def _shape_notify_template_row(event: str) -> dict:
@@ -7470,17 +7489,17 @@ def _shape_notify_template_row(event: str) -> dict:
     """
     title_key, body_key = _ops_mod.template_setting_keys(event)
     raw_title = (get_setting(title_key, "") or "")
-    raw_body  = (get_setting(body_key,  "") or "")
+    raw_body = (get_setting(body_key, "") or "")
     default_title = _ops_mod.template_default(event, "title")
-    default_body  = _ops_mod.template_default(event, "body")
+    default_body = _ops_mod.template_default(event, "body")
     return {
         "event": event,
         "title": raw_title if raw_title else default_title,
-        "body":  raw_body  if raw_body  else default_body,
+        "body": raw_body if raw_body else default_body,
         "title_default": default_title,
-        "body_default":  default_body,
+        "body_default": default_body,
         "title_is_default": (not raw_title),
-        "body_is_default":  (not raw_body),
+        "body_is_default": (not raw_body),
     }
 
 
@@ -7609,19 +7628,19 @@ async def api_admin_notify_templates_preview(
         )
     samples = dict(_ops_mod.NOTIFY_TEMPLATE_SAMPLES)
     title_in = body.title or ""
-    body_in  = body.body  or ""
+    body_in = body.body or ""
     rendered_title = _ops_mod.render_template(title_in, samples)
-    rendered_body  = _ops_mod.render_template(body_in,  samples)
+    rendered_body = _ops_mod.render_template(body_in, samples)
     # Token analysis — find every {placeholder} occurrence. Curly braces
     # inside a single-quoted JSON value are rare in practice; the regex
     # tolerates whitespace inside the braces (`{ name }` → `name`) but
     # not nested braces (which str.format_map would reject anyway).
-    token_re = re.compile(r"\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}")
+    token_re = re.compile(r"\{\s*(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*}")
     found_tokens: list[str] = []
     seen: set[str] = set()
     for src in (title_in, body_in):
         for m in token_re.finditer(src):
-            t = m.group(1)
+            t = m.group("name")
             if t in seen:
                 continue
             seen.add(t)
@@ -7640,7 +7659,7 @@ async def api_admin_notify_templates_preview(
     ]
     return {
         "rendered_title": rendered_title,
-        "rendered_body":  rendered_body,
+        "rendered_body": rendered_body,
         "used_placeholders": used,
         "unknown_placeholders": unknown,
         # Tokens that USED to be supported but have since been retired.
@@ -7695,7 +7714,7 @@ async def api_admin_notify_templates_test(
     # don't introspect that here and just use the sample {host} as
     # the target_id so the in-app row's deep-link shape is sane.
     legacy_title = "🔔 Test: " + samples.get("name", "example")
-    legacy_body  = samples.get("error", "") if event.endswith("_failure") else ""
+    legacy_body = samples.get("error", "") if event.endswith("_failure") else ""
     severity = "error" if event.endswith("_failure") else "success"
     try:
         await notify(
@@ -7949,7 +7968,7 @@ async def api_webmin_test(
     nics = len(stats.get("network_ifaces") or [])
     detail = (f"OK — {host_key} · "
               f"{pending} updates ({security} sec) · "
-              f"mem={mem // (1024**3) if mem else '?'} GB · "
+              f"mem={mem // (1024 ** 3) if mem else '?'} GB · "
               f"mounts={mounts} · nics={nics}")
     partial = result.get("partial_errors") or []
     if partial:
@@ -8022,9 +8041,9 @@ async def api_telegram_links_list(
         role = _tg._lookup_user_role(username) or "unknown"
         out.append({
             "telegram_user_id": tg_id,
-            "username":         username,
-            "role":             role,
-            "linked_at_ms":     int(entry.get("linked_at_ms") or 0),
+            "username": username,
+            "role": role,
+            "linked_at_ms": int(entry.get("linked_at_ms") or 0),
         })
     out.sort(key=lambda r: (r["username"] or "", r["telegram_user_id"]))
     return {"links": out}
@@ -8228,9 +8247,9 @@ async def api_snmp_test(
         except (TypeError, ValueError):
             pass
     if mem:
-        detail_bits.append(f"mem={mem // (1024**3)} GB")
+        detail_bits.append(f"mem={mem // (1024 ** 3)} GB")
     if disk:
-        detail_bits.append(f"disk={disk // (1024**3)} GB")
+        detail_bits.append(f"disk={disk // (1024 ** 3)} GB")
     if nics:
         detail_bits.append(f"nics={nics}")
     return _stamp_test_success("snmp", {
@@ -8299,7 +8318,7 @@ async def api_asset_inventory_test(
     except Exception:
         body = {}
     auth_mode = (body.get("auth_mode") or "").strip().lower() \
-        or (get_setting("asset_inventory_auth_mode", "") or "oauth2")
+                or (get_setting("asset_inventory_auth_mode", "") or "oauth2")
     if auth_mode not in ("oauth2", "lifetime_token"):
         auth_mode = "oauth2"
     # honour the `asset_inventory_verify_tls` toggle here too.
@@ -8313,14 +8332,14 @@ async def api_asset_inventory_test(
         verify_tls = bool(body_verify_tls)
     if auth_mode == "lifetime_token":
         base_url = (body.get("base_url") or "").strip().rstrip("/") \
-            or (get_setting("asset_inventory_base_url", "") or "").strip().rstrip("/")
+                   or (get_setting("asset_inventory_base_url", "") or "").strip().rstrip("/")
         lifetime_token = body.get("lifetime_token") or ""
         if not lifetime_token:
             lifetime_token = get_setting("asset_inventory_lifetime_token", "") or ""
         service = (body.get("service") or "").strip() \
-            or (get_setting("asset_inventory_service", "") or "").strip()
+                  or (get_setting("asset_inventory_service", "") or "").strip()
         action = (body.get("action") or "").strip() \
-            or (get_setting("asset_inventory_action", "") or "").strip()
+                 or (get_setting("asset_inventory_action", "") or "").strip()
 
         def _bound(from_body, setting_key):
             raw = from_body
@@ -8331,6 +8350,7 @@ async def api_asset_inventory_test(
                 return int(s) if s else None
             except ValueError:
                 return None
+
         min_value = _bound(body.get("min_value"), "asset_inventory_min_value")
         max_value = _bound(body.get("max_value"), "asset_inventory_max_value")
 
@@ -8357,11 +8377,11 @@ async def api_asset_inventory_test(
         return out
     # Default: OAuth2 client_credentials.
     token_url = (body.get("token_url") or "").strip() \
-        or (get_setting("asset_inventory_token_url", "") or "")
+                or (get_setting("asset_inventory_token_url", "") or "")
     client_id = (body.get("client_id") or "").strip() \
-        or (get_setting("asset_inventory_client_id", "") or "")
+                or (get_setting("asset_inventory_client_id", "") or "")
     scope = (body.get("scope") or "").strip() \
-        or (get_setting("asset_inventory_scope", "") or "")
+            or (get_setting("asset_inventory_scope", "") or "")
     client_secret = body.get("client_secret") or ""
     if not client_secret:
         client_secret = get_setting("asset_inventory_client_secret", "") or ""
@@ -8487,7 +8507,7 @@ def _asset_inventory_verify_tls() -> bool:
 # centralised so the merge semantics stay byte-
 # identical across the two call sites without a "don't import private
 # helpers across modules" caveat.
-from logic.merge import is_meaningful as _meaningful, merge_best as _merge_best
+from logic.merge import merge_best as _merge_best
 
 
 def _resolve_field(body: dict, body_key: str,
@@ -8677,24 +8697,24 @@ async def api_hosts(force: bool = False):
         if beszel_map:
             curated = [
                 {
-                    "id":          k,
-                    "label":       (v or {}).get("beszel_name") or k,
-                    "ne_url":      "",
+                    "id": k,
+                    "label": (v or {}).get("beszel_name") or k,
+                    "ne_url": "",
                     "beszel_name": k,
-                    "pulse_name":  "",
-                    "enabled":     True,
+                    "pulse_name": "",
+                    "enabled": True,
                 }
                 for k, v in sorted(beszel_map.items(), key=lambda kv: kv[0].lower())
             ]
         elif pulse_map:
             curated = [
                 {
-                    "id":          k,
-                    "label":       (v or {}).get("pulse_name") or k,
-                    "ne_url":      "",
+                    "id": k,
+                    "label": (v or {}).get("pulse_name") or k,
+                    "ne_url": "",
                     "beszel_name": "",
-                    "pulse_name":  k,
-                    "enabled":     True,
+                    "pulse_name": k,
+                    "enabled": True,
                 }
                 for k, v in sorted(pulse_map.items(), key=lambda kv: kv[0].lower())
             ]
@@ -8730,8 +8750,8 @@ async def api_hosts(force: bool = False):
             errors["webmin"] = f"{h.get('id')}: {wm_err}"
         out.append({
             "_host_record": h,
-            "_merged":      merged,
-            "_providers":   providers_hit,
+            "_merged": merged,
+            "_providers": providers_hit,
         })
 
     # ---- Shape the response ---------------------------------------
@@ -8803,12 +8823,12 @@ async def api_hosts(force: bool = False):
     agg_error = "; ".join(f"{k}: {v}" for k, v in errors.items()) or None
 
     return {
-        "configured":  bool(active),
-        "active":      sorted(active),
-        "error":       agg_error,
+        "configured": bool(active),
+        "active": sorted(active),
+        "error": agg_error,
         "provider_errors": errors,
-        "hub_url":     get_setting("beszel_hub_url", "") or "",
-        "hosts":       hosts,
+        "hub_url": get_setting("beszel_hub_url", "") or "",
+        "hosts": hosts,
         # Counts that let the frontend pick the right empty-state
         # copy — "no curated hosts yet" vs "all curated hosts are
         # disabled" vs "curated hosts exist but no provider matched
@@ -9074,7 +9094,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     cached = _host_provider_cache.get("state")
     cached_key = _host_provider_cache.get("key")
     if (not force and cached and cached_key == cache_key
-            and (now - _host_provider_cache.get("ts", 0.0)) < cache_ttl):
+        and (now - _host_provider_cache.get("ts", 0.0)) < cache_ttl):
         return cached
 
     # Single-flight — only ONE concurrent caller does the cold-
@@ -9110,7 +9130,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
         cached2 = _host_provider_cache.get("state")
         cached_key2 = _host_provider_cache.get("key")
         if (cached2 and cached_key2 == cache_key
-                and (now2 - _host_provider_cache.get("ts", 0.0)) < cache_ttl):
+            and (now2 - _host_provider_cache.get("ts", 0.0)) < cache_ttl):
             return cached2
 
         return await _do_host_provider_probe(active, cache_key)
@@ -9206,8 +9226,8 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
     if "snmp" in active:
         snmp_default_community = get_setting("snmp_default_community", "") or "public"
         snmp_default_version = (
-            get_setting("snmp_default_version", "") or "v2c"
-        ).strip().lower() or "v2c"
+                                   get_setting("snmp_default_version", "") or "v2c"
+                               ).strip().lower() or "v2c"
         try:
             snmp_default_port = tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT)
         except (TypeError, ValueError):
@@ -9227,24 +9247,24 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
             snmp_aliases = {}
 
     state = {
-        "active":           active,
-        "beszel_map":       beszel_map,
-        "pulse_map":        pulse_map,
-        "errors":           errors,
-        "webmin_user":      webmin_user,
-        "webmin_password":  webmin_password,
-        "webmin_verify":    webmin_verify,
-        "webmin_creds_ok":  webmin_creds_ok,
-        "webmin_aliases":   webmin_aliases,
+        "active": active,
+        "beszel_map": beszel_map,
+        "pulse_map": pulse_map,
+        "errors": errors,
+        "webmin_user": webmin_user,
+        "webmin_password": webmin_password,
+        "webmin_verify": webmin_verify,
+        "webmin_creds_ok": webmin_creds_ok,
+        "webmin_aliases": webmin_aliases,
         # SNMP — defaults + aliases. Per-host overrides land
         # later via `hosts_config[].snmp`.
         "snmp_default_community": snmp_default_community,
-        "snmp_default_version":   snmp_default_version,
-        "snmp_default_port":      snmp_default_port,
-        "snmp_v3_user":           snmp_v3_user,
-        "snmp_v3_auth_key":       snmp_v3_auth_key,
-        "snmp_v3_priv_key":       snmp_v3_priv_key,
-        "snmp_aliases":           snmp_aliases,
+        "snmp_default_version": snmp_default_version,
+        "snmp_default_port": snmp_default_port,
+        "snmp_v3_user": snmp_v3_user,
+        "snmp_v3_auth_key": snmp_v3_auth_key,
+        "snmp_v3_priv_key": snmp_v3_priv_key,
+        "snmp_aliases": snmp_aliases,
     }
     _host_provider_cache["ts"] = time.time()
     _host_provider_cache["state"] = state
@@ -9253,9 +9273,9 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
 
 
 def _publish_provider_probe_event(host_id: str, provider: str, kind: str,
-                                   started_at: float | None = None,
-                                   *, client_id: str | None = None,
-                                   ok: bool | None = None) -> None:
+                                  started_at: float | None = None,
+                                  *, client_id: str | None = None,
+                                  ok: bool | None = None) -> None:
     """Fire a per-(provider, host) probe-status SSE event.
 
     ``kind`` is either ``probing`` (slice entered, real fetch about to
@@ -9345,11 +9365,11 @@ def _populate_detected_ports(host_id: str, merged: dict) -> bool:
                 (head["scan_id"],),
             ).fetchall()
             merged["detected_ports"] = [{
-                "port":           int(r["port"]),
-                "protocol":       (r["protocol"] or "tcp"),
-                "service_hint":   r["service_hint"] or "",
+                "port": int(r["port"]),
+                "protocol": (r["protocol"] or "tcp"),
+                "service_hint": r["service_hint"] or "",
                 "banner_excerpt": r["banner_excerpt"] or "",
-                "scanned_at":     int(head["ts"] or 0),
+                "scanned_at": int(head["ts"] or 0),
             } for r in rows]
             merged["last_port_scan_ts"] = int(head["ts"] or 0)
             return True
@@ -9359,7 +9379,7 @@ def _populate_detected_ports(host_id: str, merged: dict) -> bool:
 
 
 async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
-                           client_id: str | None = None) -> tuple[dict, list[str]]:
+                          client_id: str | None = None) -> tuple[dict, list[str]]:
     """Merge one curated host with provider data. Runs NE + Webmin
     probes inline for THIS host only; Beszel/Pulse lookups hit the
     cached batch maps. Returns (merged_dict, providers_hit).
@@ -9512,7 +9532,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                     result = fail_cached[1]
                 else:
                     community = (row_snmp.get("community") or "").strip() \
-                        or state.get("snmp_default_community") or "public"
+                                or state.get("snmp_default_community") or "public"
                     version = ((row_snmp.get("version") or "").strip().lower()
                                or state.get("snmp_default_version") or "v2c")
                     try:
@@ -9920,8 +9940,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
         if recent:
             last = recent[0]
             stats = _ping_mod.to_host_stats({
-                "alive":    last.get("alive"),
-                "rtt_ms":   last.get("rtt_ms"),
+                "alive": last.get("alive"),
+                "rtt_ms": last.get("rtt_ms"),
                 "loss_pct": last.get("loss_pct"),
             })
             if stats:
@@ -10040,7 +10060,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
         print(f"[hosts] snapshot fallback failed for {h.get('id')!r}: {e}")
 
     # Persist the just-merged dict as the snapshot for this host
-    #. Pre-fix, snapshots were only written by the legacy
+    # . Pre-fix, snapshots were only written by the legacy
     # _gather_impl path (the one /api/items uses) which builds
     # nodes_info from Swarm-node hostnames — curated SNMP-only hosts
     # like UPSes / managed switches that aren't Swarm nodes never
@@ -10052,7 +10072,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     # so any host that ever has a successful probe gets a fallback
     # source.
     #
-  # Gate: persist ONLY when at least one snapshot-
+    # Gate: persist ONLY when at least one snapshot-
     # eligible field is LIVE (not from fallback). Pre-fix the gate
     # was "any meaningful host_* field present" — that fired even
     # when EVERY field came from `apply_host_snapshot_fallback`
@@ -10143,10 +10163,10 @@ def _provider_sample_intervals(host_id: str) -> dict:
     # The sampler floor (typically 10s or 30s) is also applied so the
     # surfaced value matches what the sampler loop actually sleeps for.
     inheritors = (
-        ("ping",          Tunable.PING_INTERVAL_SECONDS,            10),
-        ("snmp",          Tunable.SNMP_SAMPLE_INTERVAL_SECONDS,     30),
-        ("beszel",        Tunable.BESZEL_SAMPLE_INTERVAL_SECONDS,   30),
-        ("pulse",         Tunable.PULSE_SAMPLE_INTERVAL_SECONDS,    30),
+        ("ping", Tunable.PING_INTERVAL_SECONDS, 10),
+        ("snmp", Tunable.SNMP_SAMPLE_INTERVAL_SECONDS, 30),
+        ("beszel", Tunable.BESZEL_SAMPLE_INTERVAL_SECONDS, 30),
+        ("pulse", Tunable.PULSE_SAMPLE_INTERVAL_SECONDS, 30),
         ("node_exporter", Tunable.NODE_EXPORTER_SAMPLE_INTERVAL_SECONDS, 30),
     )
     for name, key, floor in inheritors:
@@ -10174,11 +10194,11 @@ def _provider_sample_counts(host_id: str) -> dict:
     # `(provider_name, sql)` pairs. Provider name matches `agent.name`
     # in `hostEnabledAgents`. SQL is parameterised on `host_id`.
     queries = (
-        ("ping",          "SELECT COUNT(*) FROM ping_samples WHERE host_id = ?"),
-        ("snmp",          "SELECT COUNT(*) FROM host_snmp_samples WHERE host_id = ?"),
-        ("beszel",        "SELECT COUNT(*) FROM host_beszel_samples WHERE host_id = ?"),
-        ("pulse",         "SELECT COUNT(*) FROM host_pulse_samples WHERE host_id = ?"),
-        ("webmin",        "SELECT COUNT(*) FROM host_webmin_samples WHERE host_id = ?"),
+        ("ping", "SELECT COUNT(*) FROM ping_samples WHERE host_id = ?"),
+        ("snmp", "SELECT COUNT(*) FROM host_snmp_samples WHERE host_id = ?"),
+        ("beszel", "SELECT COUNT(*) FROM host_beszel_samples WHERE host_id = ?"),
+        ("pulse", "SELECT COUNT(*) FROM host_pulse_samples WHERE host_id = ?"),
+        ("webmin", "SELECT COUNT(*) FROM host_webmin_samples WHERE host_id = ?"),
         ("node_exporter", "SELECT COUNT(*) FROM host_metrics_samples WHERE host_id = ?"),
     )
     try:
@@ -10213,7 +10233,7 @@ def _is_swarm_node(host_id) -> bool:
         if not ns:
             continue
         if ns == hid or ns == short or ns.split(".", 1)[0] == hid \
-                or ns.split(".", 1)[0] == short:
+            or ns.split(".", 1)[0] == short:
             return True
     return False
 
@@ -10401,9 +10421,9 @@ def _shape_host_api_row(
         host_status = "up"
     elif (not any_provider_enabled) or not (
         (h.get("beszel_name") or "").strip()
-        or (h.get("pulse_name")  or "").strip()
+        or (h.get("pulse_name") or "").strip()
         or (h.get("webmin_name") or "").strip()
-        or (h.get("ne_url")      or "").strip()
+        or (h.get("ne_url") or "").strip()
         or ping_enabled
         or snmp_mapped
     ):
@@ -10411,73 +10431,73 @@ def _shape_host_api_row(
     else:
         host_status = "unknown"
     return {
-        "id":              h["id"],
-        "name":            h["id"],
-        "host":            h["id"],
+        "id": h["id"],
+        "name": h["id"],
+        "host": h["id"],
         # Empty label is INTENTIONAL post-frontend's
         # `hostDisplayName(h)` falls back to the asset inventory's
         # name when this is blank. The previous `or h["id"]` fallback
         # silently overrode the operator's "use asset name" intent on
         # every API response. Pass the literal stored value through.
-        "label":           h.get("label") or "",
-        "beszel_name":     h.get("beszel_name") or "",
-        "pulse_name":      h.get("pulse_name") or "",
-        "ne_url":          h.get("ne_url") or "",
+        "label": h.get("label") or "",
+        "beszel_name": h.get("beszel_name") or "",
+        "pulse_name": h.get("pulse_name") or "",
+        "ne_url": h.get("ne_url") or "",
         # SNMP target alias. Surfaced on the API row so
         # `providerStates(h)` and `hostHasAgent(h)` can decide whether
         # to render the SNMP chip + count this host as having an agent.
-        "snmp_name":       h.get("snmp_name") or "",
+        "snmp_name": h.get("snmp_name") or "",
         # Per-host SNMP opt-in flag. The bug: the SPA's
         # SNMP chip iterators were gating on `h.snmp_name` alone, so a
         # host with snmp_name set but `snmp.enabled === false` STILL
         # rendered the SNMP chip on the Hosts page. The frontend gates
         # now read `snmp_enabled === true && snmp_name` per         # explicit opt-in contract.
-        "snmp_enabled":    bool((h.get("snmp") or {}).get("enabled", False)),
-        "url":             h.get("url") or "",
-        "icon":            h.get("icon") or "",
+        "snmp_enabled": bool((h.get("snmp") or {}).get("enabled", False)),
+        "url": h.get("url") or "",
+        "icon": h.get("icon") or "",
         # Dedicated probe target — surfaced on the API row so the SPA
         # can gate the host-drawer port-scan button on "address is
         # set". Empty value = port-scan disabled with helper toast
         # asking the operator to set it in Admin → Hosts.
-        "address":         h.get("address") or "",
-        "providers":       providers_hit or [],
-        "status":          host_status,
+        "address": h.get("address") or "",
+        "providers": providers_hit or [],
+        "status": host_status,
         # Raw per-provider status surfaced so the SPA's `providerStates(h)`
         # helper can mark a chip red when Beszel/Pulse self-reports
         # paused/down even if it returned data (otherwise the chip
         # stays green because the provider was technically "hit").
-        "beszel_status":   s.get("beszel_status") or "",
-        "docker_node":     (h["id"] if _is_swarm_node(h.get("id")) else ""),
-        "platform":        s.get("host_platform") or "",
-        "os":              s.get("host_os") or "",
-        "kernel":          s.get("host_kernel") or "",
-        "arch":            s.get("host_arch") or "",
-        "agent":           s.get("host_agent") or "",
-        "cores":           s.get("host_cores") or s.get("host_threads") or 0,
-        "threads":         s.get("host_threads") or 0,
-        "cpu_model":       s.get("host_cpu_model") or "",
-        "cpu_percent":     s.get("host_cpu_percent") or 0,
-        "mem_percent":     s.get("host_mem_percent") or 0,
-        "disk_percent":    s.get("host_disk_percent") or 0,
-        "mem_used":        s.get("host_mem_used") or 0,
-        "mem_total":       s.get("host_mem_total") or 0,
-        "disk_used":       s.get("host_disk_used") or 0,
-        "disk_total":      s.get("host_disk_total") or 0,
-        "mounts":          s.get("mounts") or [],
-        "network_ifaces":  s.get("network_ifaces") or [],
-        "bandwidth":       s.get("host_bandwidth") or 0,
-        "containers":      s.get("host_containers") or 0,
-        "uptime_s":        s.get("host_uptime_s") or 0,
-        "boot_ts":         s.get("host_boot_ts"),
-        "beszel_id":       s.get("beszel_id") or "",
-        "beszel_updated":  s.get("beszel_updated") or "",
-        "pulse_kind":      s.get("pulse_kind") or "",
-        "pulse_vmid":      s.get("pulse_vmid") or 0,
-        "pulse_node":      s.get("pulse_node") or "",
-        "pulse_status":    s.get("pulse_status") or "",
-        "updates_pending":  int(s.get("host_updates_pending") or 0),
+        "beszel_status": s.get("beszel_status") or "",
+        "docker_node": (h["id"] if _is_swarm_node(h.get("id")) else ""),
+        "platform": s.get("host_platform") or "",
+        "os": s.get("host_os") or "",
+        "kernel": s.get("host_kernel") or "",
+        "arch": s.get("host_arch") or "",
+        "agent": s.get("host_agent") or "",
+        "cores": s.get("host_cores") or s.get("host_threads") or 0,
+        "threads": s.get("host_threads") or 0,
+        "cpu_model": s.get("host_cpu_model") or "",
+        "cpu_percent": s.get("host_cpu_percent") or 0,
+        "mem_percent": s.get("host_mem_percent") or 0,
+        "disk_percent": s.get("host_disk_percent") or 0,
+        "mem_used": s.get("host_mem_used") or 0,
+        "mem_total": s.get("host_mem_total") or 0,
+        "disk_used": s.get("host_disk_used") or 0,
+        "disk_total": s.get("host_disk_total") or 0,
+        "mounts": s.get("mounts") or [],
+        "network_ifaces": s.get("network_ifaces") or [],
+        "bandwidth": s.get("host_bandwidth") or 0,
+        "containers": s.get("host_containers") or 0,
+        "uptime_s": s.get("host_uptime_s") or 0,
+        "boot_ts": s.get("host_boot_ts"),
+        "beszel_id": s.get("beszel_id") or "",
+        "beszel_updated": s.get("beszel_updated") or "",
+        "pulse_kind": s.get("pulse_kind") or "",
+        "pulse_vmid": s.get("pulse_vmid") or 0,
+        "pulse_node": s.get("pulse_node") or "",
+        "pulse_status": s.get("pulse_status") or "",
+        "updates_pending": int(s.get("host_updates_pending") or 0),
         "updates_security": int(s.get("host_updates_security") or 0),
-        "custom_number":    h.get("custom_number"),
+        "custom_number": h.get("custom_number"),
         # Asset-inventory snapshot — null when no match. Resolved
         # lazily here (vs. eagerly in the loop above) so each
         # _shape_host_api_row call is self-contained. The cache read
@@ -10485,27 +10505,27 @@ def _shape_host_api_row(
         # repeated calls in /api/hosts/one/{id} fanouts pay it once
         # per call. If that becomes a hotspot we can stash the
         # index on the request via FastAPI Depends().
-        "asset":            _resolve_asset_for_host(h.get("custom_number")),
+        "asset": _resolve_asset_for_host(h.get("custom_number")),
         # Per-host SSH-enabled flag (opt-in semantics post
         # migration 001). True only when the operator explicitly ticked
         # "Enable SSH for this host" in Admin → Hosts. The drawer's SSH
         # card + common-actions panel render only when this is true.
-        "ssh_enabled":      bool((h.get("ssh") or {}).get("enabled", False)),
+        "ssh_enabled": bool((h.get("ssh") or {}).get("enabled", False)),
         # Ping. `ping_enabled` is the per-host opt-in flag (the
         # SPA uses it to gate the latency chip + drawer chart). The
         # alive / RTT / loss values come from the merged provider
         # dict — empty when the sampler hasn't run yet OR ping isn't
         # enabled for this host. Booleans coerced safely so a
         # null-from-snapshot doesn't crash the spread.
-        "ping_enabled":     bool((h.get("ping") or {}).get("enabled", False)),
+        "ping_enabled": bool((h.get("ping") or {}).get("enabled", False)),
         # Per-host ping override values surfaced for the SPA's metricSource
         # tooltip — pre-fix the tooltip read "Ping probe (this host)" for
         # every ping-enabled host with no indication of which port /
         # transport was actually being probed. Empty / null = inherit
         # global default. Transport is one of `tcp` / `icmp` / null.
-        "ping_port":        (int((h.get("ping") or {}).get("port"))
-                             if (h.get("ping") or {}).get("port") is not None else None),
-        "ping_transport":   ((h.get("ping") or {}).get("transport") or None),
+        "ping_port": (int((h.get("ping") or {}).get("port"))
+                      if (h.get("ping") or {}).get("port") is not None else None),
+        "ping_transport": ((h.get("ping") or {}).get("transport") or None),
         # Resolved ping TARGET — what `logic.ping_sampler._probe_one`
         # actually feeds to `probe_ping`. Resolution chain mirrors
         # `logic.ping_sampler._curated_ping_hosts` EXACTLY: per-host
@@ -10516,17 +10536,17 @@ def _shape_host_api_row(
         # reported `h.id` (e.g. "ftth") on rows whose actual probe
         # target was the URL's hostname (e.g. "ftth.example.com")
         # parsed from the curated `url` field.
-        "ping_target":      _resolve_ping_target(h),
-        "ping_alive":       bool(s.get("host_ping_alive")) if s.get("host_ping_alive") is not None else None,
-        "ping_rtt_ms":      (float(s.get("host_ping_rtt_ms")) if s.get("host_ping_rtt_ms") is not None else None),
-        "ping_loss_pct":    (float(s.get("host_ping_loss_pct")) if s.get("host_ping_loss_pct") is not None else None),
+        "ping_target": _resolve_ping_target(h),
+        "ping_alive": bool(s.get("host_ping_alive")) if s.get("host_ping_alive") is not None else None,
+        "ping_rtt_ms": (float(s.get("host_ping_rtt_ms")) if s.get("host_ping_rtt_ms") is not None else None),
+        "ping_loss_pct": (float(s.get("host_ping_loss_pct")) if s.get("host_ping_loss_pct") is not None else None),
         # Load averages (node-exporter primary, Beszel agents emit
         # `la=[1m,5m,15m]` which `extract_stats` now also surfaces here
         # so the load-average chart works for Beszel-only hosts too).
         # Frontend only renders the row when any of the three is > 0.
-        "load_1m":          float(s.get("host_load_1m") or 0),
-        "load_5m":          float(s.get("host_load_5m") or 0),
-        "load_15m":         float(s.get("host_load_15m") or 0),
+        "load_1m": float(s.get("host_load_1m") or 0),
+        "load_5m": float(s.get("host_load_5m") or 0),
+        "load_15m": float(s.get("host_load_15m") or 0),
         # Per-sensor temperatures. `host_temperatures` is a
         # `{sensor: celsius}` dict from the Beszel agent's `stats.t`
         # (only present when the agent exposes thermal data — Pi has
@@ -10546,19 +10566,19 @@ def _shape_host_api_row(
         # `host_temperatures` — extract_stats produced the field but
         # it was being silently dropped on the API boundary because
         # this whitelist didn't include it.
-        "host_gpus":         list(s.get("host_gpus") or []),
+        "host_gpus": list(s.get("host_gpus") or []),
         # Service summary — Beszel agents that run with the
         # systemd extension emit a list of service objects. The
         # extractor normalises into `{total, failed, failed_names}`.
         # Hosts whose agent doesn't track services get
         # `{total: 0, failed: 0, failed_names: []}` and the drawer
         # badge gates on `services.total > 0` to hide cleanly.
-        "services":         (s.get("host_services") or {"total": 0, "failed": 0, "failed_names": []}),
+        "services": (s.get("host_services") or {"total": 0, "failed": 0, "failed_names": []}),
         # DMI / hardware identity (node-exporter only — Linux /
         # FreeBSD with the DMI collector). Empty strings = no DMI.
-        "dmi_vendor":       (s.get("host_dmi_vendor") or ""),
-        "dmi_product":      (s.get("host_dmi_product") or ""),
-        "dmi_serial":       (s.get("host_dmi_serial") or ""),
+        "dmi_vendor": (s.get("host_dmi_vendor") or ""),
+        "dmi_product": (s.get("host_dmi_product") or ""),
+        "dmi_serial": (s.get("host_dmi_serial") or ""),
         "dmi_bios_version": (s.get("host_dmi_bios_version") or ""),
         # SNMP vendor-specific fields. All of
         # these are populated by `extract_vendor_info` only when the
@@ -10570,34 +10590,34 @@ def _shape_host_api_row(
         # earlier in this row — extract_stats produced them but they
         # never reached the SPA).
         # Universal identity (Dell / Cisco / APC / Synology / printer):
-        "host_model":       s.get("host_model") or "",
-        "host_serial":      s.get("host_serial") or "",
-        "host_firmware":    s.get("host_firmware") or "",
-        "host_health":      s.get("host_health") or "",
-        "host_contact":     s.get("host_contact") or "",
-        "host_location":    s.get("host_location") or "",
-        "host_temp_c":      (float(s.get("host_temp_c")) if s.get("host_temp_c") is not None else None),
+        "host_model": s.get("host_model") or "",
+        "host_serial": s.get("host_serial") or "",
+        "host_firmware": s.get("host_firmware") or "",
+        "host_health": s.get("host_health") or "",
+        "host_contact": s.get("host_contact") or "",
+        "host_location": s.get("host_location") or "",
+        "host_temp_c": (float(s.get("host_temp_c")) if s.get("host_temp_c") is not None else None),
         "host_upgrade_status": s.get("host_upgrade_status") or "",
         # per-core CPU + UCD memory breakdown for the new
         # SNMP time-series charts. Empty list / 0 when the host
         # didn't return UCD or hrProcessorLoad walks; frontend gate
         # on length so non-SNMP hosts don't see the cards.
         "host_cpu_per_core": list(s.get("host_cpu_per_core") or []),
-        "host_mem_buffers":  int(s.get("host_mem_buffers") or 0),
-        "host_mem_cached":   int(s.get("host_mem_cached") or 0),
-        "host_mem_free":     int(s.get("host_mem_free") or 0),
+        "host_mem_buffers": int(s.get("host_mem_buffers") or 0),
+        "host_mem_cached": int(s.get("host_mem_cached") or 0),
+        "host_mem_free": int(s.get("host_mem_free") or 0),
         # APC PowerNet-MIB UPS. Present only when the
         # host responded to upsBasicIdentModel / upsBasicOutputStatus.
-        "host_ups_status":         s.get("host_ups_status") or "",
-        "host_battery_percent":    (float(s.get("host_battery_percent")) if s.get("host_battery_percent") is not None else None),
-        "host_battery_runtime_s":  (int(s.get("host_battery_runtime_s")) if s.get("host_battery_runtime_s") is not None else None),
-        "host_battery_temp_c":     (float(s.get("host_battery_temp_c")) if s.get("host_battery_temp_c") is not None else None),
-        "host_battery_status":     s.get("host_battery_status") or "",
-        "host_load_percent":       (float(s.get("host_load_percent")) if s.get("host_load_percent") is not None else None),
+        "host_ups_status": s.get("host_ups_status") or "",
+        "host_battery_percent": (float(s.get("host_battery_percent")) if s.get("host_battery_percent") is not None else None),
+        "host_battery_runtime_s": (int(s.get("host_battery_runtime_s")) if s.get("host_battery_runtime_s") is not None else None),
+        "host_battery_temp_c": (float(s.get("host_battery_temp_c")) if s.get("host_battery_temp_c") is not None else None),
+        "host_battery_status": s.get("host_battery_status") or "",
+        "host_load_percent": (float(s.get("host_load_percent")) if s.get("host_load_percent") is not None else None),
         # Printer-MIB. Empty list / 0 / "" → frontend cards hide.
-        "printer_page_count":      int(s.get("printer_page_count") or 0),
-        "printer_supplies":        list(s.get("printer_supplies") or []),
-        "printer_console_msg":     s.get("printer_console_msg") or "",
+        "printer_page_count": int(s.get("printer_page_count") or 0),
+        "printer_supplies": list(s.get("printer_supplies") or []),
+        "printer_console_msg": s.get("printer_console_msg") or "",
         # Dell server-health. Populated by
         # `extract_vendor_info` only when the SNMP probe walked back
         # non-empty DELL-RAC-MIB rows — non-Dell agents return empty
@@ -10609,16 +10629,16 @@ def _shape_host_api_row(
         # never reached the SPA without this explicit row entry —
         # which is exactly what the operator hit (the card never
         # rendered for their iDRAC host).
-        "host_dell_fans":          list(s.get("host_dell_fans") or []),
-        "host_dell_temps":         list(s.get("host_dell_temps") or []),
-        "host_dell_psus":          list(s.get("host_dell_psus") or []),
-        "host_dell_voltages":      list(s.get("host_dell_voltages") or []),
-        "host_dell_amperages":     list(s.get("host_dell_amperages") or []),
-        "host_dell_phys_disks":    list(s.get("host_dell_phys_disks") or []),
-        "host_dell_virt_disks":    list(s.get("host_dell_virt_disks") or []),
-        "host_dell_power_watts":   (float(s.get("host_dell_power_watts")) if s.get("host_dell_power_watts") is not None else None),
-        "host_bios_version":       s.get("host_bios_version") or "",
-        "host_bios_date":          s.get("host_bios_date") or "",
+        "host_dell_fans": list(s.get("host_dell_fans") or []),
+        "host_dell_temps": list(s.get("host_dell_temps") or []),
+        "host_dell_psus": list(s.get("host_dell_psus") or []),
+        "host_dell_voltages": list(s.get("host_dell_voltages") or []),
+        "host_dell_amperages": list(s.get("host_dell_amperages") or []),
+        "host_dell_phys_disks": list(s.get("host_dell_phys_disks") or []),
+        "host_dell_virt_disks": list(s.get("host_dell_virt_disks") or []),
+        "host_dell_power_watts": (float(s.get("host_dell_power_watts")) if s.get("host_dell_power_watts") is not None else None),
+        "host_bios_version": s.get("host_bios_version") or "",
+        "host_bios_date": s.get("host_bios_date") or "",
         # Last-observed SNMP auto-detect result — captured from the
         # most recent successful probe's diagnostic. Drives the
         # "Auto-detect last result: <vendors>" hint below the Vendor
@@ -10626,7 +10646,7 @@ def _shape_host_api_row(
         # can see what auto-detect picked before deciding whether to
         # set an explicit override. Empty list when the host has never
         # been probed successfully or no SNMP override is set.
-        "host_snmp_active_vendors":        list(s.get("host_snmp_active_vendors") or []),
+        "host_snmp_active_vendors": list(s.get("host_snmp_active_vendors") or []),
         "host_snmp_active_vendors_source": s.get("host_snmp_active_vendors_source") or "",
         # Network interfaces — already populated by extract_interfaces;
         # added explicitly here so the SNMP path's rx_bytes / tx_bytes /
@@ -10634,7 +10654,7 @@ def _shape_host_api_row(
         # / Pulse populate the same field with name + mac + addrs and
         # those merge cleanly via _merge_best (the per-iface dict shape
         # is the same; SNMP just adds the extra rx/tx/oper keys).
-        "network_ifaces":  list(s.get("network_ifaces") or []),
+        "network_ifaces": list(s.get("network_ifaces") or []),
         # Stale-marker bookkeeping. Populated by
         # apply_host_snapshot_fallback when a provider went down and we
         # filled missing host_* fields from the persisted snapshot.
@@ -10643,8 +10663,8 @@ def _shape_host_api_row(
         # "Showing cached data" drawer banner. Empty list / 0 when
         # everything is live so the frontend's reconcile clears the
         # markers cleanly when a provider recovers.
-        "_stale_fields":   list(s.get("_stale_fields") or []),
-        "_stale_ts":       float(s.get("_stale_ts") or 0.0),
+        "_stale_fields": list(s.get("_stale_fields") or []),
+        "_stale_ts": float(s.get("_stale_ts") or 0.0),
         # Per-provider sample row counts — populated by
         # `_provider_sample_counts(host_id)` from inside `_merge_one_host`
         # (per-host probe path only; bulk /api/hosts/list path leaves it
@@ -10681,7 +10701,7 @@ def _shape_host_api_row(
         # Without surfacing these here, the host row sees the fields
         # as undefined → the "No scans yet" message stuck on
         # forever even after a successful scan.
-        "detected_ports":    s.get("detected_ports") or [],
+        "detected_ports": s.get("detected_ports") or [],
         "last_port_scan_ts": int(s.get("last_port_scan_ts") or 0),
         # Drift-from-baseline classification. Populated by
         # `_merge_one_host` from logic.host_baseline.host_drift_for_api,
@@ -10723,12 +10743,12 @@ def _failure_state_for_host(host_id: str) -> dict:
     if row is None:
         # Row genuinely absent — host has never failed.
         return {
-            "sampling_paused":            False,
-            "failure_window_started_at":  0,
-            "consecutive_failures":       0,
-            "last_error":                 "",
-            "last_failure_ts":            0,
-            "paused_at":                  0,
+            "sampling_paused": False,
+            "failure_window_started_at": 0,
+            "consecutive_failures": 0,
+            "last_error": "",
+            "last_failure_ts": 0,
+            "paused_at": 0,
         }
     # surface ``last_failure_ts`` so the drawer can render
     # "last error N seconds ago" alongside the existing
@@ -10744,12 +10764,12 @@ def _failure_state_for_host(host_id: str) -> dict:
     # against that table (CLAUDE.md "SQL drift" rule).
     paused_at = row[5] if (len(row) > 5 and row[5] is not None) else 0
     return {
-        "sampling_paused":            bool(row[2]),
-        "failure_window_started_at":  int(row[0] or 0),
-        "consecutive_failures":       int(row[1] or 0),
-        "last_error":                 row[3] or "",
-        "last_failure_ts":            int(last_ts or 0),
-        "paused_at":                  int(paused_at or 0),
+        "sampling_paused": bool(row[2]),
+        "failure_window_started_at": int(row[0] or 0),
+        "consecutive_failures": int(row[1] or 0),
+        "last_error": row[3] or "",
+        "last_failure_ts": int(last_ts or 0),
+        "paused_at": int(paused_at or 0),
     }
 
 
@@ -10767,7 +10787,6 @@ def _failure_state_for_host(host_id: str) -> dict:
 # `_record_failure` site), (6) add an i18n entry under
 # `admin.config.fields`.
 from logic.host_metrics_sampler import _PROVIDER_PREFIXES as _PROVIDER_AUTO_PAUSE_NAMES  # noqa: E402
-
 
 # Short-TTL cache for the full-table scans behind
 # `_provider_pause_state_for_host`. Rebuilt once per cache window;
@@ -10808,13 +10827,13 @@ def _build_provider_state_index() -> dict:
         last_ts = row[6] if row[6] is not None else row[2]
         paused_at = row[7] if row[7] is not None else 0
         by_host.setdefault(hid, {})[provider] = {
-            "paused":                bool(row[4]),
-            "consecutive_failures":  int(row[3] or 0),
-            "last_error":            row[5] or "",
-            "first_failure_ts":      int(row[2] or 0),
-            "last_failure_ts":       int(last_ts or 0),
-            "paused_at":             int(paused_at or 0),
-            "last_ok_ts":            0,
+            "paused": bool(row[4]),
+            "consecutive_failures": int(row[3] or 0),
+            "last_error": row[5] or "",
+            "first_failure_ts": int(row[2] or 0),
+            "last_failure_ts": int(last_ts or 0),
+            "paused_at": int(paused_at or 0),
+            "last_ok_ts": 0,
         }
     for r in ok_rows:
         hid = r[0] or ""
@@ -10829,13 +10848,13 @@ def _build_provider_state_index() -> dict:
             # Healthy provider — no failure-state row but has a last_ok
             # stamp. SPA needs the subtitle even on never-failed hosts.
             by_host.setdefault(hid, {})[provider] = {
-                "paused":               False,
+                "paused": False,
                 "consecutive_failures": 0,
-                "last_error":           "",
-                "first_failure_ts":     0,
-                "last_failure_ts":      0,
-                "paused_at":            0,
-                "last_ok_ts":           ts,
+                "last_error": "",
+                "first_failure_ts": 0,
+                "last_failure_ts": 0,
+                "paused_at": 0,
+                "last_ok_ts": ts,
             }
     return by_host
 
@@ -11021,10 +11040,10 @@ async def api_hosts_list(force: bool = False):
         # the visible fields; per-host fan-out fills live data.
         active_set = active_host_stats_providers()
         state = {
-            "active":     active_set,
+            "active": active_set,
             "beszel_map": {},
-            "pulse_map":  {},
-            "errors":     {},
+            "pulse_map": {},
+            "errors": {},
         }
         # Schedule the hub probe so subsequent /api/hosts/one/{id}
         # calls hit a warming cache. Single-flight handles re-entry.
@@ -11093,20 +11112,20 @@ async def api_hosts_list(force: bool = False):
         ))
     agg_error = "; ".join(f"{k}: {v}" for k, v in state["errors"].items()) or None
     return {
-        "configured":      bool(state["active"]),
-        "active":          sorted(state["active"]),
-        "error":           agg_error,
+        "configured": bool(state["active"]),
+        "active": sorted(state["active"]),
+        "error": agg_error,
         "provider_errors": state["errors"],
-        "hub_url":         get_setting("beszel_hub_url", "") or "",
-        "hosts":           hosts,
-        "curated_count":   len(curated),
-        "enabled_count":   sum(1 for h in curated if h.get("enabled", True)),
+        "hub_url": get_setting("beszel_hub_url", "") or "",
+        "hosts": hosts,
+        "curated_count": len(curated),
+        "enabled_count": sum(1 for h in curated if h.get("enabled", True)),
         # True when the response was served before the hub probe
         # finished — SPA may render a subtle "refreshing…" hint. The
         # per-host fan-out via /api/hosts/one/{id} naturally upgrades
         # each row from stale to fresh as the probe completes, so no
         # additional polling is required from the SPA on this flag.
-        "hub_probing":     hub_probing,
+        "hub_probing": hub_probing,
     }
 
 
@@ -11207,7 +11226,7 @@ def _load_hosts_config() -> list[dict]:
         if not hid:
             continue
         clean.append({
-            "id":          hid,
+            "id": hid,
             # Empty label is INTENTIONAL post-frontend's
             # `hostDisplayName(h)` resolver falls back to the asset
             # inventory's name when this is blank. The previous
@@ -11215,10 +11234,10 @@ def _load_hosts_config() -> list[dict]:
             # silently overwrote that intent on EVERY load, defeating
             # the save-side fixes /. Pass the literal
             # stored value through.
-            "label":       (h.get("label") or "").strip(),
-            "ne_url":      (h.get("ne_url") or "").strip(),
+            "label": (h.get("label") or "").strip(),
+            "ne_url": (h.get("ne_url") or "").strip(),
             "beszel_name": (h.get("beszel_name") or "").strip(),
-            "pulse_name":  (h.get("pulse_name") or "").strip(),
+            "pulse_name": (h.get("pulse_name") or "").strip(),
             # Webmin per-host name — currently unused for lookup (every
             # Webmin install has its own Miniserv URL), but retained so
             # the admin editor has a slot to tag which row a discovered
@@ -11228,12 +11247,12 @@ def _load_hosts_config() -> list[dict]:
             # Optional external URL the operator picks (e.g. the host's
             # web UI). Rendered as a clickable link in the Hosts view's
             # SYSTEM card, matches Beszel's "+ Add URL" affordance.
-            "url":         (h.get("url") or "").strip(),
+            "url": (h.get("url") or "").strip(),
             # Optional icon override — a slug like "opnsense" (resolved
             # to /img/icons/opnsense.svg) or a full URL. Empty = let
             # the frontend's iconUrlFor() auto-resolve from the host's
             # id / label.
-            "icon":        (h.get("icon") or "").strip(),
+            "icon": (h.get("icon") or "").strip(),
             # Operator-assigned catalogue number. Used today for sort
             # ordering + grouping in the Hosts view; future scope is
             # the primary key for PersonalSite inventory lookups so
@@ -11246,7 +11265,7 @@ def _load_hosts_config() -> list[dict]:
             # "fe80::1" and we don't second-guess. No filter impact
             # today; captured so the Hosts drawer can display it and
             # a future group-filter iteration can parse it.
-            "ip":          (h.get("ip") or "").strip()[:64],
+            "ip": (h.get("ip") or "").strip()[:64],
             # Dedicated probe target — hostname OR IP that every probe
             # path falls back to when its provider-specific override is
             # empty (port-scan / ping / SNMP / SSH). Independent of any
@@ -11257,33 +11276,33 @@ def _load_hosts_config() -> list[dict]:
             # target). Free-text, max 64 chars; accepts an IP literal
             # (`192.X.X.X`) OR a hostname (`firewall.example.com`) the
             # OmniGrid container's resolver can reach.
-            "address":     (h.get("address") or "").strip()[:64],
+            "address": (h.get("address") or "").strip()[:64],
             # Per-host SSH override sub-dict. Optional user / port /
             # disabled / host override — the key material itself lives
             # in the GLOBAL ssh_default_private_key setting (V1 scope:
             # single global key). Missing or non-dict values collapse
             # to {} so downstream code can always do dict.get(...).
-            "ssh":         _clean_host_ssh(h.get("ssh")),
+            "ssh": _clean_host_ssh(h.get("ssh")),
             # Per-host ping opt-in. Default OFF — operator opts
             # in per host. Optional `port` + `transport` overrides
             # cascade over the globals.
-            "ping":        _clean_host_ping(h.get("ping")),
+            "ping": _clean_host_ping(h.get("ping")),
             # SNMP target alias — Docker hostname → SNMP-reachable
             # name/IP when the curated row's id isn't directly addressable
             # by the SNMP agent. Empty falls through to the global
             # snmp_aliases map and finally to the bare id.
-            "snmp_name":   (h.get("snmp_name") or "").strip(),
+            "snmp_name": (h.get("snmp_name") or "").strip(),
             # Per-host SNMP override sub-dict. Optional community /
             # version / port / v3_user / v3_auth_key / v3_priv_key —
             # any unset key falls through to the global default. {} =
             # "no override" (the common case).
-            "snmp":        _clean_host_snmp(h.get("snmp")),
+            "snmp": _clean_host_snmp(h.get("snmp")),
             # Per-host port-scan override sub-dict. Optional `enabled`
             # / `ports` / `timeout_s` / `concurrency` — any unset key
             # falls through to the global default. {} = "use globals
             # AND inherit the global enabled flag".
-            "port_scan":   _clean_host_port_scan(h.get("port_scan")),
-            "enabled":     bool(h.get("enabled", True)),
+            "port_scan": _clean_host_port_scan(h.get("port_scan")),
+            "enabled": bool(h.get("enabled", True)),
         })
     return clean
 
@@ -11639,8 +11658,8 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             400,
             "These custom " + plural + " used by more than one host: "
             + "; ".join(parts) + ". "
-            "Each host needs its own unique custom number — change the "
-            "conflicting ones and try Save again.",
+                                 "Each host needs its own unique custom number — change the "
+                                 "conflicting ones and try Save again.",
         )
 
     # Duplicate-id check — without this, two rows with the same id
@@ -11662,8 +11681,8 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
         raise HTTPException(
             400,
             "Two or more " + plural + ": " + names + ". "
-            "Each host needs its own unique id — rename the duplicates "
-            "and try Save again.",
+                                                     "Each host needs its own unique id — rename the duplicates "
+                                                     "and try Save again.",
         )
 
     seen: dict[str, dict] = {}
@@ -11674,40 +11693,40 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
         if not hid:
             raise HTTPException(400, "host entry is missing 'id'")
         seen[hid] = {
-            "id":            hid,
+            "id": hid,
             # Empty label is INTENTIONAL post-the SPA's
             # `hostDisplayName(h)` resolver falls back to the asset
             # inventory's name when this is blank. DO NOT auto-fill
             # with `hid` here: that would silently overwrite an empty
             # operator intent with the host id, defeating the
             # "inherit from asset" feature on every save.
-            "label":         (h.get("label") or "").strip(),
-            "ne_url":        (h.get("ne_url") or "").strip(),
-            "beszel_name":   (h.get("beszel_name") or "").strip(),
-            "pulse_name":    (h.get("pulse_name") or "").strip(),
-            "webmin_name":   (h.get("webmin_name") or "").strip(),
-            "url":           (h.get("url") or "").strip(),
-            "icon":          (h.get("icon") or "").strip(),
+            "label": (h.get("label") or "").strip(),
+            "ne_url": (h.get("ne_url") or "").strip(),
+            "beszel_name": (h.get("beszel_name") or "").strip(),
+            "pulse_name": (h.get("pulse_name") or "").strip(),
+            "webmin_name": (h.get("webmin_name") or "").strip(),
+            "url": (h.get("url") or "").strip(),
+            "icon": (h.get("icon") or "").strip(),
             # Operator-assigned catalogue number. Persisted so the
             # Hosts-view "Custom #" sort + future asset-inventory
             # lookups find the right row. Blank / non-numeric → None
             # via _coerce_int (same path _load_hosts_config uses).
             "custom_number": _coerce_int(h.get("custom_number")),
             # Free-text IP — see _load_hosts_config for rationale.
-            "ip":            (h.get("ip") or "").strip()[:64],
+            "ip": (h.get("ip") or "").strip()[:64],
             # Dedicated probe target — hostname OR IP. Used as fallback
             # by port-scan / ping / SNMP / SSH when no provider-specific
             # override is set. See _load_hosts_config for full rationale.
-            "address":       (h.get("address") or "").strip()[:64],
+            "address": (h.get("address") or "").strip()[:64],
             # Per-host SSH override block — see _clean_host_ssh for
             # the shape contract. {} when no override is set.
-            "ssh":           _clean_host_ssh(h.get("ssh")),
+            "ssh": _clean_host_ssh(h.get("ssh")),
             # Per-host ping opt-in.
-            "ping":          _clean_host_ping(h.get("ping")),
+            "ping": _clean_host_ping(h.get("ping")),
             # Per-host SNMP target alias + per-row override block.
-            "snmp_name":     (h.get("snmp_name") or "").strip(),
-            "snmp":          _clean_host_snmp(h.get("snmp")),
-            "enabled":       bool(h.get("enabled", True)),
+            "snmp_name": (h.get("snmp_name") or "").strip(),
+            "snmp": _clean_host_snmp(h.get("snmp")),
+            "enabled": bool(h.get("enabled", True)),
         }
         # host-level enable gates every per-provider enable.
         # Defence-in-depth on top of the SPA's strip in saveHostsConfig:
@@ -11824,10 +11843,10 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
         if not hid:
             continue
         configured: set[str] = set()
-        if (h.get("beszel_name")  or "").strip(): configured.add("beszel")
-        if (h.get("pulse_name")   or "").strip(): configured.add("pulse")
-        if (h.get("ne_url")       or "").strip(): configured.add("node_exporter")
-        if (h.get("webmin_name")  or "").strip(): configured.add("webmin")
+        if (h.get("beszel_name") or "").strip(): configured.add("beszel")
+        if (h.get("pulse_name") or "").strip(): configured.add("pulse")
+        if (h.get("ne_url") or "").strip(): configured.add("node_exporter")
+        if (h.get("webmin_name") or "").strip(): configured.add("webmin")
         if bool((h.get("ping") or {}).get("enabled", False)): configured.add("ping")
         # SNMP: configured when EITHER `snmp_name` OR the shared
         # `address` field is set AND `snmp.enabled === True`. MUST stay
@@ -12282,10 +12301,10 @@ async def api_hosts_test(
         snmp_port = 0
     out = {
         "beszel": {"ok": False, "skipped": True, "detail": "not set"},
-        "pulse":  {"ok": False, "skipped": True, "detail": "not set"},
+        "pulse": {"ok": False, "skipped": True, "detail": "not set"},
         "node_exporter": {"ok": False, "skipped": True, "detail": "not set"},
         "webmin": {"ok": False, "skipped": True, "detail": "not set"},
-        "snmp":   {"ok": False, "skipped": True, "detail": "not set"},
+        "snmp": {"ok": False, "skipped": True, "detail": "not set"},
     }
 
     # Respect the global host_stats_source CSV — a provider disabled
@@ -12336,13 +12355,13 @@ async def api_hosts_test(
                 disk = st.get("host_disk_total") or 0
                 out["beszel"] = {
                     "ok": True, "skipped": False,
-                    "detail": (f"matched · mem={mem // (1024**3) if mem else '?'}"
-                               + f" GB · disk={disk // (1024**3) if disk else '?'} GB"),
+                    "detail": (f"matched · mem={mem // (1024 ** 3) if mem else '?'}"
+                               + f" GB · disk={disk // (1024 ** 3) if disk else '?'} GB"),
                 }
             else:
                 names = sorted((r.get("systems") or {}).keys(), key=str.lower)
                 hint = ", ".join(names[:3])
-                if len(names) > 3: hint += f" (+{len(names)-3} more)"
+                if len(names) > 3: hint += f" (+{len(names) - 3} more)"
                 out["beszel"] = {"ok": False, "skipped": False,
                                  "detail": f"no match in hub. Known: {hint or 'none'}"}
         else:
@@ -12366,7 +12385,7 @@ async def api_hosts_test(
             else:
                 names = sorted((r.get("hosts") or {}).keys(), key=str.lower)
                 hint = ", ".join(names[:3])
-                if len(names) > 3: hint += f" (+{len(names)-3} more)"
+                if len(names) > 3: hint += f" (+{len(names) - 3} more)"
                 out["pulse"] = {"ok": False, "skipped": False,
                                 "detail": f"no match in Pulse. Known: {hint or 'none'}"}
         else:
@@ -12386,7 +12405,7 @@ async def api_hosts_test(
             mem = stats.get("host_mem_total") or 0
             out["node_exporter"] = {
                 "ok": True, "skipped": False,
-                "detail": f"reachable · mem={mem // (1024**3) if mem else '?'} GB",
+                "detail": f"reachable · mem={mem // (1024 ** 3) if mem else '?'} GB",
             }
 
     if webmin_url:
@@ -12438,7 +12457,7 @@ async def api_hosts_test(
             # budget exceeded NPM's proxy_read_timeout. Now: per-host
             # walk_concurrency / vendors honoured; per-host
             # wall_clock_budget capped at 50s (NPM proxy ceiling).
-            v3_user_t = (body.get("snmp_v3_user")  or "").strip() or (get_setting("snmp_v3_user", "") or "")
+            v3_user_t = (body.get("snmp_v3_user") or "").strip() or (get_setting("snmp_v3_user", "") or "")
             v3_auth_t = (body.get("snmp_v3_auth_key") or "").strip() or (get_setting("snmp_v3_auth_key", "") or "")
             v3_priv_t = (body.get("snmp_v3_priv_key") or "").strip() or (get_setting("snmp_v3_priv_key", "") or "")
             try:
@@ -12485,7 +12504,7 @@ async def api_hosts_test(
                     except (TypeError, ValueError):
                         pass
                 if mem:
-                    detail_bits.append(f"mem={mem // (1024**3)} GB")
+                    detail_bits.append(f"mem={mem // (1024 ** 3)} GB")
                 out["snmp"] = {
                     "ok": True, "skipped": False,
                     "detail": " · ".join(detail_bits),
@@ -12593,9 +12612,9 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
 
     return {
         "beszel": beszel_names,
-        "pulse":  pulse_names,
+        "pulse": pulse_names,
         "webmin": webmin_names,
-        "snmp":   snmp_names,
+        "snmp": snmp_names,
         "errors": errors,
     }
 
@@ -12688,6 +12707,7 @@ async def api_debug_subject(
 
     if kind == "item":
         items = _cache.get("items") or []
+
         # Prefix matching is intentional for `svc:<12hex>` / `ctn:<12hex>`
         # short forms the SPA passes in. But a short bare id (e.g. `s`)
         # would prefix-match the FIRST item whose raw_id starts with
@@ -12705,6 +12725,7 @@ async def api_debug_subject(
             looks_short_form = id.startswith(("svc:", "ctn:"))
             long_enough = len(id) >= 12
             return (looks_short_form or long_enough) and rid.startswith(id)
+
         record = next((it for it in items if _id_matches(it)), None)
         if record is None:
             raise HTTPException(404, f"no item with id={id!r}")
@@ -13265,11 +13286,11 @@ async def api_hosts_debug(
             # Cap the sample — a loaded node-exporter can emit thousands
             # of metric lines; operators want a taste, not a dump.
             providers_raw["node_exporter"] = {
-                "url_input":     url_input,
+                "url_input": url_input,
                 "url_canonical": url_canonical,
-                "size_bytes":    len(text),
-                "line_count":    len(lines),
-                "sample_lines":  lines[:80],
+                "size_bytes": len(text),
+                "line_count": len(lines),
+                "sample_lines": lines[:80],
                 # Last 5 host_net_samples rows for this host. Lets an
                 # operator confirm the NE-net fallback sampler is
                 # filling the series at the expected cadence; if this
@@ -13317,10 +13338,10 @@ async def api_hosts_debug(
                     active_sources=active,
                 )
                 providers_raw["webmin"] = {
-                    "url":            wm_url,
-                    "hosts_keys":     sorted((r.get("hosts") or {}).keys()),
+                    "url": wm_url,
+                    "hosts_keys": sorted((r.get("hosts") or {}).keys()),
                     "partial_errors": r.get("partial_errors") or [],
-                    "error":          r.get("error"),
+                    "error": r.get("error"),
                 }
                 if r.get("hosts"):
                     providers_normalized["webmin"] = next(iter(r["hosts"].values()))
@@ -13348,18 +13369,18 @@ async def api_hosts_debug(
                 or record["id"]
             )
             providers_raw["ping"] = {
-                "target":          target,
-                "port":            ping_cfg.get("port"),
-                "transport":       ping_cfg.get("transport") or "(global default)",
-                "icmp_supported":  _ping_dbg.has_icmp_support(),
-                "samples_count":   len(samples),
-                "last_samples":    samples,
+                "target": target,
+                "port": ping_cfg.get("port"),
+                "transport": ping_cfg.get("transport") or "(global default)",
+                "icmp_supported": _ping_dbg.has_icmp_support(),
+                "samples_count": len(samples),
+                "last_samples": samples,
             }
             if samples:
                 last = samples[0]
                 stats = _ping_dbg.to_host_stats({
-                    "alive":    last.get("alive"),
-                    "rtt_ms":   last.get("rtt_ms"),
+                    "alive": last.get("alive"),
+                    "rtt_ms": last.get("rtt_ms"),
                     "loss_pct": last.get("loss_pct"),
                 })
                 if stats:
@@ -13378,21 +13399,21 @@ async def api_hosts_debug(
         try:
             r = await snmp_task
             providers_raw["snmp"] = {
-                "target":      snmp_meta["target"],
-                "community":   snmp_meta["community"],
-                "version":     snmp_meta["version"],
-                "port":        snmp_meta["port"],
-                "v3_user":     snmp_meta["v3_user"],
+                "target": snmp_meta["target"],
+                "community": snmp_meta["community"],
+                "version": snmp_meta["version"],
+                "port": snmp_meta["port"],
+                "v3_user": snmp_meta["v3_user"],
                 "v3_auth_set": snmp_meta["v3_auth_set"],
                 "v3_priv_set": snmp_meta["v3_priv_set"],
-                "hosts_keys":  sorted((r.get("hosts") or {}).keys()),
-                "error":       r.get("error"),
+                "hosts_keys": sorted((r.get("hosts") or {}).keys()),
+                "error": r.get("error"),
                 # Full probed data: every parsed OID, per-row
                 # storage table (RAM + disks), per-row interface
                 # counters, plus a walk-summary header so operators
                 # can see at a glance which OID families the agent
                 # answered.
-                "raw":         r.get("raw") or {},
+                "raw": r.get("raw") or {},
             }
             if r.get("hosts"):
                 providers_normalized["snmp"] = next(iter(r["hosts"].values()))
@@ -13442,11 +13463,11 @@ async def api_hosts_debug(
     # (ping-only) showing "beszel, node_exporter, ping, pulse".
     host_active = sorted(
         p for p in active
-        if (p == "beszel"        and (record.get("beszel_name") or "").strip())
-        or (p == "pulse"         and (record.get("pulse_name") or "").strip())
+        if (p == "beszel" and (record.get("beszel_name") or "").strip())
+        or (p == "pulse" and (record.get("pulse_name") or "").strip())
         or (p == "node_exporter" and (record.get("ne_url") or "").strip())
-        or (p == "webmin"        and (record.get("webmin_name") or "").strip())
-        or (p == "ping"          and bool((record.get("ping") or {}).get("enabled", False)))
+        or (p == "webmin" and (record.get("webmin_name") or "").strip())
+        or (p == "ping" and bool((record.get("ping") or {}).get("enabled", False)))
         # SNMP is "active for this host" only when (a) the operator has
         # mapped a probe target (alias OR per-row `snmp_name` OR the
         # shared `address` field) AND (b) the per-row `snmp.enabled
@@ -13488,7 +13509,7 @@ async def api_hosts_debug(
                 (id,),
             ).fetchone()
             counters["snmp_samples"] = {
-                "count":    int(row[0] or 0),
+                "count": int(row[0] or 0),
                 "newest_ts": (int(row[1]) if row[1] is not None else None),
                 "oldest_ts": (int(row[2]) if row[2] is not None else None),
             }
@@ -13499,8 +13520,8 @@ async def api_hosts_debug(
                 (id,),
             ).fetchone()
             counters["snmp_iface_samples"] = {
-                "rows":      int(row2[0] or 0),
-                "ifaces":    int(row2[1] or 0),
+                "rows": int(row2[0] or 0),
+                "ifaces": int(row2[1] or 0),
                 "newest_ts": (int(row2[2]) if row2[2] is not None else None),
             }
             # host_metrics_samples — node-exporter sampler history.
@@ -13510,7 +13531,7 @@ async def api_hosts_debug(
                 (id,),
             ).fetchone()
             counters["ne_samples"] = {
-                "count":     int(row3[0] or 0),
+                "count": int(row3[0] or 0),
                 "newest_ts": (int(row3[1]) if row3[1] is not None else None),
             }
             # ping_samples — TCP/ICMP probe history.
@@ -13522,10 +13543,10 @@ async def api_hosts_debug(
                 (id,),
             ).fetchone()
             counters["ping_samples"] = {
-                "count":     int(row4[0] or 0),
+                "count": int(row4[0] or 0),
                 "newest_ts": (int(row4[1]) if row4[1] is not None else None),
-                "alive":     int(row4[2] or 0),
-                "down":      int(row4[3] or 0),
+                "alive": int(row4[2] or 0),
+                "down": int(row4[3] or 0),
             }
             # host_snapshots — last persistence write for this host.
             row5 = c.execute(
@@ -13534,7 +13555,7 @@ async def api_hosts_debug(
             ).fetchone()
             if row5:
                 counters["snapshot"] = {
-                    "ts":        float(row5[0] or 0.0),
+                    "ts": float(row5[0] or 0.0),
                     "size_bytes": int(row5[1] or 0),
                 }
             else:
@@ -13552,9 +13573,9 @@ async def api_hosts_debug(
                 ).fetchone()
                 if row5b:
                     counters["snapshot"] = {
-                        "ts":         float(row5b[1] or 0.0),
+                        "ts": float(row5b[1] or 0.0),
                         "size_bytes": int(row5b[2] or 0),
-                        "host_key":   row5b[0],
+                        "host_key": row5b[0],
                     }
                 else:
                     counters["snapshot"] = None
@@ -13581,16 +13602,16 @@ async def api_hosts_debug(
     try:
         with db_conn() as c:
             for table in (
-                "host_snmp_samples", "host_snmp_iface_samples",
-                "host_metrics_samples", "ping_samples",
-                "host_net_samples",
-                # Pulse / Webmin / Beszel each write to their own
-                # per-provider sample tables. Beszel was added under
-                # the "every host-stats provider must have a local
-                # sample store" rule — pre-fix it was the read-
-                # through-only outlier and chart cuts followed.
-                "host_pulse_samples", "host_webmin_samples",
-                "host_beszel_samples",
+                    "host_snmp_samples", "host_snmp_iface_samples",
+                    "host_metrics_samples", "ping_samples",
+                    "host_net_samples",
+                    # Pulse / Webmin / Beszel each write to their own
+                    # per-provider sample tables. Beszel was added under
+                    # the "every host-stats provider must have a local
+                    # sample store" rule — pre-fix it was the read-
+                    # through-only outlier and chart cuts followed.
+                    "host_pulse_samples", "host_webmin_samples",
+                    "host_beszel_samples",
             ):
                 try:
                     row = c.execute(
@@ -13635,10 +13656,10 @@ async def api_hosts_debug(
                     except Exception:
                         gaps_median = None
                 samples_in_window[table] = {
-                    "count":         count,
-                    "newest_ts":     newest,
-                    "oldest_ts":     oldest,
-                    "median_gap_s":  gaps_median,
+                    "count": count,
+                    "newest_ts": newest,
+                    "oldest_ts": oldest,
+                    "median_gap_s": gaps_median,
                     "newest_age_s": (
                         int(time.time() - newest) if newest is not None
                         else None
@@ -13686,14 +13707,14 @@ async def api_hosts_debug(
         if isinstance(merged, dict) else merged
     )
     return {
-        "host_record":          record,
-        "active_providers":     host_active,
+        "host_record": record,
+        "active_providers": host_active,
         "active_providers_global": sorted(active),
-        "providers_raw":        providers_raw,
+        "providers_raw": providers_raw,
         "providers_normalized": providers_normalized,
-        "merged":               merged_for_debug,
-        "rendered":             rendered,
-        "counters":             counters,
+        "merged": merged_for_debug,
+        "rendered": rendered,
+        "counters": counters,
     }
 
 
@@ -13907,7 +13928,6 @@ def _ssh_terminal_audit_open(
     ``None`` if the insert failed (audit-log breakage must never block
     the session itself — operator visibility is best-effort by design).
     """
-    from logic import ssh as _ssh
     try:
         with db_conn() as c:
             cur = c.execute(
@@ -13924,7 +13944,7 @@ def _ssh_terminal_audit_open(
                     "running",
                     0.0,
                     json.dumps([{
-                        "ts":    time.time(),
+                        "ts": time.time(),
                         "level": "info",
                         "msg": (
                             f"ssh_terminal start "
@@ -14076,7 +14096,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
     await websocket.accept()
     started_at = time.time()
     audit_row_id: Optional[int] = None
-    bytes_in = 0   # browser -> shell
+    bytes_in = 0  # browser -> shell
     bytes_out = 0  # shell -> browser
     final_status = "success"
     final_error: Optional[str] = None
@@ -14237,7 +14257,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
 
         t1 = asyncio.create_task(upstream_to_ws(), name="ssh-term-up")
         t2 = asyncio.create_task(ws_to_upstream(), name="ssh-term-dn")
-        t3 = asyncio.create_task(heartbeat(),       name="ssh-term-hb")
+        t3 = asyncio.create_task(heartbeat(), name="ssh-term-hb")
         try:
             await stop_event.wait()
         finally:
@@ -14362,6 +14382,7 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
         return series
     bucket_s = max(60, int((hours * 3600) / target_points))
     half = bucket_s // 2
+
     # Discover field-kind by scanning the WHOLE series for the first
     # non-empty value per key. Pre-fix this only looked at sample[0] —
     # fields that are sparse-populated (Beszel `temps` / `gpus` — agent
@@ -14391,14 +14412,14 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
                 # Need at least ONE leaf to classify as dict-of-numerics.
                 # All values must be numeric.
                 if not v:
-                    continue   # empty dict — keep scanning for a populated tick
+                    continue  # empty dict — keep scanning for a populated tick
                 if all(isinstance(x, (int, float)) and not isinstance(x, bool)
                        for x in v.values()):
                     return "dict"
                 return "other"
             if isinstance(v, list):
                 if not v:
-                    continue   # empty list — keep scanning
+                    continue  # empty list — keep scanning
                 if all(isinstance(x, (int, float)) and not isinstance(x, bool)
                        for x in v):
                     return "list"
@@ -14408,6 +14429,7 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
         # empty value lands in `other_last` and the row stays consistent
         # with the source.
         return "other"
+
     # Collect every key that appears in ANY sample, not just sample[0].
     all_keys: set[str] = set()
     for r in series:
@@ -14425,8 +14447,8 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
         b = buckets.get(bts)
         if b is None:
             b = {"scalar_sum": {}, "scalar_n": {},
-                 "dict_sum":   {}, "dict_n":   {},
-                 "list_sum":   {}, "list_n":   {},
+                 "dict_sum": {}, "dict_n": {},
+                 "list_sum": {}, "list_n": {},
                  "other_last": {}}
             buckets[bts] = b
         for k, kind in kinds.items():
@@ -14439,7 +14461,7 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
                 except (TypeError, ValueError):
                     continue
                 b["scalar_sum"][k] = b["scalar_sum"].get(k, 0.0) + fv
-                b["scalar_n"][k]   = b["scalar_n"].get(k, 0) + 1
+                b["scalar_n"][k] = b["scalar_n"].get(k, 0) + 1
             elif kind == "dict" and isinstance(v, dict):
                 ds = b["dict_sum"].setdefault(k, {})
                 dn = b["dict_n"].setdefault(k, {})
@@ -14474,9 +14496,9 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
         # Drop fully-empty buckets — every kind contributed zero data.
         # Allows the SPA's gap-detection to surface the gap honestly.
         if (not any(n > 0 for n in b["scalar_n"].values())
-                and not b["dict_sum"]
-                and not b["list_sum"]
-                and not b["other_last"]):
+            and not b["dict_sum"]
+            and not b["list_sum"]
+            and not b["other_last"]):
             continue
         row: dict = {}
         for k, n in b["scalar_n"].items():
@@ -14496,7 +14518,7 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
         for k, v in b["other_last"].items():
             row[k] = v
         mid = bts + half
-        row["t"]  = mid
+        row["t"] = mid
         row["ts"] = mid
         out.append(row)
     return out
@@ -14534,7 +14556,7 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
         # branch below; the host_id branch is for hosts whose
         # primary surface is node-exporter OR Pulse.
         #
-      # Resolution order:
+        # Resolution order:
         # 1. Try host_metrics_sampler first (NE-only host) — most
         #    common case on this branch.
         # 2. Fall through to host_pulse_sampler when the curated
@@ -14655,9 +14677,9 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
     except Exception as e:  # noqa: BLE001
         return {"series": [], "error": f"host_beszel_sampler: {e}"}
     return {
-        "series":  _bucket_drawer_series(local_series, h),
-        "source":  "beszel_local",
-        "error":   None,
+        "series": _bucket_drawer_series(local_series, h),
+        "source": "beszel_local",
+        "error": None,
     }
 
 
@@ -14761,12 +14783,12 @@ async def api_hosts_ping_history(
         # reflects "average latency when reachable" across the window.
         alive_majority = b["alive_n"] * 2 > total
         points.append({
-            "ts":         bts + half,
-            "alive":      alive_majority,
-            "rtt_ms":     rtt_avg,
+            "ts": bts + half,
+            "alive": alive_majority,
+            "rtt_ms": rtt_avg,
             "rtt_min_ms": b["rtt_min_min"],
             "rtt_max_ms": b["rtt_max_max"],
-            "loss_pct":   b["loss_sum"] / total,
+            "loss_pct": b["loss_sum"] / total,
             # Surface bucket metadata for the SPA's gap-aware renderer
             # + future tooltip "average over N samples in this 12min
             # bucket" copy. Optional — consumers fall back gracefully.
@@ -14908,13 +14930,13 @@ async def api_hosts_snmp_history(
             "load_1m": (float(r[3]) if r[3] is not None else None),
             "load_5m": (float(r[4]) if r[4] is not None else None),
             "load_15m": (float(r[5]) if r[5] is not None else None),
-            "mem_total":   (int(r[6]) if r[6] is not None else None),
-            "mem_used":    (int(r[7]) if r[7] is not None else None),
+            "mem_total": (int(r[6]) if r[6] is not None else None),
+            "mem_used": (int(r[7]) if r[7] is not None else None),
             "mem_buffers": (int(r[8]) if r[8] is not None else None),
-            "mem_cached":  (int(r[9]) if r[9] is not None else None),
-            "mem_free":    (int(r[10]) if r[10] is not None else None),
+            "mem_cached": (int(r[9]) if r[9] is not None else None),
+            "mem_free": (int(r[10]) if r[10] is not None else None),
             # uptime in seconds; NULL for pre-uptime-column rows.
-            "uptime_s":    (int(r[11]) if r[11] is not None else None),
+            "uptime_s": (int(r[11]) if r[11] is not None else None),
             # cumulative IF-MIB ifHCInOctets / ifHCOutOctets
             # sums; NULL for pre-throughput-column rows or when SNMP didn't return
             # the counters (e.g. switch with hrStorage but no IF-MIB).
@@ -14929,15 +14951,15 @@ async def api_hosts_snmp_history(
             # APC UPS time-series fields. NULL for non-UPS hosts
             # or pre-fix rows. Drives the Output Load / Battery /
             # Battery temperature charts in the host drawer's UPS card.
-            "load_percent":     (float(r[15]) if r[15] is not None else None),
-            "battery_percent":  (float(r[16]) if r[16] is not None else None),
-            "battery_temp_c":   (float(r[17]) if r[17] is not None else None),
+            "load_percent": (float(r[15]) if r[15] is not None else None),
+            "battery_percent": (float(r[16]) if r[16] is not None else None),
+            "battery_temp_c": (float(r[17]) if r[17] is not None else None),
             # Aggregate disk totals (bytes). Drives the Hosts-row
             # disk sparkline for SNMP-only hosts. NULL for pre-fix
             # rows; SPA computes percent as (used / total) * 100
             # and treats null/0 totals as "no signal".
-            "disk_total":       (int(r[18]) if r[18] is not None else None),
-            "disk_used":        (int(r[19]) if r[19] is not None else None),
+            "disk_total": (int(r[18]) if r[18] is not None else None),
+            "disk_used": (int(r[19]) if r[19] is not None else None),
         })
     # Surface `bucket_seconds` to the SPA so rate-computation helpers
     # (`snmpThroughputBpsSeries` / iface throughput / etc.) can scale
@@ -14988,8 +15010,8 @@ async def api_hosts_disk_projection(
     # says 12% / 195 GB" — different sources, same host.
     sources = (
         ("host_metrics_samples", "node_exporter"),
-        ("host_pulse_samples",   "pulse"),
-        ("host_webmin_samples",  "webmin"),
+        ("host_pulse_samples", "pulse"),
+        ("host_webmin_samples", "webmin"),
     )
     candidates: list[tuple[str, list]] = []  # (label, rows) for each source with ≥ 5 rows
     try:
@@ -15015,10 +15037,12 @@ async def api_hosts_disk_projection(
         # signal). The previous source-priority list is the final
         # fallback when totals + counts are identical.
         priority_order = {label: i for i, (_, label) in enumerate(sources)}
+
         def _rank(c_label_rows):
             label, rs = c_label_rows
             latest_total = int(rs[-1][2] or 0)
             return (-latest_total, -len(rs), priority_order.get(label, 999))
+
         candidates.sort(key=_rank)
         source_used, rows = candidates[0]
     if not rows:
@@ -15046,7 +15070,8 @@ async def api_hosts_disk_projection(
     t0 = series[0][0]
     xs = [(s[0] - t0) for s in series]
     ys = [s[1] for s in series]
-    sx = sum(xs); sy = sum(ys)
+    sx = sum(xs);
+    sy = sum(ys)
     sxx = sum(x * x for x in xs)
     sxy = sum(x * y for x, y in zip(xs, ys))
     denom = (n * sxx) - (sx * sx)
@@ -15132,13 +15157,13 @@ async def api_hosts_disk_projection(
             se_pred = sigma_resid
         margin = z * se_pred
         used_pct_clamped = max(0.0, min(100.0, used_pct_proj))
-        low_clamped  = max(0.0, min(100.0, used_pct_proj - margin))
+        low_clamped = max(0.0, min(100.0, used_pct_proj - margin))
         high_clamped = max(0.0, min(100.0, used_pct_proj + margin))
         projection_payload.append({
             "ts": ts_proj,
-            "used_pct":  round(used_pct_clamped, 2),
-            "low_pct":   round(low_clamped, 2),
-            "high_pct":  round(high_clamped, 2),
+            "used_pct": round(used_pct_clamped, 2),
+            "low_pct": round(low_clamped, 2),
+            "high_pct": round(high_clamped, 2),
         })
     last = series[-1]
     # Stale-data hint — the latest sample's age vs now. If the most
@@ -15153,26 +15178,26 @@ async def api_hosts_disk_projection(
     age_seconds = max(0, now_ts - last_ts) if last_ts > 0 else 0
     is_stale = age_seconds > 1800  # 30 minutes
     return {
-        "host_id":           hid,
-        "samples":           samples_payload,
-        "projection":        projection_payload,
-        "exhaustion_ts":     exhaustion_ts,
-        "confidence":        confidence,
+        "host_id": hid,
+        "samples": samples_payload,
+        "projection": projection_payload,
+        "exhaustion_ts": exhaustion_ts,
+        "confidence": confidence,
         "current": {
-            "ts":            last[0],
-            "used_pct":      round(last[1], 2),
-            "used_bytes":    last[2],
-            "total_bytes":   last[3],
+            "ts": last[0],
+            "used_pct": round(last[1], 2),
+            "used_bytes": last[2],
+            "total_bytes": last[3],
         },
         "slope_pct_per_day": round(slope_pct_per_day, 4),
-        "total_bytes":       last[3],
-        "source":            source_used,
-        "lookback_hours":    h,
-        "r2":                round(r2, 4),
-        "sample_count":      n,
-        "stale":             is_stale,
+        "total_bytes": last[3],
+        "source": source_used,
+        "lookback_hours": h,
+        "r2": round(r2, 4),
+        "sample_count": n,
+        "stale": is_stale,
         "stale_age_seconds": age_seconds,
-        "error":             None,
+        "error": None,
     }
 
 
@@ -15246,7 +15271,7 @@ async def api_hosts_snmp_iface_history(
             ifaces[ifname] = []
         ifaces[ifname].append({
             "ts": int(r[0]),
-            "in_bytes":  (int(r[2]) if r[2] is not None else None),
+            "in_bytes": (int(r[2]) if r[2] is not None else None),
             "out_bytes": (int(r[3]) if r[3] is not None else None),
             # slice 4 — IF-MIB ifHighSpeed (Mbps); NULL when the
             # device doesn't expose it.
@@ -15326,7 +15351,7 @@ async def api_hosts_snmp_temp_history(
         probe_bucket["name"] = name
         probe_bucket["points"].append({
             "ts": int(r[0]),
-            "c":  (float(r[3]) if r[3] is not None else None),
+            "c": (float(r[3]) if r[3] is not None else None),
         })
     # Surface bucket cadence for consistency with the sibling endpoints
     # (SPA doesn't currently consume it for temp charts — temperatures
@@ -15479,9 +15504,9 @@ async def api_hosts_timeline(
                 "FROM history "
                 "WHERE ts >= ? AND ("
                 "  target_id IN (" + placeholders + ") "
-                "  OR target_name IN (" + placeholders + ")"
-                ") "
-                "ORDER BY ts DESC LIMIT ?"
+                                                    "  OR target_name IN (" + placeholders + ")"
+                                                                                             ") "
+                                                                                             "ORDER BY ts DESC LIMIT ?"
             )  # nosec B608 — placeholders is a constant `?` string built from len(name_candidates); no taint flows from name_candidates into the SQL string itself.
             hist_rows = c.execute(
                 hist_sql,
@@ -15503,19 +15528,19 @@ async def api_hosts_timeline(
                 # scan was operator-initiated or schedule-fired).
                 event_kind = "port_scan" if op_type == "port_scan" else "op"
                 events.append({
-                    "ts":       int(r["ts"]),
-                    "kind":     event_kind,
+                    "ts": int(r["ts"]),
+                    "kind": event_kind,
                     "severity": severity,
-                    "title":    f"{op_type}",
-                    "body":     f"{title_target}" + (f" — {r['error']}" if r['error'] else ""),
-                    "actor":    r["actor"] or "system",
+                    "title": f"{op_type}",
+                    "body": f"{title_target}" + (f" — {r['error']}" if r['error'] else ""),
+                    "actor": r["actor"] or "system",
                     "metadata": {
-                        "op_type":      op_type,
-                        "status":       status,
-                        "target_name":  r["target_name"],
-                        "target_id":    r["target_id"],
+                        "op_type": op_type,
+                        "status": status,
+                        "target_name": r["target_name"],
+                        "target_id": r["target_id"],
                         "target_stack": r["target_stack"],
-                        "duration":     r["duration"],
+                        "duration": r["duration"],
                     },
                 })
                 counts["ops"] += 1
@@ -15531,14 +15556,14 @@ async def api_hosts_timeline(
             ).fetchall()
             for r in notif_rows:
                 events.append({
-                    "ts":       int(r["ts"]),
-                    "kind":     "notification",
+                    "ts": int(r["ts"]),
+                    "kind": "notification",
                     "severity": (r["severity"] or "info").lower(),
-                    "title":    r["title"] or r["event"] or "notification",
-                    "body":     r["body"] or "",
-                    "actor":    r["actor"] or "",
+                    "title": r["title"] or r["event"] or "notification",
+                    "body": r["body"] or "",
+                    "actor": r["actor"] or "",
                     "metadata": {
-                        "id":    int(r["id"]),
+                        "id": int(r["id"]),
                         "event": r["event"] or "",
                     },
                 })
@@ -15574,23 +15599,23 @@ async def api_hosts_timeline(
                     provider = (r["provider"] or "").strip() or "host"
                     if kind_raw == "paused":
                         events.append({
-                            "ts":       int(r["ts"]),
-                            "kind":     "provider_paused",
+                            "ts": int(r["ts"]),
+                            "kind": "provider_paused",
                             "severity": "warning",
-                            "title":    f"{provider} sampling paused",
-                            "body":     (r["error"] or "auto-paused after consecutive failures")[:300],
-                            "actor":    r["actor"] or "sampler",
+                            "title": f"{provider} sampling paused",
+                            "body": (r["error"] or "auto-paused after consecutive failures")[:300],
+                            "actor": r["actor"] or "sampler",
                             "metadata": {"provider": provider},
                         })
                         counts["failures"] += 1
                     elif kind_raw == "recovered":
                         events.append({
-                            "ts":       int(r["ts"]),
-                            "kind":     "provider_recovered",
+                            "ts": int(r["ts"]),
+                            "kind": "provider_recovered",
                             "severity": "success",
-                            "title":    f"{provider} sampling recovered",
-                            "body":     "Probe succeeded — auto-pause cleared",
-                            "actor":    r["actor"] or "sampler",
+                            "title": f"{provider} sampling recovered",
+                            "body": "Probe succeeded — auto-pause cleared",
+                            "actor": r["actor"] or "sampler",
                             "metadata": {"provider": provider},
                         })
                         counts["recoveries"] += 1
@@ -15618,14 +15643,14 @@ async def api_hosts_timeline(
                     if ts < since:
                         continue
                     events.append({
-                        "ts":       ts,
-                        "kind":     "provider_paused",
+                        "ts": ts,
+                        "kind": "provider_paused",
                         "severity": "warning",
-                        "title":    f"{provider} sampling paused",
-                        "body":     (r["last_error"] or "auto-paused after consecutive failures")[:300],
-                        "actor":    "sampler",
+                        "title": f"{provider} sampling paused",
+                        "body": (r["last_error"] or "auto-paused after consecutive failures")[:300],
+                        "actor": "sampler",
                         "metadata": {
-                            "provider":             provider,
+                            "provider": provider,
                             "consecutive_failures": int(r["consecutive_failures"] or 0),
                         },
                     })
@@ -15644,12 +15669,12 @@ async def api_hosts_timeline(
                     if ts < since:
                         continue
                     events.append({
-                        "ts":       ts,
-                        "kind":     "provider_recovered",
+                        "ts": ts,
+                        "kind": "provider_recovered",
                         "severity": "success",
-                        "title":    f"{provider} probe ok",
-                        "body":     "Last successful probe",
-                        "actor":    "sampler",
+                        "title": f"{provider} probe ok",
+                        "body": "Last successful probe",
+                        "actor": "sampler",
                         "metadata": {"provider": provider},
                     })
                     counts["recoveries"] += 1
@@ -15663,9 +15688,9 @@ async def api_hosts_timeline(
 
     return {
         "host_id": hid,
-        "hours":   h,
-        "events":  events,
-        "counts":  counts,
+        "hours": h,
+        "events": events,
+        "counts": counts,
     }
 
 
@@ -15688,8 +15713,8 @@ class HostsBulkResumeIn(BaseModel):
 
 class HostsBulkSnmpVendorsIn(BaseModel):
     host_ids: list[str]
-    vendors: list[str]   # subset of _VALID_VENDOR_KEYS, [] = clear (auto-detect)
-    mode: str = "set"    # "set" (replace) | "add" (union) | "remove" (difference)
+    vendors: list[str]  # subset of _VALID_VENDOR_KEYS, [] = clear (auto-detect)
+    mode: str = "set"  # "set" (replace) | "add" (union) | "remove" (difference)
 
 
 class HostsBulkSnmpTunablesIn(BaseModel):
@@ -16023,9 +16048,9 @@ async def api_hosts_bulk_pause(
             _events.publish(
                 "host:bulk_action_applied",
                 {
-                    "action":   "pause",
+                    "action": "pause",
                     "host_ids": applied,
-                    "actor":    actor,
+                    "actor": actor,
                 },
                 client_id=client_id,
             )
@@ -16035,10 +16060,10 @@ async def api_hosts_bulk_pause(
     print(f"[hosts:bulk] pause by {actor}: {len(applied)} applied, "
           f"{len(missing)} missing, {len(errors)} errors")
     return {
-        "ok":      not errors,
+        "ok": not errors,
         "applied": applied,
         "skipped": missing,
-        "errors":  errors,
+        "errors": errors,
     }
 
 
@@ -16110,9 +16135,9 @@ async def api_hosts_bulk_resume(
             _events.publish(
                 "host:bulk_action_applied",
                 {
-                    "action":   "resume",
+                    "action": "resume",
                     "host_ids": applied,
-                    "actor":    actor,
+                    "actor": actor,
                 },
                 client_id=client_id,
             )
@@ -16121,10 +16146,10 @@ async def api_hosts_bulk_resume(
     print(f"[hosts:bulk] resume by {actor}: {len(applied)} applied, "
           f"{len(missing)} missing, {len(errors)} errors")
     return {
-        "ok":      not errors,
+        "ok": not errors,
         "applied": applied,
         "skipped": missing,
-        "errors":  errors,
+        "errors": errors,
     }
 
 
@@ -16187,10 +16212,10 @@ async def api_hosts_bulk_snmp_vendors(
             _full_host_cache_bust()
         except HTTPException as e:
             return {
-                "ok":      False,
+                "ok": False,
                 "applied": [],
                 "skipped": missing + applied,
-                "errors":  {"_save": e.detail},
+                "errors": {"_save": e.detail},
             }
     actor = _actor_from(request) or "admin"
     # Bulk SSE event so cross-tab observers reload `hosts_config` +
@@ -16204,11 +16229,11 @@ async def api_hosts_bulk_snmp_vendors(
             _events.publish(
                 "host:bulk_action_applied",
                 {
-                    "action":   "snmp_vendors",
+                    "action": "snmp_vendors",
                     "host_ids": applied,
-                    "actor":    actor,
-                    "mode":     mode,
-                    "vendors":  sorted(cleaned_input),
+                    "actor": actor,
+                    "mode": mode,
+                    "vendors": sorted(cleaned_input),
                 },
                 client_id=client_id,
             )
@@ -16227,11 +16252,11 @@ async def api_hosts_bulk_snmp_vendors(
           f"vendors={sorted(cleaned_input)}: {len(applied)} applied, "
           f"{len(missing)} missing, {len(errors)} errors")
     return {
-        "ok":      not errors,
+        "ok": not errors,
         "applied": applied,
         "skipped": missing,
-        "errors":  errors,
-        "mode":    mode,
+        "errors": errors,
+        "mode": mode,
         "vendors": sorted(cleaned_input),
     }
 
@@ -16301,10 +16326,10 @@ async def api_hosts_bulk_snmp_tunables(
             _full_host_cache_bust()
         except HTTPException as e:
             return {
-                "ok":      False,
+                "ok": False,
                 "applied": [],
                 "skipped": missing + applied,
-                "errors":  {"_save": e.detail},
+                "errors": {"_save": e.detail},
             }
     actor = _actor_from(request) or "admin"
     # Bulk SSE event — same shape as the snmp-vendors sister, edits
@@ -16316,12 +16341,12 @@ async def api_hosts_bulk_snmp_tunables(
             _events.publish(
                 "host:bulk_action_applied",
                 {
-                    "action":             "snmp_tunables",
-                    "host_ids":           applied,
-                    "actor":              actor,
-                    "clear":              bool(body.clear),
-                    "walk_concurrency":   wc,
-                    "wall_clock_budget":  wcb,
+                    "action": "snmp_tunables",
+                    "host_ids": applied,
+                    "actor": actor,
+                    "clear": bool(body.clear),
+                    "walk_concurrency": wc,
+                    "wall_clock_budget": wcb,
                 },
                 client_id=client_id,
             )
@@ -16339,13 +16364,13 @@ async def api_hosts_bulk_snmp_tunables(
           f"clear={body.clear} wc={wc} wcb={wcb}: "
           f"{len(applied)} applied, {len(missing)} missing, {len(errors)} errors")
     return {
-        "ok":                  not errors,
-        "applied":             applied,
-        "skipped":             missing,
-        "errors":              errors,
-        "walk_concurrency":    wc,
-        "wall_clock_budget":   wcb,
-        "clear":               body.clear,
+        "ok": not errors,
+        "applied": applied,
+        "skipped": missing,
+        "errors": errors,
+        "walk_concurrency": wc,
+        "wall_clock_budget": wcb,
+        "clear": body.clear,
     }
 
 
@@ -16366,41 +16391,41 @@ class PortScanIn(BaseModel):
     effective config (per-host override → global default → built-in
     fallback) when not supplied.
     """
-    ports:           Optional[str] = None       # TCP CSV/range syntax
-    timeout_s:       Optional[int] = None
-    concurrency:     Optional[int] = None
-    banner_grab:     Optional[bool] = None      # Stage 2 default-OFF
+    ports: Optional[str] = None  # TCP CSV/range syntax
+    timeout_s: Optional[int] = None
+    concurrency: Optional[int] = None
+    banner_grab: Optional[bool] = None  # Stage 2 default-OFF
     # UDP companion (Stage 2). When `udp` is true the endpoint runs
     # the UDP scanner alongside TCP via asyncio.gather and merges
     # the results with a `protocol` annotation per port. `udp_ports`
     # is an optional CSV/range override for the UDP target list;
     # empty falls back to the global setting then to
     # `port_scanner_udp.DEFAULT_UDP_PORTS`.
-    udp:             Optional[bool] = None
-    udp_ports:       Optional[str] = None
-    udp_timeout_s:   Optional[int] = None
+    udp: Optional[bool] = None
+    udp_ports: Optional[str] = None
+    udp_timeout_s: Optional[int] = None
     udp_concurrency: Optional[int] = None
 
 
 async def _run_port_scan_async(
     *,
-    hid:           str,
-    target:        str,
-    ports_list:    list,
-    timeout_s:     int,
-    concurrency:   int,
-    banner_grab:   bool,
-    udp_enabled:   bool,
+    hid: str,
+    target: str,
+    ports_list: list,
+    timeout_s: int,
+    concurrency: int,
+    banner_grab: bool,
+    udp_enabled: bool,
     udp_ports_list: list,
     udp_timeout_s: int,
     udp_concurrency: int,
     snmp_community: str,
-    max_seconds:   int,
-    scan_id:       str,
-    started:       float,
-    h:             dict,
-    actor:         str,
-    client_id:     Optional[str] = None,
+    max_seconds: int,
+    scan_id: str,
+    started: float,
+    h: dict,
+    actor: str,
+    client_id: Optional[str] = None,
 ) -> None:
     """Run a port scan + persist results out-of-band from the request.
 
@@ -16583,10 +16608,10 @@ async def _run_port_scan_async(
                         "error",
                         float(max_seconds),
                         json.dumps({
-                            "scan_id":           scan_id,
-                            "target":            target,
-                            "udp_open_partial":  len(partial_udp_open),
-                            "tcp_timeout":       True,
+                            "scan_id": scan_id,
+                            "target": target,
+                            "udp_open_partial": len(partial_udp_open),
+                            "tcp_timeout": True,
                         }),
                         f"timeout (>{max_seconds}s budget) — TCP scan exceeded budget; UDP partial results persisted ({len(partial_udp_open)} open)",
                         actor,
@@ -16597,13 +16622,13 @@ async def _run_port_scan_async(
             print(f"[port_scan] history-insert failed after timeout for {hid}: {e}")
         try:
             _events.publish("port_scan:completed", {
-                "host_id":     hid,
-                "scan_id":     scan_id,
-                "ok":          False,
-                "target":      target,
-                "error":       "timeout",
-                "ports_open":  0,
-                "udp_open":    len(partial_udp_open),
+                "host_id": hid,
+                "scan_id": scan_id,
+                "ok": False,
+                "target": target,
+                "error": "timeout",
+                "ports_open": 0,
+                "udp_open": len(partial_udp_open),
             }, client_id=client_id)
         except Exception:  # noqa: BLE001
             pass
@@ -16616,8 +16641,8 @@ async def _run_port_scan_async(
         try:
             _events.publish("port_scan:completed", {
                 "host_id": hid, "scan_id": scan_id, "ok": False,
-                "target":  target,
-                "error":   f"{type(e).__name__}: {e}",
+                "target": target,
+                "error": f"{type(e).__name__}: {e}",
             }, client_id=client_id)
         except Exception:  # noqa: BLE001
             pass
@@ -16717,14 +16742,14 @@ async def _run_port_scan_async(
                     ),
                 )
             events_payload = {
-                "scan_id":              scan_id,
-                "ports_scanned":        len(scan.get("ports") or []),
-                "ports_open":           len(open_entries),
-                "scan_duration_ms":     duration_ms,
-                "target":               target,
-                "udp_enabled":          bool(udp_enabled),
-                "udp_ports_scanned":    len((udp_scan or {}).get("ports") or []) if udp_enabled else 0,
-                "udp_ports_open":       len(udp_open_entries) if udp_enabled else 0,
+                "scan_id": scan_id,
+                "ports_scanned": len(scan.get("ports") or []),
+                "ports_open": len(open_entries),
+                "scan_duration_ms": duration_ms,
+                "target": target,
+                "udp_enabled": bool(udp_enabled),
+                "udp_ports_scanned": len((udp_scan or {}).get("ports") or []) if udp_enabled else 0,
+                "udp_ports_open": len(udp_open_entries) if udp_enabled else 0,
                 "udp_scan_duration_ms": int((udp_scan or {}).get("duration_ms") or 0) if udp_enabled else 0,
             }
             try:
@@ -16771,7 +16796,7 @@ async def _run_port_scan_async(
         new_ports = [
             e for e in all_open
             if (int(e.get("port") or 0), (e.get("protocol") or "tcp")) not in prev_open_ports
-            and int(e.get("port") or 0) not in curated_ports_set
+               and int(e.get("port") or 0) not in curated_ports_set
         ]
         if new_ports:
             try:
@@ -16808,10 +16833,10 @@ async def _run_port_scan_async(
     # without a follow-up GET.
     try:
         _events.publish("port_scan:completed", {
-            "host_id":      hid,
-            "scan_id":      scan_id,
-            "ok":           not bool(scan.get("error")),
-            "target":       target,
+            "host_id": hid,
+            "scan_id": scan_id,
+            "ok": not bool(scan.get("error")),
+            "target": target,
             # Wire-level IP the scanner's OS resolver returned for
             # `target` BEFORE the first probe fired. Surfaced so the
             # toast / history can show what was actually hit at the
@@ -16820,11 +16845,11 @@ async def _run_port_scan_async(
             # search-domain resolution). None when getaddrinfo failed
             # OR the scanner couldn't extract it; SPA falls back to
             # `target` then `host_id` in that case.
-            "resolved_ip":  scan.get("resolved_ip"),
-            "ports_open":   len(open_entries),
-            "udp_open":     len(udp_open_entries),
-            "duration_ms":  duration_ms,
-            "error":        scan.get("error") or None,
+            "resolved_ip": scan.get("resolved_ip"),
+            "ports_open": len(open_entries),
+            "udp_open": len(udp_open_entries),
+            "duration_ms": duration_ms,
+            "error": scan.get("error") or None,
             # Count of (port, protocol) tuples present in this scan
             # but ABSENT from the previous scan's open-set. Drives
             # the "(N new since last scan)" parenthetical in the
@@ -16834,7 +16859,7 @@ async def _run_port_scan_async(
             # — that filter additionally excludes curated ports to
             # cut notification noise; the toast count reflects the
             # raw diff so the user sees exactly what the scan saw.
-            "new_count":    int(new_count_for_toast),
+            "new_count": int(new_count_for_toast),
             # Lets the SPA pick a "first scan" vs "diff vs prior scan"
             # toast wording. True when this is the host's very first
             # scan (no prior scan_id rows in host_port_scans). Saves
@@ -16850,8 +16875,8 @@ async def _run_port_scan_async(
 async def api_hosts_port_scan(
     host_id: str,
     request: Request,
-    body:    Optional[PortScanIn] = None,
-    _admin:  auth.User = Depends(auth.require_admin),
+    body: Optional[PortScanIn] = None,
+    _admin: auth.User = Depends(auth.require_admin),
 ):
     """On-demand port scan for one curated host. Admin-only.
 
@@ -17026,24 +17051,24 @@ async def api_hosts_port_scan(
     )
     config_used = {
         "ports_count": len(ports_list),
-        "timeout_s":   int(timeout_s),
+        "timeout_s": int(timeout_s),
         "concurrency": int(concurrency),
         "banner_grab": bool(body.banner_grab),
         "udp_enabled": bool(udp_enabled),
     }
     if udp_enabled:
         config_used["udp_ports_count"] = len(udp_ports_list)
-        config_used["udp_timeout_s"]   = int(udp_timeout_s)
+        config_used["udp_timeout_s"] = int(udp_timeout_s)
         config_used["udp_concurrency"] = int(udp_concurrency)
     return JSONResponse(
         status_code=202,
         content={
-            "ok":          True,
-            "status":      "queued",
-            "host_id":     hid,
-            "target":      target,
-            "scan_id":     scan_id,
-            "scanned_at":  int(started),
+            "ok": True,
+            "status": "queued",
+            "host_id": hid,
+            "target": target,
+            "scan_id": scan_id,
+            "scanned_at": int(started),
             "config_used": config_used,
         },
     )
@@ -17078,11 +17103,11 @@ async def api_history_port_scan_ports(
         "scan_id": sid,
         "ports": [
             {
-                "port":           int(r["port"]),
-                "protocol":       (r["protocol"] or "tcp"),
-                "service_hint":   r["service_hint"] or "",
+                "port": int(r["port"]),
+                "protocol": (r["protocol"] or "tcp"),
+                "service_hint": r["service_hint"] or "",
                 "banner_excerpt": r["banner_excerpt"] or "",
-                "ts":             int(r["ts"] or 0),
+                "ts": int(r["ts"] or 0),
             }
             for r in rows
         ],
@@ -17141,9 +17166,9 @@ async def api_ping_test(
         timeout_seconds=timeout, count=3,
     )
     return _stamp_test_success("ping", {
-        "ok":     bool(result.get("alive")),
-        "host":   target,
-        "port":   int(port),
+        "ok": bool(result.get("alive")),
+        "host": target,
+        "port": int(port),
         "transport": transport,
         **result,
     })
@@ -17228,17 +17253,17 @@ def _shape_notification_row(r) -> dict:
         except (TypeError, ValueError):
             md_obj = None
     return {
-        "id":          int(r["id"]),
-        "ts":          int(r["ts"]),
-        "event":       r["event"] or "",
-        "severity":    r["severity"] or "info",
-        "title":       r["title"] or "",
-        "body":        r["body"] or "",
-        "actor":       r["actor"],
+        "id": int(r["id"]),
+        "ts": int(r["ts"]),
+        "event": r["event"] or "",
+        "severity": r["severity"] or "info",
+        "title": r["title"] or "",
+        "body": r["body"] or "",
+        "actor": r["actor"],
         "target_kind": r["target_kind"],
-        "target_id":   r["target_id"],
-        "metadata":    md_obj,
-        "read_at":     int(r["read_at"]) if r["read_at"] is not None else None,
+        "target_id": r["target_id"],
+        "metadata": md_obj,
+        "read_at": int(r["read_at"]) if r["read_at"] is not None else None,
     }
 
 
@@ -17296,11 +17321,11 @@ async def api_notifications_list(
             "SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL"
         ).fetchone()
     return {
-        "items":        [_shape_notification_row(r) for r in rows],
-        "total":        int(total_row["n"]) if total_row else 0,
+        "items": [_shape_notification_row(r) for r in rows],
+        "total": int(total_row["n"]) if total_row else 0,
         "unread_count": int(unread_row["n"]) if unread_row else 0,
-        "limit":        limit_i,
-        "offset":       offset_i,
+        "limit": limit_i,
+        "offset": offset_i,
     }
 
 
@@ -17465,14 +17490,14 @@ async def api_tabs_activity_heartbeat(
         return {"ok": False, "reason": "no client id"}
     actor = _actor_from(request)
     entry = {
-        "actor":            actor,
-        "view":             (body.view or "").strip() or None,
-        "drawer_host":      (body.drawer_host or "").strip() or None,
-        "admin_tab":        (body.admin_tab or "").strip() or None,
+        "actor": actor,
+        "view": (body.view or "").strip() or None,
+        "drawer_host": (body.drawer_host or "").strip() or None,
+        "admin_tab": (body.admin_tab or "").strip() or None,
         "settings_section": (body.settings_section or "").strip() or None,
-        "stats_tab":        (body.stats_tab or "").strip() or None,
-        "title":            (body.title or "").strip() or None,
-        "ts":               time.time(),
+        "stats_tab": (body.stats_tab or "").strip() or None,
+        "title": (body.title or "").strip() or None,
+        "ts": time.time(),
     }
     _tab_activity_registry[cid] = entry
     _tab_activity_prune()
@@ -17480,7 +17505,7 @@ async def api_tabs_activity_heartbeat(
         _events.publish(
             "tab:activity",
             {"client_id": cid, **entry},
-            client_id=cid,   # self-filter: originating tab won't echo
+            client_id=cid,  # self-filter: originating tab won't echo
         )
     except Exception as _e:
         print(f"[tabs] activity SSE publish dropped: {_e}")
@@ -17529,7 +17554,7 @@ async def healthz():
     # (e.g. hand-bumping MAJOR/MINOR) show up without restarting the
     # container. File is tiny — a couple-microsecond stat+read each call.
     #
-  # The container healthcheck only cares about HTTP 200 vs non-200, so
+    # The container healthcheck only cares about HTTP 200 vs non-200, so
     # we intentionally keep returning 200 when config is broken — that
     # way Swarm doesn't crash-loop the task and the config-error page
     # stays reachable for the operator. The `ok` and `config_error`
@@ -17587,40 +17612,41 @@ def _open_meteo_url() -> str:
         return ""
     return (get_setting("open_meteo_url", "") or "").strip().rstrip("/")
 
+
 _weather_cache: dict[tuple[float, float], tuple[float, dict]] = {}
 _WEATHER_CACHE_TTL = 600.0  # 10 minutes — weather changes slowly
 
 # WMO code → (short description, icon slug). Backend owns the mapping
 # so i18n of condition strings has ONE source of truth.
 _WMO_CODES: dict[int, tuple[str, str]] = {
-    0:  ("Clear",            "sun"),
-    1:  ("Mainly clear",     "sun"),
-    2:  ("Partly cloudy",    "cloud-sun"),
-    3:  ("Cloudy",           "cloud"),
-    45: ("Fog",              "fog"),
-    48: ("Freezing fog",     "fog"),
-    51: ("Light drizzle",    "drizzle"),
-    53: ("Drizzle",          "drizzle"),
-    55: ("Heavy drizzle",    "drizzle"),
+    0: ("Clear", "sun"),
+    1: ("Mainly clear", "sun"),
+    2: ("Partly cloudy", "cloud-sun"),
+    3: ("Cloudy", "cloud"),
+    45: ("Fog", "fog"),
+    48: ("Freezing fog", "fog"),
+    51: ("Light drizzle", "drizzle"),
+    53: ("Drizzle", "drizzle"),
+    55: ("Heavy drizzle", "drizzle"),
     56: ("Freezing drizzle", "sleet"),
     57: ("Freezing drizzle", "sleet"),
-    61: ("Light rain",       "rain"),
-    63: ("Rain",             "rain"),
-    65: ("Heavy rain",       "rain"),
-    66: ("Freezing rain",    "sleet"),
-    67: ("Freezing rain",    "sleet"),
-    71: ("Light snow",       "snow"),
-    73: ("Snow",             "snow"),
-    75: ("Heavy snow",       "snow"),
-    77: ("Snow grains",      "snow"),
-    80: ("Rain showers",     "rain"),
-    81: ("Rain showers",     "rain"),
-    82: ("Heavy showers",    "rain"),
-    85: ("Snow showers",     "snow"),
-    86: ("Snow showers",     "snow"),
-    95: ("Thunderstorm",     "thunder"),
-    96: ("Thunder + hail",   "thunder"),
-    99: ("Thunder + hail",   "thunder"),
+    61: ("Light rain", "rain"),
+    63: ("Rain", "rain"),
+    65: ("Heavy rain", "rain"),
+    66: ("Freezing rain", "sleet"),
+    67: ("Freezing rain", "sleet"),
+    71: ("Light snow", "snow"),
+    73: ("Snow", "snow"),
+    75: ("Heavy snow", "snow"),
+    77: ("Snow grains", "snow"),
+    80: ("Rain showers", "rain"),
+    81: ("Rain showers", "rain"),
+    82: ("Heavy showers", "rain"),
+    85: ("Snow showers", "snow"),
+    86: ("Snow showers", "snow"),
+    95: ("Thunderstorm", "thunder"),
+    96: ("Thunder + hail", "thunder"),
+    99: ("Thunder + hail", "thunder"),
 }
 
 
@@ -17662,16 +17688,16 @@ async def api_weather(
         return body
 
     params = {
-        "latitude":  str(key[0]),
+        "latitude": str(key[0]),
         "longitude": str(key[1]),
-        "current":   "temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m",
+        "current": "temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m",
         # Daily forecast — covers the next 7 days. AI sidebar consumers
         # use this for "weather forecast next 5 days" questions; the
         # topbar widget keeps showing current-only and ignores the
         # forecast payload (small enough to ride the same response).
-        "daily":     "temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum",
+        "daily": "temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum",
         "forecast_days": "7",
-        "timezone":  "auto",
+        "timezone": "auto",
     }
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
@@ -17689,11 +17715,11 @@ async def api_weather(
     # upstream didn't return a `daily` block (degrades cleanly).
     forecast: list[dict] = []
     daily = j.get("daily") if isinstance(j.get("daily"), dict) else {}
-    times    = daily.get("time") or []
-    tmaxes   = daily.get("temperature_2m_max") or []
-    tmines   = daily.get("temperature_2m_min") or []
-    dcodes   = daily.get("weather_code") or []
-    precips  = daily.get("precipitation_sum") or []
+    times = daily.get("time") or []
+    tmaxes = daily.get("temperature_2m_max") or []
+    tmines = daily.get("temperature_2m_min") or []
+    dcodes = daily.get("weather_code") or []
+    precips = daily.get("precipitation_sum") or []
     for i in range(min(len(times), 7)):
         try:
             d_code = int(dcodes[i]) if i < len(dcodes) else 0
@@ -17701,32 +17727,32 @@ async def api_weather(
             d_code = 0
         d_desc, _d_icon = _WMO_CODES.get(d_code, ("Unknown", "cloud"))
         forecast.append({
-            "date":          times[i],
-            "temp_max_c":    tmaxes[i] if i < len(tmaxes) else None,
-            "temp_min_c":    tmines[i] if i < len(tmines) else None,
-            "code":          d_code,
-            "condition":     d_desc,
-            "precip_mm":     precips[i] if i < len(precips) else None,
+            "date": times[i],
+            "temp_max_c": tmaxes[i] if i < len(tmaxes) else None,
+            "temp_min_c": tmines[i] if i < len(tmines) else None,
+            "code": d_code,
+            "condition": d_desc,
+            "precip_mm": precips[i] if i < len(precips) else None,
         })
     body = {
-        "configured":  True,
-        "label":       label,
-        "temp_c":      cur.get("temperature_2m"),
-        "humidity":    cur.get("relative_humidity_2m"),
-        "wind_kmh":    cur.get("wind_speed_10m"),
-        "code":        code,
-        "condition":   desc,
-        "icon":        icon,
-        "forecast":    forecast,
-        "provider":    "open-meteo",
-        "upstream":    upstream,
-        "fetched_at":  int(now),
+        "configured": True,
+        "label": label,
+        "temp_c": cur.get("temperature_2m"),
+        "humidity": cur.get("relative_humidity_2m"),
+        "wind_kmh": cur.get("wind_speed_10m"),
+        "code": code,
+        "condition": desc,
+        "icon": icon,
+        "forecast": forecast,
+        "provider": "open-meteo",
+        "upstream": upstream,
+        "fetched_at": int(now),
         # Open-Meteo returns the resolved IANA timezone when called
         # with `timezone=auto` — surface it so per-user `/time` in
         # the Telegram bot (and any future UI clock) can render local
         # time at the user's saved weather location.
-        "timezone":          j.get("timezone") or "",
-        "timezone_abbrev":   j.get("timezone_abbreviation") or "",
+        "timezone": j.get("timezone") or "",
+        "timezone_abbrev": j.get("timezone_abbreviation") or "",
         "utc_offset_seconds": j.get("utc_offset_seconds") or 0,
     }
     _weather_cache[key] = (now, body)
@@ -18899,7 +18925,7 @@ async def api_me(request: Request):
             # global-default surface pattern above.
             "ping": {
                 "default_port": tuning.tuning_int(Tunable.PING_DEFAULT_PORT),
-                "use_icmp":     get_setting_bool("ping_use_icmp", False),
+                "use_icmp": get_setting_bool("ping_use_icmp", False),
             },
             # Per-host drift baseline metric roster — single source of
             # truth for the SPA's drift-chip rendering. Backend's
@@ -18916,16 +18942,16 @@ async def api_me(request: Request):
             # `me.client_config.ai.enabled === true` AND
             # `me.client_config.ai.active_provider` being non-empty.
             "ai": {
-                "enabled":         get_setting_bool("ai_enabled", False),
+                "enabled": get_setting_bool("ai_enabled", False),
                 "active_provider": (get_setting("ai_active_provider", "") or "").strip().lower(),
-                "max_tokens":      tuning.tuning_int(Tunable.AI_MAX_TOKENS),
+                "max_tokens": tuning.tuning_int(Tunable.AI_MAX_TOKENS),
                 # Canonical provider list — the SPA's `aiProviderNames`
                 # reads from this so adding a fifth provider is a
                 # one-line edit to `logic.ai.SUPPORTED_PROVIDERS` and
                 # every consumer (provider grid, settings form, the
                 # active-provider dropdown) picks it up automatically
                 # without a parallel SPA literal to keep in sync.
-                "provider_names":  list(_ai_supported_providers()),
+                "provider_names": list(_ai_supported_providers()),
             },
             # Last-Test-success timestamps per provider (DB-backed,
             # cross-browser / cross-machine). Stamped at the END of every
@@ -18954,11 +18980,11 @@ async def api_me(request: Request):
             # hasn't customised. Read once on /api/me and applied to the
             # provider chip via inline `:style` (--chip-bg/-br/-fg).
             "provider_colors": {
-                "beszel":        get_setting("provider_color_beszel", "")        or "",
-                "pulse":         get_setting("provider_color_pulse", "")         or "",
+                "beszel": get_setting("provider_color_beszel", "") or "",
+                "pulse": get_setting("provider_color_pulse", "") or "",
                 "node_exporter": get_setting("provider_color_node_exporter", "") or "",
-                "webmin":        get_setting("provider_color_webmin", "")        or "",
-                "ping":          get_setting("provider_color_ping", "")          or "",
+                "webmin": get_setting("provider_color_webmin", "") or "",
+                "ping": get_setting("provider_color_ping", "") or "",
             },
             # Canonical SNMP vendor key set — single source of truth at
             # ``logic.snmp._VALID_VENDOR_KEYS``. Surfaced so the Admin →
@@ -18994,20 +19020,20 @@ async def api_me(request: Request):
         out["bootstrap_env_still_set"] = False
     if profile:
         out.update({
-            "id":           profile["id"],
-            "email":        profile.get("email") or "",
+            "id": profile["id"],
+            "email": profile.get("email") or "",
             "display_name": profile.get("display_name") or "",
-            "bio":          profile.get("bio") or "",
-            "created_at":   profile.get("created_at"),
+            "bio": profile.get("bio") or "",
+            "created_at": profile.get("created_at"),
             "last_login_at": profile.get("last_login_at"),
-            "avatar_url":   f"/api/avatars/{profile['avatar_path']}" if profile.get("avatar_path") else None,
+            "avatar_url": f"/api/avatars/{profile['avatar_path']}" if profile.get("avatar_path") else None,
             # Per-user UI prefs. JSON dict — currently carries
             # `headerWeatherEnabled` / `headerClockEnabled` so toggling
             # them on desktop survives the trip to iPhone (or any other
             # browser) for the same login. Empty `{}` for users who've
             # never set anything; SPA falls back to its own per-toggle
             # defaults in that case.
-            "ui_prefs":     profile.get("ui_prefs") or {},
+            "ui_prefs": profile.get("ui_prefs") or {},
         })
         # Per-user notification opt-in map. Two-layer scoping:
         # the admin gate is shared via ``notify_events_admin`` so the
@@ -19076,7 +19102,7 @@ async def api_me(request: Request):
             out["telegram_link"] = (
                 {
                     "telegram_user_id": _tg_link_id,
-                    "linked_at_ms":     _tg_linked_at_ms,
+                    "linked_at_ms": _tg_linked_at_ms,
                 }
                 if _tg_link_id is not None else None
             )
@@ -19092,8 +19118,8 @@ async def api_me(request: Request):
             _totp_state = auth.get_user_totp_state(_c2, profile["id"])
             _passkey_count = auth.count_user_credentials(_c2, profile["id"])
         out["totp"] = {
-            "enabled":  bool(_totp_state["enabled"]),
-            "allowed":  bool(_totp_policy["totp_allowed"]),
+            "enabled": bool(_totp_state["enabled"]),
+            "allowed": bool(_totp_policy["totp_allowed"]),
             "required": (
                 user.auth_source == "local"
                 and _totp_required_for(user.role, _totp_policy)
@@ -19453,8 +19479,10 @@ async def api_upload_avatar(
     if old and old.get("avatar_path"):
         old_full = os.path.join(_AVATAR_DIR, old["avatar_path"])
         if os.path.exists(old_full) and old["avatar_path"] != f"u{user.id}.{ext}":
-            try: os.remove(old_full)
-            except OSError: pass
+            try:
+                os.remove(old_full)
+            except OSError:
+                pass
     fname = f"u{user.id}.{ext}"
     with open(os.path.join(_AVATAR_DIR, fname), "wb") as f:
         f.write(data)
@@ -19471,7 +19499,7 @@ _AVATAR_SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 # so the joined path has NO operator-controlled string taint flowing
 # into it — CodeQL's path-injection tracker is happier with primitive
 # rebuilding than with a regex-+-realpath sanitizer chain.
-_AVATAR_FNAME_CANONICAL = re.compile(r"^u(\d+)\.(png|jpg|jpeg|gif|webp)$")
+_AVATAR_FNAME_CANONICAL = re.compile(r"^u(?P<uid>\d+)\.(?P<ext>png|jpg|jpeg|gif|webp)$")
 
 
 def _avatar_path_from_fname(fname: str) -> Optional[str]:
@@ -19497,12 +19525,12 @@ def _avatar_path_from_fname(fname: str) -> Optional[str]:
     # int() conversion is the canonical taint-stripper for numeric
     # operator input — CodeQL recognises it as a barrier.
     try:
-        uid = int(m.group(1))
+        uid = int(m.group("uid"))
     except (TypeError, ValueError):
         return None
     if uid <= 0:
         return None
-    ext = m.group(2)
+    ext = m.group("ext")
     # Defence-in-depth: re-validate against the closed allowlist
     # even though the regex above already enforces it. CodeQL sees
     # `ext` as a regex group result; a `value in CONSTANT_SET` check
@@ -19582,8 +19610,10 @@ async def api_clear_avatar(user: auth.User = Depends(auth.current_user)):
         # `_AVATAR_DIR`.
         full = _safe_avatar_path(p["avatar_path"])
         if full and os.path.exists(full):
-            try: os.remove(full)
-            except OSError: pass
+            try:
+                os.remove(full)
+            except OSError:
+                pass
     with db_conn() as c:
         auth.set_user_avatar_path(c, user.id, None)
     return {"ok": True}
@@ -19611,7 +19641,7 @@ async def api_serve_avatar(fname: str, _user: auth.User = Depends(auth.current_u
     # so the function stays single-return-typed (path-or-None);
     # parsing twice is cheap and keeps the API surface narrow.
     m = _AVATAR_FNAME_CANONICAL.fullmatch(fname)
-    ext = m.group(2) if m else "octet-stream"
+    ext = m.group("ext") if m else "octet-stream"
     ct = next((k for k, v in _AVATAR_EXT.items() if v == ext), "application/octet-stream")
     return FileResponse(full, media_type=ct)
 
@@ -19875,8 +19905,8 @@ class WebauthnClientErrorIn(BaseModel):
     Fields are all best-effort strings; capped server-side to keep a
     misbehaving client from spamming the buffer.
     """
-    phase: Optional[str] = None        # "register" | "login"
-    error_name: Optional[str] = None   # DOMException.name
+    phase: Optional[str] = None  # "register" | "login"
+    error_name: Optional[str] = None  # DOMException.name
     error_message: Optional[str] = None
     rp_id: Optional[str] = None
     origin: Optional[str] = None
@@ -19891,16 +19921,18 @@ async def api_me_webauthn_client_error(
     """Surface a client-side WebAuthn ceremony failure into the server
     log buffer. Pure logging — no DB write, no state change. Caps each
     field at 200 chars so a flooding client can't spam the ring."""
+
     def _trim(s: Optional[str]) -> str:
         s = (s or "").strip()
         return s[:200]
-    phase    = _trim(body.phase) or "?"
+
+    phase = _trim(body.phase) or "?"
     err_name = _trim(body.error_name) or "?"
-    err_msg  = _trim(body.error_message)
-    rp_id    = _trim(body.rp_id) or _request_rp_id(request)
-    origin   = _trim(body.origin) or _request_origin(request)
+    err_msg = _trim(body.error_message)
+    rp_id = _trim(body.rp_id) or _request_rp_id(request)
+    origin = _trim(body.origin) or _request_origin(request)
     server_origin = _request_origin(request)
-    server_rp_id  = _request_rp_id(request)
+    server_rp_id = _request_rp_id(request)
     msg = (
         f"[webauthn] CLIENT ERROR — user={user.username} phase={phase} "
         f"error_name={err_name}"
@@ -20154,9 +20186,9 @@ async def api_me_webauthn_delete(
 # ============================================================================
 class UserCreate(BaseModel):
     username: str
-    role: str                      # "admin" | "readonly"
-    auth_source: str = "local"     # "local" | "authentik"
-    password: Optional[str] = None # required when auth_source == "local"
+    role: str  # "admin" | "readonly"
+    auth_source: str = "local"  # "local" | "authentik"
+    password: Optional[str] = None  # required when auth_source == "local"
     email: Optional[str] = None
 
 
@@ -20171,7 +20203,7 @@ class PasswordResetIn(BaseModel):
 
 class TokenCreate(BaseModel):
     name: str
-    role: str                      # "admin" | "readonly"
+    role: str  # "admin" | "readonly"
 
 
 @app.get("/api/users")
@@ -20664,8 +20696,10 @@ async def api_restore_backup_upload(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Restore failed: {e}")
     finally:
-        try: os.remove(tmp_path)
-        except OSError: pass
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
     return result
 
 
@@ -20837,7 +20871,7 @@ class ScheduleIn(BaseModel):
     # Cadence bundle — cadence_mode picks which of the fields below the
     # tick loop consults. See logic.schedules.CADENCE_MODES.
     cadence_mode: str = "interval"
-    run_at_hhmm: Optional[str] = None   # daily/weekly/monthly anchor
+    run_at_hhmm: Optional[str] = None  # daily/weekly/monthly anchor
     days_of_week: Optional[list[int]] = None  # weekly, Mon=0..Sun=6
     day_of_month: Optional[int] = None  # monthly, 1..31 clamped to EOM
 
@@ -21078,12 +21112,12 @@ async def api_schedule_queue(
             args + [page_size, offset],
         ).fetchall()
     return {
-        "queue":     [dict(r) for r in rows],
-        "total":     total,
-        "page":      page,
+        "queue": [dict(r) for r in rows],
+        "total": total,
+        "page": page,
         "page_size": page_size,
-        "pages":     max(1, (total + page_size - 1) // page_size),
-        "search":    search or "",
+        "pages": max(1, (total + page_size - 1) // page_size),
+        "search": search or "",
     }
 
 
@@ -21134,7 +21168,7 @@ _SHELL_CACHE: dict = {}
 # would escape the partials root. One level of inlining only — partials
 # don't recursively include each other today (keeps the contract simple
 # and the cache-key audit shallow).
-_INCLUDE_RE = re.compile(r"<!--\s*INCLUDE:\s*([^\s]+)\s*-->")
+_INCLUDE_RE = re.compile(r"<!--\s*INCLUDE:\s*(?P<rel>\S+)\s*-->")
 _PARTIALS_BASE = os.path.join("static", "_partials")
 
 
@@ -21156,7 +21190,7 @@ def _expand_includes(body: str, path: str) -> tuple[str, tuple]:
         sig.append(0)
 
     def _replace(m: "re.Match[str]") -> str:
-        rel = m.group(1)
+        rel = m.group("rel")
         candidate = os.path.abspath(os.path.join(_PARTIALS_BASE, rel))
         # Path-traversal guard: refuse anything that escapes _partials/.
         if candidate != base and not candidate.startswith(base + os.sep):
@@ -21196,6 +21230,13 @@ def _render_shell(path: str) -> Response:
     except OSError:
         raise HTTPException(status_code=404, detail=f"{path} not found")
     cached = _SHELL_CACHE.get(path)
+    # Pre-bind `body` so the linter can prove it's always assigned. The
+    # control-flow below sets it in BOTH branches (cache hit + cache
+    # miss), but type-checkers can't trace through the `cached = None`
+    # reassignment that bridges the two; the empty initial value is
+    # never observed at runtime because the substitution call always
+    # follows one of the two write paths.
+    body: str = ""
     # Quick path: cached entry's signature still matches every disk file
     # we depend on. The master mtime alone isn't enough — a partial edit
     # leaves the master untouched so we re-walk the partial mtimes too.
@@ -21267,15 +21308,18 @@ _SPA_ROUTES = ("stacks", "services", "nodes", "hosts", "history")
 for _view in _SPA_ROUTES:
     app.add_api_route(f"/{_view}", spa_shell, methods=["GET"])
 
+
 @app.get("/settings")
 @app.get("/settings/{section}")
 async def spa_settings_shell(section: str = ""):
     return _render_shell("static/index.html")
 
+
 @app.get("/admin")
 @app.get("/admin/{tab}")
 async def spa_admin_shell(tab: str = ""):
     return _render_shell("static/index.html")
+
 
 @app.get("/stats")
 @app.get("/stats/{tab}")
@@ -21321,8 +21365,14 @@ _NPM_ALLOWED: Set[str] = {
 }
 
 
+# FastAPI `{path:path}` route-converter accepts segments with slashes —
+# required so a request like `/node_modules/@xterm/xterm/lib/xterm.js`
+# binds the whole tail to `path`. Using the explicit FastAPI `Path(...)`
+# parameter declaration (instead of bare `path: str`) silences the
+# PyCharm / FastAPI-plugin inspector that otherwise flags the converter
+# syntax as a parameter mismatch.
 @app.get("/node_modules/{path:path}")
-async def api_node_modules(path: str):
+async def api_node_modules(path: str = FastApiPath(...)):
     """Allowlist-gated static server for the 7 npm files the SPA actually
     uses. Everything else returns 404 — keeps the served surface tight.
     """
@@ -21355,7 +21405,6 @@ async def api_node_modules(path: str):
 # readable: language files are UI strings, not secrets.
 if os.path.isdir("static/i18n"):
     app.mount("/i18n", StaticFiles(directory="static/i18n"), name="i18n")
-
 
 # Keep this line LAST — StaticFiles at "/" is a catch-all.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

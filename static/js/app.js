@@ -2511,10 +2511,7 @@ function app() {
         // localStorage-restored or route-applied view='stats' lands
         // with statsOverview={} and loadStatsOverview() never fires,
         // so the dashboard renders a perpetual loading spinner.
-        if (v === 'stats') {
-          try { console.debug('[stats] $watch(view) fired with v=stats → openStatsTab', { statsTab: this.statsTab }); } catch (_) {}
-          this.openStatsTab(this.statsTab || 'dashboard');
-        }
+        if (v === 'stats') this.openStatsTab(this.statsTab || 'dashboard');
         // Lazy-load hosts on first entry and (re)start its refresh timer.
         // Leaving the tab clears the timer so we're not hammering the hub
         // when the view isn't visible.
@@ -3461,7 +3458,6 @@ function app() {
         const target = (sub && (this.statsSections || []).some(s => s.id === sub))
                        ? sub
                        : (this.statsTab || 'dashboard');
-        try { console.debug('[stats] _applyRouteFromPath: stats branch → openStatsTab', { sub, target, path: location.pathname }); } catch (_) {}
         this.openStatsTab(target);
       }
     },
@@ -3486,42 +3482,23 @@ function app() {
     async openStatsTab(tab) {
       // Stats view (admin-only) — mirrors openAdminTab's shape: switch
       // view, set sub-tab, fire the matching loader.
-      // Diagnostic: filter devtools console with `[stats]` to see the
-      // full open → load → render path. Operator-flagged "Stats page
-      // loads blank" issue — these debug logs surface every gate so we
-      // can tell which step is skipping / failing on the user's deploy.
-      try { console.debug('[stats] openStatsTab called', { tab, prevView: this.view, prevStatsTab: this.statsTab, isAdmin: this.isAdmin && this.isAdmin() }); } catch (_) {}
       this.view = 'stats';
       this.statsTab = tab || 'dashboard';
-      try { console.debug('[stats] view+statsTab set', { view: this.view, statsTab: this.statsTab }); } catch (_) {}
       if (this.statsTab === 'dashboard') await this.loadStatsOverview();
       else if (this.statsTab === 'database') await this.loadStatsDatabase();
       else if (this.statsTab === 'samples') await this.loadStatsSamples();
       else if (this.statsTab === 'incidents') await this.loadStatsIncidents();
       else if (this.statsTab === 'network') await this.loadStatsNetwork();
       else if (this.statsTab === 'ai_cost') await this.loadStatsAiCost();
-      else {
-        try { console.debug('[stats] WARN unknown statsTab — no loader fired', { statsTab: this.statsTab }); } catch (_) {}
-      }
       this._pushRoute && this._pushRoute();
-      try { console.debug('[stats] openStatsTab done', { view: this.view, statsTab: this.statsTab, statsOverviewLoaded: this.statsOverviewLoaded, url: location.pathname }); } catch (_) {}
     },
     async loadStatsOverview() {
-      try { console.debug('[stats] loadStatsOverview: fetch START /api/admin/stats/overview'); } catch (_) {}
       try {
         const r = await fetch('/api/admin/stats/overview');
-        try { console.debug('[stats] loadStatsOverview: fetch RESP', { status: r.status, ok: r.ok }); } catch (_) {}
-        if (!r.ok) {
-          try { const txt = await r.text(); console.debug('[stats] loadStatsOverview: non-OK body', { status: r.status, body: txt.slice(0, 500) }); } catch (_) {}
-          return;
-        }
+        if (!r.ok) return;
         this.statsOverview = await r.json();
-        try { console.debug('[stats] loadStatsOverview: parsed', { keys: Object.keys(this.statsOverview || {}), users_total: this.statsOverview && this.statsOverview.users && this.statsOverview.users.total }); } catch (_) {}
-      } catch (e) {
-        try { console.debug('[stats] loadStatsOverview: EXCEPTION', e); } catch (_) {}
-      } finally {
+      } catch (_) {} finally {
         this.statsOverviewLoaded = true;
-        try { console.debug('[stats] loadStatsOverview: finally — statsOverviewLoaded=true'); } catch (_) {}
       }
     },
     async loadStatsDatabase() {

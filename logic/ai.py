@@ -30,10 +30,9 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any, Optional
+from typing import Optional, TypeVar
 
 import httpx
-
 
 # Canonical, ordered tuple of every AI provider OmniGrid speaks to.
 # CANONICAL source of truth — every other module that needs the list
@@ -45,21 +44,19 @@ import httpx
 # the new entry automatically.
 SUPPORTED_PROVIDERS = ("claude", "gemini", "chatgpt", "deepseek")
 
-
 _DEFAULT_BASE_URLS = {
-    "claude":   "https://api.anthropic.com",
-    "gemini":   "https://generativelanguage.googleapis.com",
-    "chatgpt":  "https://api.openai.com",
+    "claude": "https://api.anthropic.com",
+    "gemini": "https://generativelanguage.googleapis.com",
+    "chatgpt": "https://api.openai.com",
     "deepseek": "https://api.deepseek.com",
 }
 
 _DEFAULT_MODELS = {
-    "claude":   "claude-opus-4-7",
-    "gemini":   "gemini-2.5-pro",
-    "chatgpt":  "gpt-4o",
+    "claude": "claude-opus-4-7",
+    "gemini": "gemini-2.5-pro",
+    "chatgpt": "gpt-4o",
     "deepseek": "deepseek-chat",
 }
-
 
 # Per-(provider, model-prefix) USD rates per 1,000,000 tokens.
 # Prefix-matched longest-first so a versioned model id like
@@ -71,30 +68,30 @@ _DEFAULT_MODELS = {
 # do NOT retroactively update.
 RATE_CARD: dict[tuple[str, str], tuple[float, float]] = {
     # Anthropic Claude — opus / sonnet / haiku
-    ("claude", "claude-opus-4-7"):    (15.00, 75.00),
-    ("claude", "claude-opus-4"):      (15.00, 75.00),
-    ("claude", "claude-opus"):        (15.00, 75.00),
-    ("claude", "claude-sonnet-4-6"):  (3.00, 15.00),
-    ("claude", "claude-sonnet-4"):    (3.00, 15.00),
-    ("claude", "claude-sonnet"):      (3.00, 15.00),
-    ("claude", "claude-haiku-4-5"):   (1.00, 5.00),
-    ("claude", "claude-haiku-4"):     (1.00, 5.00),
-    ("claude", "claude-haiku"):       (1.00, 5.00),
+    ("claude", "claude-opus-4-7"): (15.00, 75.00),
+    ("claude", "claude-opus-4"): (15.00, 75.00),
+    ("claude", "claude-opus"): (15.00, 75.00),
+    ("claude", "claude-sonnet-4-6"): (3.00, 15.00),
+    ("claude", "claude-sonnet-4"): (3.00, 15.00),
+    ("claude", "claude-sonnet"): (3.00, 15.00),
+    ("claude", "claude-haiku-4-5"): (1.00, 5.00),
+    ("claude", "claude-haiku-4"): (1.00, 5.00),
+    ("claude", "claude-haiku"): (1.00, 5.00),
     # Google Gemini — 2.5 family pricing tiers
-    ("gemini", "gemini-2.5-pro"):         (1.25, 10.00),
-    ("gemini", "gemini-2.5-flash-lite"):  (0.0375, 0.15),
-    ("gemini", "gemini-2.5-flash"):       (0.075, 0.30),
-    ("gemini", "gemini-1.5-pro"):         (1.25, 5.00),
-    ("gemini", "gemini-1.5-flash"):       (0.075, 0.30),
+    ("gemini", "gemini-2.5-pro"): (1.25, 10.00),
+    ("gemini", "gemini-2.5-flash-lite"): (0.0375, 0.15),
+    ("gemini", "gemini-2.5-flash"): (0.075, 0.30),
+    ("gemini", "gemini-1.5-pro"): (1.25, 5.00),
+    ("gemini", "gemini-1.5-flash"): (0.075, 0.30),
     # OpenAI ChatGPT — gpt-5 / gpt-4o family
-    ("chatgpt", "gpt-5-mini"):    (0.25, 2.00),
-    ("chatgpt", "gpt-5"):         (1.25, 10.00),
-    ("chatgpt", "gpt-4o-mini"):   (0.15, 0.60),
-    ("chatgpt", "gpt-4o"):        (2.50, 10.00),
-    ("chatgpt", "gpt-4-turbo"):   (10.00, 30.00),
+    ("chatgpt", "gpt-5-mini"): (0.25, 2.00),
+    ("chatgpt", "gpt-5"): (1.25, 10.00),
+    ("chatgpt", "gpt-4o-mini"): (0.15, 0.60),
+    ("chatgpt", "gpt-4o"): (2.50, 10.00),
+    ("chatgpt", "gpt-4-turbo"): (10.00, 30.00),
     # DeepSeek — chat (V3) + reasoner (R1)
     ("deepseek", "deepseek-reasoner"): (0.55, 2.19),
-    ("deepseek", "deepseek-chat"):     (0.27, 1.10),
+    ("deepseek", "deepseek-chat"): (0.27, 1.10),
 }
 
 
@@ -137,8 +134,9 @@ def compute_cost_usd(provider: str, model: str,
 # failed, 1.0 means every cheap signal lit up, in-between rows
 # indicate partial success.
 import re as _re
+
 _OMNIGRID_SURFACE_RE = _re.compile(
-    r"\b(host|admin|drawer|stack|service|portainer|webmin|beszel|pulse|"
+    r"\b(?:host|admin|drawer|stack|service|portainer|webmin|beszel|pulse|"
     r"snmp|cpu|memory|disk|/api/|node[ -]?exporter|swarm)\b",
     _re.IGNORECASE,
 )
@@ -285,14 +283,14 @@ async def _probe_claude(api_key: str, model: str, base_url: str, timeout: float)
     base = _resolve_endpoint("claude", base_url)
     url = f"{base}/v1/messages"
     headers = {
-        "x-api-key":         api_key,
+        "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
-        "content-type":      "application/json",
+        "content-type": "application/json",
     }
     body = {
-        "model":      model or _DEFAULT_MODELS["claude"],
+        "model": model or _DEFAULT_MODELS["claude"],
         "max_tokens": 1,
-        "messages":   [{"role": "user", "content": "ping"}],
+        "messages": [{"role": "user", "content": "ping"}],
     }
     async with httpx.AsyncClient(timeout=timeout) as c:
         r = await c.post(url, headers=headers, json=body)
@@ -307,11 +305,11 @@ async def _probe_gemini(api_key: str, model: str, base_url: str, timeout: float)
     # Header form is preferred — keeps the URL out of logs.
     headers = {
         "x-goog-api-key": api_key,
-        "content-type":   "application/json",
+        "content-type": "application/json",
     }
     body = {
-        "contents":          [{"parts": [{"text": "ping"}]}],
-        "generationConfig":  {"maxOutputTokens": 1},
+        "contents": [{"parts": [{"text": "ping"}]}],
+        "generationConfig": {"maxOutputTokens": 1},
     }
     async with httpx.AsyncClient(timeout=timeout) as c:
         r = await c.post(url, headers=headers, json=body)
@@ -319,17 +317,17 @@ async def _probe_gemini(api_key: str, model: str, base_url: str, timeout: float)
 
 
 async def _probe_openai_compatible(provider: str, api_key: str, model: str,
-                                    base_url: str, timeout: float) -> dict:
+                                   base_url: str, timeout: float) -> dict:
     """Shared probe for OpenAI-shaped APIs (chatgpt + deepseek)."""
     base = _resolve_endpoint(provider, base_url)
     url = f"{base}/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "content-type":  "application/json",
+        "content-type": "application/json",
     }
     body = {
-        "model":      model or _DEFAULT_MODELS.get(provider, ""),
-        "messages":   [{"role": "user", "content": "ping"}],
+        "model": model or _DEFAULT_MODELS.get(provider, ""),
+        "messages": [{"role": "user", "content": "ping"}],
         "max_tokens": 1,
     }
     async with httpx.AsyncClient(timeout=timeout) as c:
@@ -410,8 +408,12 @@ async def test_provider(
         try:
             from logic.tuning import Tunable, tuning_int as _tuning_int
             timeout = float(_tuning_int(Tunable.AI_HTTP_TIMEOUT_SECONDS))
-        except Exception:
+        except (ImportError, KeyError, ValueError, TypeError):
             timeout = 15.0
+    # Type-narrow: every branch above sets `timeout` to a real float.
+    # Assert it so the type-checker stops flagging `float | None` at the
+    # _probe_* call sites below (their signatures want a plain float).
+    assert timeout is not None
 
     started = time.time()
     try:
@@ -452,19 +454,19 @@ async def test_provider(
 
 
 async def _chat_claude(api_key: str, model: str, base_url: str,
-                        prompt: str, system_prompt: str, max_tokens: int,
-                        timeout: float) -> dict:
+                       prompt: str, system_prompt: str, max_tokens: int,
+                       timeout: float) -> dict:
     base = _resolve_endpoint("claude", base_url)
     url = f"{base}/v1/messages"
     headers = {
-        "x-api-key":         api_key,
+        "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
-        "content-type":      "application/json",
+        "content-type": "application/json",
     }
     body: dict = {
-        "model":      model or _DEFAULT_MODELS["claude"],
+        "model": model or _DEFAULT_MODELS["claude"],
         "max_tokens": max_tokens,
-        "messages":   [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": prompt}],
     }
     if system_prompt:
         body["system"] = system_prompt
@@ -491,14 +493,14 @@ async def _chat_claude(api_key: str, model: str, base_url: str,
 
 
 async def _chat_gemini(api_key: str, model: str, base_url: str,
-                        prompt: str, system_prompt: str, max_tokens: int,
-                        timeout: float) -> dict:
+                       prompt: str, system_prompt: str, max_tokens: int,
+                       timeout: float) -> dict:
     base = _resolve_endpoint("gemini", base_url)
     mdl = model or _DEFAULT_MODELS["gemini"]
     url = f"{base}/v1beta/models/{mdl}:generateContent"
     headers = {
         "x-goog-api-key": api_key,
-        "content-type":   "application/json",
+        "content-type": "application/json",
     }
     # Gemini 2.5 model family: Flash + Lite accept `thinkingBudget: 0`
     # (disables thinking, gives the operator a fast palette response).
@@ -515,7 +517,7 @@ async def _chat_gemini(api_key: str, model: str, base_url: str,
     if "2.5" in mdl_lc and "pro" not in mdl_lc:
         gen_config["thinkingConfig"] = {"thinkingBudget": 0}
     body: dict = {
-        "contents":         [{"parts": [{"text": prompt}]}],
+        "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": gen_config,
     }
     if system_prompt:
@@ -560,7 +562,7 @@ async def _chat_gemini(api_key: str, model: str, base_url: str,
             "ok": True, "status": 200, "text": text,
             "tokens": {"prompt": int(usage.get("promptTokenCount", 0)),
                        "completion": int(usage.get("candidatesTokenCount", 0))},
-            "model":  mdl,
+            "model": mdl,
             "finish_reason": finish_reason,
         }
     except (ValueError, json.JSONDecodeError) as e:
@@ -569,21 +571,21 @@ async def _chat_gemini(api_key: str, model: str, base_url: str,
 
 
 async def _chat_openai_compatible(provider: str, api_key: str, model: str,
-                                   base_url: str, prompt: str, system_prompt: str,
-                                   max_tokens: int, timeout: float) -> dict:
+                                  base_url: str, prompt: str, system_prompt: str,
+                                  max_tokens: int, timeout: float) -> dict:
     base = _resolve_endpoint(provider, base_url)
     url = f"{base}/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "content-type":  "application/json",
+        "content-type": "application/json",
     }
     messages: list = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
     body = {
-        "model":      model or _DEFAULT_MODELS.get(provider, ""),
-        "messages":   messages,
+        "model": model or _DEFAULT_MODELS.get(provider, ""),
+        "messages": messages,
         "max_tokens": max_tokens,
     }
     async with httpx.AsyncClient(timeout=timeout) as c:
@@ -644,8 +646,14 @@ async def ask_provider(
         try:
             from logic.tuning import Tunable, tuning_int as _tuning_int
             timeout = float(_tuning_int(Tunable.AI_EXTENDED_HTTP_TIMEOUT_SECONDS))
-        except Exception:
+        except (ImportError, KeyError, ValueError, TypeError):
             timeout = 30.0
+    # Type-narrow: every branch above sets `timeout` to a real float.
+    # Capture as a non-Optional local so the closure below propagates
+    # the narrowed type cleanly — type-checkers don't follow control-
+    # flow narrowing across closure boundaries.
+    assert timeout is not None
+    timeout_f: float = timeout
     if not (api_key or "").strip():
         return {"ok": False, "status": 0, "provider": p,
                 "detail": "API key is not set. Configure it in Admin → AI Integration first.",
@@ -659,13 +667,13 @@ async def ask_provider(
     async def _do_call() -> dict:
         if p == "claude":
             return await _chat_claude(api_key, model or "", base_url or "",
-                                      prompt, system_prompt, max_tokens, timeout)
+                                      prompt, system_prompt, max_tokens, timeout_f)
         elif p == "gemini":
             return await _chat_gemini(api_key, model or "", base_url or "",
-                                      prompt, system_prompt, max_tokens, timeout)
+                                      prompt, system_prompt, max_tokens, timeout_f)
         else:
             return await _chat_openai_compatible(p, api_key, model or "", base_url or "",
-                                                 prompt, system_prompt, max_tokens, timeout)
+                                                 prompt, system_prompt, max_tokens, timeout_f)
 
     started = time.time()
     try:
@@ -759,22 +767,30 @@ async def ask_provider_with_fallback(
     history: list[dict] = []
 
     async def _attempt(provider_id: str) -> dict:
-        creds = provider_creds.get(provider_id) or {}
+        # Narrow `creds` to a real dict; `or {}` collapses the None
+        # branch of `provider_creds.get(...)`. The explicit type hint
+        # keeps the type-checker honest at the .get() call sites below
+        # (otherwise it widens to `dict | str` because the values are
+        # Any-typed).
+        creds: dict = provider_creds.get(provider_id) or {}
+        api_key_v = creds.get("api_key") or ""
+        model_v = creds.get("model")
+        base_url_v = creds.get("base_url")
         out = await ask_provider(
             provider_id,
-            api_key=creds.get("api_key", ""),
+            api_key=str(api_key_v),
             prompt=prompt,
             system_prompt=system_prompt,
-            model=creds.get("model"),
-            base_url=creds.get("base_url"),
+            model=str(model_v) if isinstance(model_v, str) else None,
+            base_url=str(base_url_v) if isinstance(base_url_v, str) else None,
             max_tokens=max_tokens,
             timeout=timeout,
         )
         history.append({
-            "provider":         provider_id,
-            "status":           out.get("status"),
+            "provider": provider_id,
+            "status": out.get("status"),
             "response_time_ms": out.get("response_time_ms", 0),
-            "succeeded":        bool(out.get("ok")),
+            "succeeded": bool(out.get("ok")),
         })
         return out
 
@@ -967,7 +983,6 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     "clear_notifications",
     "notifications_clear_all",
 })
-
 
 PALETTE_SYSTEM_PROMPT: str = (
     "You are the Cmd-K palette assistant for OmniGrid, a Docker-Swarm "
@@ -1422,7 +1437,6 @@ PALETTE_SYSTEM_PROMPT: str = (
     "a wrong chart."
 )
 
-
 HOST_FILTER_SYSTEM_PROMPT: str = (
     "You translate operator natural-language queries into a "
     "structured filter DSL for OmniGrid's bulk Cmd-K palette. "
@@ -1481,7 +1495,6 @@ def parse_palette_actions(text: str) -> tuple[list[str], str]:
     """
     if not text:
         return [], text or ""
-    import re as _re
     actions: list[str] = []
     seen: set[str] = set()
     # Find every ACTION: <body> line — body may be a single id or a
@@ -1489,7 +1502,7 @@ def parse_palette_actions(text: str) -> tuple[list[str], str]:
     # mixed shapes work (`ACTION: refresh\nACTION: cleanup_stopped`
     # OR `ACTION: refresh, cleanup_stopped`).
     line_re = _re.compile(
-        r"(?:^|\n)[\s`*]*ACTION\s*:\s*([^\n]+?)[\s`.*]*$",
+        r"(?:^|\n)[\s`*]*ACTION\s*:\s*(?P<body>[^\n]+?)[\s`.*]*$",
         _re.IGNORECASE | _re.MULTILINE,
     )
     first_idx: int | None = None
@@ -1540,16 +1553,14 @@ def parse_palette_hosts(text: str, known_ids: set[str] | None = None) -> tuple[l
     """
     if not text:
         return [], text or ""
-    import re as _re
     m = _re.search(
-        r"(?:^|\n)[\s`*]*HOSTS\s*:\s*(.+?)[\s`.*]*$",
+        r"(?:^|\n)[\s`*]*HOSTS\s*:\s*(?P<body>.+?)[\s`.*]*$",
         text, _re.IGNORECASE | _re.MULTILINE,
     )
     if not m:
         return [], text
-    raw = m.group(1)
+    raw = m.group("body")
     # Split on commas first (preferred), fall back to whitespace.
-    parts: list[str] = []
     if "," in raw:
         parts = [p.strip() for p in raw.split(",")]
     else:
@@ -1574,9 +1585,9 @@ def parse_palette_hosts(text: str, known_ids: set[str] | None = None) -> tuple[l
 
 
 _VALID_CHART_KINDS: frozenset[str] = frozenset({
-    "disk_projection",   # default — historical disk-used % + linear forecast
-    "memory_history",    # mem-used % time-series, last 24 h
-    "cpu_history",       # cpu_percent time-series, last 24 h
+    "disk_projection",  # default — historical disk-used % + linear forecast
+    "memory_history",  # mem-used % time-series, last 24 h
+    "cpu_history",  # cpu_percent time-series, last 24 h
 })
 
 # AI-emitted aliases mapped to canonical kind names. The model often
@@ -1586,23 +1597,23 @@ _VALID_CHART_KINDS: frozenset[str] = frozenset({
 # projection (visibly wrong chart for a memory question). Disk synonyms
 # stay mapped to disk_projection — they're the legacy default.
 _CHART_KIND_ALIASES: dict[str, str] = {
-    "memory":       "memory_history",
+    "memory": "memory_history",
     "memory-usage": "memory_history",
     "memory_usage": "memory_history",
-    "ram":          "memory_history",
-    "ram_history":  "memory_history",
-    "mem":          "memory_history",
-    "mem_history":  "memory_history",
-    "cpu":              "cpu_history",
-    "cpu-usage":        "cpu_history",
-    "cpu_usage":        "cpu_history",
-    "cpu_load":         "cpu_history",
-    "processor":        "cpu_history",
-    "processor_history":"cpu_history",
-    "disk":           "disk_projection",
-    "disk-projection":"disk_projection",
-    "disk_usage":     "disk_projection",
-    "storage":        "disk_projection",
+    "ram": "memory_history",
+    "ram_history": "memory_history",
+    "mem": "memory_history",
+    "mem_history": "memory_history",
+    "cpu": "cpu_history",
+    "cpu-usage": "cpu_history",
+    "cpu_usage": "cpu_history",
+    "cpu_load": "cpu_history",
+    "processor": "cpu_history",
+    "processor_history": "cpu_history",
+    "disk": "disk_projection",
+    "disk-projection": "disk_projection",
+    "disk_usage": "disk_projection",
+    "storage": "disk_projection",
 }
 
 
@@ -1629,14 +1640,13 @@ def parse_palette_chart_kind(text: str) -> tuple[str, str]:
     """
     if not text:
         return "", text or ""
-    import re as _re
     m = _re.search(
-        r"(?:^|\n)[\s`*]*CHART\s*:\s*([A-Za-z_][A-Za-z0-9_-]*)[\s`.*]*$",
+        r"(?:^|\n)[\s`*]*CHART\s*:\s*(?P<kind>[A-Za-z_][A-Za-z0-9_-]*)[\s`.*]*$",
         text, _re.IGNORECASE | _re.MULTILINE,
     )
     if not m:
         return "", text
-    raw = m.group(1).strip().lower()
+    raw = m.group("kind").strip().lower()
     cleaned_text = text[: m.start()].rstrip()
     if raw in _VALID_CHART_KINDS:
         return raw, cleaned_text
@@ -1668,15 +1678,13 @@ def parse_palette_action_hosts(text: str, known_ids: set[str] | None = None) -> 
     """
     if not text:
         return [], text or ""
-    import re as _re
     m = _re.search(
-        r"(?:^|\n)[\s`*]*ACTION_HOSTS\s*:\s*(.+?)[\s`.*]*$",
+        r"(?:^|\n)[\s`*]*ACTION_HOSTS\s*:\s*(?P<body>.+?)[\s`.*]*$",
         text, _re.IGNORECASE | _re.MULTILINE,
     )
     if not m:
         return [], text
-    raw = m.group(1)
-    parts: list[str] = []
+    raw = m.group("body")
     if "," in raw:
         parts = [p.strip() for p in raw.split(",")]
     else:
@@ -1716,14 +1724,13 @@ def parse_palette_action_tag(text: str) -> tuple[str, str]:
     """
     if not text:
         return "", text or ""
-    import re as _re
     m = _re.search(
-        r"(?:^|\n)[\s`*]*ACTION_TAG\s*:\s*(.+?)[\s`.*]*$",
+        r"(?:^|\n)[\s`*]*ACTION_TAG\s*:\s*(?P<body>.+?)[\s`.*]*$",
         text, _re.IGNORECASE | _re.MULTILINE,
     )
     if not m:
         return "", text
-    raw = m.group(1).strip().strip("`'\"*.,;").strip()
+    raw = m.group("body").strip().strip("`'\"*.,;").strip()
     cleaned_text = text[: m.start()].rstrip()
     if not raw:
         return "", cleaned_text
@@ -1746,14 +1753,13 @@ def parse_palette_action_item(text: str) -> tuple[str, str]:
     """
     if not text:
         return "", text or ""
-    import re as _re
     m = _re.search(
-        r"(?:^|\n)[\s`*]*ACTION_ITEM\s*:\s*(.+?)[\s`.*]*$",
+        r"(?:^|\n)[\s`*]*ACTION_ITEM\s*:\s*(?P<body>.+?)[\s`.*]*$",
         text, _re.IGNORECASE | _re.MULTILINE,
     )
     if not m:
         return "", text
-    raw = m.group(1).strip().strip("`'\"*.,;").strip()
+    raw = m.group("body").strip().strip("`'\"*.,;").strip()
     cleaned_text = text[: m.start()].rstrip()
     return raw, cleaned_text
 
@@ -1778,14 +1784,13 @@ def parse_palette_action_data(text: str) -> tuple[Optional[dict], str]:
     if not text:
         return None, text or ""
     import json as _json
-    import re as _re
     m = _re.search(
-        r"(?:^|\n)[\s`*]*ACTION_DATA\s*:\s*(\{.+?\})\s*$",
+        r"(?:^|\n)[\s`*]*ACTION_DATA\s*:\s*(?P<body>\{.+?})\s*$",
         text, _re.IGNORECASE | _re.MULTILINE | _re.DOTALL,
     )
     if not m:
         return None, text
-    raw = m.group(1).strip()
+    raw = m.group("body").strip()
     cleaned_text = text[: m.start()].rstrip()
     try:
         data = _json.loads(raw)
@@ -1815,11 +1820,10 @@ def parse_host_filter_response(text: str) -> tuple[str, str, str]:
     if not lines:
         return "", "", "Model returned an empty response."
     cand = lines[0]
-    import re as _re
-    m = _re.match(r"^(pause|resume)\s*:\s*(.*)$", cand, _re.IGNORECASE)
+    m = _re.match(r"^(?P<verb>pause|resume)\s*:\s*(?P<scope>.*)$", cand, _re.IGNORECASE)
     if not m:
         return "", "", f"Model didn't return a valid DSL line — got: {cand[:120]}"
-    dsl = f"{m.group(1).lower()}: {m.group(2).strip()}".rstrip()
+    dsl = f"{m.group('verb').lower()}: {m.group('scope').strip()}".rstrip()
     explanation = lines[1] if len(lines) > 1 else ""
     return dsl, explanation, ""
 
@@ -1873,8 +1877,29 @@ def _format_records_block(label: str, fields: str, records: list) -> str:
     return f"{label} (one JSON record per line, fields: {fields}):\n{body}"
 
 
+_T_FIELD = TypeVar("_T_FIELD")
+
+
+def _typed_field(src, key: str, expected_type: type[_T_FIELD]) -> _T_FIELD | None:
+    """Return ``src[key]`` when ``src`` is a dict AND the value is an
+    instance of ``expected_type``; otherwise None. Used in place of the
+    inline ``d.get(k) if isinstance(d.get(k), T) else None`` pattern so
+    the type-checker narrows cleanly at every consumer site (the inline
+    ternary version returns Any | None which then poisons every
+    downstream `.get()` / subscript call with "member None doesn't
+    have attribute" diagnostics).
+
+    Generic ``_T_FIELD`` bound to ``expected_type`` so callers get a
+    properly-narrowed ``dict | None`` / ``list | None`` at the call
+    site without inlining the isinstance dance."""
+    if not isinstance(src, dict):
+        return None
+    v = src.get(key)
+    return v if isinstance(v, expected_type) else None
+
+
 def build_palette_user_prompt(query: str, ctx: dict | None,
-                               conversation: list | None = None) -> str:
+                              conversation: list | None = None) -> str:
     """Per-call user prompt for `/api/ai/palette`. Caps host + item
     lists at 30 each (~3k tokens for a fully-populated 30-host fleet).
 
@@ -1915,7 +1940,7 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
         # weather: when absent the model should say "I don't see a
         # current-time block from this surface" rather than guessing.
         # Fields: utc_iso / local_iso / timezone / utc_offset / weekday.
-        tinfo = ctx.get("time") if isinstance(ctx.get("time"), dict) else None
+        tinfo = _typed_field(ctx, "time", dict)
         if tinfo and (tinfo.get("local_iso") or tinfo.get("utc_iso")):
             bits = []
             if tinfo.get("weekday"):
@@ -1931,13 +1956,13 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
             line = " · ".join(bits) + tz_seg
             utc_seg = ""
             if tinfo.get("utc_iso") and tinfo.get("local_iso") \
-                    and tinfo["utc_iso"] != tinfo["local_iso"]:
+                and tinfo["utc_iso"] != tinfo["local_iso"]:
                 utc_seg = f" / UTC {tinfo['utc_iso']}"
             parts.append(
                 "Current time (server clock — answer naturally using this, do NOT refuse "
                 "'I don't have a real-time clock'): " + line + utc_seg
             )
-        hosts = ctx.get("hosts") if isinstance(ctx.get("hosts"), list) else None
+        hosts = _typed_field(ctx, "hosts", list)
         if hosts:
             parts.append(_format_records_block(
                 "Available hosts",
@@ -1945,7 +1970,7 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 "disk_free_gb, disk_total_gb, uptime_s, paused, providers",
                 hosts[:30],
             ))
-        items = ctx.get("items") if isinstance(ctx.get("items"), list) else None
+        items = _typed_field(ctx, "items", list)
         if items:
             parts.append(_format_records_block(
                 "Available items",
@@ -1953,7 +1978,7 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 "update_available",
                 items[:30],
             ))
-        weather = ctx.get("weather") if isinstance(ctx.get("weather"), dict) else None
+        weather = _typed_field(ctx, "weather", dict)
         if weather:
             # Compact one-line weather summary — OmniGrid's topbar
             # weather widget (Open-Meteo proxy) is a real product
@@ -1985,7 +2010,16 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 bits.append(f"{weather['humidity']}% humidity")
             if weather.get("wind_kmh") is not None:
                 bits.append(f"{weather['wind_kmh']} km/h wind")
-            parts.append("Current weather (from OmniGrid topbar widget — answer naturally using these values, do NOT refuse): " + " · ".join(bits))
+            parts.append(
+                "Current weather (from OmniGrid topbar widget — answer naturally using these "
+                "values, do NOT refuse). USE WEATHER-RELEVANT EMOJIS when describing conditions "
+                "(☀️ clear / ⛅ partly cloudy / ☁️ overcast / 🌧️ rain / ⛈️ thunderstorm / "
+                "❄️ snow / 🌫️ fog / 💨 windy) and a 🌡️ before the temperature, 💧 before "
+                "humidity, 💨 before wind speed — keep the prose itself natural, just sprinkle "
+                "the emojis where they reinforce the value. Example shape: "
+                "'Currently in Cairo: ☀️ clear · 🌡️ 29.7°C · 💧 26% humidity · 💨 10 km/h'. "
+                "Values: " + " · ".join(bits)
+            )
             # Daily forecast — when present, render up to 7 days so the
             # AI can answer "next 5 days" / "tomorrow" / "this week"
             # questions with real values instead of refusing.
@@ -2024,16 +2058,17 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
         # list is present in ctx, the AI should say "no backups have
         # been taken yet — create one via Admin → Backup or Admin →
         # Config Backup" rather than refusing as off-topic.
-        backups = ctx.get("backups") if isinstance(ctx.get("backups"), dict) else None
+        backups = _typed_field(ctx, "backups", dict)
         if backups:
-            sqlite_list = backups.get("sqlite") if isinstance(backups.get("sqlite"), list) else []
-            config_list = backups.get("config") if isinstance(backups.get("config"), list) else []
+            _sqlite_raw = backups.get("sqlite")
+            sqlite_list: list = _sqlite_raw if isinstance(_sqlite_raw, list) else []
+            _config_raw = backups.get("config")
+            config_list: list = _config_raw if isinstance(_config_raw, list) else []
             sqlite_count = backups.get("sqlite_count") or len(sqlite_list)
             config_count = backups.get("config_count") or len(config_list)
-            block_lines: list[str] = []
-            block_lines.append(
-                f"Backups summary (Admin → Backup + Admin → Config Backup):"
-            )
+            block_lines: list[str] = [
+                "Backups summary (Admin → Backup + Admin → Config Backup):",
+            ]
             if sqlite_list:
                 latest = sqlite_list[0]
                 block_lines.append(
@@ -2076,7 +2111,7 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
         # sample interval?" / "what's the Webmin probe budget?" /
         # "how often do we sample node-exporter?" from this block
         # instead of guessing or pointing at the Admin page.
-        tunables = ctx.get("tunables") if isinstance(ctx.get("tunables"), dict) else None
+        tunables = _typed_field(ctx, "tunables", dict)
         if tunables:
             try:
                 import json as _json
@@ -2094,7 +2129,11 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                     "SNMP) with value 0 inherit `tuning_stats_sample_interval_seconds`; > 0 "
                     "overrides that provider only.",
                 ]))
-            except Exception:
+            except (TypeError, ValueError):
+                # Defensive: _json.dumps can raise TypeError on
+                # non-serialisable values OR ValueError on encode
+                # failure. Skip this block in either case — the prompt
+                # still works without this context section.
                 pass
         # Settings — non-secret subset of the live SPA settings state.
         # Master toggles + active-source CSV + per-provider URL + chip
@@ -2102,7 +2141,7 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
         # api_key / secret / private_key / passphrase suffixes) are
         # NEVER included; only `_set` flags surface so the AI can
         # report "Beszel password is set" without seeing the material.
-        settings = ctx.get("settings") if isinstance(ctx.get("settings"), dict) else None
+        settings = _typed_field(ctx, "settings", dict)
         if settings:
             try:
                 import json as _json
@@ -2119,9 +2158,13 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                     "if the operator asks about a secret value, tell them you can't see it "
                     "but the `*_set` flag indicates whether it's persisted.",
                 ]))
-            except Exception:
+            except (TypeError, ValueError):
+                # Defensive: _json.dumps can raise TypeError on
+                # non-serialisable values OR ValueError on encode
+                # failure. Skip this block in either case — the prompt
+                # still works without this context section.
                 pass
-        stats = ctx.get("stats") if isinstance(ctx.get("stats"), dict) else None
+        stats = _typed_field(ctx, "stats", dict)
         if stats:
             try:
                 import json as _json
@@ -2145,7 +2188,11 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                     "visiting Stats → <sub>.",
                 ]
                 parts.append("\n".join(stats_block))
-            except Exception:
+            except (TypeError, ValueError):
+                # Defensive: _json.dumps can raise TypeError on
+                # non-serialisable values OR ValueError on encode
+                # failure. Skip this block in either case — the prompt
+                # still works without this context section.
                 pass
         # Recent log signals — last N error/warn lines from the
         # in-process log ring buffer. Populated by the palette
@@ -2155,7 +2202,7 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
         # has no log access. Each line is a compact `LEVEL  TEXT`
         # row capped at ~200 chars; the full log lives in Admin →
         # Logs (which the AI can point operators at).
-        recent_logs = ctx.get("recent_logs") if isinstance(ctx.get("recent_logs"), list) else None
+        recent_logs = _typed_field(ctx, "recent_logs", list)
         if recent_logs:
             log_lines = []
             # Cap at the last 200 lines from the supplied window. The
@@ -2182,7 +2229,10 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                     try:
                         from datetime import datetime as _dt, timezone as _tz
                         ts_prefix = _dt.fromtimestamp(ts, tz=_tz.utc).strftime("%Y-%m-%dT%H:%MZ ")
-                    except Exception:  # noqa: BLE001
+                    except (OSError, ValueError, OverflowError):
+                        # ts out of range for fromtimestamp / negative
+                        # / NaN — skip the prefix and emit the line
+                        # without time decoration.
                         ts_prefix = ""
                 log_lines.append(f"{ts_prefix}{lvl:<7} {txt}")
             if log_lines:
@@ -2206,7 +2256,8 @@ def build_host_filter_user_prompt(query: str, ctx: dict | None) -> str:
     operates on hosts in Phase 2)."""
     parts: list[str] = [f"Operator query: {query}"]
     if isinstance(ctx, dict):
-        hosts = ctx.get("hosts") if isinstance(ctx.get("hosts"), list) else None
+        raw_hosts = ctx.get("hosts")
+        hosts: list = raw_hosts if isinstance(raw_hosts, list) else []
         if hosts:
             parts.append(_format_records_block(
                 "Available hosts",
@@ -2274,7 +2325,10 @@ def log_ai_outcome(*, kind: str, provider: str, model: str,
         parts.append(f"action={action_id}")
     if (dsl or "").strip():
         # DSL strings are short by design; quote them for grep-ability.
-        dsl_esc = dsl.replace("\n", " ").strip()[:80]
+        # `dsl or ""` already collapsed the None branch above but the
+        # type-checker doesn't narrow `dsl` itself — use a local str.
+        dsl_src = dsl or ""
+        dsl_esc = dsl_src.replace("\n", " ").strip()[:80]
         parts.append(f"dsl={dsl_esc!r}")
     if (fallback_from or "").strip():
         parts.append(f"fallback_from={fallback_from}")
@@ -2283,8 +2337,13 @@ def log_ai_outcome(*, kind: str, provider: str, model: str,
     if (actor or "").strip():
         parts.append(f"actor={actor}")
     if (prompt_excerpt or "").strip():
-        excerpt = prompt_excerpt.replace("\n", " ").strip()[:80]
-        if len(prompt_excerpt) > 80:
+        # Narrow to non-None for the type-checker — the `or ""` above
+        # collapsed the None branch but `prompt_excerpt` itself stayed
+        # typed `str | None`. Use a local str alias for the rest of
+        # the block so `.replace` / `len` are unambiguous.
+        excerpt_src = prompt_excerpt or ""
+        excerpt = excerpt_src.replace("\n", " ").strip()[:80]
+        if len(excerpt_src) > 80:
             excerpt += "…"
         parts.append(f"q={excerpt!r}")
     tail = (" " + " ".join(parts)) if parts else ""
