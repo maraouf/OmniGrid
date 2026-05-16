@@ -40,13 +40,11 @@ from logic import tuning
 from logic.tuning import Tunable
 from logic.db import db_conn
 
-
 # Sanity bounds — same values, same rationale as host_net_sampler.
 _MIN_DELTA_SECONDS = 60
 _MAX_DELTA_SECONDS = 900
-_MIN_DELTA_BYTES   = 0
-_MAX_DELTA_BYTES   = 10 * 1024 * 1024 * 1024  # 10 GB
-
+_MIN_DELTA_BYTES = 0
+_MAX_DELTA_BYTES = 10 * 1024 * 1024 * 1024  # 10 GB
 
 # Per-host previous absolute counters for delta math (net rx / net tx /
 # disk read / disk written / cpu_total / cpu_idle). Lives across ticks
@@ -59,7 +57,6 @@ _MAX_DELTA_BYTES   = 10 * 1024 * 1024 * 1024  # 10 GB
 # In-memory cache is restart-only so no migration needed; the
 # `_compute_row` decoder tolerantly len()-checks `prev`.
 _last_counters: dict[str, tuple] = {}  # host_id → variable-length tuple
-
 
 # concurrency cap is operator-tunable via
 # `tuning_host_metrics_probe_concurrency` (default 8, range 1-64).
@@ -76,7 +73,6 @@ from logic.db import (
     curated_snmp_hosts as _load_curated_snmp_hosts,
     get_setting as _get_setting,
 )
-
 
 # Canonical strict-positive helper lives in logic/merge.py — alias it
 # locally so existing call sites stay readable. Kept as a thin alias
@@ -136,23 +132,26 @@ def _compute_row(
     """
     # Gauges — pull what node-exporter parsed; treat 0 / None as missing.
     mem_total = int(stats.get("host_mem_total") or 0)
-    mem_used  = int(stats.get("host_mem_used") or 0)
+    mem_used = int(stats.get("host_mem_used") or 0)
     disk_total = int(stats.get("host_disk_total") or 0)
-    disk_used  = int(stats.get("host_disk_used") or 0)
+    disk_used = int(stats.get("host_disk_used") or 0)
 
     cpu_percent: Optional[float] = None
     raw_cpu = stats.get("host_cpu_percent")
     if _is_meaningful_number(raw_cpu):
-        cpu_percent = float(raw_cpu)
+        cpu_percent = float(raw_cpu)  # type: ignore[arg-type]  # _is_meaningful_number narrows to numeric
 
     # CPU-seconds counters for delta-derived %CPU on NE-only hosts.
     # Sum across all CPUs all modes for `total`; only mode=idle for `idle`.
     # %CPU = 100 * (1 - (delta_idle / delta_total)).
     cpu_total_secs = stats.get("host_cpu_seconds_total") or 0
-    cpu_idle_secs  = stats.get("host_cpu_seconds_idle") or 0
+    cpu_idle_secs = stats.get("host_cpu_seconds_idle") or 0
     have_cpu_counters = cpu_total_secs > 0
 
-    # Net counters — required to advance the cache.
+    # Net counters — required to advance the cache. Coerce to 0 when
+    # missing so the int() calls below stay well-typed for pyright
+    # (int(None) would TypeError; we already gate on `have_net_counters`
+    # before consuming the rx/tx values downstream).
     rx_total = stats.get("host_net_rx_total")
     tx_total = stats.get("host_net_tx_total")
     have_net_counters = (rx_total is not None) and (tx_total is not None)
@@ -170,13 +169,13 @@ def _compute_row(
     next_counter: Optional[tuple] = None
 
     rx = tx = dr = dw = 0
-    if have_net_counters:
+    if have_net_counters and rx_total is not None and tx_total is not None:
         try:
             rx = int(rx_total)
             tx = int(tx_total)
         except (TypeError, ValueError):
             have_net_counters = False
-    if have_disk_counters:
+    if have_disk_counters and dr_total is not None and dw_total is not None:
         try:
             dr = int(dr_total)
             dw = int(dw_total)
@@ -231,7 +230,7 @@ def _compute_row(
                 and prev_cpu_total is not None and prev_cpu_idle is not None
                 and cpu_percent is None):
                 d_total = float(cpu_total_secs) - float(prev_cpu_total)
-                d_idle  = float(cpu_idle_secs)  - float(prev_cpu_idle)
+                d_idle = float(cpu_idle_secs) - float(prev_cpu_idle)
                 if d_total > 0 and d_idle >= 0:
                     pct = 100.0 * (1.0 - (d_idle / d_total))
                     cpu_percent = max(0.0, min(100.0, pct))
@@ -255,13 +254,13 @@ def _compute_row(
         "ts": int(now),
         "host_id": host_id,
         "cpu_percent": cpu_percent,
-        "mem_used":  mem_used  if _is_meaningful_number(mem_used)  else None,
+        "mem_used": mem_used if _is_meaningful_number(mem_used) else None,
         "mem_total": mem_total if _is_meaningful_number(mem_total) else None,
-        "disk_used":  disk_used  if _is_meaningful_number(disk_used)  else None,
+        "disk_used": disk_used if _is_meaningful_number(disk_used) else None,
         "disk_total": disk_total if _is_meaningful_number(disk_total) else None,
         "net_rx_bps": rx_rate,
         "net_tx_bps": tx_rate,
-        "disk_read_bps":  dr_rate,
+        "disk_read_bps": dr_rate,
         "disk_write_bps": dw_rate,
     }
     return row, next_counter
@@ -319,7 +318,6 @@ def _get_failure_state(host_id: str, provider: str = "") -> Optional[dict]:
 _PROVIDER_PREFIXES = frozenset((
     "beszel", "pulse", "node_exporter", "webmin", "ping", "snmp",
 ))
-
 
 # ---------------------------------------------------------------------------
 # Defensive "is this provider configured for this host" cache.
@@ -385,10 +383,10 @@ def _host_provider_config() -> dict[str, set[str]]:
                     if not hid:
                         continue
                     configured: set[str] = set()
-                    if (h.get("beszel_name")  or "").strip(): configured.add("beszel")
-                    if (h.get("pulse_name")   or "").strip(): configured.add("pulse")
-                    if (h.get("ne_url")       or "").strip(): configured.add("node_exporter")
-                    if (h.get("webmin_name")  or "").strip(): configured.add("webmin")
+                    if (h.get("beszel_name") or "").strip(): configured.add("beszel")
+                    if (h.get("pulse_name") or "").strip(): configured.add("pulse")
+                    if (h.get("ne_url") or "").strip(): configured.add("node_exporter")
+                    if (h.get("webmin_name") or "").strip(): configured.add("webmin")
                     if bool((h.get("ping") or {}).get("enabled", False)):
                         configured.add("ping")
                     # SNMP is configured when EITHER `snmp_name` OR the
@@ -534,7 +532,7 @@ async def _record_failure(
                 # moves on — the pause itself is the load-bearing
                 # side effect.
                 #
-              # emit-once-with-one-retry. If the first
+                # emit-once-with-one-retry. If the first
                 # `notify()` raises (Apprise URL down, network blip,
                 # apprise-api 5xx), wait 60s and try again ONCE. We
                 # deliberately don't loop forever (would spam if
@@ -945,9 +943,10 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
         )
         if not snmp_target:
             return
-        snmp_cfg = host.get("snmp") if isinstance(host.get("snmp"), dict) else {}
+        _snmp_raw = host.get("snmp")
+        snmp_cfg: dict = _snmp_raw if isinstance(_snmp_raw, dict) else {}
         community = (snmp_cfg.get("community") or "").strip() \
-            or (_get_setting("snmp_default_community", "") or "public")
+                    or (_get_setting("snmp_default_community", "") or "public")
         version = ((snmp_cfg.get("version") or "").strip().lower()
                    or (_get_setting("snmp_default_version", "") or "v2c"))
         try:
@@ -1046,16 +1045,16 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                 page_count_present = stats.get("printer_page_count") is not None
                 # APC UPS hosts report load / battery percentages but
                 # may have neither hrStorage nor IF-MIB on basic models
-                #. Without this branch, UPS history rows never
+                # . Without this branch, UPS history rows never
                 # got inserted so the Output Load chart had no data
                 # to plot. host_load_percent extracted from PowerNet
                 # OID 1.3.6.1.4.1.318.1.1.1.4.2.3.0 in `logic/snmp.py`.
-                load_pct_present    = stats.get("host_load_percent") is not None
-                batt_pct_present    = stats.get("host_battery_percent") is not None
-                batt_temp_present   = stats.get("host_battery_temp_c") is not None
+                load_pct_present = stats.get("host_load_percent") is not None
+                batt_pct_present = stats.get("host_battery_percent") is not None
+                batt_temp_present = stats.get("host_battery_temp_c") is not None
                 ups_present = load_pct_present or batt_pct_present or batt_temp_present
                 if (mem_total > 0 or rx_raw_present or tx_raw_present
-                        or page_count_present or ups_present):
+                    or page_count_present or ups_present):
                     cores = stats.get("host_cpu_per_core") or []
                     cpu_used = stats.get("host_cpu_percent")
                     cpu_used_pct = float(cpu_used) if cpu_used is not None else None
@@ -1254,8 +1253,8 @@ def _resolve_outer_interval() -> int:
     the loop ensure each sub-probe only fires at its own cadence.
     """
     global_iv = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
-    ne_iv     = tuning.tuning_int(Tunable.NODE_EXPORTER_SAMPLE_INTERVAL_SECONDS)
-    snmp_iv   = tuning.tuning_int(Tunable.SNMP_SAMPLE_INTERVAL_SECONDS)
+    ne_iv = tuning.tuning_int(Tunable.NODE_EXPORTER_SAMPLE_INTERVAL_SECONDS)
+    snmp_iv = tuning.tuning_int(Tunable.SNMP_SAMPLE_INTERVAL_SECONDS)
     candidates = [global_iv or 300]
     if ne_iv > 0:
         candidates.append(ne_iv)
@@ -1354,13 +1353,13 @@ def _shape_row(r) -> dict:
     return {
         "ts": int(r["ts"]),
         "cpu_percent": (float(r["cpu_percent"]) if r["cpu_percent"] is not None else None),
-        "mem_used":   (int(r["mem_used"])   if r["mem_used"]   is not None else None),
-        "mem_total":  (int(r["mem_total"])  if r["mem_total"]  is not None else None),
-        "disk_used":  (int(r["disk_used"])  if r["disk_used"]  is not None else None),
+        "mem_used": (int(r["mem_used"]) if r["mem_used"] is not None else None),
+        "mem_total": (int(r["mem_total"]) if r["mem_total"] is not None else None),
+        "disk_used": (int(r["disk_used"]) if r["disk_used"] is not None else None),
         "disk_total": (int(r["disk_total"]) if r["disk_total"] is not None else None),
         "net_rx_bps": (float(r["net_rx_bps"]) if r["net_rx_bps"] is not None else None),
         "net_tx_bps": (float(r["net_tx_bps"]) if r["net_tx_bps"] is not None else None),
-        "disk_read_bps":  (float(r["disk_read_bps"])  if r["disk_read_bps"]  is not None else None),
+        "disk_read_bps": (float(r["disk_read_bps"]) if r["disk_read_bps"] is not None else None),
         "disk_write_bps": (float(r["disk_write_bps"]) if r["disk_write_bps"] is not None else None),
     }
 
@@ -1497,7 +1496,16 @@ def history_series(host_id: str, hours: int) -> list[dict]:
                 if k == "ts":
                     agg[k] = min_ts
                     continue
-                vals = [r.get(k) for r in rows if isinstance(r.get(k), (int, float))]
+                # Build the numeric-only list with explicit append loop —
+                # the comprehension form `[r.get(k) for r in rows if
+                # isinstance(r.get(k), (int, float))]` doesn't narrow
+                # the element type for pyright, so the downstream `sum()`
+                # rejects it as `list[Unknown | None]`.
+                vals: list[float] = []
+                for r in rows:
+                    _v = r.get(k)
+                    if isinstance(_v, (int, float)):
+                        vals.append(float(_v))
                 if vals:
                     agg[k] = sum(vals) / len(vals)
                 else:
@@ -1510,30 +1518,30 @@ def history_series(host_id: str, hours: int) -> list[dict]:
     series: list[dict] = []
     for r in raw:
         mem_total = r.get("mem_total") or 0
-        mem_used  = r.get("mem_used")  or 0
+        mem_used = r.get("mem_used") or 0
         disk_total = r.get("disk_total") or 0
-        disk_used  = r.get("disk_used")  or 0
+        disk_used = r.get("disk_used") or 0
         nr = r.get("net_rx_bps") or 0.0
         ns = r.get("net_tx_bps") or 0.0
         net = nr + ns
         # Disk I/O rates added in backfilled to 0 for rows
         # written before the column existed, so old history points
         # render flat until the new sampler ticks land.
-        dr = r.get("disk_read_bps")  or 0.0
+        dr = r.get("disk_read_bps") or 0.0
         dw = r.get("disk_write_bps") or 0.0
         series.append({
-            "t":   r["ts"],
+            "t": r["ts"],
             "cpu": r.get("cpu_percent") or 0.0,
-            "mp":  (100.0 * mem_used / mem_total) if mem_total else 0.0,
-            "dp":  (100.0 * disk_used / disk_total) if disk_total else 0.0,
-            "mu":  (mem_used  / gib) if mem_used  else 0.0,
-            "du":  (disk_used / gib) if disk_used else 0.0,
-            "b":   net,
-            "nr":  nr,
-            "ns":  ns,
+            "mp": (100.0 * mem_used / mem_total) if mem_total else 0.0,
+            "dp": (100.0 * disk_used / disk_total) if disk_total else 0.0,
+            "mu": (mem_used / gib) if mem_used else 0.0,
+            "du": (disk_used / gib) if disk_used else 0.0,
+            "b": net,
+            "nr": nr,
+            "ns": ns,
             "net": net,
-            "dr":  dr,
-            "dw":  dw,
+            "dr": dr,
+            "dw": dw,
             # Swap + load avg still not surfaced by the NE sampler.
             # Future work could fold them in (gauges for `node_load1` /
             # `node_memory_Swap*`). Returning zeros keeps the frontend
@@ -1542,8 +1550,8 @@ def history_series(host_id: str, hours: int) -> list[dict]:
             "la1": 0.0,
             "la5": 0.0,
             "la15": 0.0,
-            "s":   0.0,
-            "su":  0.0,
+            "s": 0.0,
+            "su": 0.0,
         })
     return series
 
@@ -1579,13 +1587,13 @@ node_boot_time_seconds 1700000000
     parsed["host_net_rx_total"] = net["total_rx"]
     parsed["host_net_tx_total"] = net["total_tx"]
     disk = _ne.parse_disk_counters(fixture)
-    parsed["host_disk_read_total"]  = disk["total_read"]
+    parsed["host_disk_read_total"] = disk["total_read"]
     parsed["host_disk_write_total"] = disk["total_written"]
 
     # Disk parser sanity — sda1 is a partition of sda → MUST be excluded
     # from the totals (else we double-count). loop0 is excluded as a
     # synthetic device. Only sda's 4 MB / 2 MB should land in totals.
-    assert disk["total_read"]    == 4000000, f"disk total_read={disk['total_read']}"
+    assert disk["total_read"] == 4000000, f"disk total_read={disk['total_read']}"
     assert disk["total_written"] == 2000000, f"disk total_written={disk['total_written']}"
     dev_names = [d["name"] for d in disk["devices"]]
     assert dev_names == ["sda"], f"expected only sda, got {dev_names}"
@@ -1601,7 +1609,7 @@ node_disk_read_bytes_total{device="loop0"} 99999999
 node_disk_written_bytes_total{device="loop0"} 99999999
 """
     nas_disk = _ne.parse_disk_counters(nas_fixture)
-    assert nas_disk["total_read"]    == 3000000, f"NAS dm+md should be counted: {nas_disk}"
+    assert nas_disk["total_read"] == 3000000, f"NAS dm+md should be counted: {nas_disk}"
     assert nas_disk["total_written"] == 1500000
     nas_names = [d["name"] for d in nas_disk["devices"]]
     assert "dm-0" in nas_names and "md0" in nas_names and "loop0" not in nas_names
@@ -1620,7 +1628,7 @@ node_network_receive_bytes_total{device="eth0"} 1000
 node_network_transmit_bytes_total{device="eth0"} 500
 """
     no_disk_parsed = _ne.parse_disk_counters(no_disk_fixture)
-    assert no_disk_parsed["total_read"]    is None, "no-devices must return None"
+    assert no_disk_parsed["total_read"] is None, "no-devices must return None"
     assert no_disk_parsed["total_written"] is None
 
     # FreeBSD fallback : hosts running the FreeBSD node-exporter
@@ -1640,7 +1648,8 @@ node_devstat_bytes_total{device="pass0",type="read"} 0
 node_devstat_bytes_total{device="pass0",type="write"} 0
 """
     bsd_disk = _ne.parse_disk_counters(bsd_fixture)
-    assert bsd_disk["total_read"]    == 4119181824, f"BSD read mismatch: {bsd_disk}"
+    assert bsd_disk is not None, "BSD disk-counters fixture should parse to a dict"
+    assert bsd_disk["total_read"] == 4119181824, f"BSD read mismatch: {bsd_disk}"
     assert bsd_disk["total_written"] == 14823682183168, f"BSD write mismatch: {bsd_disk}"
     bsd_names = [d["name"] for d in bsd_disk["devices"]]
     assert bsd_names == ["ada0"], f"only ada0 should pass BSD exclusion, got {bsd_names}"
@@ -1654,18 +1663,19 @@ node_devstat_bytes_total{device="pass0",type="write"} 0
     bsd_stats_before = _ne.parse_exporter_text(bsd_fixture)
     bsd_stats_before["host_net_rx_total"] = 0
     bsd_stats_before["host_net_tx_total"] = 0
-    bsd_stats_before["host_disk_read_total"]  = bsd_disk["total_read"]
+    bsd_stats_before["host_disk_read_total"] = bsd_disk["total_read"]
     bsd_stats_before["host_disk_write_total"] = bsd_disk["total_written"]
     bsd_baseline_row, bsd_prev = _compute_row(
         "bsd_host", bsd_t0, bsd_stats_before, None,
     )
+    assert bsd_prev is not None
     assert bsd_prev[3] == 4119181824 and bsd_prev[4] == 14823682183168, bsd_prev
     bsd_stats_after = dict(bsd_stats_before)
-    bsd_stats_after["host_disk_read_total"]  += 6 * 1024 * 1024
+    bsd_stats_after["host_disk_read_total"] += 6 * 1024 * 1024
     bsd_stats_after["host_disk_write_total"] += 3 * 1024 * 1024
     bsd_row, _ = _compute_row("bsd_host", bsd_t0 + 300, bsd_stats_after, bsd_prev)
     assert bsd_row is not None
-    assert abs(bsd_row["disk_read_bps"]  - (6 * 1024 * 1024) / 300) < 0.001, bsd_row
+    assert abs(bsd_row["disk_read_bps"] - (6 * 1024 * 1024) / 300) < 0.001, bsd_row
     assert abs(bsd_row["disk_write_bps"] - (3 * 1024 * 1024) / 300) < 0.001, bsd_row
 
     # Linux pass takes precedence: a host that emits BOTH families
@@ -1679,7 +1689,8 @@ node_devstat_bytes_total{device="ada0",type="read"}  9999999
 node_devstat_bytes_total{device="ada0",type="write"} 9999999
 """
     mixed_disk = _ne.parse_disk_counters(mixed_fixture)
-    assert mixed_disk["total_read"]    == 1000, f"Linux pass must win: {mixed_disk}"
+    assert mixed_disk is not None, "mixed disk-counters fixture should parse to a dict"
+    assert mixed_disk["total_read"] == 1000, f"Linux pass must win: {mixed_disk}"
     assert mixed_disk["total_written"] == 500
     mixed_names = [d["name"] for d in mixed_disk["devices"]]
     assert mixed_names == ["sda"], f"BSD branch must not run: {mixed_names}"
@@ -1688,6 +1699,7 @@ node_devstat_bytes_total{device="ada0",type="write"} 9999999
     # are meaningful so a row IS produced; rates simply absent.
     t0 = 1700000000.0
     row1, next1 = _compute_row("h1", t0, parsed, None)
+    assert next1 is not None
     assert next1 == (t0, 1000000, 500000, 4000000, 2000000), f"baseline mismatch: {next1}"
     assert row1 is not None and row1["net_rx_bps"] is None and row1["net_tx_bps"] is None
     assert row1["disk_read_bps"] is None and row1["disk_write_bps"] is None
@@ -1699,32 +1711,34 @@ node_devstat_bytes_total{device="ada0",type="write"} 9999999
     # Tick 2 — net counters bumped by 5 MB rx / 1 MB tx, disk bumped by
     # 6 MB read / 3 MB write, all over 5 minutes.
     bumped = dict(parsed)
-    bumped["host_net_rx_total"]    = 1000000 + 5 * 1024 * 1024
-    bumped["host_net_tx_total"]    = 500000  + 1 * 1024 * 1024
-    bumped["host_disk_read_total"]  = 4000000 + 6 * 1024 * 1024
+    bumped["host_net_rx_total"] = 1000000 + 5 * 1024 * 1024
+    bumped["host_net_tx_total"] = 500000 + 1 * 1024 * 1024
+    bumped["host_disk_read_total"] = 4000000 + 6 * 1024 * 1024
     bumped["host_disk_write_total"] = 2000000 + 3 * 1024 * 1024
     t1 = t0 + 300
     row2, next2 = _compute_row("h1", t1, bumped, next1)
     assert row2 is not None
+    assert next2 is not None
     assert abs(row2["net_rx_bps"] - (5 * 1024 * 1024) / 300) < 0.001, row2["net_rx_bps"]
     assert abs(row2["net_tx_bps"] - (1 * 1024 * 1024) / 300) < 0.001, row2["net_tx_bps"]
-    assert abs(row2["disk_read_bps"]  - (6 * 1024 * 1024) / 300) < 0.001, row2["disk_read_bps"]
+    assert abs(row2["disk_read_bps"] - (6 * 1024 * 1024) / 300) < 0.001, row2["disk_read_bps"]
     assert abs(row2["disk_write_bps"] - (3 * 1024 * 1024) / 300) < 0.001, row2["disk_write_bps"]
 
     # Tick 3 — net counter rollback (reboot) but disk counters keep
     # advancing normally. Disk rates should compute; net rates skip.
     # Validates the INDEPENDENCE of the two rate pairs.
     mixed = dict(parsed)
-    mixed["host_net_rx_total"] = 100   # post-reboot
+    mixed["host_net_rx_total"] = 100  # post-reboot
     mixed["host_net_tx_total"] = 50
-    mixed["host_disk_read_total"]  = next2[3] + 1024 * 1024  # +1 MB read
-    mixed["host_disk_write_total"] = next2[4] + 512 * 1024   # +512 KB write
+    mixed["host_disk_read_total"] = next2[3] + 1024 * 1024  # +1 MB read
+    mixed["host_disk_write_total"] = next2[4] + 512 * 1024  # +512 KB write
     t2 = t1 + 300
     row3, next3 = _compute_row("h1", t2, mixed, next2)
     assert row3 is not None
+    assert next3 is not None
     assert row3["net_rx_bps"] is None, "net rollback must skip"
     assert row3["net_tx_bps"] is None
-    assert row3["disk_read_bps"]  is not None, "disk pair must compute when its delta is in bounds"
+    assert row3["disk_read_bps"] is not None, "disk pair must compute when its delta is in bounds"
     assert row3["disk_write_bps"] is not None
     assert next3 == (t2, 100, 50, next2[3] + 1024 * 1024, next2[4] + 512 * 1024)
 
@@ -1735,12 +1749,13 @@ node_devstat_bytes_total{device="ada0",type="write"} 9999999
     # only assert disk pair behaviour.
     wrap = dict(parsed)
     wrap["host_net_rx_total"] = 100 + 2048
-    wrap["host_net_tx_total"] = 50  + 1024
-    wrap["host_disk_read_total"]  = next3[3] + (50 * 1024 * 1024 * 1024)  # 50 GB
+    wrap["host_net_tx_total"] = 50 + 1024
+    wrap["host_disk_read_total"] = next3[3] + (50 * 1024 * 1024 * 1024)  # 50 GB
     wrap["host_disk_write_total"] = next3[4] + 1024
     t3 = t2 + 300
     row4, next4 = _compute_row("h1", t3, wrap, next3)
     assert row4 is not None
+    assert next4 is not None
     assert row4["disk_read_bps"] is None, "out-of-bounds disk delta must skip"
     assert row4["disk_write_bps"] is None, (
         "single out-of-bounds field must skip BOTH disk rates"
@@ -1752,12 +1767,12 @@ node_devstat_bytes_total{device="ada0",type="write"} 9999999
     short = dict(parsed)
     short["host_net_rx_total"] = next4[1] + 1024
     short["host_net_tx_total"] = next4[2] + 1024
-    short["host_disk_read_total"]  = next4[3] + 1024
+    short["host_disk_read_total"] = next4[3] + 1024
     short["host_disk_write_total"] = next4[4] + 1024
     t4 = t3 + 30  # below _MIN_DELTA_SECONDS=60
     row5, _ = _compute_row("h1", t4, short, next4)
     assert row5 is not None
-    assert row5["net_rx_bps"]   is None and row5["net_tx_bps"]   is None
+    assert row5["net_rx_bps"] is None and row5["net_tx_bps"] is None
     assert row5["disk_read_bps"] is None and row5["disk_write_bps"] is None
 
     # Pre-fix cache shape (3-tuple) — backwards compat. Disk rates
@@ -1765,13 +1780,14 @@ node_devstat_bytes_total{device="ada0",type="write"} 9999999
     legacy_prev = (t0, 1000000, 500000)  # missing disk fields
     legacy_bumped = dict(parsed)
     legacy_bumped["host_net_rx_total"] = 1000000 + 1 * 1024 * 1024
-    legacy_bumped["host_net_tx_total"] = 500000  + 512 * 1024
-    legacy_bumped["host_disk_read_total"]  = 5 * 1024 * 1024
+    legacy_bumped["host_net_tx_total"] = 500000 + 512 * 1024
+    legacy_bumped["host_disk_read_total"] = 5 * 1024 * 1024
     legacy_bumped["host_disk_write_total"] = 3 * 1024 * 1024
     row6, next6 = _compute_row("h2", t0 + 300, legacy_bumped, legacy_prev)
     assert row6 is not None
+    assert next6 is not None
     assert row6["net_rx_bps"] is not None, "legacy 3-tuple prev still drives net rate"
-    assert row6["disk_read_bps"]  is None, "no disk anchor → skip first disk rate"
+    assert row6["disk_read_bps"] is None, "no disk anchor → skip first disk rate"
     assert row6["disk_write_bps"] is None
     assert len(next6) == 5, "next_counter must be the new 5-tuple shape"
 
@@ -1792,7 +1808,7 @@ node_devstat_bytes_total{device="ada0",type="write"} 9999999
     fake_prev = (t0, 1, 1, 100, 50)  # has disk anchor from previous tick
     nd_row, _ = _compute_row("hno", t0 + 300, no_disk_stats, fake_prev)
     assert nd_row is not None
-    assert nd_row["disk_read_bps"]  is None, "missing disk metrics → null rate"
+    assert nd_row["disk_read_bps"] is None, "missing disk metrics → null rate"
     assert nd_row["disk_write_bps"] is None
 
     print("[host_metrics_sampler] smoke test passed")

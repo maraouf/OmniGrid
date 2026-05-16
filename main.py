@@ -1968,7 +1968,7 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
     force-update the service. Single Operation row + history entry."""
     try:
         op.log(f"Cleanup overlay matching subnet {subnet}")
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=60.0) as client:
+        async with httpx.AsyncClient(verify=bool(portainer.VERIFY_TLS), timeout=60.0) as client:
             # Step 1 — list every overlay network on the endpoint.
             nets = await portainer.pg(
                 client,
@@ -2712,7 +2712,8 @@ async def api_history_csv_export(
     import csv
     import io
 
-    rows = _history_query(stack, op_type, status, actor, q, since, until, limit)
+    _raw_rows = _history_query(stack, op_type, status, actor, q, since, until, limit)
+    rows: list[dict] = _raw_rows if isinstance(_raw_rows, list) else []
     # Fixed column order — stable for spreadsheet pivots. `events` is
     # omitted from CSV (multi-line JSON doesn't round-trip cleanly); users
     # needing full event logs should export JSON.
@@ -3072,6 +3073,12 @@ class SettingsIn(BaseModel):
     # will introduce the actual call wrapper + writer for `ai_jobs`.
     # -----------------------------------------------------------------
     ai_enabled: Optional[bool] = None
+    # Opt-in toggle for the AI palette's public-IP / ISP / ASN context
+    # block. Default OFF for privacy — enabling allows the backend to
+    # reach ifconfig.co (a third-party JSON service) on AI calls so the
+    # model can answer "what's my public IP" / "which ISP" questions.
+    # See logic/public_ip.py for the cache + gate.
+    ai_public_ip_enabled: Optional[bool] = None
     ai_active_provider: Optional[str] = None
     # Provider fallback chain — opt-in resilience. When `ai_fallback_enabled`
     # is true AND the active provider returns a transient overload (HTTP
@@ -3591,7 +3598,7 @@ async def api_get_settings(request: Request):
                 {**g, "ssh": (lambda s: (
                     {k: v for k, v in s.items() if k != "password"}
                     | ({"password_set": True} if (s.get("password") or "") else {"password_set": False})
-                ))(g.get("ssh") if isinstance(g.get("ssh"), dict) else {})}
+                ))(g["ssh"] if isinstance(g.get("ssh"), dict) else {})}
                 for g in groups if isinstance(g, dict)
             ])(json.loads(raw) if (raw or "").strip() else [])
         ))(get_setting("host_groups") or ""),
@@ -3631,6 +3638,9 @@ async def api_get_settings(request: Request):
         # field to re-pick the new default on the next form load.
         "ai": {
             "enabled": (get_setting("ai_enabled", "false") or "false").lower() == "true",
+            # Public-IP lookup gate. Default OFF — see logic/public_ip.py
+            # docstring for the privacy rationale.
+            "public_ip_enabled": get_setting_bool("ai_public_ip_enabled", False),
             "active_provider": (get_setting("ai_active_provider") or "claude"),
             # max_tokens + fallback_max_depth are TUNABLES (DB > env >
             # default with bounds-clamp). /api/me reads them via
@@ -4435,8 +4445,12 @@ async def _api_set_settings_inner(s, request, _portainer):
             if not name:
                 continue
             try:
-                rs = int(g.get("range_start"))
-                re_ = int(g.get("range_end"))
+                _rs_raw = g.get("range_start")
+                _re_raw = g.get("range_end")
+                if _rs_raw is None or _re_raw is None:
+                    continue
+                rs = int(_rs_raw)
+                re_ = int(_re_raw)
             except (TypeError, ValueError):
                 continue
             if rs < 0 or re_ < rs:
@@ -4744,6 +4758,18 @@ async def _api_set_settings_inner(s, request, _portainer):
     _AI_PROVIDER_NAMES = _ai_supported_providers()
     if s.ai_enabled is not None:
         set_setting("ai_enabled", "true" if s.ai_enabled else "false")
+    if s.ai_public_ip_enabled is not None:
+        set_setting("ai_public_ip_enabled", "true" if s.ai_public_ip_enabled else "false")
+        # Invalidate the in-process cache so a freshly-enabled deploy
+        # doesn't serve a stale `None` left over from an earlier
+        # gate-off call (the helper short-circuits to None when the
+        # gate was off; without this clear the next AI call would
+        # still see the cached None until the 10-min TTL expired).
+        try:
+            from logic import public_ip as _pip_mod
+            _pip_mod.invalidate_cache()
+        except Exception:  # noqa: BLE001
+            pass
     if s.ai_active_provider is not None:
         active = (s.ai_active_provider or "").strip().lower()
         if active and active not in _AI_PROVIDER_NAMES:
@@ -5325,7 +5351,7 @@ async def api_admin_stats_database(
                         ).fetchone()[0]
                     except Exception:
                         cnt = 0
-                    stats.append((tname, int(cnt)))
+                    stats.append((tname, int(cnt or 0)))
                 stats.sort(key=lambda x: x[1], reverse=True)
                 for tname, cnt in stats[:5]:
                     tables_info.append({
@@ -5355,7 +5381,7 @@ async def api_admin_stats_database(
                         ).fetchone()[0]
                     except Exception:
                         cnt = 0
-                    qstats.append({"table": tname, "rows": int(cnt)})
+                    qstats.append({"table": tname, "rows": int(cnt or 0)})
                 qstats.sort(key=lambda x: x["rows"], reverse=True)
                 out["queries"] = qstats[:5]
             except Exception as e:
@@ -5971,7 +5997,7 @@ async def api_admin_stats_ai_cost(
             range_key = (range or "30d").strip().lower()
             if _stats_range_seconds(range_key) is None:
                 range_key = "30d"
-            range_seconds = _stats_range_seconds(range_key)
+            range_seconds = _stats_range_seconds(range_key) or 0
             range_cutoff = now_ts - range_seconds
             bucket_seconds = _stats_bucket_seconds_for_range(range_key)
             # Avg response time over operator-selected window, bucketed.
@@ -6114,7 +6140,10 @@ async def api_admin_stats_samples(
             try:
                 if cutoff_ts > 0:
                     bucket_seconds = int(sel["bucket_seconds"])
-                    for i in range(int(sel["n_buckets"]) + 1):
+                    # `range` shadowed by the parameter name above; use
+                    # builtins.range to avoid calling the str.
+                    import builtins as _b
+                    for i in _b.range(int(sel["n_buckets"]) + 1):
                         anchor_ts = cutoff_ts + i * bucket_seconds
                         anchor_key = c.execute(
                             f"SELECT strftime('{bucket_fmt}', ?, 'unixepoch')",
@@ -8913,8 +8942,8 @@ _webmin_host_fail_cache: dict[str, tuple[float, dict]] = {}
 # wall-clock on a healthy host) so caching the result for the burst
 # fan-out is the same win Webmin gets. Per-host id keying matches the
 # Webmin cache; SNMP is per-host, no central hub.
-_snmp_host_cache: dict[str, tuple[float, dict]] = {}
-_snmp_host_fail_cache: dict[str, tuple[float, dict]] = {}
+_snmp_host_cache: dict[tuple[Any, frozenset[str] | None], tuple[float, dict]] = {}
+_snmp_host_fail_cache: dict[tuple[Any, frozenset[str] | None], tuple[float, dict]] = {}
 
 
 def invalidate_host_provider_cache() -> None:
@@ -9315,7 +9344,7 @@ def _publish_provider_probe_event(host_id: str, provider: str, kind: str,
     """
     try:
         from logic import events as _events
-        payload = {
+        payload: dict[str, Any] = {
             "host_id": host_id,
             "provider": provider,
         }
@@ -10540,8 +10569,7 @@ def _shape_host_api_row(
         # every ping-enabled host with no indication of which port /
         # transport was actually being probed. Empty / null = inherit
         # global default. Transport is one of `tcp` / `icmp` / null.
-        "ping_port": (int((h.get("ping") or {}).get("port"))
-                      if (h.get("ping") or {}).get("port") is not None else None),
+        "ping_port": (int(_pp) if (_pp := (h.get("ping") or {}).get("port")) is not None else None),
         "ping_transport": ((h.get("ping") or {}).get("transport") or None),
         # Resolved ping TARGET — what `logic.ping_sampler._probe_one`
         # actually feeds to `probe_ping`. Resolution chain mirrors
@@ -10555,8 +10583,8 @@ def _shape_host_api_row(
         # parsed from the curated `url` field.
         "ping_target": _resolve_ping_target(h),
         "ping_alive": bool(s.get("host_ping_alive")) if s.get("host_ping_alive") is not None else None,
-        "ping_rtt_ms": (float(s.get("host_ping_rtt_ms")) if s.get("host_ping_rtt_ms") is not None else None),
-        "ping_loss_pct": (float(s.get("host_ping_loss_pct")) if s.get("host_ping_loss_pct") is not None else None),
+        "ping_rtt_ms": (float(_prtt) if (_prtt := s.get("host_ping_rtt_ms")) is not None else None),
+        "ping_loss_pct": (float(_plp) if (_plp := s.get("host_ping_loss_pct")) is not None else None),
         # Load averages (node-exporter primary, Beszel agents emit
         # `la=[1m,5m,15m]` which `extract_stats` now also surfaces here
         # so the load-average chart works for Beszel-only hosts too).
@@ -10613,7 +10641,7 @@ def _shape_host_api_row(
         "host_health": s.get("host_health") or "",
         "host_contact": s.get("host_contact") or "",
         "host_location": s.get("host_location") or "",
-        "host_temp_c": (float(s.get("host_temp_c")) if s.get("host_temp_c") is not None else None),
+        "host_temp_c": (float(_htc) if (_htc := s.get("host_temp_c")) is not None else None),
         "host_upgrade_status": s.get("host_upgrade_status") or "",
         # per-core CPU + UCD memory breakdown for the new
         # SNMP time-series charts. Empty list / 0 when the host
@@ -10626,11 +10654,11 @@ def _shape_host_api_row(
         # APC PowerNet-MIB UPS. Present only when the
         # host responded to upsBasicIdentModel / upsBasicOutputStatus.
         "host_ups_status": s.get("host_ups_status") or "",
-        "host_battery_percent": (float(s.get("host_battery_percent")) if s.get("host_battery_percent") is not None else None),
-        "host_battery_runtime_s": (int(s.get("host_battery_runtime_s")) if s.get("host_battery_runtime_s") is not None else None),
-        "host_battery_temp_c": (float(s.get("host_battery_temp_c")) if s.get("host_battery_temp_c") is not None else None),
+        "host_battery_percent": (float(_hbp) if (_hbp := s.get("host_battery_percent")) is not None else None),
+        "host_battery_runtime_s": (int(_hbrs) if (_hbrs := s.get("host_battery_runtime_s")) is not None else None),
+        "host_battery_temp_c": (float(_hbtc) if (_hbtc := s.get("host_battery_temp_c")) is not None else None),
         "host_battery_status": s.get("host_battery_status") or "",
-        "host_load_percent": (float(s.get("host_load_percent")) if s.get("host_load_percent") is not None else None),
+        "host_load_percent": (float(_hlp) if (_hlp := s.get("host_load_percent")) is not None else None),
         # Printer-MIB. Empty list / 0 / "" → frontend cards hide.
         "printer_page_count": int(s.get("printer_page_count") or 0),
         "printer_supplies": list(s.get("printer_supplies") or []),
@@ -10653,7 +10681,7 @@ def _shape_host_api_row(
         "host_dell_amperages": list(s.get("host_dell_amperages") or []),
         "host_dell_phys_disks": list(s.get("host_dell_phys_disks") or []),
         "host_dell_virt_disks": list(s.get("host_dell_virt_disks") or []),
-        "host_dell_power_watts": (float(s.get("host_dell_power_watts")) if s.get("host_dell_power_watts") is not None else None),
+        "host_dell_power_watts": (float(_hdpw) if (_hdpw := s.get("host_dell_power_watts")) is not None else None),
         "host_bios_version": s.get("host_bios_version") or "",
         "host_bios_date": s.get("host_bios_date") or "",
         # Last-observed SNMP auto-detect result — captured from the
@@ -12140,9 +12168,13 @@ async def api_hosts_provider_resume(
         except Exception as e:
             print(f"[hosts] provider/snmp/resume cooldown clear failed: {e}")
         # also drop the per-host SNMP success + fail caches so the next
-        # probe in `_merge_one_host` actually hits the wire.
-        _snmp_host_cache.pop(host_id, None)
-        _snmp_host_fail_cache.pop(host_id, None)
+        # probe in `_merge_one_host` actually hits the wire. Cache keys
+        # are (host_id, frozenset|None) tuples — drop every entry whose
+        # first slot matches this host.
+        for _k in [k for k in list(_snmp_host_cache.keys()) if k and k[0] == host_id]:
+            _snmp_host_cache.pop(_k, None)
+        for _k in [k for k in list(_snmp_host_fail_cache.keys()) if k and k[0] == host_id]:
+            _snmp_host_fail_cache.pop(_k, None)
     elif provider == "webmin":
         try:
             from logic import webmin as _webmin
@@ -12395,8 +12427,10 @@ async def api_hosts_test(
             if r.get("error"):
                 out["pulse"] = {"ok": False, "skipped": False,
                                 "detail": f"pulse error: {r['error']}"}
-            elif _pulse.lookup(r.get("hosts") or {}, pulse_name):
-                st = _pulse.lookup(r.get("hosts") or {}, pulse_name)
+            elif (st := _pulse.lookup(r.get("hosts") or {}, pulse_name)):
+                # Walrus binds once + type-narrows to non-None inside
+                # the truthy branch — was previously calling `lookup`
+                # twice (once for the truthiness check, once to bind).
                 kind = st.get("pulse_kind") or "host"
                 out["pulse"] = {"ok": True, "skipped": False,
                                 "detail": f"matched ({kind})"}
@@ -12420,7 +12454,8 @@ async def api_hosts_test(
             out["node_exporter"] = {"ok": False, "skipped": False,
                                     "detail": stats["exporter_error"]}
         else:
-            mem = stats.get("host_mem_total") or 0
+            _mem_raw = stats.get("host_mem_total") or 0
+            mem: int = int(_mem_raw) if isinstance(_mem_raw, (int, float)) else 0
             out["node_exporter"] = {
                 "ok": True, "skipped": False,
                 "detail": f"reachable · mem={mem // (1024 ** 3) if mem else '?'} GB",
@@ -12654,7 +12689,7 @@ def _item_samples_in_window(item_id: str, since_hours: int) -> dict:
         expected_interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
     except Exception:
         expected_interval = 180
-    out = {
+    out: dict[str, Any] = {
         "hours": int(max(1, since_hours)),
         "count": 0,
         "expected_interval_s": expected_interval,
@@ -16982,20 +17017,22 @@ async def api_hosts_port_scan(
         or (get_setting("port_scan_default_ports") or "").strip()
     )
     ports_list = _ps.parse_port_csv(ports_csv) if ports_csv else list(_ps.DEFAULT_PORTS)
-    timeout_s = (
+    _timeout_raw = (
         body.timeout_s
         if body.timeout_s is not None else
         ps_cfg.get("timeout_s")
         if ps_cfg.get("timeout_s") is not None else
         tuning.tuning_int(Tunable.PORT_SCAN_DEFAULT_TIMEOUT_SECONDS)
     )
-    concurrency = (
+    timeout_s: int = int(_timeout_raw) if _timeout_raw is not None else 0
+    _concurrency_raw = (
         body.concurrency
         if body.concurrency is not None else
         ps_cfg.get("concurrency")
         if ps_cfg.get("concurrency") is not None else
         tuning.tuning_int(Tunable.PORT_SCAN_DEFAULT_CONCURRENCY)
     )
+    concurrency: int = int(_concurrency_raw) if _concurrency_raw is not None else 0
     # UDP companion (Stage 2). Operator-flagged 2026-05-10: TCP and UDP
     # share a single master toggle (`port_scan_enabled`) — there's no
     # separate `port_scan_udp_enabled` flag anymore. UDP runs alongside
@@ -17020,20 +17057,22 @@ async def api_hosts_port_scan(
             _ps.parse_port_csv(udp_ports_csv) if udp_ports_csv
             else list(_ps_udp.DEFAULT_UDP_PORTS)
         )
-        udp_timeout_s = (
+        _udp_timeout_raw = (
             body.udp_timeout_s
             if body.udp_timeout_s is not None else
             ps_cfg.get("udp_timeout_s")
             if ps_cfg.get("udp_timeout_s") is not None else
             tuning.tuning_int(Tunable.PORT_SCAN_UDP_DEFAULT_TIMEOUT_SECONDS)
         )
-        udp_concurrency = (
+        udp_timeout_s = int(_udp_timeout_raw) if _udp_timeout_raw is not None else 0
+        _udp_concurrency_raw = (
             body.udp_concurrency
             if body.udp_concurrency is not None else
             ps_cfg.get("udp_concurrency")
             if ps_cfg.get("udp_concurrency") is not None else
             tuning.tuning_int(Tunable.PORT_SCAN_UDP_DEFAULT_CONCURRENCY)
         )
+        udp_concurrency = int(_udp_concurrency_raw) if _udp_concurrency_raw is not None else 0
     # Hard bound the scan duration. Outer wall-clock budget flows
     # through TUNABLES so the operator can raise it for large ranges
     # (the 11000-port range cap can reach 10-15 minutes on a slow link).
@@ -17683,6 +17722,32 @@ _WMO_CODES: dict[int, tuple[str, str]] = {
 }
 
 
+@app.get("/api/public-ip")
+async def api_public_ip(_admin: auth.User = Depends(auth.require_admin)):
+    """Admin-only public-IP + ISP / ASN lookup for the AI palette.
+
+    Gated behind the `ai_public_ip_enabled` setting (default OFF for
+    privacy — fetching reveals the deploy is reaching ifconfig.co).
+    The helper in `logic.public_ip` handles the cache + the gate
+    short-circuit; this endpoint just surfaces the result so the SPA
+    can fold it into the AI palette context block.
+
+    Returns `{enabled: false}` when the gate is off so the SPA knows
+    to omit the prompt block and the AI doesn't try to answer "what's
+    my public IP" from a refused/empty payload. On a soft fetch
+    failure (transient network blip) returns `{enabled: true, ip: null,
+    error: <detail>}` so the SPA can render a hint rather than
+    silently swallowing.
+    """
+    from logic import public_ip as _public_ip
+    if not _public_ip.is_enabled():
+        return {"enabled": False}
+    data = await _public_ip.fetch()
+    if data is None:
+        return {"enabled": True, "error": "lookup failed — see Admin → Logs"}
+    return {"enabled": True, **data}
+
+
 @app.get("/api/weather")
 async def api_weather(
     lat: Optional[float] = None,
@@ -18321,7 +18386,7 @@ async def api_local_login_totp(
             matched, new_blob = totp.consume_backup_code(
                 state["backup_codes_json"], code,
             )
-            if matched:
+            if matched and new_blob is not None:
                 verified = True
                 used_backup = True
                 auth.update_user_totp_backup_codes(c, user_id, new_blob)

@@ -83,7 +83,13 @@ def _format_message(title: str, body: str, severity: str) -> str:
 
     Title goes on the first line in bold (HTML parse_mode), body
     follows. Severity emoji prefixes the title for at-a-glance
-    triage.
+    triage — but ONLY when the title doesn't already lead with an
+    emoji of its own. Many notification templates carry a
+    semantic-specific emoji (🔄 restart, 🗑 remove, 🧹 prune,
+    🔓 sign-in, 🔍 scan, etc.) that ISN'T just a severity marker;
+    prepending the severity emoji on top of those produced
+    "✅ ✅ Stack updated: ..." style double-emoji output flagged
+    by operators.
     """
     emoji = _severity_emoji(severity)
     title_clean = (title or "").strip()
@@ -95,7 +101,17 @@ def _format_message(title: str, body: str, severity: str) -> str:
         return (s.replace("&", "&amp;")
                  .replace("<", "&lt;")
                  .replace(">", "&gt;"))
-    head = f"{emoji} <b>{_esc(title_clean)}</b>" if title_clean else emoji
+    # Detect an existing leading emoji. Cheap heuristic: any non-ASCII
+    # first character (codepoint > 0x7F) is treated as "title already
+    # has its own marker — don't prepend ours". Catches every emoji /
+    # symbol used in NOTIFY_TEMPLATE_DEFAULTS without enumerating them.
+    has_leading_emoji = bool(title_clean) and ord(title_clean[0]) > 0x7F
+    if has_leading_emoji:
+        head = f"<b>{_esc(title_clean)}</b>"
+    elif title_clean:
+        head = f"{emoji} <b>{_esc(title_clean)}</b>"
+    else:
+        head = emoji
     if body_clean:
         return f"{head}\n{_esc(body_clean)}"
     return head

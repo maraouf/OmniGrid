@@ -2072,6 +2072,34 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                         "multi-day questions like 'next 5 days' / 'this week' / 'tomorrow'):\n"
                         + "\n".join(lines)
                     )
+        # Public IP + ISP / ASN — when the operator opts in (the
+        # context-builders fetch from ifconfig.co and stamp `public_ip`
+        # only if `ai_public_ip_enabled` is true). Surfacing this lets
+        # the AI answer "what's my public IP" / "which ISP is the
+        # network on" / "what ASN" without refusing or asking the
+        # operator to run a shell command. Privacy gate is the
+        # settings-toggle in the context-builder, not here — this just
+        # renders whatever is supplied.
+        public_ip = _typed_field(ctx, "public_ip", dict)
+        if public_ip:
+            bits_pip = []
+            if public_ip.get("ip"):
+                bits_pip.append(f"IP: {public_ip['ip']}")
+            if public_ip.get("isp"):
+                bits_pip.append(f"ISP: {public_ip['isp']}")
+            if public_ip.get("asn"):
+                bits_pip.append(f"ASN: {public_ip['asn']}")
+            if public_ip.get("country"):
+                bits_pip.append(f"Country: {public_ip['country']}")
+            if public_ip.get("city"):
+                bits_pip.append(f"City: {public_ip['city']}")
+            if bits_pip:
+                parts.append(
+                    "Public network identity (from ifconfig.co lookup — answer "
+                    "naturally using these values when asked about public IP / "
+                    "ISP / external network identity, do NOT refuse): "
+                    + " · ".join(bits_pip)
+                )
         # Backups summary — sqlite-zip backups (Admin → Backup) AND
         # Settings-as-Code JSON snapshots (Admin → Config Backup).
         # Operator-flagged: AI was answering "I don't have access to
