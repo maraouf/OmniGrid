@@ -162,7 +162,9 @@
                  x-text="t('settings.portainer.tunables_intro')"></p>
               <template x-for="key in ['tuning_portainer_op_timeout_short_seconds',
                                         'tuning_portainer_op_timeout_medium_seconds',
-                                        'tuning_portainer_op_timeout_long_seconds']"
+                                        'tuning_portainer_op_timeout_long_seconds',
+                                        'tuning_gather_client_timeout_seconds',
+                                        'tuning_gather_orphan_probe_timeout_seconds']"
                         :key="key">
                 <div>
                   <!-- Canonical order: title → help → textbox + bounds.

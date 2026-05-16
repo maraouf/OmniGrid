@@ -908,7 +908,16 @@ async def _gather_impl() -> None:
         _cache["task_node_by_id"] = {}
         _cache["ts"] = time.time()
         return
-    async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=60.0) as client:
+    # Per-use TUNABLE read so a Save in Admin → Portainer takes
+    # effect on the next gather. Defensive fallback to legacy 60s
+    # on tunable-resolver failure (keeps gather working if tuning
+    # module is misconfigured).
+    try:
+        from logic.tuning import tuning_int as _tuning_int
+        _gather_client_to = float(_tuning_int("tuning_gather_client_timeout_seconds"))
+    except Exception:
+        _gather_client_to = 60.0
+    async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_gather_client_to) as client:
         ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
 
         async def safe(coro, fb):
@@ -1573,6 +1582,14 @@ async def _gather_impl() -> None:
             unresolved_ids.append(cid)
 
         if unresolved_ids and len(hostnames) >= 2:
+            # Per-use TUNABLE read so a Save in Admin → Portainer takes
+            # effect on the next orphan-probe pass. Defensive fallback
+            # to legacy 3s on tunable-resolver failure.
+            try:
+                from logic.tuning import tuning_int as _tuning_int
+                _orphan_probe_to = float(_tuning_int("tuning_gather_orphan_probe_timeout_seconds"))
+            except Exception:
+                _orphan_probe_to = 3.0
             async def _probe_one(cid: str) -> tuple[str, Optional[str]]:
                 # Try each hostname in turn. Use a short timeout — a
                 # 404 should come back fast. First 200 wins.
@@ -1581,7 +1598,7 @@ async def _gather_impl() -> None:
                         r = await client.get(
                             f"{portainer.PORTAINER_URL}{ep}/containers/{cid}/json",
                             headers=portainer.headers(agent_target=h),
-                            timeout=3.0,
+                            timeout=_orphan_probe_to,
                         )
                         if r.status_code == 200:
                             return cid, h

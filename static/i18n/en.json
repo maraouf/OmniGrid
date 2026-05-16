@@ -1387,12 +1387,35 @@
       }
     },
     "notifications": {
-      "tunables_heading": "Notifications tunables",
-      "tunables_intro": "Operator-tunable knobs for the notifications surface — DB retention window (how long to keep in-app entries), per-page count for the popup pagination, and SPA poll cadence. All edits commit through the notifications Save button alongside the per-medium / per-event toggles.",
+      "tunables_heading": "In-app notifications tunables",
+      "tunables_intro": "Knobs scoped to the in-app notifications surface — DB retention window (how long to keep entries), per-page count for the popup pagination, and SPA poll cadence. All edits commit through the notifications Save button.",
+      "tabs_label": "Notification channels",
+      "tabs_intro": "Pick the channel you want to configure. In-app keeps notifications inside OmniGrid; Apprise relays them to any of 100+ external services via webhook; Telegram delivers them to a Telegram chat / supergroup / topic. Per-event toggles below apply to every enabled channel uniformly.",
+      "tab_app": "In-app",
+      "tab_apprise": "Apprise",
+      "tab_telegram": "Telegram",
+      "tab_app_intro": "OmniGrid's built-in notifications page (the bell icon in the topbar). Always on — every event lands here regardless of whether external channels are configured. The retention / page-size / poll-cadence tunables below control how long entries survive in the DB and how the popup paginates.",
+      "tab_telegram_intro": "Send notifications to a Telegram chat. Works with direct messages (positive user_id), groups (negative chat_id), supergroups (chat_id prefixed with <code class=\"mono text-[var(--text-dim)]\">-100</code>), and forum topics (set the optional <strong>Topic ID</strong> below). Phase 1 = send-only; inbound commands arrive in a future phase.",
+      "medium_app_enable_label": "Enable in-app notifications fan-out",
+      "medium_apprise_enable_label": "Enable Apprise integration",
+      "medium_apprise_fanout_label": "Fan notifications out to Apprise on every enabled event",
+      "medium_telegram_enable_label": "Enable Telegram notifications",
+      "telegram_bot_token_label": "Bot token",
+      "telegram_bot_token_placeholder": "123456789:ABC-DEF...",
+      "telegram_bot_token_hint": "Get this from @BotFather on Telegram (/newbot, then /token if you misplace it). The bot needs at minimum \"send messages\" permission in the destination chat / supergroup.",
+      "telegram_chat_id_label": "Chat ID",
+      "telegram_chat_id_placeholder": "-1001234567890",
+      "telegram_chat_id_hint": "Direct messages: positive user_id (your own Telegram numeric id). Groups / supergroups / channels: negative integer, typically prefixed with -100. Get it by inviting your bot to the destination, sending /id, or via @userinfobot for personal DMs.",
+      "telegram_thread_id_label": "Topic ID (optional)",
+      "telegram_thread_id_placeholder": "12345",
+      "telegram_thread_id_hint": "Only set this when the destination is a supergroup with topics (forum mode) enabled AND you want notifications routed to a specific topic. Leave blank to post to the supergroup's main feed.",
+      "telegram_verify_tls": "Verify TLS",
+      "telegram_test_button": "Send test message",
       "mediums_title": "Delivery channels",
       "medium_help": "Each enabled event fans out to every channel below. Turn one off to silence it without disabling events globally — for example keep in-app on while quieting Apprise during a maintenance window.",
       "medium_app": "In-app notifications page",
       "medium_apprise": "Apprise (external)",
+      "medium_telegram": "Telegram (external)",
       "events": {
         "title": "Per-event notifications",
         "subtitle": "Enable / disable specific notification events. Test notifications always send regardless of these toggles.",
@@ -1883,6 +1906,14 @@
         "tuning_oidc_http_timeout_seconds": {
           "label": "OIDC HTTP timeout (seconds)",
           "help": "Wall-clock cap for every OIDC outbound HTTP call — discovery-doc GET, JWKS fetch, token exchange at callback, and the admin Test-connection probe. Default 15s. Lower (8-10s) on fast-fail watchdog deploys; raise (30-60s) when the IdP is behind a slow corporate proxy or VPN. Range 2..120. Takes effect on the next round-trip."
+        },
+        "tuning_gather_client_timeout_seconds": {
+          "label": "Gather fan-out HTTP timeout (seconds)",
+          "help": "Outer AsyncClient wall-clock for the main Portainer fan-out (containers + services + stacks + tasks + nodes walks). Default 60s. Lower on fast-fail deploys with a healthy Portainer; raise for large fleets (200+ containers) where the registry-digest probe inside each walk adds wall-clock. Range 5..600. Takes effect on the next gather."
+        },
+        "tuning_gather_orphan_probe_timeout_seconds": {
+          "label": "Gather orphan-probe timeout (seconds)",
+          "help": "Per-call wall-clock for the cross-host container-inspect probe that resolves which Swarm node owns an orphaned container (the inner loop tries each hostname in turn; a 404 should come back fast, a 200 wins immediately). Default 3s. Lower (1-2s) for tight fan-outs on responsive networks; raise (5-10s) for sluggish workers. Range 1..30. Takes effect on the next orphan-probe pass."
         },
         "tuning_pulse_sample_interval_seconds": {
           "label": "Pulse sampler interval (seconds)",

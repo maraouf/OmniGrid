@@ -1017,6 +1017,7 @@ function app() {
     beszelTestResult: null,
     pulseTestResult: null,
     webminTestResult: null,
+    telegramTestResult: null,
     // Ping test widget state. `pingTestHostId` is the curated
     // host_id picked from the dropdown of opted-in hosts; `pingTestResult`
     // mirrors the shape of the others (pending / ok / detail).
@@ -1321,6 +1322,10 @@ function app() {
       'tuning_portainer_op_timeout_short_seconds',
       'tuning_portainer_op_timeout_medium_seconds',
       'tuning_portainer_op_timeout_long_seconds',
+      // Gather fan-out client timeout + orphan-probe per-call timeout —
+      // also rendered in Admin → Portainer (gather talks to Portainer).
+      'tuning_gather_client_timeout_seconds',
+      'tuning_gather_orphan_probe_timeout_seconds',
       'tuning_webmin_host_cache_ttl_seconds', // → Settings → Host stats → Webmin
       'tuning_webmin_host_fail_cache_ttl_seconds',// → Settings → Host stats → Webmin
       // Swarm autoheal cooldown — fires from the `swarm_agent_health`
@@ -1732,6 +1737,21 @@ function app() {
       } catch {}
       return 'beszel';
     })(),
+    // Admin → Notifications tab strip (In-app / Apprise / Telegram).
+    // Mirrors the host-stats provider-tab pattern. Persists to
+    // localStorage so the operator returns to the same tab.
+    notificationsTab: (() => {
+      try {
+        const v = localStorage.getItem('notificationsTab');
+        if (v && ['app', 'apprise', 'telegram'].includes(v)) return v;
+      } catch {}
+      return 'app';
+    })(),
+    setNotificationsTab(name) {
+      if (!['app', 'apprise', 'telegram'].includes(name)) return;
+      this.notificationsTab = name;
+      try { localStorage.setItem('notificationsTab', name); } catch {}
+    },
     users: [],
     sessions: [], sessionsLoaded: false,
     usersLoaded: false, tokensLoaded: false,
@@ -1851,7 +1871,6 @@ function app() {
         const _idleDebug = (reason, extra) => {
           if (_idleDebugBudget <= 0) return;
           _idleDebugBudget -= 1;
-          try { console.debug('[idle-fill]', reason, extra || ''); } catch (_) {}
         };
         const idleFillTick = () => {
           try {
@@ -2149,12 +2168,6 @@ function app() {
             const dbLen = Array.isArray(dbConv) ? dbConv.length : 0;
             const lsLen = Array.isArray(lsConv) ? lsConv.length : 0;
             const conv = (lsLen > dbLen) ? lsConv : dbConv;
-            if (window.console && console.debug) {
-              console.debug('[ai-conv] hydration: db=' + dbLen + ' turns'
-                + ', localStorage=' + lsLen + ' turns'
-                + ', cutoff=' + cutoff
-                + ', selected=' + (conv === lsConv ? 'localStorage' : 'db'));
-            }
             if (Array.isArray(conv) && conv.length > 0) {
               // Filter rule: preserve every turn whose ts post-dates
               // the cleared cutoff. Pre-fix this passed `Number(t.ts)
@@ -8644,6 +8657,8 @@ function app() {
         'tuning_portainer_op_timeout_short_seconds',
         'tuning_portainer_op_timeout_medium_seconds',
         'tuning_portainer_op_timeout_long_seconds',
+        'tuning_gather_client_timeout_seconds',
+        'tuning_gather_orphan_probe_timeout_seconds',
       ];
       for (const k of tunableKeys) {
         const raw = tf[k];
@@ -8806,6 +8821,36 @@ function app() {
              && !!this._portainerLastPassedTest;
     },
 
+    async testTelegramConnection() {
+      // Mirrors testBeszelConnection — sends a one-shot probe message
+      // to the configured Telegram chat / thread, using the in-form
+      // values (bot_token / chat_id / thread_id). Falls back to the
+      // saved bot_token when the form field is blank (keep-current
+      // contract). Phase 1 send-only — result shown inline below the
+      // Test button.
+      this.telegramTestResult = { pending: true };
+      try {
+        const r = await fetch('/api/telegram/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bot_token: this.settings.telegram_bot_token || '',
+            chat_id:   (this.settings.telegram_chat_id || '').trim(),
+            thread_id: (this.settings.telegram_thread_id || '').trim(),
+          }),
+        });
+        const j = await r.json().catch(() => ({}));
+        this.telegramTestResult = {
+          pending: false,
+          ok: !!j.ok,
+          detail: j.detail || this.t(j.ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
+          status: j.status || 0,
+        };
+        if (j && j.ok) this.recordTestSuccess('telegram');
+      } catch (e) {
+        this.telegramTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
+      }
+    },
     async testBeszelConnection() {
       // Mirrors testPortainerConnection — probes the hub with the
       // current form values (or saved password if the field is blank)
@@ -10892,6 +10937,8 @@ function app() {
         'tuning_portainer_op_timeout_short_seconds',
         'tuning_portainer_op_timeout_medium_seconds',
         'tuning_portainer_op_timeout_long_seconds',
+        'tuning_gather_client_timeout_seconds',
+        'tuning_gather_orphan_probe_timeout_seconds',
       ];
       for (const k of tunableKeys) {
         const cur = (tf[k] == null ? '' : String(tf[k]).trim());
@@ -13331,9 +13378,6 @@ function app() {
       const isValidUserId = (typeof meId === 'number' && meId >= 0)
         || (typeof meId === 'string' && meId && !meId.startsWith('-'));
       if (!isValidUserId) {
-        if (window.console && console.debug) {
-          console.debug('[ai-conv] persist skipped — no valid user id', { me: this.me });
-        }
         return;
       }
       // Cap at 50 turns + drop in-flight bookkeeping (feedback-busy
@@ -13430,11 +13474,6 @@ function app() {
         if (window.console && console.warn) {
           console.warn('[ai-conv] persist to DB failed:', e);
         }
-      }
-      if (window.console && console.debug) {
-        console.debug('[ai-conv] persisted ' + turns.length + ' turns'
-          + ' (localStorage=' + (localStorageOk ? 'ok' : 'fail')
-          + ', db=' + (dbOk ? 'ok' : 'fail-' + dbStatus) + ')');
       }
     },
 

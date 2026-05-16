@@ -774,6 +774,27 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # read inside each oidc.py call site so a Save in Admin → Authentik
     # OIDC takes effect on the next round-trip without restart.
     "tuning_oidc_http_timeout_seconds": ("OIDC_HTTP_TIMEOUT_SECONDS", 15, 2, 120),
+
+    # Gather fan-out HTTP wall-clock (seconds) — outer AsyncClient
+    # timeout for the main `_gather_impl` Portainer fan-out (containers
+    # + services + stacks + tasks + nodes walks). Default 60s. Lower on
+    # fast-fail deploys with a healthy Portainer; raise for large fleets
+    # (200+ containers) where the registry-digest probe inside each
+    # walk adds wall-clock. Range 5..600. Per-use read inside
+    # `_gather_impl` so a Save in Admin → Portainer takes effect on the
+    # next gather without restart.
+    "tuning_gather_client_timeout_seconds": ("GATHER_CLIENT_TIMEOUT_SECONDS", 60, 5, 600),
+
+    # Gather orphaned-container probe timeout (seconds) — per-call
+    # wall-clock for the cross-host container-inspect probe that
+    # resolves which Swarm node owns a stale container (the inner loop
+    # tries each hostname in turn; a 404 should come back fast, a 200
+    # wins immediately). Default 3s. Lower (1-2s) for tight fan-outs on
+    # responsive networks; raise (5-10s) for sluggish workers.
+    # Range 1..30. Per-use read in `_probe_one` so a Save in Admin →
+    # Portainer takes effect on the next orphan-probe pass without
+    # restart.
+    "tuning_gather_orphan_probe_timeout_seconds": ("GATHER_ORPHAN_PROBE_TIMEOUT_SECONDS", 3, 1, 30),
 }
 
 
