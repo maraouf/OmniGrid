@@ -45,6 +45,7 @@ import httpx
 
 from logic import node_exporter as _ne
 from logic import tuning
+from logic.tuning import Tunable
 from logic.db import db_conn, get_setting
 
 
@@ -146,7 +147,7 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
     # hardcoded 10s if `tuning_int` raises (corrupt DB state).
     try:
         _ne_to = float(tuning.tuning_int(
-            "tuning_node_exporter_probe_timeout_seconds"))
+            Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS))
     except Exception:
         _ne_to = 10.0
     try:
@@ -205,7 +206,7 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
 
 
 def _prune_old_samples() -> int:
-    days = tuning.tuning_int("tuning_stats_history_days")
+    days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:
         with db_conn() as c:
@@ -234,7 +235,7 @@ async def host_net_sampler_loop() -> None:
     _last_counters.clear()
     # Wait a beat so the DB tables are created + hosts_config is loaded
     # before the first probe. Same pattern as stats_sampler_loop.
-    interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+    interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
     await asyncio.sleep(min(60, interval))
     tick = 0
     while True:
@@ -259,7 +260,7 @@ async def host_net_sampler_loop() -> None:
                     # failure.
                     try:
                         _outer_to = float(tuning.tuning_int(
-                            "tuning_node_exporter_probe_timeout_seconds")) * 1.5
+                            Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS)) * 1.5
                     except Exception:
                         _outer_to = 15.0
                     async with httpx.AsyncClient(verify=False, timeout=_outer_to) as client:
@@ -271,8 +272,8 @@ async def host_net_sampler_loop() -> None:
                                 await _probe_one(client, host)
                             except Exception as e:
                                 print(f"[host_net_sampler] {host.get('id')!r} unexpected: {e}")
-            interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
-            days = tuning.tuning_int("tuning_stats_history_days")
+            interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
+            days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
             if tick % max(1, 3600 // interval) == 0:
                 n = _prune_old_samples()
                 if n:

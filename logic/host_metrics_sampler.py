@@ -37,6 +37,7 @@ import httpx
 
 from logic import node_exporter as _ne
 from logic import tuning
+from logic.tuning import Tunable
 from logic.db import db_conn
 
 
@@ -455,7 +456,7 @@ async def _record_failure(
     # default. ``tuning.tuning_int`` always returns at least the code
     # default, so a fallback here is dead code
     try:
-        window = int(tuning.tuning_int("tuning_host_permanent_fail_window_seconds"))
+        window = int(tuning.tuning_int(Tunable.HOST_PERMANENT_FAIL_WINDOW_SECONDS))
     except Exception:
         window = 900
     if window < 60:
@@ -806,7 +807,7 @@ async def _probe_one(
         # legacy hardcoded 10s if `tuning_int` raises (corrupt DB).
         try:
             _ne_to = float(tuning.tuning_int(
-                "tuning_node_exporter_probe_timeout_seconds"))
+                Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS))
         except Exception:
             _ne_to = 10.0
         try:
@@ -950,7 +951,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
         version = ((snmp_cfg.get("version") or "").strip().lower()
                    or (_get_setting("snmp_default_version", "") or "v2c"))
         try:
-            port = int(snmp_cfg.get("port") or tuning.tuning_int("tuning_snmp_default_port"))
+            port = int(snmp_cfg.get("port") or tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT))
         except (TypeError, ValueError):
             port = 161
         v3_user = ((snmp_cfg.get("v3_user") or "").strip()
@@ -959,7 +960,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                    or _get_setting("snmp_v3_auth_key", "") or "")
         v3_priv = ((snmp_cfg.get("v3_priv_key") or "").strip()
                    or _get_setting("snmp_v3_priv_key", "") or "")
-        snmp_timeout = float(tuning.tuning_int("tuning_snmp_probe_timeout_seconds"))
+        snmp_timeout = float(tuning.tuning_int(Tunable.SNMP_PROBE_TIMEOUT_SECONDS))
         # Per-host walk_concurrency override (Dell iDRAC / Cisco IMC /
         # Supermicro IPMI need > 1 to fit pysnmp v7's per-walk overhead
         # inside the probe budget; safety-floor concurrency=1 stays the
@@ -982,7 +983,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
         # Round-count auto-pause threshold. 0 = disabled
         # (operator opted out). Per-tick read so an Admin → Config save
         # takes effect on the next tick without restart.
-        snmp_pause_rounds = tuning.tuning_int("tuning_snmp_failure_pause_rounds")
+        snmp_pause_rounds = tuning.tuning_int(Tunable.SNMP_FAILURE_PAUSE_ROUNDS)
         try:
             r = await _snmp.probe_snmp(
                 snmp_target,
@@ -1209,7 +1210,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
 
 
 def _prune_old_samples() -> int:
-    days = tuning.tuning_int("tuning_stats_history_days")
+    days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:
         with db_conn() as c:
@@ -1251,9 +1252,9 @@ def _resolve_outer_interval() -> int:
     sets one slower than the other. Per-sampler ``*_due`` gates inside
     the loop ensure each sub-probe only fires at its own cadence.
     """
-    global_iv = tuning.tuning_int("tuning_stats_sample_interval_seconds")
-    ne_iv     = tuning.tuning_int("tuning_node_exporter_sample_interval_seconds")
-    snmp_iv   = tuning.tuning_int("tuning_snmp_sample_interval_seconds")
+    global_iv = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
+    ne_iv     = tuning.tuning_int(Tunable.NODE_EXPORTER_SAMPLE_INTERVAL_SECONDS)
+    snmp_iv   = tuning.tuning_int(Tunable.SNMP_SAMPLE_INTERVAL_SECONDS)
     candidates = [global_iv or 300]
     if ne_iv > 0:
         candidates.append(ne_iv)
@@ -1291,16 +1292,16 @@ async def host_metrics_sampler_loop() -> None:
             # Falls back to the global stats interval when 0 so legacy
             # deployments keep their existing behaviour.
             if "node_exporter" in active:
-                ne_interval_cfg = tuning.tuning_int("tuning_node_exporter_sample_interval_seconds")
+                ne_interval_cfg = tuning.tuning_int(Tunable.NODE_EXPORTER_SAMPLE_INTERVAL_SECONDS)
                 ne_due = (ne_interval_cfg <= 0) or (now_ts - last_ne_ts >= ne_interval_cfg)
                 if ne_due:
                     hosts = _load_curated_hosts()
                     if hosts:
-                        sem = asyncio.Semaphore(tuning.tuning_int("tuning_host_metrics_probe_concurrency"))
+                        sem = asyncio.Semaphore(tuning.tuning_int(Tunable.HOST_METRICS_PROBE_CONCURRENCY))
                         # operator-tunable timeout shared with the
                         # other NE consumers in main.py. Pre-fix this was
                         # 15s while the other sites used 10s — drift class.
-                        _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
+                        _ne_timeout = tuning.tuning_int(Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS)
                         async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as client:
                             await asyncio.gather(
                                 *(_probe_one(client, h, sem) for h in hosts),
@@ -1318,20 +1319,20 @@ async def host_metrics_sampler_loop() -> None:
             # the global stats interval when 0 so legacy deployments
             # keep their existing behaviour.
             if "snmp" in active:
-                snmp_interval = tuning.tuning_int("tuning_snmp_sample_interval_seconds")
+                snmp_interval = tuning.tuning_int(Tunable.SNMP_SAMPLE_INTERVAL_SECONDS)
                 snmp_due = (snmp_interval <= 0) or (now_ts - last_snmp_ts >= snmp_interval)
                 if snmp_due:
                     snmp_hosts = _load_curated_snmp_hosts()
                     if snmp_hosts:
                         snmp_sem = asyncio.Semaphore(
-                            tuning.tuning_int("tuning_snmp_concurrency"))
+                            tuning.tuning_int(Tunable.SNMP_CONCURRENCY))
                         await asyncio.gather(
                             *(_probe_one_snmp(h, snmp_sem) for h in snmp_hosts),
                             return_exceptions=True,
                         )
                     last_snmp_ts = now_ts
             interval = _resolve_outer_interval()
-            days = tuning.tuning_int("tuning_stats_history_days")
+            days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
             if tick % max(1, 3600 // interval) == 0:
                 n = _prune_old_samples()
                 if n:

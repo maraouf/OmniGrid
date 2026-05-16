@@ -339,8 +339,8 @@ def load_host_snapshots() -> dict[str, dict]:
     """
     now = time.time()
     try:
-        from logic.tuning import tuning_int
-        ttl = float(tuning_int("tuning_host_snapshots_cache_ttl_seconds"))
+        from logic.tuning import Tunable, tuning_int
+        ttl = float(tuning_int(Tunable.HOST_SNAPSHOTS_CACHE_TTL_SECONDS))
     except Exception:
         ttl = 5.0
     cached_map = _snapshots_cache.get("map")
@@ -406,8 +406,8 @@ def apply_host_snapshot_fallback(
     # gather without restart. Hours converted to seconds for the
     # `now - first_stale_ts > grace` comparison below.
     try:
-        from logic.tuning import tuning_int
-        grace_hours = float(tuning_int("tuning_host_snapshot_stale_field_max_age_hours"))
+        from logic.tuning import Tunable, tuning_int
+        grace_hours = float(tuning_int(Tunable.HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS))
     except Exception:
         grace_hours = 24.0
     grace_window_s = max(1.0, grace_hours) * 3600.0
@@ -537,8 +537,8 @@ def seed_nodes_info_from_snapshots() -> int:
     # apply_host_snapshot_fallback. Resolved once for the whole seed
     # pass since startup is a single moment in wall-clock time.
     try:
-        from logic.tuning import tuning_int
-        grace_hours = float(tuning_int("tuning_host_snapshot_stale_field_max_age_hours"))
+        from logic.tuning import Tunable, tuning_int
+        grace_hours = float(tuning_int(Tunable.HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS))
     except Exception:
         grace_hours = 24.0
     grace_window_s = max(1.0, grace_hours) * 3600.0
@@ -913,8 +913,8 @@ async def _gather_impl() -> None:
     # on tunable-resolver failure (keeps gather working if tuning
     # module is misconfigured).
     try:
-        from logic.tuning import tuning_int as _tuning_int
-        _gather_client_to = float(_tuning_int("tuning_gather_client_timeout_seconds"))
+        from logic.tuning import Tunable, tuning_int as _tuning_int
+        _gather_client_to = float(_tuning_int(Tunable.GATHER_CLIENT_TIMEOUT_SECONDS))
     except Exception:
         _gather_client_to = 60.0
     async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_gather_client_to) as client:
@@ -1244,10 +1244,11 @@ async def _gather_impl() -> None:
         if "snmp" in active_sources and df_hosts:
             from logic import snmp as _snmp
             from logic import tuning as _tuning
+            from logic.tuning import Tunable
             default_community = get_setting("snmp_default_community", "") or "public"
             default_version = (get_setting("snmp_default_version", "") or "v2c").strip().lower()
             try:
-                default_port = _tuning.tuning_int("tuning_snmp_default_port")
+                default_port = _tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT)
             except (TypeError, ValueError):
                 default_port = 161
             v3_user = get_setting("snmp_v3_user", "") or ""
@@ -1261,8 +1262,8 @@ async def _gather_impl() -> None:
                 snmp_aliases_raw = {}
             snmp_hosts_cfg = _load_hosts_config_for_gather()
             # per-tick reads of probe-timeout + concurrency-cap tunables.
-            snmp_timeout = float(_tuning.tuning_int("tuning_snmp_probe_timeout_seconds"))
-            snmp_sem = asyncio.Semaphore(_tuning.tuning_int("tuning_snmp_concurrency"))
+            snmp_timeout = float(_tuning.tuning_int(Tunable.SNMP_PROBE_TIMEOUT_SECONDS))
+            snmp_sem = asyncio.Semaphore(_tuning.tuning_int(Tunable.SNMP_CONCURRENCY))
 
             async def _one_snmp(h: str):
                 row = _match_hosts_row(h, snmp_hosts_cfg)
@@ -1372,8 +1373,8 @@ async def _gather_impl() -> None:
             # without a restart. Defensive fallback to legacy 10s if the
             # tunable resolver raises (corrupt DB state).
             try:
-                from logic.tuning import tuning_int as _tuning_int
-                _ne_to = float(_tuning_int("tuning_node_exporter_probe_timeout_seconds"))
+                from logic.tuning import Tunable as _Tunable, tuning_int as _tuning_int
+                _ne_to = float(_tuning_int(_Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS))
             except Exception:
                 _ne_to = 10.0
             async with httpx.AsyncClient(verify=False, timeout=_ne_to) as ne_client:
@@ -1586,8 +1587,8 @@ async def _gather_impl() -> None:
             # effect on the next orphan-probe pass. Defensive fallback
             # to legacy 3s on tunable-resolver failure.
             try:
-                from logic.tuning import tuning_int as _tuning_int
-                _orphan_probe_to = float(_tuning_int("tuning_gather_orphan_probe_timeout_seconds"))
+                from logic.tuning import Tunable as _Tunable, tuning_int as _tuning_int
+                _orphan_probe_to = float(_tuning_int(_Tunable.GATHER_ORPHAN_PROBE_TIMEOUT_SECONDS))
             except Exception:
                 _orphan_probe_to = 3.0
             async def _probe_one(cid: str) -> tuple[str, Optional[str]]:

@@ -125,9 +125,8 @@ def _resolve_default_port() -> int:
     # resolver returns a valid port. Defaults to 443 (HTTPS) when no
     # override is set.
     from logic import tuning as _tuning
-    from logic.tuning import Tunable
     try:
-        return _tuning.tuning_int(Tunable.PING_DEFAULT_PORT) or 443
+        return _tuning.tuning_int(_Tunable.PING_DEFAULT_PORT) or 443
     except Exception:
         return 443
 
@@ -306,7 +305,7 @@ async def ping_sampler_loop() -> None:
                         return_exceptions=True,
                     )
             interval = _resolve_ping_interval()
-            days = tuning.tuning_int("tuning_stats_history_days")
+            days = tuning.tuning_int(_Tunable.STATS_HISTORY_DAYS)
             if tick % max(1, 3600 // interval) == 0:
                 n = _prune_old_samples()
                 if n:

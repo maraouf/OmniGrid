@@ -2904,6 +2904,8 @@
     "ssh_terminal": "ssh terminal",
     "ai_palette": "AI palette",
     "ai_host_filter": "AI host filter",
+    "ai_telegram": "AI (Telegram)",
+    "telegram_command": "Telegram command",
     "port_scan": "port scan",
     "gather_refresh": "gather refresh",
     "backup": "backup",

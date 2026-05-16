@@ -33,6 +33,7 @@ from typing import Optional
 
 from logic import pulse as _pulse
 from logic import tuning
+from logic.tuning import Tunable
 from logic.db import (
     db_conn,
     get_setting,
@@ -102,7 +103,7 @@ async def _probe_one_tick() -> dict:
     verify_tls = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
     if not base_url or not token:
         return {}
-    timeout = float(tuning.tuning_int("tuning_pulse_probe_timeout_seconds")) or 15.0
+    timeout = float(tuning.tuning_int(Tunable.PULSE_PROBE_TIMEOUT_SECONDS)) or 15.0
     try:
         result = await _pulse.probe_pulse(
             base_url, token, verify_tls=verify_tls, timeout=timeout,
@@ -208,7 +209,7 @@ async def _persist_tick(rows: list[tuple]) -> None:
 
 async def _prune_old_rows() -> None:
     """Drop rows older than ``STATS_HISTORY_DAYS`` (default 7)."""
-    days = max(1, int(tuning.tuning_int("tuning_stats_history_days")) or 7)
+    days = max(1, int(tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)) or 7)
     cutoff = int(time.time() - days * 86400)
     try:
         with db_conn() as c:
@@ -232,9 +233,9 @@ async def host_pulse_sampler_loop() -> None:
         while True:
             # Pulse-specific interval > 0 overrides the global stats
             # interval; 0 = inherit (legacy / parity with Beszel knob).
-            pulse_interval = int(tuning.tuning_int("tuning_pulse_sample_interval_seconds"))
+            pulse_interval = int(tuning.tuning_int(Tunable.PULSE_SAMPLE_INTERVAL_SECONDS))
             interval = (pulse_interval if pulse_interval > 0
-                        else int(tuning.tuning_int("tuning_stats_sample_interval_seconds"))) or 300
+                        else int(tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS))) or 300
             interval = max(30, interval)
             iter_count += 1
             # Unconditional per-iteration log — fires BEFORE the

@@ -925,8 +925,8 @@ async def _run_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
             # clamp) — same canonical resolution path as the manual
             # "Create backup" button uses.
             try:
-                from logic.tuning import tuning_int as _tuning_int
-                keep = _tuning_int("tuning_backup_retention_count")
+                from logic.tuning import Tunable, tuning_int as _tuning_int
+                keep = _tuning_int(Tunable.BACKUP_RETENTION_COUNT)
             except (TypeError, ValueError):
                 keep = 0
             if keep > 0:
@@ -1105,6 +1105,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
     async def runner() -> tuple[int, str]:
         from logic import logs as _logs_mod
         from logic import tuning as _tuning_mod
+        from logic.tuning import Tunable
 
         started = time.time()
         status = "success"
@@ -1119,15 +1120,15 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
             # crash on a non-int. Clamping to the same
             # [1, 365] range as TUNABLES["tuning_log_retention_days"]
             # keeps the schedule UI consistent with Admin → Config.
-            _, _, _lo, _hi = _tuning_mod.TUNABLES["tuning_log_retention_days"]
+            _, _, _lo, _hi = _tuning_mod.TUNABLES[Tunable.LOG_RETENTION_DAYS]
             override = params.get("days") if isinstance(params, dict) else None
             if override is not None and str(override).strip():
                 try:
                     days = int(str(override).strip())
                 except ValueError:
-                    days = _tuning_mod.tuning_int("tuning_log_retention_days")
+                    days = _tuning_mod.tuning_int(Tunable.LOG_RETENTION_DAYS)
             else:
-                days = _tuning_mod.tuning_int("tuning_log_retention_days")
+                days = _tuning_mod.tuning_int(Tunable.LOG_RETENTION_DAYS)
             days = max(_lo, min(_hi, days))
             removed = _logs_mod.prune_old_logs(days)
         except Exception as e:
@@ -1182,6 +1183,7 @@ async def _run_prune_notifications(
 
     async def runner() -> tuple[int, str]:
         from logic import tuning as _tuning_mod
+        from logic.tuning import Tunable
 
         started = time.time()
         status = "success"
@@ -1189,15 +1191,15 @@ async def _run_prune_notifications(
         removed = 0
         days: Optional[int] = None
         try:
-            _, _, _lo, _hi = _tuning_mod.TUNABLES["tuning_notification_retention_days"]
+            _, _, _lo, _hi = _tuning_mod.TUNABLES[Tunable.NOTIFICATION_RETENTION_DAYS]
             override = params.get("days") if isinstance(params, dict) else None
             if override is not None and str(override).strip():
                 try:
                     days = int(str(override).strip())
                 except ValueError:
-                    days = _tuning_mod.tuning_int("tuning_notification_retention_days")
+                    days = _tuning_mod.tuning_int(Tunable.NOTIFICATION_RETENTION_DAYS)
             else:
-                days = _tuning_mod.tuning_int("tuning_notification_retention_days")
+                days = _tuning_mod.tuning_int(Tunable.NOTIFICATION_RETENTION_DAYS)
             days = max(_lo, min(_hi, days))
             cutoff = int(time.time()) - days * 86400
             with db_conn() as c:
@@ -1362,6 +1364,7 @@ async def _run_swarm_agent_health(
     async def runner() -> tuple[int, str]:
         from logic import stats as _stats_mod
         from logic import tuning as _tuning_mod
+        from logic.tuning import Tunable
         from logic.db import get_setting
 
         global _swarm_autoheal_last_restart_ts
@@ -1376,7 +1379,7 @@ async def _run_swarm_agent_health(
         unhealthy_hosts: list[str] = []
         try:
             threshold = _tuning_mod.tuning_int(
-                "tuning_swarm_agent_unhealthy_threshold",
+                Tunable.SWARM_AGENT_UNHEALTHY_THRESHOLD,
             )
             health = _stats_mod.get_agent_health() or {}
             unhealthy_hosts = sorted([
@@ -1390,7 +1393,7 @@ async def _run_swarm_agent_health(
                           or "notify").lower()
                 if action == "restart":
                     cooldown_min = _tuning_mod.tuning_int(
-                        "tuning_swarm_autoheal_cooldown_minutes",
+                        Tunable.SWARM_AUTOHEAL_COOLDOWN_MINUTES,
                     )
                     elapsed_s = started - _swarm_autoheal_last_restart_ts
                     if _swarm_autoheal_last_restart_ts > 0 \
@@ -1645,6 +1648,7 @@ async def _run_port_scan_refresh(
         # (main.py imports logic.schedules at module load).
         import main as _main
         from logic import tuning as _tuning_mod
+        from logic.tuning import Tunable
         from logic.db import get_setting_bool
 
         started = time.time()
@@ -1676,13 +1680,13 @@ async def _run_port_scan_refresh(
                 return (duration, "success")
 
             max_hosts = _tuning_mod.tuning_int(
-                "tuning_port_scan_schedule_max_hosts_per_tick"
+                Tunable.PORT_SCAN_SCHEDULE_MAX_HOSTS_PER_TICK
             )
             min_age = _tuning_mod.tuning_int(
-                "tuning_port_scan_schedule_min_age_seconds"
+                Tunable.PORT_SCAN_SCHEDULE_MIN_AGE_SECONDS
             )
             per_host_conc = _tuning_mod.tuning_int(
-                "tuning_port_scan_schedule_per_host_concurrency"
+                Tunable.PORT_SCAN_SCHEDULE_PER_HOST_CONCURRENCY
             )
 
             # 1. Read curated host list — source of truth for "which
@@ -1817,14 +1821,14 @@ async def _run_port_scan_refresh(
                     ps_cfg.get("timeout_s")
                     if ps_cfg.get("timeout_s") is not None
                     else _tuning_mod.tuning_int(
-                        "tuning_port_scan_default_timeout_seconds"
+                        Tunable.PORT_SCAN_DEFAULT_TIMEOUT_SECONDS
                     )
                 )
                 concurrency = (
                     ps_cfg.get("concurrency")
                     if ps_cfg.get("concurrency") is not None
                     else _tuning_mod.tuning_int(
-                        "tuning_port_scan_default_concurrency"
+                        Tunable.PORT_SCAN_DEFAULT_CONCURRENCY
                     )
                 )
                 # Schedule never enables UDP — UDP probes are louder and
@@ -1833,7 +1837,7 @@ async def _run_port_scan_refresh(
                 # land in Stage 2 if the user asks for it.
                 udp_enabled = False
                 max_seconds = _tuning_mod.tuning_int(
-                    "tuning_port_scan_max_seconds"
+                    Tunable.PORT_SCAN_MAX_SECONDS
                 )
                 snmp_cfg = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
                 snmp_community = (
@@ -1976,8 +1980,8 @@ async def _run_config_backup(params: dict) -> tuple[str, Awaitable[tuple[int, st
             snap_name = result.get("name")
             print(f"[scheduler] config_backup created: {snap_name}")
             try:
-                from logic.tuning import tuning_int as _tuning_int
-                keep = _tuning_int("tuning_config_backup_retention_count")
+                from logic.tuning import Tunable, tuning_int as _tuning_int
+                keep = _tuning_int(Tunable.CONFIG_BACKUP_RETENTION_COUNT)
             except (TypeError, ValueError):
                 keep = 0
             if keep > 0:

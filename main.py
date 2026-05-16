@@ -85,6 +85,7 @@ from logic.version import APP_VERSION, read_version
 from logic import db as _db  # noqa: E402
 from logic.db import DB_PATH, db_conn, get_setting, get_setting_bool, set_setting, active_host_stats_providers  # noqa: E402,F401
 from logic import tuning  # noqa: E402
+from logic.tuning import Tunable  # noqa: E402
 from logic import host_baseline as _host_baseline  # noqa: E402
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
@@ -1419,7 +1420,7 @@ async def _log_pruner_loop() -> None:
     await asyncio.sleep(60)
     while True:
         try:
-            days = tuning.tuning_int("tuning_log_retention_days")
+            days = tuning.tuning_int(Tunable.LOG_RETENTION_DAYS)
             removed = _logs_mod.prune_old_logs(days)
             if removed:
                 print(f"[logs] pruned {removed} log file(s) older than {days}d")
@@ -1454,7 +1455,7 @@ async def api_stats(force: bool = False):
     """
     now = time.time()
     has_cached_stats = bool(_stats_cache.get("stats"))
-    cache_stale = (now - _stats_cache["ts"]) > tuning.tuning_int("tuning_stats_cache_ttl_seconds")
+    cache_stale = (now - _stats_cache["ts"]) > tuning.tuning_int(Tunable.STATS_CACHE_TTL_SECONDS)
     stats_refreshing = False
 
     if not has_cached_stats:
@@ -1494,7 +1495,7 @@ async def api_stats(force: bool = False):
     # healthy fleet (most common case). See `logic/stats.py` for the
     # detection logic at the end of `gather_stats`.
     from logic.stats import get_agent_health as _get_agent_health
-    threshold = tuning.tuning_int("tuning_swarm_agent_unhealthy_threshold")
+    threshold = tuning.tuning_int(Tunable.SWARM_AGENT_UNHEALTHY_THRESHOLD)
     health_map = _get_agent_health() or {}
     unhealthy_agents = [
         {
@@ -1531,7 +1532,7 @@ async def api_stats_history(item_id: str, hours: int = 24):
     ~120 points regardless of window so inline sparklines don't accumulate
     multi-hundred points for the 24h+ default range.
     """
-    hours = max(1, min(hours, tuning.tuning_int("tuning_stats_history_days") * 24))
+    hours = max(1, min(hours, tuning.tuning_int(Tunable.STATS_HISTORY_DAYS) * 24))
     ids = [s.strip() for s in item_id.split(",") if s.strip()]
     since = time.time() - hours * 3600
     raw_series = _stats_history(ids, since)
@@ -1564,7 +1565,7 @@ async def api_items(force: bool = False):
     cached to serve, so blocking is the only honest option.
     """
     now = time.time()
-    cache_ttl = tuning.tuning_int("tuning_cache_ttl_seconds")
+    cache_ttl = tuning.tuning_int(Tunable.CACHE_TTL_SECONDS)
     has_cached_data = bool(_cache.get("items"))
     cache_stale = (now - _cache["ts"]) > cache_ttl
     cache_refreshing = False
@@ -2436,8 +2437,8 @@ async def api_events(request: Request):
         # state indicator surfaces in its tooltip.
         # heartbeat cadence is operator-tunable; resolve per
         # connection-open so a Save takes effect on the next reconnect.
-        heartbeat_seconds = tuning.tuning_int("tuning_sse_heartbeat_seconds")
-        max_lifetime_seconds = tuning.tuning_int("tuning_sse_max_lifetime_seconds")
+        heartbeat_seconds = tuning.tuning_int(Tunable.SSE_HEARTBEAT_SECONDS)
+        max_lifetime_seconds = tuning.tuning_int(Tunable.SSE_MAX_LIFETIME_SECONDS)
         yield _format_sse({
             "type": "hello",
             "ts": time.time(),
@@ -3605,13 +3606,13 @@ async def api_get_settings(request: Request):
             # the consumers + /api/me read via `tuning_int(...)` — same
             # field, two DB keys, /api/settings and /api/me silently
             # diverged.
-            "max_tokens":      tuning.tuning_int("tuning_ai_max_tokens"),
+            "max_tokens":      tuning.tuning_int(Tunable.AI_MAX_TOKENS),
             # Provider fallback chain config — opt-in, off by default so
             # existing deploys don't suddenly start cost-shifting traffic
             # to alternate providers without operator awareness.
             "fallback_enabled":   (get_setting("ai_fallback_enabled", "false") or "false").lower() == "true",
             "fallback_order":     get_setting("ai_fallback_order", "") or "",
-            "fallback_max_depth": tuning.tuning_int("tuning_ai_fallback_max_depth"),
+            "fallback_max_depth": tuning.tuning_int(Tunable.AI_FALLBACK_MAX_DEPTH),
             "providers": {
                 name: {
                     "enabled":     (get_setting(f"ai_provider_{name}_enabled", "false") or "false").lower() == "true",
@@ -3629,7 +3630,7 @@ async def api_get_settings(request: Request):
             },
         },
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
-        "backup_retention_count": tuning.tuning_int("tuning_backup_retention_count"),
+        "backup_retention_count": tuning.tuning_int(Tunable.BACKUP_RETENTION_COUNT),
         "scheduler_timezone": get_setting("scheduler_timezone", "") or "",
         # Host-drawer admin debug panel visibility (Admin → Hosts toggle).
         # Default true — preserves the legacy behaviour for existing
@@ -3688,7 +3689,7 @@ async def api_get_settings(request: Request):
         # missing.
         "ping": {
             "enabled":          get_setting_bool("ping_enabled", False),
-            "default_port":     tuning.tuning_int("tuning_ping_default_port"),
+            "default_port":     tuning.tuning_int(Tunable.PING_DEFAULT_PORT),
             "use_icmp":         get_setting_bool("ping_use_icmp", False),
             "has_icmp_support": (lambda: __import__("logic.ping", fromlist=["has_icmp_support"]).has_icmp_support())(),
         },
@@ -3709,16 +3710,16 @@ async def api_get_settings(request: Request):
             # path migrate naturally — `tuning_int` resolves DB > env >
             # default and the legacy rows continue to seed the DB
             # value. Per the No-static-config rule.
-            "default_timeout":   tuning.tuning_int("tuning_port_scan_default_timeout_seconds"),
-            "default_concurrency": tuning.tuning_int("tuning_port_scan_default_concurrency"),
+            "default_timeout":   tuning.tuning_int(Tunable.PORT_SCAN_DEFAULT_TIMEOUT_SECONDS),
+            "default_concurrency": tuning.tuning_int(Tunable.PORT_SCAN_DEFAULT_CONCURRENCY),
             # Stage 2 (UDP). UDP runs under the master `enabled` toggle
             # (operator-flagged 2026-05-10 to remove the separate
             # `udp_enabled` flag). Field kept on the response for
             # back-compat with older SPA builds; new SPA ignores it.
             "udp_enabled":         True,
             "udp_default_ports":   get_setting("port_scan_udp_default_ports", "") or "",
-            "udp_default_timeout": tuning.tuning_int("tuning_port_scan_udp_default_timeout_seconds"),
-            "udp_default_concurrency": tuning.tuning_int("tuning_port_scan_udp_default_concurrency"),
+            "udp_default_timeout": tuning.tuning_int(Tunable.PORT_SCAN_UDP_DEFAULT_TIMEOUT_SECONDS),
+            "udp_default_concurrency": tuning.tuning_int(Tunable.PORT_SCAN_UDP_DEFAULT_CONCURRENCY),
         },
         # SNMP. v3 secret keys follow the write-only ``_set``
         # flag contract; community, version, port, aliases round-trip
@@ -3730,7 +3731,7 @@ async def api_get_settings(request: Request):
         "snmp": {
             "default_community":   get_setting("snmp_default_community", "public") or "public",
             "default_version":     (get_setting("snmp_default_version", "v2c") or "v2c").strip().lower(),
-            "default_port":        tuning.tuning_int("tuning_snmp_default_port"),
+            "default_port":        tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT),
             "v3_user":             get_setting("snmp_v3_user", "") or "",
             "v3_auth_key_set":     bool(get_setting("snmp_v3_auth_key", "")),
             "v3_priv_key_set":     bool(get_setting("snmp_v3_priv_key", "")),
@@ -3765,7 +3766,7 @@ async def api_get_settings(request: Request):
         # editable regex — shown verbatim for the textarea.
         "ssh": {
             "user":            get_setting("ssh_default_user", "") or "",
-            "port":            tuning.tuning_int("tuning_ssh_default_port"),
+            "port":            tuning.tuning_int(Tunable.SSH_DEFAULT_PORT),
             "private_key_set": bool(get_setting("ssh_default_private_key", "")),
             "passphrase_set":  bool(get_setting("ssh_default_private_key_passphrase", "")),
             "password_set":    bool(get_setting("ssh_default_password", "")),
@@ -4974,7 +4975,7 @@ def _resolve_ai_fallback_chain(active: str) -> tuple[bool, list[str], dict[str, 
         # with bounds clamp). Legacy `ai_fallback_max_depth` plain-
         # settings row still hydrates the form for parity; the actual
         # ask_provider_with_fallback call reads via tuning_int.
-        max_depth = tuning.tuning_int("tuning_ai_fallback_max_depth")
+        max_depth = tuning.tuning_int(Tunable.AI_FALLBACK_MAX_DEPTH)
     except (TypeError, ValueError):
         max_depth = 1
     max_depth = max(1, min(2, max_depth))
@@ -5400,7 +5401,7 @@ async def api_admin_stats_network(
     except (TypeError, ValueError):
         hours = 168
     try:
-        cadence = max(60, int(_tuning.tuning_int("tuning_stats_sample_interval_seconds")))
+        cadence = max(60, int(_tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)))
     except Exception:
         cadence = 300
     now_ts = int(_time.time())
@@ -6283,7 +6284,7 @@ async def api_admin_stats_samples_by_host(
         if not (_cache.get("items") or []):
             try:
                 _kick_timeout = float(tuning.tuning_int(
-                    "tuning_kick_gather_timeout_seconds"))
+                    Tunable.KICK_GATHER_TIMEOUT_SECONDS))
             except Exception:
                 _kick_timeout = 30.0
             try:
@@ -6831,8 +6832,8 @@ async def api_ai_palette(
     # missing / broken `logs` import skips the block silently.
     try:
         from logic import logs as _logs
-        _log_hours = tuning.tuning_int("tuning_ai_log_context_hours")
-        _log_limit = tuning.tuning_int("tuning_ai_log_context_lines")
+        _log_hours = tuning.tuning_int(Tunable.AI_LOG_CONTEXT_HOURS)
+        _log_limit = tuning.tuning_int(Tunable.AI_LOG_CONTEXT_LINES)
         _raw_logs = _logs.recent_lines_window(
             hours=_log_hours,
             levels=["error", "warn"],
@@ -6864,7 +6865,7 @@ async def api_ai_palette(
     # consulted by the writer for form-hydration parity, but the
     # actual call envelope reads via tuning_int.
     try:
-        max_toks = tuning.tuning_int("tuning_ai_max_tokens")
+        max_toks = tuning.tuning_int(Tunable.AI_MAX_TOKENS)
     except (TypeError, ValueError):
         max_toks = 1024
     max_toks = max(64, min(32000, max_toks))
@@ -7314,7 +7315,7 @@ async def api_ai_host_filter(
     # consulted by the writer for form-hydration parity, but the
     # actual call envelope reads via tuning_int.
     try:
-        max_toks = tuning.tuning_int("tuning_ai_max_tokens")
+        max_toks = tuning.tuning_int(Tunable.AI_MAX_TOKENS)
     except (TypeError, ValueError):
         max_toks = 1024
     max_toks = max(64, min(32000, max_toks))
@@ -8161,7 +8162,7 @@ async def api_snmp_test(
 
     # consume tuning_snmp_probe_timeout_seconds. Test endpoint uses
     # max(tunable, 10s) so a tiny tunable doesn't cripple manual smoke probes.
-    snmp_timeout = max(10.0, float(tuning.tuning_int("tuning_snmp_probe_timeout_seconds")))
+    snmp_timeout = max(10.0, float(tuning.tuning_int(Tunable.SNMP_PROBE_TIMEOUT_SECONDS)))
     result = await _snmp.probe_snmp(
         host,
         community=community,
@@ -8951,7 +8952,7 @@ def _compute_host_provider_cache_key() -> tuple[set[str], tuple]:
         get_setting("snmp_default_version", "") or "",
         # Default port migrated to TUNABLES — read via tuning_int so a
         # change to `tuning_snmp_default_port` busts this cache too.
-        str(tuning.tuning_int("tuning_snmp_default_port")),
+        str(tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT)),
         get_setting("snmp_v3_user", "") or "",
         get_setting("snmp_v3_auth_key", "") or "",
         get_setting("snmp_v3_priv_key", "") or "",
@@ -8979,7 +8980,7 @@ def _peek_cached_host_provider_state() -> dict | None:
     cached_key = _host_provider_cache.get("key")
     if not cached or not cached_key:
         return None
-    cache_ttl = tuning.tuning_int("tuning_host_provider_cache_ttl_seconds")
+    cache_ttl = tuning.tuning_int(Tunable.HOST_PROVIDER_CACHE_TTL_SECONDS)
     if (time.time() - _host_provider_cache.get("ts", 0.0)) >= cache_ttl:
         return None
     _, current_key = _compute_host_provider_cache_key()
@@ -9069,7 +9070,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     # cache TTL is operator-tunable; resolve once at the top of
     # the function and reuse for both the pre-lock and post-lock checks
     # (within the same call, the value can't legitimately change).
-    cache_ttl = tuning.tuning_int("tuning_host_provider_cache_ttl_seconds")
+    cache_ttl = tuning.tuning_int(Tunable.HOST_PROVIDER_CACHE_TTL_SECONDS)
     cached = _host_provider_cache.get("state")
     cached_key = _host_provider_cache.get("key")
     if (not force and cached and cached_key == cache_key
@@ -9208,7 +9209,7 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
             get_setting("snmp_default_version", "") or "v2c"
         ).strip().lower() or "v2c"
         try:
-            snmp_default_port = tuning.tuning_int("tuning_snmp_default_port")
+            snmp_default_port = tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT)
         except (TypeError, ValueError):
             snmp_default_port = 161
         snmp_v3_user = get_setting("snmp_v3_user", "") or ""
@@ -9425,7 +9426,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                         await record_provider_outcome(
                             h["id"], "pulse", False,
                             error=f"pulse status={pst}",
-                            round_threshold=tuning.tuning_int("tuning_pulse_failure_pause_rounds"),
+                            round_threshold=tuning.tuning_int(Tunable.PULSE_FAILURE_PAUSE_ROUNDS),
                         )
                 else:
                     _merge_best(merged, pstats)
@@ -9437,7 +9438,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                 await record_provider_outcome(
                     h["id"], "pulse", False,
                     error="host not found in Pulse hub map",
-                    round_threshold=tuning.tuning_int("tuning_pulse_failure_pause_rounds"),
+                    round_threshold=tuning.tuning_int(Tunable.PULSE_FAILURE_PAUSE_ROUNDS),
                 )
 
     # SNMP — runs AFTER Pulse but BEFORE Beszel so the unix-
@@ -9487,8 +9488,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
             # SNMP per-host caches use SNMP-specific TTLs (was reusing
             # the Webmin pair; operator changing Webmin TTL silently changed
             # SNMP cache behaviour).
-            snmp_success_ttl = tuning.tuning_int("tuning_snmp_host_cache_ttl_seconds")
-            snmp_fail_ttl = tuning.tuning_int("tuning_snmp_host_fail_cache_ttl_seconds")
+            snmp_success_ttl = tuning.tuning_int(Tunable.SNMP_HOST_CACHE_TTL_SECONDS)
+            snmp_fail_ttl = tuning.tuning_int(Tunable.SNMP_HOST_FAIL_CACHE_TTL_SECONDS)
             # Resolve the per-host vendor override BEFORE the cache
             # lookup so the cache key includes it. Without that, an
             # operator changing `row.snmp.vendors` from `["dell"]` to
@@ -9526,7 +9527,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                     v3_priv = ((row_snmp.get("v3_priv_key") or "").strip()
                                or state.get("snmp_v3_priv_key") or "")
                     # consume tuning_snmp_probe_timeout_seconds.
-                    snmp_timeout = float(tuning.tuning_int("tuning_snmp_probe_timeout_seconds"))
+                    snmp_timeout = float(tuning.tuning_int(Tunable.SNMP_PROBE_TIMEOUT_SECONDS))
                     # Per-host walk_concurrency override — let server-
                     # class BMCs (Dell iDRAC, Cisco IMC, Supermicro IPMI)
                     # opt out of the safety-floor concurrency=1 default
@@ -9657,7 +9658,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                                     record_provider_outcome as _snmp_outcome,
                                 )
                                 _snmp_threshold = tuning.tuning_int(
-                                    "tuning_snmp_failure_pause_rounds"
+                                    Tunable.SNMP_FAILURE_PAUSE_ROUNDS
                                 )
                                 await _snmp_outcome(
                                     h["id"], "snmp", False,
@@ -9706,7 +9707,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                         await record_provider_outcome(
                             h["id"], "beszel", False,
                             error=f"beszel status={bst}",
-                            round_threshold=tuning.tuning_int("tuning_beszel_failure_pause_rounds"),
+                            round_threshold=tuning.tuning_int(Tunable.BESZEL_FAILURE_PAUSE_ROUNDS),
                         )
                 else:
                     _merge_best(merged, bstats)
@@ -9718,7 +9719,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                 await record_provider_outcome(
                     h["id"], "beszel", False,
                     error="host not found in Beszel hub map",
-                    round_threshold=tuning.tuning_int("tuning_beszel_failure_pause_rounds"),
+                    round_threshold=tuning.tuning_int(Tunable.BESZEL_FAILURE_PAUSE_ROUNDS),
                 )
 
     # Node-exporter (per-host probe).
@@ -9726,8 +9727,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     if "node_exporter" in active and h.get("ne_url"):
         # Per-(node_exporter, host) auto-pause short-circuit.
         if not _is_provider_paused(h["id"], "node_exporter"):
-            _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
-            _ne_pause_rounds = tuning.tuning_int("tuning_node_exporter_failure_pause_rounds")
+            _ne_timeout = tuning.tuning_int(Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS)
+            _ne_pause_rounds = tuning.tuning_int(Tunable.NODE_EXPORTER_FAILURE_PAUSE_ROUNDS)
             from logic.host_metrics_sampler import record_provider_outcome
             # Per-provider probing SSE event — NE has no per-host
             # cache (each call hits the wire), so every entry to this
@@ -9781,8 +9782,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
             # both cache TTLs are operator-tunable. Resolved
             # once per call (the same TTLs apply across both branches
             # of the if/else below).
-            wm_success_ttl = tuning.tuning_int("tuning_webmin_host_cache_ttl_seconds")
-            wm_fail_ttl = tuning.tuning_int("tuning_webmin_host_fail_cache_ttl_seconds")
+            wm_success_ttl = tuning.tuning_int(Tunable.WEBMIN_HOST_CACHE_TTL_SECONDS)
+            wm_fail_ttl = tuning.tuning_int(Tunable.WEBMIN_HOST_FAIL_CACHE_TTL_SECONDS)
             cached = _webmin_host_cache.get(h["id"])
             if cached and (now - cached[0]) < wm_success_ttl:
                 result = cached[1]
@@ -9798,7 +9799,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                 else:
                     # Webmin probe budget is operator-tunable;
                     # shared with the legacy `api_hosts` consumer.
-                    _wm_budget = tuning.tuning_int("tuning_webmin_probe_budget_seconds")
+                    _wm_budget = tuning.tuning_int(Tunable.WEBMIN_PROBE_BUDGET_SECONDS)
                     # Per-provider probing SSE event (cache miss only).
                     _probe_started = time.time()
                     _publish_provider_probe_event(h["id"], "webmin", "probing", _probe_started, client_id=client_id)
@@ -9890,7 +9891,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                                     record_provider_outcome as _wm_outcome,
                                 )
                                 _wm_threshold = tuning.tuning_int(
-                                    "tuning_webmin_failure_pause_rounds"
+                                    Tunable.WEBMIN_FAILURE_PAUSE_ROUNDS
                                 )
                                 await _wm_outcome(
                                     h["id"], "webmin", False,
@@ -10137,16 +10138,16 @@ def _provider_sample_intervals(host_id: str) -> dict:
     """
     from logic import tuning as _tuning
     out: dict[str, int] = {}
-    global_iv = max(30, int(_tuning.tuning_int("tuning_stats_sample_interval_seconds")) or 300)
+    global_iv = max(30, int(_tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)) or 300)
     # Each provider's tunable: 0 = inherit global, > 0 = explicit override.
     # The sampler floor (typically 10s or 30s) is also applied so the
     # surfaced value matches what the sampler loop actually sleeps for.
     inheritors = (
-        ("ping",          "tuning_ping_interval_seconds",            10),
-        ("snmp",          "tuning_snmp_sample_interval_seconds",     30),
-        ("beszel",        "tuning_beszel_sample_interval_seconds",   30),
-        ("pulse",         "tuning_pulse_sample_interval_seconds",    30),
-        ("node_exporter", "tuning_node_exporter_sample_interval_seconds", 30),
+        ("ping",          Tunable.PING_INTERVAL_SECONDS,            10),
+        ("snmp",          Tunable.SNMP_SAMPLE_INTERVAL_SECONDS,     30),
+        ("beszel",        Tunable.BESZEL_SAMPLE_INTERVAL_SECONDS,   30),
+        ("pulse",         Tunable.PULSE_SAMPLE_INTERVAL_SECONDS,    30),
+        ("node_exporter", Tunable.NODE_EXPORTER_SAMPLE_INTERVAL_SECONDS, 30),
     )
     for name, key, floor in inheritors:
         try:
@@ -12425,7 +12426,7 @@ async def api_hosts_test(
             community = snmp_community or get_setting("snmp_default_community", "public") or "public"
             version = snmp_version or (get_setting("snmp_default_version", "v2c") or "v2c").lower()
             try:
-                port = snmp_port or tuning.tuning_int("tuning_snmp_default_port")
+                port = snmp_port or tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT)
             except (TypeError, ValueError):
                 port = 161
             # Per-host overrides forwarded from the SPA's testHostRow
@@ -12613,7 +12614,7 @@ def _item_samples_in_window(item_id: str, since_hours: int) -> dict:
     # value baked into TUNABLES (180s for the stats sampler) so the
     # endpoint returns a sensible-shape payload instead of 500-ing.
     try:
-        expected_interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+        expected_interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
     except Exception:
         expected_interval = 180
     out = {
@@ -13037,7 +13038,7 @@ async def api_hosts_debug(
                                 or "v2c")
                 try:
                     port_kick = int(row_snmp_kick.get("port")
-                                    or tuning.tuning_int("tuning_snmp_default_port"))
+                                    or tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT))
                 except (TypeError, ValueError):
                     port_kick = 161
                 v3_user_kick = ((row_snmp_kick.get("v3_user") or "").strip()
@@ -13120,7 +13121,7 @@ async def api_hosts_debug(
                     # value used inside probe_snmp.
                     "walk_concurrency": walk_conc_kick,
                     "walk_concurrency_global": int(
-                        tuning.tuning_int("tuning_snmp_per_host_walk_concurrency")
+                        tuning.tuning_int(Tunable.SNMP_PER_HOST_WALK_CONCURRENCY)
                     ),
                 }
 
@@ -13253,7 +13254,7 @@ async def api_hosts_debug(
         # HTML landing page that bare host:port returns.
         url_canonical = _ne._normalise_ne_url(url_input)
         # operator-tunable NE probe timeout.
-        _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
+        _ne_timeout = tuning.tuning_int(Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS)
         try:
             async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as client:
                 r = await client.get(url_canonical)
@@ -14220,7 +14221,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
             terminal reconnect."""
             try:
                 while not stop_event.is_set():
-                    await asyncio.sleep(tuning.tuning_int("tuning_ssh_ws_heartbeat_seconds"))
+                    await asyncio.sleep(tuning.tuning_int(Tunable.SSH_WS_HEARTBEAT_SECONDS))
                     if stop_event.is_set():
                         break
                     try:
@@ -14297,7 +14298,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
             # teardown without restart. Defensive fallback to legacy 5s
             # on tunable-resolver failure.
             try:
-                _ssh_close_to = float(tuning.tuning_int("tuning_ssh_close_timeout_seconds"))
+                _ssh_close_to = float(tuning.tuning_int(Tunable.SSH_CLOSE_TIMEOUT_SECONDS))
             except Exception:
                 _ssh_close_to = 5.0
             try:
@@ -16932,14 +16933,14 @@ async def api_hosts_port_scan(
         if body.timeout_s is not None else
         ps_cfg.get("timeout_s")
         if ps_cfg.get("timeout_s") is not None else
-        tuning.tuning_int("tuning_port_scan_default_timeout_seconds")
+        tuning.tuning_int(Tunable.PORT_SCAN_DEFAULT_TIMEOUT_SECONDS)
     )
     concurrency = (
         body.concurrency
         if body.concurrency is not None else
         ps_cfg.get("concurrency")
         if ps_cfg.get("concurrency") is not None else
-        tuning.tuning_int("tuning_port_scan_default_concurrency")
+        tuning.tuning_int(Tunable.PORT_SCAN_DEFAULT_CONCURRENCY)
     )
     # UDP companion (Stage 2). Operator-flagged 2026-05-10: TCP and UDP
     # share a single master toggle (`port_scan_enabled`) — there's no
@@ -16970,14 +16971,14 @@ async def api_hosts_port_scan(
             if body.udp_timeout_s is not None else
             ps_cfg.get("udp_timeout_s")
             if ps_cfg.get("udp_timeout_s") is not None else
-            tuning.tuning_int("tuning_port_scan_udp_default_timeout_seconds")
+            tuning.tuning_int(Tunable.PORT_SCAN_UDP_DEFAULT_TIMEOUT_SECONDS)
         )
         udp_concurrency = (
             body.udp_concurrency
             if body.udp_concurrency is not None else
             ps_cfg.get("udp_concurrency")
             if ps_cfg.get("udp_concurrency") is not None else
-            tuning.tuning_int("tuning_port_scan_udp_default_concurrency")
+            tuning.tuning_int(Tunable.PORT_SCAN_UDP_DEFAULT_CONCURRENCY)
         )
     # Hard bound the scan duration. Outer wall-clock budget flows
     # through TUNABLES so the operator can raise it for large ranges
@@ -16986,7 +16987,7 @@ async def api_hosts_port_scan(
     # as a fire-and-forget asyncio task and returns 202 immediately.
     scan_id = str(uuid.uuid4())
     started = time.time()
-    max_seconds = tuning.tuning_int("tuning_port_scan_max_seconds")
+    max_seconds = tuning.tuning_int(Tunable.PORT_SCAN_MAX_SECONDS)
     snmp_cfg = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
     snmp_community = (
         snmp_cfg.get("community")
@@ -17124,14 +17125,14 @@ async def api_ping_test(
         or hid
     )
     pcfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
-    default_port = tuning.tuning_int("tuning_ping_default_port") or 443
+    default_port = tuning.tuning_int(Tunable.PING_DEFAULT_PORT) or 443
     port = body.port if body.port is not None else (pcfg.get("port") or default_port)
     use_icmp_global = get_setting_bool("ping_use_icmp", False)
     transport = (body.transport or pcfg.get("transport") or "").strip().lower()
     if transport not in ("tcp", "icmp"):
         transport = "icmp" if use_icmp_global else "tcp"
     timeout = float(body.timeout_seconds) if body.timeout_seconds is not None \
-        else float(tuning.tuning_int("tuning_ping_probe_timeout_seconds"))
+        else float(tuning.tuning_int(Tunable.PING_PROBE_TIMEOUT_SECONDS))
     from logic import ping as _ping_mod
     if transport == "icmp" and not _ping_mod.has_icmp_support():
         transport = "tcp"
@@ -18808,12 +18809,12 @@ async def api_me(request: Request):
             # friendly UI; multiply by 1000 here so the SPA's setTimeout
             # consumer keeps its existing ms-based contract. Renaming
             # the SPA field would touch every call site for no gain.
-            "ops_poll_ms": tuning.tuning_int("tuning_ops_poll_interval_seconds") * 1000,
+            "ops_poll_ms": tuning.tuning_int(Tunable.OPS_POLL_INTERVAL_SECONDS) * 1000,
             # SPA's loadHosts() reads this and uses it as the cap on
             # parallel /api/hosts/one/<id> calls during fan-out. Resolved
             # per /api/me round-trip so an Admin → Config save takes
             # effect on the next call.
-            "hosts_parallel_fetch": tuning.tuning_int("tuning_hosts_parallel_fetch"),
+            "hosts_parallel_fetch": tuning.tuning_int(Tunable.HOSTS_PARALLEL_FETCH),
             # Idle-time progressive fill cadence (seconds). When the
             # operator is on the Hosts view and stays at the top
             # without scrolling, a background ticker trickles
@@ -18822,82 +18823,82 @@ async def api_me(request: Request):
             # data is already there. 0 disables (scroll-only lazy
             # load). Goes through the same `hosts_parallel_fetch`
             # cap so backend pressure stays bounded.
-            "hosts_idle_fill_seconds": tuning.tuning_int("tuning_hosts_idle_fill_interval_seconds"),
+            "hosts_idle_fill_seconds": tuning.tuning_int(Tunable.HOSTS_IDLE_FILL_INTERVAL_SECONDS),
             # AI Assistant sidebar drawer width (px). SPA's
             # ai-sidebar-drawer reads this and applies via inline
             # style on the <aside> root. Mobile layout ignores it.
-            "ai_sidebar_width_px": tuning.tuning_int("tuning_ai_sidebar_width_px"),
+            "ai_sidebar_width_px": tuning.tuning_int(Tunable.AI_SIDEBAR_WIDTH_PX),
             # AI sidebar conversation-persist cadence (ms). Consumed by
             # the SPA's `_aiPersistInterval` setup — see static/js/app.js.
             "ai_conversation_persist_ms": tuning.tuning_int(
-                "tuning_ai_conversation_persist_interval_ms"
+                Tunable.AI_CONVERSATION_PERSIST_INTERVAL_MS
             ),
             # AI conversation export — gates the "Export TXT" /
             # "Export JSON" buttons in the AI sidebar header.
             # 0 = hide buttons, 1 = show. Default 1.
-            "ai_conversation_export_enabled": bool(tuning.tuning_int("tuning_ai_conversation_export_enabled")),
+            "ai_conversation_export_enabled": bool(tuning.tuning_int(Tunable.AI_CONVERSATION_EXPORT_ENABLED)),
             # SSE freshness-watchdog idle threshold. Stored as
             # seconds; SPA's `_sseIdleThresholdMs` consumer wants ms.
-            "sse_idle_threshold_ms": tuning.tuning_int("tuning_sse_idle_threshold_seconds") * 1000,
+            "sse_idle_threshold_ms": tuning.tuning_int(Tunable.SSE_IDLE_THRESHOLD_SECONDS) * 1000,
             # pollOps SSE-up keep-alive cadence. Same ms-conversion
             # pattern as ops_poll_ms and sse_idle_threshold_ms.
-            "pollops_sse_keepalive_ms": tuning.tuning_int("tuning_pollops_sse_keepalive_seconds") * 1000,
+            "pollops_sse_keepalive_ms": tuning.tuning_int(Tunable.POLLOPS_SSE_KEEPALIVE_SECONDS) * 1000,
             # SPA-side load-busy watchdog cap (ms). `_runWithBusy` and
             # the topbar `refresh()` / `loadHosts()` flow + the SSE-pill
             # refreshing flags (`cacheRefreshing` / `hubProbing` /
             # `statsRefreshing`) cap any individual "busy" indicator at
             # this many ms. Stored as seconds, multiplied here so the
             # SPA setTimeout call keeps its ms contract.
-            "load_busy_max_ms": tuning.tuning_int("tuning_load_busy_max_seconds") * 1000,
+            "load_busy_max_ms": tuning.tuning_int(Tunable.LOAD_BUSY_MAX_SECONDS) * 1000,
             # stat-bar warn / crit cutovers. SPA's barLevel /
             # barColor helpers read these per-call so an Admin → Config
             # save lands on the next render. Stored as integer percent
             # (30..90 / 50..99).
-            "stat_bar_warn_pct": tuning.tuning_int("tuning_stat_bar_warn_pct"),
-            "stat_bar_crit_pct": tuning.tuning_int("tuning_stat_bar_crit_pct"),
+            "stat_bar_warn_pct": tuning.tuning_int(Tunable.STAT_BAR_WARN_PCT),
+            "stat_bar_crit_pct": tuning.tuning_int(Tunable.STAT_BAR_CRIT_PCT),
             # Notifications panel page size — SPA reads this as the
             # initial value of `notificationsLimit`. Operator-tunable
             # via Admin → Notifications. Range 5..200 enforced at
             # both write-time (TUNABLES bounds) and read-time
             # (`tuning_int` clamps).
-            "notifications_page_size": tuning.tuning_int("tuning_notification_page_size"),
+            "notifications_page_size": tuning.tuning_int(Tunable.NOTIFICATION_PAGE_SIZE),
             # Notifications popup polling fallback cadence (seconds).
             # Consumed by the SPA's $watch on showNotificationsPopup —
             # only used when SSE is disconnected AND the popup is open.
             "notifications_poll_seconds": tuning.tuning_int(
-                "tuning_notifications_poll_interval_seconds"
+                Tunable.NOTIFICATIONS_POLL_INTERVAL_SECONDS
             ),
             # Sampler tick cadence (used by the SNMP "warming up" banner
             # so the "~N min" hint reflects the operator's configured
             # interval rather than a stale literal). Stored as seconds;
             # the SPA renders minutes for display.
-            "stats_sample_interval_seconds": tuning.tuning_int("tuning_stats_sample_interval_seconds"),
+            "stats_sample_interval_seconds": tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS),
             # SNMP-specific sampler cadence. When > 0, the SNMP
             # sampler runs at this interval instead of inheriting the
             # global stats_sample_interval. SPA's `snmpWarmingUpText`
             # uses this when non-zero so the "~N min" hint matches the
             # SNMP-specific cadence on operators who run SNMP at a
             # different cadence than Beszel/NE.
-            "snmp_sample_interval_seconds": tuning.tuning_int("tuning_snmp_sample_interval_seconds"),
+            "snmp_sample_interval_seconds": tuning.tuning_int(Tunable.SNMP_SAMPLE_INTERVAL_SECONDS),
             # Global SNMP per-host walk concurrency. Surfaced so the
             # Admin → Hosts editor can render the per-host
             # walk_concurrency input's placeholder as the resolved
             # global value (instead of a hardcoded "1") — operator
             # immediately sees what value the row will use when blank
             # vs the override they're typing.
-            "snmp_per_host_walk_concurrency": tuning.tuning_int("tuning_snmp_per_host_walk_concurrency"),
+            "snmp_per_host_walk_concurrency": tuning.tuning_int(Tunable.SNMP_PER_HOST_WALK_CONCURRENCY),
             # Global SNMP wall-clock budget — surfaced so the per-host
             # `wall_clock_budget` input's placeholder can render the
             # resolved global default ("Inherited: 60") instead of a
             # hardcoded literal.
-            "snmp_wall_clock_budget_seconds": tuning.tuning_int("tuning_snmp_wall_clock_budget_seconds"),
+            "snmp_wall_clock_budget_seconds": tuning.tuning_int(Tunable.SNMP_WALL_CLOCK_BUDGET_SECONDS),
             # Global ping defaults. Used by the SPA's metricSource()
             # tooltip so "Ping probe (TCP :443)" / "Ping probe (ICMP)"
             # falls back cleanly when a host has no per-host
             # ping_port / ping_transport override. Mirrors the SNMP
             # global-default surface pattern above.
             "ping": {
-                "default_port": tuning.tuning_int("tuning_ping_default_port"),
+                "default_port": tuning.tuning_int(Tunable.PING_DEFAULT_PORT),
                 "use_icmp":     get_setting_bool("ping_use_icmp", False),
             },
             # Per-host drift baseline metric roster — single source of
@@ -18917,7 +18918,7 @@ async def api_me(request: Request):
             "ai": {
                 "enabled":         get_setting_bool("ai_enabled", False),
                 "active_provider": (get_setting("ai_active_provider", "") or "").strip().lower(),
-                "max_tokens":      tuning.tuning_int("tuning_ai_max_tokens"),
+                "max_tokens":      tuning.tuning_int(Tunable.AI_MAX_TOKENS),
                 # Canonical provider list — the SPA's `aiProviderNames`
                 # reads from this so adding a fifth provider is a
                 # one-line edit to `logic.ai.SUPPORTED_PROVIDERS` and
@@ -20561,7 +20562,7 @@ async def api_create_backup(admin: auth.User = Depends(auth.require_admin)):
     # with bounds clamp); legacy plain-settings row still hydrates
     # the form for parity.
     try:
-        keep = tuning.tuning_int("tuning_backup_retention_count")
+        keep = tuning.tuning_int(Tunable.BACKUP_RETENTION_COUNT)
     except (TypeError, ValueError):
         keep = 0
     pruned = backups.prune_backups(keep) if keep > 0 else []
