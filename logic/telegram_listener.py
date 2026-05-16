@@ -93,44 +93,74 @@ behind an even stricter allow-list), per-event ack from Telegram.
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 from typing import Any, Optional
 
 import httpx
 
-# ----------------------------------------------------------------------------
-# Telegram Bot API base + long-poll defaults
-# ----------------------------------------------------------------------------
-_TELEGRAM_API_BASE = "https://api.telegram.org"
+from logic.settings_keys import (
+    Settings,
+    ai_provider_api_key_key,
+    ai_provider_base_url_key,
+    ai_provider_model_key,
+)
 
-# Long-poll timeout — Telegram holds the connection open this many
-# seconds waiting for an update. Caps at 50 server-side; 25 is the
-# sweet spot (fast wake-up on inactivity while still amortising the
-# round-trip cost on a busy chat). Operator can override via tunable
-# if their reverse proxy / network has a tighter idle timeout.
-_LONG_POLL_TIMEOUT = 25
+# ----------------------------------------------------------------------------
+# Telegram Bot API base + long-poll defaults — operator-tunable
+# ----------------------------------------------------------------------------
+# Defaults below are the fallback values when the corresponding tunable
+# / setting is blank in the DB. The actual values flow through the
+# helpers in `_telegram_api_base()` / `_telegram_long_poll_timeout()` /
+# `_telegram_http_timeout()` (per-call reads so a UI edit takes effect
+# on the next iteration without restart).
+_TELEGRAM_API_BASE_DEFAULT = "https://api.telegram.org"
 
-# Wall-clock for the HTTP call itself — slightly larger than the
-# long-poll timeout so Telegram has time to flush the response.
-_HTTP_TIMEOUT = _LONG_POLL_TIMEOUT + 10
+
+def _telegram_api_base() -> str:
+    """Resolve the Telegram Bot API base URL from the
+    ``telegram_api_base`` setting (Admin → Notifications → Telegram).
+    Falls back to the official upstream when blank."""
+    from logic.db import get_setting
+    raw = (get_setting(Settings.TELEGRAM_API_BASE, "") or "").strip()
+    if not raw:
+        return _TELEGRAM_API_BASE_DEFAULT
+    return raw.rstrip("/")
+
+
+def _telegram_long_poll_timeout() -> int:
+    """Long-poll timeout (seconds) read via
+    ``tuning_telegram_long_poll_timeout_seconds``. Range-clamped to
+    1..50 (Telegram server-side cap) by the resolver."""
+    from logic.tuning import Tunable, tuning_int
+    return tuning_int(Tunable.TELEGRAM_LONG_POLL_TIMEOUT_SECONDS)
+
+
+def _telegram_http_timeout() -> int:
+    """Outer HTTP wall-clock (seconds) for the listener's `getUpdates`
+    call. Read via ``tuning_telegram_http_timeout_seconds``. Should be
+    larger than the long-poll timeout so Telegram has time to flush
+    the response after a long-poll wake-up."""
+    from logic.tuning import Tunable, tuning_int
+    return tuning_int(Tunable.TELEGRAM_HTTP_TIMEOUT_SECONDS)
 
 
 def _resolved_token_and_chat() -> tuple[str, str]:
     """Pull bot-token + destination chat-id from the settings store."""
     from logic.db import get_setting
-    token = (get_setting("telegram_bot_token", "") or "").strip()
-    chat = (get_setting("telegram_chat_id", "") or "").strip()
+    token = (get_setting(Settings.TELEGRAM_BOT_TOKEN) or "").strip()
+    chat = (get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()
     return token, chat
 
 
 def _listener_enabled() -> bool:
     from logic.db import get_setting_bool
-    return get_setting_bool("telegram_listener_enabled", default=False)
+    return get_setting_bool(Settings.TELEGRAM_LISTENER_ENABLED)
 
 
 def _allow_destructive() -> bool:
     from logic.db import get_setting_bool
-    return get_setting_bool("telegram_allow_destructive", default=False)
+    return get_setting_bool(Settings.TELEGRAM_ALLOW_DESTRUCTIVE)
 
 
 def _authorized_user_ids() -> set[int]:
@@ -141,7 +171,7 @@ def _authorized_user_ids() -> set[int]:
     are restricted to those user_ids regardless of chat membership.
     """
     from logic.db import get_setting
-    raw = (get_setting("telegram_authorized_user_ids", "") or "").strip()
+    raw = (get_setting(Settings.TELEGRAM_AUTHORIZED_USER_IDS) or "").strip()
     if not raw:
         return set()
     out: set[int] = set()
@@ -178,7 +208,11 @@ def _is_authorized(update: dict) -> tuple[bool, str]:
         sender_id = (msg.get("from") or {}).get("id")
         if sender_id is None:
             return False, "no from.id in message"
-        if int(sender_id) not in allow_list:
+        try:
+            sender_int = int(sender_id)  # type: ignore[arg-type]  # narrowed via try/except
+        except (TypeError, ValueError):
+            return False, f"sender_id {sender_id!r} not coercible to int"
+        if sender_int not in allow_list:
             return False, f"sender {sender_id} not in allow-list"
     return True, ""
 
@@ -191,8 +225,8 @@ def _reply_text(text: str) -> dict:
     applicable).
     """
     from logic.db import get_setting
-    chat = (get_setting("telegram_chat_id", "") or "").strip()
-    thread = (get_setting("telegram_thread_id", "") or "").strip()
+    chat = (get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()
+    thread = (get_setting(Settings.TELEGRAM_THREAD_ID) or "").strip()
     payload: dict = {
         "chat_id": chat,
         "text": text,
@@ -217,7 +251,7 @@ async def _send_reply(client: httpx.AsyncClient, text: str) -> Optional[int]:
         return None
     try:
         r = await client.post(
-            f"{_TELEGRAM_API_BASE}/bot{token}/sendMessage",
+            f"{_telegram_api_base()}/bot{token}/sendMessage",
             json=_reply_text(text),
             timeout=15.0,
         )
@@ -227,11 +261,12 @@ async def _send_reply(client: httpx.AsyncClient, text: str) -> Optional[int]:
         try:
             body = r.json() or {}
             msg_id = ((body.get("result") or {}).get("message_id"))
-            return int(msg_id) if msg_id is not None else None
+            return int(msg_id) if msg_id is not None else None  # type: ignore[arg-type]
         except (ValueError, TypeError):
             return None
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
+    # noinspection PyBroadException
     except Exception as e:  # noqa: BLE001
         print(f"[telegram_listener] reply exception: {e}")
         return None
@@ -249,8 +284,8 @@ async def _send_chat_action(
     if not token:
         return
     from logic.db import get_setting
-    chat = (get_setting("telegram_chat_id", "") or "").strip()
-    thread = (get_setting("telegram_thread_id", "") or "").strip()
+    chat = (get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()
+    thread = (get_setting(Settings.TELEGRAM_THREAD_ID) or "").strip()
     payload: dict = {"chat_id": chat, "action": action}
     if thread:
         try:
@@ -259,12 +294,12 @@ async def _send_chat_action(
             pass
     try:
         await client.post(
-            f"{_TELEGRAM_API_BASE}/bot{token}/sendChatAction",
+            f"{_telegram_api_base()}/bot{token}/sendChatAction",
             json=payload, timeout=5.0,
         )
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception:
+    except (httpx.HTTPError, OSError):
         # Typing indicator is decorative — never surface the failure.
         pass
 
@@ -281,7 +316,7 @@ async def _edit_message(
     if not token or not message_id:
         return False
     from logic.db import get_setting
-    chat = (get_setting("telegram_chat_id", "") or "").strip()
+    chat = (get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()
     payload: dict = {
         "chat_id": chat,
         "message_id": int(message_id),
@@ -291,7 +326,7 @@ async def _edit_message(
     }
     try:
         r = await client.post(
-            f"{_TELEGRAM_API_BASE}/bot{token}/editMessageText",
+            f"{_telegram_api_base()}/bot{token}/editMessageText",
             json=payload, timeout=10.0,
         )
         if r.status_code != 200:
@@ -300,6 +335,7 @@ async def _edit_message(
         return True
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
+    # noinspection PyBroadException
     except Exception as e:  # noqa: BLE001
         print(f"[telegram_listener] edit exception: {e}")
         return False
@@ -352,6 +388,7 @@ def _audit_telegram(
                 ),
             )
             c.commit()
+    # noinspection PyBroadException
     except Exception as _e:
         print(f"[telegram_listener] audit row write failed ({op_type}): {_e}")
 
@@ -362,7 +399,7 @@ def _load_hosts_config() -> list[dict]:
     empty list."""
     import json
     from logic.db import get_setting
-    raw = (get_setting("hosts_config", "") or "").strip()
+    raw = (get_setting(Settings.HOSTS_CONFIG) or "").strip()
     if not raw:
         return []
     try:
@@ -381,7 +418,7 @@ def _load_asset_inventory() -> list[dict]:
         path = Path("/app/data/asset_inventory.json")
         if not path.exists():
             return []
-        with path.open("r", encoding="utf-8") as f:
+        with path.open(encoding="utf-8") as f:
             data = json.load(f)
         items = data.get("items") if isinstance(data, dict) else None
         if isinstance(items, list):
@@ -418,16 +455,18 @@ def _resolve_target(target: str) -> tuple[Optional[dict], list[dict]]:
     if not hosts:
         return None, []
 
-    def _provider_targets(h: dict) -> list[str]:
+    def _provider_targets(host_row: dict) -> list[str]:
         out: list[str] = []
-        for k in ("address", "snmp_name", "beszel_name", "pulse_name",
-                  "webmin_name"):
-            v = h.get(k)
-            if isinstance(v, str) and v.strip():
-                out.append(v.strip())
-        ssh = h.get("ssh") if isinstance(h.get("ssh"), dict) else None
-        if ssh and isinstance(ssh.get("host"), str) and ssh["host"].strip():
-            out.append(ssh["host"].strip())
+        for field_name in ("address", "snmp_name", "beszel_name", "pulse_name",
+                           "webmin_name"):
+            field_val = host_row.get(field_name)
+            if isinstance(field_val, str) and field_val.strip():
+                out.append(field_val.strip())
+        _raw_ssh = host_row.get("ssh")
+        ssh: dict = _raw_ssh if isinstance(_raw_ssh, dict) else {}
+        ssh_host = ssh.get("host")
+        if isinstance(ssh_host, str) and ssh_host.strip():
+            out.append(ssh_host.strip())
         return out
 
     # 1. Exact IP / per-provider target match
@@ -520,7 +559,7 @@ def _load_mappings() -> dict[str, dict]:
     """
     import json
     from logic.db import get_setting
-    raw = (get_setting("telegram_user_mappings", "") or "").strip()
+    raw = (get_setting(Settings.TELEGRAM_USER_MAPPINGS) or "").strip()
     if not raw:
         return {}
     try:
@@ -559,24 +598,39 @@ def _save_mappings(mappings: dict[str, dict]) -> None:
             if isinstance(value, dict) and value.get("username"):
                 clean[tg_id] = {
                     "username": value["username"],
-                    "linked_at_ms": int(value.get("linked_at_ms") or 0),
+                    "linked_at_ms": int(value.get("linked_at_ms") or 0),  # type: ignore[arg-type]  # `or 0` falls through to literal int when missing
                 }
             elif isinstance(value, str) and value:
                 clean[tg_id] = {"username": value, "linked_at_ms": 0}
-        set_setting("telegram_user_mappings", json.dumps(clean))
+        set_setting(Settings.TELEGRAM_USER_MAPPINGS, json.dumps(clean))
     except (TypeError, ValueError) as e:
         print(f"[telegram_listener] mapping save failed: {e}")
 
 
-def _lookup_omnigrid_user(telegram_user_id: int) -> Optional[str]:
+def _lookup_omnigrid_user(telegram_user_id: object) -> Optional[str]:
     """Return the OmniGrid username for one Telegram user_id, or None
-    if the user hasn't linked yet."""
+    if the user hasn't linked yet. Accepts ``object`` so every caller
+    can pass the raw ``msg["from"]["id"]`` without first coercing it
+    (the Telegram API returns numeric ids but pyright + PyCharm widen
+    them to ``Any | None`` via the chained ``.get()`` calls)."""
     if telegram_user_id is None:
         return None
-    entry = _load_mappings().get(str(int(telegram_user_id)))
+    try:
+        key = str(int(telegram_user_id))  # type: ignore[arg-type]  # narrowed via try/except
+    except (TypeError, ValueError):
+        return None
+    entry = _load_mappings().get(key)
     if not entry:
         return None
-    return entry.get("username")
+    # Mapping schema is `{username, linked_at_ms}` post-migration; legacy
+    # entries may still be a bare username string. Coerce to str for the
+    # caller — dict values are Any-typed so the type-checker can't narrow.
+    if isinstance(entry, dict):
+        username = entry.get("username")
+        return str(username) if isinstance(username, str) else None
+    if isinstance(entry, str):
+        return entry
+    return None
 
 
 def _consume_link_code(code: str) -> Optional[str]:
@@ -598,6 +652,7 @@ def _consume_link_code(code: str) -> Optional[str]:
             rows = c.execute(
                 "SELECT username, ui_prefs FROM users WHERE ui_prefs IS NOT NULL"
             ).fetchall()
+    # noinspection PyBroadException
     except Exception as e:
         print(f"[telegram_listener] _consume_link_code lookup failed: {e}")
         return None
@@ -627,6 +682,7 @@ def _consume_link_code(code: str) -> Optional[str]:
                         "UPDATE users SET ui_prefs = ? WHERE username = ?",
                         (json.dumps(prefs), username),
                     )
+            # noinspection PyBroadException
             except Exception as e:
                 print(f"[telegram_listener] _consume_link_code wipe failed: {e}")
             return username
@@ -645,7 +701,7 @@ def _lookup_user_role(username: str) -> Optional[str]:
             row = c.execute(
                 "SELECT role FROM users WHERE username = ?", (username,)
             ).fetchone()
-    except Exception:
+    except (sqlite3.DatabaseError, sqlite3.OperationalError):
         return None
     if not row:
         return None
@@ -673,7 +729,7 @@ def _load_user_weather_pref(username: str) -> Optional[dict]:
             row = c.execute(
                 "SELECT ui_prefs FROM users WHERE username = ?", (username,)
             ).fetchone()
-    except Exception:
+    except (sqlite3.DatabaseError, sqlite3.OperationalError):
         return None
     if not row:
         return None
@@ -707,6 +763,7 @@ def _load_user_weather_pref(username: str) -> Optional[dict]:
 # ----------------------------------------------------------------------------
 # Command handlers
 # ----------------------------------------------------------------------------
+# noinspection PyUnusedLocal
 async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """Auto-generated help — iterates `_COMMANDS` so adding a new
     handler shows up in `/help` with no extra wiring.
@@ -722,7 +779,7 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     lines = ["<b>OmniGrid Telegram commands</b>", ""]
     # First pass: group commands by their handler function.
     groups: list[dict] = []  # ordered: [{primary: meta, primary_name, aliases: [name,...]}]
-    handler_to_group: dict = {}
+    handler_to_group: dict[Any, dict[str, Any]] = {}
     for name, meta in _COMMANDS.items():
         handler = meta.get("handler")
         if handler is None:
@@ -772,7 +829,7 @@ def _load_host_paused_set() -> set[str]:
             rows = c.execute(
                 "SELECT host_id FROM host_failure_state"
             ).fetchall()
-    except Exception:
+    except (sqlite3.DatabaseError, sqlite3.OperationalError):
         return paused
     for row in rows:
         try:
@@ -789,6 +846,7 @@ def _load_host_paused_set() -> set[str]:
     return paused
 
 
+# noinspection PyUnusedLocal
 async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/hosts`` — split the curated fleet into two grouped lists:
     Active (enabled + no failure-state markers) and Down (disabled OR
@@ -811,11 +869,11 @@ async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
         else:
             active.append(h)
 
-    def _render_row(h: dict, emoji: str) -> str:
-        hid = h.get("id") or "(no-id)"
-        label = h.get("label") or hid
-        addr = h.get("address") or ""
-        return (f"{emoji} <code>{_escape(hid)}</code> — {_escape(label)}"
+    def _render_row(host_row: dict, status_emoji: str) -> str:
+        row_id = host_row.get("id") or "(no-id)"
+        label = host_row.get("label") or row_id
+        addr = host_row.get("address") or ""
+        return (f"{status_emoji} <code>{_escape(row_id)}</code> — {_escape(label)}"
                 + (f" ({_escape(addr)})" if addr else ""))
 
     out_lines: list[str] = [
@@ -879,19 +937,22 @@ def _fmt_bytes(n: float | int | None) -> str:
     # because `if not n` doesn't narrow `int | None` → `int` for it).
     if n is None or not n or n < 0:
         return ""
+    # Re-bind to a non-Optional local — `n = float(n)` would re-use the
+    # Optional-typed name and pyright wouldn't propagate the narrowing
+    # past the try/except boundary.
     try:
-        n = float(n)
+        nf: float = float(n)
     except (TypeError, ValueError):
         return ""
-    if n >= 1024 ** 4:
-        return f"{n / 1024 ** 4:.1f} TB"
-    if n >= 1024 ** 3:
-        return f"{n / 1024 ** 3:.1f} GB"
-    if n >= 1024 ** 2:
-        return f"{n / 1024 ** 2:.1f} MB"
-    if n >= 1024:
-        return f"{n / 1024:.0f} KB"
-    return f"{int(n)} B"
+    if nf >= 1024 ** 4:
+        return f"{nf / 1024 ** 4:.1f} TB"
+    if nf >= 1024 ** 3:
+        return f"{nf / 1024 ** 3:.1f} GB"
+    if nf >= 1024 ** 2:
+        return f"{nf / 1024 ** 2:.1f} MB"
+    if nf >= 1024:
+        return f"{nf / 1024:.0f} KB"
+    return f"{int(nf)} B"
 
 
 def _fmt_age(ts: float | int | None) -> str:
@@ -909,6 +970,7 @@ def _fmt_age(ts: float | int | None) -> str:
     return f"{age // 86400} days ago"
 
 
+# noinspection PyUnusedLocal
 async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/host <target>`` — probe live, then show fresh stats for one
     curated host (CPU / memory / disk / uptime + extended provider
@@ -974,6 +1036,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             data = merged
             snap_ts = float(time.time())
             live_ok = True
+    # noinspection PyBroadException
     except Exception as e:  # noqa: BLE001
         print(f"[telegram_listener] /host live merge failed for {host_id!r}: {e}")
 
@@ -983,6 +1046,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         try:
             from logic.gather import load_host_snapshots
             snap_map = load_host_snapshots()
+        # noinspection PyBroadException
         except Exception as e:
             err = f"❌ Snapshot read failed: <code>{_escape(str(e))}</code>"
             if placeholder_id is not None:
@@ -1198,6 +1262,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         await _send_reply(client, body)
 
 
+# noinspection PyUnusedLocal
 async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/restart <target>`` — reboot a host via SSH.
 
@@ -1257,7 +1322,7 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     # grants this without a password to the SSH user. The standalone
     # `reboot` works on machines where the SSH user IS root.
     cmd = "sudo reboot"
-    result = await _ssh.run_command(host_id, cmd, hosts, timeout=15.0, dry_run=False)
+    result = await _ssh.run_command(host_id, cmd, hosts, timeout=15.0)
     # A successful reboot kills the SSH session before run_command can
     # collect the exit code — `ok` is often False with `error` mentioning
     # connection closed. Treat closed-connection-after-command-issued as
@@ -1276,6 +1341,7 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         )
 
 
+# noinspection PyUnusedLocal
 async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/version`` (aliased as ``/ver``) — show the running OmniGrid
     version. Reads the version baked into the image at build time
@@ -1285,6 +1351,7 @@ async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     try:
         from logic.version import read_version
         version = read_version()
+    # noinspection PyBroadException
     except Exception as e:
         await _send_reply(client, f"❌ Version lookup failed: <code>{_escape(str(e))}</code>")
         return
@@ -1304,6 +1371,59 @@ async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     )
 
 
+# noinspection PyUnusedLocal
+async def _cmd_ip(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/ip`` — show the deployment's public IP + ISP / ASN / country
+    via the same lookup the AI palette uses (ifconfig.co JSON). Gated
+    on the `tuning_public_ip_enabled` tunable (default OFF for
+    privacy); refuses cleanly with a link to Admin → Public IP when
+    off. Non-sensitive command — works pre-link so unmapped operators
+    can confirm the deploy's external network identity for support
+    purposes."""
+    from logic import public_ip as _public_ip
+    if not _public_ip.is_enabled():
+        await _send_reply(
+            client,
+            "🔒 Public-IP lookup is disabled. Enable "
+            "<code>tuning_public_ip_enabled</code> in OmniGrid → "
+            "Admin → Public IP first (it gates the outbound "
+            "ifconfig.co call)."
+        )
+        return
+    data = await _public_ip.fetch()
+    if data is None:
+        await _send_reply(
+            client,
+            "❌ Public-IP lookup failed (network blip or ifconfig.co "
+            "outage). Check Admin → Logs for the [public_ip] line."
+        )
+        return
+    bits: list[str] = []
+    if data.get("ip"):
+        bits.append(f"🌐 <b>IP:</b>      <code>{_escape(data['ip'])}</code>")
+    if data.get("isp"):
+        bits.append(f"🏢 <b>ISP:</b>     {_escape(data['isp'])}")
+    if data.get("asn"):
+        bits.append(f"🔢 <b>ASN:</b>     {_escape(data['asn'])}")
+    if data.get("city") or data.get("country"):
+        loc_parts: list[str] = []
+        for field in ("city", "country"):
+            v = data.get(field)
+            if isinstance(v, str) and v.strip():
+                loc_parts.append(v)
+        if loc_parts:
+            bits.append(f"📍 <b>Location:</b> {_escape(', '.join(loc_parts))}")
+    if not bits:
+        await _send_reply(
+            client,
+            "⚠️ Public-IP lookup returned empty — ifconfig.co may have "
+            "rate-limited or changed its schema."
+        )
+        return
+    await _send_reply(client, "\n".join(bits))
+
+
+# noinspection PyUnusedLocal
 async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """Debug aid — tells the user their Telegram user_id + the
     OmniGrid username they're linked to (or that they aren't) + their
@@ -1339,6 +1459,7 @@ async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
         )
 
 
+# noinspection PyUnusedLocal
 async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/time`` — show the current local time at the linked user's
     saved weather location. Uses Open-Meteo's resolved IANA timezone
@@ -1370,6 +1491,7 @@ async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             lon=float(loc["lon"]),
             label=label,
         )
+    # noinspection PyBroadException
     except Exception as e:
         await _send_reply(client, f"❌ Time lookup failed: <code>{_escape(str(e))}</code>")
         return
@@ -1409,13 +1531,14 @@ async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         from zoneinfo import ZoneInfo
         now_local = datetime.now(ZoneInfo(tz_name))
         offset_note = ""
-    except Exception:
+    except (ImportError, KeyError, ValueError):
         # Fallback: utc_offset_seconds-based math, ignoring DST.
         from datetime import datetime, timezone, timedelta
         try:
             offset = int(data.get("utc_offset_seconds") or 0)
             now_local = datetime.now(timezone.utc) + timedelta(seconds=offset)
             offset_note = " (UTC offset — IANA tz unavailable)"
+        # noinspection PyBroadException
         except Exception as e2:
             await _send_reply(client, f"❌ Time format failed: <code>{_escape(str(e2))}</code>")
             return
@@ -1428,6 +1551,7 @@ async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     )
 
 
+# noinspection PyUnusedLocal
 async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/cleanup`` (dry-run) — list every stopped / failed / orphan
     container the dashboard's cleanup button would remove. ``/cleanup
@@ -1451,9 +1575,11 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     # call rather than an unhelpful "nothing to clean up".
     try:
         from logic import gather as _gather
+    # noinspection PyBroadException
     except Exception as e:
         await _send_reply(client, f"❌ gather import failed: <code>{_escape(str(e))}</code>")
         return
+    # noinspection PyProtectedMember
     items = list(_gather._cache.get("items") or [])
     removables = [i for i in items if i.get("removable")]
 
@@ -1480,12 +1606,12 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         # Cap visible items so the message stays under Telegram's 4096
         # char wire limit. 40 is comfortable headroom.
         shown = 0
-        MAX_SHOWN = 40
+        max_shown = 40
         for stack in sorted(by_stack.keys()):
             group = by_stack[stack]
             lines.append(f"<b>{_escape(stack)}</b>")
             for i in group:
-                if shown >= MAX_SHOWN:
+                if shown >= max_shown:
                     break
                 name = i.get("name") or i.get("raw_id") or "(unknown)"
                 kind = i.get("type") or "container"
@@ -1493,7 +1619,7 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
                 lines.append(f"  • <code>{_escape(name)}</code> "
                              f"<i>[{tag}]</i>")
                 shown += 1
-            if shown >= MAX_SHOWN:
+            if shown >= max_shown:
                 break
         if len(removables) > shown:
             lines.append(f"<i>…and {len(removables) - shown} more.</i>")
@@ -1516,6 +1642,7 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 
     try:
         from logic import ops as _ops_mod
+    # noinspection PyBroadException
     except Exception as e:
         await _send_reply(client, f"❌ ops import failed: <code>{_escape(str(e))}</code>")
         return
@@ -1547,6 +1674,7 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
                 name=f"telegram-cleanup-{raw_id[:12]}",
             )
             spawned += 1
+        # noinspection PyBroadException
         except Exception as e:
             print(f"[telegram_listener] spawn remove for {raw_id[:12]} failed: {e}")
 
@@ -1560,6 +1688,7 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     )
 
 
+# noinspection PyUnusedLocal
 async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/link <code>`` — bind the sender's Telegram user_id to an
     OmniGrid user. Code is minted by the SPA's Profile section and
@@ -1568,13 +1697,20 @@ async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     if sender_id is None:
         await _send_reply(client, "Can't read your Telegram user_id from the message.")
         return
+    # Narrow sender_id from `Any | None` to int once at function entry
+    # so every downstream int()-call site stays well-typed.
+    try:
+        sender_id_int: int = int(sender_id)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        await _send_reply(client, "Telegram user_id is not numeric — refusing.")
+        return
     # If the sender is already linked, refuse and point them at
     # /unlink — re-linking without unlinking first would silently
     # overwrite the existing mapping, which is confusing if the
     # operator forgot they were already linked or if multiple users
     # share the same Telegram account (rare but observed). Same
     # short-circuit whether they typed `/link` bare OR `/link <code>`.
-    existing_username = _lookup_omnigrid_user(sender_id)
+    existing_username = _lookup_omnigrid_user(sender_id_int)
     if existing_username:
         await _send_reply(
             client,
@@ -1599,7 +1735,7 @@ async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     import time as _time
     linked_at_ms = int(_time.time() * 1000)
     mappings = _load_mappings()
-    mappings[str(int(sender_id))] = {
+    mappings[str(sender_id_int)] = {
         "username": username,
         "linked_at_ms": linked_at_ms,
     }
@@ -1612,9 +1748,10 @@ async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         from logic import events as _events
         _events.publish("telegram:linked", {
             "username": username,
-            "telegram_user_id": int(sender_id),
+            "telegram_user_id": sender_id_int,
             "linked_at_ms": linked_at_ms,
         })
+    # noinspection PyBroadException
     except Exception as _e:
         print(f"[telegram_listener] publish telegram:linked failed: {_e}")
     await _send_reply(
@@ -1624,14 +1761,20 @@ async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     )
 
 
+# noinspection PyUnusedLocal
 async def _cmd_unlink(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/unlink`` — drop the sender's Telegram → OmniGrid mapping."""
     sender_id = (msg.get("from") or {}).get("id")
     if sender_id is None:
         await _send_reply(client, "Can't read your Telegram user_id from the message.")
         return
+    try:
+        sender_id_int: int = int(sender_id)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        await _send_reply(client, "Telegram user_id is not numeric — refusing.")
+        return
     mappings = _load_mappings()
-    key = str(int(sender_id))
+    key = str(sender_id_int)
     if key not in mappings:
         await _send_reply(client, "You weren't linked. Nothing to unlink.")
         return
@@ -1648,8 +1791,9 @@ async def _cmd_unlink(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
         from logic import events as _events
         _events.publish("telegram:unlinked", {
             "username": removed_username,
-            "telegram_user_id": int(sender_id),
+            "telegram_user_id": sender_id_int,
         })
+    # noinspection PyBroadException
     except Exception as _e:
         print(f"[telegram_listener] publish telegram:unlinked failed: {_e}")
     await _send_reply(
@@ -1659,6 +1803,7 @@ async def _cmd_unlink(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
     )
 
 
+# noinspection PyUnusedLocal
 async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/weather`` — fetch the linked OmniGrid user's saved weather
     location and return current conditions + a 3-day forecast snippet.
@@ -1694,6 +1839,7 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
             lon=loc["lon"],
             label=label,
         )
+    # noinspection PyBroadException
     except Exception as e:
         await _send_reply(client, f"❌ Weather lookup failed: <code>{_escape(str(e))}</code>")
         return
@@ -1711,12 +1857,12 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         if c_val is None:
             return None
         try:
-            c = float(c_val)
+            celsius = float(c_val)
         except (TypeError, ValueError):
             return None
         if unit == "f":
-            return f"{round(c * 9 / 5 + 32, 1)}°F"
-        return f"{round(c, 1)}°C"
+            return f"{round(celsius * 9 / 5 + 32, 1)}°F"
+        return f"{round(celsius, 1)}°C"
 
     # Coerce each dict-extracted field to a known shape — api_weather's
     # untyped return-shape lets pyright widen dict values to
@@ -1870,6 +2016,11 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "usage": "/version",
         "description": "Show the running OmniGrid version",
     },
+    "/ip": {
+        "handler": _cmd_ip,
+        "usage": "/ip",
+        "description": "Show the deployment's public IP + ISP / ASN / country (requires tuning_public_ip_enabled in Admin → Public IP)",
+    },
     "/ver": {
         # Alias for /version — same handler, hidden so the /help menu
         # doesn't double up. Dedup-by-handler in _cmd_help drops it
@@ -1948,7 +2099,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                 total = int(offset.total_seconds())
                 sign = "+" if total >= 0 else "-"
                 offset_str = f"{sign}{abs(total) // 3600:02d}:{(abs(total) % 3600) // 60:02d}"
-        except Exception:
+        except (ImportError, ValueError, KeyError):
             local_iso = now_utc.isoformat(timespec="seconds")
             offset_str = "+00:00"
         ctx["time"] = {
@@ -1958,6 +2109,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             "utc_offset": offset_str,
             "weekday": now_utc.strftime("%A"),
         }
+    # noinspection PyBroadException
     except Exception as e:
         print(f"[telegram_listener] context time build failed: {e}")
         ctx["time"] = {}
@@ -1987,23 +2139,27 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                         "weather_code": wx.get("code"),
                         "forecast": forecast[:7] if isinstance(forecast, list) else [],
                     }
+        # noinspection PyBroadException
         except Exception as e:
             print(f"[telegram_listener] context weather build failed: {e}")
     # ---- Public IP / ISP / ASN — operator-opt-in ifconfig.co lookup.
-    # Gated behind `ai_public_ip_enabled` (default OFF for privacy);
-    # cached in-process for 10 min so a burst of AI calls hits the
-    # upstream at most once per cache window. Disabled state -> no
-    # `public_ip` key in ctx, prompt-builder skips the block cleanly.
+    # Gated behind `tuning_public_ip_enabled` (default OFF for
+    # privacy); cached in-process via `tuning_public_ip_cache_ttl_seconds`
+    # so a burst of AI calls hits the upstream at most once per cache
+    # window. Disabled state -> no `public_ip` key in ctx, prompt-
+    # builder skips the block cleanly.
     try:
         from logic.public_ip import fetch as _public_ip_fetch
         _pip = await _public_ip_fetch()
         if _pip:
             ctx["public_ip"] = _pip
+    # noinspection PyBroadException
     except Exception as e:  # noqa: BLE001
         print(f"[telegram_listener] context public_ip build failed: {e}")
     # ---- Items: live gather cache, same shape the SPA reads --------
     try:
         from logic import gather as _gather
+        # noinspection PyProtectedMember
         items = list(_gather._cache.get("items") or [])
         ctx["items"] = [
             {
@@ -2018,6 +2174,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             }
             for i in items[:30]
         ]
+    # noinspection PyBroadException
     except Exception as e:
         print(f"[telegram_listener] context items build failed: {e}")
         ctx["items"] = []
@@ -2039,7 +2196,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                         snap_map[row[0]] = _json.loads(row[1])
                     except (ValueError, TypeError):
                         pass
-        except Exception:
+        except (sqlite3.DatabaseError, sqlite3.OperationalError):
             # Snapshot table may not exist on a fresh DB; just continue.
             pass
         host_records: list[dict] = []
@@ -2082,6 +2239,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             1 for h in hosts_cfg if h.get("enabled", True)
         )
         ctx["hosts_sample_cap"] = 30
+    # noinspection PyBroadException
     except Exception as e:
         print(f"[telegram_listener] context hosts build failed: {e}")
         ctx["hosts"] = []
@@ -2091,6 +2249,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     return ctx
 
 
+# noinspection PyUnusedLocal
 async def _ai_reply(
     client: httpx.AsyncClient,
     text: str,
@@ -2122,10 +2281,11 @@ async def _ai_reply(
     try:
         from logic import ai as _ai
         from logic.db import get_setting, get_setting_bool
+    # noinspection PyBroadException
     except Exception as e:
         print(f"[telegram_listener] _ai_reply import failed: {e}")
         return
-    if not get_setting_bool("ai_enabled", False):
+    if not get_setting_bool(Settings.AI_ENABLED):
         await _send_reply(
             client,
             "AI integration is disabled. Enable it in OmniGrid → "
@@ -2133,25 +2293,25 @@ async def _ai_reply(
             "available commands."
         )
         return
-    provider = (get_setting("ai_active_provider", "") or "").strip().lower()
+    provider = (get_setting(Settings.AI_ACTIVE_PROVIDER) or "").strip().lower()
     if not provider:
         await _send_reply(client, "No AI provider configured. Set one in Admin → AI Integration.")
         return
     # Per-provider API key lookup.
-    api_key = (get_setting(f"ai_provider_{provider}_api_key", "") or "").strip()
+    api_key = (get_setting(ai_provider_api_key_key(provider)) or "").strip()
     if not api_key:
         await _send_reply(
             client,
             f"AI provider <b>{_escape(provider)}</b> is selected but has no API key configured."
         )
         return
-    model = (get_setting(f"ai_provider_{provider}_model", "") or "").strip() or None
-    base_url = (get_setting(f"ai_provider_{provider}_base_url", "") or "").strip() or None
+    model = (get_setting(ai_provider_model_key(provider)) or "").strip() or None
+    base_url = (get_setting(ai_provider_base_url_key(provider)) or "").strip() or None
 
     # ---- Immediate user feedback: typing indicator + placeholder ---
     # The typing indicator is decorative (~5s); the placeholder is
     # the durable bubble we edit in place when the AI returns.
-    await _send_chat_action(client, "typing")
+    await _send_chat_action(client)
     placeholder_id = await _send_reply(client, "🤖 <i>Thinking…</i>")
 
     # ---- Build grounded prompt -------------------------------------
@@ -2198,7 +2358,7 @@ async def _ai_reply(
         from logic import tuning as _tuning
         from logic.tuning import Tunable
         max_toks = _tuning.tuning_int(Tunable.AI_MAX_TOKENS)
-    except Exception:
+    except (ImportError, KeyError, ValueError, TypeError):
         max_toks = 1024
     try:
         max_toks = max(256, int(max_toks))
@@ -2245,6 +2405,7 @@ async def _ai_reply(
                     },
                 },
             )
+        # noinspection PyBroadException
         except Exception as _rec_err:
             # Never let a recording failure swallow the operator's reply.
             print(f"[telegram_listener] record_ai_call failed: {_rec_err}")
@@ -2259,6 +2420,7 @@ async def _ai_reply(
             base_url=base_url,
             max_tokens=max_toks,
         )
+    # noinspection PyBroadException
     except Exception as e:
         _record_call(False, {"detail": str(e)}, "")
         await _deliver(f"❌ AI call failed: <code>{_escape(str(e))}</code>")
@@ -2283,9 +2445,9 @@ async def _ai_reply(
     # Telegram caps a single message at 4096 chars including HTML
     # tags. _send_reply will fail HTTP-400 if we exceed; pre-trim
     # with a clear "(truncated)" marker so the operator knows.
-    MAX = 3800  # leave headroom for HTML overhead
-    if len(clean) > MAX:
-        clean = clean[:MAX] + "\n\n<i>…(truncated)</i>"
+    max_chars = 3800  # leave headroom for HTML overhead
+    if len(clean) > max_chars:
+        clean = clean[:max_chars] + "\n\n<i>…(truncated)</i>"
     # Escape for HTML parse_mode — the AI's response might contain
     # &, <, > that Telegram's parser would otherwise reject.
     await _deliver(_escape(clean))
@@ -2388,13 +2550,18 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
         await handler(client, args, msg)
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
+    # noinspection PyBroadException
     except Exception as e:  # noqa: BLE001 — never let one bad command crash the loop
         handler_status = "error"
         handler_error = f"{type(e).__name__}: {e}"
         print(f"[telegram_listener] handler {head!r} crashed: {e}")
         try:
             await _send_reply(client, f"❌ Command crashed: <code>{_escape(str(e))}</code>")
-        except Exception:
+        except (httpx.HTTPError, OSError):
+            # Reply path also broken — last-resort silent fail; the
+            # outer except already logged the original crash via the
+            # audit row, so swallowing here just keeps the dispatcher
+            # loop alive for the next update.
             pass
     # Write the audit row AFTER the handler completes so we capture
     # the outcome. Best-effort: a logging failure inside
@@ -2408,7 +2575,7 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
         events={
             "command": head,
             "args": safe_args,
-            "telegram_user_id": int(sender_id_audit) if sender_id_audit is not None else None,
+            "telegram_user_id": int(sender_id_audit) if sender_id_audit is not None else None,  # type: ignore[arg-type]  # guard above narrows None branch
         },
     )
 
@@ -2416,7 +2583,7 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
 def _load_offset() -> int:
     """Resume from the last seen update_id (+ 1) across restarts."""
     from logic.db import get_setting
-    raw = (get_setting("telegram_last_update_id", "0") or "0").strip()
+    raw = (get_setting(Settings.TELEGRAM_LAST_UPDATE_ID, "0") or "0").strip()
     try:
         return int(raw) + 1 if raw else 0
     except (TypeError, ValueError):
@@ -2426,7 +2593,7 @@ def _load_offset() -> int:
 def _save_offset(update_id: int) -> None:
     from logic.db import set_setting
     try:
-        set_setting("telegram_last_update_id", str(int(update_id)))
+        set_setting(Settings.TELEGRAM_LAST_UPDATE_ID, str(int(update_id)))
     except (TypeError, ValueError):
         pass
 
@@ -2459,12 +2626,14 @@ async def listener_loop() -> None:
                 await asyncio.sleep(5)
                 continue
             try:
-                async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+                http_to = _telegram_http_timeout()
+                long_poll_to = _telegram_long_poll_timeout()
+                async with httpx.AsyncClient(timeout=http_to) as client:
                     r = await client.get(
-                        f"{_TELEGRAM_API_BASE}/bot{token}/getUpdates",
+                        f"{_telegram_api_base()}/bot{token}/getUpdates",
                         params={
                             "offset": offset,
-                            "timeout": _LONG_POLL_TIMEOUT,
+                            "timeout": long_poll_to,
                             "allowed_updates": '["message","edited_message"]',
                         },
                     )
@@ -2487,6 +2656,7 @@ async def listener_loop() -> None:
                             await _process_update(client, update)
                         except (asyncio.CancelledError, KeyboardInterrupt):
                             raise
+                        # noinspection PyBroadException
                         except Exception as e:  # noqa: BLE001
                             print(f"[telegram_listener] update processing failed: {e}")
             except (asyncio.CancelledError, KeyboardInterrupt):
@@ -2496,6 +2666,7 @@ async def listener_loop() -> None:
                 # logs with the same error every iteration.
                 print(f"[telegram_listener] network: {e}")
                 await asyncio.sleep(5)
+            # noinspection PyBroadException
             except Exception as e:  # noqa: BLE001
                 print(f"[telegram_listener] loop iteration failed: {e}")
                 await asyncio.sleep(5)

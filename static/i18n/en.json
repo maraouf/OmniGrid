@@ -1270,6 +1270,7 @@
       "hosts": "Hosts",
       "host_groups": "Host Groups",
       "ssh": "SSH",
+      "public_ip": "Public IP",
       "port_scan": "Port Scan",
       "assets": "Asset Inventory",
       "ai": "AI Integration",
@@ -1424,6 +1425,9 @@
       "telegram_thread_id_placeholder": "12345",
       "telegram_thread_id_hint": "Only set this when the destination is a supergroup with topics (forum mode) enabled AND you want notifications routed to a specific topic. Leave blank to post to the supergroup's main feed.",
       "telegram_verify_tls": "Verify TLS",
+      "telegram_api_base_label": "Bot API base URL",
+      "telegram_api_base_placeholder": "https://api.telegram.org",
+      "telegram_api_base_hint": "Override only when running a self-hosted Bot API server (tdlight / local TDLib) or routing through a proxy. Blank = upstream default. Trailing slash is stripped automatically. Per-call read so an edit takes effect on the next send / poll without restart.",
       "telegram_test_button": "Send test message",
       "save_requires_test": "Run a successful Test (the Send-test button next to Save) before committing — same Test-before-Save gate every other provider uses.",
       "providers_save_button": "Save channels",
@@ -1602,6 +1606,18 @@
         "tuning_portainer_op_timeout_long_seconds": {
           "label": "Portainer op timeout — long (seconds)",
           "help": "Wall-clock cap for image-pull-heavy Portainer write-ops — stack update, container update, container retag-to-latest. Default 600s. Raise on slow registries / large stacks. Range 60..3600. Takes effect on the next op."
+        },
+        "tuning_public_ip_enabled": {
+          "label": "Public-IP lookup enabled",
+          "help": "Master gate for the standalone Public IP / ISP / ASN lookup subsystem. 1 = enabled, 0 = disabled. Default 0 for privacy — flipping to 1 authorises outbound calls to ifconfig.co (third-party JSON service) revealing this deployment's IP / ISP / ASN / city / country. The AI palette and Telegram /ip command both consume the lookup but the toggle owns its own Admin → Public IP section. Range 0..1."
+        },
+        "tuning_public_ip_cache_ttl_seconds": {
+          "label": "Public-IP cache TTL (seconds)",
+          "help": "How long the in-process cache holds the last successful ifconfig.co lookup before re-probing. Default 600 (10 minutes). Lower for fresher geolocation after a WAN failover; raise to reduce outbound traffic. Range 60..3600. Takes effect on the next lookup."
+        },
+        "tuning_public_ip_fetch_timeout_seconds": {
+          "label": "Public-IP fetch timeout (seconds)",
+          "help": "Outbound HTTP wall-clock for the ifconfig.co request. Default 8s. Raise on slow links / proxy paths. Range 2..60. Takes effect on the next lookup."
         },
         "tuning_asset_inventory_token_timeout_seconds": {
           "label": "Asset inventory — token probe timeout (seconds)",
@@ -1966,6 +1982,14 @@
         "tuning_swarm_autoheal_cooldown_minutes": {
           "label": "Swarm autoheal cooldown (minutes)",
           "help": "Minimum minutes between consecutive auto-restart actions by the `swarm_agent_health` schedule kind on the SAME agent service — prevents a thrashing agent from pinning the manager in a restart loop. Default 30 min; range 1..1440 (24h max). Notify-mode bypasses the cooldown; only the restart action consumes it."
+        },
+        "tuning_telegram_long_poll_timeout_seconds": {
+          "label": "Telegram long-poll timeout (seconds)",
+          "help": "Telegram holds the `getUpdates` connection open this many seconds waiting for an update. Server-side cap is 50; 25 is the sweet spot — fast wake-up on inactivity while amortising the round-trip cost on a busy chat. Lower on a reverse-proxy with a tight `proxy_read_timeout`; raise to reduce request volume on a very low-traffic chat. Range 1..50. Takes effect on the next listener iteration."
+        },
+        "tuning_telegram_http_timeout_seconds": {
+          "label": "Telegram HTTP timeout (seconds)",
+          "help": "Outer HTTP wall-clock for the listener's `getUpdates` call. MUST be larger than the long-poll timeout so Telegram has time to flush the response after a long-poll wake-up. Default 35 (= 25 + 10). Operators behind a tight reverse-proxy `proxy_read_timeout` should lower both this and the long-poll timeout in lock-step. Range 5..120. Takes effect on the next listener iteration."
         },
         "tuning_webmin_sampler_budget_seconds": {
           "label": "Webmin sampler tick budget (seconds)",
@@ -4098,6 +4122,16 @@
     "testing": "Testing…",
     "test_ok_prefix": "✓ ",
     "test_fail_prefix": "✗ "
+  },
+  "admin_public_ip": {
+    "title": "Public IP",
+    "intro": "Optional public-IP / ISP / ASN lookup against ifconfig.co. Standalone subsystem — the AI palette and the Telegram /ip command both consume it, but the feature is toggled here, independent of AI Integration. Disabled by default: enabling authorises outbound calls revealing this deployment's IP / ISP / ASN / city / country to a third-party JSON service.",
+    "cache_ttl_label": "Cache TTL (seconds)",
+    "cache_ttl_help": "How long the in-process cache holds the last successful lookup before re-probing ifconfig.co. Default 600 (10 minutes); lower for fresher geolocation after a WAN failover, higher to reduce outbound traffic. Range 60..3600.",
+    "fetch_timeout_label": "Fetch timeout (seconds)",
+    "fetch_timeout_help": "Outbound HTTP wall-clock for the ifconfig.co request. Raise on slow links / proxy paths. Range 2..60.",
+    "test_button": "Test lookup",
+    "test_result_label": "Last lookup"
   },
   "hosts_extra_ssh": {
     "card_title": "SSH",

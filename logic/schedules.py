@@ -40,6 +40,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from logic import backups, gather, ops as _ops
 from logic.db import db_conn
+from logic.settings_keys import Settings
 
 
 # Clock-time schedules use "HH:MM" — 24-hour, container local time. Matches
@@ -84,7 +85,7 @@ def _scheduler_tz():
     """
     try:
         from logic.db import get_setting
-        tz_name = (get_setting("scheduler_timezone", "") or "").strip()
+        tz_name = (get_setting(Settings.SCHEDULER_TIMEZONE, "") or "").strip()
     except Exception:
         return None
     if not tz_name:
@@ -120,7 +121,7 @@ def scheduler_tz_state() -> dict:
     """
     try:
         from logic.db import get_setting
-        configured = (get_setting("scheduler_timezone", "") or "").strip()
+        configured = (get_setting(Settings.SCHEDULER_TIMEZONE, "") or "").strip()
     except Exception:
         return {"configured": "", "resolved": None, "fallback": False}
     if not configured:
@@ -997,19 +998,19 @@ async def _run_asset_inventory_refresh(
         # Master switch. When the operator flips Asset
         # Inventory off in Admin → Asset Inventory, scheduled refreshes
         # no-op without erasing the cache or the persisted credentials.
-        if (get_setting("asset_inventory_enabled", "true") or "true").lower() != "true":
+        if (get_setting(Settings.ASSET_INVENTORY_ENABLED, "true") or "true").lower() != "true":
             return 0, "skipped (asset_inventory disabled)"
-        base_url = (get_setting("asset_inventory_base_url", "") or "").strip().rstrip("/")
-        auth_mode = (get_setting("asset_inventory_auth_mode", "") or "oauth2").strip().lower()
+        base_url = (get_setting(Settings.ASSET_INVENTORY_BASE_URL, "") or "").strip().rstrip("/")
+        auth_mode = (get_setting(Settings.ASSET_INVENTORY_AUTH_MODE, "") or "oauth2").strip().lower()
         if auth_mode not in ("oauth2", "lifetime_token"):
             auth_mode = "oauth2"
         try:
             if auth_mode == "lifetime_token":
-                lifetime_token = get_setting("asset_inventory_lifetime_token", "") or ""
-                service = (get_setting("asset_inventory_service", "") or "").strip()
-                action = (get_setting("asset_inventory_action", "") or "").strip()
-                min_raw = (get_setting("asset_inventory_min_value", "") or "").strip()
-                max_raw = (get_setting("asset_inventory_max_value", "") or "").strip()
+                lifetime_token = get_setting(Settings.ASSET_INVENTORY_LIFETIME_TOKEN, "") or ""
+                service = (get_setting(Settings.ASSET_INVENTORY_SERVICE, "") or "").strip()
+                action = (get_setting(Settings.ASSET_INVENTORY_ACTION, "") or "").strip()
+                min_raw = (get_setting(Settings.ASSET_INVENTORY_MIN_VALUE, "") or "").strip()
+                max_raw = (get_setting(Settings.ASSET_INVENTORY_MAX_VALUE, "") or "").strip()
                 try:
                     min_value = int(min_raw) if min_raw else None
                 except ValueError:
@@ -1026,7 +1027,7 @@ async def _run_asset_inventory_refresh(
                 # / — honour the asset_inventory_verify_tls
                 # setting (default True) so operators with a self-signed
                 # asset API can opt out without monkey-patching.
-                _verify_tls_raw = (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower()
+                _verify_tls_raw = (get_setting(Settings.ASSET_INVENTORY_VERIFY_TLS, "true") or "true").strip().lower()
                 _verify_tls = _verify_tls_raw != "false"
                 result = await _ai.refresh_cache(
                     base_url,
@@ -1039,16 +1040,16 @@ async def _run_asset_inventory_refresh(
                     max_value=max_value,
                 )
             else:
-                token_url = (get_setting("asset_inventory_token_url", "") or "").strip()
-                client_id = (get_setting("asset_inventory_client_id", "") or "").strip()
-                client_secret = get_setting("asset_inventory_client_secret", "") or ""
-                scope = (get_setting("asset_inventory_scope", "") or "").strip()
+                token_url = (get_setting(Settings.ASSET_INVENTORY_TOKEN_URL, "") or "").strip()
+                client_id = (get_setting(Settings.ASSET_INVENTORY_CLIENT_ID, "") or "").strip()
+                client_secret = get_setting(Settings.ASSET_INVENTORY_CLIENT_SECRET, "") or ""
+                scope = (get_setting(Settings.ASSET_INVENTORY_SCOPE, "") or "").strip()
                 if not base_url or not token_url or not client_id or not client_secret:
                     raise RuntimeError(
                         "asset_inventory OAuth2 credentials incomplete — "
                         "configure base_url / token_url / client_id / client_secret"
                     )
-                _verify_tls_raw = (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower()
+                _verify_tls_raw = (get_setting(Settings.ASSET_INVENTORY_VERIFY_TLS, "true") or "true").strip().lower()
                 _verify_tls = _verify_tls_raw != "false"
                 result = await _ai.refresh_cache(
                     base_url,
@@ -1288,19 +1289,19 @@ def _load_swarm_autoheal_anchors() -> None:
     _swarm_autoheal_anchors_loaded = True
     from logic.db import get_setting
     try:
-        rt = get_setting("swarm_autoheal_last_restart_ts", "") or ""
+        rt = get_setting(Settings.SWARM_AUTOHEAL_LAST_RESTART_TS, "") or ""
         if rt:
             _swarm_autoheal_last_restart_ts = float(rt)
     except (ValueError, TypeError):
         pass
     try:
-        nt = get_setting("swarm_autoheal_last_notify_ts", "") or ""
+        nt = get_setting(Settings.SWARM_AUTOHEAL_LAST_NOTIFY_TS, "") or ""
         if nt:
             _swarm_autoheal_last_notify_ts = float(nt)
     except (ValueError, TypeError):
         pass
     try:
-        ns_raw = get_setting("swarm_autoheal_last_notify_set", "") or ""
+        ns_raw = get_setting(Settings.SWARM_AUTOHEAL_LAST_NOTIFY_SET, "") or ""
         if ns_raw:
             _swarm_autoheal_last_notify_set = frozenset(json.loads(ns_raw))
     except (ValueError, TypeError, json.JSONDecodeError):
@@ -1311,7 +1312,7 @@ def _persist_swarm_autoheal_restart_ts(ts: float) -> None:
     """Write the restart anchor to settings. Best-effort."""
     from logic.db import set_setting
     try:
-        set_setting("swarm_autoheal_last_restart_ts", str(float(ts)))
+        set_setting(Settings.SWARM_AUTOHEAL_LAST_RESTART_TS, str(float(ts)))
     except Exception as e:  # noqa: BLE001
         print(f"[scheduler] persist swarm_autoheal_last_restart_ts failed: {e}")
 
@@ -1320,8 +1321,8 @@ def _persist_swarm_autoheal_notify_state(ts: float, host_set: frozenset) -> None
     """Write the notify-side anchors to settings. Best-effort."""
     from logic.db import set_setting
     try:
-        set_setting("swarm_autoheal_last_notify_ts", str(float(ts)))
-        set_setting("swarm_autoheal_last_notify_set",
+        set_setting(Settings.SWARM_AUTOHEAL_LAST_NOTIFY_TS, str(float(ts)))
+        set_setting(Settings.SWARM_AUTOHEAL_LAST_NOTIFY_SET,
                     json.dumps(sorted(host_set)))
     except Exception as e:  # noqa: BLE001
         print(f"[scheduler] persist swarm_autoheal_last_notify_state failed: {e}")
@@ -1389,7 +1390,7 @@ async def _run_swarm_agent_health(
             if not unhealthy_hosts:
                 action_taken = "noop_healthy"
             else:
-                action = (get_setting("swarm_autoheal_action", "notify")
+                action = (get_setting(Settings.SWARM_AUTOHEAL_ACTION, "notify")
                           or "notify").lower()
                 if action == "restart":
                     cooldown_min = _tuning_mod.tuning_int(
@@ -1662,7 +1663,7 @@ async def _run_port_scan_refresh(
         first_skip_reason = ""
 
         try:
-            if not get_setting_bool("port_scan_enabled", False):
+            if not get_setting_bool(Settings.PORT_SCAN_ENABLED, False):
                 first_skip_reason = "master_toggle_off"
                 duration = int(time.time() - started)
                 _record_history_row(
@@ -1811,7 +1812,7 @@ async def _run_port_scan_refresh(
                 )
                 ports_csv = (
                     (ps_cfg.get("ports") or "").strip()
-                    or (get_setting("port_scan_default_ports", "") or "").strip()
+                    or (get_setting(Settings.PORT_SCAN_DEFAULT_PORTS, "") or "").strip()
                 )
                 ports_list = (
                     _ps.parse_port_csv(ports_csv) if ports_csv
@@ -1842,7 +1843,7 @@ async def _run_port_scan_refresh(
                 snmp_cfg = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
                 snmp_community = (
                     snmp_cfg.get("community")
-                    or get_setting("snmp_default_community", "")
+                    or get_setting(Settings.SNMP_DEFAULT_COMMUNITY, "")
                     or "public"
                 )
                 import uuid as _uuid
@@ -2068,16 +2069,16 @@ def bootstrap_swarm_agent_health_schedule(conn: sqlite3.Connection) -> dict:
     from logic.db import get_setting, set_setting
     from logic import portainer as _portainer
 
-    bootstrap_enabled = (get_setting("swarm_autoheal_bootstrap_enabled", "")
+    bootstrap_enabled = (get_setting(Settings.SWARM_AUTOHEAL_BOOTSTRAP_ENABLED, "")
                          or "").strip().lower()
-    bootstrap_done = (get_setting("swarm_autoheal_bootstrap_done", "")
+    bootstrap_done = (get_setting(Settings.SWARM_AUTOHEAL_BOOTSTRAP_DONE, "")
                       or "").strip().lower() == "true"
 
     if bootstrap_done:
         return {"status": "skipped_already_done"}
     if bootstrap_enabled == "false":
         # Operator opt-out — latch the flag so we don't keep retrying.
-        set_setting("swarm_autoheal_bootstrap_done", "true")
+        set_setting(Settings.SWARM_AUTOHEAL_BOOTSTRAP_DONE, "true")
         return {"status": "skipped_operator_opt_out"}
     if not _portainer.is_configured():
         return {"status": "skipped_portainer_unconfigured"}
@@ -2089,7 +2090,7 @@ def bootstrap_swarm_agent_health_schedule(conn: sqlite3.Connection) -> dict:
         "SELECT 1 FROM schedules WHERE kind='swarm_agent_health' LIMIT 1"
     ).fetchone()
     if existing is not None:
-        set_setting("swarm_autoheal_bootstrap_done", "true")
+        set_setting(Settings.SWARM_AUTOHEAL_BOOTSTRAP_DONE, "true")
         return {"status": "skipped_existing_row"}
 
     # Create the default. Same shape as the seeds in
@@ -2111,7 +2112,7 @@ def bootstrap_swarm_agent_health_schedule(conn: sqlite3.Connection) -> dict:
         # name was deleted then immediately re-created — treat as
         # already-exists for latch purposes.
         pass
-    set_setting("swarm_autoheal_bootstrap_done", "true")
+    set_setting(Settings.SWARM_AUTOHEAL_BOOTSTRAP_DONE, "true")
     return {"status": "created", "name": name}
 
 
@@ -2288,14 +2289,14 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
     """
     from logic.db import get_setting, set_setting
 
-    if (get_setting("default_schedules_seeded", "") or "").lower() == "true":
+    if (get_setting(Settings.DEFAULT_SCHEDULES_SEEDED, "") or "").lower() == "true":
         return
 
     # `seed_default_schedules` is called from BOTH
     # `_lifespan` (with empty nodes) AND the first `gather()` (with
     # nodes). On a fast-booting Swarm both calls can pass the gate
     # check above and double-INSERT before either reaches
-    # `set_setting("default_schedules_seeded", "true")`. Wrap the
+    # `set_setting(Settings.DEFAULT_SCHEDULES_SEEDED, "true")`. Wrap the
     # entire seed sequence in `BEGIN IMMEDIATE` so SQLite serialises
     # the second caller — when it eventually acquires the lock the
     # gate-check above will already have run inside the previous
@@ -2312,7 +2313,7 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
         pass
     # Re-check inside the transaction in case the other caller won the
     # serialisation race + flipped the flag mid-flight.
-    if (get_setting("default_schedules_seeded", "") or "").lower() == "true":
+    if (get_setting(Settings.DEFAULT_SCHEDULES_SEEDED, "") or "").lower() == "true":
         try:
             conn.commit()
         except Exception:
@@ -2370,7 +2371,7 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
         # we deliberately leave the flag UNSET so the deferred gather
         # call gets a turn.
         if nodes:
-            set_setting("default_schedules_seeded", "true")
+            set_setting(Settings.DEFAULT_SCHEDULES_SEEDED, "true")
             if seeded:
                 print("[scheduler] default schedules seeded; flag latched")
 

@@ -97,6 +97,18 @@ from logic.db import DB_PATH as _DB_PATH_OPT, db_conn, get_setting, get_setting_
 DB_PATH: str = _DB_PATH_OPT or ""
 from logic import tuning  # noqa: E402
 from logic.tuning import Tunable  # noqa: E402
+from logic.settings_keys import (  # noqa: E402
+    Settings,
+    ai_provider_api_key_key,
+    ai_provider_base_url_key,
+    ai_provider_enabled_key,
+    ai_provider_model_key,
+    last_test_success_key,
+    notify_event_key,
+    notify_medium_key,
+    notify_template_body_key,
+    notify_template_title_key,
+)
 from logic import host_baseline as _host_baseline  # noqa: E402
 
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
@@ -174,30 +186,30 @@ def _resolve_totp_policy() -> dict:
     # the call site so the narrowing is explicit.
     resolved = {
         "totp_allowed": get_setting_bool(
-            "totp_allowed", bool(_TOTP_POLICY_DEFAULTS.get("totp_allowed", True)),
+            Settings.TOTP_ALLOWED, bool(_TOTP_POLICY_DEFAULTS.get("totp_allowed", True)),
         ),
         "totp_required_for_admins": get_setting_bool(
-            "totp_required_for_admins",
+            Settings.TOTP_REQUIRED_FOR_ADMINS,
             bool(_TOTP_POLICY_DEFAULTS.get("totp_required_for_admins", False)),
         ),
         "totp_required_for_users": get_setting_bool(
-            "totp_required_for_users",
+            Settings.TOTP_REQUIRED_FOR_USERS,
             bool(_TOTP_POLICY_DEFAULTS.get("totp_required_for_users", False)),
         ),
         "totp_lockout_max_failures": int(
             get_setting(
-                "totp_lockout_max_failures",
+                Settings.TOTP_LOCKOUT_MAX_FAILURES,
                 str(_TOTP_POLICY_DEFAULTS.get("totp_lockout_max_failures", 5)),
             ) or _TOTP_POLICY_DEFAULTS.get("totp_lockout_max_failures", 5)
         ),
         "totp_lockout_minutes": int(
             get_setting(
-                "totp_lockout_minutes",
+                Settings.TOTP_LOCKOUT_MINUTES,
                 str(_TOTP_POLICY_DEFAULTS.get("totp_lockout_minutes", 15)),
             ) or _TOTP_POLICY_DEFAULTS.get("totp_lockout_minutes", 15)
         ),
         "passkeys_allowed": get_setting_bool(
-            "passkeys_allowed", bool(_TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True)),
+            Settings.PASSKEYS_ALLOWED, bool(_TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True)),
         ),
     }
     _totp_policy_cache["value"] = resolved
@@ -2850,6 +2862,15 @@ class SettingsIn(BaseModel):
     telegram_chat_id: Optional[str] = None
     telegram_thread_id: Optional[str] = None
     telegram_verify_tls: Optional[str] = None
+    # Telegram Bot API base URL. Defaults to https://api.telegram.org
+    # when blank. Operators with a self-hosted Bot API server (e.g. via
+    # tdlight or local TDLib) or behind a CGNAT proxy can override.
+    telegram_api_base: Optional[str] = None
+    # Telegram listener long-poll + outer-HTTP timeouts (TUNABLES).
+    # Surfaced in Notifications → Telegram via the section's TUNABLES
+    # editor — declared here so the additive POST validator accepts them.
+    tuning_telegram_long_poll_timeout_seconds: Optional[str] = None
+    tuning_telegram_http_timeout_seconds: Optional[str] = None
     notify_medium_telegram: Optional[str] = None
     # Phase 2 — inbound command listener config. `enabled` controls
     # whether the long-poll loop in `logic/telegram_listener.py` fires
@@ -3073,12 +3094,6 @@ class SettingsIn(BaseModel):
     # will introduce the actual call wrapper + writer for `ai_jobs`.
     # -----------------------------------------------------------------
     ai_enabled: Optional[bool] = None
-    # Opt-in toggle for the AI palette's public-IP / ISP / ASN context
-    # block. Default OFF for privacy — enabling allows the backend to
-    # reach ifconfig.co (a third-party JSON service) on AI calls so the
-    # model can answer "what's my public IP" / "which ISP" questions.
-    # See logic/public_ip.py for the cache + gate.
-    ai_public_ip_enabled: Optional[bool] = None
     ai_active_provider: Optional[str] = None
     # Provider fallback chain — opt-in resilience. When `ai_fallback_enabled`
     # is true AND the active provider returns a transient overload (HTTP
@@ -3345,6 +3360,15 @@ class SettingsIn(BaseModel):
     # Admin → AI Integration via `relocatedTuningKeys`.
     tuning_ai_max_tokens: Optional[str] = None
     tuning_ai_fallback_max_depth: Optional[str] = None
+    # Public-IP / ISP / ASN lookup module (standalone — NOT
+    # AI-related; the AI palette + Telegram /ip command consume it
+    # but the feature has its own Admin → Public IP section).
+    # Master gate (1 = enabled, 0 = disabled). Default OFF for privacy.
+    tuning_public_ip_enabled: Optional[str] = None
+    # In-process cache TTL (seconds, default 600).
+    tuning_public_ip_cache_ttl_seconds: Optional[str] = None
+    # Outbound HTTP wall-clock to ifconfig.co (seconds, default 8).
+    tuning_public_ip_fetch_timeout_seconds: Optional[str] = None
     # AI log context — how many hours back to read persistent logs
     # for the palette's user-prompt context, capped at N lines.
     tuning_ai_log_context_hours: Optional[str] = None
@@ -3485,109 +3509,113 @@ async def api_get_settings(request: Request):
         # Per-service master switches. Default true so existing
         # deploys don't change behaviour — flip false to short-circuit
         # the service in code AND grey out the inputs in the UI.
-        "apprise_enabled": (get_setting("apprise_enabled", "true") or "true").lower() == "true",
-        "open_meteo_enabled": (get_setting("open_meteo_enabled", "true") or "true").lower() == "true",
-        "portainer_enabled": (get_setting("portainer_enabled", "true") or "true").lower() == "true",
-        "ssh_enabled": (get_setting("ssh_enabled", "true") or "true").lower() == "true",
-        "asset_inventory_enabled": (get_setting("asset_inventory_enabled", "true") or "true").lower() == "true",
-        "apprise_url": get_setting("apprise_url"),
-        "apprise_tag": get_setting("apprise_tag"),
-        "swarm_autoheal_action": (get_setting("swarm_autoheal_action", "notify") or "notify").lower(),
+        "apprise_enabled": (get_setting(Settings.APPRISE_ENABLED, "true") or "true").lower() == "true",
+        "open_meteo_enabled": (get_setting(Settings.OPEN_METEO_ENABLED, "true") or "true").lower() == "true",
+        "portainer_enabled": (get_setting(Settings.PORTAINER_ENABLED, "true") or "true").lower() == "true",
+        "ssh_enabled": (get_setting(Settings.SSH_ENABLED, "true") or "true").lower() == "true",
+        "asset_inventory_enabled": (get_setting(Settings.ASSET_INVENTORY_ENABLED, "true") or "true").lower() == "true",
+        "apprise_url": get_setting(Settings.APPRISE_URL),
+        "apprise_tag": get_setting(Settings.APPRISE_TAG),
+        "swarm_autoheal_action": (get_setting(Settings.SWARM_AUTOHEAL_ACTION, "notify") or "notify").lower(),
         # First-boot auto-bootstrap toggle for the default
         # swarm_agent_health schedule. Operators flip this to false
         # to opt out before the bootstrap-done latch trips.
         "swarm_autoheal_bootstrap_enabled": (
-                                                get_setting("swarm_autoheal_bootstrap_enabled", "true") or "true"
+                                                get_setting(Settings.SWARM_AUTOHEAL_BOOTSTRAP_ENABLED, "true") or "true"
                                             ).lower() != "false",
         # Per-event notification toggles. Resolved through
         # get_setting_bool so the frontend gets clean booleans (no
         # client-side string parsing). Default true preserves the
         # legacy "send everything" behaviour for existing deploys.
-        "notify_event_stack_update_success": get_setting_bool("notify_event_stack_update_success", True),
-        "notify_event_stack_update_failure": get_setting_bool("notify_event_stack_update_failure", True),
-        "notify_event_container_update_success": get_setting_bool("notify_event_container_update_success", True),
-        "notify_event_container_update_failure": get_setting_bool("notify_event_container_update_failure", True),
-        "notify_event_container_restart_success": get_setting_bool("notify_event_container_restart_success", True),
-        "notify_event_container_restart_failure": get_setting_bool("notify_event_container_restart_failure", True),
-        "notify_event_container_remove_success": get_setting_bool("notify_event_container_remove_success", True),
-        "notify_event_container_remove_failure": get_setting_bool("notify_event_container_remove_failure", True),
-        "notify_event_service_restart_success": get_setting_bool("notify_event_service_restart_success", True),
-        "notify_event_service_restart_failure": get_setting_bool("notify_event_service_restart_failure", True),
-        "notify_event_swarm_agent_restart_success": get_setting_bool("notify_event_swarm_agent_restart_success", True),
-        "notify_event_swarm_agent_restart_failure": get_setting_bool("notify_event_swarm_agent_restart_failure", True),
-        "notify_event_swarm_agent_unhealthy": get_setting_bool("notify_event_swarm_agent_unhealthy", True),
-        "notify_event_swarm_agent_recovered": get_setting_bool("notify_event_swarm_agent_recovered", True),
-        "notify_event_prune_success": get_setting_bool("notify_event_prune_success", True),
-        "notify_event_prune_failure": get_setting_bool("notify_event_prune_failure", True),
+        "notify_event_stack_update_success": get_setting_bool(Settings.NOTIFY_EVENT_STACK_UPDATE_SUCCESS, True),
+        "notify_event_stack_update_failure": get_setting_bool(Settings.NOTIFY_EVENT_STACK_UPDATE_FAILURE, True),
+        "notify_event_container_update_success": get_setting_bool(Settings.NOTIFY_EVENT_CONTAINER_UPDATE_SUCCESS, True),
+        "notify_event_container_update_failure": get_setting_bool(Settings.NOTIFY_EVENT_CONTAINER_UPDATE_FAILURE, True),
+        "notify_event_container_restart_success": get_setting_bool(Settings.NOTIFY_EVENT_CONTAINER_RESTART_SUCCESS, True),
+        "notify_event_container_restart_failure": get_setting_bool(Settings.NOTIFY_EVENT_CONTAINER_RESTART_FAILURE, True),
+        "notify_event_container_remove_success": get_setting_bool(Settings.NOTIFY_EVENT_CONTAINER_REMOVE_SUCCESS, True),
+        "notify_event_container_remove_failure": get_setting_bool(Settings.NOTIFY_EVENT_CONTAINER_REMOVE_FAILURE, True),
+        "notify_event_service_restart_success": get_setting_bool(Settings.NOTIFY_EVENT_SERVICE_RESTART_SUCCESS, True),
+        "notify_event_service_restart_failure": get_setting_bool(Settings.NOTIFY_EVENT_SERVICE_RESTART_FAILURE, True),
+        "notify_event_swarm_agent_restart_success": get_setting_bool(Settings.NOTIFY_EVENT_SWARM_AGENT_RESTART_SUCCESS, True),
+        "notify_event_swarm_agent_restart_failure": get_setting_bool(Settings.NOTIFY_EVENT_SWARM_AGENT_RESTART_FAILURE, True),
+        "notify_event_swarm_agent_unhealthy": get_setting_bool(Settings.NOTIFY_EVENT_SWARM_AGENT_UNHEALTHY, True),
+        "notify_event_swarm_agent_recovered": get_setting_bool(Settings.NOTIFY_EVENT_SWARM_AGENT_RECOVERED, True),
+        "notify_event_prune_success": get_setting_bool(Settings.NOTIFY_EVENT_PRUNE_SUCCESS, True),
+        "notify_event_prune_failure": get_setting_bool(Settings.NOTIFY_EVENT_PRUNE_FAILURE, True),
         # Security event — default OFF (login spam is noisy; opt-in).
-        "notify_event_user_login": get_setting_bool("notify_event_user_login", False),
+        "notify_event_user_login": get_setting_bool(Settings.NOTIFY_EVENT_USER_LOGIN, False),
         # System event — fires when host_metrics_sampler auto-
         # pauses a host after the failure window. Default ON.
-        "notify_event_host_paused": get_setting_bool("notify_event_host_paused", True),
+        "notify_event_host_paused": get_setting_bool(Settings.NOTIFY_EVENT_HOST_PAUSED, True),
         # Port-scan provider — default OFF so first-run scanner doesn't
         # flood. Operators flip on after triaging the initial baseline.
-        "notify_event_port_scan_new_port": get_setting_bool("notify_event_port_scan_new_port", False),
+        "notify_event_port_scan_new_port": get_setting_bool(Settings.NOTIFY_EVENT_PORT_SCAN_NEW_PORT, False),
         # TOTP audit-row INSERT failure — warn when audit trail missing.
-        "notify_event_totp_audit_log_failed": get_setting_bool("notify_event_totp_audit_log_failed", True),
+        "notify_event_totp_audit_log_failed": get_setting_bool(Settings.NOTIFY_EVENT_TOTP_AUDIT_LOG_FAILED, True),
         # Drawer auto-fix — VXLAN overlay cleanup outcomes.
-        "notify_event_overlay_cleanup_success": get_setting_bool("notify_event_overlay_cleanup_success", True),
-        "notify_event_overlay_cleanup_failure": get_setting_bool("notify_event_overlay_cleanup_failure", True),
+        "notify_event_overlay_cleanup_success": get_setting_bool(Settings.NOTIFY_EVENT_OVERLAY_CLEANUP_SUCCESS, True),
+        "notify_event_overlay_cleanup_failure": get_setting_bool(Settings.NOTIFY_EVENT_OVERLAY_CLEANUP_FAILURE, True),
         # Per-medium master switches. Defaults from
         # NOTIFY_MEDIUM_DEFAULTS (both ON for back-compat); operators
         # flip individually from Admin → Notifications.
         "notify_medium_app": get_setting_bool(
-            "notify_medium_app",
+            Settings.NOTIFY_MEDIUM_APP,
             _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("app", True),
         ),
         "notify_medium_apprise": get_setting_bool(
-            "notify_medium_apprise",
+            Settings.NOTIFY_MEDIUM_APPRISE,
             _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("apprise", True),
         ),
         # Telegram medium (Phase 1: send-only). Defaults OFF (requires
         # bot-token + chat-id config before it can fire).
         "notify_medium_telegram": get_setting_bool(
-            "notify_medium_telegram",
+            Settings.NOTIFY_MEDIUM_TELEGRAM,
             _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("telegram", False),
         ),
-        "telegram_chat_id": get_setting("telegram_chat_id"),
-        "telegram_thread_id": get_setting("telegram_thread_id"),
-        "telegram_verify_tls": (get_setting("telegram_verify_tls", "true") or "true").lower() == "true",
+        "telegram_chat_id": get_setting(Settings.TELEGRAM_CHAT_ID),
+        "telegram_thread_id": get_setting(Settings.TELEGRAM_THREAD_ID),
+        "telegram_verify_tls": (get_setting(Settings.TELEGRAM_VERIFY_TLS, "true") or "true").lower() == "true",
+        # Telegram Bot API base URL — blank = fall back to upstream
+        # default (https://api.telegram.org). Surfaced for the admin
+        # form so self-hosted Bot API gateways are operator-tunable.
+        "telegram_api_base": get_setting(Settings.TELEGRAM_API_BASE, ""),
         # Write-only: surface only a `_set` flag, never the raw token.
-        "telegram_bot_token_set": bool((get_setting("telegram_bot_token") or "").strip()),
+        "telegram_bot_token_set": bool((get_setting(Settings.TELEGRAM_BOT_TOKEN) or "").strip()),
         # Phase 2 — inbound command listener config.
-        "telegram_listener_enabled": get_setting_bool("telegram_listener_enabled", False),
-        "telegram_allow_destructive": get_setting_bool("telegram_allow_destructive", False),
-        "telegram_authorized_user_ids": get_setting("telegram_authorized_user_ids"),
+        "telegram_listener_enabled": get_setting_bool(Settings.TELEGRAM_LISTENER_ENABLED, False),
+        "telegram_allow_destructive": get_setting_bool(Settings.TELEGRAM_ALLOW_DESTRUCTIVE, False),
+        "telegram_authorized_user_ids": get_setting(Settings.TELEGRAM_AUTHORIZED_USER_IDS),
         # TOTP / 2FA policy. Five fields driving the multi-step
         # login flow + Profile enrolment guards + Admin -> Users action
         # enablement. Defaults preserve "no 2FA required" semantics so
         # an upgrade is a no-op until the operator opts in.
         "totp_allowed": get_setting_bool(
-            "totp_allowed", bool(_TOTP_POLICY_DEFAULTS.get("totp_allowed", True)),
+            Settings.TOTP_ALLOWED, bool(_TOTP_POLICY_DEFAULTS.get("totp_allowed", True)),
         ),
         "totp_required_for_admins": get_setting_bool(
-            "totp_required_for_admins",
+            Settings.TOTP_REQUIRED_FOR_ADMINS,
             bool(_TOTP_POLICY_DEFAULTS.get("totp_required_for_admins", False)),
         ),
         "totp_required_for_users": get_setting_bool(
-            "totp_required_for_users",
+            Settings.TOTP_REQUIRED_FOR_USERS,
             bool(_TOTP_POLICY_DEFAULTS.get("totp_required_for_users", False)),
         ),
         "totp_lockout_max_failures": int(get_setting(
-            "totp_lockout_max_failures",
+            Settings.TOTP_LOCKOUT_MAX_FAILURES,
             str(_TOTP_POLICY_DEFAULTS.get("totp_lockout_max_failures", 5)),
         ) or _TOTP_POLICY_DEFAULTS.get("totp_lockout_max_failures", 5)),
         "totp_lockout_minutes": int(get_setting(
-            "totp_lockout_minutes",
+            Settings.TOTP_LOCKOUT_MINUTES,
             str(_TOTP_POLICY_DEFAULTS.get("totp_lockout_minutes", 15)),
         ) or _TOTP_POLICY_DEFAULTS.get("totp_lockout_minutes", 15)),
         "passkeys_allowed": get_setting_bool(
-            "passkeys_allowed", bool(_TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True)),
+            Settings.PASSKEYS_ALLOWED, bool(_TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True)),
         ),
         # Open-Meteo upstream (Admin → General). Returned in the
         # clear so the input round-trips and reloads persisted. Blank
         # disables the topbar weather widget (see _open_meteo_url).
-        "open_meteo_url": get_setting("open_meteo_url") or "",
+        "open_meteo_url": get_setting(Settings.OPEN_METEO_URL) or "",
         # Host groups — returned as a parsed list of dicts. Per-group
         # SSH password is masked at the boundary: we replace it with
         # a `password_set: bool` flag so the browser learns whether a
@@ -3601,26 +3629,26 @@ async def api_get_settings(request: Request):
                 ))(g["ssh"] if isinstance(g.get("ssh"), dict) else {})}
                 for g in groups if isinstance(g, dict)
             ])(json.loads(raw) if (raw or "").strip() else [])
-        ))(get_setting("host_groups") or ""),
+        ))(get_setting(Settings.HOST_GROUPS) or ""),
         # Asset inventory (<asset-api-host>). Secret is write-only — UI sees
         # a `_set` flag only. Other fields round-trip in the clear.
         "asset_inventory": {
-            "auth_mode": (get_setting("asset_inventory_auth_mode") or "oauth2"),
-            "base_url": get_setting("asset_inventory_base_url") or "",
-            "token_url": get_setting("asset_inventory_token_url") or "",
-            "client_id": get_setting("asset_inventory_client_id") or "",
-            "client_secret_set": bool(get_setting("asset_inventory_client_secret")),
-            "scope": get_setting("asset_inventory_scope") or "",
-            "lifetime_token_set": bool(get_setting("asset_inventory_lifetime_token")),
-            "service": get_setting("asset_inventory_service") or "",
-            "action": get_setting("asset_inventory_action") or "",
+            "auth_mode": (get_setting(Settings.ASSET_INVENTORY_AUTH_MODE) or "oauth2"),
+            "base_url": get_setting(Settings.ASSET_INVENTORY_BASE_URL) or "",
+            "token_url": get_setting(Settings.ASSET_INVENTORY_TOKEN_URL) or "",
+            "client_id": get_setting(Settings.ASSET_INVENTORY_CLIENT_ID) or "",
+            "client_secret_set": bool(get_setting(Settings.ASSET_INVENTORY_CLIENT_SECRET)),
+            "scope": get_setting(Settings.ASSET_INVENTORY_SCOPE) or "",
+            "lifetime_token_set": bool(get_setting(Settings.ASSET_INVENTORY_LIFETIME_TOKEN)),
+            "service": get_setting(Settings.ASSET_INVENTORY_SERVICE) or "",
+            "action": get_setting(Settings.ASSET_INVENTORY_ACTION) or "",
             "min_value": (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
-                get_setting("asset_inventory_min_value")),
+                get_setting(Settings.ASSET_INVENTORY_MIN_VALUE)),
             "max_value": (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
-                get_setting("asset_inventory_max_value")),
-            "edit_url_template": get_setting("asset_inventory_edit_url_template") or "",
+                get_setting(Settings.ASSET_INVENTORY_MAX_VALUE)),
+            "edit_url_template": get_setting(Settings.ASSET_INVENTORY_EDIT_URL_TEMPLATE) or "",
             # / — TLS verification toggle. Default True.
-            "verify_tls": (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower() != "false",
+            "verify_tls": (get_setting(Settings.ASSET_INVENTORY_VERIFY_TLS, "true") or "true").strip().lower() != "false",
         },
         # AI integration — Stage 1 admin surface. Per-provider api_key
         # round-trips as a `_set` boolean only; everything else returns
@@ -3637,16 +3665,13 @@ async def api_get_settings(request: Request):
         # operator can keep using the old saved value OR clear the
         # field to re-pick the new default on the next form load.
         "ai": {
-            "enabled": (get_setting("ai_enabled", "false") or "false").lower() == "true",
-            # Public-IP lookup gate. Default OFF — see logic/public_ip.py
-            # docstring for the privacy rationale.
-            "public_ip_enabled": get_setting_bool("ai_public_ip_enabled", False),
-            "active_provider": (get_setting("ai_active_provider") or "claude"),
+            "enabled": (get_setting(Settings.AI_ENABLED, "false") or "false").lower() == "true",
+            "active_provider": (get_setting(Settings.AI_ACTIVE_PROVIDER) or "claude"),
             # max_tokens + fallback_max_depth are TUNABLES (DB > env >
             # default with bounds-clamp). /api/me reads them via
             # `tuning_int(...)` too, so the two endpoints agree on the
             # same value for the same effective deploy state. Pre-fix
-            # this read via `get_setting("ai_max_tokens", ...)` while
+            # this read via `get_setting(Settings.AI_MAX_TOKENS, ...)` while
             # the consumers + /api/me read via `tuning_int(...)` — same
             # field, two DB keys, /api/settings and /api/me silently
             # diverged.
@@ -3654,15 +3679,15 @@ async def api_get_settings(request: Request):
             # Provider fallback chain config — opt-in, off by default so
             # existing deploys don't suddenly start cost-shifting traffic
             # to alternate providers without operator awareness.
-            "fallback_enabled": (get_setting("ai_fallback_enabled", "false") or "false").lower() == "true",
-            "fallback_order": get_setting("ai_fallback_order") or "",
+            "fallback_enabled": (get_setting(Settings.AI_FALLBACK_ENABLED, "false") or "false").lower() == "true",
+            "fallback_order": get_setting(Settings.AI_FALLBACK_ORDER) or "",
             "fallback_max_depth": tuning.tuning_int(Tunable.AI_FALLBACK_MAX_DEPTH),
             "providers": {
                 name: {
-                    "enabled": (get_setting(f"ai_provider_{name}_enabled", "false") or "false").lower() == "true",
-                    "model": get_setting(f"ai_provider_{name}_model") or "",
-                    "base_url": get_setting(f"ai_provider_{name}_base_url") or "",
-                    "api_key_set": bool(get_setting(f"ai_provider_{name}_api_key")),
+                    "enabled": (get_setting(ai_provider_enabled_key(name), "false") or "false").lower() == "true",
+                    "model": get_setting(ai_provider_model_key(name)) or "",
+                    "base_url": get_setting(ai_provider_base_url_key(name)) or "",
+                    "api_key_set": bool(get_setting(ai_provider_api_key_key(name))),
                 }
                 for name in _ai_supported_providers()
             },
@@ -3673,21 +3698,30 @@ async def api_get_settings(request: Request):
                 "deepseek": {"model": "deepseek-chat", "base_url": "https://api.deepseek.com"},
             },
         },
-        "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
+        # Public-IP lookup block — standalone subsystem (NOT AI). Its
+        # own Admin → Public IP section owns the toggle + tunables.
+        # The AI palette + Telegram /ip command both consume the
+        # module but the feature is independent.
+        "public_ip": {
+            "enabled": bool(tuning.tuning_int(Tunable.PUBLIC_IP_ENABLED)),
+            "cache_ttl_seconds": tuning.tuning_int(Tunable.PUBLIC_IP_CACHE_TTL_SECONDS),
+            "fetch_timeout_seconds": tuning.tuning_int(Tunable.PUBLIC_IP_FETCH_TIMEOUT_SECONDS),
+        },
+        "portainer_public_url": get_setting(Settings.PORTAINER_PUBLIC_URL, str(p.get("portainer_url") or "")),
         "backup_retention_count": tuning.tuning_int(Tunable.BACKUP_RETENTION_COUNT),
-        "scheduler_timezone": get_setting("scheduler_timezone") or "",
+        "scheduler_timezone": get_setting(Settings.SCHEDULER_TIMEZONE) or "",
         # Host-drawer admin debug panel visibility (Admin → Hosts toggle).
         # Default true — preserves the legacy behaviour for existing
         # deploys that haven't touched the setting. Operators who don't
         # use the raw-JSON dump can flip to false to declutter the
         # drawer without losing other admin-only affordances.
         "debug_panel_enabled": (
-            (get_setting("debug_panel_enabled", "true") or "true").lower() == "true"
+            (get_setting(Settings.DEBUG_PANEL_ENABLED, "true") or "true").lower() == "true"
         ),
         "node_exporter": {
-            "enabled": (get_setting("node_exporter_enabled", "false") or "false").lower() == "true",
-            "url_template": get_setting("node_exporter_url_template", "http://{host}:9100/metrics"),
-            "overrides": json.loads(get_setting("node_exporter_overrides", "{}") or "{}"),
+            "enabled": (get_setting(Settings.NODE_EXPORTER_ENABLED, "false") or "false").lower() == "true",
+            "url_template": get_setting(Settings.NODE_EXPORTER_URL_TEMPLATE, "http://{host}:9100/metrics"),
+            "overrides": json.loads(get_setting(Settings.NODE_EXPORTER_OVERRIDES, "{}") or "{}"),
         },
         # Host-stats sources — stored as CSV so multiple providers can
         # be enabled at once (Beszel for cross-platform real-time stats
@@ -3703,28 +3737,28 @@ async def api_get_settings(request: Request):
         "host_stats_sources": sorted(active_host_stats_providers()),
         # Beszel Hub — password is write-only. UI only learns "is it set".
         "beszel": {
-            "hub_url": get_setting("beszel_hub_url"),
-            "identity": get_setting("beszel_identity"),
-            "password_set": bool(get_setting("beszel_password")),
-            "verify_tls": (get_setting("beszel_verify_tls", "true") or "true").lower() == "true",
-            "aliases": json.loads(get_setting("beszel_aliases", "{}") or "{}"),
+            "hub_url": get_setting(Settings.BESZEL_HUB_URL),
+            "identity": get_setting(Settings.BESZEL_IDENTITY),
+            "password_set": bool(get_setting(Settings.BESZEL_PASSWORD)),
+            "verify_tls": (get_setting(Settings.BESZEL_VERIFY_TLS, "true") or "true").lower() == "true",
+            "aliases": json.loads(get_setting(Settings.BESZEL_ALIASES, "{}") or "{}"),
         },
         # Pulse — token is write-only like Beszel's password.
         "pulse": {
-            "url": get_setting("pulse_url"),
-            "token_set": bool(get_setting("pulse_token")),
-            "verify_tls": (get_setting("pulse_verify_tls", "true") or "true").lower() == "true",
-            "aliases": json.loads(get_setting("pulse_aliases", "{}") or "{}"),
+            "url": get_setting(Settings.PULSE_URL),
+            "token_set": bool(get_setting(Settings.PULSE_TOKEN)),
+            "verify_tls": (get_setting(Settings.PULSE_VERIFY_TLS, "true") or "true").lower() == "true",
+            "aliases": json.loads(get_setting(Settings.PULSE_ALIASES, "{}") or "{}"),
         },
         # Webmin — password is write-only (same _set-flag convention as
         # beszel_password / pulse_token / portainer_api_key). ``aliases``
         # is Docker hostname → Miniserv base URL per host.
         "webmin": {
-            "url": get_setting("webmin_url"),
-            "user": get_setting("webmin_user"),
-            "password_set": bool(get_setting("webmin_password")),
-            "verify_tls": (get_setting("webmin_verify_tls", "false") or "false").lower() == "true",
-            "aliases": json.loads(get_setting("webmin_aliases", "{}") or "{}"),
+            "url": get_setting(Settings.WEBMIN_URL),
+            "user": get_setting(Settings.WEBMIN_USER),
+            "password_set": bool(get_setting(Settings.WEBMIN_PASSWORD)),
+            "verify_tls": (get_setting(Settings.WEBMIN_VERIFY_TLS, "false") or "false").lower() == "true",
+            "aliases": json.loads(get_setting(Settings.WEBMIN_ALIASES, "{}") or "{}"),
         },
         # Ping — no secrets, so fields round-trip in the clear.
         # ``has_icmp_support`` reflects whether ``icmplib`` is importable
@@ -3732,9 +3766,9 @@ async def api_get_settings(request: Request):
         # to disable the ICMP toggle with a hint when the package is
         # missing.
         "ping": {
-            "enabled": get_setting_bool("ping_enabled", False),
+            "enabled": get_setting_bool(Settings.PING_ENABLED, False),
             "default_port": tuning.tuning_int(Tunable.PING_DEFAULT_PORT),
-            "use_icmp": get_setting_bool("ping_use_icmp", False),
+            "use_icmp": get_setting_bool(Settings.PING_USE_ICMP, False),
             "has_icmp_support": (lambda: __import__("logic.ping", fromlist=["has_icmp_support"]).has_icmp_support())(),
         },
         # Port-scan provider — on-demand TCP scanner. Defaults are
@@ -3744,8 +3778,8 @@ async def api_get_settings(request: Request):
         # falls back to `port_scanner.DEFAULT_PORTS` when given an
         # empty list.
         "port_scan": {
-            "enabled": get_setting_bool("port_scan_enabled", False),
-            "default_ports": get_setting("port_scan_default_ports") or "",
+            "enabled": get_setting_bool(Settings.PORT_SCAN_ENABLED, False),
+            "default_ports": get_setting(Settings.PORT_SCAN_DEFAULT_PORTS) or "",
             # Per-port timeout + concurrency now flow through TUNABLES
             # (tuning_port_scan_default_timeout_seconds /
             # tuning_port_scan_default_concurrency). The plain-settings
@@ -3761,7 +3795,7 @@ async def api_get_settings(request: Request):
             # `udp_enabled` flag). Field kept on the response for
             # back-compat with older SPA builds; new SPA ignores it.
             "udp_enabled": True,
-            "udp_default_ports": get_setting("port_scan_udp_default_ports") or "",
+            "udp_default_ports": get_setting(Settings.PORT_SCAN_UDP_DEFAULT_PORTS) or "",
             "udp_default_timeout": tuning.tuning_int(Tunable.PORT_SCAN_UDP_DEFAULT_TIMEOUT_SECONDS),
             "udp_default_concurrency": tuning.tuning_int(Tunable.PORT_SCAN_UDP_DEFAULT_CONCURRENCY),
         },
@@ -3773,13 +3807,13 @@ async def api_get_settings(request: Request):
         # the Ping pattern so the SPA's master toggle disables with a
         # "package missing" hint when pysnmp isn't installed.
         "snmp": {
-            "default_community": get_setting("snmp_default_community", "public") or "public",
-            "default_version": (get_setting("snmp_default_version", "v2c") or "v2c").strip().lower(),
+            "default_community": get_setting(Settings.SNMP_DEFAULT_COMMUNITY, "public") or "public",
+            "default_version": (get_setting(Settings.SNMP_DEFAULT_VERSION, "v2c") or "v2c").strip().lower(),
             "default_port": tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT),
-            "v3_user": get_setting("snmp_v3_user") or "",
-            "v3_auth_key_set": bool(get_setting("snmp_v3_auth_key")),
-            "v3_priv_key_set": bool(get_setting("snmp_v3_priv_key")),
-            "aliases": json.loads(get_setting("snmp_aliases", "{}") or "{}"),
+            "v3_user": get_setting(Settings.SNMP_V3_USER) or "",
+            "v3_auth_key_set": bool(get_setting(Settings.SNMP_V3_AUTH_KEY)),
+            "v3_priv_key_set": bool(get_setting(Settings.SNMP_V3_PRIV_KEY)),
+            "aliases": json.loads(get_setting(Settings.SNMP_ALIASES, "{}") or "{}"),
             "has_snmp_support": (lambda: __import__("logic.snmp", fromlist=["has_snmp_support"]).has_snmp_support())(),
             # surface the actual ImportError text from logic.snmp's
             # module-level import block so the SPA's hint can show the
@@ -3796,12 +3830,12 @@ async def api_get_settings(request: Request):
         # "use the SPA's built-in default" — the SPA's `providerColor()`
         # helper falls back to the same default constant. Round-tripped
         # in the clear (not a secret).
-        "provider_color_beszel": get_setting("provider_color_beszel") or "",
-        "provider_color_pulse": get_setting("provider_color_pulse") or "",
-        "provider_color_node_exporter": get_setting("provider_color_node_exporter") or "",
-        "provider_color_webmin": get_setting("provider_color_webmin") or "",
-        "provider_color_ping": get_setting("provider_color_ping") or "",
-        "provider_color_snmp": get_setting("provider_color_snmp") or "",
+        "provider_color_beszel": get_setting(Settings.PROVIDER_COLOR_BESZEL) or "",
+        "provider_color_pulse": get_setting(Settings.PROVIDER_COLOR_PULSE) or "",
+        "provider_color_node_exporter": get_setting(Settings.PROVIDER_COLOR_NODE_EXPORTER) or "",
+        "provider_color_webmin": get_setting(Settings.PROVIDER_COLOR_WEBMIN) or "",
+        "provider_color_ping": get_setting(Settings.PROVIDER_COLOR_PING) or "",
+        "provider_color_snmp": get_setting(Settings.PROVIDER_COLOR_SNMP) or "",
         # SSH console — global defaults (Admin → SSH). Secrets
         # redacted per CLAUDE.md's ``_set`` flag contract: the browser
         # learns only whether a private key / passphrase has been set.
@@ -3809,18 +3843,18 @@ async def api_get_settings(request: Request):
         # the full blob round-trips. Destructive patterns are operator-
         # editable regex — shown verbatim for the textarea.
         "ssh": {
-            "user": get_setting("ssh_default_user") or "",
+            "user": get_setting(Settings.SSH_DEFAULT_USER) or "",
             "port": tuning.tuning_int(Tunable.SSH_DEFAULT_PORT),
-            "private_key_set": bool(get_setting("ssh_default_private_key")),
-            "passphrase_set": bool(get_setting("ssh_default_private_key_passphrase")),
-            "password_set": bool(get_setting("ssh_default_password")),
-            "fqdn_suffix": get_setting("ssh_fqdn_suffix") or "",
-            "known_hosts": get_setting("ssh_default_known_hosts") or "",
+            "private_key_set": bool(get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY)),
+            "passphrase_set": bool(get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY_PASSPHRASE)),
+            "password_set": bool(get_setting(Settings.SSH_DEFAULT_PASSWORD)),
+            "fqdn_suffix": get_setting(Settings.SSH_FQDN_SUFFIX) or "",
+            "known_hosts": get_setting(Settings.SSH_DEFAULT_KNOWN_HOSTS) or "",
             "custom_actions": (lambda raw:
                                (json.loads(raw) if (raw or "").strip() else [])
-                               )(get_setting("ssh_custom_actions")),
+                               )(get_setting(Settings.SSH_CUSTOM_ACTIONS)),
             "destructive_patterns": (
-                get_setting("ssh_destructive_patterns") or ""
+                get_setting(Settings.SSH_DESTRUCTIVE_PATTERNS) or ""
             ),
         },
         # Back-compat: older UI bits read this top-level field.
@@ -3899,46 +3933,48 @@ async def _api_set_settings_inner(s, request, _portainer):
     # Per-service master switches. Persisted as "true" / "false"
     # strings to match every other boolean toggle in the settings table.
     if s.apprise_enabled is not None:
-        set_setting("apprise_enabled", "true" if s.apprise_enabled else "false")
+        set_setting(Settings.APPRISE_ENABLED, "true" if s.apprise_enabled else "false")
     if s.open_meteo_enabled is not None:
-        set_setting("open_meteo_enabled", "true" if s.open_meteo_enabled else "false")
+        set_setting(Settings.OPEN_METEO_ENABLED, "true" if s.open_meteo_enabled else "false")
     if s.portainer_enabled is not None:
-        set_setting("portainer_enabled", "true" if s.portainer_enabled else "false")
+        set_setting(Settings.PORTAINER_ENABLED, "true" if s.portainer_enabled else "false")
     if s.ssh_enabled is not None:
-        set_setting("ssh_enabled", "true" if s.ssh_enabled else "false")
+        set_setting(Settings.SSH_ENABLED, "true" if s.ssh_enabled else "false")
     if s.asset_inventory_enabled is not None:
-        set_setting("asset_inventory_enabled",
+        set_setting(Settings.ASSET_INVENTORY_ENABLED,
                     "true" if s.asset_inventory_enabled else "false")
-    if s.apprise_url is not None: set_setting("apprise_url", s.apprise_url)
-    if s.apprise_tag is not None: set_setting("apprise_tag", s.apprise_tag)
+    if s.apprise_url is not None: set_setting(Settings.APPRISE_URL, s.apprise_url)
+    if s.apprise_tag is not None: set_setting(Settings.APPRISE_TAG, s.apprise_tag)
     # Telegram medium (Phase 1: send-only). Bot token follows the write-
     # only secret contract — blank / whitespace = keep current, any
     # non-empty value overwrites. Chat / thread IDs are plain strings.
     if s.telegram_bot_token is not None:
         token = (s.telegram_bot_token or "").strip()
         if token:
-            set_setting("telegram_bot_token", token)
+            set_setting(Settings.TELEGRAM_BOT_TOKEN, token)
     if s.telegram_chat_id is not None:
-        set_setting("telegram_chat_id", (s.telegram_chat_id or "").strip())
+        set_setting(Settings.TELEGRAM_CHAT_ID, (s.telegram_chat_id or "").strip())
     if s.telegram_thread_id is not None:
-        set_setting("telegram_thread_id", (s.telegram_thread_id or "").strip())
+        set_setting(Settings.TELEGRAM_THREAD_ID, (s.telegram_thread_id or "").strip())
     if s.telegram_verify_tls is not None:
         verify_str = (s.telegram_verify_tls or "true").strip().lower()
-        set_setting("telegram_verify_tls", "true" if verify_str != "false" else "false")
+        set_setting(Settings.TELEGRAM_VERIFY_TLS, "true" if verify_str != "false" else "false")
+    if s.telegram_api_base is not None:
+        set_setting(Settings.TELEGRAM_API_BASE, (s.telegram_api_base or "").strip())
     if s.notify_medium_telegram is not None:
         b = (s.notify_medium_telegram or "").strip().lower()
-        set_setting("notify_medium_telegram", "true" if b == "true" else "false")
+        set_setting(Settings.NOTIFY_MEDIUM_TELEGRAM, "true" if b == "true" else "false")
     # Phase 2 — listener config.
     if s.telegram_listener_enabled is not None:
         b = (s.telegram_listener_enabled or "").strip().lower()
-        set_setting("telegram_listener_enabled", "true" if b == "true" else "false")
+        set_setting(Settings.TELEGRAM_LISTENER_ENABLED, "true" if b == "true" else "false")
     if s.telegram_allow_destructive is not None:
         b = (s.telegram_allow_destructive or "").strip().lower()
-        set_setting("telegram_allow_destructive", "true" if b == "true" else "false")
+        set_setting(Settings.TELEGRAM_ALLOW_DESTRUCTIVE, "true" if b == "true" else "false")
     if s.telegram_authorized_user_ids is not None:
         # CSV of Telegram user_id ints. Backend keeps the value raw —
         # the listener parses + validates on every check.
-        set_setting("telegram_authorized_user_ids",
+        set_setting(Settings.TELEGRAM_AUTHORIZED_USER_IDS,
                     (s.telegram_authorized_user_ids or "").strip())
     if s.swarm_autoheal_action is not None:
         action = (s.swarm_autoheal_action or "").strip().lower()
@@ -3947,14 +3983,14 @@ async def _api_set_settings_inner(s, request, _portainer):
                 status_code=400,
                 detail="swarm_autoheal_action must be 'notify' or 'restart'.",
             )
-        set_setting("swarm_autoheal_action", action or "notify")
+        set_setting(Settings.SWARM_AUTOHEAL_ACTION, action or "notify")
     if s.swarm_autoheal_bootstrap_enabled is not None:
         # Accept booleans + the legacy "true"/"false" string shape
         # via Pydantic's str annotation. Empty string falls back to
         # the default ("true") on the read side.
         raw = (s.swarm_autoheal_bootstrap_enabled or "").strip().lower()
         if raw in ("", "true", "false"):
-            set_setting("swarm_autoheal_bootstrap_enabled", raw or "true")
+            set_setting(Settings.SWARM_AUTOHEAL_BOOTSTRAP_ENABLED, raw or "true")
         else:
             raise HTTPException(
                 status_code=400,
@@ -4003,15 +4039,15 @@ async def _api_set_settings_inner(s, request, _portainer):
     # tuning_* shape). Same dirty + Save UI pattern as the
     # other admin-tab toggles.
     if s.totp_allowed is not None:
-        set_setting("totp_allowed", "true" if s.totp_allowed else "false")
+        set_setting(Settings.TOTP_ALLOWED, "true" if s.totp_allowed else "false")
     if s.totp_required_for_admins is not None:
         set_setting(
-            "totp_required_for_admins",
+            Settings.TOTP_REQUIRED_FOR_ADMINS,
             "true" if s.totp_required_for_admins else "false",
         )
     if s.totp_required_for_users is not None:
         set_setting(
-            "totp_required_for_users",
+            Settings.TOTP_REQUIRED_FOR_USERS,
             "true" if s.totp_required_for_users else "false",
         )
     if s.totp_lockout_max_failures is not None:
@@ -4021,7 +4057,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 status_code=400,
                 detail="totp_lockout_max_failures must be in the range 3..20.",
             )
-        set_setting("totp_lockout_max_failures", str(n))
+        set_setting(Settings.TOTP_LOCKOUT_MAX_FAILURES, str(n))
     if s.totp_lockout_minutes is not None:
         n = int(s.totp_lockout_minutes)
         if n < 1 or n > 1440:
@@ -4029,9 +4065,9 @@ async def _api_set_settings_inner(s, request, _portainer):
                 status_code=400,
                 detail="totp_lockout_minutes must be in the range 1..1440.",
             )
-        set_setting("totp_lockout_minutes", str(n))
+        set_setting(Settings.TOTP_LOCKOUT_MINUTES, str(n))
     if s.passkeys_allowed is not None:
-        set_setting("passkeys_allowed", "true" if s.passkeys_allowed else "false")
+        set_setting(Settings.PASSKEYS_ALLOWED, "true" if s.passkeys_allowed else "false")
     # Invalidate the policy cache so a Save in
     # Admin -> Config takes effect on the next call instead of waiting
     # out the TTL window. Cheap — just resets the dict.
@@ -4045,11 +4081,11 @@ async def _api_set_settings_inner(s, request, _portainer):
     # composition in api_weather stays stable whether the operator
     # typed a trailing slash or not.
     if s.open_meteo_url is not None:
-        set_setting("open_meteo_url", (s.open_meteo_url or "").strip().rstrip("/"))
-    if s.portainer_public_url is not None: set_setting("portainer_public_url", s.portainer_public_url)
+        set_setting(Settings.OPEN_METEO_URL, (s.open_meteo_url or "").strip().rstrip("/"))
+    if s.portainer_public_url is not None: set_setting(Settings.PORTAINER_PUBLIC_URL, s.portainer_public_url)
     if s.backup_retention_count is not None:
         n = max(0, int(s.backup_retention_count))
-        set_setting("backup_retention_count", str(n))
+        set_setting(Settings.BACKUP_RETENTION_COUNT, str(n))
     if s.scheduler_timezone is not None:
         # Validate the IANA name up-front so a typo doesn't silently
         # fall back to UTC on every tick. Blank is accepted = reset.
@@ -4063,9 +4099,9 @@ async def _api_set_settings_inner(s, request, _portainer):
                     status_code=400,
                     detail=f"scheduler_timezone {tz_name!r} is not a valid IANA name: {e}",
                 )
-        set_setting("scheduler_timezone", tz_name)
+        set_setting(Settings.SCHEDULER_TIMEZONE, tz_name)
     if s.node_exporter_enabled is not None:
-        set_setting("node_exporter_enabled", "true" if s.node_exporter_enabled else "false")
+        set_setting(Settings.NODE_EXPORTER_ENABLED, "true" if s.node_exporter_enabled else "false")
     if s.node_exporter_url_template is not None:
         # Validate the template minimally — must contain AT LEAST ONE
         # of the two supported placeholders: {host} (Docker hostname)
@@ -4079,7 +4115,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 status_code=400,
                 detail="node_exporter_url_template must contain '{host}' or '{ip}'.",
             )
-        set_setting("node_exporter_url_template", tpl)
+        set_setting(Settings.NODE_EXPORTER_URL_TEMPLATE, tpl)
     if s.node_exporter_overrides is not None:
         # Normalise: reject non-dict, drop blank keys/values. The DB
         # stores the JSON verbatim; gather.py reads + applies it.
@@ -4093,7 +4129,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             for k, v in s.node_exporter_overrides.items()
             if str(k).strip() and str(v).strip()
         }
-        set_setting("node_exporter_overrides", json.dumps(clean))
+        set_setting(Settings.NODE_EXPORTER_OVERRIDES, json.dumps(clean))
     if s.host_stats_source is not None:
         # Accept a CSV ("beszel,node_exporter") or a single legacy value.
         # Empty / "none" / unknown tokens collapse to "none" so the
@@ -4114,30 +4150,30 @@ async def _api_set_settings_inner(s, request, _portainer):
                 ),
             )
         normalized = ",".join(sorted(parts)) if parts else "none"
-        set_setting("host_stats_source", normalized)
+        set_setting(Settings.HOST_STATS_SOURCE, normalized)
     if s.beszel_hub_url is not None:
         # Trim trailing slash so downstream concatenation stays clean.
-        set_setting("beszel_hub_url", (s.beszel_hub_url or "").strip().rstrip("/"))
+        set_setting(Settings.BESZEL_HUB_URL, (s.beszel_hub_url or "").strip().rstrip("/"))
     if s.beszel_identity is not None:
-        set_setting("beszel_identity", (s.beszel_identity or "").strip())
+        set_setting(Settings.BESZEL_IDENTITY, (s.beszel_identity or "").strip())
     # Password: same keep-current-if-blank contract as other secrets.
     if s.beszel_password is not None and s.beszel_password.strip() != "":
-        set_setting("beszel_password", s.beszel_password)
+        set_setting(Settings.BESZEL_PASSWORD, s.beszel_password)
     if s.beszel_verify_tls is not None:
-        set_setting("beszel_verify_tls", "true" if s.beszel_verify_tls else "false")
+        set_setting(Settings.BESZEL_VERIFY_TLS, "true" if s.beszel_verify_tls else "false")
     if s.pulse_url is not None:
-        set_setting("pulse_url", (s.pulse_url or "").strip().rstrip("/"))
+        set_setting(Settings.PULSE_URL, (s.pulse_url or "").strip().rstrip("/"))
     if s.pulse_token is not None and s.pulse_token.strip() != "":
-        set_setting("pulse_token", s.pulse_token)
+        set_setting(Settings.PULSE_TOKEN, s.pulse_token)
     if s.pulse_verify_tls is not None:
-        set_setting("pulse_verify_tls", "true" if s.pulse_verify_tls else "false")
+        set_setting(Settings.PULSE_VERIFY_TLS, "true" if s.pulse_verify_tls else "false")
     if s.pulse_aliases is not None:
         clean = {
             str(k).strip(): str(v).strip()
             for k, v in (s.pulse_aliases or {}).items()
             if str(k).strip() and str(v).strip()
         }
-        set_setting("pulse_aliases", json.dumps(clean))
+        set_setting(Settings.PULSE_ALIASES, json.dumps(clean))
     if s.beszel_aliases is not None:
         # Filter to string→string, trim, drop empty entries so a blank
         # row in the UI doesn't persist as a ghost mapping.
@@ -4146,31 +4182,31 @@ async def _api_set_settings_inner(s, request, _portainer):
             for k, v in (s.beszel_aliases or {}).items()
             if str(k).strip() and str(v).strip()
         }
-        set_setting("beszel_aliases", json.dumps(clean))
+        set_setting(Settings.BESZEL_ALIASES, json.dumps(clean))
     # Webmin — same suffix / _set conventions as every other provider's
     # secret. ``webmin_aliases`` is Docker hostname → Miniserv base URL.
     if s.webmin_url is not None:
-        set_setting("webmin_url", (s.webmin_url or "").strip().rstrip("/"))
+        set_setting(Settings.WEBMIN_URL, (s.webmin_url or "").strip().rstrip("/"))
     if s.webmin_user is not None:
-        set_setting("webmin_user", (s.webmin_user or "").strip())
+        set_setting(Settings.WEBMIN_USER, (s.webmin_user or "").strip())
     if s.webmin_password is not None and s.webmin_password.strip() != "":
-        set_setting("webmin_password", s.webmin_password)
+        set_setting(Settings.WEBMIN_PASSWORD, s.webmin_password)
     if s.webmin_verify_tls is not None:
-        set_setting("webmin_verify_tls", "true" if s.webmin_verify_tls else "false")
+        set_setting(Settings.WEBMIN_VERIFY_TLS, "true" if s.webmin_verify_tls else "false")
     if s.webmin_aliases is not None:
         clean = {
             str(k).strip(): str(v).strip().rstrip("/")
             for k, v in (s.webmin_aliases or {}).items()
             if str(k).strip() and str(v).strip()
         }
-        set_setting("webmin_aliases", json.dumps(clean))
+        set_setting(Settings.WEBMIN_ALIASES, json.dumps(clean))
     # Ping. No secrets — every field round-trips in the clear.
     # Validation: `ping_default_port` clamped to 1..65535. `ping_enabled`
     # is the master toggle but this acts as documentation only — the
     # provider also has to be in `host_stats_source` to actually probe
     # (handled by `active_host_stats_providers()` upstream).
     if s.ping_enabled is not None:
-        set_setting("ping_enabled", "true" if s.ping_enabled else "false")
+        set_setting(Settings.PING_ENABLED, "true" if s.ping_enabled else "false")
     if s.ping_default_port is not None:
         try:
             p = int(s.ping_default_port)
@@ -4184,16 +4220,16 @@ async def _api_set_settings_inner(s, request, _portainer):
                 status_code=400,
                 detail="ping_default_port must be 1-65535",
             )
-        set_setting("ping_default_port", str(p))
+        set_setting(Settings.PING_DEFAULT_PORT, str(p))
     if s.ping_use_icmp is not None:
-        set_setting("ping_use_icmp", "true" if s.ping_use_icmp else "false")
+        set_setting(Settings.PING_USE_ICMP, "true" if s.ping_use_icmp else "false")
     # Port-scan provider — master toggle + global defaults. Per-host
     # overrides live on `hosts_config[].port_scan` and persist via the
     # existing `hosts_config` setting; no separate aliases store.
     # Ports list validated via `parse_port_csv` so an invalid CSV
     # token doesn't reach the scanner.
     if s.port_scan_enabled is not None:
-        set_setting("port_scan_enabled", "true" if s.port_scan_enabled else "false")
+        set_setting(Settings.PORT_SCAN_ENABLED, "true" if s.port_scan_enabled else "false")
     if s.port_scan_default_ports is not None:
         from logic.port_scanner import parse_port_csv as _pcsv
         raw = (s.port_scan_default_ports or "").strip()
@@ -4202,7 +4238,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 status_code=400,
                 detail="port_scan_default_ports must be CSV/range syntax (e.g. '22,80,443,8000-8100')",
             )
-        set_setting("port_scan_default_ports", raw)
+        set_setting(Settings.PORT_SCAN_DEFAULT_PORTS, raw)
     # `port_scan_udp_enabled` is DEPRECATED — UDP runs under the
     # master `port_scan_enabled` toggle (operator-flagged 2026-05-10).
     # We accept the field on POST for legacy compatibility but no
@@ -4216,7 +4252,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 status_code=400,
                 detail="port_scan_udp_default_ports must be CSV/range syntax (e.g. '53,67,123,161,5353')",
             )
-        set_setting("port_scan_udp_default_ports", raw)
+        set_setting(Settings.PORT_SCAN_UDP_DEFAULT_PORTS, raw)
     # NOTE: legacy `port_scan_default_timeout_seconds` /
     # `port_scan_default_concurrency` plain-key write paths were
     # removed. They were dead code — every consumer reads via
@@ -4233,7 +4269,7 @@ async def _api_set_settings_inner(s, request, _portainer):
     # (keep current if blank). Validation: port clamped to 1..65535;
     # version restricted to {"v2c", "v3"}; community trimmed.
     if s.snmp_default_community is not None:
-        set_setting("snmp_default_community", (s.snmp_default_community or "").strip())
+        set_setting(Settings.SNMP_DEFAULT_COMMUNITY, (s.snmp_default_community or "").strip())
     if s.snmp_default_version is not None:
         v = (s.snmp_default_version or "").strip().lower()
         if v and v not in ("v2c", "v3"):
@@ -4241,7 +4277,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 status_code=400,
                 detail="snmp_default_version must be 'v2c' or 'v3' (or blank)",
             )
-        set_setting("snmp_default_version", v or "v2c")
+        set_setting(Settings.SNMP_DEFAULT_VERSION, v or "v2c")
     if s.snmp_default_port is not None:
         try:
             p = int(s.snmp_default_port)
@@ -4255,20 +4291,20 @@ async def _api_set_settings_inner(s, request, _portainer):
                 status_code=400,
                 detail="snmp_default_port must be 1-65535",
             )
-        set_setting("snmp_default_port", str(p))
+        set_setting(Settings.SNMP_DEFAULT_PORT, str(p))
     if s.snmp_v3_user is not None:
-        set_setting("snmp_v3_user", (s.snmp_v3_user or "").strip())
+        set_setting(Settings.SNMP_V3_USER, (s.snmp_v3_user or "").strip())
     if s.snmp_v3_auth_key is not None and s.snmp_v3_auth_key.strip() != "":
-        set_setting("snmp_v3_auth_key", s.snmp_v3_auth_key)
+        set_setting(Settings.SNMP_V3_AUTH_KEY, s.snmp_v3_auth_key)
     if s.snmp_v3_priv_key is not None and s.snmp_v3_priv_key.strip() != "":
-        set_setting("snmp_v3_priv_key", s.snmp_v3_priv_key)
+        set_setting(Settings.SNMP_V3_PRIV_KEY, s.snmp_v3_priv_key)
     if s.snmp_aliases is not None:
         clean = {
             str(k).strip(): str(v).strip()
             for k, v in (s.snmp_aliases or {}).items()
             if str(k).strip() and str(v).strip()
         }
-        set_setting("snmp_aliases", json.dumps(clean))
+        set_setting(Settings.SNMP_ALIASES, json.dumps(clean))
     # Per-provider chip colours. Hex string `#RRGGBB` (7 chars,
     # case-insensitive) OR empty/blank to clear the override and fall
     # back to the SPA's built-in default. Any other shape rejected at
@@ -4299,7 +4335,7 @@ async def _api_set_settings_inner(s, request, _portainer):
     # and destructive patterns are plain strings (operator clears by
     # passing an empty string explicitly).
     if s.ssh_default_user is not None:
-        set_setting("ssh_default_user", (s.ssh_default_user or "").strip())
+        set_setting(Settings.SSH_DEFAULT_USER, (s.ssh_default_user or "").strip())
     if s.ssh_default_port is not None:
         try:
             p = int(s.ssh_default_port)
@@ -4310,7 +4346,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 status_code=400,
                 detail="ssh_default_port must be 1-65535",
             )
-        set_setting("ssh_default_port", str(p))
+        set_setting(Settings.SSH_DEFAULT_PORT, str(p))
     if s.ssh_default_private_key is not None and s.ssh_default_private_key.strip() != "":
         # Minimal validation — parse the key to catch malformed input at
         # save time rather than at first run. Passphrase is unknown at
@@ -4322,7 +4358,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             pw_candidate = (
                                s.ssh_default_private_key_passphrase
                                if s.ssh_default_private_key_passphrase is not None
-                               else (get_setting("ssh_default_private_key_passphrase") or "")
+                               else (get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY_PASSPHRASE) or "")
                            ) or None
             _asyncssh.import_private_key(
                 s.ssh_default_private_key, passphrase=pw_candidate,
@@ -4332,11 +4368,11 @@ async def _api_set_settings_inner(s, request, _portainer):
                 status_code=400,
                 detail=f"ssh_default_private_key failed to parse: {type(e).__name__}: {e}",
             )
-        set_setting("ssh_default_private_key", s.ssh_default_private_key)
+        set_setting(Settings.SSH_DEFAULT_PRIVATE_KEY, s.ssh_default_private_key)
     if s.ssh_default_private_key_passphrase is not None \
         and s.ssh_default_private_key_passphrase.strip() != "":
         set_setting(
-            "ssh_default_private_key_passphrase",
+            Settings.SSH_DEFAULT_PRIVATE_KEY_PASSPHRASE,
             s.ssh_default_private_key_passphrase,
         )
     # SSH password auth. Blank = keep-current (matches the _set flag
@@ -4344,16 +4380,16 @@ async def _api_set_settings_inner(s, request, _portainer):
     # time — asyncssh raises on connect if the password is wrong.
     if s.ssh_default_password is not None \
         and s.ssh_default_password.strip() != "":
-        set_setting("ssh_default_password", s.ssh_default_password)
+        set_setting(Settings.SSH_DEFAULT_PASSWORD, s.ssh_default_password)
     if s.ssh_fqdn_suffix is not None:
         # Normalise — operator might paste with or without leading dot.
         # Store canonical form: leading dot, no trailing dot, trimmed.
         raw = (s.ssh_fqdn_suffix or "").strip().rstrip(".")
         if raw and not raw.startswith("."):
             raw = "." + raw
-        set_setting("ssh_fqdn_suffix", raw)
+        set_setting(Settings.SSH_FQDN_SUFFIX, raw)
     if s.ssh_default_known_hosts is not None:
-        set_setting("ssh_default_known_hosts", s.ssh_default_known_hosts or "")
+        set_setting(Settings.SSH_DEFAULT_KNOWN_HOSTS, s.ssh_default_known_hosts or "")
     if s.ssh_destructive_patterns is not None:
         # Validate each pattern compiles as regex — one bad line would
         # otherwise silently exempt every destructive command on the
@@ -4371,19 +4407,19 @@ async def _api_set_settings_inner(s, request, _portainer):
                     status_code=400,
                     detail=f"invalid destructive regex {p!r}: {e}",
                 )
-        set_setting("ssh_destructive_patterns", raw)
+        set_setting(Settings.SSH_DESTRUCTIVE_PATTERNS, raw)
     # Clear flags — operator clicked "Clear" on an SSH secret. Delete
     # the underlying setting outright (not just set to ""); downstream
     # code treats missing / empty identically, but the flag-driven path
     # is the only way to erase a value that the keep-current-if-blank
     # contract otherwise preserves forever.
     if s.clear_ssh_private_key:
-        set_setting("ssh_default_private_key", "")
-        set_setting("ssh_default_private_key_passphrase", "")  # orphaned passphrase is noise
+        set_setting(Settings.SSH_DEFAULT_PRIVATE_KEY, "")
+        set_setting(Settings.SSH_DEFAULT_PRIVATE_KEY_PASSPHRASE, "")  # orphaned passphrase is noise
     if s.clear_ssh_passphrase:
-        set_setting("ssh_default_private_key_passphrase", "")
+        set_setting(Settings.SSH_DEFAULT_PRIVATE_KEY_PASSPHRASE, "")
     if s.clear_ssh_password:
-        set_setting("ssh_default_password", "")
+        set_setting(Settings.SSH_DEFAULT_PASSWORD, "")
     # Provider-secret clear handlers. Each flag sets the corresponding
     # settings KV row to empty so the keep-current-if-blank contract
     # at every other write path treats the secret as "explicitly
@@ -4392,15 +4428,15 @@ async def _api_set_settings_inner(s, request, _portainer):
     # (separate POST so an in-flight form edit doesn't accidentally
     # land alongside the clear).
     if s.clear_beszel_password:
-        set_setting("beszel_password", "")
+        set_setting(Settings.BESZEL_PASSWORD, "")
     if s.clear_pulse_token:
-        set_setting("pulse_token", "")
+        set_setting(Settings.PULSE_TOKEN, "")
     if s.clear_webmin_password:
-        set_setting("webmin_password", "")
+        set_setting(Settings.WEBMIN_PASSWORD, "")
     if s.clear_portainer_api_key:
-        set_setting("portainer_api_key", "")
+        set_setting(Settings.PORTAINER_API_KEY, "")
     if s.clear_oidc_client_secret:
-        set_setting("oidc_client_secret", "")
+        set_setting(Settings.OIDC_CLIENT_SECRET, "")
     # Custom SSH actions — JSON array replaces the whole list wholesale.
     # Full-replace semantics match how Admin → Hosts saves hosts_config.
     # Shape validation lives here so the runner can trust what it reads.
@@ -4408,7 +4444,7 @@ async def _api_set_settings_inner(s, request, _portainer):
     # Persisted as the string "true" / "false" (matches every other
     # boolean toggle in this table — see node_exporter_enabled etc.).
     if s.debug_panel_enabled is not None:
-        set_setting("debug_panel_enabled", "true" if s.debug_panel_enabled else "false")
+        set_setting(Settings.DEBUG_PANEL_ENABLED, "true" if s.debug_panel_enabled else "false")
     if s.ssh_custom_actions is not None:
         if not isinstance(s.ssh_custom_actions, list):
             raise HTTPException(400, "ssh_custom_actions must be a list")
@@ -4425,7 +4461,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 "title": title[:80],
                 "command": cmd[:2048],
             })
-        set_setting("ssh_custom_actions", json.dumps(clean_actions))
+        set_setting(Settings.SSH_CUSTOM_ACTIONS, json.dumps(clean_actions))
 
     # --- Host groups -----------------------------------------
     # Each entry: {name, range_start, range_end, order?, parent_name?,
@@ -4526,7 +4562,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 clean_ssh["password"] = new_pw
             elif not clear:
                 try:
-                    prior_raw = get_setting("host_groups") or ""
+                    prior_raw = get_setting(Settings.HOST_GROUPS) or ""
                     prior_groups = json.loads(prior_raw) if prior_raw.strip() else []
                 except (TypeError, ValueError):
                     prior_groups = []
@@ -4687,64 +4723,64 @@ async def _api_set_settings_inner(s, request, _portainer):
 
         # Persist in order-field order so render iteration doesn't have to re-sort.
         clean_groups.sort(key=lambda g: (g["order"], g["name"]))
-        set_setting("host_groups", json.dumps(clean_groups))
+        set_setting(Settings.HOST_GROUPS, json.dumps(clean_groups))
 
     # --- Asset inventory --------------------------------------------------
     # Secret follows the keep-current-if-blank + clear-flag contract.
     if s.asset_inventory_base_url is not None:
-        set_setting("asset_inventory_base_url",
+        set_setting(Settings.ASSET_INVENTORY_BASE_URL,
                     (s.asset_inventory_base_url or "").strip().rstrip("/"))
     if s.asset_inventory_token_url is not None:
-        set_setting("asset_inventory_token_url",
+        set_setting(Settings.ASSET_INVENTORY_TOKEN_URL,
                     (s.asset_inventory_token_url or "").strip())
     if s.asset_inventory_client_id is not None:
-        set_setting("asset_inventory_client_id",
+        set_setting(Settings.ASSET_INVENTORY_CLIENT_ID,
                     (s.asset_inventory_client_id or "").strip())
     if s.asset_inventory_scope is not None:
-        set_setting("asset_inventory_scope",
+        set_setting(Settings.ASSET_INVENTORY_SCOPE,
                     (s.asset_inventory_scope or "").strip())
     if s.asset_inventory_verify_tls is not None:
-        set_setting("asset_inventory_verify_tls",
+        set_setting(Settings.ASSET_INVENTORY_VERIFY_TLS,
                     "true" if s.asset_inventory_verify_tls else "false")
     if s.asset_inventory_client_secret is not None \
         and s.asset_inventory_client_secret.strip() != "":
-        set_setting("asset_inventory_client_secret",
+        set_setting(Settings.ASSET_INVENTORY_CLIENT_SECRET,
                     s.asset_inventory_client_secret)
     if s.clear_asset_inventory_client_secret:
-        set_setting("asset_inventory_client_secret", "")
+        set_setting(Settings.ASSET_INVENTORY_CLIENT_SECRET, "")
     if s.asset_inventory_auth_mode is not None:
         mode = (s.asset_inventory_auth_mode or "").strip().lower()
         if mode not in ("oauth2", "lifetime_token"):
             mode = "oauth2"
-        set_setting("asset_inventory_auth_mode", mode)
+        set_setting(Settings.ASSET_INVENTORY_AUTH_MODE, mode)
     if s.asset_inventory_lifetime_token is not None \
         and s.asset_inventory_lifetime_token.strip() != "":
-        set_setting("asset_inventory_lifetime_token",
+        set_setting(Settings.ASSET_INVENTORY_LIFETIME_TOKEN,
                     s.asset_inventory_lifetime_token.strip())
     if s.clear_asset_inventory_lifetime_token:
-        set_setting("asset_inventory_lifetime_token", "")
+        set_setting(Settings.ASSET_INVENTORY_LIFETIME_TOKEN, "")
     if s.asset_inventory_service is not None:
-        set_setting("asset_inventory_service",
+        set_setting(Settings.ASSET_INVENTORY_SERVICE,
                     (s.asset_inventory_service or "").strip())
     if s.asset_inventory_action is not None:
-        set_setting("asset_inventory_action",
+        set_setting(Settings.ASSET_INVENTORY_ACTION,
                     (s.asset_inventory_action or "").strip())
     if s.asset_inventory_min_value is not None:
         # Blank = clear; non-blank = parse as int. Anything malformed
         # falls back to clear so a typo doesn't poison the setting.
         v = (s.asset_inventory_min_value or "").strip()
         try:
-            set_setting("asset_inventory_min_value", str(int(v)) if v else "")
+            set_setting(Settings.ASSET_INVENTORY_MIN_VALUE, str(int(v)) if v else "")
         except ValueError:
-            set_setting("asset_inventory_min_value", "")
+            set_setting(Settings.ASSET_INVENTORY_MIN_VALUE, "")
     if s.asset_inventory_max_value is not None:
         v = (s.asset_inventory_max_value or "").strip()
         try:
-            set_setting("asset_inventory_max_value", str(int(v)) if v else "")
+            set_setting(Settings.ASSET_INVENTORY_MAX_VALUE, str(int(v)) if v else "")
         except ValueError:
-            set_setting("asset_inventory_max_value", "")
+            set_setting(Settings.ASSET_INVENTORY_MAX_VALUE, "")
     if s.asset_inventory_edit_url_template is not None:
-        set_setting("asset_inventory_edit_url_template",
+        set_setting(Settings.ASSET_INVENTORY_EDIT_URL_TEMPLATE,
                     (s.asset_inventory_edit_url_template or "").strip())
 
     # ----- AI integration (Stage 1) ----------------------------------
@@ -4757,19 +4793,7 @@ async def _api_set_settings_inner(s, request, _portainer):
     # it up automatically.
     _AI_PROVIDER_NAMES = _ai_supported_providers()
     if s.ai_enabled is not None:
-        set_setting("ai_enabled", "true" if s.ai_enabled else "false")
-    if s.ai_public_ip_enabled is not None:
-        set_setting("ai_public_ip_enabled", "true" if s.ai_public_ip_enabled else "false")
-        # Invalidate the in-process cache so a freshly-enabled deploy
-        # doesn't serve a stale `None` left over from an earlier
-        # gate-off call (the helper short-circuits to None when the
-        # gate was off; without this clear the next AI call would
-        # still see the cached None until the 10-min TTL expired).
-        try:
-            from logic import public_ip as _pip_mod
-            _pip_mod.invalidate_cache()
-        except Exception:  # noqa: BLE001
-            pass
+        set_setting(Settings.AI_ENABLED, "true" if s.ai_enabled else "false")
     if s.ai_active_provider is not None:
         active = (s.ai_active_provider or "").strip().lower()
         if active and active not in _AI_PROVIDER_NAMES:
@@ -4777,7 +4801,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 400,
                 f"ai_active_provider must be one of {','.join(_AI_PROVIDER_NAMES)}",
             )
-        set_setting("ai_active_provider", active)
+        set_setting(Settings.AI_ACTIVE_PROVIDER, active)
     # NOTE: legacy `ai_max_tokens` / `ai_fallback_max_depth` plain-key
     # write paths were removed. They were dead code — every consumer
     # reads via `tuning_int("tuning_ai_max_tokens")` /
@@ -4789,7 +4813,7 @@ async def _api_set_settings_inner(s, request, _portainer):
     # so old POST bodies don't 422; the values silently land nowhere
     # which matches what the consumers were already seeing.
     if s.ai_fallback_enabled is not None:
-        set_setting("ai_fallback_enabled", "true" if s.ai_fallback_enabled else "false")
+        set_setting(Settings.AI_FALLBACK_ENABLED, "true" if s.ai_fallback_enabled else "false")
     if s.ai_fallback_order is not None:
         # CSV of provider ids — sanitise to known providers, drop unknowns
         # so a typo can't bring fallback dispatch into an unsupported branch.
@@ -4801,25 +4825,25 @@ async def _api_set_settings_inner(s, request, _portainer):
             if p in valid and p not in seen:
                 cleaned.append(p);
                 seen.add(p)
-        set_setting("ai_fallback_order", ",".join(cleaned))
+        set_setting(Settings.AI_FALLBACK_ORDER, ",".join(cleaned))
     for _ai_name in _AI_PROVIDER_NAMES:
         # enabled
         _v = getattr(s, f"ai_provider_{_ai_name}_enabled", None)
         if _v is not None:
-            set_setting(f"ai_provider_{_ai_name}_enabled", "true" if _v else "false")
+            set_setting(ai_provider_enabled_key(_ai_name), "true" if _v else "false")
         # model
         _v = getattr(s, f"ai_provider_{_ai_name}_model", None)
         if _v is not None:
-            set_setting(f"ai_provider_{_ai_name}_model", (_v or "").strip())
+            set_setting(ai_provider_model_key(_ai_name), (_v or "").strip())
         # base_url
         _v = getattr(s, f"ai_provider_{_ai_name}_base_url", None)
         if _v is not None:
-            set_setting(f"ai_provider_{_ai_name}_base_url",
+            set_setting(ai_provider_base_url_key(_ai_name),
                         (_v or "").strip().rstrip("/"))
         # api_key — keep-current-if-blank
         _v = getattr(s, f"ai_provider_{_ai_name}_api_key", None)
         if _v is not None and (_v or "").strip():
-            set_setting(f"ai_provider_{_ai_name}_api_key", _v.strip())
+            set_setting(ai_provider_api_key_key(_ai_name), _v.strip())
 
     _cache["ts"] = 0  # force the next gather to re-read alias settings
 
@@ -4828,19 +4852,19 @@ async def _api_set_settings_inner(s, request, _portainer):
     with db_conn() as c:
         # --- Portainer connection -----------------------------------------
         if s.portainer_url is not None:
-            set_setting("portainer_url", (s.portainer_url or "").rstrip("/"))
+            set_setting(Settings.PORTAINER_URL, (s.portainer_url or "").rstrip("/"))
             portainer_changed = True
         if s.portainer_endpoint_id is not None:
-            set_setting("portainer_endpoint_id", str(int(s.portainer_endpoint_id)))
+            set_setting(Settings.PORTAINER_ENDPOINT_ID, str(int(s.portainer_endpoint_id)))
             portainer_changed = True
         if s.portainer_verify_tls is not None:
-            set_setting("portainer_verify_tls", "true" if s.portainer_verify_tls else "false")
+            set_setting(Settings.PORTAINER_VERIFY_TLS, "true" if s.portainer_verify_tls else "false")
             portainer_changed = True
         # Empty / whitespace-only = "keep current" (same pattern as
         # oidc_client_secret). Admins clear the value by a different
         # route if ever needed.
         if s.portainer_api_key is not None and s.portainer_api_key.strip() != "":
-            set_setting("portainer_api_key", s.portainer_api_key)
+            set_setting(Settings.PORTAINER_API_KEY, s.portainer_api_key)
             portainer_changed = True
 
         # --- OIDC ---------------------------------------------------------
@@ -5034,8 +5058,8 @@ def _resolve_ai_fallback_chain(active: str) -> tuple[bool, list[str], dict[str, 
         previously-tested provider that the operator later disabled
         shouldn't surface a confusing "skipping due to..." log line).
     """
-    enabled = get_setting_bool("ai_fallback_enabled", False)
-    raw_order = (get_setting("ai_fallback_order") or "").strip()
+    enabled = get_setting_bool(Settings.AI_FALLBACK_ENABLED, False)
+    raw_order = (get_setting(Settings.AI_FALLBACK_ORDER) or "").strip()
     try:
         # AI fallback-chain depth is now a TUNABLE (DB > env > default
         # with bounds clamp). Legacy `ai_fallback_max_depth` plain-
@@ -5051,15 +5075,15 @@ def _resolve_ai_fallback_chain(active: str) -> tuple[bool, list[str], dict[str, 
     # from it get skipped at the chain-walk step.
     creds: dict[str, dict] = {}
     for name in _ai_supported_providers():
-        if not get_setting_bool(f"ai_provider_{name}_enabled", False):
+        if not get_setting_bool(ai_provider_enabled_key(name), False):
             continue
-        api_key = (get_setting(f"ai_provider_{name}_api_key") or "").strip()
+        api_key = (get_setting(ai_provider_api_key_key(name)) or "").strip()
         if not api_key:
             continue
         creds[name] = {
             "api_key": api_key,
-            "model": (get_setting(f"ai_provider_{name}_model") or "").strip(),
-            "base_url": (get_setting(f"ai_provider_{name}_base_url") or "").strip(),
+            "model": (get_setting(ai_provider_model_key(name)) or "").strip(),
+            "base_url": (get_setting(ai_provider_base_url_key(name)) or "").strip(),
         }
 
     # Parse the operator-ordered fallback list — strip the active
@@ -5154,7 +5178,7 @@ async def api_admin_stats_overview(
         out["providers_error"] = str(e)
     # Host groups — JSON setting array, count meaningful entries only.
     try:
-        raw = get_setting("host_groups") or ""
+        raw = get_setting(Settings.HOST_GROUPS) or ""
         groups = json.loads(raw) if raw.strip() else []
         if not isinstance(groups, list):
             groups = []
@@ -6523,7 +6547,7 @@ async def api_admin_ai_dashboard(
         "total_cost_usd": 0.0,
         "avg_response_time_ms": None,
         "avg_accuracy_score": None,
-        "active_provider": (get_setting("ai_active_provider") or "claude"),
+        "active_provider": (get_setting(Settings.AI_ACTIVE_PROVIDER) or "claude"),
     }
     providers: dict[str, dict] = {
         n: {
@@ -6531,8 +6555,8 @@ async def api_admin_ai_dashboard(
             "pass_rate": 0.0, "total_tokens": 0, "total_cost_usd": 0.0,
             "avg_response_time_ms": None, "avg_accuracy_score": None,
             "models": [],
-            "enabled": (get_setting(f"ai_provider_{n}_enabled", "false") or "false").lower() == "true",
-            "model": get_setting(f"ai_provider_{n}_model") or "",
+            "enabled": (get_setting(ai_provider_enabled_key(n), "false") or "false").lower() == "true",
+            "model": get_setting(ai_provider_model_key(n)) or "",
         }
         for n in _provider_names
     }
@@ -6793,11 +6817,11 @@ async def api_admin_ai_test(
     # API key — non-empty body wins; otherwise fall back to saved.
     api_key = (body.get("api_key") or "").strip()
     if not api_key:
-        api_key = (get_setting(f"ai_provider_{p}_api_key") or "").strip()
+        api_key = (get_setting(ai_provider_api_key_key(p)) or "").strip()
     model = (body.get("model") or "").strip() \
-            or (get_setting(f"ai_provider_{p}_model") or "").strip()
+            or (get_setting(ai_provider_model_key(p)) or "").strip()
     base_url = (body.get("base_url") or "").strip() \
-               or (get_setting(f"ai_provider_{p}_base_url") or "").strip()
+               or (get_setting(ai_provider_base_url_key(p)) or "").strip()
     return await _ai.test_provider(
         p,
         api_key=api_key,
@@ -6861,22 +6885,22 @@ async def api_ai_palette(
     # records the call. Behaviour is unchanged; the strings + parsing
     # rules are reusable from any future AI-backed feature.
     from logic import ai as _ai
-    if not get_setting_bool("ai_enabled", False):
+    if not get_setting_bool(Settings.AI_ENABLED, False):
         return {"ok": False, "status": 0, "provider": "",
                 "detail": "AI integration is disabled. Enable it in Admin → AI Integration first.",
                 "response_time_ms": 0}
-    active = (get_setting("ai_active_provider") or "").strip().lower()
+    active = (get_setting(Settings.AI_ACTIVE_PROVIDER) or "").strip().lower()
     if active not in _ai.SUPPORTED_PROVIDERS:
         return {"ok": False, "status": 0, "provider": active,
                 "detail": "No active AI provider is selected. Pick one in Admin → AI Integration.",
                 "response_time_ms": 0}
-    if not get_setting_bool(f"ai_provider_{active}_enabled", False):
+    if not get_setting_bool(ai_provider_enabled_key(active), False):
         return {"ok": False, "status": 0, "provider": active,
                 "detail": f"Active provider '{active}' is not enabled. Enable it in Admin → AI Integration.",
                 "response_time_ms": 0}
-    api_key = (get_setting(f"ai_provider_{active}_api_key") or "").strip()
-    model = (get_setting(f"ai_provider_{active}_model") or "").strip()
-    base_url = (get_setting(f"ai_provider_{active}_base_url") or "").strip()
+    api_key = (get_setting(ai_provider_api_key_key(active)) or "").strip()
+    model = (get_setting(ai_provider_model_key(active)) or "").strip()
+    base_url = (get_setting(ai_provider_base_url_key(active)) or "").strip()
 
     query = (body.query or "").strip()
     if not query:
@@ -7353,19 +7377,19 @@ async def api_ai_host_filter(
     # the active provider → calls `ask_provider` → parses the DSL
     # response → records the call.
     from logic import ai as _ai
-    if not get_setting_bool("ai_enabled", False):
+    if not get_setting_bool(Settings.AI_ENABLED, False):
         return {"ok": False, "detail": "AI integration is disabled. Enable it in Admin → AI Integration first.",
                 "dsl": "", "explanation": "", "response_time_ms": 0}
-    active = (get_setting("ai_active_provider") or "").strip().lower()
+    active = (get_setting(Settings.AI_ACTIVE_PROVIDER) or "").strip().lower()
     if active not in _ai.SUPPORTED_PROVIDERS:
         return {"ok": False, "detail": "No active AI provider is selected. Pick one in Admin → AI Integration.",
                 "dsl": "", "explanation": "", "response_time_ms": 0}
-    if not get_setting_bool(f"ai_provider_{active}_enabled", False):
+    if not get_setting_bool(ai_provider_enabled_key(active), False):
         return {"ok": False, "detail": f"Active provider '{active}' is not enabled. Enable it in Admin → AI Integration.",
                 "dsl": "", "explanation": "", "response_time_ms": 0}
-    api_key = (get_setting(f"ai_provider_{active}_api_key") or "").strip()
-    model = (get_setting(f"ai_provider_{active}_model") or "").strip()
-    base_url = (get_setting(f"ai_provider_{active}_base_url") or "").strip()
+    api_key = (get_setting(ai_provider_api_key_key(active)) or "").strip()
+    model = (get_setting(ai_provider_model_key(active)) or "").strip()
+    base_url = (get_setting(ai_provider_base_url_key(active)) or "").strip()
 
     query = (body.query or "").strip()
     if not query:
@@ -7820,7 +7844,7 @@ def _stamp_test_success(provider: str, result: dict) -> dict:
     if not isinstance(result, dict) or not result.get("ok"):
         return result
     try:
-        set_setting(f"last_test_success_{provider}", str(int(time.time())))
+        set_setting(last_test_success_key(provider), str(int(time.time())))
     except Exception as e:
         print(f"[test] last_test_success stamp failed for {provider}: {e}")
     return result
@@ -8129,7 +8153,7 @@ async def api_telegram_test(
     chat_id = _resolve_field(body, "chat_id", "telegram_chat_id")
     thread_id_raw = body.get("thread_id")
     if thread_id_raw is None or str(thread_id_raw).strip() == "":
-        thread_id = (get_setting("telegram_thread_id") or "").strip()
+        thread_id = (get_setting(Settings.TELEGRAM_THREAD_ID) or "").strip()
     else:
         thread_id = str(thread_id_raw).strip()
     if not bot_token:
@@ -8312,7 +8336,7 @@ def _is_asset_inventory_enabled() -> bool:
     credentials stay in the settings table so the operator can flip
     back on without re-typing. Mirrors the apprise / portainer / ssh /
     open_meteo gate pattern."""
-    return (get_setting("asset_inventory_enabled", "true") or "true").lower() == "true"
+    return (get_setting(Settings.ASSET_INVENTORY_ENABLED, "true") or "true").lower() == "true"
 
 
 @app.get("/api/asset-inventory")
@@ -8360,7 +8384,7 @@ async def api_asset_inventory_test(
     except Exception:
         body = {}
     auth_mode = (body.get("auth_mode") or "").strip().lower() \
-                or (get_setting("asset_inventory_auth_mode") or "oauth2")
+                or (get_setting(Settings.ASSET_INVENTORY_AUTH_MODE) or "oauth2")
     if auth_mode not in ("oauth2", "lifetime_token"):
         auth_mode = "oauth2"
     # honour the `asset_inventory_verify_tls` toggle here too.
@@ -8374,14 +8398,14 @@ async def api_asset_inventory_test(
         verify_tls = bool(body_verify_tls)
     if auth_mode == "lifetime_token":
         base_url = (body.get("base_url") or "").strip().rstrip("/") \
-                   or (get_setting("asset_inventory_base_url") or "").strip().rstrip("/")
+                   or (get_setting(Settings.ASSET_INVENTORY_BASE_URL) or "").strip().rstrip("/")
         lifetime_token = body.get("lifetime_token") or ""
         if not lifetime_token:
-            lifetime_token = get_setting("asset_inventory_lifetime_token") or ""
+            lifetime_token = get_setting(Settings.ASSET_INVENTORY_LIFETIME_TOKEN) or ""
         service = (body.get("service") or "").strip() \
-                  or (get_setting("asset_inventory_service") or "").strip()
+                  or (get_setting(Settings.ASSET_INVENTORY_SERVICE) or "").strip()
         action = (body.get("action") or "").strip() \
-                 or (get_setting("asset_inventory_action") or "").strip()
+                 or (get_setting(Settings.ASSET_INVENTORY_ACTION) or "").strip()
 
         def _bound(from_body, setting_key):
             raw = from_body
@@ -8419,14 +8443,14 @@ async def api_asset_inventory_test(
         return out
     # Default: OAuth2 client_credentials.
     token_url = (body.get("token_url") or "").strip() \
-                or (get_setting("asset_inventory_token_url") or "")
+                or (get_setting(Settings.ASSET_INVENTORY_TOKEN_URL) or "")
     client_id = (body.get("client_id") or "").strip() \
-                or (get_setting("asset_inventory_client_id") or "")
+                or (get_setting(Settings.ASSET_INVENTORY_CLIENT_ID) or "")
     scope = (body.get("scope") or "").strip() \
-            or (get_setting("asset_inventory_scope") or "")
+            or (get_setting(Settings.ASSET_INVENTORY_SCOPE) or "")
     client_secret = body.get("client_secret") or ""
     if not client_secret:
-        client_secret = get_setting("asset_inventory_client_secret") or ""
+        client_secret = get_setting(Settings.ASSET_INVENTORY_CLIENT_SECRET) or ""
     if not token_url or not client_id or not client_secret:
         return {"ok": False,
                 "detail": "token_url, client_id and client_secret are all required"}
@@ -8458,16 +8482,16 @@ async def api_asset_inventory_refresh(
     if not _is_asset_inventory_enabled():
         return {"ok": False, "count": 0, "ts": 0,
                 "error": "asset_inventory_disabled"}
-    base_url = (get_setting("asset_inventory_base_url") or "").strip().rstrip("/")
-    auth_mode = (get_setting("asset_inventory_auth_mode") or "oauth2").strip().lower()
+    base_url = (get_setting(Settings.ASSET_INVENTORY_BASE_URL) or "").strip().rstrip("/")
+    auth_mode = (get_setting(Settings.ASSET_INVENTORY_AUTH_MODE) or "oauth2").strip().lower()
     if auth_mode not in ("oauth2", "lifetime_token"):
         auth_mode = "oauth2"
     if auth_mode == "lifetime_token":
-        lifetime_token = get_setting("asset_inventory_lifetime_token") or ""
-        service = (get_setting("asset_inventory_service") or "").strip()
-        action = (get_setting("asset_inventory_action") or "").strip()
-        min_raw = (get_setting("asset_inventory_min_value") or "").strip()
-        max_raw = (get_setting("asset_inventory_max_value") or "").strip()
+        lifetime_token = get_setting(Settings.ASSET_INVENTORY_LIFETIME_TOKEN) or ""
+        service = (get_setting(Settings.ASSET_INVENTORY_SERVICE) or "").strip()
+        action = (get_setting(Settings.ASSET_INVENTORY_ACTION) or "").strip()
+        min_raw = (get_setting(Settings.ASSET_INVENTORY_MIN_VALUE) or "").strip()
+        max_raw = (get_setting(Settings.ASSET_INVENTORY_MAX_VALUE) or "").strip()
         try:
             min_value = int(min_raw) if min_raw else None
         except ValueError:
@@ -8492,10 +8516,10 @@ async def api_asset_inventory_refresh(
         )
         _audit_asset_refresh(_admin, result, "lifetime_token")
         return result
-    token_url = (get_setting("asset_inventory_token_url") or "").strip()
-    client_id = (get_setting("asset_inventory_client_id") or "").strip()
-    client_secret = get_setting("asset_inventory_client_secret") or ""
-    scope = (get_setting("asset_inventory_scope") or "").strip()
+    token_url = (get_setting(Settings.ASSET_INVENTORY_TOKEN_URL) or "").strip()
+    client_id = (get_setting(Settings.ASSET_INVENTORY_CLIENT_ID) or "").strip()
+    client_secret = get_setting(Settings.ASSET_INVENTORY_CLIENT_SECRET) or ""
+    scope = (get_setting(Settings.ASSET_INVENTORY_SCOPE) or "").strip()
     if not base_url or not token_url or not client_id or not client_secret:
         return {"ok": False, "count": 0, "ts": 0,
                 "error": "asset_inventory_* settings are incomplete — "
@@ -8540,7 +8564,7 @@ def _asset_inventory_verify_tls() -> bool:
     on every refresh. Default True so first-boot deploys
     keep validating TLS — homelab operators with self-signed asset APIs
     flip the toggle in Admin → Asset Inventory."""
-    raw = (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower()
+    raw = (get_setting(Settings.ASSET_INVENTORY_VERIFY_TLS, "true") or "true").strip().lower()
     return raw != "false"
 
 
@@ -8869,7 +8893,7 @@ async def api_hosts(force: bool = False):
         "active": sorted(active),
         "error": agg_error,
         "provider_errors": errors,
-        "hub_url": get_setting("beszel_hub_url") or "",
+        "hub_url": get_setting(Settings.BESZEL_HUB_URL) or "",
         "hosts": hosts,
         # Counts that let the frontend pick the right empty-state
         # copy — "no curated hosts yet" vs "all curated hosts are
@@ -8992,33 +9016,33 @@ def _compute_host_provider_cache_key() -> tuple[set[str], tuple]:
     # `beszel_password` (without flipping `host_stats_source`)
     # busts the cache too.
     cred_blob = "|".join((
-        get_setting("beszel_hub_url") or "",
-        get_setting("beszel_identity") or "",
-        get_setting("beszel_password") or "",
-        get_setting("beszel_verify_tls", "true") or "true",
-        get_setting("pulse_url") or "",
-        get_setting("pulse_token") or "",
-        get_setting("pulse_verify_tls", "true") or "true",
-        get_setting("webmin_url") or "",
-        get_setting("webmin_user") or "",
-        get_setting("webmin_password") or "",
-        get_setting("webmin_verify_tls", "true") or "true",
-        get_setting("node_exporter_url_template") or "",
-        get_setting("node_exporter_overrides") or "",
+        get_setting(Settings.BESZEL_HUB_URL) or "",
+        get_setting(Settings.BESZEL_IDENTITY) or "",
+        get_setting(Settings.BESZEL_PASSWORD) or "",
+        get_setting(Settings.BESZEL_VERIFY_TLS, "true") or "true",
+        get_setting(Settings.PULSE_URL) or "",
+        get_setting(Settings.PULSE_TOKEN) or "",
+        get_setting(Settings.PULSE_VERIFY_TLS, "true") or "true",
+        get_setting(Settings.WEBMIN_URL) or "",
+        get_setting(Settings.WEBMIN_USER) or "",
+        get_setting(Settings.WEBMIN_PASSWORD) or "",
+        get_setting(Settings.WEBMIN_VERIFY_TLS, "true") or "true",
+        get_setting(Settings.NODE_EXPORTER_URL_TEMPLATE) or "",
+        get_setting(Settings.NODE_EXPORTER_OVERRIDES) or "",
         # SNMP — every credential / default that affects
         # what the probe sees. v3 keys are the security-sensitive
         # ones; the community + port + version + aliases also
         # belong here so a global default change auto-busts the
         # cache without waiting on the explicit invalidate path.
-        get_setting("snmp_default_community") or "",
-        get_setting("snmp_default_version") or "",
+        get_setting(Settings.SNMP_DEFAULT_COMMUNITY) or "",
+        get_setting(Settings.SNMP_DEFAULT_VERSION) or "",
         # Default port migrated to TUNABLES — read via tuning_int so a
         # change to `tuning_snmp_default_port` busts this cache too.
         str(tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT)),
-        get_setting("snmp_v3_user") or "",
-        get_setting("snmp_v3_auth_key") or "",
-        get_setting("snmp_v3_priv_key") or "",
-        get_setting("snmp_aliases") or "",
+        get_setting(Settings.SNMP_V3_USER) or "",
+        get_setting(Settings.SNMP_V3_AUTH_KEY) or "",
+        get_setting(Settings.SNMP_V3_PRIV_KEY) or "",
+        get_setting(Settings.SNMP_ALIASES) or "",
     ))
     cred_hash = hashlib.sha256(cred_blob.encode("utf-8")).hexdigest()[:16]
     return active_set, (tuple(sorted(active_set)), cred_hash)
@@ -9199,10 +9223,10 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
     async def _probe_beszel() -> tuple[dict, str | None]:
         if "beszel" not in active:
             return {}, None
-        hub_url = get_setting("beszel_hub_url") or ""
-        ident = get_setting("beszel_identity") or ""
-        passw = get_setting("beszel_password") or ""
-        verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+        hub_url = get_setting(Settings.BESZEL_HUB_URL) or ""
+        ident = get_setting(Settings.BESZEL_IDENTITY) or ""
+        passw = get_setting(Settings.BESZEL_PASSWORD) or ""
+        verify = (get_setting(Settings.BESZEL_VERIFY_TLS, "true") or "true").lower() == "true"
         if not (hub_url and ident and passw):
             return {}, "missing url / identity / password"
         r = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
@@ -9211,9 +9235,9 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
     async def _probe_pulse() -> tuple[dict, str | None]:
         if "pulse" not in active:
             return {}, None
-        pulse_url = get_setting("pulse_url") or ""
-        pulse_token = get_setting("pulse_token") or ""
-        verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
+        pulse_url = get_setting(Settings.PULSE_URL) or ""
+        pulse_token = get_setting(Settings.PULSE_TOKEN) or ""
+        verify = (get_setting(Settings.PULSE_VERIFY_TLS, "true") or "true").lower() == "true"
         if not (pulse_url and pulse_token):
             return {}, "missing url / token"
         r = await _pulse.probe_pulse(pulse_url, pulse_token, verify_tls=verify)
@@ -9233,11 +9257,11 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
     webmin_verify = False
     webmin_aliases: dict[str, str] = {}
     if "webmin" in active:
-        webmin_user = get_setting("webmin_user") or ""
-        webmin_password = get_setting("webmin_password") or ""
-        webmin_verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
+        webmin_user = get_setting(Settings.WEBMIN_USER) or ""
+        webmin_password = get_setting(Settings.WEBMIN_PASSWORD) or ""
+        webmin_verify = (get_setting(Settings.WEBMIN_VERIFY_TLS, "false") or "false").lower() == "true"
         try:
-            wm_aliases_raw = json.loads(get_setting("webmin_aliases", "{}") or "{}")
+            wm_aliases_raw = json.loads(get_setting(Settings.WEBMIN_ALIASES, "{}") or "{}")
             if isinstance(wm_aliases_raw, dict):
                 webmin_aliases = {
                     str(k).strip(): str(v).strip()
@@ -9266,19 +9290,19 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
     snmp_v3_priv_key = ""
     snmp_aliases: dict[str, str] = {}
     if "snmp" in active:
-        snmp_default_community = get_setting("snmp_default_community") or "public"
+        snmp_default_community = get_setting(Settings.SNMP_DEFAULT_COMMUNITY) or "public"
         snmp_default_version = (
-                                   get_setting("snmp_default_version") or "v2c"
+                                   get_setting(Settings.SNMP_DEFAULT_VERSION) or "v2c"
                                ).strip().lower() or "v2c"
         try:
             snmp_default_port = tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT)
         except (TypeError, ValueError):
             snmp_default_port = 161
-        snmp_v3_user = get_setting("snmp_v3_user") or ""
-        snmp_v3_auth_key = get_setting("snmp_v3_auth_key") or ""
-        snmp_v3_priv_key = get_setting("snmp_v3_priv_key") or ""
+        snmp_v3_user = get_setting(Settings.SNMP_V3_USER) or ""
+        snmp_v3_auth_key = get_setting(Settings.SNMP_V3_AUTH_KEY) or ""
+        snmp_v3_priv_key = get_setting(Settings.SNMP_V3_PRIV_KEY) or ""
         try:
-            sn_aliases_raw = json.loads(get_setting("snmp_aliases", "{}") or "{}")
+            sn_aliases_raw = json.loads(get_setting(Settings.SNMP_ALIASES, "{}") or "{}")
             if isinstance(sn_aliases_raw, dict):
                 snmp_aliases = {
                     str(k).strip(): str(v).strip()
@@ -11162,7 +11186,7 @@ async def api_hosts_list(force: bool = False):
         "active": sorted(state["active"]),
         "error": agg_error,
         "provider_errors": state["errors"],
-        "hub_url": get_setting("beszel_hub_url") or "",
+        "hub_url": get_setting(Settings.BESZEL_HUB_URL) or "",
         "hosts": hosts,
         "curated_count": len(curated),
         "enabled_count": sum(1 for h in curated if h.get("enabled", True)),
@@ -11255,7 +11279,7 @@ def _load_hosts_config() -> list[dict]:
     list as "no curated hosts — fall back to auto-discovery where
     applicable."
     """
-    raw = get_setting("hosts_config") or ""
+    raw = get_setting(Settings.HOSTS_CONFIG) or ""
     if not raw.strip():
         return []
     try:
@@ -11785,7 +11809,7 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
                 if isinstance(_sub, dict):
                     _sub.pop("enabled", None)
     ordered = list(seen.values())
-    set_setting("hosts_config", json.dumps(ordered))
+    set_setting(Settings.HOSTS_CONFIG, json.dumps(ordered))
     return ordered
 
 
@@ -12046,7 +12070,7 @@ async def api_hosts_resume_sampling(
         webmin_name = (h.get("webmin_name") or "").strip()
         if webmin_name:
             try:
-                aliases_raw = get_setting("webmin_aliases") or ""
+                aliases_raw = get_setting(Settings.WEBMIN_ALIASES) or ""
                 aliases = json.loads(aliases_raw) if aliases_raw else {}
                 if isinstance(aliases, dict):
                     aliased = (aliases.get(webmin_name) or "").strip().rstrip("/")
@@ -12149,7 +12173,7 @@ async def api_hosts_provider_resume(
                 # Resolve the SNMP target the same way `_merge_one_host`
                 # does: alias map > row's snmp_name. Whichever matches
                 # the cool-down key gets cleared.
-                aliases_raw = get_setting("snmp_aliases") or ""
+                aliases_raw = get_setting(Settings.SNMP_ALIASES) or ""
                 try:
                     aliases = json.loads(aliases_raw) if aliases_raw else {}
                 except Exception:
@@ -12185,7 +12209,7 @@ async def api_hosts_provider_resume(
             webmin_name = (h.get("webmin_name") or "").strip()
             if webmin_name:
                 try:
-                    aliases_raw = get_setting("webmin_aliases") or ""
+                    aliases_raw = get_setting(Settings.WEBMIN_ALIASES) or ""
                     aliases = json.loads(aliases_raw) if aliases_raw else {}
                     if isinstance(aliases, dict):
                         aliased = (aliases.get(webmin_name) or "").strip().rstrip("/")
@@ -12306,7 +12330,7 @@ async def api_hosts_test(
     row_id = (body.get("host_id") or "").strip()
     if not webmin_url and row_id:
         try:
-            aliases = json.loads(get_setting("webmin_aliases", "{}") or "{}")
+            aliases = json.loads(get_setting(Settings.WEBMIN_ALIASES, "{}") or "{}")
             if isinstance(aliases, dict):
                 webmin_url = str(aliases.get(row_id, "") or "").strip().rstrip("/")
         except ValueError:
@@ -12316,7 +12340,7 @@ async def api_hosts_test(
     snmp_target = (body.get("snmp_target") or body.get("snmp_name") or "").strip()
     if not snmp_target and row_id:
         try:
-            sn_aliases = json.loads(get_setting("snmp_aliases", "{}") or "{}")
+            sn_aliases = json.loads(get_setting(Settings.SNMP_ALIASES, "{}") or "{}")
             if isinstance(sn_aliases, dict):
                 snmp_target = str(sn_aliases.get(row_id, "") or "").strip()
         except ValueError:
@@ -12364,7 +12388,7 @@ async def api_hosts_test(
     # "passes here" = "works in production".
     active_sources = {
         s.strip().lower() for s in
-        (get_setting("host_stats_source") or "").split(",")
+        (get_setting(Settings.HOST_STATS_SOURCE) or "").split(",")
         if s.strip() and s.strip().lower() != "none"
     }
 
@@ -12390,10 +12414,10 @@ async def api_hosts_test(
         snmp_target = ""
 
     if beszel_name:
-        hub_url = get_setting("beszel_hub_url") or ""
-        ident = get_setting("beszel_identity") or ""
-        passw = get_setting("beszel_password") or ""
-        verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+        hub_url = get_setting(Settings.BESZEL_HUB_URL) or ""
+        ident = get_setting(Settings.BESZEL_IDENTITY) or ""
+        passw = get_setting(Settings.BESZEL_PASSWORD) or ""
+        verify = (get_setting(Settings.BESZEL_VERIFY_TLS, "true") or "true").lower() == "true"
         if hub_url and ident and passw:
             r = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
             if r.get("error"):
@@ -12419,9 +12443,9 @@ async def api_hosts_test(
                              "detail": "Beszel creds not configured"}
 
     if pulse_name:
-        pulse_url = get_setting("pulse_url") or ""
-        pulse_tok = get_setting("pulse_token") or ""
-        verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
+        pulse_url = get_setting(Settings.PULSE_URL) or ""
+        pulse_tok = get_setting(Settings.PULSE_TOKEN) or ""
+        verify = (get_setting(Settings.PULSE_VERIFY_TLS, "true") or "true").lower() == "true"
         if pulse_url and pulse_tok:
             r = await _pulse.probe_pulse(pulse_url, pulse_tok, verify_tls=verify)
             if r.get("error"):
@@ -12462,9 +12486,9 @@ async def api_hosts_test(
             }
 
     if webmin_url:
-        user = get_setting("webmin_user") or ""
-        passw = get_setting("webmin_password") or ""
-        verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
+        user = get_setting(Settings.WEBMIN_USER) or ""
+        passw = get_setting(Settings.WEBMIN_PASSWORD) or ""
+        verify = (get_setting(Settings.WEBMIN_VERIFY_TLS, "false") or "false").lower() == "true"
         if not user or not passw:
             out["webmin"] = {"ok": False, "skipped": False,
                              "detail": "Webmin creds not configured"}
@@ -12495,8 +12519,8 @@ async def api_hosts_test(
                 "detail": "pysnmp not installed (pip install pysnmp)",
             }
         else:
-            community = snmp_community or get_setting("snmp_default_community", "public") or "public"
-            version = snmp_version or (get_setting("snmp_default_version", "v2c") or "v2c").lower()
+            community = snmp_community or get_setting(Settings.SNMP_DEFAULT_COMMUNITY, "public") or "public"
+            version = snmp_version or (get_setting(Settings.SNMP_DEFAULT_VERSION, "v2c") or "v2c").lower()
             try:
                 port = snmp_port or tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT)
             except (TypeError, ValueError):
@@ -12510,9 +12534,9 @@ async def api_hosts_test(
             # budget exceeded NPM's proxy_read_timeout. Now: per-host
             # walk_concurrency / vendors honoured; per-host
             # wall_clock_budget capped at 50s (NPM proxy ceiling).
-            v3_user_t = (body.get("snmp_v3_user") or "").strip() or (get_setting("snmp_v3_user") or "")
-            v3_auth_t = (body.get("snmp_v3_auth_key") or "").strip() or (get_setting("snmp_v3_auth_key") or "")
-            v3_priv_t = (body.get("snmp_v3_priv_key") or "").strip() or (get_setting("snmp_v3_priv_key") or "")
+            v3_user_t = (body.get("snmp_v3_user") or "").strip() or (get_setting(Settings.SNMP_V3_USER) or "")
+            v3_auth_t = (body.get("snmp_v3_auth_key") or "").strip() or (get_setting(Settings.SNMP_V3_AUTH_KEY) or "")
+            v3_priv_t = (body.get("snmp_v3_priv_key") or "").strip() or (get_setting(Settings.SNMP_V3_PRIV_KEY) or "")
             try:
                 walk_conc_t = int(body.get("snmp_walk_concurrency") or 0) or None
             except (TypeError, ValueError):
@@ -12584,11 +12608,11 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
     errors: dict[str, str] = {}
 
     beszel_names: list[str] = []
-    hub_url = get_setting("beszel_hub_url") or ""
-    b_id = get_setting("beszel_identity") or ""
-    b_pw = get_setting("beszel_password") or ""
+    hub_url = get_setting(Settings.BESZEL_HUB_URL) or ""
+    b_id = get_setting(Settings.BESZEL_IDENTITY) or ""
+    b_pw = get_setting(Settings.BESZEL_PASSWORD) or ""
     if hub_url and b_id and b_pw:
-        verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+        verify = (get_setting(Settings.BESZEL_VERIFY_TLS, "true") or "true").lower() == "true"
         r = await _beszel.probe_hub(hub_url, b_id, b_pw, verify_tls=verify)
         if r.get("error"):
             errors["beszel"] = r["error"]
@@ -12596,10 +12620,10 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
             beszel_names = sorted((r.get("systems") or {}).keys(), key=str.lower)
 
     pulse_names: list[str] = []
-    pulse_url = get_setting("pulse_url") or ""
-    pulse_tok = get_setting("pulse_token") or ""
+    pulse_url = get_setting(Settings.PULSE_URL) or ""
+    pulse_tok = get_setting(Settings.PULSE_TOKEN) or ""
     if pulse_url and pulse_tok:
-        verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
+        verify = (get_setting(Settings.PULSE_VERIFY_TLS, "true") or "true").lower() == "true"
         r = await _pulse.probe_pulse(pulse_url, pulse_tok, verify_tls=verify)
         if r.get("error"):
             errors["pulse"] = r["error"]
@@ -12613,7 +12637,7 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
     # offered as the ``webmin_name`` autocomplete value.
     webmin_names: list[str] = []
     try:
-        wm_aliases_raw = json.loads(get_setting("webmin_aliases", "{}") or "{}")
+        wm_aliases_raw = json.loads(get_setting(Settings.WEBMIN_ALIASES, "{}") or "{}")
     except ValueError:
         wm_aliases_raw = {}
     wm_urls = (
@@ -12621,11 +12645,11 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
                 for v in wm_aliases_raw.values() if str(v).strip()})
         if isinstance(wm_aliases_raw, dict) else []
     )
-    wm_user = get_setting("webmin_user") or ""
-    wm_pass = get_setting("webmin_password") or ""
+    wm_user = get_setting(Settings.WEBMIN_USER) or ""
+    wm_pass = get_setting(Settings.WEBMIN_PASSWORD) or ""
     if wm_urls and wm_user and wm_pass:
         from logic import webmin as _webmin
-        verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
+        verify = (get_setting(Settings.WEBMIN_VERIFY_TLS, "false") or "false").lower() == "true"
         wm_results = await asyncio.gather(*(
             _webmin.probe_webmin(u, wm_user, wm_pass, verify_tls=verify,
                                  timeout=8.0)
@@ -12654,7 +12678,7 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
     # configured — that's the expected state on first-boot deploys.
     snmp_names: list[str] = []
     try:
-        sn_aliases_raw = json.loads(get_setting("snmp_aliases", "{}") or "{}")
+        sn_aliases_raw = json.loads(get_setting(Settings.SNMP_ALIASES, "{}") or "{}")
         if isinstance(sn_aliases_raw, dict):
             snmp_names = sorted(
                 {str(v).strip() for v in sn_aliases_raw.values() if str(v).strip()},
@@ -13078,7 +13102,7 @@ async def api_hosts_debug(
             row_snmp_kick: dict = _raw_row_snmp_kick if isinstance(_raw_row_snmp_kick, dict) else {}
             try:
                 sn_aliases_kick = json.loads(
-                    get_setting("snmp_aliases", "{}") or "{}"
+                    get_setting(Settings.SNMP_ALIASES, "{}") or "{}"
                 )
                 if not isinstance(sn_aliases_kick, dict):
                     sn_aliases_kick = {}
@@ -13105,9 +13129,9 @@ async def api_hosts_debug(
             enabled_kick = row_snmp_kick.get("enabled") is True
             if target_kick and enabled_kick:
                 community_kick = ((row_snmp_kick.get("community") or "").strip()
-                                  or (get_setting("snmp_default_community") or "public"))
+                                  or (get_setting(Settings.SNMP_DEFAULT_COMMUNITY) or "public"))
                 version_kick = (((row_snmp_kick.get("version") or "").strip().lower())
-                                or (get_setting("snmp_default_version") or "v2c").lower()
+                                or (get_setting(Settings.SNMP_DEFAULT_VERSION) or "v2c").lower()
                                 or "v2c")
                 try:
                     port_kick = int(row_snmp_kick.get("port")
@@ -13115,11 +13139,11 @@ async def api_hosts_debug(
                 except (TypeError, ValueError):
                     port_kick = 161
                 v3_user_kick = ((row_snmp_kick.get("v3_user") or "").strip()
-                                or get_setting("snmp_v3_user") or "")
+                                or get_setting(Settings.SNMP_V3_USER) or "")
                 v3_auth_kick = ((row_snmp_kick.get("v3_auth_key") or "").strip()
-                                or get_setting("snmp_v3_auth_key") or "")
+                                or get_setting(Settings.SNMP_V3_AUTH_KEY) or "")
                 v3_priv_kick = ((row_snmp_kick.get("v3_priv_key") or "").strip()
-                                or get_setting("snmp_v3_priv_key") or "")
+                                or get_setting(Settings.SNMP_V3_PRIV_KEY) or "")
                 # Per-host walk_concurrency override — Dell iDRAC9 /
                 # iDRAC10 and other server-class BMCs handle parallel
                 # queries fine and benefit dramatically from
@@ -13200,10 +13224,10 @@ async def api_hosts_debug(
 
     # ---- Beszel --------------------------------------------------
     if "beszel" in active and record.get("beszel_name"):
-        hub_url = get_setting("beszel_hub_url") or ""
-        ident = get_setting("beszel_identity") or ""
-        passw = get_setting("beszel_password") or ""
-        verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+        hub_url = get_setting(Settings.BESZEL_HUB_URL) or ""
+        ident = get_setting(Settings.BESZEL_IDENTITY) or ""
+        passw = get_setting(Settings.BESZEL_PASSWORD) or ""
+        verify = (get_setting(Settings.BESZEL_VERIFY_TLS, "true") or "true").lower() == "true"
         if hub_url and ident and passw:
             try:
                 async with httpx.AsyncClient(verify=verify, timeout=8.0) as client:
@@ -13261,9 +13285,9 @@ async def api_hosts_debug(
 
     # ---- Pulse ---------------------------------------------------
     if "pulse" in active and record.get("pulse_name"):
-        pulse_url = get_setting("pulse_url") or ""
-        pulse_tok = get_setting("pulse_token") or ""
-        verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
+        pulse_url = get_setting(Settings.PULSE_URL) or ""
+        pulse_tok = get_setting(Settings.PULSE_TOKEN) or ""
+        verify = (get_setting(Settings.PULSE_VERIFY_TLS, "true") or "true").lower() == "true"
         if pulse_url and pulse_tok:
             try:
                 async with httpx.AsyncClient(verify=verify, timeout=8.0) as client:
@@ -13365,15 +13389,15 @@ async def api_hosts_debug(
     # ---- Webmin --------------------------------------------------
     if "webmin" in active:
         try:
-            wm_aliases = json.loads(get_setting("webmin_aliases", "{}") or "{}")
+            wm_aliases = json.loads(get_setting(Settings.WEBMIN_ALIASES, "{}") or "{}")
             if not isinstance(wm_aliases, dict):
                 wm_aliases = {}
         except ValueError:
             wm_aliases = {}
         wm_url = (wm_aliases.get(record["id"]) or "").strip().rstrip("/")
-        user = get_setting("webmin_user") or ""
-        passw = get_setting("webmin_password") or ""
-        verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
+        user = get_setting(Settings.WEBMIN_USER) or ""
+        passw = get_setting(Settings.WEBMIN_PASSWORD) or ""
+        verify = (get_setting(Settings.WEBMIN_VERIFY_TLS, "false") or "false").lower() == "true"
         if not wm_url:
             # No Webmin URL mapped for this host — that's an
             # intentional "this host doesn't use Webmin" state, not an
@@ -14656,7 +14680,7 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
             # OR has a `webmin_url` mapped via `webmin_aliases`. Either
             # signal qualifies the host for Webmin history lookup.
             try:
-                webmin_aliases = json.loads(get_setting("webmin_aliases", "{}") or "{}")
+                webmin_aliases = json.loads(get_setting(Settings.WEBMIN_ALIASES, "{}") or "{}")
                 if not isinstance(webmin_aliases, dict):
                     webmin_aliases = {}
             except ValueError:
@@ -16950,7 +16974,7 @@ async def api_hosts_port_scan(
     handler (or its 30 s polling fallback).
     """
     hid = (host_id or "").strip()
-    if not get_setting_bool("port_scan_enabled", False):
+    if not get_setting_bool(Settings.PORT_SCAN_ENABLED, False):
         print(f"[port_scan] skipped host_id={hid!r} — provider disabled (master toggle off)")
         raise HTTPException(
             status_code=400,
@@ -17014,7 +17038,7 @@ async def api_hosts_port_scan(
     ports_csv = (
         (body.ports or "").strip()
         or (ps_cfg.get("ports") or "").strip()
-        or (get_setting("port_scan_default_ports") or "").strip()
+        or (get_setting(Settings.PORT_SCAN_DEFAULT_PORTS) or "").strip()
     )
     ports_list = _ps.parse_port_csv(ports_csv) if ports_csv else list(_ps.DEFAULT_PORTS)
     _timeout_raw = (
@@ -17051,7 +17075,7 @@ async def api_hosts_port_scan(
         udp_ports_csv = (
             (body.udp_ports or "").strip()
             or (ps_cfg.get("udp_ports") or "").strip()
-            or (get_setting("port_scan_udp_default_ports") or "").strip()
+            or (get_setting(Settings.PORT_SCAN_UDP_DEFAULT_PORTS) or "").strip()
         )
         udp_ports_list = (
             _ps.parse_port_csv(udp_ports_csv) if udp_ports_csv
@@ -17085,7 +17109,7 @@ async def api_hosts_port_scan(
     snmp_cfg: dict = _raw_snmp_cfg if isinstance(_raw_snmp_cfg, dict) else {}
     snmp_community = (
         snmp_cfg.get("community")
-        or get_setting("snmp_default_community")
+        or get_setting(Settings.SNMP_DEFAULT_COMMUNITY)
         or "public"
     )
     print(
@@ -17224,7 +17248,7 @@ async def api_ping_test(
     pcfg: dict = _raw_pcfg if isinstance(_raw_pcfg, dict) else {}
     default_port = tuning.tuning_int(Tunable.PING_DEFAULT_PORT) or 443
     port = body.port if body.port is not None else (pcfg.get("port") or default_port)
-    use_icmp_global = get_setting_bool("ping_use_icmp", False)
+    use_icmp_global = get_setting_bool(Settings.PING_USE_ICMP, False)
     transport = (body.transport or pcfg.get("transport") or "").strip().lower()
     if transport not in ("tcp", "icmp"):
         transport = "icmp" if use_icmp_global else "tcp"
@@ -17268,7 +17292,7 @@ async def api_auth_providers(request: Request):
     oidc_live = oidc.is_configured()
     if oidc_live:
         try:
-            redirect_uri = (get_setting("oidc_redirect_uri") or "").strip()
+            redirect_uri = (get_setting(Settings.OIDC_REDIRECT_URI) or "").strip()
             if redirect_uri:
                 from urllib.parse import urlparse
                 expected_host = (urlparse(redirect_uri).hostname or "").strip().lower()
@@ -17680,9 +17704,9 @@ def _open_meteo_url() -> str:
     reports "not configured" while the switch is off.
     """
     from logic.db import get_setting_bool
-    if not get_setting_bool("open_meteo_enabled", default=True):
+    if not get_setting_bool(Settings.OPEN_METEO_ENABLED, default=True):
         return ""
-    return (get_setting("open_meteo_url") or "").strip().rstrip("/")
+    return (get_setting(Settings.OPEN_METEO_URL) or "").strip().rstrip("/")
 
 
 _weather_cache: dict[tuple[float, float], tuple[float, dict]] = {}
@@ -17724,13 +17748,15 @@ _WMO_CODES: dict[int, tuple[str, str]] = {
 
 @app.get("/api/public-ip")
 async def api_public_ip(_admin: auth.User = Depends(auth.require_admin)):
-    """Admin-only public-IP + ISP / ASN lookup for the AI palette.
+    """Admin-only public-IP + ISP / ASN lookup. Standalone subsystem
+    (NOT AI-related). The AI palette + Telegram /ip command both
+    consume it but the feature owns its own Admin → Public IP section.
 
-    Gated behind the `ai_public_ip_enabled` setting (default OFF for
-    privacy — fetching reveals the deploy is reaching ifconfig.co).
+    Gated behind the `tuning_public_ip_enabled` tunable (default OFF
+    for privacy — fetching reveals the deploy is reaching ifconfig.co).
     The helper in `logic.public_ip` handles the cache + the gate
-    short-circuit; this endpoint just surfaces the result so the SPA
-    can fold it into the AI palette context block.
+    short-circuit; this endpoint just surfaces the result so callers
+    can fold it into their context blocks.
 
     Returns `{enabled: false}` when the gate is off so the SPA knows
     to omit the prompt block and the AI doesn't try to answer "what's
@@ -19029,7 +19055,7 @@ async def api_me(request: Request):
             # global-default surface pattern above.
             "ping": {
                 "default_port": tuning.tuning_int(Tunable.PING_DEFAULT_PORT),
-                "use_icmp": get_setting_bool("ping_use_icmp", False),
+                "use_icmp": get_setting_bool(Settings.PING_USE_ICMP, False),
             },
             # Per-host drift baseline metric roster — single source of
             # truth for the SPA's drift-chip rendering. Backend's
@@ -19046,8 +19072,8 @@ async def api_me(request: Request):
             # `me.client_config.ai.enabled === true` AND
             # `me.client_config.ai.active_provider` being non-empty.
             "ai": {
-                "enabled": get_setting_bool("ai_enabled", False),
-                "active_provider": (get_setting("ai_active_provider") or "").strip().lower(),
+                "enabled": get_setting_bool(Settings.AI_ENABLED, False),
+                "active_provider": (get_setting(Settings.AI_ACTIVE_PROVIDER) or "").strip().lower(),
                 "max_tokens": tuning.tuning_int(Tunable.AI_MAX_TOKENS),
                 # Canonical provider list — the SPA's `aiProviderNames`
                 # reads from this so adding a fifth provider is a
@@ -19066,7 +19092,7 @@ async def api_me(request: Request):
             # ever recorded; the SPA's `x-show` on the label collapses
             # cleanly. epoch seconds.
             "last_test_success": {
-                key: int(get_setting(f"last_test_success_{key}", "0") or "0") or None
+                key: int(get_setting(last_test_success_key(key), "0") or "0") or None
                 for key in (
                     "portainer", "oidc", "beszel", "pulse",
                     "webmin", "snmp", "ping", "asset_inventory",
@@ -19084,11 +19110,11 @@ async def api_me(request: Request):
             # hasn't customised. Read once on /api/me and applied to the
             # provider chip via inline `:style` (--chip-bg/-br/-fg).
             "provider_colors": {
-                "beszel": get_setting("provider_color_beszel") or "",
-                "pulse": get_setting("provider_color_pulse") or "",
-                "node_exporter": get_setting("provider_color_node_exporter") or "",
-                "webmin": get_setting("provider_color_webmin") or "",
-                "ping": get_setting("provider_color_ping") or "",
+                "beszel": get_setting(Settings.PROVIDER_COLOR_BESZEL) or "",
+                "pulse": get_setting(Settings.PROVIDER_COLOR_PULSE) or "",
+                "node_exporter": get_setting(Settings.PROVIDER_COLOR_NODE_EXPORTER) or "",
+                "webmin": get_setting(Settings.PROVIDER_COLOR_WEBMIN) or "",
+                "ping": get_setting(Settings.PROVIDER_COLOR_PING) or "",
             },
             # Canonical SNMP vendor key set — single source of truth at
             # ``logic.snmp._VALID_VENDOR_KEYS``. Surfaced so the Admin →
@@ -19146,7 +19172,7 @@ async def api_me(request: Request):
         # (defaults to admin state until the user opts out).
         admin_map = {
             name: get_setting_bool(
-                f"notify_event_{name}", _NOTIFY_EVENT_DEFAULTS.get(name, True),
+                notify_event_key(name), _NOTIFY_EVENT_DEFAULTS.get(name, True),
             )
             for name in _NOTIFY_EVENT_NAMES
         }
@@ -19406,7 +19432,7 @@ async def api_me_notify_prefs(
     # Admin gate snapshot — refuse opt-IN for admin-disabled events.
     admin_map = {
         name: get_setting_bool(
-            f"notify_event_{name}", _NOTIFY_EVENT_DEFAULTS.get(name, True),
+            notify_event_key(name), _NOTIFY_EVENT_DEFAULTS.get(name, True),
         )
         for name in _NOTIFY_EVENT_NAMES
     }

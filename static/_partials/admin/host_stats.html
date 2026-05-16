@@ -47,15 +47,13 @@
               <span class="w-1.5 h-1.5 rounded-full"
                     :class="hasHostStatsSource(tab[0]) ? 'dot-on' : 'dot-off'"
                     :title="hasHostStatsSource(tab[0]) ? t('settings.host_stats.tab_active_dot') : t('settings.host_stats.tab_inactive_dot')"></span>
-              <!-- mono provider icon painted in the operator-
-                   customised chip colour. Active tab: icon uses the
-                   --text-on-primary token so it reads against the
-                   blue fill; inactive tabs keep the muted token. -->
-              <span class="provider-icon"
-                    :style="hostStatsTab === tab[0]
-                      ? ('--provider-icon-url: url(/img/icons/' + providerIconSlug(tab[0]) + '.svg); color: var(--text-on-primary);')
-                      : ('--provider-icon-url: url(/img/icons/' + providerIconSlug(tab[0]) + '.svg); color: var(--text-faint);')"
-                    aria-hidden="true"></span>
+              <!-- Colored brand icon (matches Notifications tab
+                   strip for visual consistency across master-toggled
+                   admin tabs). Drops the mask-image / mono treatment
+                   in favour of the canonical SVG so each provider's
+                   brand identity reads at a glance. -->
+              <img width="14" height="14" alt="" aria-hidden="true"
+                   :src="'/img/icons/' + providerIconSlug(tab[0]) + '.svg?v=__APP_VERSION__'">
               <span x-text="tab[1]"></span>
             </button>
           </template>

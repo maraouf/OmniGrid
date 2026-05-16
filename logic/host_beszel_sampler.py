@@ -42,6 +42,7 @@ from logic.db import (
     get_setting,
     active_host_stats_providers as _active_providers,
 )
+from logic.settings_keys import Settings
 
 
 # Same sanity bounds as the Pulse sampler — see that module's
@@ -70,7 +71,7 @@ def _curated_beszel_hosts() -> list[dict]:
     ``id`` and ``beszel_name``).
     """
     import json as _json
-    raw = get_setting("hosts_config", "") or ""
+    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
     if not raw.strip():
         return []
     try:
@@ -100,10 +101,10 @@ async def _probe_one_tick() -> dict:
     on failure (probe_hub never raises). Network errors land here as
     a logged warning so the sampler tick still completes.
     """
-    base_url = (get_setting("beszel_hub_url", "") or "").strip()
-    ident    = (get_setting("beszel_identity", "") or "").strip()
-    passw    = (get_setting("beszel_password", "") or "").strip()
-    verify_tls = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+    base_url = (get_setting(Settings.BESZEL_HUB_URL, "") or "").strip()
+    ident    = (get_setting(Settings.BESZEL_IDENTITY, "") or "").strip()
+    passw    = (get_setting(Settings.BESZEL_PASSWORD, "") or "").strip()
+    verify_tls = (get_setting(Settings.BESZEL_VERIFY_TLS, "true") or "true").lower() == "true"
     if not base_url or not ident or not passw:
         return {}
     # Operator-tunable hub-probe timeout. Falls back to the

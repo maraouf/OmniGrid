@@ -25,6 +25,8 @@ import sqlite3
 from contextlib import contextmanager
 from typing import Optional
 
+from logic.settings_keys import Settings
+
 
 _SUPPORTED_DB_TYPES = frozenset({"sqlite"})
 
@@ -230,9 +232,9 @@ def active_host_stats_providers() -> set[str]:
     only need to update this helper plus the validation list in
     ``api_set_settings``.
     """
-    raw = (get_setting("host_stats_source", "") or "").strip()
+    raw = (get_setting(Settings.HOST_STATS_SOURCE, "") or "").strip()
     if not raw:
-        if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true":
+        if (get_setting(Settings.NODE_EXPORTER_ENABLED, "false") or "false").lower() == "true":
             return {"node_exporter"}
         return set()
     out: set[str] = set()
@@ -260,7 +262,7 @@ def curated_ne_hosts() -> list[dict]:
     """
     import json as _json
 
-    raw = get_setting("hosts_config", "") or ""
+    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
     if not raw.strip():
         return []
     try:
@@ -302,7 +304,7 @@ def curated_ping_hosts() -> list[dict]:
     """
     import json as _json
 
-    raw = get_setting("hosts_config", "") or ""
+    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
     if not raw.strip():
         return []
     try:
@@ -364,7 +366,7 @@ def curated_beszel_hosts() -> list[dict]:
     """
     import json as _json
 
-    raw = get_setting("hosts_config", "") or ""
+    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
     if not raw.strip():
         return []
     try:
@@ -406,7 +408,7 @@ def curated_snmp_hosts() -> list[dict]:
     """
     import json as _json
 
-    raw = get_setting("hosts_config", "") or ""
+    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
     if not raw.strip():
         return []
     try:

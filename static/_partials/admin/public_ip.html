@@ -1,0 +1,84 @@
+      <section x-show="adminTab==='public_ip'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <!-- Title row + Enabled/Disabled pill — matches every other
+             master-toggled admin tab (SSH / Portainer / OIDC) so the
+             visual language stays consistent across integrations. -->
+        <div class="flex items-start justify-between">
+          <div>
+            <div class="flex items-center gap-2 mb-2">
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/></svg>
+              <h3 class="font-semibold fs-md" x-text="t('admin_public_ip.title')"></h3>
+            </div>
+            <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
+               x-text="t('admin_public_ip.intro')"></p>
+          </div>
+          <span class="chip"
+                :class="(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) ? 'pill-ok' : 'pill-muted'"
+                x-text="(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
+        </div>
+        <!-- Master switch. Encoded as the int tunable
+             `tuning_public_ip_enabled` (1 = on, 0 = off) per the
+             canonical TUNABLES pattern. When off, every call into
+             `logic.public_ip.fetch()` short-circuits to None and no
+             outbound request to ifconfig.co fires. -->
+        <label class="flex items-center gap-2 fs-sm cursor-pointer mb-4 select-none">
+          <input type="checkbox"
+                 :checked="tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1"
+                 @change="tuningForm['tuning_public_ip_enabled'] = ($event.target.checked ? '1' : '0')"
+                 :disabled="isReadonly()">
+          <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
+          <span class="fs-xs text-[var(--text-faint)]"
+                x-text="(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) ? '' : t('admin_integrations.disabled_hint')"></span>
+        </label>
+        <!-- Tunable knobs — cache TTL + outbound HTTP timeout. Both
+             accept blank to fall back to the env-var / default; the
+             placeholder shows the live fallback so removing the
+             override is a visible no-op. -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+          <div>
+            <label class="block fs-xs text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_public_ip.cache_ttl_label')"></label>
+            <input type="number" min="60" max="3600" step="1"
+                   x-model="tuningForm['tuning_public_ip_cache_ttl_seconds']"
+                   :placeholder="(tuningEffective['tuning_public_ip_cache_ttl_seconds'] && tuningEffective['tuning_public_ip_cache_ttl_seconds'].fallback != null) ? String(tuningEffective['tuning_public_ip_cache_ttl_seconds'].fallback) : '600'"
+                   :disabled="isReadonly()"
+                   class="w-full mono fs-sm py-1.5">
+            <p class="fs-2xs text-[var(--text-faint)] mt-1"
+               x-text="t('admin_public_ip.cache_ttl_help')"></p>
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_public_ip.fetch_timeout_label')"></label>
+            <input type="number" min="2" max="60" step="1"
+                   x-model="tuningForm['tuning_public_ip_fetch_timeout_seconds']"
+                   :placeholder="(tuningEffective['tuning_public_ip_fetch_timeout_seconds'] && tuningEffective['tuning_public_ip_fetch_timeout_seconds'].fallback != null) ? String(tuningEffective['tuning_public_ip_fetch_timeout_seconds'].fallback) : '8'"
+                   :disabled="isReadonly()"
+                   class="w-full mono fs-sm py-1.5">
+            <p class="fs-2xs text-[var(--text-faint)] mt-1"
+               x-text="t('admin_public_ip.fetch_timeout_help')"></p>
+          </div>
+        </div>
+        <!-- Test-lookup + Save row. Test calls /api/public-ip which
+             returns the current cached value (or fires a fresh probe
+             if the cache is cold); shows IP / ISP / ASN inline so the
+             operator can confirm end-to-end without leaving the tab. -->
+        <div class="flex items-center gap-2 mt-4">
+          <button type="button" class="btn btn-secondary"
+                  :disabled="publicIpSaving || isReadonly() || !(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1)"
+                  @click="testPublicIpLookup()"
+                  x-text="t('admin_public_ip.test_button') || 'Test lookup'"></button>
+          <button type="button" class="btn btn-primary"
+                  :class="publicIpSectionDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                  :disabled="publicIpSaving || isReadonly() || !publicIpSectionDirty()"
+                  @click="savePublicIpSection()">
+            <span x-text="publicIpSaving ? (t('actions.saving') || 'Saving…') : (t('actions.save') || 'Save')"></span>
+            <span x-show="publicIpSectionDirty()"
+                  class="ms-1 inline-block w-2 h-2 rounded-full bg-[var(--warning)] pulse-dot"
+                  :title="t('admin_integrations.unsaved_dot_title') || 'Unsaved changes'"></span>
+          </button>
+        </div>
+        <!-- Test result panel — populated by testPublicIpLookup(). -->
+        <div x-show="publicIpTestResult" class="mt-4 p-3 rounded-md bg-[var(--surface-2)] border border-[var(--border)]">
+          <div class="fs-xs text-[var(--text-faint)] mb-1" x-text="t('admin_public_ip.test_result_label') || 'Last lookup'"></div>
+          <pre class="mono fs-xs whitespace-pre-wrap break-all" x-text="publicIpTestResult"></pre>
+        </div>
+      </section>

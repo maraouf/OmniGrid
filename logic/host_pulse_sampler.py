@@ -40,6 +40,7 @@ from logic.db import (
     get_setting_bool,
     active_host_stats_providers as _active_providers,
 )
+from logic.settings_keys import Settings
 
 
 # Same sanity bounds + rationale as host_metrics_sampler — see that
@@ -68,7 +69,7 @@ def _curated_pulse_hosts() -> list[dict]:
     ``id`` and ``pulse_name``).
     """
     import json as _json
-    raw = get_setting("hosts_config", "") or ""
+    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
     if not raw.strip():
         return []
     try:
@@ -98,9 +99,9 @@ async def _probe_one_tick() -> dict:
     map on failure (probe_pulse never raises). Network errors land
     here as a logged warning so the sampler tick still completes.
     """
-    base_url = (get_setting("pulse_url", "") or "").strip()
-    token = (get_setting("pulse_token", "") or "").strip()
-    verify_tls = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
+    base_url = (get_setting(Settings.PULSE_URL, "") or "").strip()
+    token = (get_setting(Settings.PULSE_TOKEN, "") or "").strip()
+    verify_tls = (get_setting(Settings.PULSE_VERIFY_TLS, "true") or "true").lower() == "true"
     if not base_url or not token:
         return {}
     timeout = float(tuning.tuning_int(Tunable.PULSE_PROBE_TIMEOUT_SECONDS)) or 15.0
