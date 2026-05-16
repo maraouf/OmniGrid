@@ -357,14 +357,28 @@
           </div>
           <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug"
              x-text="t('profile.telegram.intro')"></p>
+          <!-- Linked-state banner — only when /api/me reports an
+               active mapping. Shows the linked Telegram user_id +
+               only the Unlink button (hide Generate to prevent
+               re-minting a code while already linked). -->
+          <div x-show="me && me.telegram_link"
+               class="mb-3 p-3 rounded-md bg-[var(--pill-ok-bg)] border border-[var(--pill-ok-br)] text-[var(--pill-ok-fg)]">
+            <p class="fs-sm font-medium"
+               x-text="t('profile.telegram.linked_label', { user_id: (me && me.telegram_link && me.telegram_link.telegram_user_id) || '' })"></p>
+          </div>
           <div class="flex items-center gap-3 flex-wrap">
+            <!-- Generate hidden once linked — operator must Unlink
+                 first if they want to re-claim under a different
+                 Telegram user_id. -->
             <button type="button" @click="generateTelegramLinkCode()"
+                    x-show="!(me && me.telegram_link)"
                     :disabled="telegramLinkBusy"
                     class="btn btn-primary fs-sm">
               <span x-show="!telegramLinkBusy" x-text="t('profile.telegram.generate_button')"></span>
               <span x-show="telegramLinkBusy" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.working')"></span></span>
             </button>
             <button type="button" @click="unlinkTelegram()"
+                    x-show="me && me.telegram_link"
                     :disabled="telegramLinkBusy"
                     class="btn btn-soft fs-sm"
                     x-text="t('profile.telegram.unlink_button')"></button>

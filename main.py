@@ -7995,6 +7995,52 @@ async def api_beszel_test(
     ))
 
 
+@app.get("/api/telegram/links")
+async def api_telegram_links_list(
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: list every persisted Telegram → OmniGrid user
+    mapping. Returns ``{links: [{telegram_user_id, username, role}]}``
+    sorted by username for the admin datatable. Role is joined from
+    `users.role` so the table can show admin / readonly badges next
+    to each linked account.
+    """
+    from logic import telegram_listener as _tg
+    mappings = _tg._load_mappings()
+    out: list[dict] = []
+    for tg_id_str, username in mappings.items():
+        try:
+            tg_id = int(tg_id_str)
+        except (TypeError, ValueError):
+            continue
+        role = _tg._lookup_user_role(username) or "unknown"
+        out.append({
+            "telegram_user_id": tg_id,
+            "username":         username,
+            "role":             role,
+        })
+    out.sort(key=lambda r: (r["username"] or "", r["telegram_user_id"]))
+    return {"links": out}
+
+
+@app.delete("/api/telegram/links/{telegram_user_id}")
+async def api_telegram_links_unlink(
+    telegram_user_id: int,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: drop one Telegram → OmniGrid mapping by Telegram
+    user_id. Used by the admin datatable's row-action Unlink button.
+    Returns ``{removed: <username> | null}``.
+    """
+    from logic import telegram_listener as _tg
+    mappings = _tg._load_mappings()
+    key = str(int(telegram_user_id))
+    removed = mappings.pop(key, None)
+    if removed is not None:
+        _tg._save_mappings(mappings)
+    return {"removed": removed}
+
+
 @app.post("/api/telegram/test")
 async def api_telegram_test(
     request: Request,
@@ -18999,6 +19045,27 @@ async def api_me(request: Request):
         out["notify_events"] = resolved
         out["notify_events_admin"] = admin_map
         out["notify_mediums"] = notify_mediums
+        # Telegram link state — `null` when no Telegram user_id maps
+        # to this username, otherwise the int user_id. The Profile
+        # partial reads this to render either the "Generate link
+        # code" button OR the "Linked as ..." chip + Unlink button.
+        try:
+            from logic import telegram_listener as _tg_listener
+            _tg_mappings = _tg_listener._load_mappings()
+            _tg_link_id: Optional[int] = None
+            for _tg_id, _og_user in _tg_mappings.items():
+                if _og_user == user.username:
+                    try:
+                        _tg_link_id = int(_tg_id)
+                    except (TypeError, ValueError):
+                        continue
+                    break
+            out["telegram_link"] = (
+                {"telegram_user_id": _tg_link_id} if _tg_link_id is not None else None
+            )
+        except Exception as _e:
+            print(f"[me] telegram_link lookup failed: {_e}")
+            out["telegram_link"] = None
         # TOTP / 2FA summary. Surfaced on /api/me so the SPA can
         # render the Profile section + the "Required by policy" banner
         # without a follow-up round-trip on every page load. Detailed
