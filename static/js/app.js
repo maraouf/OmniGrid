@@ -8366,6 +8366,10 @@ function app() {
         this.settings.telegram_chat_id       = (d.telegram_chat_id || '').toString();
         this.settings.telegram_thread_id     = (d.telegram_thread_id || '').toString();
         this.settings.telegram_verify_tls    = (d.telegram_verify_tls !== false);
+        // Phase 2 — listener config.
+        this.settings.telegram_listener_enabled  = !!d.telegram_listener_enabled;
+        this.settings.telegram_allow_destructive = !!d.telegram_allow_destructive;
+        this.settings.telegram_authorized_user_ids = (d.telegram_authorized_user_ids || '').toString();
         // TOTP / 2FA policy. Hydrate the five fields so the
         // Admin -> Config tab can render the inputs + the existing
         // saveSettings flow can ship the values back.
@@ -9899,6 +9903,8 @@ function app() {
         // entry is the in-form field name on `this.settings`.
         const boolToStringFields = [
           'telegram_verify_tls',
+          'telegram_listener_enabled',
+          'telegram_allow_destructive',
           'swarm_autoheal_bootstrap_enabled',
         ];
         for (const k of boolToStringFields) {
@@ -10394,6 +10400,10 @@ function app() {
         // emits empty); a non-empty form field IS dirty (snapshot
         // emits a marker that won't match the empty baseline).
         token_pending: (s.telegram_bot_token || '').trim() ? '<pending>' : '',
+        // Phase 2 — listener config flags.
+        listener_enabled:  !!s.telegram_listener_enabled,
+        allow_destructive: !!s.telegram_allow_destructive,
+        authorized_user_ids: (s.telegram_authorized_user_ids || '').trim(),
       };
       return JSON.stringify({
         enabled: !!s.apprise_enabled,
