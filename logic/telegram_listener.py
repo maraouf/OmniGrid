@@ -782,11 +782,11 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     # in `_COMMANDS` with the matching key.
     categories: list[tuple[str, str]] = [
         ("getting_started", "📖 Getting started"),
-        ("fleet",           "🖥️ Fleet"),
-        ("ops",             "⚙️ Operations"),
-        ("account",         "🔗 Account"),
-        ("info",            "ℹ️ Info & weather"),
-        ("misc",             "🧩 Other"),
+        ("fleet", "🖥️ Fleet"),
+        ("ops", "⚙️ Operations"),
+        ("account", "🔗 Account"),
+        ("info", "ℹ️ Info & weather"),
+        ("misc", "🧩 Other"),
     ]
     cat_order = {key: idx for idx, (key, _) in enumerate(categories)}
     cat_headings = dict(categories)
@@ -804,9 +804,9 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         if existing is None:
             group = {
                 "primary_name": name,
-                "primary":      meta,
-                "aliases":      [],
-                "category":     meta.get("category") or "misc",
+                "primary": meta,
+                "aliases": [],
+                "category": meta.get("category") or "misc",
             }
             groups.append(group)
             handler_to_group[handler] = group
@@ -2192,6 +2192,105 @@ def _strip_ai_directives(text: str) -> str:
     return cleaned.strip()
 
 
+# Markdown → Telegram-HTML rescue patterns. Defence-in-depth for the
+# Telegram-surface system-prompt rule "use HTML tags, not Markdown" —
+# the AI sometimes leaks `**bold**` / `__bold__` / `` `code` `` / triple-
+# backtick fences / `## Header` / Markdown list bullets despite the
+# explicit prompt instruction. With `parse_mode=HTML` Telegram renders
+# those as literal characters, breaking the reply's visual structure.
+# Conversions are intentionally narrow (anchored, multiline-friendly)
+# so legitimate prose containing asterisks / underscores survives.
+# Named capture groups (operator lint preference — no anonymous
+# `(...)` groups) + drop the redundant `\*` escape inside the
+# `[*-]` character class (literal `*` doesn't need escaping there).
+_MD_FENCE = _re.compile(r"```(?:[a-zA-Z0-9_-]*)?\s*\n?(?P<inner>.*?)```", flags=_re.DOTALL)
+_MD_INLINE_CODE = _re.compile(r"(?<!`)`(?P<inner>[^`\n]+?)`(?!`)")
+_MD_BOLD_STAR = _re.compile(r"\*\*(?P<inner>[^\s*][^*\n]*?[^\s*]|\S)\*\*")
+_MD_BOLD_UNDER = _re.compile(r"__(?P<inner>[^\s_][^_\n]*?[^\s_]|\S)__")
+_MD_ITALIC_STAR = _re.compile(r"(?<!\*)\*(?P<inner>[^\s*][^*\n]*?[^\s*]|\S)\*(?!\*)")
+_MD_ITALIC_UNDER = _re.compile(r"(?<![A-Za-z0-9_])_(?P<inner>[^\s_][^_\n]*?[^\s_]|\S)_(?![A-Za-z0-9_])")
+_MD_HEADING = _re.compile(r"^\s*#{1,6}\s+(?P<inner>.+?)\s*$", flags=_re.MULTILINE)
+_MD_LIST_BULLET = _re.compile(r"^(?P<indent>\s*)[*-]\s+", flags=_re.MULTILINE)
+
+
+# Telegram's `parse_mode=HTML` recognises a fixed tag set. Every other
+# `<` / `>` MUST be escaped or the parser rejects the whole message
+# with HTTP 400. The plain `_escape` helper escapes ALL `<` / `>`
+# (correct for purely user-supplied strings); for AI-rendered prose
+# we want to PRESERVE the formatting tags introduced by
+# `_markdown_to_telegram_html` while still neutralising stray
+# `<unknown>` markup the AI might have emitted directly.
+_TELEGRAM_OK_TAG = _re.compile(
+    r"</?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler|br)\b[^>]*>",
+    flags=_re.IGNORECASE,
+)
+
+
+def _telegram_safe_escape(text: str) -> str:
+    """HTML-escape `text` for Telegram parse_mode=HTML while preserving
+    the recognised formatting tag set.
+
+    Strategy: extract recognised-tag spans into placeholder tokens
+    (sentinel chars that never appear in legitimate Unicode text),
+    HTML-escape the remainder, then swap the tags back. This way
+    converter-emitted `<b>` / `<i>` / `<code>` reaches Telegram intact
+    while a stray `<unknown>` becomes `&lt;unknown&gt;` and renders
+    as literal characters rather than breaking the parser."""
+    if not text:
+        return text or ""
+    tokens: list[str] = []
+
+    def _stash(match):
+        tokens.append(match.group(0))
+        return f"\x00{len(tokens) - 1}\x01"
+
+    stashed = _TELEGRAM_OK_TAG.sub(_stash, text)
+    escaped = (
+        stashed
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+    def _restore(match):
+        idx = int(match.group("idx"))
+        return tokens[idx] if 0 <= idx < len(tokens) else match.group(0)
+
+    return _re.sub(r"\x00(?P<idx>\d+)\x01", _restore, escaped)
+
+
+def _markdown_to_telegram_html(text: str) -> str:
+    """Convert common Markdown leakage to Telegram-HTML equivalents.
+
+    The Telegram-surface system prompt tells the AI to use HTML tags
+    instead of Markdown, but models sometimes ignore that and emit
+    `**bold**` / `## Header` / Markdown list markers anyway. With
+    `parse_mode=HTML` Telegram shows those as literal characters,
+    which the user reads as broken formatting. This helper rescues
+    the most common patterns:
+      - ```triple-backtick fences``` → `<code>...</code>`
+      - `inline code` → `<code>...</code>`
+      - `**bold**` / `__bold__` → `<b>...</b>`
+      - `*italic*` / `_italic_` → `<i>...</i>` (anchored to avoid
+        eating asterisks inside prose like `5 * 4`)
+      - `## Header` (any 1-6 hashes) → `<b>Header</b>`
+      - Markdown list `* item` / `- item` → `• item` (Telegram
+        renders the bullet character cleanly without parse-mode help)
+    """
+    if not text:
+        return text
+    # Fences first so the inline-code pass doesn't double-process.
+    text = _MD_FENCE.sub(lambda m: f"<code>{m.group('inner').strip()}</code>", text)
+    text = _MD_INLINE_CODE.sub(r"<code>\g<inner></code>", text)
+    text = _MD_BOLD_STAR.sub(r"<b>\g<inner></b>", text)
+    text = _MD_BOLD_UNDER.sub(r"<b>\g<inner></b>", text)
+    text = _MD_ITALIC_STAR.sub(r"<i>\g<inner></i>", text)
+    text = _MD_ITALIC_UNDER.sub(r"<i>\g<inner></i>", text)
+    text = _MD_HEADING.sub(r"<b>\g<inner></b>", text)
+    text = _MD_LIST_BULLET.sub(r"\g<indent>• ", text)
+    return text
+
+
 async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     """Build the fleet-context block fed to the AI palette so it
     answers from real OmniGrid state instead of hallucinating host
@@ -2511,6 +2610,21 @@ async def _ai_reply(
           "the operator asks you to DO something (restart, pause, "
           "configure), tell them to use the matching slash command "
           "(/restart <target>, /cleanup, etc.) or the SPA. "
+          "**FORMATTING — Telegram HTML, NOT Markdown.** This bot "
+          "sends every message with `parse_mode=HTML`. Use ONLY these "
+          "tags for formatting: `<b>bold</b>` (NEVER `**bold**` or "
+          "`__bold__`), `<i>italic</i>` (NEVER `*italic*` or "
+          "`_italic_`), `<code>monospace</code>` (NEVER single or "
+          "triple backticks). For lists, use plain `•` or `-` bullets "
+          "with line breaks — no Markdown `*` / `-` list marker that "
+          "appears as a literal asterisk. For section headers, use "
+          "`<b>…</b>` on its own line — NEVER `## Header` / `# Header` "
+          "/ `**Header**`. Asterisks and backticks render as LITERAL "
+          "characters in Telegram HTML mode, so any Markdown leakage "
+          "is visible to the operator as broken formatting. The "
+          "post-render strip layer attempts to rescue common Markdown "
+          "leaks but the prompt-level rule is the primary line of "
+          "defence. "
           "**Length guidance — DO NOT BLINDLY COMPRESS.** Telegram "
           "messages stay readable up to 4096 characters; aim for "
           "under 800 on terse fleet-state replies (host counts, "
@@ -2645,15 +2759,26 @@ async def _ai_reply(
     # the model actually returned (truncation is purely a Telegram
     # wire-limit accommodation, not the canonical record).
     _record_call(True, result, clean)
+    # Defence-in-depth Markdown→HTML rescue. The Telegram-surface
+    # system prompt tells the AI to use HTML tags, but models
+    # occasionally leak `**bold**` / `## Header` / `` `code` `` /
+    # triple-backtick fences anyway. Run the converter so common
+    # Markdown patterns become real Telegram-HTML tags BEFORE the
+    # escape pass; the escape pass then preserves recognised tags
+    # while neutralising any other stray `<...>` markup.
+    clean = _markdown_to_telegram_html(clean)
     # Telegram caps a single message at 4096 chars including HTML
     # tags. _send_reply will fail HTTP-400 if we exceed; pre-trim
     # with a clear "(truncated)" marker so the operator knows.
     max_chars = 3800  # leave headroom for HTML overhead
     if len(clean) > max_chars:
         clean = clean[:max_chars] + "\n\n<i>…(truncated)</i>"
-    # Escape for HTML parse_mode — the AI's response might contain
-    # &, <, > that Telegram's parser would otherwise reject.
-    await _deliver(_escape(clean))
+    # Telegram-safe escape preserves the AI's intentional HTML tags
+    # (the system prompt instructs HTML, and the Markdown converter
+    # just produced more) while escaping every other `<` / `>` so
+    # the parser doesn't HTTP-400 the message. `_escape` would have
+    # escaped EVERY tag, killing all formatting.
+    await _deliver(_telegram_safe_escape(clean))
 
 
 # ----------------------------------------------------------------------------

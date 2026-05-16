@@ -618,10 +618,12 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
 
 Four endpoints accept `{host_ids: [...]}` plus action-specific params and apply atomically
 across the matched hosts. The endpoint emits ONE `host:bulk_action_applied` SSE frame
-carrying the full `host_ids` list (not N per-host frames) so other tabs reconcile in a
-single round-trip. The originating tab self-filters via `client_id`. Per-host
-`host:failure_state_changed` events are still fired by the underlying pause / resume
-plumbing where applicable.
+carrying the full `host_ids` list (not N per-host `host:failure_state_changed` frames) so
+other tabs reconcile in a single round-trip — the SPA handler iterates `host_ids` and
+triggers `refreshHostRow` per id locally. The originating tab self-filters via `client_id`.
+Per-host audit rows are still written to the `history` table (`op_type=hosts_bulk_pause`
+/ `hosts_bulk_resume` / `hosts_bulk_snmp_vendors` / `hosts_bulk_snmp_tunables`) so the
+Timeline tab shows the action as one row per affected host.
 
 ```bash
 # Pause sampling for a list of hosts
@@ -649,9 +651,10 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
   https://omnigrid.example.com/api/hosts/bulk/snmp_tunables | jq
 ```
 
-Each bulk action writes a single audit-trail history row (`op_type=hosts_bulk_pause` /
-`hosts_bulk_resume` / etc.) so the Timeline tab shows the action as one event rather than
-N per-host rows.
+Each bulk action writes one history row per affected host (`op_type=hosts_bulk_pause` /
+`hosts_bulk_resume` / `hosts_bulk_snmp_vendors` / `hosts_bulk_snmp_tunables`), tagged with
+the actor + the resolved host id. The Timeline tab joins on host id so the per-host view
+surfaces the bulk action under that host's timeline alongside its other audit events.
 
 ### AI palette + memory (admin-only)
 
