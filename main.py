@@ -17666,6 +17666,13 @@ async def api_weather(
         "provider":    "open-meteo",
         "upstream":    upstream,
         "fetched_at":  int(now),
+        # Open-Meteo returns the resolved IANA timezone when called
+        # with `timezone=auto` — surface it so per-user `/time` in
+        # the Telegram bot (and any future UI clock) can render local
+        # time at the user's saved weather location.
+        "timezone":          j.get("timezone") or "",
+        "timezone_abbrev":   j.get("timezone_abbreviation") or "",
+        "utc_offset_seconds": j.get("utc_offset_seconds") or 0,
     }
     _weather_cache[key] = (now, body)
     return body

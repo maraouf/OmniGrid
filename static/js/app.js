@@ -1018,6 +1018,17 @@ function app() {
     pulseTestResult: null,
     webminTestResult: null,
     telegramTestResult: null,
+    // Notifications page-level Save-row test result. `testNotify`
+    // populates this from POST /api/notify-test response. Drives the
+    // result chip below the Save row + Test-before-Save gate via
+    // `canSaveNotifications()`.
+    notifyTestResult: null,
+    // Last-passed-test snapshots (parallel to portainer / oidc /
+    // asset patterns). Captured at the moment a /api/notify-test
+    // returns ok. Compared to the current form snapshot at Save time
+    // — any edit between test + save re-locks Save.
+    _appriseLastPassedTest: '',
+    _telegramLastPassedTest: '',
     // Profile → Telegram link card state. Code is the 6-digit minted
     // value the user types into Telegram as `/link <code>`. Expires
     // 15 minutes after mint; the SPA shows a relative-minutes
@@ -11440,11 +11451,93 @@ function app() {
       }
     },
     async testNotify() {
+      // Upgraded from a fire-and-forget toast to the Portainer-style
+      // flow used by /api/portainer/test / /api/beszel/test / etc.:
+      // populate a result chip + stamp per-medium last-passed-test
+      // snapshots so the Save-before-Test gate (canSaveNotifications)
+      // unlocks. Snapshots are captured BEFORE the request goes out
+      // so any edit between Test-click + Save still re-locks Save.
+      this.notifyTestResult = { pending: true };
+      // Snapshot the test-relevant subset of each medium's form
+      // values. Any edit AFTER a passing test invalidates this stamp
+      // (canSaveNotifications compares live snapshot to stamp).
+      const appriseSnap = this._appriseTestSnapshot();
+      const telegramSnap = this._telegramTestSnapshot();
       try {
         const r = await fetch('/api/notify-test', { method: 'POST' });
-        if (!r.ok) throw new Error();
-        this.showToast(this.t('toasts.test_notification_sent'));
-      } catch (e) { this.showToast(this.t('toasts.test_notification_failed'), 'error'); }
+        const ok = r.ok;
+        let detail = '';
+        try {
+          const j = await r.json();
+          detail = j.detail || j.status || (ok ? 'Test notification fired' : 'Test failed');
+        } catch (_) {
+          detail = ok ? 'Test notification fired' : 'Test failed';
+        }
+        this.notifyTestResult = { pending: false, ok, detail };
+        if (ok) {
+          // Stamp per-medium snapshots so Save unlocks. Each medium
+          // independently — toggling apprise_enabled mid-test won't
+          // re-lock telegram and vice versa.
+          if (this.settings.apprise_enabled) {
+            this._appriseLastPassedTest = appriseSnap;
+            this.recordTestSuccess('apprise');
+          }
+          if (this.settings.notify_medium_telegram) {
+            this._telegramLastPassedTest = telegramSnap;
+            this.recordTestSuccess('telegram');
+          }
+          this.showToast(this.t('toasts.test_notification_sent'));
+        } else {
+          this.showToast(this.t('toasts.test_notification_failed'), 'error');
+        }
+      } catch (e) {
+        this.notifyTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
+        this.showToast(this.t('toasts.test_notification_failed'), 'error');
+      }
+    },
+    // Per-medium "test-relevant fields" snapshots. The shape is a
+    // subset of the dirty snapshot — only the inputs that affect
+    // whether the test would PASS (URL / credentials / chat id /
+    // master toggle). Tunables / per-event toggles / aliases are
+    // EXCLUDED — they don't affect connectivity.
+    _appriseTestSnapshot() {
+      const s = this.settings || {};
+      return JSON.stringify({
+        enabled: !!s.apprise_enabled,
+        url:     (s.apprise_url || '').trim(),
+        tag:     (s.apprise_tag || '').trim(),
+      });
+    },
+    _telegramTestSnapshot() {
+      const s = this.settings || {};
+      return JSON.stringify({
+        enabled:    !!s.notify_medium_telegram,
+        chat_id:    (s.telegram_chat_id || '').trim(),
+        thread_id:  (s.telegram_thread_id || '').trim(),
+        verify_tls: !!s.telegram_verify_tls,
+        // Write-only secret — non-empty form value flags "pending"
+        // so a typed-but-unsaved token re-locks Save (operator must
+        // re-test before committing the new token).
+        token_pending: (s.telegram_bot_token || '').trim() ? '<pending>' : '',
+      });
+    },
+    canSaveApprise() {
+      // Save is gated only when Apprise is enabled. Disabled apprise
+      // saves freely (the form values aren't going anywhere).
+      if (!(this.settings || {}).apprise_enabled) return true;
+      return this._appriseLastPassedTest === this._appriseTestSnapshot()
+             && !!this._appriseLastPassedTest;
+    },
+    canSaveTelegram() {
+      if (!(this.settings || {}).notify_medium_telegram) return true;
+      return this._telegramLastPassedTest === this._telegramTestSnapshot()
+             && !!this._telegramLastPassedTest;
+    },
+    canSaveNotifications() {
+      // Composite gate used by BOTH save buttons (parent section +
+      // per-event sibling). Save is unblocked when every enabled
+      // medium has a fresh passing test.
+      return this.canSaveApprise() && this.canSaveTelegram();
     },
     async loadIgnores() {
       try {
