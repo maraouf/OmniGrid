@@ -30,10 +30,60 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 import time
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
+
+
+def _safe_int(v: Any, default: int = 0) -> int:
+    """Coerce ``v`` to ``int`` or return ``default``.
+
+    Pyright doesn't narrow ``stats.get('x') or 0`` to a concrete int when
+    the dict's value type is ``Any`` — the ``or`` expression's static
+    type stays ``Any | int`` and the ``int(...)`` call complains about
+    ``Any | None``. This helper centralises the coercion with explicit
+    narrowing so call sites stay one-liners + lint-clean.
+    """
+    if v is None:
+        return default
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(v: Any, default: float = 0.0) -> float:
+    """Companion to :func:`_safe_int` for float fields."""
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _int_or_none(v: Any) -> Optional[int]:
+    """Like :func:`_safe_int` but returns None for missing values rather
+    than 0. Convenient for INSERT-row columns where NULL carries the
+    semantic "field genuinely absent" (vs an explicit zero)."""
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(v: Any) -> Optional[float]:
+    """Companion to :func:`_int_or_none` for float fields."""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
 from logic import node_exporter as _ne
 from logic import tuning
@@ -104,7 +154,7 @@ def _compute_row(
     now: float,
     stats: dict,
     prev: Optional[tuple],
-) -> tuple[Optional[dict], Optional[tuple[float, int, int, int, int]]]:
+) -> tuple[Optional[dict], Optional[tuple[float, int, int, int, int, float, float]]]:
     """Pure-function core: turn a probe payload + previous counters into
     an INSERT-shaped row plus the next-tick counter cache.
 
@@ -167,21 +217,23 @@ def _compute_row(
     tx_rate: Optional[float] = None
     dr_rate: Optional[float] = None
     dw_rate: Optional[float] = None
-    next_counter: Optional[tuple] = None
+    next_counter: Optional[tuple[float, int, int, int, int, float, float]] = None
 
     rx = tx = dr = dw = 0
     if have_net_counters and rx_total is not None and tx_total is not None:
-        try:
-            rx = int(rx_total)
-            tx = int(tx_total)
-        except (TypeError, ValueError):
+        rx_n = _safe_int(rx_total, -1)
+        tx_n = _safe_int(tx_total, -1)
+        if rx_n < 0 or tx_n < 0:
             have_net_counters = False
+        else:
+            rx, tx = rx_n, tx_n
     if have_disk_counters and dr_total is not None and dw_total is not None:
-        try:
-            dr = int(dr_total)
-            dw = int(dw_total)
-        except (TypeError, ValueError):
+        dr_n = _safe_int(dr_total, -1)
+        dw_n = _safe_int(dw_total, -1)
+        if dr_n < 0 or dw_n < 0:
             have_disk_counters = False
+        else:
+            dr, dw = dr_n, dw_n
 
     # Cache the current counters (zeros where unavailable) so the next
     # tick has a baseline. A rejected delta still advances the cache so
@@ -194,15 +246,26 @@ def _compute_row(
     # seconds expansion grew it again to 7-tuple. The cache is
     # restart-only so older shapes only matter mid-process if a
     # partial reload happened — handled by len()-checking ``prev``.
-    prev_ts = prev_rx = prev_tx = prev_dr = prev_dw = None
-    prev_cpu_total = prev_cpu_idle = None
+    # Decompose with concrete narrow types so the delta math below stays
+    # pyright-clean (tuple elements are typed Any otherwise).
+    prev_ts: Optional[float] = None
+    prev_rx: Optional[int] = None
+    prev_tx: Optional[int] = None
+    prev_dr: Optional[int] = None
+    prev_dw: Optional[int] = None
+    prev_cpu_total: Optional[float] = None
+    prev_cpu_idle: Optional[float] = None
     if prev is not None:
         if len(prev) >= 3:
-            prev_ts, prev_rx, prev_tx = prev[0], prev[1], prev[2]
+            prev_ts = _safe_float(prev[0])
+            prev_rx = _safe_int(prev[1])
+            prev_tx = _safe_int(prev[2])
         if len(prev) >= 5:
-            prev_dr, prev_dw = prev[3], prev[4]
+            prev_dr = _safe_int(prev[3])
+            prev_dw = _safe_int(prev[4])
         if len(prev) >= 7:
-            prev_cpu_total, prev_cpu_idle = prev[5], prev[6]
+            prev_cpu_total = _safe_float(prev[5])
+            prev_cpu_idle = _safe_float(prev[6])
 
     if prev_ts is not None:
         delta_s = now - prev_ts
@@ -230,8 +293,8 @@ def _compute_row(
             if (have_cpu_counters
                 and prev_cpu_total is not None and prev_cpu_idle is not None
                 and cpu_percent is None):
-                d_total = float(cpu_total_secs) - float(prev_cpu_total)
-                d_idle = float(cpu_idle_secs) - float(prev_cpu_idle)
+                d_total = _safe_float(cpu_total_secs) - prev_cpu_total
+                d_idle = _safe_float(cpu_idle_secs) - prev_cpu_idle
                 if d_total > 0 and d_idle >= 0:
                     pct = 100.0 * (1.0 - (d_idle / d_total))
                     cpu_percent = max(0.0, min(100.0, pct))
@@ -458,8 +521,7 @@ async def _record_failure(
     # default, so a fallback here is dead code
     try:
         window = int(tuning.tuning_int(Tunable.HOST_PERMANENT_FAIL_WINDOW_SECONDS))
-    # noinspection PyBroadException
-    except Exception:
+    except (KeyError, ValueError, TypeError):
         window = 900
     if window < 60:
         window = 60
@@ -576,8 +638,6 @@ async def _record_failure(
                             "consecutive_failures": int(new_fails),
                             "paused_minutes": int(paused_minutes),
                         },
-                        retries=1,
-                        retry_after=60.0,
                         label=f"host_metrics_sampler {host_id!r}",
                     ))
                 # noinspection PyBroadException
@@ -669,6 +729,7 @@ async def record_provider_outcome(
             # to "trust the caller's gate" to avoid silently disabling
             # failure recording for a real outage during a DB blip.
             if cfg and host_id in cfg and provider not in cfg[host_id]:
+                deleted = 0
                 try:
                     with db_conn() as c:
                         cur = c.execute(
@@ -683,10 +744,8 @@ async def record_provider_outcome(
                             (host_id, provider),
                         )
                         deleted += cur.rowcount or 0
-                # noinspection PyBroadException
-                except Exception as e:
+                except (sqlite3.Error, RuntimeError, OSError) as e:
                     print(f"[host_metrics_sampler] {log_label} orphan cleanup failed: {e}")
-                    deleted = 0
                 if deleted:
                     print(
                         f"[host_metrics_sampler] {log_label} record refused: "
@@ -736,7 +795,6 @@ def _clear_failure(
     ("admin:<user>" — passed by the API endpoints).
     """
     had_row = False
-    paused_was = False
     log_label = f"{provider}:{host_id}" if provider else host_id
     try:
         with db_conn() as c:
@@ -819,8 +877,7 @@ async def _probe_one(
         try:
             _ne_to = float(tuning.tuning_int(
                 Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS))
-        # noinspection PyBroadException
-        except Exception:
+        except (KeyError, ValueError, TypeError):
             _ne_to = 10.0
         try:
             stats = await _ne.probe_node(client, ne_url, timeout=_ne_to)
@@ -981,11 +1038,10 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
         # Supermicro IPMI need > 1 to fit pysnmp v7's per-walk overhead
         # inside the probe budget; safety-floor concurrency=1 stays the
         # default for low-power embedded snmpd's).
-        row_walk_conc = snmp_cfg.get("walk_concurrency")
-        try:
-            row_walk_conc = int(row_walk_conc) if row_walk_conc else None
-        except (TypeError, ValueError):
-            row_walk_conc = None
+        _raw_walk_conc = snmp_cfg.get("walk_concurrency")
+        row_walk_conc: Optional[int] = (
+            _safe_int(_raw_walk_conc) if _raw_walk_conc else None
+        )
         # Per-host vendor MIB selector — auto-detect from sysDescr when
         # None, otherwise the operator-declared subset (dell / cisco /
         # apc / ucd / synology / printer).
@@ -1048,7 +1104,12 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
         # exactly the "host stopped responding" signal the chart should
         # surface.
         try:
-            stats = next(iter((r.get("hosts") or {}).values()), None)
+            _stats_raw = next(iter((r.get("hosts") or {}).values()), None)
+            # Narrow to a concrete dict so the cascade of `.get(...)`
+            # calls below stays pyright-clean. `if stats:` doesn't
+            # narrow tightly enough — pyright still sees the variable as
+            # `Optional[Any]` and flags every attribute access.
+            stats: dict = _stats_raw if isinstance(_stats_raw, dict) else {}
             if stats:
                 mem_total = int(stats.get("host_mem_total") or 0)
                 # switches / routers that don't expose hrStorage
@@ -1074,33 +1135,25 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                 if (mem_total > 0 or rx_raw_present or tx_raw_present
                     or page_count_present or ups_present):
                     cores = stats.get("host_cpu_per_core") or []
-                    cpu_used = stats.get("host_cpu_percent")
-                    cpu_used_pct = float(cpu_used) if cpu_used is not None else None
+                    cpu_used_pct = _float_or_none(stats.get("host_cpu_percent"))
                     # uptime in seconds (NULL when sysUpTime
                     # didn't come back; lets the drawer detect reboots
                     # by comparing adjacent rows).
-                    uptime_raw = stats.get("host_uptime_s")
-                    uptime_s = int(uptime_raw) if uptime_raw is not None else None
+                    uptime_s = _int_or_none(stats.get("host_uptime_s"))
                     # total net counters (IF-MIB ifHCInOctets /
                     # ifHCOutOctets sums). NULL when neither came back so
                     # the chart layer can tell "host idle" from "host
                     # stopped responding."
-                    rx_raw = stats.get("host_net_rx_total_bytes")
-                    tx_raw = stats.get("host_net_tx_total_bytes")
-                    rx_total = int(rx_raw) if rx_raw is not None else None
-                    tx_total = int(tx_raw) if tx_raw is not None else None
+                    rx_total = _int_or_none(stats.get("host_net_rx_total_bytes"))
+                    tx_total = _int_or_none(stats.get("host_net_tx_total_bytes"))
                     # printer lifetime page count. NULL for
                     # non-printer SNMP hosts.
-                    page_raw = stats.get("printer_page_count")
-                    page_count = int(page_raw) if page_raw is not None else None
+                    page_count = _int_or_none(stats.get("printer_page_count"))
                     # APC UPS time-series fields. NULL when the
                     # host isn't a UPS or the OIDs didn't come back.
-                    load_pct_raw = stats.get("host_load_percent")
-                    batt_pct_raw = stats.get("host_battery_percent")
-                    batt_temp_raw = stats.get("host_battery_temp_c")
-                    ups_load_pct = float(load_pct_raw) if load_pct_raw is not None else None
-                    ups_batt_pct = float(batt_pct_raw) if batt_pct_raw is not None else None
-                    ups_batt_temp = float(batt_temp_raw) if batt_temp_raw is not None else None
+                    ups_load_pct = _float_or_none(stats.get("host_load_percent"))
+                    ups_batt_pct = _float_or_none(stats.get("host_battery_percent"))
+                    ups_batt_temp = _float_or_none(stats.get("host_battery_temp_c"))
                     # Aggregate disk totals — capture so SNMP-only
                     # hosts can render the inline disk sparkline. The
                     # extractor's `host_disk_total` / `host_disk_used`
@@ -1109,10 +1162,8 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                     # before reaching this dict). Stored as bytes;
                     # disk_percent is derived in the API layer to
                     # avoid fixed-precision drift across rows.
-                    disk_total_raw = stats.get("host_disk_total")
-                    disk_used_raw = stats.get("host_disk_used")
-                    disk_total_b = int(disk_total_raw) if disk_total_raw is not None else None
-                    disk_used_b = int(disk_used_raw) if disk_used_raw is not None else None
+                    disk_total_b = _int_or_none(stats.get("host_disk_total"))
+                    disk_used_b = _int_or_none(stats.get("host_disk_used"))
                     with db_conn() as c:
                         c.execute(
                             "INSERT OR REPLACE INTO host_snmp_samples "
@@ -1773,6 +1824,10 @@ node_devstat_bytes_total{device="ada0",type="write"} 9999999
     wrap = dict(parsed)
     wrap["host_net_rx_total"] = 100 + 2048
     wrap["host_net_tx_total"] = 50 + 1024
+    # Re-assert narrowing so pyright sees the indexed access as safe —
+    # the comparison on the previous line doesn't carry the narrowing
+    # forward through the dict update.
+    assert next3 is not None
     wrap["host_disk_read_total"] = next3[3] + (50 * 1024 * 1024 * 1024)  # 50 GB
     wrap["host_disk_write_total"] = next3[4] + 1024
     t3 = t2 + 300

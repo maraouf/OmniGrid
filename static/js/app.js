@@ -4836,6 +4836,8 @@ function app() {
     // /api/public-ip JSON response for the operator-visible result
     // panel under the buttons row.
     publicIpSaving: false,
+    publicIpTesting: false,
+    publicIpTestOk: false,
     publicIpTestResult: '',
 
     async saveHostStats() {
@@ -5340,18 +5342,34 @@ function app() {
     async testPublicIpLookup() {
       // Surface the canonical lookup output (the same shape every
       // consumer sees) so the operator can confirm end-to-end without
-      // leaving the admin tab.
+      // leaving the admin tab. Spinner + ok/error chip-tone mirror
+      // the Asset Inventory "Test connection" UX shape.
+      if (this.publicIpTesting) return;
+      this.publicIpTesting = true;
       this.publicIpTestResult = '';
+      this.publicIpTestOk = false;
       try {
         const r = await fetch('/api/public-ip', { credentials: 'same-origin' });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) {
+          this.publicIpTestOk = false;
           this.publicIpTestResult = 'HTTP ' + r.status + ': ' + (j.detail || JSON.stringify(j));
+        } else if (j && j.error) {
+          this.publicIpTestOk = false;
+          this.publicIpTestResult = j.error;
+        } else if (j && j.enabled === false) {
+          this.publicIpTestOk = false;
+          this.publicIpTestResult = (this.t('admin_public_ip.test_disabled_hint')
+            || 'Public-IP lookup is disabled — enable + Save first, then re-test.');
         } else {
+          this.publicIpTestOk = true;
           this.publicIpTestResult = JSON.stringify(j, null, 2);
         }
       } catch (e) {
+        this.publicIpTestOk = false;
         this.publicIpTestResult = 'fetch failed: ' + (e && e.message ? e.message : String(e));
+      } finally {
+        this.publicIpTesting = false;
       }
     },
 
