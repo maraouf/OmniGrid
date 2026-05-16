@@ -1727,6 +1727,224 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     )
 
 
+async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/update`` — pull-and-recreate stacks / containers whose remote
+    image digest differs from what's running locally.
+
+    Usage:
+      - ``/update`` (no args) — preview list of every item flagged
+        with ``update_available=true`` in the current gather snapshot.
+      - ``/update all`` — spawn an update Operation for EVERY updatable
+        item (stack → ``update_stack``, container → ``update_container``).
+        Same destructive-gate as ``/cleanup`` / ``/restart``: requires
+        ``telegram_allow_destructive=true`` OR a typed
+        ``/update all confirm`` follow-up.
+      - ``/update <name>`` — single-item update. Resolves by exact
+        item name (stack name OR container name) — multiple matches
+        return the candidate list and abort. Destructive-gate also
+        applies; supply ``/update <name> confirm`` to skip when the
+        global toggle is off.
+
+    Background:
+      Spawns Operations the same way the SPA's per-row "Update" button
+      does. Each Operation publishes ``op:created`` / ``op:updated`` /
+      ``op:completed`` SSE events so every open SPA tab sees the
+      progress + the gather cache invalidates on completion.
+    """
+    try:
+        from logic import gather as _gather
+    except (ImportError, AttributeError) as e:
+        await _send_reply(client, f"❌ gather import failed: <code>{_escape(str(e))}</code>")
+        return
+
+    # Pull the live snapshot. Cold-cache path: tell the user to wait
+    # rather than triggering a refresh inline (the cleanup command
+    # has the same convention).
+    # noinspection PyProtectedMember
+    items = list(_gather._cache.get("items") or [])
+    updatable = [i for i in items if i.get("update_available")]
+    if not items:
+        await _send_reply(
+            client,
+            "⏳ Cache is empty — open the SPA once or wait for the next "
+            "gather tick (~15 min), then re-run <code>/update</code>."
+        )
+        return
+
+    # No args: render preview list, return.
+    if not args:
+        if not updatable:
+            await _send_reply(
+                client,
+                "✅ Nothing to update — every stack and container is on its "
+                "latest remote digest."
+            )
+            return
+        lines = [
+            f"🔄 <b>{len(updatable)} item(s) with updates available</b>",
+            "",
+            "Send <code>/update all</code> to update every item, OR "
+            "<code>/update &lt;name&gt;</code> for a single item.",
+            "",
+        ]
+        # Group by stack for readability, mirror /cleanup's pattern.
+        by_stack: dict[str, list[dict]] = {}
+        for i in updatable:
+            stack = i.get("stack") or "(no stack)"
+            by_stack.setdefault(stack, []).append(i)
+        shown = 0
+        max_shown = 40
+        for stack in sorted(by_stack.keys()):
+            group = by_stack[stack]
+            lines.append(f"<b>{_escape(stack)}</b>")
+            for i in group:
+                if shown >= max_shown:
+                    break
+                kind = i.get("type") or "item"
+                name = i.get("name") or "?"
+                lines.append(f"  • <code>{_escape(str(name))}</code> <i>({_escape(str(kind))})</i>")
+                shown += 1
+            lines.append("")
+            if shown >= max_shown:
+                break
+        if len(updatable) > max_shown:
+            lines.append(f"<i>…and {len(updatable) - max_shown} more</i>")
+        await _send_reply(client, "\n".join(lines))
+        return
+
+    # Args present — `all` or `<name>`. Look at the LAST arg for the
+    # "confirm" hint so both `/update <name> confirm` and `/update all
+    # confirm` work.
+    is_confirm = bool(args) and args[-1].lower() == "confirm"
+    body_args = args[:-1] if is_confirm else list(args)
+    target = " ".join(body_args).strip().lower()
+
+    # Resolve the target set.
+    if target == "all":
+        if not updatable:
+            await _send_reply(
+                client,
+                "✅ Nothing to update — every stack and container is on its "
+                "latest remote digest."
+            )
+            return
+        targets = updatable
+    else:
+        # Exact-name match against updatable items first; fall through
+        # to substring across ALL items if no exact hit.
+        exact = [i for i in updatable if (i.get("name") or "").lower() == target]
+        if exact:
+            targets = exact
+        else:
+            partial = [i for i in items
+                       if i.get("update_available")
+                       and target in (i.get("name") or "").lower()]
+            if not partial:
+                # Last-resort: tell the operator nothing matched.
+                await _send_reply(
+                    client,
+                    f"🤷 No updatable item matches <code>{_escape(target)}</code>. "
+                    f"Send <code>/update</code> with no args to see the list."
+                )
+                return
+            if len(partial) > 1:
+                names = ", ".join(
+                    f"<code>{_escape(str(i.get('name')))}</code>"
+                    for i in partial[:8]
+                )
+                more = f" (and {len(partial) - 8} more)" if len(partial) > 8 else ""
+                await _send_reply(
+                    client,
+                    f"❓ Multiple matches for <code>{_escape(target)}</code>: "
+                    f"{names}{more}. Re-send with the EXACT item name."
+                )
+                return
+            targets = partial
+
+    # Destructive gate.
+    if not is_confirm and not _allow_destructive():
+        n = len(targets)
+        lines = [
+            f"⚠️ <b>{n} item(s) will be updated</b> — pull-and-recreate, "
+            "brief downtime for each.",
+            "",
+        ]
+        for i in targets[:10]:
+            stack = i.get("stack") or "(no stack)"
+            lines.append(
+                f"  • <code>{_escape(str(i.get('name')))}</code> "
+                f"<i>({_escape(stack)})</i>"
+            )
+        if n > 10:
+            lines.append(f"  <i>…and {n - 10} more</i>")
+        lines.append("")
+        if target == "all":
+            lines.append("Send <code>/update all confirm</code> to proceed.")
+        else:
+            lines.append(
+                f"Send <code>/update {_escape(target)} confirm</code> to proceed."
+            )
+        await _send_reply(client, "\n".join(lines))
+        return
+
+    # Fire the updates. Each item gets its own Operation. Mirrors
+    # the SPA's per-row "Update" button.
+    try:
+        from logic.ops import new_op, do_update_stack, do_update_container
+    except (ImportError, AttributeError) as e:
+        await _send_reply(client, f"❌ ops import failed: <code>{_escape(str(e))}</code>")
+        return
+
+    spawned = 0
+    skipped = 0
+    sender_id = (msg.get("from") or {}).get("id")
+    actor_username = _lookup_omnigrid_user(sender_id) or "telegram"
+    for i in targets:
+        kind = i.get("type") or ""
+        name = i.get("name") or ""
+        raw_id = i.get("raw_id") or i.get("id") or ""
+        if not name or not raw_id:
+            skipped += 1
+            continue
+        try:
+            if kind == "stack":
+                # Stack id is numeric; coerce defensively.
+                try:
+                    sid = int(raw_id)
+                except (TypeError, ValueError):
+                    skipped += 1
+                    continue
+                op = new_op(
+                    "update_stack", str(sid), name,
+                    target_stack=name, actor=f"telegram:{actor_username}",
+                )
+                asyncio.create_task(do_update_stack(op, sid))
+                spawned += 1
+            elif kind in ("container", "orphan"):
+                op = new_op(
+                    "update_container", str(raw_id), name,
+                    target_stack=i.get("stack") or None,
+                    actor=f"telegram:{actor_username}",
+                )
+                asyncio.create_task(do_update_container(op, str(raw_id)))
+                spawned += 1
+            else:
+                # Services don't have a direct "update" path — they're
+                # part of a stack that gets re-deployed. Skip
+                # gracefully so a mixed batch still fires the others.
+                skipped += 1
+        except (RuntimeError, ValueError, KeyError) as e:
+            print(f"[telegram_listener] update spawn failed for {name!r}: {e}")
+            skipped += 1
+
+    skipped_note = f" ({skipped} skipped)" if skipped else ""
+    await _send_reply(
+        client,
+        f"✅ Spawned {spawned} update Operation(s){skipped_note}. Watch "
+        f"the SPA's Live panel or History tab to follow progress."
+    )
+
+
 # noinspection PyUnusedLocal
 async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/link <code>`` — bind the sender's Telegram user_id to an
@@ -2100,6 +2318,12 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "description": "List (or remove with `confirm`) stopped / failed / orphan containers — same surface as the SPA's topbar Cleanup button. SPA tabs auto-refresh as each removal lands.",
         "category": "ops",
     },
+    "/update": {
+        "handler": _cmd_update,
+        "usage": "/update [all | <name>] [confirm]",
+        "description": "List items with pending updates (no args), update ONE item by name, or `/update all` to pull-and-recreate every item flagged `update_available`. Same per-row update path the SPA uses; respects the destructive gate (`telegram_allow_destructive` or `confirm` suffix).",
+        "category": "ops",
+    },
     "/link": {
         "handler": _cmd_link,
         "usage": "/link <code>",
@@ -2389,12 +2613,24 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     except Exception as e:  # noqa: BLE001
         print(f"[telegram_listener] context public_ip build failed: {e}")
     # ---- Items: live gather cache, same shape the SPA reads --------
+    # Operator-flagged regression: the AI was answering "no pending
+    # updates" when a stack DID have updates available, because the
+    # `[:30]` cap dropped items past position 30 (gather sorts alpha,
+    # not updates-first) and the AI saw a sample that happened to
+    # exclude every updatable item. Fix: render the sample as
+    # `updatable_items` (ALL items with `update_available=true`) +
+    # `other_items` (the truncated rest) + a `items_summary` block
+    # carrying the authoritative `total` / `updatable_total` /
+    # `running_total` counts so the AI can answer count-style
+    # questions ("how many stacks need updating?") accurately even
+    # when the sample is truncated.
     try:
         from logic import gather as _gather
         # noinspection PyProtectedMember
         items = list(_gather._cache.get("items") or [])
-        ctx["items"] = [
-            {
+
+        def _shape(i: dict) -> dict:
+            return {
                 "name": i.get("name"),
                 "status": i.get("status"),
                 "health": i.get("health"),
@@ -2404,12 +2640,26 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                 "update_available": bool(i.get("update_available")),
                 "stack": i.get("stack"),
             }
-            for i in items[:30]
-        ]
+
+        updatable = [_shape(i) for i in items if i.get("update_available")]
+        other = [_shape(i) for i in items if not i.get("update_available")]
+        # Cap each list independently so a fleet with many updates
+        # gets the FULL list even at the cost of "other_items" tail.
+        ctx["updatable_items"] = updatable[:60]
+        ctx["other_items"] = other[:30]
+        ctx["items"] = ctx["updatable_items"] + ctx["other_items"]
+        ctx["items_summary"] = {
+            "total": len(items),
+            "updatable_total": len(updatable),
+            "running_total": sum(1 for i in items if i.get("status") == "running"),
+        }
     # noinspection PyBroadException
     except Exception as e:
         print(f"[telegram_listener] context items build failed: {e}")
         ctx["items"] = []
+        ctx["updatable_items"] = []
+        ctx["other_items"] = []
+        ctx["items_summary"] = {"total": 0, "updatable_total": 0, "running_total": 0}
     # ---- Hosts: curated config + last-known snapshot ---------------
     try:
         import json as _json
@@ -2660,11 +2910,12 @@ async def _ai_reply(
           "these commands — DO NOT add, invent, or extrapolate. "
           "Commands that DO NOT appear in this list DO NOT EXIST in "
           "this deployment. Specifically NEVER mention: `/status`, "
-          "`/services`, `/updates`, `/errors`, `/update`, `/prune`, "
-          "`/forecast`, `/stacks`, `/logs`, `/exec`, `/ssh`, `/scan`, "
-          "`/backup`, or any other SPA-style or Docker-style command "
-          "name — those are common hallucinations from training data, "
-          "not real OmniGrid commands. If the operator asks for a "
+          "`/services`, `/updates` (note plural — the real command is "
+          "`/update` singular), `/errors`, `/prune`, `/forecast`, "
+          "`/stacks`, `/logs`, `/exec`, `/ssh`, `/scan`, `/backup`, "
+          "or any other SPA-style or Docker-style command name — "
+          "those are common hallucinations from training data, not "
+          "real OmniGrid commands. If the operator asks for a "
           "capability the roster doesn't cover, say so honestly + "
           "redirect them to the SPA (where the action probably "
           "exists). **Render each slash command wrapped in `<code>...</code>` "

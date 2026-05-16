@@ -30,12 +30,11 @@ import bcrypt
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
-
 # ----------------------------------------------------------------------------
 # Config (read once at import)
 # ----------------------------------------------------------------------------
-SESSION_LIFETIME = 8 * 3600          # 8h hard cap
-SESSION_SLIDE_WITHIN = 3600          # re-issue cookie if less than 1h left
+SESSION_LIFETIME = 8 * 3600  # 8h hard cap
+SESSION_SLIDE_WITHIN = 3600  # re-issue cookie if less than 1h left
 COOKIE_NAME = "og_session"
 CSRF_COOKIE = "og_csrf"
 
@@ -61,21 +60,21 @@ SESSION_SECRET = SESSION_SECRET_ENV.encode("utf-8")
 _AUTH_DEFAULTS = {
     # Group name whose members become admin when they sign in via OIDC.
     # Kept editable for homelabs that rename groups.
-    "oidc_admin_group":   "omnigrid-admins",
+    "oidc_admin_group": "omnigrid-admins",
     # OIDC provider settings. Everything blank by default — the dashboard
     # works fine without SSO configured; /api/oidc/login just 503s.
-    "oidc_enabled":       False,
-    "oidc_issuer_url":    "",
-    "oidc_client_id":     "",
+    "oidc_enabled": False,
+    "oidc_issuer_url": "",
+    "oidc_client_id": "",
     "oidc_client_secret": "",
-    "oidc_redirect_uri":  "",
-    "oidc_scopes":        "openid email profile groups",
+    "oidc_redirect_uri": "",
+    "oidc_scopes": "openid email profile groups",
     # TLS verification for calls OmniGrid makes TO the issuer (discovery,
     # JWKS, token exchange). Leave on when the issuer has a publicly-trusted
     # cert; turn OFF for homelab installs behind an internal CA whose root
     # isn't in certifi's bundle. Mirrors the behaviour of Portainer's
     # verify_tls setting.
-    "oidc_verify_tls":    True,
+    "oidc_verify_tls": True,
     # When True (legacy / default), the admin-group claim must match
     # `oidc_admin_group` byte-for-byte. When False, both are lowered
     # before comparison so operators don't have to chase Authentik's
@@ -88,6 +87,7 @@ _AUTH_DEFAULTS = {
 # cache is keyed by the same strings that live in the `settings` table.
 _auth_settings_cache: dict = {}
 _auth_settings_cache_valid = False
+
 
 # Rate limit: failed local logins per IP within the window → lockout.
 # operator-tunable via Admin → Process tunables. Resolved per
@@ -201,117 +201,195 @@ def invalidate_auth_settings_cache() -> None:
 # ----------------------------------------------------------------------------
 def init_auth_schema(conn: sqlite3.Connection) -> None:
     conn.executescript("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        email TEXT,
-        password_hash TEXT,
-        role TEXT NOT NULL CHECK(role IN ('admin','readonly')),
-        auth_source TEXT NOT NULL CHECK(auth_source IN ('local','authentik')),
-        disabled INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL,
-        last_login_at INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+                       CREATE TABLE IF NOT EXISTS users
+                       (
+                           id
+                           INTEGER
+                           PRIMARY
+                           KEY
+                           AUTOINCREMENT,
+                           username
+                           TEXT
+                           UNIQUE
+                           NOT
+                           NULL,
+                           email
+                           TEXT,
+                           password_hash
+                           TEXT,
+                           role
+                           TEXT
+                           NOT
+                           NULL
+                           CHECK (
+                           role
+                           IN
+                       (
+                           'admin',
+                           'readonly'
+                       )),
+                           auth_source TEXT NOT NULL CHECK
+                       (
+                           auth_source
+                           IN
+                       (
+                           'local',
+                           'authentik'
+                       )),
+                           disabled INTEGER NOT NULL DEFAULT 0,
+                           created_at INTEGER NOT NULL,
+                           last_login_at INTEGER
+                           );
+                       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
-    CREATE TABLE IF NOT EXISTS sessions (
-        token_id TEXT PRIMARY KEY,
-        user_id INTEGER NOT NULL REFERENCES users(id),
-        issued_at INTEGER NOT NULL,
-        last_seen_at INTEGER NOT NULL,
-        expires_at INTEGER NOT NULL,
-        ip TEXT,
-        user_agent TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+                       CREATE TABLE IF NOT EXISTS sessions
+                       (
+                           token_id
+                           TEXT
+                           PRIMARY
+                           KEY,
+                           user_id
+                           INTEGER
+                           NOT
+                           NULL
+                           REFERENCES
+                           users
+                       (
+                           id
+                       ),
+                           issued_at INTEGER NOT NULL,
+                           last_seen_at INTEGER NOT NULL,
+                           expires_at INTEGER NOT NULL,
+                           ip TEXT,
+                           user_agent TEXT
+                           );
+                       CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+                       CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
-    CREATE TABLE IF NOT EXISTS api_tokens (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE NOT NULL,
-        token_hash TEXT NOT NULL,
-        role TEXT NOT NULL CHECK(role IN ('admin','readonly')),
-        created_at INTEGER NOT NULL,
-        last_used_at INTEGER,
-        created_by INTEGER REFERENCES users(id)
-    );
+                       CREATE TABLE IF NOT EXISTS api_tokens
+                       (
+                           id
+                           INTEGER
+                           PRIMARY
+                           KEY
+                           AUTOINCREMENT,
+                           name
+                           TEXT
+                           UNIQUE
+                           NOT
+                           NULL,
+                           token_hash
+                           TEXT
+                           NOT
+                           NULL,
+                           role
+                           TEXT
+                           NOT
+                           NULL
+                           CHECK (
+                           role
+                           IN
+                       (
+                           'admin',
+                           'readonly'
+                       )),
+                           created_at INTEGER NOT NULL,
+                           last_used_at INTEGER,
+                           created_by INTEGER REFERENCES users
+                       (
+                           id
+                       )
+                           );
 
-    -- WebAuthn / FIDO2 passkey credentials. One row per
-    -- enrolled key; users can have multiple. credential_id is the
-    -- raw bytes returned by the authenticator (NOT base64-encoded
-    -- here; the API layer encodes for the wire). public_key is the
-    -- COSE-encoded public-key blob that verify_authentication_response
-    -- needs as input. sign_count is monotonic per-key (cloned
-    -- authenticator detection).  transports is a CSV of WebAuthn
-    -- transport hints (`usb`, `nfc`, `ble`, `internal`, `hybrid`).
-    -- friendly_name is operator-supplied (e.g. "YubiKey 5C"); empty
-    -- means the SPA renders a default. last_used_at is wallclock of
-    -- the most recent successful login assertion -- powers the
-    -- Profile UI's "last used 3h ago" hint. CASCADE on user delete.
-    CREATE TABLE IF NOT EXISTS user_credentials (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL REFERENCES users(id),
-        credential_id BLOB NOT NULL UNIQUE,
-        public_key BLOB NOT NULL,
-        sign_count INTEGER NOT NULL DEFAULT 0,
-        transports TEXT NOT NULL DEFAULT '',
-        friendly_name TEXT NOT NULL DEFAULT '',
-        created_at INTEGER NOT NULL,
-        last_used_at INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_user_credentials_user
-        ON user_credentials(user_id);
-    """)
+                       -- WebAuthn / FIDO2 passkey credentials. One row per
+                       -- enrolled key; users can have multiple. credential_id is the
+                       -- raw bytes returned by the authenticator (NOT base64-encoded
+                       -- here; the API layer encodes for the wire). public_key is the
+                       -- COSE-encoded public-key blob that verify_authentication_response
+                       -- needs as input. sign_count is monotonic per-key (cloned
+                       -- authenticator detection).  transports is a CSV of WebAuthn
+                       -- transport hints (`usb`, `nfc`, `ble`, `internal`, `hybrid`).
+                       -- friendly_name is operator-supplied (e.g. "YubiKey 5C"); empty
+                       -- means the SPA renders a default. last_used_at is wallclock of
+                       -- the most recent successful login assertion -- powers the
+                       -- Profile UI's "last used 3h ago" hint. CASCADE on user delete.
+                       CREATE TABLE IF NOT EXISTS user_credentials
+                       (
+                           id
+                           INTEGER
+                           PRIMARY
+                           KEY
+                           AUTOINCREMENT,
+                           user_id
+                           INTEGER
+                           NOT
+                           NULL
+                           REFERENCES
+                           users
+                       (
+                           id
+                       ),
+                           credential_id BLOB NOT NULL UNIQUE,
+                           public_key BLOB NOT NULL,
+                           sign_count INTEGER NOT NULL DEFAULT 0,
+                           transports TEXT NOT NULL DEFAULT '',
+                           friendly_name TEXT NOT NULL DEFAULT '',
+                           created_at INTEGER NOT NULL,
+                           last_used_at INTEGER
+                           );
+                       CREATE INDEX IF NOT EXISTS idx_user_credentials_user
+                           ON user_credentials(user_id);
+                       """)
     # Idempotent column additions for existing deployments. SQLite pre-3.35
     # has no "ADD COLUMN IF NOT EXISTS", so we catch the OperationalError
     # that gets raised when the column already exists. Safe to re-run.
     for ddl in (
-        "ALTER TABLE users ADD COLUMN display_name TEXT",
-        "ALTER TABLE users ADD COLUMN bio TEXT",
-        "ALTER TABLE users ADD COLUMN avatar_path TEXT",
-        # Per-user UI preferences. JSON blob for cross-device
-        # sync of toggles like headerWeatherEnabled / headerClockEnabled
-        # that previously lived only in browser localStorage. Server
-        # is the source of truth; localStorage is a fast-path cache.
-        # Default '{}' so existing rows hydrate to "no overrides" and
-        # the SPA falls back to its own per-toggle defaults.
-        "ALTER TABLE users ADD COLUMN ui_prefs TEXT DEFAULT '{}'",
-        # TOTP-based 2FA. Five additive columns; secret + backup
-        # codes are Fernet-encrypted at rest (see logic/totp.py). Authentik
-        # users never set these fields -- their IdP handles MFA. Lockout
-        # state mirrors the per-IP rate-limit pattern but is per-user.
-        "ALTER TABLE users ADD COLUMN totp_secret_encrypted TEXT",
-        "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE users ADD COLUMN totp_backup_codes_json TEXT",
-        "ALTER TABLE users ADD COLUMN totp_failed_attempts INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE users ADD COLUMN totp_locked_until INTEGER",
-        # Per-user force-2FA override. Admin-only flag that
-        # overrides the global totp_required_for_admins / _users
-        # policy: when 1, this specific user MUST have 2FA on, even
-        # if the global policy doesn't require it for their role.
-        # Authentik users still skip — auth_source='local' gate
-        # short-circuits TOTP everywhere.
-        "ALTER TABLE users ADD COLUMN totp_force_required INTEGER NOT NULL DEFAULT 0",
-        # Per-session auth-method tag. Surfaces in Admin → Sessions
-        # so the operator can see at a glance which factor each active
-        # session was authenticated with: 'password' (single-factor
-        # local), 'totp' (local + TOTP code), 'passkey' (local +
-        # WebAuthn assertion), 'oidc' (Authentik SSO), 'bootstrap'
-        # (one-shot first-admin seed). Existing rows keep the default
-        # 'password' which is the right behaviour for any session
-        # minted before this column existed (pre-2FA era).
-        "ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'",
-        # Per-credential RP-ID. Stamped at registration from the
-        # request's effective hostname so we can detect "credential
-        # registered under a different domain" at login time and surface
-        # a clearer error than the browser's silent QR fallback. Existing
-        # rows default to '' — read-side treats blank as "unknown"
-        # (assume current rp_id matches; mismatch detection only fires
-        # on rows that have an explicit non-empty value). Operators
-        # who migrate domains between this rollout and the first
-        # re-enrolment will see a no-op for the legacy rows; only NEW
-        # registrations after this column lands carry the marker.
-        "ALTER TABLE user_credentials ADD COLUMN rp_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE users ADD COLUMN display_name TEXT",
+            "ALTER TABLE users ADD COLUMN bio TEXT",
+            "ALTER TABLE users ADD COLUMN avatar_path TEXT",
+            # Per-user UI preferences. JSON blob for cross-device
+            # sync of toggles like headerWeatherEnabled / headerClockEnabled
+            # that previously lived only in browser localStorage. Server
+            # is the source of truth; localStorage is a fast-path cache.
+            # Default '{}' so existing rows hydrate to "no overrides" and
+            # the SPA falls back to its own per-toggle defaults.
+            "ALTER TABLE users ADD COLUMN ui_prefs TEXT DEFAULT '{}'",
+            # TOTP-based 2FA. Five additive columns; secret + backup
+            # codes are Fernet-encrypted at rest (see logic/totp.py). Authentik
+            # users never set these fields -- their IdP handles MFA. Lockout
+            # state mirrors the per-IP rate-limit pattern but is per-user.
+            "ALTER TABLE users ADD COLUMN totp_secret_encrypted TEXT",
+            "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN totp_backup_codes_json TEXT",
+            "ALTER TABLE users ADD COLUMN totp_failed_attempts INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN totp_locked_until INTEGER",
+            # Per-user force-2FA override. Admin-only flag that
+            # overrides the global totp_required_for_admins / _users
+            # policy: when 1, this specific user MUST have 2FA on, even
+            # if the global policy doesn't require it for their role.
+            # Authentik users still skip — auth_source='local' gate
+            # short-circuits TOTP everywhere.
+            "ALTER TABLE users ADD COLUMN totp_force_required INTEGER NOT NULL DEFAULT 0",
+            # Per-session auth-method tag. Surfaces in Admin → Sessions
+            # so the operator can see at a glance which factor each active
+            # session was authenticated with: 'password' (single-factor
+            # local), 'totp' (local + TOTP code), 'passkey' (local +
+            # WebAuthn assertion), 'oidc' (Authentik SSO), 'bootstrap'
+            # (one-shot first-admin seed). Existing rows keep the default
+            # 'password' which is the right behaviour for any session
+            # minted before this column existed (pre-2FA era).
+            "ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'",
+            # Per-credential RP-ID. Stamped at registration from the
+            # request's effective hostname so we can detect "credential
+            # registered under a different domain" at login time and surface
+            # a clearer error than the browser's silent QR fallback. Existing
+            # rows default to '' — read-side treats blank as "unknown"
+            # (assume current rp_id matches; mismatch detection only fires
+            # on rows that have an explicit non-empty value). Operators
+            # who migrate domains between this rollout and the first
+            # re-enrolment will see a no-op for the legacy rows; only NEW
+            # registrations after this column lands carry the marker.
+            "ALTER TABLE user_credentials ADD COLUMN rp_id TEXT NOT NULL DEFAULT ''",
     ):
         try:
             conn.execute(ddl)
@@ -475,14 +553,22 @@ def list_users(conn: sqlite3.Connection) -> list[dict]:
     -- single SQL statement, indexed on ``user_credentials(user_id)``.
     """
     rows = conn.execute("""
-        SELECT u.id, u.username, u.email, u.role, u.auth_source, u.disabled,
-               u.created_at, u.last_login_at, u.totp_enabled,
-               u.totp_force_required,
-               (SELECT COUNT(*) FROM user_credentials c
-                WHERE c.user_id = u.id) AS passkey_count
-        FROM users u
-        ORDER BY u.username COLLATE NOCASE
-    """).fetchall()
+                        SELECT u.id,
+                               u.username,
+                               u.email,
+                               u.role,
+                               u.auth_source,
+                               u.disabled,
+                               u.created_at,
+                               u.last_login_at,
+                               u.totp_enabled,
+                               u.totp_force_required,
+                               (SELECT COUNT(*)
+                                FROM user_credentials c
+                                WHERE c.user_id = u.id) AS passkey_count
+                        FROM users u
+                        ORDER BY u.username COLLATE NOCASE
+                        """).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -549,11 +635,22 @@ def get_user_profile(conn: sqlite3.Connection, user_id: int) -> Optional[dict]:
     column was added, or DB rows hand-tampered).
     """
     r = conn.execute("""
-        SELECT id, username, email, role, auth_source, disabled,
-               created_at, last_login_at, display_name, bio, avatar_path,
-               ui_prefs, totp_enabled
-        FROM users WHERE id=?
-    """, (user_id,)).fetchone()
+                     SELECT id,
+                            username,
+                            email,
+                            role,
+                            auth_source,
+                            disabled,
+                            created_at,
+                            last_login_at,
+                            display_name,
+                            bio,
+                            avatar_path,
+                            ui_prefs,
+                            totp_enabled
+                     FROM users
+                     WHERE id = ?
+                     """, (user_id,)).fetchone()
     if not r:
         return None
     out = dict(r)
@@ -721,11 +818,14 @@ def update_user_profile(
     fields: list[str] = []
     values: list = []
     if display_name is not None:
-        fields.append("display_name=?"); values.append(display_name or None)
+        fields.append("display_name=?");
+        values.append(display_name or None)
     if bio is not None:
-        fields.append("bio=?"); values.append(bio or None)
+        fields.append("bio=?");
+        values.append(bio or None)
     if email is not None:
-        fields.append("email=?"); values.append(email or None)
+        fields.append("email=?");
+        values.append(email or None)
     if not fields:
         return
     values.append(user_id)
@@ -766,7 +866,7 @@ def admin_reset_password(
 
 
 # ----------------------------------------------------------------------------
-# TOTP (2FA) helpers 
+# TOTP (2FA) helpers
 # ----------------------------------------------------------------------------
 def get_user_totp_secret(
     conn: sqlite3.Connection, user_id: int,
@@ -897,7 +997,7 @@ def clear_totp_lockout(conn: sqlite3.Connection, user_id: int) -> None:
 
 
 # ----------------------------------------------------------------------------
-# WebAuthn / FIDO2 passkey credentials 
+# WebAuthn / FIDO2 passkey credentials
 # ----------------------------------------------------------------------------
 def list_user_credentials(
     conn: sqlite3.Connection, user_id: int,
@@ -1085,25 +1185,36 @@ def delete_all_user_credentials(
 def list_sessions(conn: sqlite3.Connection) -> list[dict]:
     """Active (non-expired) sessions with usernames resolved for display."""
     rows = conn.execute("""
-        SELECT s.token_id, s.user_id, u.username, s.issued_at, s.last_seen_at,
-               s.expires_at, s.ip, s.user_agent, s.auth_method
-        FROM sessions s
-        LEFT JOIN users u ON u.id = s.user_id
-        WHERE s.expires_at > ?
-        ORDER BY s.last_seen_at DESC
-    """, (int(time.time()),)).fetchall()
+                        SELECT s.token_id,
+                               s.user_id,
+                               u.username,
+                               s.issued_at,
+                               s.last_seen_at,
+                               s.expires_at,
+                               s.ip,
+                               s.user_agent,
+                               s.auth_method
+                        FROM sessions s
+                                 LEFT JOIN users u ON u.id = s.user_id
+                        WHERE s.expires_at > ?
+                        ORDER BY s.last_seen_at DESC
+                        """, (int(time.time()),)).fetchall()
     return [dict(r) for r in rows]
 
 
 def list_api_tokens(conn: sqlite3.Connection) -> list[dict]:
     """Every API token with the creator's username (if still present)."""
     rows = conn.execute("""
-        SELECT t.id, t.name, t.role, t.created_at, t.last_used_at,
-               u.username AS created_by_username
-        FROM api_tokens t
-        LEFT JOIN users u ON u.id = t.created_by
-        ORDER BY t.name COLLATE NOCASE
-    """).fetchall()
+                        SELECT t.id,
+                               t.name,
+                               t.role,
+                               t.created_at,
+                               t.last_used_at,
+                               u.username AS created_by_username
+                        FROM api_tokens t
+                                 LEFT JOIN users u ON u.id = t.created_by
+                        ORDER BY t.name COLLATE NOCASE
+                        """).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -1295,9 +1406,9 @@ def slide_session_if_needed(
         ).fetchone()
         user_id = row["user_id"] if row else None
         _events.publish("session:renewed", {
-            "user_id":    user_id,
+            "user_id": user_id,
             "expires_at": new_expires_at,
-            "ts":         now,
+            "ts": now,
         })
     except Exception as e:
         print(f"[auth] session:renewed publish failed: {e}")
@@ -1437,18 +1548,18 @@ def rate_limit_clear(ip: str, username: Optional[str] = None) -> None:
 PUBLIC_API_PATHS = frozenset({"/api/healthz", "/api/version", "/metrics"})
 
 AUTH_OPTIONAL_API_PREFIXES = (
-    "/api/local-auth/",      # login / logout / bootstrap
-    "/api/me",               # identity introspection — must return
-                             # {authenticated: false} rather than 401
-    "/api/oidc/",            # OIDC login/callback — the whole point is that
-                             # the caller isn't authenticated yet when they
-                             # start the flow. Callback must also be
-                             # reachable anonymously (the browser follows
-                             # Authentik's 302 back to us without any
-                             # OmniGrid cookie).
-    "/api/auth/providers",   # advertises which SSO paths are enabled — the
-                             # login page queries this before rendering the
-                             # SSO button.
+    "/api/local-auth/",  # login / logout / bootstrap
+    "/api/me",  # identity introspection — must return
+    # {authenticated: false} rather than 401
+    "/api/oidc/",  # OIDC login/callback — the whole point is that
+    # the caller isn't authenticated yet when they
+    # start the flow. Callback must also be
+    # reachable anonymously (the browser follows
+    # Authentik's 302 back to us without any
+    # OmniGrid cookie).
+    "/api/auth/providers",  # advertises which SSO paths are enabled — the
+    # login page queries this before rendering the
+    # SSO button.
 )
 
 

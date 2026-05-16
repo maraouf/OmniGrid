@@ -1836,7 +1836,7 @@ function app() {
     // Current user, set from /api/me on init. Null until that call
     // completes; the SPA defers rendering everything that depends on it.
     me: null,
-    // ARCH-004 — per-session dismiss flag for the SESSION_SECRET-auto
+    // Per-session dismiss flag for the SESSION_SECRET-auto
     // warning banner. Stored in sessionStorage (NOT localStorage) so
     // it resets every browser-session — that's the whole point: each
     // restart of the OmniGrid container kills sessions, and operators
@@ -2861,7 +2861,7 @@ function app() {
       } catch (_) { /* ignore — clearing the cookie is the important bit */ }
       location.href = '/login';
     },
-    // ARCH-004 — dismiss the SESSION_SECRET-auto banner for this
+    // Dismiss the SESSION_SECRET-auto banner for this
     // browser session. Persists in sessionStorage so a hard-refresh
     // doesn't unhide it again, but a fresh browser-session (close +
     // reopen, or container restart on the operator's side) brings it

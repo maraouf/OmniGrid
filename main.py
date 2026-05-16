@@ -243,7 +243,7 @@ async def _lifespan(app: FastAPI):
               "DB_PATH is set. The app is serving the config-error page.")
         yield
         return
-    # ARCH-002 — wrap init_db so a failure short-circuits to the same
+    # Wrap init_db so a failure short-circuits to the same
     # config-error code path as DB_PATH_ERROR. Background tasks DON'T
     # spawn on a partial schema; operator sees a readable diagnostic
     # in the browser instead of the samplers crash-looping against a
@@ -284,7 +284,7 @@ async def _lifespan(app: FastAPI):
     except Exception as e:
         print(f"[scheduler] seed_default_schedules failed: {e}")
 
-    # ARCH-001 — pre-seed caches from the persisted snapshot tables in
+    # Pre-seed caches from the persisted snapshot tables in
     # the BACKGROUND so a large stats_samples table can't delay the
     # FastAPI app from accepting connections. The CTE in
     # seed_stats_cache_from_db (`ROW_NUMBER OVER PARTITION BY item_id`)
@@ -1274,7 +1274,7 @@ def init_db():
         # Scheduler schema — admin-defined recurring jobs. Same pattern:
         # owned by logic/schedules.py, created here.
         schedules.init_schedules_schema(c)
-        # Schema migrations infrastructure (ARCH-002). Adds the
+        # Schema migrations infrastructure. Adds the
         # `schema_migrations` table and applies any pending migrations
         # registered in `logic/migrations.py:MIGRATIONS`. Empty registry
         # today — additive changes still go in the CREATE TABLE block
@@ -19125,7 +19125,7 @@ async def api_me(request: Request):
             "snmp_vendor_keys": _snmp_vendor_keys_sorted(),
         },
     }
-    # ARCH-004: surface the SESSION_SECRET-auto-generated state to admins.
+    # Surface the SESSION_SECRET-auto-generated state to admins.
     # When SESSION_SECRET isn't set in the env, logic/auth.py generates an
     # ephemeral one at boot — every container restart invalidates every
     # session. Today the only signal is a one-line print at boot, buried
@@ -21481,7 +21481,7 @@ async def prometheus_metrics():
 # Earlier this was a wildcard `app.mount("/node_modules", StaticFiles(...))`
 # which served EVERY file in the tree (readmes, sourcemaps, TS sources,
 # unused locales, package metadata) even though only ~7 files are
-# actually requested. ARCH-003 in the code review flagged this as
+# actually requested. A prior code review flagged this as
 # unnecessary surface bloat — not a security hole (the files are public
 # on npm anyway) but tidy + faster to audit.
 #
