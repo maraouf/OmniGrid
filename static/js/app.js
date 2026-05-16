@@ -1023,12 +1023,30 @@ function app() {
     // result chip below the Save row + Test-before-Save gate via
     // `canSaveNotifications()`.
     notifyTestResult: null,
+    // Admin → Notifications → Telegram → datatable of every linked
+    // user. Populated by loadTelegramLinks() on first render of the
+    // Telegram tab + re-loaded after admin-side unlink so the row
+    // disappears immediately. Each row: {telegram_user_id, username,
+    // role}.
+    telegramLinks: [],
+    telegramLinksLoading: false,
+    telegramLinksError: '',
     // Last-passed-test snapshots (parallel to portainer / oidc /
     // asset patterns). Captured at the moment a /api/notify-test
     // returns ok. Compared to the current form snapshot at Save time
     // — any edit between test + save re-locks Save.
     _appriseLastPassedTest: '',
     _telegramLastPassedTest: '',
+    // Split-Save baselines + per-button result chips. The page has
+    // TWO independent Save buttons: providers (parent section) and
+    // per-event (sibling section). Each has its own dirty snapshot
+    // + own save handler + own success chip so functionality stays
+    // separated — saving providers won't show a per-event success
+    // message and vice versa.
+    _providersBaseline: '',
+    _perEventBaseline: '',
+    providersSaveResult: null,
+    perEventSaveResult: null,
     // Profile → Telegram link card state. Code is the 6-digit minted
     // value the user types into Telegram as `/link <code>`. Expires
     // 15 minutes after mint; the SPA shows a relative-minutes
@@ -8454,6 +8472,13 @@ function app() {
         // Capture all 5 unified-pattern baselines AFTER the form/settings
         // are fully populated. Subsequent edits compare against these.
         this._appriseBaseline    = this._appriseSnapshot();
+        // Split-Save baselines — providers + per-event have their
+        // own dirty trackers + Save handlers so functionality stays
+        // separated (see saveProviders / savePerEvent).
+        try {
+          this._providersBaseline = this._providersSnapshot();
+          this._perEventBaseline  = this._perEventSnapshot();
+        } catch (_) {}
         this._openMeteoBaseline  = this._openMeteoSnapshot();
         this._portainerBaseline  = this._portainerSnapshot();
         this._oidcBaseline       = this._oidcSnapshot();
@@ -8894,6 +8919,23 @@ function app() {
         this.telegramLinkSuccess = removed
           ? this.t('profile.telegram.unlink_success', { count: removed })
           : this.t('profile.telegram.unlink_nothing');
+        // Reload /api/me so the Profile card flips back to the
+        // unlinked state (Generate button visible, linked banner
+        // hidden). Same pattern other Profile mutations use.
+        try {
+          const rm = await fetch('/api/me', { cache: 'no-store' });
+          if (rm.ok) {
+            const meData = await rm.json();
+            if (meData && meData.authenticated !== false) {
+              Object.assign(this.me, meData);
+            }
+          }
+        } catch (_) {}
+        // Clear any stale code from the prior session — once unlinked
+        // the operator should generate a fresh code if they want to
+        // re-link rather than reuse the old one.
+        this.telegramLinkCode = '';
+        this.telegramLinkExpiresMs = 0;
       } catch (e) {
         this.telegramLinkError = String(e && e.message ? e.message : e);
       } finally {
@@ -8912,6 +8954,61 @@ function app() {
       if (!this.telegramLinkExpiresMs) return 0;
       const ms = this.telegramLinkExpiresMs - Date.now();
       return Math.max(0, Math.ceil(ms / 60000));
+    },
+    // Admin → Notifications → Telegram → datatable of links.
+    async loadTelegramLinks() {
+      this.telegramLinksLoading = true;
+      this.telegramLinksError = '';
+      try {
+        const r = await fetch('/api/telegram/links');
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.telegramLinksError = j.detail || `HTTP ${r.status}`;
+          this.telegramLinks = [];
+          return;
+        }
+        this.telegramLinks = Array.isArray(j.links) ? j.links : [];
+      } catch (e) {
+        this.telegramLinksError = String(e && e.message ? e.message : e);
+      } finally {
+        this.telegramLinksLoading = false;
+      }
+    },
+    async adminUnlinkTelegramRow(row) {
+      // Row-action handler — admin clicks the trash button on a
+      // datatable row. Confirm dialog mirrors the Users admin's
+      // delete-user pattern.
+      const u = (row && row.username) || '';
+      const tgId = row && row.telegram_user_id;
+      if (!tgId) return;
+      const confirmed = await this.confirmDialog({
+        title: this.t('admin.notifications.telegram_links_unlink_confirm_title') || 'Unlink Telegram user?',
+        text: this.t('admin.notifications.telegram_links_unlink_confirm_text', { user: u, tg_id: tgId }),
+        icon: 'warning',
+        confirmButtonText: this.t('admin.notifications.telegram_links_unlink_button') || 'Unlink',
+        cancelButtonText: this.t('actions.cancel'),
+      });
+      if (!confirmed) return;
+      try {
+        const r = await fetch('/api/telegram/links/' + encodeURIComponent(String(tgId)), {
+          method: 'DELETE',
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.showToast(j.detail || `HTTP ${r.status}`, 'error');
+          return;
+        }
+        // Optimistic: drop the row locally + reload to confirm.
+        this.telegramLinks = (this.telegramLinks || []).filter(l =>
+          l.telegram_user_id !== tgId);
+        await this.loadTelegramLinks();
+        this.showToast(
+          this.t('admin.notifications.telegram_links_unlink_success', { user: j.removed || u }) || 'Unlinked',
+          'success'
+        );
+      } catch (e) {
+        this.showToast(String(e && e.message ? e.message : e), 'error');
+      }
     },
     async testTelegramConnection() {
       // Mirrors testBeszelConnection — sends a one-shot probe message
@@ -11534,10 +11631,165 @@ function app() {
              && !!this._telegramLastPassedTest;
     },
     canSaveNotifications() {
-      // Composite gate used by BOTH save buttons (parent section +
-      // per-event sibling). Save is unblocked when every enabled
-      // medium has a fresh passing test.
+      // Composite gate used by the PROVIDERS Save button only. Save
+      // is unblocked when every enabled medium has a fresh passing
+      // test. Per-event Save (sibling section) does NOT consult this
+      // gate — per-event toggles are local to OmniGrid and have no
+      // round-trip to test.
       return this.canSaveApprise() && this.canSaveTelegram();
+    },
+    // ---- Providers vs per-event Save split --------------------------
+    // The notifications page has TWO functionally separate Save
+    // buttons. The first (in the parent providers section) commits
+    // channel configuration (Apprise URL/tag, Telegram credentials,
+    // medium toggles, listener config, in-app tunables). The second
+    // (in the per-event sibling section) commits ONLY the per-event
+    // notification toggles. They have independent dirty signals,
+    // independent save handlers, and independent success/error chips
+    // so an action on one button never visually conflates with the
+    // other.
+    _providersSnapshot() {
+      const s = this.settings || {};
+      const tf = this.tuningForm || {};
+      return JSON.stringify({
+        // Apprise
+        apprise_enabled: !!s.apprise_enabled,
+        apprise_url:     (s.apprise_url || '').trim(),
+        apprise_tag:     (s.apprise_tag || '').trim(),
+        // Telegram core
+        telegram_chat_id:    (s.telegram_chat_id || '').trim(),
+        telegram_thread_id:  (s.telegram_thread_id || '').trim(),
+        telegram_verify_tls: !!s.telegram_verify_tls,
+        // Write-only secret — non-empty form value = dirty.
+        telegram_token_pending: (s.telegram_bot_token || '').trim() ? '<pending>' : '',
+        // Telegram Phase 2 listener config
+        telegram_listener_enabled:    !!s.telegram_listener_enabled,
+        telegram_allow_destructive:   !!s.telegram_allow_destructive,
+        telegram_authorized_user_ids: (s.telegram_authorized_user_ids || '').trim(),
+        // Per-medium fan-out toggles
+        medium_app:      !!s.notify_medium_app,
+        medium_apprise:  !!s.notify_medium_apprise,
+        medium_telegram: !!s.notify_medium_telegram,
+        // In-app tunables (live in the In-app tab body)
+        tuning_retention: (tf.tuning_notification_retention_days ?? '').toString(),
+        tuning_page:      (tf.tuning_notification_page_size ?? '').toString(),
+        tuning_poll:      (tf.tuning_notifications_poll_interval_seconds ?? '').toString(),
+      });
+    },
+    providersDirty() {
+      return this._providersBaseline !== this._providersSnapshot();
+    },
+    _perEventSnapshot() {
+      const events = {};
+      for (const k of (this.notifyEventKeys || [])) {
+        events[k] = !!(this.settings || {})[k];
+      }
+      return JSON.stringify(events);
+    },
+    perEventDirty() {
+      return this._perEventBaseline !== this._perEventSnapshot();
+    },
+    async saveProviders() {
+      // Providers-only POST — Apprise + Telegram + medium toggles +
+      // in-app tunables. Test-before-Save gate applies.
+      if (this.settingsSaving) return;
+      if (!this.canSaveNotifications()) return;
+      this.settingsSaving = true;
+      this.providersSaveResult = null;
+      try {
+        const s = this.settings || {};
+        const tf = this.tuningForm || {};
+        const payload = {};
+        // Apprise core
+        payload.apprise_enabled = !!s.apprise_enabled;
+        if (s.apprise_url != null)  payload.apprise_url = s.apprise_url;
+        if (s.apprise_tag != null)  payload.apprise_tag = s.apprise_tag;
+        // Telegram core
+        if ((s.telegram_bot_token || '').trim()) {
+          payload.telegram_bot_token = s.telegram_bot_token;
+        }
+        if (s.telegram_chat_id   != null) payload.telegram_chat_id   = s.telegram_chat_id;
+        if (s.telegram_thread_id != null) payload.telegram_thread_id = s.telegram_thread_id;
+        payload.telegram_verify_tls = s.telegram_verify_tls ? 'true' : 'false';
+        // Telegram Phase 2 listener config
+        payload.telegram_listener_enabled  = s.telegram_listener_enabled ? 'true' : 'false';
+        payload.telegram_allow_destructive = s.telegram_allow_destructive ? 'true' : 'false';
+        if (s.telegram_authorized_user_ids != null) {
+          payload.telegram_authorized_user_ids = s.telegram_authorized_user_ids;
+        }
+        // Per-medium fan-out toggles
+        for (const k of (this.notifyMediumKeys || [])) {
+          if (k in s) payload[k] = s[k] ? 'true' : 'false';
+        }
+        // In-app tunables
+        for (const k of [
+          'tuning_notification_retention_days',
+          'tuning_notification_page_size',
+          'tuning_notifications_poll_interval_seconds',
+        ]) {
+          if (tf[k] != null && String(tf[k]).trim() !== '') payload[k] = String(tf[k]).trim();
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        // Reload for fresh baselines + tuningForm reset.
+        await Promise.all([this.loadSettings(), this.loadTuning()]);
+        this._providersBaseline = this._providersSnapshot();
+        this._appriseBaseline   = this._appriseSnapshot();
+        this.providersSaveResult = {
+          ok: true,
+          detail: this.t('admin.notifications.providers_save_success') || 'Channels saved',
+        };
+      } catch (e) {
+        this.providersSaveResult = {
+          ok: false,
+          detail: String(e && e.message ? e.message : e),
+        };
+      } finally {
+        this.settingsSaving = false;
+      }
+    },
+    async savePerEvent() {
+      // Per-event-only POST — strictly the notify_event_* keys. No
+      // Test-before-Save gate (per-event toggles don't round-trip).
+      if (this.settingsSaving) return;
+      this.settingsSaving = true;
+      this.perEventSaveResult = null;
+      try {
+        const payload = {};
+        for (const k of (this.notifyEventKeys || [])) {
+          if (k in this.settings) payload[k] = this.settings[k] ? 'true' : 'false';
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        await this.loadSettings();
+        this._perEventBaseline = this._perEventSnapshot();
+        this._appriseBaseline  = this._appriseSnapshot();
+        this.perEventSaveResult = {
+          ok: true,
+          detail: this.t('admin.notifications.per_event_save_success') || 'Per-event toggles saved',
+        };
+      } catch (e) {
+        this.perEventSaveResult = {
+          ok: false,
+          detail: String(e && e.message ? e.message : e),
+        };
+      } finally {
+        this.settingsSaving = false;
+      }
     },
     async loadIgnores() {
       try {

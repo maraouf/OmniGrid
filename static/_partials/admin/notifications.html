@@ -294,6 +294,80 @@
                      class="w-full mono fs-xs"
                      :placeholder="t('admin.notifications.telegram_authorized_user_ids_placeholder')">
             </div>
+
+            <!-- Existing user↔Telegram links datatable. Lazy-loaded
+                 the first time the Telegram tab opens via x-effect;
+                 reload + drop-row on admin-side unlink. Row-action
+                 button uses the canonical `user-action-btn` class
+                 (same chrome as Users admin's row actions). -->
+            <div class="mt-5 pt-4 border-t border-[var(--border)]"
+                 x-effect="if (notificationsTab === 'telegram' && !telegramLinksLoading && telegramLinks.length === 0 && !telegramLinksError) { loadTelegramLinks(); }">
+              <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                <div>
+                  <div class="flex items-center gap-2 mb-1">
+                    <svg width="13" height="13" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-users"/></svg>
+                    <h4 class="font-semibold fs-sm"
+                        x-text="t('admin.notifications.telegram_links_heading')"></h4>
+                  </div>
+                  <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+                     x-text="t('admin.notifications.telegram_links_intro')"></p>
+                </div>
+                <button type="button" @click="loadTelegramLinks()"
+                        :disabled="telegramLinksLoading"
+                        class="btn btn-soft fs-xs inline-flex items-center gap-1.5"
+                        :title="t('actions.refresh')">
+                  <svg width="11" height="11" :class="telegramLinksLoading ? 'spin-md' : ''" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                  </svg>
+                  <span x-text="t('actions.refresh')"></span>
+                </button>
+              </div>
+
+              <div x-show="telegramLinksError"
+                   class="fs-xs px-3 py-2 rounded mb-2 bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]"
+                   x-text="telegramLinksError"></div>
+
+              <div x-show="!telegramLinksLoading && telegramLinks.length === 0 && !telegramLinksError"
+                   class="fs-xs text-[var(--text-faint)] italic py-3"
+                   x-text="t('admin.notifications.telegram_links_empty')"></div>
+
+              <table x-show="telegramLinks.length > 0"
+                     class="w-full fs-xs">
+                <thead>
+                  <tr class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+                    <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_user')"></th>
+                    <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_role')"></th>
+                    <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_tg_id')"></th>
+                    <th class="text-end px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_actions')"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="row in telegramLinks" :key="row.telegram_user_id">
+                    <tr class="border-t border-[var(--border)]">
+                      <td class="px-2 py-1.5" x-text="row.username"></td>
+                      <td class="px-2 py-1.5">
+                        <span class="chip"
+                              :class="row.role === 'admin' ? 'pill-warning' : 'pill-muted'"
+                              x-text="row.role"></span>
+                      </td>
+                      <td class="px-2 py-1.5 mono" x-text="row.telegram_user_id"></td>
+                      <td class="px-2 py-1.5 text-end">
+                        <button type="button"
+                                class="user-action-btn user-action-btn--danger"
+                                :disabled="!isAdmin()"
+                                :title="t('admin.notifications.telegram_links_unlink_button')"
+                                :aria-label="t('admin.notifications.telegram_links_unlink_button')"
+                                @click="adminUnlinkTelegramRow(row)">
+                          <svg width="14" height="14" aria-hidden="true">
+                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -312,13 +386,13 @@
              on click + inline pending-status text. Result chip renders
              below the row. -->
         <div class="flex items-center gap-3 flex-wrap" x-show="isAdmin()">
-          <button type="button" @click="saveSettings(); if (tuningDirty()) saveTuning();"
-                  :disabled="settingsSaving || tuningSaving || !canSaveNotifications()"
-                  :class="(appriseDirty() || tuningDirty()) ? 'ring-2 ring-[var(--warning)]' : ''"
+          <button type="button" @click="saveProviders()"
+                  :disabled="settingsSaving || !canSaveNotifications() || !providersDirty()"
+                  :class="providersDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                   :title="!canSaveNotifications() ? t('admin.notifications.save_requires_test') : ''"
                   class="btn btn-primary fs-sm">
-            <span x-show="!(settingsSaving || tuningSaving)" x-text="t('actions.save')"></span>
-            <span x-show="settingsSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+            <span x-show="!settingsSaving" x-text="t('admin.notifications.providers_save_button')"></span>
+            <span x-show="settingsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
           <button type="button" @click="testNotify()"
                   :disabled="(notifyTestResult && notifyTestResult.pending) || !(settings.apprise_enabled || settings.notify_medium_telegram)"
@@ -329,7 +403,7 @@
             <span x-show="!(notifyTestResult && notifyTestResult.pending)" x-text="t('actions.send_test')"></span>
             <span x-show="notifyTestResult && notifyTestResult.pending" x-text="t('actions.testing')"></span>
           </button>
-          <span x-show="appriseDirty() || tuningDirty()"
+          <span x-show="providersDirty()"
                 class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
@@ -338,11 +412,18 @@
         <div x-show="!canSaveNotifications() && (settings.apprise_enabled || settings.notify_medium_telegram)"
              class="fs-xs text-[var(--text-faint)] mt-2"
              x-text="t('admin.notifications.save_requires_test')"></div>
+        <!-- Test result chip — shows the Send-test outcome (per-medium fan-out result). -->
         <div x-show="notifyTestResult && !notifyTestResult.pending" class="fs-sm rounded-md px-3 py-2 mt-2"
              :class="notifyTestResult && notifyTestResult.ok
                      ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
                      : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'"
              x-text="notifyTestResult ? ((notifyTestResult.ok ? '✓ ' : '✗ ') + (notifyTestResult.detail || '')) : ''"></div>
+        <!-- Providers Save result chip — distinct from the Test chip. -->
+        <div x-show="providersSaveResult" class="fs-sm rounded-md px-3 py-2 mt-2"
+             :class="providersSaveResult && providersSaveResult.ok
+                     ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                     : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'"
+             x-text="providersSaveResult ? ((providersSaveResult.ok ? '✓ ' : '✗ ') + (providersSaveResult.detail || '')) : ''"></div>
       </section>
 
       <!-- ============== PER-EVENT NOTIFICATIONS — SIBLING SECTION
@@ -515,38 +596,31 @@
              tunables form) is true. The two getters' coverage
              overlaps for retention + page-size; both flipping the
              same input is fine — the dirty cue still fires once. -->
+        <!-- Per-event Save row — strictly the notify_event_* toggles.
+             NO test gate (per-event toggles don't round-trip), own
+             dirty signal, own result chip. -->
         <div class="flex items-center gap-3 mt-4 pt-4 border-t border-[var(--border)] flex-wrap" x-show="isAdmin()">
-          <button type="button" @click="saveSettings(); if (tuningDirty()) saveTuning();"
-                  :disabled="settingsSaving || tuningSaving || !canSaveNotifications()"
-                  :class="(appriseDirty() || tuningDirty()) ? 'ring-2 ring-[var(--warning)]' : ''"
-                  :title="!canSaveNotifications() ? t('admin.notifications.save_requires_test') : ''"
+          <button type="button" @click="savePerEvent()"
+                  :disabled="settingsSaving || !perEventDirty()"
+                  :class="perEventDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                   class="btn btn-primary fs-sm">
-            <span x-show="!(settingsSaving || tuningSaving)" x-text="t('actions.save')"></span>
-            <span x-show="settingsSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+            <span x-show="!settingsSaving" x-text="t('admin.notifications.per_event_save_button')"></span>
+            <span x-show="settingsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
-          <button type="button" @click="testNotify()"
-                  :disabled="(notifyTestResult && notifyTestResult.pending) || !(settings.apprise_enabled || settings.notify_medium_telegram)"
-                  class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-            <svg width="13" height="13" :class="(notifyTestResult && notifyTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-            </svg>
-            <span x-show="!(notifyTestResult && notifyTestResult.pending)" x-text="t('actions.send_test')"></span>
-            <span x-show="notifyTestResult && notifyTestResult.pending" x-text="t('actions.testing')"></span>
-          </button>
-          <span x-show="appriseDirty() || tuningDirty()"
+          <span x-show="perEventDirty()"
                 class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
         </div>
-        <div x-show="!canSaveNotifications() && (settings.apprise_enabled || settings.notify_medium_telegram)"
-             class="fs-xs text-[var(--text-faint)] mt-2"
-             x-text="t('admin.notifications.save_requires_test')"></div>
-        <div x-show="notifyTestResult && !notifyTestResult.pending" class="fs-sm rounded-md px-3 py-2 mt-2"
-             :class="notifyTestResult && notifyTestResult.ok
+        <!-- Per-event Save result chip — distinct from the providers
+             chip + the Test chip; saving per-event toggles will never
+             surface a "provider saved" or "Test fired" message. -->
+        <div x-show="perEventSaveResult" class="fs-sm rounded-md px-3 py-2 mt-2"
+             :class="perEventSaveResult && perEventSaveResult.ok
                      ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
                      : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'"
-             x-text="notifyTestResult ? ((notifyTestResult.ok ? '✓ ' : '✗ ') + (notifyTestResult.detail || '')) : ''"></div>
+             x-text="perEventSaveResult ? ((perEventSaveResult.ok ? '✓ ' : '✗ ') + (perEventSaveResult.detail || '')) : ''"></div>
       </section>
 
       <!-- GENERAL TAB — Open-Meteo (weather widget) lives here.

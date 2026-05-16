@@ -488,8 +488,16 @@ def _lookup_user_role(username: str) -> Optional[str]:
 
 
 def _load_user_weather_pref(username: str) -> Optional[dict]:
-    """Read ``ui_prefs.weather_location`` for one user. Returns a dict
-    with at least ``lat`` / ``lon`` keys, or None if unset / malformed.
+    """Read the topbar weather widget's persisted settings for one
+    user. The SPA stores these as flat keys on ``ui_prefs`` (not
+    nested under ``weather_location``) — they're written by
+    ``saveHeaderPrefs()`` via PATCH /api/me/ui-prefs alongside the
+    other topbar-widget preferences. Returns a normalised dict:
+
+        {"lat": float, "lon": float, "label": str, "unit": "c" | "f"}
+
+    or None when unset / malformed. ``unit`` defaults to "c" when the
+    user hasn't picked one.
     """
     import json
     from logic.db import db_conn
@@ -511,12 +519,24 @@ def _load_user_weather_pref(username: str) -> Optional[dict]:
         prefs = json.loads(raw)
     except (ValueError, TypeError):
         return None
-    loc = prefs.get("weather_location")
-    if not isinstance(loc, dict):
+    lat = prefs.get("headerWeatherLat")
+    lon = prefs.get("headerWeatherLon")
+    if lat is None or lon is None:
         return None
-    if loc.get("lat") is None or loc.get("lon") is None:
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+    except (TypeError, ValueError):
         return None
-    return loc
+    label = (prefs.get("headerWeatherLabel") or "").strip()
+    unit_raw = (prefs.get("headerWeatherUnit") or "c")
+    unit = "f" if str(unit_raw).strip().lower() == "f" else "c"
+    return {
+        "lat":   lat_f,
+        "lon":   lon_f,
+        "label": label,
+        "unit":  unit,
+    }
 
 
 # ----------------------------------------------------------------------------
@@ -556,21 +576,94 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     await _send_reply(client, "\n".join(lines))
 
 
+def _load_host_paused_set() -> set[str]:
+    """Read every host_id that has at least one row in
+    `host_failure_state` (whole-host pauses OR per-provider pauses).
+    Returns a set of bare host_ids — per-provider rows store the key
+    as `<provider>:<host_id>` so we split on ':' and take the suffix.
+    """
+    from logic.db import db_conn
+    paused: set[str] = set()
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT host_id FROM host_failure_state"
+            ).fetchall()
+    except Exception:
+        return paused
+    for row in rows:
+        try:
+            key = row["host_id"] if hasattr(row, "keys") else row[0]
+        except (KeyError, IndexError):
+            continue
+        if not key:
+            continue
+        # Per-provider rows look like `snmp:web01` — strip the prefix
+        # so the result is the bare host_id.
+        if ":" in key:
+            key = key.split(":", 1)[1]
+        paused.add(key)
+    return paused
+
+
 async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/hosts`` — split the curated fleet into two grouped lists:
+    Active (enabled + no failure-state markers) and Down (disabled OR
+    has at least one failure-state row, whole-host or per-provider).
+    Each group caps at 50 rows with a `…and N more` overflow line so
+    a large fleet still fits inside Telegram's 4096-char message cap.
+    """
     hosts = _load_hosts_config()
     if not hosts:
         await _send_reply(client, "No curated hosts configured.")
         return
-    lines = [f"<b>Curated hosts</b> ({len(hosts)})", ""]
-    for h in hosts[:50]:
+    paused_set = _load_host_paused_set()
+    active: list[dict] = []
+    down: list[dict] = []
+    for h in hosts:
+        enabled = h.get("enabled", True)
+        hid = h.get("id") or ""
+        if not enabled or hid in paused_set:
+            down.append(h)
+        else:
+            active.append(h)
+
+    def _render_row(h: dict, emoji: str) -> str:
         hid = h.get("id") or "(no-id)"
         label = h.get("label") or hid
         addr = h.get("address") or ""
-        lines.append(f"{_host_status_emoji(h)} <code>{hid}</code> — {label}"
-                     + (f" ({addr})" if addr else ""))
-    if len(hosts) > 50:
-        lines.append(f"\n…and {len(hosts) - 50} more.")
-    await _send_reply(client, "\n".join(lines))
+        return (f"{emoji} <code>{_escape(hid)}</code> — {_escape(label)}"
+                + (f" ({_escape(addr)})" if addr else ""))
+
+    out_lines: list[str] = [
+        f"<b>Curated hosts</b> — {len(active)} active, {len(down)} down/disabled",
+    ]
+
+    # Active group — only render the heading + list when non-empty.
+    if active:
+        out_lines.append("")
+        out_lines.append(f"🟢 <b>Active</b> ({len(active)})")
+        for h in active[:50]:
+            out_lines.append(_render_row(h, "🟢"))
+        if len(active) > 50:
+            out_lines.append(f"<i>…and {len(active) - 50} more.</i>")
+
+    # Down / disabled group.
+    if down:
+        out_lines.append("")
+        out_lines.append(f"🔴 <b>Down / disabled</b> ({len(down)})")
+        for h in down[:50]:
+            # Per-host emoji disambiguation: ⚪ for disabled-by-config,
+            # 🔴 for actually-failing. Matches the original
+            # `_host_status_emoji` semantics so operators reading the
+            # reply can distinguish "we turned this off" vs "this is
+            # broken".
+            emoji = "⚪" if not h.get("enabled", True) else "🔴"
+            out_lines.append(_render_row(h, emoji))
+        if len(down) > 50:
+            out_lines.append(f"<i>…and {len(down) - 50} more.</i>")
+
+    await _send_reply(client, "\n".join(out_lines))
 
 
 async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
@@ -651,6 +744,34 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         )
 
 
+async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/version`` (aliased as ``/ver``) — show the running OmniGrid
+    version. Reads the version baked into the image at build time
+    (`/app/VERSION.txt` populated by the deploy pipeline's
+    ``--build-arg VERSION=<X.Y.Z>``). Non-sensitive — works pre-link
+    so unmapped operators can confirm which build they're talking to."""
+    try:
+        from logic.version import read_version
+        version = read_version()
+    except Exception as e:
+        await _send_reply(client, f"❌ Version lookup failed: <code>{_escape(str(e))}</code>")
+        return
+    if not version or version == "0.0.0-dev":
+        # Dev build (no --build-arg VERSION passed) — call it out so
+        # the operator knows they're not on a tagged release.
+        await _send_reply(
+            client,
+            f"📦 OmniGrid <b><code>{_escape(version or '0.0.0-dev')}</code></b>\n"
+            f"<i>Unversioned build — built locally without "
+            f"<code>--build-arg VERSION</code>.</i>"
+        )
+        return
+    await _send_reply(
+        client,
+        f"📦 OmniGrid <b><code>{_escape(version)}</code></b>"
+    )
+
+
 async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """Debug aid — tells the user their Telegram user_id + the
     OmniGrid username they're linked to (or that they aren't) + their
@@ -705,8 +826,8 @@ async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         await _send_reply(
             client,
             f"OmniGrid user <b>{_escape(username)}</b> has no weather "
-            f"location saved. Set one in OmniGrid → Profile → Weather "
-            f"(or click a city in the topbar weather widget)."
+            f"location saved. Open the topbar weather widget in "
+            f"OmniGrid → click a city → Save."
         )
         return
     from main import api_weather as _api_weather
@@ -834,8 +955,8 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         await _send_reply(
             client,
             f"OmniGrid user <b>{_escape(username)}</b> has no weather "
-            f"location saved. Set one in OmniGrid → Profile → Weather "
-            f"(or click a city in the topbar weather widget)."
+            f"location saved. Open the topbar weather widget in "
+            f"OmniGrid → click a city → Save."
         )
         return
     # Re-use the existing /api/weather upstream by calling the
@@ -844,10 +965,11 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     # same process.
     from main import api_weather as _api_weather  # local import to avoid circular at module load
     label = (loc.get("label") or "").strip() or "weather"
+    unit = loc.get("unit") or "c"
     try:
         data = await _api_weather(
-            lat=float(loc["lat"]),
-            lon=float(loc["lon"]),
+            lat=loc["lat"],
+            lon=loc["lon"],
             label=label,
         )
     except Exception as e:
@@ -860,14 +982,28 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
             f"❌ Weather upstream error: <code>{_escape(str(err))}</code>"
         )
         return
-    temp = data.get("temp_c")
+
+    def _fmt_temp(c_val):
+        """Render a Celsius temperature in the user's preferred unit.
+        `api_weather` always returns Celsius; convert at render time."""
+        if c_val is None:
+            return None
+        try:
+            c = float(c_val)
+        except (TypeError, ValueError):
+            return None
+        if unit == "f":
+            return f"{round(c * 9 / 5 + 32, 1)}°F"
+        return f"{round(c, 1)}°C"
+
+    temp = _fmt_temp(data.get("temp_c"))
     humid = data.get("humidity")
     wind = data.get("wind_kmh")
     cond = data.get("condition") or ""
     head = f"<b>{_escape(label)}</b>"
     body_parts: list[str] = []
     if temp is not None:
-        body_parts.append(f"🌡 {temp}°C")
+        body_parts.append(f"🌡 {temp}")
     if cond:
         body_parts.append(_escape(cond))
     if humid is not None:
@@ -879,11 +1015,11 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     forecast_lines: list[str] = []
     for day in forecast[:3]:
         date = day.get("date") or "?"
-        hi = day.get("temp_max_c")
-        lo = day.get("temp_min_c")
+        hi = _fmt_temp(day.get("temp_max_c"))
+        lo = _fmt_temp(day.get("temp_min_c"))
         c = day.get("condition") or ""
         forecast_lines.append(
-            f"  • {_escape(date)}: {hi}° / {lo}°  {_escape(c)}"
+            f"  • {_escape(date)}: {hi or '?'} / {lo or '?'}  {_escape(c)}"
         )
     text = head + "\n" + line1
     if forecast_lines:
@@ -973,6 +1109,20 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "handler":     _cmd_time,
         "usage":       "/time",
         "description": "Show the local time at your saved weather location",
+    },
+    "/version": {
+        "handler":     _cmd_version,
+        "usage":       "/version",
+        "description": "Show the running OmniGrid version",
+    },
+    "/ver": {
+        # Alias for /version — same handler, hidden so the /help menu
+        # doesn't double up. Dedup-by-handler in _cmd_help drops it
+        # automatically; `hidden: True` makes intent explicit.
+        "handler":     _cmd_version,
+        "usage":       "/ver",
+        "description": "Show the running OmniGrid version (alias for /version)",
+        "hidden":      True,
     },
 }
 
