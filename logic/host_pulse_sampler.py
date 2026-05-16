@@ -17,9 +17,9 @@ Why a separate sampler from `host_metrics_sampler`:
     agent or node-exporter) have no other history surface — without
     this module the host-drawer chart grid stays empty AND the
     inline Hosts-row sparkline renders nothing. With it, the same
-    Beszel-compatible series envelope that
+    host-drawer time-series envelope that
     `host_metrics_sampler.history_series` emits is available, so
-    the SPA's chart helpers work unchanged.
+    the SPA's chart helpers work unchanged across providers.
 
 Schema mirrors `host_metrics_samples` but in its own table so a
 Pulse-and-NE host (rare but possible — operator runs both) doesn't
@@ -37,10 +37,52 @@ from logic.tuning import Tunable
 from logic.db import (
     db_conn,
     get_setting,
-    get_setting_bool,
     active_host_stats_providers as _active_providers,
 )
 from logic.settings_keys import Settings
+
+
+def _safe_int(v, default: int = 0) -> int:
+    """Coerce to int with explicit narrowing — see same-named helper in
+    host_metrics_sampler.py for the rationale."""
+    if v is None:
+        return default
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(v, default: float = 0.0) -> float:
+    """Coerce to float with explicit narrowing."""
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _int_or_none(v) -> Optional[int]:
+    """Like _safe_int but returns None for missing values rather than 0
+    — INSERT columns where NULL carries the semantic 'field genuinely
+    absent' (vs an explicit zero)."""
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(v) -> Optional[float]:
+    """Companion to _int_or_none for float fields."""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
 
 # Same sanity bounds + rationale as host_metrics_sampler — see that
@@ -51,7 +93,6 @@ _MIN_DELTA_SECONDS = 60
 _MAX_DELTA_SECONDS = 900
 _MIN_DELTA_BYTES = 0
 _MAX_DELTA_BYTES = 10 * 1024 * 1024 * 1024  # 10 GB
-
 
 # Per-host previous (ts, rx_bytes, tx_bytes) — module-level so the
 # delta math survives across ticks. Cleared on lifespan
@@ -69,7 +110,7 @@ def _curated_pulse_hosts() -> list[dict]:
     ``id`` and ``pulse_name``).
     """
     import json as _json
-    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
+    raw = get_setting(Settings.HOSTS_CONFIG) or ""
     if not raw.strip():
         return []
     try:
@@ -99,8 +140,8 @@ async def _probe_one_tick() -> dict:
     map on failure (probe_pulse never raises). Network errors land
     here as a logged warning so the sampler tick still completes.
     """
-    base_url = (get_setting(Settings.PULSE_URL, "") or "").strip()
-    token = (get_setting(Settings.PULSE_TOKEN, "") or "").strip()
+    base_url = (get_setting(Settings.PULSE_URL) or "").strip()
+    token = (get_setting(Settings.PULSE_TOKEN) or "").strip()
     verify_tls = (get_setting(Settings.PULSE_VERIFY_TLS, "true") or "true").lower() == "true"
     if not base_url or not token:
         return {}
@@ -140,11 +181,8 @@ def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
     ns_bps: Optional[float] = None
     if rx_total is not None and tx_total is not None:
         prev = _last_counters.get(host_id)
-        try:
-            rx_now = float(rx_total)
-            tx_now = float(tx_total)
-        except (TypeError, ValueError):
-            rx_now = tx_now = None  # type: ignore[assignment]
+        rx_now = _float_or_none(rx_total)
+        tx_now = _float_or_none(tx_total)
         if rx_now is not None and tx_now is not None:
             if prev is not None:
                 prev_ts, prev_rx, prev_tx = prev
@@ -152,16 +190,19 @@ def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
                 drx = rx_now - prev_rx
                 dtx = tx_now - prev_tx
                 if (_MIN_DELTA_SECONDS <= ds <= _MAX_DELTA_SECONDS
-                        and _MIN_DELTA_BYTES <= drx <= _MAX_DELTA_BYTES
-                        and _MIN_DELTA_BYTES <= dtx <= _MAX_DELTA_BYTES):
+                    and _MIN_DELTA_BYTES <= drx <= _MAX_DELTA_BYTES
+                    and _MIN_DELTA_BYTES <= dtx <= _MAX_DELTA_BYTES):
                     nr_bps = drx / ds
                     ns_bps = dtx / ds
             _last_counters[host_id] = (now, rx_now, tx_now)
     # Skip-empty: if every value is null / 0 / missing, don't insert.
+    cpu_f = _safe_float(cpu)
+    mem_total_f = _safe_float(mem_total)
+    disk_total_f = _safe_float(disk_total)
     has_signal = (
-        (cpu is not None and float(cpu) > 0)
-        or (mem_total is not None and float(mem_total) > 0)
-        or (disk_total is not None and float(disk_total) > 0)
+        cpu_f > 0
+        or mem_total_f > 0
+        or disk_total_f > 0
         or (nr_bps is not None) or (ns_bps is not None)
     )
     if not has_signal:
@@ -183,11 +224,11 @@ def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
         return None
     return (
         int(now), host_id,
-        float(cpu) if cpu is not None else None,
-        int(mem_total) if mem_total is not None else None,
-        int(mem_used) if mem_used is not None else None,
-        int(disk_total) if disk_total is not None else None,
-        int(disk_used) if disk_used is not None else None,
+        _float_or_none(cpu),
+        _int_or_none(mem_total),
+        _int_or_none(mem_used),
+        _int_or_none(disk_total),
+        _int_or_none(disk_used),
         nr_bps, ns_bps,
     )
 
@@ -330,26 +371,26 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
         out.append({
             "ts": int(r[0]),
             "cpu_percent": (float(r[1]) if r[1] is not None else None),
-            "mem_total":   (int(r[2]) if r[2] is not None else None),
-            "mem_used":    (int(r[3]) if r[3] is not None else None),
-            "disk_total":  (int(r[4]) if r[4] is not None else None),
-            "disk_used":   (int(r[5]) if r[5] is not None else None),
-            "net_rx_bps":  (float(r[6]) if r[6] is not None else None),
-            "net_tx_bps":  (float(r[7]) if r[7] is not None else None),
+            "mem_total": (int(r[2]) if r[2] is not None else None),
+            "mem_used": (int(r[3]) if r[3] is not None else None),
+            "disk_total": (int(r[4]) if r[4] is not None else None),
+            "disk_used": (int(r[5]) if r[5] is not None else None),
+            "net_rx_bps": (float(r[6]) if r[6] is not None else None),
+            "net_tx_bps": (float(r[7]) if r[7] is not None else None),
         })
     return out
 
 
 def history_series(host_id: str, hours: int) -> list[dict]:
-    """Beszel-compatible series envelope so the SPA's chart helpers
-    work against the Pulse path with no branching.
+    """Return the host-drawer time-series envelope for one Pulse-only host.
 
     Mirrors ``host_metrics_sampler.history_series``'s output shape
     field-for-field — same key names (``cpu`` / ``mp`` / ``dp`` / ``mu``
     / ``du`` / ``b`` / ``nr`` / ``ns`` / ``net`` / ``dr`` / ``dw`` /
-    ``la1`` / ``la5`` / ``la15`` / ``s`` / ``su``). Pulse doesn't expose
-    load avg / swap / per-disk I/O so those return 0; the SPA's per-card
-    ``maxRaw > 0`` gates hide those panels cleanly.
+    ``la1`` / ``la5`` / ``la15`` / ``s`` / ``su``) so the SPA's chart
+    helpers consume this path without branching on provider. Pulse
+    doesn't expose load avg / swap / per-disk I/O so those return 0;
+    the SPA's per-card ``maxRaw > 0`` gates hide those panels cleanly.
     """
     hours = max(1, min(168, int(hours or 1)))
     since = int(time.time() - hours * 3600)
@@ -365,24 +406,24 @@ def history_series(host_id: str, hours: int) -> list[dict]:
         ns = r.get("net_tx_bps") or 0.0
         net = nr + ns
         series.append({
-            "t":   r["ts"],
+            "t": r["ts"],
             "cpu": r.get("cpu_percent") or 0.0,
-            "mp":  (100.0 * mem_used / mem_total) if mem_total else 0.0,
-            "dp":  (100.0 * disk_used / disk_total) if disk_total else 0.0,
-            "mu":  (mem_used / gib) if mem_used else 0.0,
-            "du":  (disk_used / gib) if disk_used else 0.0,
-            "b":   net,
-            "nr":  nr,
-            "ns":  ns,
+            "mp": (100.0 * mem_used / mem_total) if mem_total else 0.0,
+            "dp": (100.0 * disk_used / disk_total) if disk_total else 0.0,
+            "mu": (mem_used / gib) if mem_used else 0.0,
+            "du": (disk_used / gib) if disk_used else 0.0,
+            "b": net,
+            "nr": nr,
+            "ns": ns,
             "net": net,
             # Pulse doesn't expose per-disk I/O / load avg / swap.
-            "dr":  0.0,
-            "dw":  0.0,
+            "dr": 0.0,
+            "dw": 0.0,
             "la1": 0.0,
             "la5": 0.0,
             "la15": 0.0,
-            "s":   0.0,
-            "su":  0.0,
+            "s": 0.0,
+            "su": 0.0,
         })
     return series
 
@@ -410,11 +451,11 @@ def last_samples(host_id: str, limit: int = 5) -> list[dict]:
         out.append({
             "ts": int(r[0]),
             "cpu_percent": (float(r[1]) if r[1] is not None else None),
-            "mem_total":   (int(r[2]) if r[2] is not None else None),
-            "mem_used":    (int(r[3]) if r[3] is not None else None),
-            "disk_total":  (int(r[4]) if r[4] is not None else None),
-            "disk_used":   (int(r[5]) if r[5] is not None else None),
-            "net_rx_bps":  (float(r[6]) if r[6] is not None else None),
-            "net_tx_bps":  (float(r[7]) if r[7] is not None else None),
+            "mem_total": (int(r[2]) if r[2] is not None else None),
+            "mem_used": (int(r[3]) if r[3] is not None else None),
+            "disk_total": (int(r[4]) if r[4] is not None else None),
+            "disk_used": (int(r[5]) if r[5] is not None else None),
+            "net_rx_bps": (float(r[6]) if r[6] is not None else None),
+            "net_tx_bps": (float(r[7]) if r[7] is not None else None),
         })
     return out

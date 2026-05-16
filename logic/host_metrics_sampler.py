@@ -85,6 +85,21 @@ def _float_or_none(v: Any) -> Optional[float]:
     except (TypeError, ValueError):
         return None
 
+
+def _coerce_counter_pair(a_raw: Any, b_raw: Any) -> Optional[tuple[int, int]]:
+    """Coerce a paired counter (net rx/tx OR disk read/written) to a
+    `(int, int)` tuple, or return None when either value is missing
+    / unparseable. Used by :func:`_compute_row` for the net + disk
+    counter blocks — both follow the same pattern of "if both parse,
+    advance; otherwise drop the pair entirely so we never store a
+    half-real signal."""
+    a = _safe_int(a_raw, -1)
+    b = _safe_int(b_raw, -1)
+    if a < 0 or b < 0:
+        return None
+    return a, b
+
+
 from logic import node_exporter as _ne
 from logic import tuning
 from logic.tuning import Tunable
@@ -221,19 +236,17 @@ def _compute_row(
 
     rx = tx = dr = dw = 0
     if have_net_counters and rx_total is not None and tx_total is not None:
-        rx_n = _safe_int(rx_total, -1)
-        tx_n = _safe_int(tx_total, -1)
-        if rx_n < 0 or tx_n < 0:
+        _net = _coerce_counter_pair(rx_total, tx_total)
+        if _net is None:
             have_net_counters = False
         else:
-            rx, tx = rx_n, tx_n
+            rx, tx = _net
     if have_disk_counters and dr_total is not None and dw_total is not None:
-        dr_n = _safe_int(dr_total, -1)
-        dw_n = _safe_int(dw_total, -1)
-        if dr_n < 0 or dw_n < 0:
+        _disk = _coerce_counter_pair(dr_total, dw_total)
+        if _disk is None:
             have_disk_counters = False
         else:
-            dr, dw = dr_n, dw_n
+            dr, dw = _disk
 
     # Cache the current counters (zeros where unavailable) so the next
     # tick has a baseline. A rejected delta still advances the cache so

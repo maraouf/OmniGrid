@@ -2036,12 +2036,22 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 bits.append(f"{weather['wind_kmh']} km/h wind")
             parts.append(
                 "Current weather (from OmniGrid topbar widget — answer naturally using these "
-                "values, do NOT refuse). USE WEATHER-RELEVANT EMOJIS when describing conditions "
-                "(☀️ clear / ⛅ partly cloudy / ☁️ overcast / 🌧️ rain / ⛈️ thunderstorm / "
-                "❄️ snow / 🌫️ fog / 💨 windy) and a 🌡️ before the temperature, 💧 before "
-                "humidity, 💨 before wind speed — keep the prose itself natural, just sprinkle "
-                "the emojis where they reinforce the value. Example shape: "
-                "'Currently in Cairo: ☀️ clear · 🌡️ 29.7°C · 💧 26% humidity · 💨 10 km/h'. "
+                "values, do NOT refuse). Render a SHORT EXPLANATORY paragraph (3-5 sentences), "
+                "NOT a single-line data dump. Cover, in this order: "
+                "(1) what the sky looks like right now in plain language (e.g. 'sky is clear "
+                "with bright sun' / 'overcast and grey' / 'patches of cloud breaking through') "
+                "with the matching condition emoji (☀️ clear · ⛅ partly cloudy · ☁️ overcast · "
+                "🌧️ rain · ⛈️ thunderstorm · ❄️ snow · 🌫️ fog · 💨 windy); "
+                "(2) the temperature WITH a comfort verdict (e.g. '🌡️ 24°C — mild and "
+                "comfortable' / '🌡️ 38°C — hot, hydrate often' / '🌡️ 2°C — bundle up'); "
+                "(3) humidity AS A FEELING (e.g. '💧 52% — feels balanced' / '💧 82% — sticky "
+                "and muggy' / '💧 18% — dry, watch for static'); "
+                "(4) wind speed WITH a sense of strength (e.g. '💨 3 km/h — barely a breeze' / "
+                "'💨 25 km/h — flags snapping' / '💨 60 km/h — gusty, secure loose objects'); "
+                "(5) ONE practical takeaway tailored to those numbers (e.g. 'good walking "
+                "weather' / 'AC will earn its keep today' / 'umbrella stays at home'). "
+                "Lead with the city name on its own line if the operator asked about a "
+                "specific place. NEVER refuse — these values ARE the answer. "
                 "Values: " + " · ".join(bits)
             )
             # Daily forecast — when present, render up to 7 days so the
