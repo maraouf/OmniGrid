@@ -1231,15 +1231,16 @@ def _prune_old_samples() -> int:
             # fleet of servers; same window as the rest.
             cur4 = c.execute("DELETE FROM host_snmp_temp_samples WHERE ts < ?", (cutoff,))
             removed += cur4.rowcount or 0
-            # Append-only failure-transition log. Retention shares the
-            # same `tuning_stats_history_days` window — operators
-            # typically want the timeline window aligned with the
-            # other time-series (a 7-day chart paired with a 30-day
-            # transition log would be confusing). Cheap (a few rows
-            # per host per outage) so even on a flaky fleet the
-            # blob stays small.
-            cur5 = c.execute("DELETE FROM host_failure_events WHERE ts < ?", (cutoff,))
-            removed += cur5.rowcount or 0
+            # host_failure_events is INTENTIONALLY NOT pruned — operator
+            # preference: keep every incident forever for post-mortem
+            # learning. Rows are sparse (a few per host per outage) so
+            # the table stays small even over years. The Stats →
+            # Incidents view + Timeline tab + any future
+            # learn-from-history surface read this table; truncating
+            # would silently drop historical signal we'd rather grow
+            # with. If retention ever needs revisiting, gate behind a
+            # dedicated `tuning_incidents_retention_days` tunable with
+            # 0 = forever as the default, NOT the shared stats window.
             return removed
     except Exception as e:
         print(f"[host_metrics_sampler] prune failed: {e}")

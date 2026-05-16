@@ -2046,9 +2046,22 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                 "snmp_name":     h.get("snmp_name") or "",
             })
         ctx["hosts"] = host_records
+        # Authoritative counts — the AI must answer "how many hosts"
+        # from these, NOT from len(hosts) (which it sees as the
+        # sample cap of 30). Operator-flagged: with 183 configured
+        # hosts the AI replied "30 hosts" because that's all it
+        # could see in the sample block.
+        ctx["hosts_total"] = len(hosts_cfg)
+        ctx["hosts_enabled"] = sum(
+            1 for h in hosts_cfg if h.get("enabled", True)
+        )
+        ctx["hosts_sample_cap"] = 30
     except Exception as e:
         print(f"[telegram_listener] context hosts build failed: {e}")
         ctx["hosts"] = []
+        ctx["hosts_total"] = 0
+        ctx["hosts_enabled"] = 0
+        ctx["hosts_sample_cap"] = 30
     return ctx
 
 
