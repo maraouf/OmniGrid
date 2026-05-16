@@ -685,7 +685,8 @@
   },
   "tooltips": {
     "cpu_24h": "CPU — last 24h",
-    "mem_24h": "Memory — last 24h"
+    "mem_24h": "Memory — last 24h",
+    "disk_24h": "Disk — last 24h"
   },
   "pagination": {
     "first_page_title": "First page",

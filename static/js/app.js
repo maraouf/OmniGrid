@@ -13340,6 +13340,44 @@ function app() {
           }
         } catch (_) {}
       });
+      // telegram:linked / telegram:unlinked — emitted by the listener
+      // when /link or /unlink succeeds. Re-fetch /api/me so the
+      // Profile → Telegram card flips between "Generate code" and
+      // the linked-state banner without a manual page reload. Payload
+      // carries `username` so we only refresh when the event targets
+      // the operator viewing this tab.
+      es.addEventListener('telegram:linked', (e) => {
+        onAny();
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const payloadUser = (data.payload && data.payload.username) || '';
+          const myUser = (this.me && this.me.username) || '';
+          if (!payloadUser || payloadUser !== myUser) return;
+          console.log('[live] event=telegram:linked username=' + payloadUser);
+          if (typeof fetch === 'function') {
+            fetch('/api/me', { cache: 'no-store' })
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d && d.authenticated) this.me = d; })
+              .catch(() => {});
+          }
+        } catch (_) {}
+      });
+      es.addEventListener('telegram:unlinked', (e) => {
+        onAny();
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const payloadUser = (data.payload && data.payload.username) || '';
+          const myUser = (this.me && this.me.username) || '';
+          if (!payloadUser || payloadUser !== myUser) return;
+          console.log('[live] event=telegram:unlinked username=' + payloadUser);
+          if (typeof fetch === 'function') {
+            fetch('/api/me', { cache: 'no-store' })
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d && d.authenticated) this.me = d; })
+              .catch(() => {});
+          }
+        } catch (_) {}
+      });
       es.addEventListener('session:renewed', (e) => {
         onAny();
         if (this._isSelfEvent(e)) return;
