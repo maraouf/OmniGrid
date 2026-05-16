@@ -374,6 +374,133 @@ def _host_status_emoji(h: dict) -> str:
 
 
 # ----------------------------------------------------------------------------
+# Telegram user_id ↔ OmniGrid username mapping
+# ----------------------------------------------------------------------------
+def _load_mappings() -> dict[str, str]:
+    """Return the persisted mapping ``{telegram_user_id_str: username}``.
+
+    Stored as JSON in settings KV under ``telegram_user_mappings``.
+    Empty / corrupt rows produce an empty dict. Telegram user_ids are
+    keyed as strings (JSON has no int keys) — callers should `str(...)`
+    the int before lookup.
+    """
+    import json
+    from logic.db import get_setting
+    raw = (get_setting("telegram_user_mappings", "") or "").strip()
+    if not raw:
+        return {}
+    try:
+        m = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return m if isinstance(m, dict) else {}
+
+
+def _save_mappings(mappings: dict[str, str]) -> None:
+    """Persist the mapping dict back to settings. Quiet on failure."""
+    import json
+    from logic.db import set_setting
+    try:
+        set_setting("telegram_user_mappings", json.dumps(mappings))
+    except (TypeError, ValueError) as e:
+        print(f"[telegram_listener] mapping save failed: {e}")
+
+
+def _lookup_omnigrid_user(telegram_user_id: int) -> Optional[str]:
+    """Return the OmniGrid username for one Telegram user_id, or None
+    if the user hasn't linked yet."""
+    if telegram_user_id is None:
+        return None
+    return _load_mappings().get(str(int(telegram_user_id)))
+
+
+def _consume_link_code(code: str) -> Optional[str]:
+    """Look up the Profile-minted one-time link code.
+
+    Walks every user's ``ui_prefs.telegram_link_code`` field. Returns
+    the username on match + TTL-OK, deletes the row from that user's
+    ui_prefs so the code can't be replayed. Returns None on miss /
+    expired / no-such-user.
+    """
+    import json
+    import time as _time
+    from logic.db import db_conn
+    code = (code or "").strip()
+    if not code:
+        return None
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT username, ui_prefs FROM users WHERE ui_prefs IS NOT NULL"
+            ).fetchall()
+    except Exception as e:
+        print(f"[telegram_listener] _consume_link_code lookup failed: {e}")
+        return None
+    now_ms = int(_time.time() * 1000)
+    for row in rows:
+        try:
+            username = row["username"] if hasattr(row, "keys") else row[0]
+            ui_prefs_raw = row["ui_prefs"] if hasattr(row, "keys") else row[1]
+        except (KeyError, IndexError):
+            continue
+        if not ui_prefs_raw:
+            continue
+        try:
+            prefs = json.loads(ui_prefs_raw)
+        except (ValueError, TypeError):
+            continue
+        stored = (prefs.get("telegram_link_code") or "").strip()
+        expires = int(prefs.get("telegram_link_code_expires_ms") or 0)
+        if stored and stored == code and expires > now_ms:
+            # Consume the code — single-use, regardless of whether
+            # mapping persistence succeeds below.
+            prefs.pop("telegram_link_code", None)
+            prefs.pop("telegram_link_code_expires_ms", None)
+            try:
+                with db_conn() as c:
+                    c.execute(
+                        "UPDATE users SET ui_prefs = ? WHERE username = ?",
+                        (json.dumps(prefs), username),
+                    )
+            except Exception as e:
+                print(f"[telegram_listener] _consume_link_code wipe failed: {e}")
+            return username
+    return None
+
+
+def _load_user_weather_pref(username: str) -> Optional[dict]:
+    """Read ``ui_prefs.weather_location`` for one user. Returns a dict
+    with at least ``lat`` / ``lon`` keys, or None if unset / malformed.
+    """
+    import json
+    from logic.db import db_conn
+    if not username:
+        return None
+    try:
+        with db_conn() as c:
+            row = c.execute(
+                "SELECT ui_prefs FROM users WHERE username = ?", (username,)
+            ).fetchone()
+    except Exception:
+        return None
+    if not row:
+        return None
+    raw = row[0] if not hasattr(row, "keys") else row["ui_prefs"]
+    if not raw:
+        return None
+    try:
+        prefs = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    loc = prefs.get("weather_location")
+    if not isinstance(loc, dict):
+        return None
+    if loc.get("lat") is None or loc.get("lon") is None:
+        return None
+    return loc
+
+
+# ----------------------------------------------------------------------------
 # Command handlers
 # ----------------------------------------------------------------------------
 async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
@@ -505,6 +632,155 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         )
 
 
+async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """Debug aid — tells the user their Telegram user_id + the
+    OmniGrid username they're linked to (or that they aren't)."""
+    sender = (msg.get("from") or {})
+    sender_id = sender.get("id")
+    sender_name = (sender.get("username") or sender.get("first_name") or "").strip()
+    mapped = _lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    if mapped:
+        await _send_reply(
+            client,
+            f"You are linked to OmniGrid user <b>{_escape(mapped)}</b>.\n"
+            f"<i>Telegram user_id: <code>{sender_id}</code></i>"
+        )
+    else:
+        await _send_reply(
+            client,
+            f"You aren't linked to any OmniGrid user yet.\n\n"
+            f"<i>Telegram user_id: <code>{sender_id}</code></i>\n"
+            f"<i>Telegram username: @{_escape(sender_name) or 'unknown'}</i>\n\n"
+            f"Generate a link code in OmniGrid → Profile → Telegram, then "
+            f"reply with <code>/link &lt;code&gt;</code>."
+        )
+
+
+async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/link <code>`` — bind the sender's Telegram user_id to an
+    OmniGrid user. Code is minted by the SPA's Profile section and
+    valid for 15 minutes, single-use."""
+    if not args:
+        await _send_reply(client, "Usage: <code>/link &lt;code&gt;</code>")
+        return
+    sender_id = (msg.get("from") or {}).get("id")
+    if sender_id is None:
+        await _send_reply(client, "Can't read your Telegram user_id from the message.")
+        return
+    code = args[0].strip()
+    username = _consume_link_code(code)
+    if not username:
+        await _send_reply(
+            client,
+            "❌ Invalid or expired link code. Generate a fresh one in "
+            "OmniGrid → Profile → Telegram and try again."
+        )
+        return
+    mappings = _load_mappings()
+    mappings[str(int(sender_id))] = username
+    _save_mappings(mappings)
+    await _send_reply(
+        client,
+        f"✅ Linked to OmniGrid user <b>{_escape(username)}</b>. "
+        f"You can now run authenticated commands."
+    )
+
+
+async def _cmd_unlink(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/unlink`` — drop the sender's Telegram → OmniGrid mapping."""
+    sender_id = (msg.get("from") or {}).get("id")
+    if sender_id is None:
+        await _send_reply(client, "Can't read your Telegram user_id from the message.")
+        return
+    mappings = _load_mappings()
+    key = str(int(sender_id))
+    if key not in mappings:
+        await _send_reply(client, "You weren't linked. Nothing to unlink.")
+        return
+    removed = mappings.pop(key)
+    _save_mappings(mappings)
+    await _send_reply(
+        client,
+        f"✅ Unlinked from OmniGrid user <b>{_escape(removed)}</b>. "
+        f"Re-link via Profile → Telegram in OmniGrid."
+    )
+
+
+async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/weather`` — fetch the linked OmniGrid user's saved weather
+    location and return current conditions + a 3-day forecast snippet.
+    """
+    sender_id = (msg.get("from") or {}).get("id")
+    username = _lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    if not username:
+        await _send_reply(
+            client,
+            "Link your account first. Generate a code in OmniGrid → "
+            "Profile → Telegram, then reply with <code>/link &lt;code&gt;</code>."
+        )
+        return
+    loc = _load_user_weather_pref(username)
+    if loc is None:
+        await _send_reply(
+            client,
+            f"OmniGrid user <b>{_escape(username)}</b> has no weather "
+            f"location saved. Set one in OmniGrid → Profile → Weather "
+            f"(or click a city in the topbar weather widget)."
+        )
+        return
+    # Re-use the existing /api/weather upstream by calling the
+    # in-process handler. We could call the API endpoint over HTTP,
+    # but that adds an unnecessary round-trip when both run in the
+    # same process.
+    from main import api_weather as _api_weather  # local import to avoid circular at module load
+    label = (loc.get("label") or "").strip() or "weather"
+    try:
+        data = await _api_weather(
+            lat=float(loc["lat"]),
+            lon=float(loc["lon"]),
+            label=label,
+        )
+    except Exception as e:
+        await _send_reply(client, f"❌ Weather lookup failed: <code>{_escape(str(e))}</code>")
+        return
+    if not isinstance(data, dict) or data.get("error"):
+        err = (data or {}).get("error") if isinstance(data, dict) else "no response"
+        await _send_reply(
+            client,
+            f"❌ Weather upstream error: <code>{_escape(str(err))}</code>"
+        )
+        return
+    temp = data.get("temp_c")
+    humid = data.get("humidity")
+    wind = data.get("wind_kmh")
+    cond = data.get("condition") or ""
+    head = f"<b>{_escape(label)}</b>"
+    body_parts: list[str] = []
+    if temp is not None:
+        body_parts.append(f"🌡 {temp}°C")
+    if cond:
+        body_parts.append(_escape(cond))
+    if humid is not None:
+        body_parts.append(f"💧 {humid}%")
+    if wind is not None:
+        body_parts.append(f"💨 {wind} km/h")
+    line1 = " — ".join(body_parts) if body_parts else "(no current data)"
+    forecast = data.get("forecast") or []
+    forecast_lines: list[str] = []
+    for day in forecast[:3]:
+        date = day.get("date") or "?"
+        hi = day.get("temp_max_c")
+        lo = day.get("temp_min_c")
+        c = day.get("condition") or ""
+        forecast_lines.append(
+            f"  • {_escape(date)}: {hi}° / {lo}°  {_escape(c)}"
+        )
+    text = head + "\n" + line1
+    if forecast_lines:
+        text += "\n\n<b>Next 3 days:</b>\n" + "\n".join(forecast_lines)
+    await _send_reply(client, text)
+
+
 def _escape(s: str) -> str:
     """HTML-escape a string for Telegram parse_mode=HTML."""
     return (str(s or "")
@@ -552,7 +828,147 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "usage":       "/restart <target>",
         "description": "Restart a host via SSH (destructive — requires confirm)",
     },
+    "/link": {
+        "handler":     _cmd_link,
+        "usage":       "/link <code>",
+        "description": "Link your Telegram account to an OmniGrid user (code minted in Profile → Telegram)",
+    },
+    "/unlink": {
+        "handler":     _cmd_unlink,
+        "usage":       "/unlink",
+        "description": "Remove the Telegram → OmniGrid user link",
+    },
+    "/whoami": {
+        "handler":     _cmd_whoami,
+        "usage":       "/whoami",
+        "description": "Show which OmniGrid user (if any) your Telegram account is linked to",
+    },
+    "/weather": {
+        "handler":     _cmd_weather,
+        "usage":       "/weather",
+        "description": "Show the weather for your saved location (set it in Profile → Weather)",
+    },
 }
+
+
+# ----------------------------------------------------------------------------
+# AI fallback for non-`/` text
+# ----------------------------------------------------------------------------
+import re as _re
+
+# Strip every action / memory directive the AI palette knows about
+# BEFORE rendering text back to Telegram. Telegram is read-only for
+# AI in this phase — slash-commands are the only path that can
+# trigger side effects.
+_AI_DIRECTIVE_LINE = _re.compile(
+    r"^\s*(?:ACTION|ACTION_HOSTS|MEMORY|MEMORY-FORGET|CHART_KIND)\s*:.*$",
+    flags=_re.IGNORECASE | _re.MULTILINE,
+)
+
+
+def _strip_ai_directives(text: str) -> str:
+    """Remove every AI-palette directive line from `text` and collapse
+    excess whitespace. Returns the conversational body only."""
+    if not text:
+        return ""
+    cleaned = _AI_DIRECTIVE_LINE.sub("", text)
+    # Collapse 3+ newlines to a paragraph break.
+    cleaned = _re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+async def _ai_reply(
+    client: httpx.AsyncClient,
+    text: str,
+    msg: dict,
+    omnigrid_username: str,
+) -> None:
+    """Route a non-`/` Telegram message through the AI palette and
+    reply with the conversational response.
+
+    Action directives are stripped from the AI's output — Telegram
+    cannot trigger actions through AI in this phase. The AI gets a
+    constrained system prompt that tells it Telegram is read-only,
+    so it shouldn't emit `ACTION:` directives in the first place; the
+    strip pass is defence-in-depth.
+    """
+    try:
+        from logic import ai as _ai
+        from logic.db import get_setting, get_setting_bool
+    except Exception as e:
+        print(f"[telegram_listener] _ai_reply import failed: {e}")
+        return
+    if not get_setting_bool("ai_enabled", False):
+        await _send_reply(
+            client,
+            "AI integration is disabled. Enable it in OmniGrid → "
+            "Admin → AI Integration, or use <code>/help</code> for "
+            "available commands."
+        )
+        return
+    provider = (get_setting("ai_active_provider", "") or "").strip().lower()
+    if not provider:
+        await _send_reply(client, "No AI provider configured. Set one in Admin → AI Integration.")
+        return
+    # Per-provider API key lookup.
+    api_key = (get_setting(f"ai_provider_{provider}_api_key", "") or "").strip()
+    if not api_key:
+        await _send_reply(
+            client,
+            f"AI provider <b>{_escape(provider)}</b> is selected but has no API key configured."
+        )
+        return
+    model = (get_setting(f"ai_provider_{provider}_model", "") or "").strip() or None
+    base_url = (get_setting(f"ai_provider_{provider}_base_url", "") or "").strip() or None
+    system_prompt = (
+        "You are OmniGrid's Telegram assistant, replying to operator "
+        f"'{omnigrid_username}'. Telegram is a READ-ONLY surface in this "
+        "phase: you can answer questions about the fleet, summarise "
+        "status, explain features, but you MUST NOT emit ACTION: / "
+        "ACTION_HOSTS: / MEMORY: directives — those are silently "
+        "stripped before the reply reaches the user. If the operator "
+        "asks you to DO something (restart, pause, configure), tell "
+        "them to use the slash command (e.g. /restart <target>) or "
+        "the SPA. Keep replies brief — Telegram messages stay readable "
+        "under 4096 characters; aim for under 500."
+    )
+    try:
+        result = await _ai.ask_provider(
+            provider,
+            api_key=api_key,
+            prompt=text,
+            system_prompt=system_prompt,
+            model=model,
+            base_url=base_url,
+            # Bounded so a runaway response can't blow the Telegram
+            # 4096-char per-message limit (most prompts fit in 1024
+            # output tokens ≈ 3-4k chars).
+            max_tokens=512,
+        )
+    except Exception as e:
+        await _send_reply(client, f"❌ AI call failed: <code>{_escape(str(e))}</code>")
+        return
+    if not isinstance(result, dict) or not result.get("ok"):
+        detail = (result or {}).get("detail") if isinstance(result, dict) else "no response"
+        await _send_reply(
+            client,
+            f"❌ AI provider error: <code>{_escape(str(detail))}</code>"
+        )
+        return
+    raw_text = (result.get("text") or "").strip()
+    clean = _strip_ai_directives(raw_text)
+    if not clean:
+        await _send_reply(client, "<i>(empty AI response)</i>")
+        return
+    # Telegram caps a single message at 4096 chars including HTML
+    # tags. _send_reply will fail HTTP-400 if we exceed; pre-trim
+    # with a clear "(truncated)" marker so the operator knows.
+    MAX = 3800  # leave headroom for HTML overhead
+    if len(clean) > MAX:
+        clean = clean[:MAX] + "\n\n<i>…(truncated)</i>"
+    # Escape for HTML parse_mode — the AI's response might contain
+    # &, <, > that Telegram's parser would otherwise reject.
+    await _send_reply(client, _escape(clean))
 
 
 # ----------------------------------------------------------------------------
@@ -568,7 +984,27 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
         return
     msg = update.get("message") or update.get("edited_message") or {}
     text = (msg.get("text") or "").strip()
-    if not text or not text.startswith("/"):
+    if not text:
+        return
+    if not text.startswith("/"):
+        # Non-slash text → route to AI for a conversational reply.
+        # CRITICAL: Telegram NEVER triggers actions through AI in this
+        # phase — `/commands` are the ONLY action surface. The AI's
+        # `ACTION:` / `ACTION_HOSTS:` / `MEMORY:` directives are
+        # stripped from the response before posting back to Telegram.
+        # Mapping gate applies here too — unmapped Telegram users get
+        # NO AI access (would leak fleet context to an unauthenticated
+        # sender). Reply prompts them to /link first.
+        sender_id = (msg.get("from") or {}).get("id")
+        mapped = _lookup_omnigrid_user(sender_id) if sender_id is not None else None
+        if not mapped:
+            await _send_reply(
+                client,
+                "🔒 Link your account first. Generate a code in OmniGrid → "
+                "Profile → Telegram, then reply with <code>/link &lt;code&gt;</code>."
+            )
+            return
+        await _ai_reply(client, text, msg, mapped)
         return
     # Telegram allows `/cmd@BotName` form — strip the @BotName suffix.
     parts = text.split()
@@ -585,6 +1021,23 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
             f"Unknown command <code>{_escape(head)}</code>. Try <code>/help</code>."
         )
         return
+    # Mapping gate — commands NOT in the "open" set require the sender
+    # to be linked to an OmniGrid user first. /link / /help / /start /
+    # /whoami stay open so an unmapped operator can discover the
+    # mapping flow + verify their user_id.
+    open_commands = {"/link", "/help", "/start", "/whoami"}
+    if head not in open_commands:
+        sender_id = (msg.get("from") or {}).get("id")
+        mapped = _lookup_omnigrid_user(sender_id) if sender_id is not None else None
+        if not mapped:
+            await _send_reply(
+                client,
+                "🔒 Link your account first. Generate a code in OmniGrid → "
+                "Profile → Telegram, then reply with <code>/link &lt;code&gt;</code>. "
+                "Use <code>/help</code> for the command list, <code>/whoami</code> "
+                "to see your Telegram user_id."
+            )
+            return
     handler = meta.get("handler")
     if handler is None:
         await _send_reply(

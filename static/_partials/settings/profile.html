@@ -343,6 +343,60 @@
           </div>
         </section>
 
+        <!-- ===== Telegram link card — full-width row spanning both
+             grid columns. Generates a one-time 6-digit code the user
+             types into Telegram as `/link <code>` to bind their
+             Telegram user_id to this OmniGrid account. Once linked,
+             Telegram commands (/restart, /weather, /hosts, etc.) run
+             as this user. Code is single-use + 15-minute TTL —
+             re-generate after expiry. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-message-circle"/></svg>
+            <h3 class="font-semibold fs-md" x-text="t('profile.telegram.title')"></h3>
+          </div>
+          <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug"
+             x-text="t('profile.telegram.intro')"></p>
+          <div class="flex items-center gap-3 flex-wrap">
+            <button type="button" @click="generateTelegramLinkCode()"
+                    :disabled="telegramLinkBusy"
+                    class="btn btn-primary fs-sm">
+              <span x-show="!telegramLinkBusy" x-text="t('profile.telegram.generate_button')"></span>
+              <span x-show="telegramLinkBusy" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.working')"></span></span>
+            </button>
+            <button type="button" @click="unlinkTelegram()"
+                    :disabled="telegramLinkBusy"
+                    class="btn btn-soft fs-sm"
+                    x-text="t('profile.telegram.unlink_button')"></button>
+          </div>
+          <!-- Generated code panel — shown only after a successful
+               mint. Code copies to clipboard on click for one-tap
+               paste into the Telegram chat. -->
+          <div x-show="telegramLinkCode" class="mt-3 p-3 rounded-md bg-[var(--surface-2)] border border-[var(--border)]">
+            <p class="fs-xs text-[var(--text-faint)] mb-1"
+               x-text="t('profile.telegram.code_label')"></p>
+            <div class="flex items-center gap-3 flex-wrap">
+              <code class="mono fs-lg font-semibold text-[var(--primary)] tracking-wider px-2 py-1"
+                    x-text="telegramLinkCode"></code>
+              <button type="button" @click="copyTelegramLinkCode()"
+                      class="btn btn-soft fs-xs inline-flex items-center gap-1.5"
+                      :title="t('actions.copy')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
+                <span x-text="t('actions.copy')"></span>
+              </button>
+              <span class="fs-2xs text-[var(--text-faint)]"
+                    x-show="telegramLinkExpiresMs"
+                    x-text="t('profile.telegram.expires_in', { mins: telegramLinkMinsRemaining() })"></span>
+            </div>
+            <p class="fs-2xs text-[var(--text-faint)] mt-2 leading-snug"
+               x-html="t('profile.telegram.code_usage_html')"></p>
+          </div>
+          <div x-show="telegramLinkError" class="mt-3 p-2 rounded fs-xs bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]"
+               x-text="telegramLinkError"></div>
+          <div x-show="telegramLinkSuccess" class="mt-3 p-2 rounded fs-xs bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]"
+               x-text="telegramLinkSuccess"></div>
+        </section>
+
       </div>
 
       <!-- ===== SECURITY section — settings-sidebar peer of
