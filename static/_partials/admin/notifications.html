@@ -23,10 +23,16 @@
         <div class="flex flex-wrap items-center gap-1 mb-3 pb-2 border-b border-[var(--border)]"
              role="tablist" aria-orientation="horizontal"
              :aria-label="t('admin.notifications.tabs_label')">
+          <!-- Tab tuple shape: [name, label, icon_kind, icon_id].
+               `icon_kind === 'sprite'` → consume #icon-<id> from the
+               internal sprite (used for In-app's bell — no brand
+               identity to honour). `icon_kind === 'brand'` → render
+               `<img src="/img/icons/<id>.svg">` so the Apprise + Telegram
+               brand marks display in their canonical colours and shape. -->
           <template x-for="tab in [
-                     ['app',      t('admin.notifications.tab_app'),      'icon-bell'],
-                     ['apprise',  t('admin.notifications.tab_apprise'),  'icon-arrow-up-right'],
-                     ['telegram', t('admin.notifications.tab_telegram'), 'icon-message-circle'],
+                     ['app',      t('admin.notifications.tab_app'),      'sprite', 'icon-bell'],
+                     ['apprise',  t('admin.notifications.tab_apprise'),  'brand',  'apprise'],
+                     ['telegram', t('admin.notifications.tab_telegram'), 'brand',  'telegram'],
                    ]" :key="tab[0]">
             <button type="button"
                     role="tab"
@@ -37,9 +43,15 @@
                     :class="notificationsTab === tab[0]
                             ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
                             : 'text-[var(--text-dim)] hover:bg-[var(--surface-2)]'">
-              <svg width="12" height="12" aria-hidden="true">
-                <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + tab[2]"/>
-              </svg>
+              <template x-if="tab[2] === 'sprite'">
+                <svg width="12" height="12" aria-hidden="true">
+                  <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + tab[3]"/>
+                </svg>
+              </template>
+              <template x-if="tab[2] === 'brand'">
+                <img width="14" height="14" alt="" aria-hidden="true"
+                     :src="'/img/icons/' + tab[3] + '.svg?v=__APP_VERSION__'">
+              </template>
               <span x-text="tab[1]"></span>
             </button>
           </template>
@@ -190,33 +202,30 @@
                        : (telegramTestResult ? ((telegramTestResult.ok ? '✓ ' : '✗ ') + (telegramTestResult.detail || '')) : '')"></div>
         </div>
 
-        <!-- Per-event toggles. Wrapped in a distinct surface-2 box
-             so users see it's a SEPARATE section from the provider
-             tabs above (channel configuration vs event-routing
-             configuration). Same Save button as the Apprise panel —
-             every event toggle joins the Apprise dirty snapshot so a
-             single Save POST covers everything in this admin tab. The
-             /api/notify-test endpoint always sends, so a test fires
-             regardless of these checkboxes. -->
-        <div class="mt-6 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-4">
-          <div class="flex items-center gap-2 mb-1">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-list"/></svg>
-            <h4 class="font-semibold fs-sm" x-text="t('admin.notifications.events.title')"></h4>
-          </div>
-          <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.notifications.events.subtitle')"></p>
+      </section>
 
-          <!-- Categorised event toggles — same `notifyCategories()`
-               source the Profile → Notifications page uses, so both
-               surfaces stay aligned and adding a new event in one
-               place auto-appears in the other. Admin keeps single-
-               toggle-per-event semantics (global enable / disable per
-               event); per-medium routing lives on the Profile page.
-               Each category renders as a collapsible card; events
-               under that category show as a flat per-row toggle list.
-               Operations rows expand to two checkboxes (success /
-               failure) since they pair via `notifyEventGroups`; Health
-               + Security rows show a single Enabled toggle. -->
-          <div class="flex flex-col gap-2 mb-3">
+      <!-- ============== PER-EVENT NOTIFICATIONS — SIBLING SECTION
+           Stands alone as a top-level card outside the channel-
+           configuration section above so the operator sees it as a
+           DISTINCT concern (event routing vs channel setup). Save
+           button in the parent section still commits both surfaces
+           because `appriseDirty()` covers every dirty field on the
+           page regardless of which section it lives in. ============ -->
+      <section x-show="adminTab==='notifications'"
+               class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 mt-4">
+        <div class="flex items-center gap-2 mb-1">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/></svg>
+          <h3 class="font-semibold fs-md" x-text="t('admin.notifications.events.title')"></h3>
+        </div>
+        <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.notifications.events.subtitle')"></p>
+
+        <!-- Categorised event toggles — same `notifyCategories()`
+             source the Profile → Notifications page uses, so both
+             surfaces stay aligned and adding a new event in one
+             place auto-appears in the other. Admin keeps single-
+             toggle-per-event semantics (global enable / disable per
+             event); per-medium routing lives on the Profile page. -->
+        <div class="flex flex-col gap-2 mb-3">
             <template x-for="cat in notifyCategories()" :key="'admin-cat-' + cat.id">
               <section class="notify-category">
                 <button type="button"
