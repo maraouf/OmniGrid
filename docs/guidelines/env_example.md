@@ -369,11 +369,85 @@ AI_RETRY_BACKOFF_MS=2000
 AI_RETRY_FIRST_ATTEMPT_MAX_MS=5000
 AI_FALLBACK_MAX_DEPTH=1
 
+# Telegram listener long-poll + outer HTTP timeout. Telegram holds the
+# `getUpdates` connection open this many seconds waiting for an update
+# (server cap is 50; default 25 balances "fast wake-up on inactivity"
+# with "amortise round-trip cost"). The outer HTTP timeout sits slightly
+# above so Telegram has time to flush a long-poll response. Range
+# 1..50 (long-poll) and 5..120 (HTTP); raise both in lock-step if a
+# tight reverse-proxy `proxy_read_timeout` aborts the read.
+TELEGRAM_LONG_POLL_TIMEOUT_SECONDS=25
+TELEGRAM_HTTP_TIMEOUT_SECONDS=35
+
+# Host baseline sampler — controls the per-host drift detector. The
+# sampler recomputes a 30-day rolling baseline (median ± IQR) for CPU%
+# / Memory% / Disk% / Ping RTT once per `recompute_interval`. Baselines
+# move slowly so hourly is the default; high-churn fleets may want
+# 30 min, monotonic fleets 6h. `first_tick_delay` lets schema migrations
+# land before the first read of `host_baselines`. `min_samples` is the
+# IQR floor below which a metric stays unbaselined (drift chip hidden);
+# default 20 = practical Tukey IQR floor, ~1.5 h at 5-min sample cadence.
+# `window_days` is the rolling-window lookback (lower for high-churn,
+# raise to smooth seasonal patterns).
+HOST_BASELINE_RECOMPUTE_INTERVAL_SECONDS=3600
+HOST_BASELINE_FIRST_TICK_DELAY_SECONDS=60
+HOST_BASELINE_MIN_SAMPLES=20
+HOST_BASELINE_WINDOW_DAYS=30
+
+# Public-IP lookup module — admin-opt-in fetch from ifconfig.co for the
+# AI palette + Telegram /ip context block. Default OFF for privacy:
+# enabling authorises an outbound call to a third-party JSON service
+# (reveals deployment IP / ISP / ASN / geolocation). Cache TTL is the
+# in-process memo window (default 600 s caps upstream at ~144/day even
+# under heavy use). Fetch timeout caps the outbound HTTP call.
+PUBLIC_IP_ENABLED=0
+PUBLIC_IP_CACHE_TTL_SECONDS=600
+PUBLIC_IP_FETCH_TIMEOUT_SECONDS=8
+
+# Asset-inventory outbound HTTP wall-clocks. Two tiers — token probe
+# (OAuth2 client_credentials handshake, default 10 s) and asset fetch
+# (paginated `/assets` pull, default 15 s). Bump on slow corporate
+# networks / proxied tunnels; lower for tight-watchdog deploys. Range
+# 2..120 (token) / 2..300 (fetch).
+ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS=10
+ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS=15
+
+# Cold-cache `_gather()` kick wall-clock. Bounds the synchronous wait
+# on drill-down endpoints when the items cache is empty. Default 30 s
+# covers a typical Portainer fan-out; raise to 60-120 s on large fleets
+# / slow registries. Range 5..300.
+KICK_GATHER_TIMEOUT_SECONDS=30
+
+# Portainer write-op wall-clocks. Three tiers — short (container
+# restart / remove, default 120 s), medium (service-level + prune,
+# default 300 s), long (stack updates + image-pull-heavy paths,
+# default 600 s). Raise the matching tier when the specific op class
+# is consistently timing out on slow networks / large stacks / slow
+# registries. Tier ceilings are tighter than the next tier's floors
+# so admins can't accidentally invert the ordering.
+PORTAINER_OP_TIMEOUT_SHORT_SECONDS=120
+PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS=300
+PORTAINER_OP_TIMEOUT_LONG_SECONDS=600
+
+# Per-field stale grace cap (hours). When `apply_host_snapshot_fallback`
+# restores a missing live field from the snapshot, it stamps the field
+# as stale. Once the field has been stale for longer than this many
+# hours, it's dropped from BOTH the merged dict AND the next saved
+# snapshot so orphans decay naturally. Default 24 covers transient
+# outages without keeping orphans forever. Range 1..720.
+HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS=24
+
 # Backup retention count — how many backup zips under /app/data/backups/
 # the `backup` schedule kind keeps after a successful create. 0 (default)
-# = keep ALL backups (back-compat). Operator typically wants 7-30 to bound
+# = keep ALL backups (back-compat). Typical setting is 7-30 to bound
 # disk growth on a daily schedule. Range 0..1000.
 BACKUP_RETENTION_COUNT=0
+
+# Config-backup retention count — analogous knob for the new
+# `config_backup` schedule kind (Settings-as-Code snapshots under
+# /app/data/config_backups/). Default 30 = ~one month at daily cadence.
+# 0 = unlimited.
+CONFIG_BACKUP_RETENTION_COUNT=30
 
 # SSH terminal WebSocket heartbeat (seconds). Server-side ping interval
 # that keeps the WSS connection alive past idle-timeouts in NPM /
@@ -582,6 +656,23 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `AI_RETRY_FIRST_ATTEMPT_MAX_MS`   | Runtime     | `5000`               | First-attempt-max-duration gate — retry only fires when the first attempt resolved in < this many ms. Range 100..60000. |
 | `AI_FALLBACK_MAX_DEPTH`           | Runtime     | `1`                  | AI provider fallback chain depth — number of backup providers tried on transient overload. Range 0..3 (0 disables the chain). |
 | `BACKUP_RETENTION_COUNT`          | Runtime     | `0`                  | Number of recent backup zips the `backup` schedule kind keeps after a successful create (0 = keep all). Range 0..1000. |
+| `CONFIG_BACKUP_RETENTION_COUNT`   | Runtime     | `30`                 | Number of `config_backup` snapshots retained under `/app/data/config_backups/`. 0 = unlimited. Range 0..1000. |
+| `TELEGRAM_LONG_POLL_TIMEOUT_SECONDS` | Runtime  | `25`                 | Telegram `getUpdates` long-poll timeout. Range 1..50 (Telegram server cap). |
+| `TELEGRAM_HTTP_TIMEOUT_SECONDS`   | Runtime     | `35`                 | Outer HTTP timeout for the Telegram listener; should sit slightly above the long-poll value. Range 5..120. |
+| `HOST_BASELINE_RECOMPUTE_INTERVAL_SECONDS` | Runtime | `3600`        | Cadence for the host-baseline drift sampler. Range 60..86400. |
+| `HOST_BASELINE_FIRST_TICK_DELAY_SECONDS` | Runtime | `60`             | Delay before the first baseline pass after lifespan start. Range 5..600. |
+| `HOST_BASELINE_MIN_SAMPLES`       | Runtime     | `20`                 | Minimum sample count before a metric gets an IQR baseline (drift chip is hidden below this). Range 5..500. |
+| `HOST_BASELINE_WINDOW_DAYS`       | Runtime     | `30`                 | Rolling-window lookback (days) for the baseline computation. Range 1..365. |
+| `PUBLIC_IP_ENABLED`               | Runtime     | `0`                  | Master gate for the Public-IP lookup module (Admin → Public IP). Default OFF — enabling authorises outbound calls to ifconfig.co. |
+| `PUBLIC_IP_CACHE_TTL_SECONDS`     | Runtime     | `600`                | In-process cache TTL for Public-IP lookups. Range 60..3600. |
+| `PUBLIC_IP_FETCH_TIMEOUT_SECONDS` | Runtime     | `8`                  | HTTP timeout for the Public-IP fetch against ifconfig.co. Range 2..60. |
+| `ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS` | Runtime | `10`              | OAuth2 token-handshake timeout for the asset-inventory client. Range 2..120. |
+| `ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS` | Runtime | `15`              | Asset-list fetch timeout for the asset-inventory client. Range 2..300. |
+| `KICK_GATHER_TIMEOUT_SECONDS`     | Runtime     | `30`                 | Wall-clock cap for the cold-cache `_gather()` kick on drill-down endpoints. Range 5..300. |
+| `PORTAINER_OP_TIMEOUT_SHORT_SECONDS` | Runtime  | `120`                | Portainer write-op wall-clock — short tier (container restart / remove). Range 10..600. |
+| `PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS` | Runtime | `300`                | Portainer write-op wall-clock — medium tier (service-level + prune). Range 30..1800. |
+| `PORTAINER_OP_TIMEOUT_LONG_SECONDS` | Runtime   | `600`                | Portainer write-op wall-clock — long tier (stack update + image-pull-heavy paths). Range 60..3600. |
+| `HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS` | Runtime | `24`            | Per-field stale grace cap (hours) before snapshot-restored fields decay out of both the merged dict and the next saved snapshot. Range 1..720. |
 | `SSH_WS_HEARTBEAT_SECONDS`        | Runtime     | `25`                 | SSH terminal WebSocket server-ping cadence (seconds). Keeps the WSS connection alive past upstream proxy idle timers. Range 5..120. |
 | `DOCKERHUB_USER`                  | Optional    | unset                | Docker Hub auth (avoid anonymous rate limits).                                  |
 | `DOCKERHUB_TOKEN`                 | Optional    | unset                | Paired with `DOCKERHUB_USER`.                                                   |

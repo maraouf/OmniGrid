@@ -768,17 +768,33 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     """Auto-generated help — iterates `_COMMANDS` so adding a new
     handler shows up in `/help` with no extra wiring.
 
-    Commands sharing a handler are GROUPED — the primary command's
-    usage stays as-is, and any alias names are appended in a
-    comma-separated suffix on the same line (``/whoami, /myid``).
-    The primary is the first dict entry pointing at that handler;
-    aliases are subsequent entries (typically flagged ``hidden=True``
-    to mark intent, though that flag no longer hides them from /help
-    — it just disambiguates "primary vs alias" for ordering).
+    Commands are grouped by ``category`` (each entry in `_COMMANDS`
+    carries one) and each category renders as a bold section header
+    with a category-specific emoji prefix so the menu scans at a
+    glance. Within a category, commands sharing a handler are GROUPED
+    — the primary command's usage stays as-is, and any alias names
+    are appended in a comma-separated suffix on the same line
+    (``/whoami, /myid``).
     """
-    lines = ["<b>OmniGrid Telegram commands</b>", ""]
-    # First pass: group commands by their handler function.
-    groups: list[dict] = []  # ordered: [{primary: meta, primary_name, aliases: [name,...]}]
+    # Category metadata — ordered list so the rendered menu stays
+    # stable + a single source of truth for the emoji + heading copy.
+    # Adding a new category: append a tuple here AND tag every command
+    # in `_COMMANDS` with the matching key.
+    categories: list[tuple[str, str]] = [
+        ("getting_started", "📖 Getting started"),
+        ("fleet",           "🖥️ Fleet"),
+        ("ops",             "⚙️ Operations"),
+        ("account",         "🔗 Account"),
+        ("info",            "ℹ️ Info & weather"),
+        ("misc",             "🧩 Other"),
+    ]
+    cat_order = {key: idx for idx, (key, _) in enumerate(categories)}
+    cat_headings = dict(categories)
+
+    # First pass: group commands by handler (dedup aliases). Records
+    # the FIRST occurrence as the primary for that handler — subsequent
+    # entries become aliases regardless of `hidden`.
+    groups: list[dict] = []
     handler_to_group: dict[Any, dict[str, Any]] = {}
     for name, meta in _COMMANDS.items():
         handler = meta.get("handler")
@@ -786,32 +802,55 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             continue
         existing = handler_to_group.get(handler)
         if existing is None:
-            group = {"primary_name": name, "primary": meta, "aliases": []}
+            group = {
+                "primary_name": name,
+                "primary":      meta,
+                "aliases":      [],
+                "category":     meta.get("category") or "misc",
+            }
             groups.append(group)
             handler_to_group[handler] = group
         else:
             existing["aliases"].append(name)
-    # Second pass: render each group on one line.
+
+    # Bucket by category preserving original insertion order within each.
+    by_cat: dict[str, list[dict]] = {}
     for g in groups:
-        primary_meta = g["primary"]
-        primary_name = g["primary_name"]
-        usage = _escape(primary_meta.get("usage") or primary_name)
-        aliases = g["aliases"]
-        if aliases:
-            alias_text = ", ".join(_escape(a) for a in aliases)
-            head = f"<b>{usage}</b> <i>(aliases: {alias_text})</i>"
-        else:
-            head = f"<b>{usage}</b>"
-        description = _escape(primary_meta.get("description") or "")
-        if description:
-            lines.append(f"{head} — {description}")
-        else:
-            lines.append(head)
-    lines.append("")
+        by_cat.setdefault(g["category"], []).append(g)
+
+    lines = ["<b>🤖 OmniGrid Telegram commands</b>", ""]
+    # Render categories in declared order; an unknown category (typo
+    # or new tag without a heading) renders last under "Other" so it
+    # surfaces visually instead of silently dropping.
+    rendered_cats = sorted(
+        by_cat.keys(),
+        key=lambda c: cat_order.get(c, len(cat_order)),
+    )
+    for cat in rendered_cats:
+        heading = cat_headings.get(cat, "🧩 Other")
+        lines.append(f"<b>{_escape(heading)}</b>")
+        for g in by_cat[cat]:
+            primary_meta = g["primary"]
+            primary_name = g["primary_name"]
+            usage = _escape(primary_meta.get("usage") or primary_name)
+            aliases = g["aliases"]
+            if aliases:
+                alias_text = ", ".join(_escape(a) for a in aliases)
+                head = f"  <b>{usage}</b> <i>(aliases: {alias_text})</i>"
+            else:
+                head = f"  <b>{usage}</b>"
+            description = _escape(primary_meta.get("description") or "")
+            if description:
+                lines.append(f"{head} — {description}")
+            else:
+                lines.append(head)
+        lines.append("")  # blank line between categories
+
     lines.append(
-        "<i>Targets resolve by IP, host id, label, or asset short-name. "
-        "Destructive commands (e.g. /restart) require a typed confirm step "
-        "unless 'Allow destructive Telegram commands' is enabled in Admin.</i>"
+        "<i>🎯 Targets resolve by IP, host id, label, or asset "
+        "short-name. ⚠️ Destructive commands (e.g. /restart) require "
+        "a typed confirm step unless 'Allow destructive Telegram "
+        "commands' is enabled in Admin.</i>"
     )
     await _send_reply(client, "\n".join(lines))
 
@@ -2025,6 +2064,7 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "handler": _cmd_help,
         "usage": "/help",
         "description": "Show this command list",
+        "category": "getting_started",
     },
     "/start": {
         # Telegram clients send `/start` automatically when the user
@@ -2033,42 +2073,50 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "handler": _cmd_help,
         "usage": "/start",
         "description": "Show the command list",
+        "category": "getting_started",
         "hidden": True,  # don't double up in /help (same handler as /help)
     },
     "/hosts": {
         "handler": _cmd_hosts,
         "usage": "/hosts",
         "description": "List curated hosts with their status",
+        "category": "fleet",
     },
     "/host": {
         "handler": _cmd_host,
         "usage": "/host <target>",
         "description": "Show last-known stats for one host (CPU / memory / disk / uptime + extended provider stats: load, swap, bandwidth, temperatures, GPUs, containers, UPS). Cached readings only — no live probes.",
+        "category": "fleet",
     },
     "/restart": {
         "handler": _cmd_restart,
         "usage": "/restart <target>",
         "description": "Restart a host via SSH (destructive — requires confirm)",
+        "category": "ops",
     },
     "/cleanup": {
         "handler": _cmd_cleanup,
         "usage": "/cleanup [confirm]",
         "description": "List (or remove with `confirm`) stopped / failed / orphan containers — same surface as the SPA's topbar Cleanup button. SPA tabs auto-refresh as each removal lands.",
+        "category": "ops",
     },
     "/link": {
         "handler": _cmd_link,
         "usage": "/link <code>",
         "description": "Link your Telegram account to an OmniGrid user (code minted in Profile → Telegram)",
+        "category": "account",
     },
     "/unlink": {
         "handler": _cmd_unlink,
         "usage": "/unlink",
         "description": "Remove the Telegram → OmniGrid user link",
+        "category": "account",
     },
     "/whoami": {
         "handler": _cmd_whoami,
         "usage": "/whoami",
         "description": "Show your access level &amp; ID (which OmniGrid user you're linked to)",
+        "category": "account",
     },
     "/myid": {
         # Alias for /whoami — the most common phrasing operators reach
@@ -2079,27 +2127,32 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "handler": _cmd_whoami,
         "usage": "/myid",
         "description": "Show your access level &amp; ID (alias for /whoami)",
+        "category": "account",
         "hidden": True,
     },
     "/weather": {
         "handler": _cmd_weather,
         "usage": "/weather",
         "description": "Show the weather for your saved location (set it in Profile → Weather)",
+        "category": "info",
     },
     "/time": {
         "handler": _cmd_time,
         "usage": "/time",
         "description": "Show the local time at your saved weather location",
+        "category": "info",
     },
     "/version": {
         "handler": _cmd_version,
         "usage": "/version",
         "description": "Show the running OmniGrid version",
+        "category": "info",
     },
     "/ip": {
         "handler": _cmd_ip,
         "usage": "/ip",
         "description": "Show the deployment's public IP + ISP / ASN / country (requires tuning_public_ip_enabled in Admin → Public IP)",
+        "category": "info",
     },
     "/ver": {
         # Alias for /version — same handler, hidden so the /help menu
@@ -2108,6 +2161,7 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "handler": _cmd_version,
         "usage": "/ver",
         "description": "Show the running OmniGrid version (alias for /version)",
+        "category": "info",
         "hidden": True,
     },
 }
@@ -2403,11 +2457,48 @@ async def _ai_reply(
     ctx = await _build_telegram_ai_context(omnigrid_username)
     user_prompt = _ai.build_palette_user_prompt(text, ctx)
 
+    # Snapshot the REAL Telegram command roster from `_COMMANDS` so the
+    # AI grounds its replies in actual commands instead of hallucinating
+    # SPA-style names (`/status`, `/services`, `/updates`, `/errors`,
+    # `/update`, `/prune`, `/forecast` are common hallucinations the
+    # operator flagged when the prompt didn't carry the canonical list).
+    # Dedup by handler so aliases (`/start` → `_cmd_help`, `/myid` →
+    # `_cmd_whoami`, `/ver` → `_cmd_version`) render alongside their
+    # primary rather than as separate phantom commands.
+    _seen_handlers: set = set()
+    _roster_lines: list[str] = []
+    for _name, _meta in _COMMANDS.items():
+        _h = _meta.get("handler")
+        if _h is None or _h in _seen_handlers:
+            continue
+        _seen_handlers.add(_h)
+        _usage = _meta.get("usage") or _name
+        _desc = (_meta.get("description") or "").strip()
+        # Collect aliases for the same handler so the AI sees the full
+        # set of valid invocations.
+        _aliases = [
+            n for n, m in _COMMANDS.items()
+            if n != _name and m.get("handler") is _h
+        ]
+        _alias_suffix = (
+            f" (aliases: {', '.join(_aliases)})" if _aliases else ""
+        )
+        _roster_lines.append(
+            f"  - `{_usage}`{_alias_suffix} — {_desc}"
+            if _desc else
+            f"  - `{_usage}`{_alias_suffix}"
+        )
+    _command_roster = "\n".join(_roster_lines)
+
     # Telegram-specific override: PALETTE_SYSTEM_PROMPT tells the AI
     # to emit ACTION: directives for the SPA's command palette to
     # execute. Telegram is a READ-ONLY surface — append an override
     # that strips that license. The strip pass below is defence in
-    # depth in case the model emits them anyway.
+    # depth in case the model emits them anyway. The COMMAND ROSTER
+    # block injects the canonical `_COMMANDS` list so the AI can only
+    # reference real commands (operator-reported hallucinations like
+    # `/status` / `/services` / `/updates` / `/errors` / `/forecast`
+    # came from the AI inventing SPA-style commands without grounding).
     system_prompt = (
         _ai.PALETTE_SYSTEM_PROMPT
         + "\n\n"
@@ -2433,6 +2524,29 @@ async def _ai_reply(
           "questions, NOT a global ceiling on every reply. Use the "
           "supplied JSON records (hosts / items) to answer fleet-state "
           "questions rather than inventing names from training data."
+        + "\n\n"
+        + "**TELEGRAM COMMAND ROSTER — AUTHORITATIVE GROUND TRUTH.** "
+          "The list below is the COMPLETE set of slash commands this "
+          "bot supports right now. When the operator asks for the "
+          "command list / help / what they can do, render EXACTLY "
+          "these commands — DO NOT add, invent, or extrapolate. "
+          "Commands that DO NOT appear in this list DO NOT EXIST in "
+          "this deployment. Specifically NEVER mention: `/status`, "
+          "`/services`, `/updates`, `/errors`, `/update`, `/prune`, "
+          "`/forecast`, `/stacks`, `/logs`, `/exec`, `/ssh`, `/scan`, "
+          "`/backup`, or any other SPA-style or Docker-style command "
+          "name — those are common hallucinations from training data, "
+          "not real OmniGrid commands. If the operator asks for a "
+          "capability the roster doesn't cover, say so honestly + "
+          "redirect them to the SPA (where the action probably "
+          "exists). Render the roster in your reply using the SAME "
+          "groupings the /help command uses (📖 Getting started / "
+          "🖥️ Fleet / ⚙️ Operations / 🔗 Account / ℹ️ Info & weather) "
+          "when the user asks for the full menu; for a one-off "
+          "'how do I X' question cite ONLY the single relevant "
+          "command from the roster.\n\n"
+          "Canonical command list (handler-deduped, aliases grouped):\n"
+        + _command_roster
     )
     # Token budget honours the operator's `tuning_ai_max_tokens`
     # setting (Admin → AI Integration → "Max response tokens"). Hard-
