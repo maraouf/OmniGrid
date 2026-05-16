@@ -556,7 +556,8 @@
       "expires_in": "Expires in ~{mins} min",
       "unlink_success": "Removed {count} Telegram link(s) for this user.",
       "unlink_nothing": "No Telegram link found for this user.",
-      "linked_label": "✅ Linked — your Telegram user_id {user_id} runs as this OmniGrid user."
+      "linked_label": "✅ Linked — your Telegram user_id {user_id} runs as this OmniGrid user.",
+      "linked_at": "Linked at {when}"
     },
     "notifications": {
       "title": "Notifications",
@@ -1443,7 +1444,8 @@
       "telegram_links_col_user": "OmniGrid user",
       "telegram_links_col_role": "Role",
       "telegram_links_col_tg_id": "Telegram user_id",
-      "telegram_links_col_actions": "",
+      "telegram_links_col_linked_at": "Linked at",
+      "telegram_links_col_actions": "Actions",
       "telegram_links_unlink_button": "Unlink",
       "telegram_links_unlink_confirm_title": "Unlink Telegram user?",
       "telegram_links_unlink_confirm_text": "Remove the mapping for OmniGrid user '{user}' (Telegram user_id {tg_id})? The user can re-link by generating a fresh code in Profile → Telegram.",

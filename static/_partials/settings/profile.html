@@ -365,6 +365,13 @@
                class="mb-3 p-3 rounded-md bg-[var(--pill-ok-bg)] border border-[var(--pill-ok-br)] text-[var(--pill-ok-fg)]">
             <p class="fs-sm font-medium"
                x-text="t('profile.telegram.linked_label', { user_id: (me && me.telegram_link && me.telegram_link.telegram_user_id) || '' })"></p>
+            <!-- Linked-at timestamp — renders via the user's
+                 datetime_format preference (fmtDate honours
+                 ui_prefs.datetime_format). Hidden when the
+                 timestamp is the legacy-migration sentinel (0). -->
+            <p class="fs-xs mt-1 opacity-90"
+               x-show="me && me.telegram_link && me.telegram_link.linked_at_ms"
+               x-text="t('profile.telegram.linked_at', { when: fmtDate((me && me.telegram_link && me.telegram_link.linked_at_ms / 1000) || 0) })"></p>
           </div>
           <div class="flex items-center gap-3 flex-wrap">
             <!-- Generate hidden once linked — operator must Unlink
