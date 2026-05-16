@@ -1908,6 +1908,35 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
         view = ctx.get("view")
         if view:
             parts.append(f"Current view: {view}")
+        # Current time block. Threaded by the Telegram listener (per
+        # `_build_telegram_ai_context`) so the AI can answer
+        # "what time is it" / "what's today's date" without falling
+        # back to its training-cutoff guess. Same opt-in shape as
+        # weather: when absent the model should say "I don't see a
+        # current-time block from this surface" rather than guessing.
+        # Fields: utc_iso / local_iso / timezone / utc_offset / weekday.
+        tinfo = ctx.get("time") if isinstance(ctx.get("time"), dict) else None
+        if tinfo and (tinfo.get("local_iso") or tinfo.get("utc_iso")):
+            bits = []
+            if tinfo.get("weekday"):
+                bits.append(str(tinfo["weekday"]))
+            if tinfo.get("local_iso"):
+                bits.append(str(tinfo["local_iso"]))
+            tz_seg = ""
+            if tinfo.get("timezone"):
+                tz_seg = f" ({tinfo['timezone']}"
+                if tinfo.get("utc_offset"):
+                    tz_seg += f" UTC{tinfo['utc_offset']}"
+                tz_seg += ")"
+            line = " · ".join(bits) + tz_seg
+            utc_seg = ""
+            if tinfo.get("utc_iso") and tinfo.get("local_iso") \
+                    and tinfo["utc_iso"] != tinfo["local_iso"]:
+                utc_seg = f" / UTC {tinfo['utc_iso']}"
+            parts.append(
+                "Current time (server clock — answer naturally using this, do NOT refuse "
+                "'I don't have a real-time clock'): " + line + utc_seg
+            )
         hosts = ctx.get("hosts") if isinstance(ctx.get("hosts"), list) else None
         if hosts:
             parts.append(_format_records_block(
@@ -1940,8 +1969,16 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
             bits = []
             if weather.get("label"):
                 bits.append(str(weather["label"]))
-            if weather.get("temperature") is not None:
-                bits.append(f"{weather['temperature']}{weather.get('unit') or '°C'}")
+            # Two callers feed this block: the SPA passes `temperature`
+            # (already converted to the user's °C / °F pref) and the
+            # Telegram listener passes the raw `temp_c` from /api/weather.
+            # Accept either so neither caller has to massage the payload
+            # just for the prompt builder.
+            temp_val = weather.get("temperature")
+            if temp_val is None:
+                temp_val = weather.get("temp_c")
+            if temp_val is not None:
+                bits.append(f"{temp_val}{weather.get('unit') or '°C'}")
             if weather.get("condition"):
                 bits.append(str(weather["condition"]))
             if weather.get("humidity") is not None:

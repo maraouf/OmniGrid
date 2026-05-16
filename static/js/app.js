@@ -2511,7 +2511,10 @@ function app() {
         // localStorage-restored or route-applied view='stats' lands
         // with statsOverview={} and loadStatsOverview() never fires,
         // so the dashboard renders a perpetual loading spinner.
-        if (v === 'stats') this.openStatsTab(this.statsTab || 'dashboard');
+        if (v === 'stats') {
+          try { console.debug('[stats] $watch(view) fired with v=stats → openStatsTab', { statsTab: this.statsTab }); } catch (_) {}
+          this.openStatsTab(this.statsTab || 'dashboard');
+        }
         // Lazy-load hosts on first entry and (re)start its refresh timer.
         // Leaving the tab clears the timer so we're not hammering the hub
         // when the view isn't visible.
@@ -3458,6 +3461,7 @@ function app() {
         const target = (sub && (this.statsSections || []).some(s => s.id === sub))
                        ? sub
                        : (this.statsTab || 'dashboard');
+        try { console.debug('[stats] _applyRouteFromPath: stats branch → openStatsTab', { sub, target, path: location.pathname }); } catch (_) {}
         this.openStatsTab(target);
       }
     },
@@ -3482,23 +3486,42 @@ function app() {
     async openStatsTab(tab) {
       // Stats view (admin-only) — mirrors openAdminTab's shape: switch
       // view, set sub-tab, fire the matching loader.
+      // Diagnostic: filter devtools console with `[stats]` to see the
+      // full open → load → render path. Operator-flagged "Stats page
+      // loads blank" issue — these debug logs surface every gate so we
+      // can tell which step is skipping / failing on the user's deploy.
+      try { console.debug('[stats] openStatsTab called', { tab, prevView: this.view, prevStatsTab: this.statsTab, isAdmin: this.isAdmin && this.isAdmin() }); } catch (_) {}
       this.view = 'stats';
       this.statsTab = tab || 'dashboard';
+      try { console.debug('[stats] view+statsTab set', { view: this.view, statsTab: this.statsTab }); } catch (_) {}
       if (this.statsTab === 'dashboard') await this.loadStatsOverview();
       else if (this.statsTab === 'database') await this.loadStatsDatabase();
       else if (this.statsTab === 'samples') await this.loadStatsSamples();
       else if (this.statsTab === 'incidents') await this.loadStatsIncidents();
       else if (this.statsTab === 'network') await this.loadStatsNetwork();
       else if (this.statsTab === 'ai_cost') await this.loadStatsAiCost();
+      else {
+        try { console.debug('[stats] WARN unknown statsTab — no loader fired', { statsTab: this.statsTab }); } catch (_) {}
+      }
       this._pushRoute && this._pushRoute();
+      try { console.debug('[stats] openStatsTab done', { view: this.view, statsTab: this.statsTab, statsOverviewLoaded: this.statsOverviewLoaded, url: location.pathname }); } catch (_) {}
     },
     async loadStatsOverview() {
+      try { console.debug('[stats] loadStatsOverview: fetch START /api/admin/stats/overview'); } catch (_) {}
       try {
         const r = await fetch('/api/admin/stats/overview');
-        if (!r.ok) return;
+        try { console.debug('[stats] loadStatsOverview: fetch RESP', { status: r.status, ok: r.ok }); } catch (_) {}
+        if (!r.ok) {
+          try { const txt = await r.text(); console.debug('[stats] loadStatsOverview: non-OK body', { status: r.status, body: txt.slice(0, 500) }); } catch (_) {}
+          return;
+        }
         this.statsOverview = await r.json();
-      } catch (_) {} finally {
+        try { console.debug('[stats] loadStatsOverview: parsed', { keys: Object.keys(this.statsOverview || {}), users_total: this.statsOverview && this.statsOverview.users && this.statsOverview.users.total }); } catch (_) {}
+      } catch (e) {
+        try { console.debug('[stats] loadStatsOverview: EXCEPTION', e); } catch (_) {}
+      } finally {
         this.statsOverviewLoaded = true;
+        try { console.debug('[stats] loadStatsOverview: finally — statsOverviewLoaded=true'); } catch (_) {}
       }
     },
     async loadStatsDatabase() {
@@ -20279,6 +20302,49 @@ function app() {
         items: itemsCtx,
       };
       if (weatherCtx) ctx.weather = weatherCtx;
+      // Current time context. Mirrors the Telegram listener's `time`
+      // block in `_build_telegram_ai_context` so the AI palette in the
+      // SPA can answer "what time is it" / "what's today's date"
+      // without falling back to the training-cutoff guess. Honours
+      // the operator's scheduler timezone via me.client_config when
+      // available; otherwise the browser's local TZ is used.
+      try {
+        const nowUtc = new Date();
+        const tzName = (this.me && this.me.client_config
+                         && this.me.client_config.scheduler_tz)
+                       || Intl.DateTimeFormat().resolvedOptions().timeZone
+                       || 'UTC';
+        // Build a local-iso string in the resolved timezone via Intl.
+        const fmt = new Intl.DateTimeFormat('en-CA', {
+          timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+        });
+        const parts = fmt.formatToParts(nowUtc);
+        const pick = (t) => (parts.find(p => p.type === t) || {}).value || '';
+        const localIso = `${pick('year')}-${pick('month')}-${pick('day')}T`
+                       + `${pick('hour')}:${pick('minute')}:${pick('second')}`;
+        // Compute the UTC offset for the resolved tz at this instant.
+        // Intl exposes timeZoneName 'shortOffset' (e.g. 'GMT+3') in
+        // recent browsers; fall back to a manual diff for older.
+        let offset = '';
+        try {
+          const off = new Intl.DateTimeFormat('en-US', { timeZone: tzName, timeZoneName: 'shortOffset' })
+            .formatToParts(nowUtc).find(p => p.type === 'timeZoneName');
+          if (off && off.value) {
+            offset = off.value.replace(/^GMT/, '').replace(/^UTC/, '') || '+00:00';
+            if (!/^[+-]/.test(offset)) offset = '+' + offset;
+            if (/^[+-]\d{1,2}$/.test(offset)) offset += ':00';
+          }
+        } catch (_) {}
+        const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: tzName }).format(nowUtc);
+        ctx.time = {
+          utc_iso:    nowUtc.toISOString().replace(/\.\d{3}Z$/, '+00:00'),
+          local_iso:  localIso + (offset || ''),
+          timezone:   tzName,
+          utc_offset: offset || '',
+          weekday:    weekday,
+        };
+      } catch (_) {}
       // Backups context — operator-flagged the AI saying "I don't have
       // access to the history of backup jobs" when asked "what's the
       // latest backup?". Forward the latest 5 SQLite-backup zip rows
