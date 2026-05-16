@@ -2795,6 +2795,16 @@ class SettingsIn(BaseModel):
     asset_inventory_enabled: Optional[bool] = None
     apprise_url: Optional[str] = None
     apprise_tag: Optional[str] = None
+    # Telegram notification medium (Phase 1: send-only). Token follows
+    # the write-only secret contract (any non-empty value overwrites;
+    # blank = keep current). Chat ID and optional thread ID are plain
+    # strings (chat IDs are large negative ints for supergroups; we
+    # accept strings to avoid int-overflow edge cases on legacy migrations).
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_thread_id: Optional[str] = None
+    telegram_verify_tls: Optional[str] = None
+    notify_medium_telegram: Optional[str] = None
     portainer_public_url: Optional[str] = None
     # Portainer connection (DB-backed, UI-managed). API key follows the
     # write-only / "keep current if blank" contract: the browser never
@@ -3313,6 +3323,12 @@ class SettingsIn(BaseModel):
     # at every call site. Rendered in Admin → Authentik OIDC via
     # `relocatedTuningKeys` (NOT the generic Process tunables form).
     tuning_oidc_http_timeout_seconds: Optional[str] = None
+    # Gather fan-out HTTP wall-clock + orphan-probe per-call timeout —
+    # both consumed inside `logic/gather.py`. Rendered in Admin →
+    # Portainer alongside the existing op-timeout tiers via
+    # `relocatedTuningKeys` (NOT the generic Process tunables form).
+    tuning_gather_client_timeout_seconds: Optional[str] = None
+    tuning_gather_orphan_probe_timeout_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -3465,6 +3481,17 @@ async def api_get_settings(request: Request):
             "notify_medium_apprise",
             _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("apprise", True),
         ),
+        # Telegram medium (Phase 1: send-only). Defaults OFF (requires
+        # bot-token + chat-id config before it can fire).
+        "notify_medium_telegram": get_setting_bool(
+            "notify_medium_telegram",
+            _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("telegram", False),
+        ),
+        "telegram_chat_id":       get_setting("telegram_chat_id", ""),
+        "telegram_thread_id":     get_setting("telegram_thread_id", ""),
+        "telegram_verify_tls":    (get_setting("telegram_verify_tls", "true") or "true").lower() == "true",
+        # Write-only: surface only a `_set` flag, never the raw token.
+        "telegram_bot_token_set": bool((get_setting("telegram_bot_token", "") or "").strip()),
         # TOTP / 2FA policy. Five fields driving the multi-step
         # login flow + Profile enrolment guards + Admin -> Users action
         # enablement. Defaults preserve "no 2FA required" semantics so
@@ -3812,6 +3839,23 @@ async def _api_set_settings_inner(s, request, _portainer):
                     "true" if s.asset_inventory_enabled else "false")
     if s.apprise_url is not None: set_setting("apprise_url", s.apprise_url)
     if s.apprise_tag is not None: set_setting("apprise_tag", s.apprise_tag)
+    # Telegram medium (Phase 1: send-only). Bot token follows the write-
+    # only secret contract — blank / whitespace = keep current, any
+    # non-empty value overwrites. Chat / thread IDs are plain strings.
+    if s.telegram_bot_token is not None:
+        token = (s.telegram_bot_token or "").strip()
+        if token:
+            set_setting("telegram_bot_token", token)
+    if s.telegram_chat_id is not None:
+        set_setting("telegram_chat_id", (s.telegram_chat_id or "").strip())
+    if s.telegram_thread_id is not None:
+        set_setting("telegram_thread_id", (s.telegram_thread_id or "").strip())
+    if s.telegram_verify_tls is not None:
+        verify_str = (s.telegram_verify_tls or "true").strip().lower()
+        set_setting("telegram_verify_tls", "true" if verify_str != "false" else "false")
+    if s.notify_medium_telegram is not None:
+        b = (s.notify_medium_telegram or "").strip().lower()
+        set_setting("notify_medium_telegram", "true" if b == "true" else "false")
     if s.swarm_autoheal_action is not None:
         action = (s.swarm_autoheal_action or "").strip().lower()
         if action not in ("", "notify", "restart"):
@@ -7913,6 +7957,39 @@ async def api_beszel_test(
         count_key="system_count",
         items_key="systems",
     ))
+
+
+@app.post("/api/telegram/test")
+async def api_telegram_test(
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: send a Telegram test message.
+
+    Accepts unsaved form values (bot_token / chat_id / thread_id) so
+    the admin can verify a new config before saving. Falls back to the
+    persisted values when fields are blank (keep-current contract).
+    Returns ``{ok, detail, status}``.
+    """
+    from logic import notify_telegram as _tg
+    body = await request.json()
+    bot_token = _resolve_field(body, "bot_token", "telegram_bot_token")
+    chat_id = _resolve_field(body, "chat_id", "telegram_chat_id")
+    thread_id_raw = body.get("thread_id")
+    if thread_id_raw is None or str(thread_id_raw).strip() == "":
+        thread_id = (get_setting("telegram_thread_id", "") or "").strip()
+    else:
+        thread_id = str(thread_id_raw).strip()
+    if not bot_token:
+        return {"ok": False, "detail": "Bot token is required", "status": 0}
+    if not chat_id:
+        return {"ok": False, "detail": "Chat ID is required", "status": 0}
+    result = await _tg.probe(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        thread_id=thread_id,
+    )
+    return _stamp_test_success("telegram", result)
 
 
 @app.post("/api/snmp/test")

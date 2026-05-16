@@ -386,8 +386,16 @@ NOTIFY_EVENT_DEFAULTS = {
 # admin form would render. Both mediums default ON so existing deploys
 # upgrade with both channels live; operators flip individually from
 # Admin → Notifications.
-NOTIFY_MEDIUM_NAMES = ("app", "apprise")
-NOTIFY_MEDIUM_DEFAULTS = {name: True for name in NOTIFY_MEDIUM_NAMES}
+NOTIFY_MEDIUM_NAMES = ("app", "apprise", "telegram")
+# Telegram defaults OFF because it requires bot-token + chat-id config
+# before it can fire — defaulting ON would spam start-up errors until
+# the operator configures it. App + Apprise default ON to preserve
+# legacy behaviour for upgrades from pre-Telegram deploys.
+NOTIFY_MEDIUM_DEFAULTS = {
+    "app":      True,
+    "apprise":  True,
+    "telegram": False,
+}
 
 
 # ---------------------------------------------------------------------
@@ -1214,9 +1222,19 @@ async def _notify_medium_app(
 # the same shape and registering here. CLAUDE.md "Canonical extension
 # pattern: add a notification medium" is the full contract.
 MediumSender = Callable[..., Awaitable[dict]]
+async def _notify_medium_telegram(**kwargs) -> dict:
+    """Dispatcher entry for the Telegram medium. Lazy-imports the
+    module so a deploy without `telegram_bot_token` configured doesn't
+    pay the import cost on every notify() call.
+    """
+    from logic import notify_telegram as _tg
+    return await _tg.send(**kwargs)
+
+
 NOTIFY_MEDIUMS: dict[str, MediumSender] = {
-    "app":     _notify_medium_app,
-    "apprise": _notify_medium_apprise,
+    "app":      _notify_medium_app,
+    "apprise":  _notify_medium_apprise,
+    "telegram": _notify_medium_telegram,
 }
 
 
