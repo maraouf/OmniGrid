@@ -33,6 +33,7 @@ import time
 
 from logic import ping as _ping
 from logic import tuning
+from logic.tuning import Tunable as _Tunable
 from logic.db import db_conn, get_setting, get_setting_bool, active_host_stats_providers
 
 
@@ -124,8 +125,9 @@ def _resolve_default_port() -> int:
     # resolver returns a valid port. Defaults to 443 (HTTPS) when no
     # override is set.
     from logic import tuning as _tuning
+    from logic.tuning import Tunable
     try:
-        return _tuning.tuning_int("tuning_ping_default_port") or 443
+        return _tuning.tuning_int(Tunable.PING_DEFAULT_PORT) or 443
     except Exception:
         return 443
 
@@ -163,8 +165,8 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
                 return
         except Exception:
             pass  # DB blip — let the probe run
-        timeout_s = float(tuning.tuning_int("tuning_ping_probe_timeout_seconds"))
-        ping_pause_rounds = tuning.tuning_int("tuning_ping_failure_pause_rounds")
+        timeout_s = float(tuning.tuning_int(_Tunable.PING_PROBE_TIMEOUT_SECONDS))
+        ping_pause_rounds = tuning.tuning_int(_Tunable.PING_FAILURE_PAUSE_ROUNDS)
         sampler_error: str = ""
         try:
             result = await _ping.probe_ping(
@@ -251,7 +253,7 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
 
 
 def _prune_old_samples() -> int:
-    days = tuning.tuning_int("tuning_stats_history_days")
+    days = tuning.tuning_int(_Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:
         with db_conn() as c:
@@ -269,10 +271,10 @@ def _resolve_ping_interval() -> int:
     can't pin the loop. Default falls back to 300s when both the
     Ping-specific knob AND the global knob are unset.
     """
-    ping_iv = tuning.tuning_int("tuning_ping_interval_seconds")
+    ping_iv = tuning.tuning_int(_Tunable.PING_INTERVAL_SECONDS)
     if ping_iv > 0:
         return max(10, ping_iv)
-    global_iv = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+    global_iv = tuning.tuning_int(_Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
     return max(10, global_iv or 300)
 
 
@@ -298,7 +300,7 @@ async def ping_sampler_loop() -> None:
             else:
                 hosts = _curated_ping_hosts()
                 if hosts:
-                    sem = asyncio.Semaphore(tuning.tuning_int("tuning_ping_concurrency"))
+                    sem = asyncio.Semaphore(tuning.tuning_int(_Tunable.PING_CONCURRENCY))
                     await asyncio.gather(
                         *(_probe_one(h, sem) for h in hosts),
                         return_exceptions=True,

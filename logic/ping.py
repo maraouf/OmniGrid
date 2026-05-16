@@ -55,8 +55,9 @@ from typing import Optional
 # effect on the next tick without restart.
 from logic.cooldown import Cooldown as _Cooldown
 from logic import tuning as _tuning
+from logic.tuning import Tunable as _Tunable
 _unreachable_cooldown = _Cooldown(
-    seconds_fn=lambda: _tuning.tuning_int("tuning_ping_cooldown_seconds")
+    seconds_fn=lambda: _tuning.tuning_int(_Tunable.PING_COOLDOWN_SECONDS)
 )
 
 # Tracks consecutive-failure count per (host, port) so the cooldown
@@ -153,12 +154,12 @@ async def _probe_icmp(host: str, count: int, timeout_seconds: float) -> dict:
     # thread-pool so we don't stall every other probe in the sampler
     # tick. Threadpool fan-out cost is trivial vs the wire latency.
     import functools
-    from logic.tuning import tuning_int as _tuning_int
+    from logic.tuning import Tunable, tuning_int as _tuning_int
     loop = asyncio.get_running_loop()
     # ICMP inter-packet spacing — operator-tunable so commercial-firewall
     # anti-flood rules don't reject the burst. Tunable holds milliseconds;
     # icmplib expects seconds (float).
-    _interval_s = _tuning_int("tuning_ping_packet_interval_ms") / 1000.0
+    _interval_s = _tuning_int(Tunable.PING_PACKET_INTERVAL_MS) / 1000.0
     func = functools.partial(
         icmplib.ping, host,
         count=count, interval=_interval_s, timeout=timeout_seconds,
@@ -211,8 +212,8 @@ async def probe_ping(
     """
     if timeout_seconds is None:
         try:
-            from logic.tuning import tuning_int as _tuning_int
-            timeout_seconds = float(_tuning_int("tuning_ping_probe_timeout_seconds"))
+            from logic.tuning import Tunable, tuning_int as _tuning_int
+            timeout_seconds = float(_tuning_int(Tunable.PING_PROBE_TIMEOUT_SECONDS))
         except Exception:
             timeout_seconds = 2.0
     host_clean = (host or "").strip()

@@ -18,18 +18,18 @@ import time
 
 from logic import host_baseline as _baseline
 from logic.db import db_conn, get_setting
-from logic.tuning import tuning_int as _tuning_int
+from logic.tuning import Tunable, tuning_int as _tuning_int
 
 
 # Operator-tunable cadence + first-tick delay. Per-use reads (not
 # module-import-time) so Admin → Config edits take effect on the
 # next tick without a restart.
 def _interval_seconds() -> int:
-    return _tuning_int("tuning_host_baseline_recompute_interval_seconds")
+    return _tuning_int(Tunable.HOST_BASELINE_RECOMPUTE_INTERVAL_SECONDS)
 
 
 def _first_tick_delay() -> int:
-    return _tuning_int("tuning_host_baseline_first_tick_delay_seconds")
+    return _tuning_int(Tunable.HOST_BASELINE_FIRST_TICK_DELAY_SECONDS)
 
 
 def _curated_host_ids() -> list[str]:

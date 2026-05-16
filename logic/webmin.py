@@ -79,8 +79,9 @@ except ImportError:
 from logic.cooldown import Cooldown as _Cooldown
 from logic.merge import normalize_arch as _normalize_arch
 from logic import tuning as _tuning
+from logic.tuning import Tunable as _Tunable
 _auth_cooldown_timer = _Cooldown(
-    seconds_fn=lambda: _tuning.tuning_int("tuning_auth_failure_cooldown_seconds")
+    seconds_fn=lambda: _tuning.tuning_int(_Tunable.AUTH_FAILURE_COOLDOWN_SECONDS)
 )
 
 

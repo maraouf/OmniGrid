@@ -231,12 +231,12 @@ async def _with_retry(call_factory, *, provider: str, model: str) -> dict:
     was too slow to retry — both classify WARN per the persistent-log
     severity regex.
     """
-    from logic.tuning import tuning_int
-    enabled = bool(tuning_int("tuning_ai_retry_enabled"))
+    from logic.tuning import Tunable, tuning_int
+    enabled = bool(tuning_int(Tunable.AI_RETRY_ENABLED))
     if not enabled:
         return await call_factory()
-    backoff_ms = tuning_int("tuning_ai_retry_backoff_ms")
-    first_max_ms = tuning_int("tuning_ai_retry_first_attempt_max_ms")
+    backoff_ms = tuning_int(Tunable.AI_RETRY_BACKOFF_MS)
+    first_max_ms = tuning_int(Tunable.AI_RETRY_FIRST_ATTEMPT_MAX_MS)
     transient_statuses = (429, 502, 503, 504)
     import time as _time
     t0 = _time.monotonic()
@@ -408,8 +408,8 @@ async def test_provider(
 
     if timeout is None:
         try:
-            from logic.tuning import tuning_int as _tuning_int
-            timeout = float(_tuning_int("tuning_ai_http_timeout_seconds"))
+            from logic.tuning import Tunable, tuning_int as _tuning_int
+            timeout = float(_tuning_int(Tunable.AI_HTTP_TIMEOUT_SECONDS))
         except Exception:
             timeout = 15.0
 
@@ -642,8 +642,8 @@ async def ask_provider(
                 "response_time_ms": 0}
     if timeout is None:
         try:
-            from logic.tuning import tuning_int as _tuning_int
-            timeout = float(_tuning_int("tuning_ai_extended_http_timeout_seconds"))
+            from logic.tuning import Tunable, tuning_int as _tuning_int
+            timeout = float(_tuning_int(Tunable.AI_EXTENDED_HTTP_TIMEOUT_SECONDS))
         except Exception:
             timeout = 30.0
     if not (api_key or "").strip():

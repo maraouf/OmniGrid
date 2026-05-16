@@ -1395,9 +1395,10 @@ def rate_limit_record_failure(ip: str, username: Optional[str] = None) -> None:
     # immediately without a restart. tuning_int caches via the
     # auth-settings cache, so this is sub-microsecond per call.
     from logic import tuning as _tuning
-    window = _tuning.tuning_int("tuning_rate_limit_window_seconds")
-    max_failures = _tuning.tuning_int("tuning_rate_limit_max_failures")
-    lockout = _tuning.tuning_int("tuning_rate_limit_lockout_seconds")
+    from logic.tuning import Tunable
+    window = _tuning.tuning_int(Tunable.RATE_LIMIT_WINDOW_SECONDS)
+    max_failures = _tuning.tuning_int(Tunable.RATE_LIMIT_MAX_FAILURES)
+    lockout = _tuning.tuning_int(Tunable.RATE_LIMIT_LOCKOUT_SECONDS)
     for k in keys:
         rec = _login_attempts.get(k) or {"failures": 0, "window_start": now, "locked_until": 0.0}
         # Roll the window if the oldest failure is beyond the window.

@@ -26,6 +26,7 @@ from typing import AsyncIterator, Optional
 import httpx
 
 from logic import tuning
+from logic.tuning import Tunable
 
 
 # ----------------------------------------------------------------------------
@@ -33,11 +34,11 @@ from logic import tuning
 # constants, so the live UI override takes effect on the next call.
 # ----------------------------------------------------------------------------
 def registry_concurrency() -> int:
-    return tuning.tuning_int("tuning_registry_concurrency")
+    return tuning.tuning_int(Tunable.REGISTRY_CONCURRENCY)
 
 
 def stats_concurrency() -> int:
-    return tuning.tuning_int("tuning_stats_concurrency")
+    return tuning.tuning_int(Tunable.STATS_CONCURRENCY)
 
 
 # ----------------------------------------------------------------------------

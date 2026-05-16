@@ -27,7 +27,7 @@ from typing import Any, Optional
 import httpx
 
 from logic import errors as _err
-from logic.tuning import tuning_int as _tuning_int
+from logic.tuning import Tunable, tuning_int as _tuning_int
 
 
 # Per-use TUNABLES readers — operator can override via Admin → Config
@@ -37,14 +37,14 @@ from logic.tuning import tuning_int as _tuning_int
 # broken).
 def _token_timeout_seconds() -> float:
     try:
-        return float(_tuning_int("tuning_asset_inventory_token_timeout_seconds"))
+        return float(_tuning_int(Tunable.ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS))
     except Exception:
         return 10.0
 
 
 def _fetch_timeout_seconds() -> float:
     try:
-        return float(_tuning_int("tuning_asset_inventory_fetch_timeout_seconds"))
+        return float(_tuning_int(Tunable.ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS))
     except Exception:
         return 15.0
 

@@ -208,11 +208,14 @@ def _reply_text(text: str) -> dict:
     return payload
 
 
-async def _send_reply(client: httpx.AsyncClient, text: str) -> None:
-    """Fire-and-forget reply. Logs but doesn't raise on failure."""
+async def _send_reply(client: httpx.AsyncClient, text: str) -> Optional[int]:
+    """Send a reply to the configured chat. Returns the Telegram
+    ``message_id`` on success (so callers can later edit the message
+    via :func:`_edit_message`); returns None on any failure. Existing
+    fire-and-forget callers discard the return value silently."""
     token, _ = _resolved_token_and_chat()
     if not token:
-        return
+        return None
     try:
         r = await client.post(
             f"{_TELEGRAM_API_BASE}/bot{token}/sendMessage",
@@ -221,10 +224,86 @@ async def _send_reply(client: httpx.AsyncClient, text: str) -> None:
         )
         if r.status_code != 200:
             print(f"[telegram_listener] reply failed: HTTP {r.status_code}")
+            return None
+        try:
+            body = r.json() or {}
+            msg_id = ((body.get("result") or {}).get("message_id"))
+            return int(msg_id) if msg_id is not None else None
+        except (ValueError, TypeError):
+            return None
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as e:  # noqa: BLE001
         print(f"[telegram_listener] reply exception: {e}")
+        return None
+
+
+async def _send_chat_action(
+    client: httpx.AsyncClient, action: str = "typing",
+) -> None:
+    """Fire the native Telegram "Bot is typing…" indicator. Lasts
+    about 5 seconds on the client. For longer-running ops we ALSO
+    send a placeholder reply that gets edited in place — the typing
+    indicator is just immediate feedback while the placeholder is in
+    flight. Fire-and-forget; never raises."""
+    token, _ = _resolved_token_and_chat()
+    if not token:
+        return
+    from logic.db import get_setting
+    chat = (get_setting("telegram_chat_id", "") or "").strip()
+    thread = (get_setting("telegram_thread_id", "") or "").strip()
+    payload: dict = {"chat_id": chat, "action": action}
+    if thread:
+        try:
+            payload["message_thread_id"] = int(thread)
+        except (TypeError, ValueError):
+            pass
+    try:
+        await client.post(
+            f"{_TELEGRAM_API_BASE}/bot{token}/sendChatAction",
+            json=payload, timeout=5.0,
+        )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception:
+        # Typing indicator is decorative — never surface the failure.
+        pass
+
+
+async def _edit_message(
+    client: httpx.AsyncClient, message_id: int, text: str,
+) -> bool:
+    """Edit a previously-sent placeholder message in place. Used by
+    the AI reply path to replace "🤖 Thinking…" with the final answer
+    so the operator sees the response land in the same bubble. Caller
+    is expected to have pre-truncated to 4096 chars. Returns True on
+    success; on failure the caller falls back to a fresh ``_send_reply``."""
+    token, _ = _resolved_token_and_chat()
+    if not token or not message_id:
+        return False
+    from logic.db import get_setting
+    chat = (get_setting("telegram_chat_id", "") or "").strip()
+    payload: dict = {
+        "chat_id": chat,
+        "message_id": int(message_id),
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    try:
+        r = await client.post(
+            f"{_TELEGRAM_API_BASE}/bot{token}/editMessageText",
+            json=payload, timeout=10.0,
+        )
+        if r.status_code != 200:
+            print(f"[telegram_listener] edit failed: HTTP {r.status_code}: {r.text[:200]}")
+            return False
+        return True
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"[telegram_listener] edit exception: {e}")
+        return False
 
 
 # ----------------------------------------------------------------------------
@@ -932,6 +1011,135 @@ async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     )
 
 
+async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/cleanup`` (dry-run) — list every stopped / failed / orphan
+    container the dashboard's cleanup button would remove. ``/cleanup
+    confirm`` actually fires the removals as background Operations,
+    same path the SPA's topbar "Cleanup N" button uses. Every removal
+    publishes ``op:created`` / ``op:updated`` / ``op:completed`` SSE
+    events + invalidates the gather cache, so every open SPA tab
+    auto-refreshes within seconds of a Telegram-driven cleanup.
+
+    Gating:
+      - mapping gate (already enforced at the dispatcher level — only
+        mapped senders reach this handler)
+      - destructive gate: ``telegram_allow_destructive=true`` OR the
+        operator re-sends ``/cleanup confirm`` to skip the prompt
+    """
+    is_confirm = bool(args) and args[0].lower() == "confirm"
+
+    # Read the live gather cache for the removable set. `_cache["items"]`
+    # is populated by the regular gather loop; if it's empty (cold start)
+    # we trigger a refresh inline so the operator gets data on first
+    # call rather than an unhelpful "nothing to clean up".
+    try:
+        from logic import gather as _gather
+    except Exception as e:
+        await _send_reply(client, f"❌ gather import failed: <code>{_escape(str(e))}</code>")
+        return
+    items = list(_gather._cache.get("items") or [])
+    removables = [i for i in items if i.get("removable")]
+
+    if not removables:
+        await _send_reply(
+            client,
+            "✅ Nothing to clean up — no stopped / failed / orphan "
+            "containers in the current snapshot."
+        )
+        return
+
+    # Destructive gate
+    if not is_confirm and not _allow_destructive():
+        # Render preview list, prompt for /cleanup confirm.
+        lines = [
+            f"🧹 <b>{len(removables)} container(s) eligible for cleanup</b>",
+            "",
+        ]
+        # Group by stack for readability — matches the SPA's grouping.
+        by_stack: dict[str, list[dict]] = {}
+        for i in removables:
+            stack = i.get("stack") or "(no stack)"
+            by_stack.setdefault(stack, []).append(i)
+        # Cap visible items so the message stays under Telegram's 4096
+        # char wire limit. 40 is comfortable headroom.
+        shown = 0
+        MAX_SHOWN = 40
+        for stack in sorted(by_stack.keys()):
+            group = by_stack[stack]
+            lines.append(f"<b>{_escape(stack)}</b>")
+            for i in group:
+                if shown >= MAX_SHOWN:
+                    break
+                name = i.get("name") or i.get("raw_id") or "(unknown)"
+                kind = i.get("type") or "container"
+                tag = "orphan" if kind == "orphan" else "stopped"
+                lines.append(f"  • <code>{_escape(name)}</code> "
+                             f"<i>[{tag}]</i>")
+                shown += 1
+            if shown >= MAX_SHOWN:
+                break
+        if len(removables) > shown:
+            lines.append(f"<i>…and {len(removables) - shown} more.</i>")
+        lines.append("")
+        lines.append(
+            "⚠️ Reply with <code>/cleanup confirm</code> to remove all "
+            f"{len(removables)} container(s).\n"
+            "<i>(Or enable 'Allow destructive Telegram commands' in "
+            "Admin → Notifications → Telegram to skip this step.)</i>"
+        )
+        await _send_reply(client, "\n".join(lines))
+        return
+
+    # Execute path — same in-process Operations pipeline the SPA uses.
+    # Resolve the actor (linked OmniGrid username) so the history rows
+    # the Ops persist carry the right attribution.
+    sender_id = (msg.get("from") or {}).get("id")
+    actor = _lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    actor = actor or "telegram"
+
+    try:
+        from logic import ops as _ops_mod
+    except Exception as e:
+        await _send_reply(client, f"❌ ops import failed: <code>{_escape(str(e))}</code>")
+        return
+
+    await _send_reply(
+        client,
+        f"🧹 Removing {len(removables)} container(s)… "
+        f"<i>(SPA tabs will refresh as each one completes)</i>"
+    )
+
+    spawned = 0
+    for i in removables:
+        raw_id = i.get("raw_id") or ""
+        if not raw_id:
+            continue
+        name = i.get("name") or raw_id[:12]
+        stack = i.get("stack")
+        try:
+            op = _ops_mod.new_op(
+                "remove_container", raw_id, name,
+                target_stack=stack, actor=actor,
+            )
+            # Fire-and-forget — each op publishes its own SSE events as
+            # it progresses (op:created / op:updated / op:completed)
+            # and invalidates the gather cache on completion, which is
+            # exactly what the SPA listens for.
+            asyncio.create_task(
+                _ops_mod.do_remove_container(op, raw_id),
+                name=f"telegram-cleanup-{raw_id[:12]}",
+            )
+            spawned += 1
+        except Exception as e:
+            print(f"[telegram_listener] spawn remove for {raw_id[:12]} failed: {e}")
+
+    await _send_reply(
+        client,
+        f"✅ Spawned {spawned} cleanup Operation(s). Watch the SPA's "
+        f"Live panel or History tab to follow progress."
+    )
+
+
 async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/link <code>`` — bind the sender's Telegram user_id to an
     OmniGrid user. Code is minted by the SPA's Profile section and
@@ -1168,6 +1376,11 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "usage":       "/restart <target>",
         "description": "Restart a host via SSH (destructive — requires confirm)",
     },
+    "/cleanup": {
+        "handler":     _cmd_cleanup,
+        "usage":       "/cleanup [confirm]",
+        "description": "List (or remove with `confirm`) stopped / failed / orphan containers — same surface as the SPA's topbar Cleanup button. SPA tabs auto-refresh as each removal lands.",
+    },
     "/link": {
         "handler":     _cmd_link,
         "usage":       "/link <code>",
@@ -1247,6 +1460,96 @@ def _strip_ai_directives(text: str) -> str:
     return cleaned.strip()
 
 
+def _build_telegram_ai_context() -> dict:
+    """Build the fleet-context block fed to the AI palette so it
+    answers from real OmniGrid state instead of hallucinating host
+    names from training data. Mirrors the SPA's
+    ``_buildAiPaletteContext`` shape — host telemetry + recent items
+    — so the same grounding directives in
+    :data:`ai.PALETTE_SYSTEM_PROMPT` produce the same quality of
+    answer on Telegram as in the SPA's command palette.
+
+    Returns ``{view, hosts: [...], items: [...]}``. Never raises;
+    missing data sources degrade to empty lists.
+    """
+    ctx: dict = {"view": "telegram"}
+    # ---- Items: live gather cache, same shape the SPA reads --------
+    try:
+        from logic import gather as _gather
+        items = list(_gather._cache.get("items") or [])
+        ctx["items"] = [
+            {
+                "name": i.get("name"),
+                "status": i.get("status"),
+                "health": i.get("health"),
+                "type": i.get("type"),
+                "replicas": i.get("replicas"),
+                "desired": i.get("desired"),
+                "update_available": bool(i.get("update_available")),
+                "stack": i.get("stack"),
+            }
+            for i in items[:30]
+        ]
+    except Exception as e:
+        print(f"[telegram_listener] context items build failed: {e}")
+        ctx["items"] = []
+    # ---- Hosts: curated config + last-known snapshot ---------------
+    try:
+        import json as _json
+        from logic.db import db_conn
+        hosts_cfg = _load_hosts_config()
+        paused_set = _load_host_paused_set()
+        # Read last-known host_snapshots in one round-trip so we can
+        # surface stale-data fields when a provider is currently down.
+        snap_map: dict[str, dict] = {}
+        try:
+            with db_conn() as c:
+                for row in c.execute(
+                    "SELECT host_id, snapshot FROM host_snapshots"
+                ):
+                    try:
+                        snap_map[row[0]] = _json.loads(row[1])
+                    except (ValueError, TypeError):
+                        pass
+        except Exception:
+            # Snapshot table may not exist on a fresh DB; just continue.
+            pass
+        host_records: list[dict] = []
+        for h in hosts_cfg[:30]:
+            if not h.get("enabled", True):
+                continue
+            hid = h.get("id") or ""
+            snap = snap_map.get(hid) or {}
+            status = "paused" if hid in paused_set else (
+                "up" if snap else "unknown"
+            )
+            host_records.append({
+                "id":            hid,
+                "label":         h.get("label") or hid,
+                "status":        status,
+                "paused":        hid in paused_set,
+                "address":       h.get("address") or "",
+                "cpu_pct":       snap.get("host_cpu_percent"),
+                "mem_pct":       snap.get("host_mem_percent"),
+                "disk_pct":      snap.get("host_disk_percent"),
+                "uptime_s":      snap.get("host_uptime_seconds"),
+                "host_hostname": snap.get("host_hostname"),
+                "platform":      snap.get("host_platform"),
+                "kernel":        snap.get("host_kernel"),
+                # Operator-typed aliases — the AI uses these to match
+                # "the qotom" / "the r730" against the right host.
+                "beszel_name":   h.get("beszel_name") or "",
+                "pulse_name":    h.get("pulse_name") or "",
+                "webmin_name":   h.get("webmin_name") or "",
+                "snmp_name":     h.get("snmp_name") or "",
+            })
+        ctx["hosts"] = host_records
+    except Exception as e:
+        print(f"[telegram_listener] context hosts build failed: {e}")
+        ctx["hosts"] = []
+    return ctx
+
+
 async def _ai_reply(
     client: httpx.AsyncClient,
     text: str,
@@ -1256,11 +1559,24 @@ async def _ai_reply(
     """Route a non-`/` Telegram message through the AI palette and
     reply with the conversational response.
 
-    Action directives are stripped from the AI's output — Telegram
-    cannot trigger actions through AI in this phase. The AI gets a
-    constrained system prompt that tells it Telegram is read-only,
-    so it shouldn't emit `ACTION:` directives in the first place; the
-    strip pass is defence-in-depth.
+    Flow:
+      1. Fire native Telegram "typing…" indicator + send a "🤖
+         Thinking…" placeholder. Capture the placeholder's
+         ``message_id`` so the final reply can be edited in place
+         (same chat bubble — better UX than a new message).
+      2. Build a fleet context block (hosts + items) and feed it to
+         :func:`logic.ai.build_palette_user_prompt` so the AI grounds
+         its answer in actual OmniGrid state instead of hallucinating
+         hostnames from training data.
+      3. Run the AI call with :data:`logic.ai.PALETTE_SYSTEM_PROMPT`
+         (which carries the GROUNDING-STRICT / fuzzy-matching
+         directives) plus a Telegram-specific override telling the
+         model it's on a read-only surface.
+      4. Strip any ACTION/MEMORY/CHART_KIND directives the AI emits
+         anyway (defence in depth — the read-only override should
+         prevent them, but bugs happen).
+      5. Edit the placeholder in place with the final answer; fall
+         back to a fresh ``_send_reply`` if the edit fails.
     """
     try:
         from logic import ai as _ai
@@ -1290,17 +1606,43 @@ async def _ai_reply(
         return
     model = (get_setting(f"ai_provider_{provider}_model", "") or "").strip() or None
     base_url = (get_setting(f"ai_provider_{provider}_base_url", "") or "").strip() or None
+
+    # ---- Immediate user feedback: typing indicator + placeholder ---
+    # The typing indicator is decorative (~5s); the placeholder is
+    # the durable bubble we edit in place when the AI returns.
+    await _send_chat_action(client, "typing")
+    placeholder_id = await _send_reply(client, "🤖 <i>Thinking…</i>")
+
+    # ---- Build grounded prompt -------------------------------------
+    # Reuse the SPA's `build_palette_user_prompt` so Telegram and the
+    # command palette feed the AI an identical record-shape. The
+    # PALETTE_SYSTEM_PROMPT then enforces grounding (no hallucinated
+    # hostnames) via the same GROUNDING-STRICT block both surfaces
+    # share.
+    ctx = _build_telegram_ai_context()
+    user_prompt = _ai.build_palette_user_prompt(text, ctx)
+
+    # Telegram-specific override: PALETTE_SYSTEM_PROMPT tells the AI
+    # to emit ACTION: directives for the SPA's command palette to
+    # execute. Telegram is a READ-ONLY surface — append an override
+    # that strips that license. The strip pass below is defence in
+    # depth in case the model emits them anyway.
     system_prompt = (
-        "You are OmniGrid's Telegram assistant, replying to operator "
-        f"'{omnigrid_username}'. Telegram is a READ-ONLY surface in this "
-        "phase: you can answer questions about the fleet, summarise "
-        "status, explain features, but you MUST NOT emit ACTION: / "
-        "ACTION_HOSTS: / MEMORY: directives — those are silently "
-        "stripped before the reply reaches the user. If the operator "
-        "asks you to DO something (restart, pause, configure), tell "
-        "them to use the slash command (e.g. /restart <target>) or "
-        "the SPA. Keep replies brief — Telegram messages stay readable "
-        "under 4096 characters; aim for under 500."
+        _ai.PALETTE_SYSTEM_PROMPT
+        + "\n\n"
+        + "TELEGRAM SURFACE OVERRIDE. You are replying to operator "
+        f"'{omnigrid_username}' via Telegram, which is a READ-ONLY "
+        "channel in this deployment. NEVER emit ACTION: / "
+        "ACTION_HOSTS: / MEMORY: / MEMORY-FORGET: / CHART_KIND: "
+        "directives — those are silently stripped before the reply "
+        "reaches the user, so emitting them just wastes tokens. If "
+        "the operator asks you to DO something (restart, pause, "
+        "configure), tell them to use the matching slash command "
+        "(/restart <target>, /cleanup, etc.) or the SPA. Keep "
+        "replies brief — Telegram messages stay readable under 4096 "
+        "characters; aim for under 600. Use the supplied JSON "
+        "records (hosts / items) to answer fleet-state questions "
+        "rather than inventing names from training data."
     )
     # Token budget honours the operator's `tuning_ai_max_tokens`
     # setting (Admin → AI Integration → "Max response tokens"). Hard-
@@ -1313,37 +1655,48 @@ async def _ai_reply(
     # limit. Defence in depth: clamp to a reasonable upper bound.
     try:
         from logic import tuning as _tuning
-        max_toks = _tuning.tuning_int("tuning_ai_max_tokens")
+        from logic.tuning import Tunable
+        max_toks = _tuning.tuning_int(Tunable.AI_MAX_TOKENS)
     except Exception:
         max_toks = 1024
     try:
         max_toks = max(256, int(max_toks))
     except (TypeError, ValueError):
         max_toks = 1024
+    # Helper: deliver `final` to the operator. Tries the in-place
+    # edit first (replaces the "🤖 Thinking…" bubble); on any failure
+    # falls back to a fresh sendMessage so the operator never ends up
+    # without a visible reply.
+    async def _deliver(final: str) -> None:
+        edited = False
+        if placeholder_id:
+            edited = await _edit_message(client, placeholder_id, final)
+        if not edited:
+            await _send_reply(client, final)
+
     try:
         result = await _ai.ask_provider(
             provider,
             api_key=api_key,
-            prompt=text,
+            prompt=user_prompt,
             system_prompt=system_prompt,
             model=model,
             base_url=base_url,
             max_tokens=max_toks,
         )
     except Exception as e:
-        await _send_reply(client, f"❌ AI call failed: <code>{_escape(str(e))}</code>")
+        await _deliver(f"❌ AI call failed: <code>{_escape(str(e))}</code>")
         return
     if not isinstance(result, dict) or not result.get("ok"):
         detail = (result or {}).get("detail") if isinstance(result, dict) else "no response"
-        await _send_reply(
-            client,
+        await _deliver(
             f"❌ AI provider error: <code>{_escape(str(detail))}</code>"
         )
         return
     raw_text = (result.get("text") or "").strip()
     clean = _strip_ai_directives(raw_text)
     if not clean:
-        await _send_reply(client, "<i>(empty AI response)</i>")
+        await _deliver("<i>(empty AI response)</i>")
         return
     # Telegram caps a single message at 4096 chars including HTML
     # tags. _send_reply will fail HTTP-400 if we exceed; pre-trim
@@ -1353,7 +1706,7 @@ async def _ai_reply(
         clean = clean[:MAX] + "\n\n<i>…(truncated)</i>"
     # Escape for HTML parse_mode — the AI's response might contain
     # &, <, > that Telegram's parser would otherwise reject.
-    await _send_reply(client, _escape(clean))
+    await _deliver(_escape(clean))
 
 
 # ----------------------------------------------------------------------------

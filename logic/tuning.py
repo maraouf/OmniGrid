@@ -8,8 +8,140 @@ without a restart — every consumer calls ``tuning_int(...)`` at the
 point of use rather than caching it at module import.
 """
 import os
+from enum import Enum
 
 from logic.db import get_setting
+
+
+class Tunable(str, Enum):
+    """Typed enum of every operator-tunable knob declared in
+    :data:`TUNABLES`. Inherits ``str`` so existing dict lookups,
+    ``tuning_int(key)`` calls, and SQLite parameter binding all
+    continue to work — ``Tunable.AI_MAX_TOKENS == "tuning_ai_max_tokens"``
+    is true, ``hash()`` agrees, and ``TUNABLES[Tunable.AI_MAX_TOKENS]``
+    finds the same entry as ``TUNABLES["tuning_ai_max_tokens"]``.
+
+    Naming: drop the ``tuning_`` prefix, uppercase the rest, keep the
+    underscores. So ``tuning_ai_max_tokens`` -> ``Tunable.AI_MAX_TOKENS``.
+
+    Use this enum at every static call site (``tuning_int(Tunable.X)``,
+    ``TUNABLES[Tunable.X]``). Dynamic keys built from f-strings — e.g.
+    ``f"tuning_{provider}_failure_pause_rounds"`` — stay as plain strings;
+    the enum is for compile-time-known keys only.
+
+    Members are sorted alphabetically by string value for stable diffs.
+    Every addition to ``TUNABLES`` must add a matching member here; the
+    smoke check in ``__main__`` catches missing / extra members.
+    """
+    AI_CONVERSATION_EXPORT_ENABLED = "tuning_ai_conversation_export_enabled"
+    AI_CONVERSATION_PERSIST_INTERVAL_MS = "tuning_ai_conversation_persist_interval_ms"
+    AI_EXTENDED_HTTP_TIMEOUT_SECONDS = "tuning_ai_extended_http_timeout_seconds"
+    AI_FALLBACK_MAX_DEPTH = "tuning_ai_fallback_max_depth"
+    AI_HTTP_TIMEOUT_SECONDS = "tuning_ai_http_timeout_seconds"
+    AI_LOG_CONTEXT_HOURS = "tuning_ai_log_context_hours"
+    AI_LOG_CONTEXT_LINES = "tuning_ai_log_context_lines"
+    AI_MAX_TOKENS = "tuning_ai_max_tokens"
+    AI_RETRY_BACKOFF_MS = "tuning_ai_retry_backoff_ms"
+    AI_RETRY_ENABLED = "tuning_ai_retry_enabled"
+    AI_RETRY_FIRST_ATTEMPT_MAX_MS = "tuning_ai_retry_first_attempt_max_ms"
+    AI_SIDEBAR_WIDTH_PX = "tuning_ai_sidebar_width_px"
+    ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS = "tuning_asset_inventory_fetch_timeout_seconds"
+    ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS = "tuning_asset_inventory_token_timeout_seconds"
+    AUTH_FAILURE_COOLDOWN_SECONDS = "tuning_auth_failure_cooldown_seconds"
+    BACKUP_RETENTION_COUNT = "tuning_backup_retention_count"
+    BESZEL_FAILURE_PAUSE_ROUNDS = "tuning_beszel_failure_pause_rounds"
+    BESZEL_PROBE_TIMEOUT_SECONDS = "tuning_beszel_probe_timeout_seconds"
+    BESZEL_SAMPLE_INTERVAL_SECONDS = "tuning_beszel_sample_interval_seconds"
+    CACHE_TTL_SECONDS = "tuning_cache_ttl_seconds"
+    CONFIG_BACKUP_RETENTION_COUNT = "tuning_config_backup_retention_count"
+    GATHER_CLIENT_TIMEOUT_SECONDS = "tuning_gather_client_timeout_seconds"
+    GATHER_ORPHAN_PROBE_TIMEOUT_SECONDS = "tuning_gather_orphan_probe_timeout_seconds"
+    HOST_BASELINE_FIRST_TICK_DELAY_SECONDS = "tuning_host_baseline_first_tick_delay_seconds"
+    HOST_BASELINE_RECOMPUTE_INTERVAL_SECONDS = "tuning_host_baseline_recompute_interval_seconds"
+    HOST_METRICS_PROBE_CONCURRENCY = "tuning_host_metrics_probe_concurrency"
+    HOST_PERMANENT_FAIL_WINDOW_SECONDS = "tuning_host_permanent_fail_window_seconds"
+    HOST_PROVIDER_CACHE_TTL_SECONDS = "tuning_host_provider_cache_ttl_seconds"
+    HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS = "tuning_host_snapshot_stale_field_max_age_hours"
+    HOST_SNAPSHOTS_CACHE_TTL_SECONDS = "tuning_host_snapshots_cache_ttl_seconds"
+    HOSTS_IDLE_FILL_INTERVAL_SECONDS = "tuning_hosts_idle_fill_interval_seconds"
+    HOSTS_PARALLEL_FETCH = "tuning_hosts_parallel_fetch"
+    KICK_GATHER_TIMEOUT_SECONDS = "tuning_kick_gather_timeout_seconds"
+    LOAD_BUSY_MAX_SECONDS = "tuning_load_busy_max_seconds"
+    LOG_RETENTION_DAYS = "tuning_log_retention_days"
+    NODE_EXPORTER_FAILURE_PAUSE_ROUNDS = "tuning_node_exporter_failure_pause_rounds"
+    NODE_EXPORTER_PROBE_TIMEOUT_SECONDS = "tuning_node_exporter_probe_timeout_seconds"
+    NODE_EXPORTER_SAMPLE_INTERVAL_SECONDS = "tuning_node_exporter_sample_interval_seconds"
+    NOTIFICATION_PAGE_SIZE = "tuning_notification_page_size"
+    NOTIFICATION_RETENTION_DAYS = "tuning_notification_retention_days"
+    NOTIFICATIONS_POLL_INTERVAL_SECONDS = "tuning_notifications_poll_interval_seconds"
+    OIDC_HTTP_TIMEOUT_SECONDS = "tuning_oidc_http_timeout_seconds"
+    OPS_POLL_INTERVAL_SECONDS = "tuning_ops_poll_interval_seconds"
+    PING_CONCURRENCY = "tuning_ping_concurrency"
+    PING_COOLDOWN_SECONDS = "tuning_ping_cooldown_seconds"
+    PING_DEFAULT_PORT = "tuning_ping_default_port"
+    PING_FAILURE_PAUSE_ROUNDS = "tuning_ping_failure_pause_rounds"
+    PING_INTERVAL_SECONDS = "tuning_ping_interval_seconds"
+    PING_PACKET_INTERVAL_MS = "tuning_ping_packet_interval_ms"
+    PING_PROBE_TIMEOUT_SECONDS = "tuning_ping_probe_timeout_seconds"
+    POLLOPS_SSE_KEEPALIVE_SECONDS = "tuning_pollops_sse_keepalive_seconds"
+    PORT_SCAN_BANNER_READ_SECONDS = "tuning_port_scan_banner_read_seconds"
+    PORT_SCAN_DEFAULT_CONCURRENCY = "tuning_port_scan_default_concurrency"
+    PORT_SCAN_DEFAULT_TIMEOUT_SECONDS = "tuning_port_scan_default_timeout_seconds"
+    PORT_SCAN_MAX_SECONDS = "tuning_port_scan_max_seconds"
+    PORT_SCAN_SCHEDULE_MAX_HOSTS_PER_TICK = "tuning_port_scan_schedule_max_hosts_per_tick"
+    PORT_SCAN_SCHEDULE_MIN_AGE_SECONDS = "tuning_port_scan_schedule_min_age_seconds"
+    PORT_SCAN_SCHEDULE_PER_HOST_CONCURRENCY = "tuning_port_scan_schedule_per_host_concurrency"
+    PORT_SCAN_UDP_DEFAULT_CONCURRENCY = "tuning_port_scan_udp_default_concurrency"
+    PORT_SCAN_UDP_DEFAULT_TIMEOUT_SECONDS = "tuning_port_scan_udp_default_timeout_seconds"
+    PORTAINER_OP_TIMEOUT_LONG_SECONDS = "tuning_portainer_op_timeout_long_seconds"
+    PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS = "tuning_portainer_op_timeout_medium_seconds"
+    PORTAINER_OP_TIMEOUT_SHORT_SECONDS = "tuning_portainer_op_timeout_short_seconds"
+    PULSE_FAILURE_PAUSE_ROUNDS = "tuning_pulse_failure_pause_rounds"
+    PULSE_PROBE_TIMEOUT_SECONDS = "tuning_pulse_probe_timeout_seconds"
+    PULSE_SAMPLE_INTERVAL_SECONDS = "tuning_pulse_sample_interval_seconds"
+    RATE_LIMIT_LOCKOUT_SECONDS = "tuning_rate_limit_lockout_seconds"
+    RATE_LIMIT_MAX_FAILURES = "tuning_rate_limit_max_failures"
+    RATE_LIMIT_WINDOW_SECONDS = "tuning_rate_limit_window_seconds"
+    REGISTRY_CONCURRENCY = "tuning_registry_concurrency"
+    SNMP_CONCURRENCY = "tuning_snmp_concurrency"
+    SNMP_DEFAULT_PORT = "tuning_snmp_default_port"
+    SNMP_FAILURE_PAUSE_ROUNDS = "tuning_snmp_failure_pause_rounds"
+    SNMP_HOST_CACHE_TTL_SECONDS = "tuning_snmp_host_cache_ttl_seconds"
+    SNMP_HOST_FAIL_CACHE_TTL_SECONDS = "tuning_snmp_host_fail_cache_ttl_seconds"
+    SNMP_PER_HOST_WALK_CONCURRENCY = "tuning_snmp_per_host_walk_concurrency"
+    SNMP_PROBE_TIMEOUT_SECONDS = "tuning_snmp_probe_timeout_seconds"
+    SNMP_SAMPLE_INTERVAL_SECONDS = "tuning_snmp_sample_interval_seconds"
+    SNMP_UNREACHABLE_COOLDOWN_SECONDS = "tuning_snmp_unreachable_cooldown_seconds"
+    SNMP_WALK_CONCURRENCY_CISCO = "tuning_snmp_walk_concurrency_cisco"
+    SNMP_WALK_CONCURRENCY_DELL = "tuning_snmp_walk_concurrency_dell"
+    SNMP_WALK_CONCURRENCY_PRINTER = "tuning_snmp_walk_concurrency_printer"
+    SNMP_WALK_CONCURRENCY_SYNOLOGY = "tuning_snmp_walk_concurrency_synology"
+    SNMP_WALK_CONCURRENCY_UCD = "tuning_snmp_walk_concurrency_ucd"
+    SNMP_WALL_CLOCK_BUDGET_SECONDS = "tuning_snmp_wall_clock_budget_seconds"
+    SSE_HEARTBEAT_SECONDS = "tuning_sse_heartbeat_seconds"
+    SSE_IDLE_THRESHOLD_SECONDS = "tuning_sse_idle_threshold_seconds"
+    SSE_MAX_LIFETIME_SECONDS = "tuning_sse_max_lifetime_seconds"
+    SSH_CLOSE_TIMEOUT_SECONDS = "tuning_ssh_close_timeout_seconds"
+    SSH_DEFAULT_PORT = "tuning_ssh_default_port"
+    SSH_TERMINAL_CONNECT_TIMEOUT_SECONDS = "tuning_ssh_terminal_connect_timeout_seconds"
+    SSH_TERMINAL_LOGIN_TIMEOUT_SECONDS = "tuning_ssh_terminal_login_timeout_seconds"
+    SSH_WS_HEARTBEAT_SECONDS = "tuning_ssh_ws_heartbeat_seconds"
+    STAT_BAR_CRIT_PCT = "tuning_stat_bar_crit_pct"
+    STAT_BAR_WARN_PCT = "tuning_stat_bar_warn_pct"
+    STATS_CACHE_TTL_SECONDS = "tuning_stats_cache_ttl_seconds"
+    STATS_CONCURRENCY = "tuning_stats_concurrency"
+    STATS_HISTORY_DAYS = "tuning_stats_history_days"
+    STATS_SAMPLE_INTERVAL_SECONDS = "tuning_stats_sample_interval_seconds"
+    STATS_TARGETED_TIMEOUT_SECONDS = "tuning_stats_targeted_timeout_seconds"
+    STATS_UNTARGETED_TIMEOUT_SECONDS = "tuning_stats_untargeted_timeout_seconds"
+    SWARM_AGENT_UNHEALTHY_THRESHOLD = "tuning_swarm_agent_unhealthy_threshold"
+    SWARM_AUTOHEAL_COOLDOWN_MINUTES = "tuning_swarm_autoheal_cooldown_minutes"
+    WEBMIN_FAILURE_PAUSE_ROUNDS = "tuning_webmin_failure_pause_rounds"
+    WEBMIN_HOST_CACHE_TTL_SECONDS = "tuning_webmin_host_cache_ttl_seconds"
+    WEBMIN_HOST_FAIL_CACHE_TTL_SECONDS = "tuning_webmin_host_fail_cache_ttl_seconds"
+    WEBMIN_PROBE_BUDGET_SECONDS = "tuning_webmin_probe_budget_seconds"
+    WEBMIN_PROBE_TIMEOUT_SECONDS = "tuning_webmin_probe_timeout_seconds"
+    WEBMIN_SAMPLER_BUDGET_SECONDS = "tuning_webmin_sampler_budget_seconds"
 
 
 # Authoritative table of (db_key, env_var, default, min, max). The UI
@@ -906,6 +1038,14 @@ if __name__ == "__main__":
     # when both are blank. DB lookup is best-effort — when DB_PATH is
     # unset in the dev shell, the resolver still falls through to env /
     # default cleanly.
-    assert tuning_int("tuning_cache_ttl_seconds") > 0
-    assert tuning_int("tuning_stats_concurrency") > 0
+    assert tuning_int(Tunable.CACHE_TTL_SECONDS) > 0
+    assert tuning_int(Tunable.STATS_CONCURRENCY) > 0
+    # Tunable<->TUNABLES coverage check — every enum member must point
+    # at a real TUNABLES entry and vice versa. The two parallel
+    # declarations are the canonical drift class; this smoke catches
+    # the divergence at import time.
+    _missing = [m.name for m in Tunable if m.value not in TUNABLES]
+    _extra = [k for k in TUNABLES if k not in {m.value for m in Tunable}]
+    assert not _missing, f"Tunable members not in TUNABLES: {_missing}"
+    assert not _extra, f"TUNABLES keys not in Tunable enum: {_extra}"
     print("tuning smoke passed")

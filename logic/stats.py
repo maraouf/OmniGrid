@@ -20,6 +20,7 @@ import httpx
 from logic import gather as _gather_mod
 from logic import portainer
 from logic import tuning
+from logic.tuning import Tunable
 from logic.db import db_conn
 
 # The cache main.py's /api/stats route reads. Structure:
@@ -147,7 +148,7 @@ def _snapshot_stats_to_db() -> int:
 
 def _prune_old_samples() -> int:
     """Delete rows older than the current history-days setting. Returns rows removed."""
-    days = tuning.tuning_int("tuning_stats_history_days")
+    days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
     cutoff = time.time() - days * 86400
     with db_conn() as c:
         cur = c.execute("DELETE FROM stats_samples WHERE ts < ?", (cutoff,))
@@ -157,14 +158,14 @@ def _prune_old_samples() -> int:
 async def stats_sampler_loop() -> None:
     # Wait a beat so the first gather_stats() has a chance to populate
     # _stats_cache before we write a row of zeros.
-    interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+    interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
     await asyncio.sleep(min(60, interval))
     tick = 0
     while True:
         try:
             n = _snapshot_stats_to_db()
-            interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
-            days = tuning.tuning_int("tuning_stats_history_days")
+            interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
+            days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
             # Prune hourly rather than every tick — single cheap DELETE,
             # but no need to churn on every 5-minute cycle.
             if tick % max(1, 3600 // interval) == 0:
@@ -273,8 +274,8 @@ async def _one_container_stats(
     # fallback would 404 (manager doesn't have the worker's cid),
     # ultimately rendering as `—` in the UI even though the agent
     # would have responded if given more time.
-    targeted_to = float(tuning.tuning_int("tuning_stats_targeted_timeout_seconds"))
-    untargeted_to = float(tuning.tuning_int("tuning_stats_untargeted_timeout_seconds"))
+    targeted_to = float(tuning.tuning_int(Tunable.STATS_TARGETED_TIMEOUT_SECONDS))
+    untargeted_to = float(tuning.tuning_int(Tunable.STATS_UNTARGETED_TIMEOUT_SECONDS))
     url = f"{portainer.PORTAINER_URL}{ep}/containers/{cid}/stats?stream=false"
     targeted_status: Optional[int] = None
     targeted_err: Optional[str] = None

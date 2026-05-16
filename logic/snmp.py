@@ -88,6 +88,7 @@ import time
 from typing import Optional
 
 from logic import tuning as _tuning
+from logic.tuning import Tunable as _Tunable
 # Cool-down on consecutive timeouts. Different lever than the Webmin /
 # SSH 401 cool-down (no auth challenge in SNMP — there's no credential
 # lockout to defend against). Pre-fix we shared
@@ -98,7 +99,7 @@ from logic import tuning as _tuning
 from logic.cooldown import Cooldown as _Cooldown
 
 _unreachable_cooldown = _Cooldown(
-    seconds_fn=lambda: _tuning.tuning_int("tuning_snmp_unreachable_cooldown_seconds")
+    seconds_fn=lambda: _tuning.tuning_int(_Tunable.SNMP_UNREACHABLE_COOLDOWN_SECONDS)
 )
 
 # module-level SnmpEngine singleton. pysnmp HLAPI engines carry
@@ -2257,7 +2258,7 @@ async def probe_snmp(
         else:
             wall_clock_budget_resolved = max(
                 timeout + 5.0,
-                float(_tuning.tuning_int("tuning_snmp_wall_clock_budget_seconds")),
+                float(_tuning.tuning_int(_Tunable.SNMP_WALL_CLOCK_BUDGET_SECONDS)),
             )
         # Per-host walk concurrency cap. Default 1 (fully serialised
         # — CLI-equivalent wire-level pattern) protects slow embedded
@@ -2303,7 +2304,7 @@ async def probe_snmp(
                 walk_concurrency_resolved = vendor_default
             else:
                 walk_concurrency_resolved = max(
-                    1, int(_tuning.tuning_int("tuning_snmp_per_host_walk_concurrency"))
+                    1, int(_tuning.tuning_int(_Tunable.SNMP_PER_HOST_WALK_CONCURRENCY))
                 )
         walk_sem = asyncio.Semaphore(walk_concurrency_resolved)
         # Placeholder coroutines (``_resolved_value`` / ``_resolved_dict``
@@ -2428,10 +2429,10 @@ async def probe_snmp(
             # to cross-reference Admin → Config to know what the
             # current value is before deciding what to bump it to.
             tunable_walk_global = int(
-                _tuning.tuning_int("tuning_snmp_per_host_walk_concurrency")
+                _tuning.tuning_int(_Tunable.SNMP_PER_HOST_WALK_CONCURRENCY)
             )
             tunable_budget_global = int(
-                _tuning.tuning_int("tuning_snmp_wall_clock_budget_seconds")
+                _tuning.tuning_int(_Tunable.SNMP_WALL_CLOCK_BUDGET_SECONDS)
             )
             if walk_concurrency is not None:
                 walk_source = "per-host override"
