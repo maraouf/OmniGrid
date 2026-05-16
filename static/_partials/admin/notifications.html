@@ -247,30 +247,55 @@
           </div>
           <!-- Telegram listener long-poll + outer-HTTP timeouts —
                TUNABLES (per-call reads so an edit takes effect on
-               the next listener iteration without restart). -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-            <div>
-              <label class="block fs-xs font-medium mb-1"
-                     x-text="t('admin.config.fields.tuning_telegram_long_poll_timeout_seconds.label')"></label>
-              <input type="number" min="1" max="50" step="1"
-                     x-model="tuningForm['tuning_telegram_long_poll_timeout_seconds']"
-                     :placeholder="(tuningEffective['tuning_telegram_long_poll_timeout_seconds'] && tuningEffective['tuning_telegram_long_poll_timeout_seconds'].fallback != null) ? String(tuningEffective['tuning_telegram_long_poll_timeout_seconds'].fallback) : '25'"
-                     :disabled="isReadonly() || !settings.notify_medium_telegram"
-                     class="w-full mono fs-xs py-1.5">
-              <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                 x-text="t('admin.config.fields.tuning_telegram_long_poll_timeout_seconds.help')"></p>
-            </div>
-            <div>
-              <label class="block fs-xs font-medium mb-1"
-                     x-text="t('admin.config.fields.tuning_telegram_http_timeout_seconds.label')"></label>
-              <input type="number" min="5" max="120" step="1"
-                     x-model="tuningForm['tuning_telegram_http_timeout_seconds']"
-                     :placeholder="(tuningEffective['tuning_telegram_http_timeout_seconds'] && tuningEffective['tuning_telegram_http_timeout_seconds'].fallback != null) ? String(tuningEffective['tuning_telegram_http_timeout_seconds'].fallback) : '35'"
-                     :disabled="isReadonly() || !settings.notify_medium_telegram"
-                     class="w-full mono fs-xs py-1.5">
-              <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                 x-text="t('admin.config.fields.tuning_telegram_http_timeout_seconds.help')"></p>
-            </div>
+               the next listener iteration without restart). Canonical
+               single-column layout matching the Asset Inventory /
+               Public IP / Port Scan sections: label → help → input +
+               bounds-chips (min / max / default) + effective-label.
+               Side-by-side 2-col was a regression — bounds-chips
+               don't fit. -->
+          <div x-show="tuningLoaded" class="mt-4 space-y-3">
+            <template x-for="key in ['tuning_telegram_long_poll_timeout_seconds',
+                                      'tuning_telegram_http_timeout_seconds']"
+                      :key="key">
+              <div>
+                <label class="block fs-xs font-medium mb-1"
+                       x-text="t('admin.config.fields.' + key + '.label')"></label>
+                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+                   x-text="t('admin.config.fields.' + key + '.help')"></p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="number"
+                         x-model="tuningForm[key]"
+                         :placeholder="tuningPlaceholder(key)"
+                         :min="(tuningEffective[key] || {}).min"
+                         :max="(tuningEffective[key] || {}).max"
+                         :disabled="isReadonly() || !settings.notify_medium_telegram"
+                         class="w-44 mono fs-sm py-1">
+                  <div class="bounds-chips" role="group"
+                       :aria-label="t('admin.config.bounds.group_label')">
+                    <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title')">
+                      <svg width="11" height="11" aria-hidden="true">
+                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+                      </svg>
+                      <span x-text="(tuningEffective[key] || {}).min"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
+                      <svg width="11" height="11" aria-hidden="true">
+                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+                      </svg>
+                      <span x-text="(tuningEffective[key] || {}).max"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
+                      <svg width="11" height="11" aria-hidden="true">
+                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+                      </svg>
+                      <span x-text="(tuningEffective[key] || {}).default"></span>
+                    </span>
+                  </div>
+                  <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                        x-text="tuningEffectiveLabel(key)"></span>
+                </div>
+              </div>
+            </template>
           </div>
           <!-- Inline Test button removed — the page-level "Send test"
                button (in the Save row at the bottom of the parent
