@@ -729,12 +729,21 @@ def build_template_values(
     status: Optional[str],
     when: Optional[float] = None,
     message: Optional[str] = None,
+    actor_username: Optional[str] = None,
 ) -> dict:
     """Build the placeholder->value dict consumed by
     :func:`render_template`. Every key in :data:`NOTIFY_PLACEHOLDERS`
     is populated (None-safe; missing values render as the empty
     string). ``error`` and ``message`` are truncated to 500 chars to
-    match the legacy body-cap behaviour. ``time`` is ISO-8601 UTC.
+    match the legacy body-cap behaviour.
+
+    ``{time}`` renders against ``actor_username``'s
+    ``ui_prefs.datetime_format`` so notification body / title strings
+    match the SPA's ``fmtDate`` output for that recipient. Falls back
+    to the canonical default when ``actor_username`` is empty / the
+    user has no custom preference. The preview endpoint passes its own
+    static sample dict, so live render = per-user format, preview =
+    stable sample.
 
     ``error`` is the legacy slot — only populated when severity is
     "error" by the caller (callers pre-fix passed ``""`` for success /
@@ -742,14 +751,18 @@ def build_template_values(
     warning / success templates that need a non-empty body.
     """
     import datetime as _dt
+    from logic.datetime_fmt import apply_datetime_format, get_user_datetime_format
 
     ts = when if when is not None else time.time()
-    # Python 3.12+ deprecated `datetime.utcfromtimestamp(...)` in
-    # favour of the timezone-aware
-    # `datetime.fromtimestamp(ts, tz=timezone.utc)`. Container is now
-    # python:3.14-slim — using the deprecated form raised a
-    # DeprecationWarning on every notification render.
-    iso = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Render against the actor's `ui_prefs.datetime_format` so the
+    # notification `{time}` placeholder matches what they'd see in the
+    # SPA via `fmtDate`. Empty / missing username falls through to
+    # `DEFAULT_DATETIME_FORMAT` ("dd/MM/yyyy, HH:mm:ss").
+    user_fmt = get_user_datetime_format(actor_username or "")
+    rendered_time = apply_datetime_format(
+        _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc),
+        user_fmt,
+    )
     err_str = (error or "")
     if len(err_str) > 500:
         err_str = err_str[:500]
@@ -761,7 +774,7 @@ def build_template_values(
         "type":    op_type or event or "",
         "actor":   actor or "system",
         "host":    host or "",
-        "time":    iso,
+        "time":    rendered_time,
         "error":   err_str,
         "message": msg_str,
         "status":  status or "",
@@ -1366,6 +1379,7 @@ async def notify(
             # a non-empty body bind {message} instead of {error}.
             message=legacy_body,
             status=status_token,
+            actor_username=actor_username,
         )
         # Resolve and render. Empty resolver output falls through to
         # the legacy literal — never go silent on missing template.

@@ -953,12 +953,26 @@ async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         )
         return
     import time as _time
+    linked_at_ms = int(_time.time() * 1000)
     mappings = _load_mappings()
     mappings[str(int(sender_id))] = {
         "username": username,
-        "linked_at_ms": int(_time.time() * 1000),
+        "linked_at_ms": linked_at_ms,
     }
     _save_mappings(mappings)
+    # SSE event so the SPA's Profile → Telegram card flips from
+    # "Generate code" to the linked-state banner without a manual
+    # page reload. Payload carries `username` so the SPA can scope
+    # the refresh to the matching tab.
+    try:
+        from logic import events as _events
+        _events.publish("telegram:linked", {
+            "username": username,
+            "telegram_user_id": int(sender_id),
+            "linked_at_ms": linked_at_ms,
+        })
+    except Exception as _e:
+        print(f"[telegram_listener] publish telegram:linked failed: {_e}")
     await _send_reply(
         client,
         f"✅ Linked to OmniGrid user <b>{_escape(username)}</b>. "
@@ -979,9 +993,24 @@ async def _cmd_unlink(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
         return
     removed = mappings.pop(key)
     _save_mappings(mappings)
+    # Mapping schema is `{username, linked_at_ms}` post-migration;
+    # legacy entries may still be a bare username string.
+    removed_username = (
+        removed.get("username") if isinstance(removed, dict) else str(removed)
+    )
+    # SSE event so any OmniGrid tab the operator has open re-renders
+    # the Profile → Telegram card without a manual reload.
+    try:
+        from logic import events as _events
+        _events.publish("telegram:unlinked", {
+            "username": removed_username,
+            "telegram_user_id": int(sender_id),
+        })
+    except Exception as _e:
+        print(f"[telegram_listener] publish telegram:unlinked failed: {_e}")
     await _send_reply(
         client,
-        f"✅ Unlinked from OmniGrid user <b>{_escape(removed)}</b>. "
+        f"✅ Unlinked from OmniGrid user <b>{_escape(removed_username)}</b>. "
         f"Re-link via Profile → Telegram in OmniGrid."
     )
 
@@ -1273,6 +1302,24 @@ async def _ai_reply(
         "the SPA. Keep replies brief — Telegram messages stay readable "
         "under 4096 characters; aim for under 500."
     )
+    # Token budget honours the operator's `tuning_ai_max_tokens`
+    # setting (Admin → AI Integration → "Max response tokens"). Hard-
+    # coding a low cap here breaks "thinking" models like Gemini 2.5
+    # which spend the budget on internal reasoning BEFORE producing
+    # output tokens — a 512-token cap can return zero visible text
+    # with finish_reason=MAX_TOKENS. The 4096-char per-message
+    # Telegram cap is still enforced post-render by the truncation
+    # block below, so an excessive setting can't push past the wire
+    # limit. Defence in depth: clamp to a reasonable upper bound.
+    try:
+        from logic import tuning as _tuning
+        max_toks = _tuning.tuning_int("tuning_ai_max_tokens")
+    except Exception:
+        max_toks = 1024
+    try:
+        max_toks = max(256, int(max_toks))
+    except (TypeError, ValueError):
+        max_toks = 1024
     try:
         result = await _ai.ask_provider(
             provider,
@@ -1281,10 +1328,7 @@ async def _ai_reply(
             system_prompt=system_prompt,
             model=model,
             base_url=base_url,
-            # Bounded so a runaway response can't blow the Telegram
-            # 4096-char per-message limit (most prompts fit in 1024
-            # output tokens ≈ 3-4k chars).
-            max_tokens=512,
+            max_tokens=max_toks,
         )
     except Exception as e:
         await _send_reply(client, f"❌ AI call failed: <code>{_escape(str(e))}</code>")
