@@ -1002,6 +1002,16 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     uptime_str = _fmt_uptime(data.get("host_uptime_seconds"))
     if uptime_str:
         out.append(f"⏱ <b>Uptime:</b> {uptime_str}")
+    # Ping reachability — RTT in ms when alive, loss% when not.
+    ping_alive = data.get("host_ping_alive")
+    ping_rtt = data.get("host_ping_rtt_ms")
+    ping_loss = data.get("host_ping_loss_pct")
+    if ping_alive is True and isinstance(ping_rtt, (int, float)):
+        loss_seg = (f", {float(ping_loss):.0f}% loss"
+                    if isinstance(ping_loss, (int, float)) and ping_loss > 0 else "")
+        out.append(f"📡 <b>Ping:</b>   {float(ping_rtt):.1f} ms{loss_seg}")
+    elif ping_alive is False:
+        out.append(f"📡 <b>Ping:</b>   unreachable")
 
     # ---- Extended stats — only emit sections with meaningful data --
     extended: list[str] = []
@@ -1022,6 +1032,14 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     bw = data.get("host_bandwidth")
     if isinstance(bw, (int, float)) and bw > 0:
         extended.append(f"🌐 <b>Bandwidth:</b> {_fmt_bytes(bw)}/s")
+    # Cumulative network counters (total throughput since boot / counter reset).
+    rx_total = data.get("host_net_rx_total") or data.get("host_net_rx_total_bytes")
+    tx_total = data.get("host_net_tx_total") or data.get("host_net_tx_total_bytes")
+    if isinstance(rx_total, (int, float)) and isinstance(tx_total, (int, float)) \
+            and (rx_total > 0 or tx_total > 0):
+        extended.append(
+            f"📊 <b>Net total:</b> ↓ {_fmt_bytes(rx_total)} / ↑ {_fmt_bytes(tx_total)}"
+        )
     # Temperatures — Beszel emits a list of {name, temp_c} after _flatten.
     temps = data.get("host_temperatures")
     if isinstance(temps, list) and temps:
@@ -1069,12 +1087,31 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     pkg_count = data.get("package_updates_count")
     if isinstance(pkg_count, int) and pkg_count > 0:
         extended.append(f"📦 <b>Updates:</b> {pkg_count} pending")
-    # UPS (SNMP)
+    # UPS (SNMP / PowerNet) — full card: output status, battery %, output
+    # load, runtime remaining, battery temperature, battery state.
+    # Field names match `logic/snmp.py`'s APC extractor: host_ups_status,
+    # host_battery_percent, host_battery_temp_c, host_battery_runtime_s,
+    # host_battery_status, host_load_percent.
     ups_status = data.get("host_ups_status")
-    if ups_status:
-        bat = data.get("host_battery_charge")
-        bat_seg = f" ({float(bat):.0f}% battery)" if isinstance(bat, (int, float)) else ""
-        extended.append(f"🔋 <b>UPS:</b>    {_escape(str(ups_status))}{bat_seg}")
+    bat_pct = data.get("host_battery_percent")
+    load_pct = data.get("host_load_percent")
+    runtime_s = data.get("host_battery_runtime_s")
+    bat_temp = data.get("host_battery_temp_c")
+    bat_state = data.get("host_battery_status")
+    if ups_status or isinstance(bat_pct, (int, float)) or isinstance(load_pct, (int, float)):
+        if ups_status:
+            extended.append(f"🔋 <b>UPS:</b>    {_escape(str(ups_status))}")
+        if isinstance(bat_pct, (int, float)):
+            extended.append(f"   <b>Battery:</b>   {float(bat_pct):.0f}%")
+        if isinstance(load_pct, (int, float)):
+            extended.append(f"   <b>Output load:</b> {float(load_pct):.0f}%")
+        runtime_str = _fmt_uptime(runtime_s) if isinstance(runtime_s, (int, float)) else ""
+        if runtime_str:
+            extended.append(f"   <b>Runtime:</b>   {runtime_str}")
+        if isinstance(bat_temp, (int, float)):
+            extended.append(f"   <b>Battery temp:</b> {float(bat_temp):.0f}°C")
+        if bat_state:
+            extended.append(f"   <b>Battery state:</b> {_escape(str(bat_state))}")
 
     if extended:
         out.append("")
@@ -1791,19 +1828,88 @@ def _strip_ai_directives(text: str) -> str:
     return cleaned.strip()
 
 
-def _build_telegram_ai_context() -> dict:
+async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     """Build the fleet-context block fed to the AI palette so it
     answers from real OmniGrid state instead of hallucinating host
     names from training data. Mirrors the SPA's
     ``_buildAiPaletteContext`` shape — host telemetry + recent items
-    — so the same grounding directives in
-    :data:`ai.PALETTE_SYSTEM_PROMPT` produce the same quality of
-    answer on Telegram as in the SPA's command palette.
+    + weather + current server/scheduler time — so the same grounding
+    directives in :data:`ai.PALETTE_SYSTEM_PROMPT` produce the same
+    quality of answer on Telegram as in the SPA's command palette.
 
-    Returns ``{view, hosts: [...], items: [...]}``. Never raises;
-    missing data sources degrade to empty lists.
+    ``username`` is the linked OmniGrid user (when known) — used to
+    look up the per-user weather preference so "what's the weather"
+    answers from the operator's saved city.
+
+    Returns ``{view, hosts: [...], items: [...], weather: {...},
+    time: {...}}``. Never raises; missing data sources degrade to
+    empty dicts / lists.
     """
     ctx: dict = {"view": "telegram"}
+    # ---- Current time + scheduler timezone -------------------------
+    # The AI needs current-time grounding the same way it needs host
+    # grounding: without it, "what time is it" / "what's today's date"
+    # questions get the canned "I can't access a live clock" refusal.
+    # Stamps UTC ISO + local-tz ISO (per `scheduler_timezone`) +
+    # operator-resolved tz name + UTC offset, so the model can answer
+    # in either reference frame.
+    try:
+        from datetime import datetime, timezone
+        from logic.schedules import scheduler_tz_state
+        tz_state = scheduler_tz_state() or {}
+        resolved_tz_name = tz_state.get("resolved") or "UTC"
+        now_utc = datetime.now(timezone.utc)
+        try:
+            from zoneinfo import ZoneInfo
+            now_local = now_utc.astimezone(ZoneInfo(resolved_tz_name))
+            local_iso = now_local.isoformat(timespec="seconds")
+            offset = now_local.utcoffset()
+            offset_str = ""
+            if offset is not None:
+                total = int(offset.total_seconds())
+                sign = "+" if total >= 0 else "-"
+                offset_str = f"{sign}{abs(total) // 3600:02d}:{(abs(total) % 3600) // 60:02d}"
+        except Exception:
+            local_iso = now_utc.isoformat(timespec="seconds")
+            offset_str = "+00:00"
+        ctx["time"] = {
+            "utc_iso":      now_utc.isoformat(timespec="seconds"),
+            "local_iso":    local_iso,
+            "timezone":     resolved_tz_name,
+            "utc_offset":   offset_str,
+            "weekday":      now_utc.strftime("%A"),
+        }
+    except Exception as e:
+        print(f"[telegram_listener] context time build failed: {e}")
+        ctx["time"] = {}
+    # ---- Weather: per-user saved location via api_weather ----------
+    # When the linked operator has a topbar weather location saved,
+    # fetch current conditions + 7-day forecast and inline them. Uses
+    # the same in-memory cache the topbar widget hits, so a burst of
+    # AI calls won't multiply upstream traffic.
+    if username:
+        try:
+            loc = _load_user_weather_pref(username)
+            if loc and loc.get("lat") is not None and loc.get("lon") is not None:
+                from main import api_weather as _api_weather
+                wx = await _api_weather(
+                    lat=float(loc["lat"]),
+                    lon=float(loc["lon"]),
+                    label=(loc.get("label") or "").strip(),
+                )
+                if isinstance(wx, dict) and not wx.get("error"):
+                    forecast = wx.get("forecast") or []
+                    ctx["weather"] = {
+                        "label":        wx.get("label") or loc.get("label") or "",
+                        "temp_c":       wx.get("temp_c"),
+                        "humidity":     wx.get("humidity"),
+                        "wind_kmh":     wx.get("wind_kmh"),
+                        "condition":    wx.get("condition"),
+                        "weather_code": wx.get("code"),
+                        "forecast":     forecast[:7] if isinstance(forecast, list) else [],
+                    }
+        except Exception as e:
+            print(f"[telegram_listener] context weather build failed: {e}")
     # ---- Items: live gather cache, same shape the SPA reads --------
     try:
         from logic import gather as _gather
@@ -1950,7 +2056,7 @@ async def _ai_reply(
     # PALETTE_SYSTEM_PROMPT then enforces grounding (no hallucinated
     # hostnames) via the same GROUNDING-STRICT block both surfaces
     # share.
-    ctx = _build_telegram_ai_context()
+    ctx = await _build_telegram_ai_context(omnigrid_username)
     user_prompt = _ai.build_palette_user_prompt(text, ctx)
 
     # Telegram-specific override: PALETTE_SYSTEM_PROMPT tells the AI

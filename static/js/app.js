@@ -442,7 +442,7 @@ function app() {
     // a belt-and-braces safety check on top of EventSource's onerror
     // (which doesn't always fire on silent half-open sockets).
     _sseFreshnessTimer: null,
-    view: (['stacks','services','nodes','hosts','history','settings','admin'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
+    view: (['stacks','services','nodes','hosts','history','settings','admin','stats'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
     // In-app notifications. Surfaces as a POPUP overlay (NOT a
     // top-level view) — operators wanted a quick check + dismiss without
     // navigating away from whatever they were doing. Same modal pattern
@@ -2507,6 +2507,11 @@ function app() {
         this._pushRoute();
         // Load admin data lazily — only when the user actually navigates there.
         if (v === 'admin') this.openAdminTab(this.adminTab);
+        // Same lazy-load contract for Stats — without this, a
+        // localStorage-restored or route-applied view='stats' lands
+        // with statsOverview={} and loadStatsOverview() never fires,
+        // so the dashboard renders a perpetual loading spinner.
+        if (v === 'stats') this.openStatsTab(this.statsTab || 'dashboard');
         // Lazy-load hosts on first entry and (re)start its refresh timer.
         // Leaving the tab clears the timer so we're not hammering the hub
         // when the view isn't visible.
@@ -3444,10 +3449,16 @@ function app() {
           // sessions, schedules, etc).
           this.openAdminTab(sub);
         }
-      } else if (head === 'stats' && sub) {
-        if ((this.statsSections || []).some(s => s.id === sub)) {
-          this.openStatsTab(sub);
-        }
+      } else if (head === 'stats') {
+        // /stats with no sub-tab defaults to the current statsTab
+        // (init 'dashboard'); /stats/<id> opens that sub-tab. Always
+        // route through openStatsTab so the matching loader fires —
+        // without this the dashboard's loading-spinner never resolves
+        // because loadStatsOverview() was never invoked.
+        const target = (sub && (this.statsSections || []).some(s => s.id === sub))
+                       ? sub
+                       : (this.statsTab || 'dashboard');
+        this.openStatsTab(target);
       }
     },
     _pushRoute() {
