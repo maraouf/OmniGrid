@@ -457,12 +457,22 @@ async def _lifespan(app: FastAPI):
     # hour, deletes any omnigrid-YYYY-MM-DD.log older than the
     # operator-tunable retention window.
     log_pruner = asyncio.create_task(_log_pruner_loop(), name="log-pruner")
+    # Telegram inbound-command listener (Phase 2 — long-poll loop).
+    # Per-iteration gate inside the loop checks the
+    # `telegram_listener_enabled` setting + bot-token + chat-id so the
+    # operator can flip the listener on/off in Admin → Notifications
+    # without a restart. Loop sleeps 5s when disabled — cheap idle.
+    from logic import telegram_listener as _telegram_listener
+    telegram_listener = asyncio.create_task(
+        _telegram_listener.listener_loop(),
+        name="telegram-listener",
+    )
     try:
         yield
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (log_pruner, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
+        for task in (telegram_listener, log_pruner, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
             task.cancel()
             try:
                 await task
@@ -2805,6 +2815,16 @@ class SettingsIn(BaseModel):
     telegram_thread_id: Optional[str] = None
     telegram_verify_tls: Optional[str] = None
     notify_medium_telegram: Optional[str] = None
+    # Phase 2 — inbound command listener config. `enabled` controls
+    # whether the long-poll loop in `logic/telegram_listener.py` fires
+    # `getUpdates` against the bot. `allow_destructive` skips the
+    # typed-confirm second step on `/restart` (and any future
+    # destructive verb). `authorized_user_ids` is a CSV of Telegram
+    # user_id ints — empty means "any sender in the authorized chat
+    # is allowed" (chat-id gate is the only check).
+    telegram_listener_enabled: Optional[str] = None
+    telegram_allow_destructive: Optional[str] = None
+    telegram_authorized_user_ids: Optional[str] = None
     portainer_public_url: Optional[str] = None
     # Portainer connection (DB-backed, UI-managed). API key follows the
     # write-only / "keep current if blank" contract: the browser never
@@ -3492,6 +3512,10 @@ async def api_get_settings(request: Request):
         "telegram_verify_tls":    (get_setting("telegram_verify_tls", "true") or "true").lower() == "true",
         # Write-only: surface only a `_set` flag, never the raw token.
         "telegram_bot_token_set": bool((get_setting("telegram_bot_token", "") or "").strip()),
+        # Phase 2 — inbound command listener config.
+        "telegram_listener_enabled":   get_setting_bool("telegram_listener_enabled", False),
+        "telegram_allow_destructive":  get_setting_bool("telegram_allow_destructive", False),
+        "telegram_authorized_user_ids": get_setting("telegram_authorized_user_ids", ""),
         # TOTP / 2FA policy. Five fields driving the multi-step
         # login flow + Profile enrolment guards + Admin -> Users action
         # enablement. Defaults preserve "no 2FA required" semantics so
@@ -3856,6 +3880,18 @@ async def _api_set_settings_inner(s, request, _portainer):
     if s.notify_medium_telegram is not None:
         b = (s.notify_medium_telegram or "").strip().lower()
         set_setting("notify_medium_telegram", "true" if b == "true" else "false")
+    # Phase 2 — listener config.
+    if s.telegram_listener_enabled is not None:
+        b = (s.telegram_listener_enabled or "").strip().lower()
+        set_setting("telegram_listener_enabled", "true" if b == "true" else "false")
+    if s.telegram_allow_destructive is not None:
+        b = (s.telegram_allow_destructive or "").strip().lower()
+        set_setting("telegram_allow_destructive", "true" if b == "true" else "false")
+    if s.telegram_authorized_user_ids is not None:
+        # CSV of Telegram user_id ints. Backend keeps the value raw —
+        # the listener parses + validates on every check.
+        set_setting("telegram_authorized_user_ids",
+                    (s.telegram_authorized_user_ids or "").strip())
     if s.swarm_autoheal_action is not None:
         action = (s.swarm_autoheal_action or "").strip().lower()
         if action not in ("", "notify", "restart"):
