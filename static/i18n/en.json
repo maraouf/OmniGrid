@@ -546,6 +546,17 @@
     }
   },
   "profile": {
+    "telegram": {
+      "title": "Telegram account link",
+      "intro": "Link your Telegram account so the OmniGrid bot can resolve commands you send back to this user (so /weather shows YOUR weather, /restart audits as YOU, etc.). Generate a one-time code below, then send <code>/link &lt;code&gt;</code> to the bot from the configured Telegram chat.",
+      "generate_button": "Generate link code",
+      "unlink_button": "Unlink Telegram",
+      "code_label": "Your link code (single-use, 15-minute expiry):",
+      "code_usage_html": "Send <code>/link &lt;code&gt;</code> to the OmniGrid bot on Telegram. Once accepted, your Telegram messages run as this OmniGrid user.",
+      "expires_in": "Expires in ~{mins} min",
+      "unlink_success": "Removed {count} Telegram link(s) for this user.",
+      "unlink_nothing": "No Telegram link found for this user."
+    },
     "notifications": {
       "title": "Notifications",
       "subtitle": "Choose which event notifications you receive. Toggles greyed out have been disabled globally by an admin.",
@@ -1056,17 +1067,6 @@
       "token_literal": "Literal — anything inside single quotes is emitted as-is"
     },
     "profile": {
-      "telegram": {
-        "title": "Telegram account link",
-        "intro": "Link your Telegram account so the OmniGrid bot can resolve commands you send back to this user (so /weather shows YOUR weather, /restart audits as YOU, etc.). Generate a one-time code below, then send <code>/link &lt;code&gt;</code> to the bot from the configured Telegram chat.",
-        "generate_button": "Generate link code",
-        "unlink_button": "Unlink Telegram",
-        "code_label": "Your link code (single-use, 15-minute expiry):",
-        "code_usage_html": "Send <code>/link &lt;code&gt;</code> to the OmniGrid bot on Telegram. Once accepted, your Telegram messages run as this OmniGrid user.",
-        "expires_in": "Expires in ~{mins} min",
-        "unlink_success": "Removed {count} Telegram link(s) for this user.",
-        "unlink_nothing": "No Telegram link found for this user."
-      },
       "account": "Account",
       "username": "Username",
       "username_hint": "Set by admin — can't be changed here.",
@@ -1422,6 +1422,7 @@
       "telegram_thread_id_hint": "Only set this when the destination is a supergroup with topics (forum mode) enabled AND you want notifications routed to a specific topic. Leave blank to post to the supergroup's main feed.",
       "telegram_verify_tls": "Verify TLS",
       "telegram_test_button": "Send test message",
+      "save_requires_test": "Run a successful Test (the Send-test button next to Save) before committing — same Test-before-Save gate every other provider uses.",
       "telegram_listener_heading": "Inbound commands",
       "telegram_listener_intro": "Run commands from Telegram against OmniGrid. The bot long-polls Telegram for messages sent to the configured chat — no public webhook required. Authorization is layered: only messages from the configured chat are considered, and (optionally) only from explicitly listed Telegram user_ids. Available commands: <code>/help</code>, <code>/hosts</code>, <code>/restart &lt;target&gt;</code>.",
       "telegram_listener_enable_label": "Enable inbound command listener",

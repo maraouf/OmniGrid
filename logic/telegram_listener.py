@@ -468,6 +468,25 @@ def _consume_link_code(code: str) -> Optional[str]:
     return None
 
 
+def _lookup_user_role(username: str) -> Optional[str]:
+    """Return the OmniGrid role (``admin`` / ``readonly``) for one
+    username, or None when the user can't be found. Read-only DB
+    query; never raises."""
+    from logic.db import db_conn
+    if not username:
+        return None
+    try:
+        with db_conn() as c:
+            row = c.execute(
+                "SELECT role FROM users WHERE username = ?", (username,)
+            ).fetchone()
+    except Exception:
+        return None
+    if not row:
+        return None
+    return row[0] if not hasattr(row, "keys") else row["role"]
+
+
 def _load_user_weather_pref(username: str) -> Optional[dict]:
     """Read ``ui_prefs.weather_location`` for one user. Returns a dict
     with at least ``lat`` / ``lon`` keys, or None if unset / malformed.
@@ -634,15 +653,25 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 
 async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """Debug aid — tells the user their Telegram user_id + the
-    OmniGrid username they're linked to (or that they aren't)."""
+    OmniGrid username they're linked to (or that they aren't) + their
+    access level (role). Aliased as /myid."""
     sender = (msg.get("from") or {})
     sender_id = sender.get("id")
     sender_name = (sender.get("username") or sender.get("first_name") or "").strip()
     mapped = _lookup_omnigrid_user(sender_id) if sender_id is not None else None
     if mapped:
+        role = _lookup_user_role(mapped) or "unknown"
+        # Map the role to a friendly access-level label + emoji so the
+        # operator's permissions are immediately legible.
+        role_emoji = {"admin": "🛡", "readonly": "👁"}.get(role, "❓")
+        role_label = {
+            "admin":    "Admin (full access)",
+            "readonly": "Read-only (no write actions)",
+        }.get(role, role)
         await _send_reply(
             client,
             f"You are linked to OmniGrid user <b>{_escape(mapped)}</b>.\n"
+            f"{role_emoji} Access level: <b>{_escape(role_label)}</b>\n"
             f"<i>Telegram user_id: <code>{sender_id}</code></i>"
         )
     else:
@@ -650,10 +679,91 @@ async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
             client,
             f"You aren't linked to any OmniGrid user yet.\n\n"
             f"<i>Telegram user_id: <code>{sender_id}</code></i>\n"
-            f"<i>Telegram username: @{_escape(sender_name) or 'unknown'}</i>\n\n"
+            f"<i>Telegram username: @{_escape(sender_name) or 'unknown'}</i>\n"
+            f"❓ Access level: <b>none</b> — unlinked\n\n"
             f"Generate a link code in OmniGrid → Profile → Telegram, then "
             f"reply with <code>/link &lt;code&gt;</code>."
         )
+
+
+async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/time`` — show the current local time at the linked user's
+    saved weather location. Uses Open-Meteo's resolved IANA timezone
+    (returned alongside the weather response) so daylight-saving + tz
+    boundaries stay accurate without a separate geocoder lookup."""
+    sender_id = (msg.get("from") or {}).get("id")
+    username = _lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    if not username:
+        await _send_reply(
+            client,
+            "Link your account first. Generate a code in OmniGrid → "
+            "Profile → Telegram, then reply with <code>/link &lt;code&gt;</code>."
+        )
+        return
+    loc = _load_user_weather_pref(username)
+    if loc is None:
+        await _send_reply(
+            client,
+            f"OmniGrid user <b>{_escape(username)}</b> has no weather "
+            f"location saved. Set one in OmniGrid → Profile → Weather "
+            f"(or click a city in the topbar weather widget)."
+        )
+        return
+    from main import api_weather as _api_weather
+    label = (loc.get("label") or "").strip() or "your location"
+    try:
+        data = await _api_weather(
+            lat=float(loc["lat"]),
+            lon=float(loc["lon"]),
+            label=label,
+        )
+    except Exception as e:
+        await _send_reply(client, f"❌ Time lookup failed: <code>{_escape(str(e))}</code>")
+        return
+    if not isinstance(data, dict) or data.get("error"):
+        err = (data or {}).get("error") if isinstance(data, dict) else "no response"
+        await _send_reply(
+            client,
+            f"❌ Time lookup upstream error: <code>{_escape(str(err))}</code>"
+        )
+        return
+    tz_name = (data.get("timezone") or "").strip()
+    tz_abbrev = (data.get("timezone_abbrev") or "").strip()
+    if not tz_name:
+        await _send_reply(
+            client,
+            f"<b>{_escape(label)}</b>: no timezone returned by the "
+            f"weather upstream. Try again later."
+        )
+        return
+    # Render local time using zoneinfo for accurate DST handling. If
+    # the IANA tz isn't installed in the container (rare — Python 3.9+
+    # ships with zoneinfo + the OS-provided tzdata), fall back to the
+    # UTC offset Open-Meteo returned.
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now_local = datetime.now(ZoneInfo(tz_name))
+        time_str = now_local.strftime("%H:%M:%S")
+        date_str = now_local.strftime("%A, %d %b %Y")
+    except Exception as e:
+        # Fallback: utc_offset_seconds-based math, ignoring DST.
+        from datetime import datetime, timezone, timedelta
+        try:
+            offset = int(data.get("utc_offset_seconds") or 0)
+            now_local = datetime.now(timezone.utc) + timedelta(seconds=offset)
+            time_str = now_local.strftime("%H:%M:%S")
+            date_str = now_local.strftime("%A, %d %b %Y") + " (UTC offset)"
+        except Exception as e2:
+            await _send_reply(client, f"❌ Time format failed: <code>{_escape(str(e2))}</code>")
+            return
+    tz_suffix = f" ({_escape(tz_abbrev)})" if tz_abbrev else f" ({_escape(tz_name)})"
+    await _send_reply(
+        client,
+        f"🕒 <b>{_escape(label)}</b>\n"
+        f"<code>{_escape(time_str)}</code>{tz_suffix}\n"
+        f"<i>{_escape(date_str)}</i>"
+    )
 
 
 async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
@@ -841,12 +951,28 @@ _COMMANDS: dict[str, dict[str, Any]] = {
     "/whoami": {
         "handler":     _cmd_whoami,
         "usage":       "/whoami",
-        "description": "Show which OmniGrid user (if any) your Telegram account is linked to",
+        "description": "Show your access level &amp; ID (which OmniGrid user you're linked to)",
+    },
+    "/myid": {
+        # Alias for /whoami — the most common phrasing operators reach
+        # for when they want to know "who am I as far as the bot is
+        # concerned". Same handler, hidden from /help so the menu
+        # doesn't double up (the dedup-by-handler logic in _cmd_help
+        # already handles this — `hidden: True` makes intent explicit).
+        "handler":     _cmd_whoami,
+        "usage":       "/myid",
+        "description": "Show your access level &amp; ID (alias for /whoami)",
+        "hidden":      True,
     },
     "/weather": {
         "handler":     _cmd_weather,
         "usage":       "/weather",
         "description": "Show the weather for your saved location (set it in Profile → Weather)",
+    },
+    "/time": {
+        "handler":     _cmd_time,
+        "usage":       "/time",
+        "description": "Show the local time at your saved weather location",
     },
 }
 
@@ -1025,7 +1151,7 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     # to be linked to an OmniGrid user first. /link / /help / /start /
     # /whoami stay open so an unmapped operator can discover the
     # mapping flow + verify their user_id.
-    open_commands = {"/link", "/help", "/start", "/whoami"}
+    open_commands = {"/link", "/help", "/start", "/whoami", "/myid"}
     if head not in open_commands:
         sender_id = (msg.get("from") or {}).get("id")
         mapped = _lookup_omnigrid_user(sender_id) if sender_id is not None else None
