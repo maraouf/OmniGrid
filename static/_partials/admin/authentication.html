@@ -20,13 +20,19 @@
           </div>
 
           <div class="space-y-3" x-show="settings">
-            <label class="flex items-center gap-2 fs-sm">
-              <input type="checkbox" x-model="settings.totp_allowed"
-                     :disabled="!isAdmin()">
-              <span x-text="t('admin.config.totp.allowed_label')"></span>
-            </label>
-            <p class="fs-xs text-[var(--text-faint)] -mt-1 ms-6"
-               x-text="t('admin.config.totp.allowed_hint')"></p>
+            <!-- TOTP master toggle — help text BEFORE the checkbox
+                 (operator-canonical pattern matching every other admin
+                 section). Indent dropped so the explainer aligns flush-
+                 left with the checkbox row. -->
+            <div>
+              <p class="fs-xs text-[var(--text-faint)] mb-1"
+                 x-text="t('admin.config.totp.allowed_hint')"></p>
+              <label class="flex items-center gap-2 fs-sm">
+                <input type="checkbox" x-model="settings.totp_allowed"
+                       :disabled="!isAdmin()">
+                <span x-text="t('admin.config.totp.allowed_label')"></span>
+              </label>
+            </div>
 
             <!-- Passkey master toggle. Mirrors `totp_allowed`
                  in shape and semantics: when off, register-start

@@ -1414,6 +1414,7 @@
       "medium_app_enable_label": "Enable in-app notifications fan-out",
       "medium_apprise_enable_label": "Enable Apprise integration",
       "medium_apprise_fanout_label": "Fan notifications out to Apprise on every enabled event",
+      "medium_apprise_fanout_hint": "Master fan-out switch for Apprise as a delivery medium. When ON, every event whose per-event toggle is enabled (see the grid below) fires through the configured Apprise URL — webhook → Slack / Discord / email / SMS / Pushover / etc., whatever the URL points to. When OFF, Apprise stays silent on EVERY event without touching the URL / tag fields, so flipping back on resumes delivery without re-typing credentials. Independent of the Apprise master toggle above: the master toggle gates whether Apprise can fire AT ALL; this gate decides whether it should.",
       "medium_telegram_enable_label": "Enable Telegram notifications",
       "telegram_bot_token_label": "Bot token",
       "telegram_bot_token_placeholder": "123456789:ABC-DEF...",

@@ -1816,6 +1816,14 @@ function app() {
     users: [],
     sessions: [], sessionsLoaded: false,
     usersLoaded: false, tokensLoaded: false,
+    // Loading flags for the admin tables that fetch their rows
+    // asynchronously on first paint. Mirror the `usersLoaded` shape so
+    // the partials render a centered `.loading-state` block while the
+    // initial fetch is in flight, then flip to the populated table.
+    schedulesLoaded: false,
+    backupsLoaded: false,
+    snapshotsLoaded: false,
+    logFilesLoaded: false,
     tokens: [],
     newUser: { username: '', role: 'readonly', auth_source: 'local', password: '', email: '' },
     newToken: { name: '', role: 'readonly' },
@@ -3994,6 +4002,9 @@ function app() {
           this.scheduleMinInterval = d.min_interval_seconds;
         }
       } catch (_) {}
+      finally {
+        this.schedulesLoaded = true;
+      }
     },
 
     async loadScheduleQueue() {
@@ -4472,6 +4483,9 @@ function app() {
         const r = await fetch('/api/backups');
         if (r.ok) { const d = await r.json(); this.backups = d.backups || []; }
       } catch (_) {}
+      finally {
+        this.backupsLoaded = true;
+      }
     },
     async createBackup() {
       if (this.backupBusy) return;
@@ -4554,6 +4568,9 @@ function app() {
         const d = await r.json();
         this.configBackupSaved = Array.isArray(d.files) ? d.files : [];
       } catch (_) {}
+      finally {
+        this.snapshotsLoaded = true;
+      }
     },
     // File-input handler — operator picks a JSON snapshot, we parse
     // client-side (so we can show a helpful error before the round-
@@ -6343,6 +6360,9 @@ function app() {
         this.logFilesDir = d.log_dir || '';
       } catch (_) {
         this.showToast(this.t('toasts.network_error'), 'error');
+      }
+      finally {
+        this.logFilesLoaded = true;
       }
     },
     async viewLogFile(name) {

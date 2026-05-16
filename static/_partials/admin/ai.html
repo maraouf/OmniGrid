@@ -95,6 +95,11 @@
                      `:true-value` / `:false-value` keep the storage shape
                      consistent with the TUNABLES int contract (and with
                      the placeholder showing the live default). -->
+                <!-- Help text BEFORE the checkbox (operator-canonical
+                     pattern). Effective-label stays AFTER because it's
+                     a state indicator, not an explainer. -->
+                <p class="fs-2xs text-[var(--text-faint)] mb-1"
+                   x-text="t('admin.config.fields.tuning_ai_retry_enabled.help')"></p>
                 <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
                   <input type="checkbox"
                          x-model="tuningForm['tuning_ai_retry_enabled']"
@@ -103,14 +108,8 @@
                          class="cursor-pointer">
                   <span x-text="t('admin.config.fields.tuning_ai_retry_enabled.label')"></span>
                 </label>
-                <!-- Effective + help text aligned to the section's
-                     natural left edge (no ms-6 indent under the
-                     checkbox label) so it matches the rest of the
-                     page's field-help indentation pattern. -->
                 <div class="mt-1 fs-2xs text-[var(--text-faint)]"
                      x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_retry_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                   x-text="t('admin.config.fields.tuning_ai_retry_enabled.help')"></p>
               </div>
               <!-- AI conversation export master toggle. Grouped with
                    the retry-enabled checkbox above so the section reads
@@ -119,6 +118,9 @@
                    buttons gate on the resolved
                    `me.client_config.ai_conversation_export_enabled`. -->
               <div class="mb-3">
+                <!-- Help BEFORE the checkbox; effective-label AFTER. -->
+                <p class="fs-2xs text-[var(--text-faint)] mb-1"
+                   x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.help')"></p>
                 <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
                   <input type="checkbox"
                          x-model="tuningForm['tuning_ai_conversation_export_enabled']"
@@ -128,8 +130,6 @@
                 </label>
                 <div class="fs-2xs text-[var(--text-faint)] mt-1"
                      x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_conversation_export_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                   x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.help')"></p>
               </div>
               <!-- Max response tokens — applied to every provider's chat
                    completion request. Placed AFTER the two checkboxes

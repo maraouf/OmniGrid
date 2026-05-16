@@ -8,12 +8,13 @@
           <p class="fs-xs text-[var(--text-faint)] mb-3 max-w-[720px]"
              x-text="t('admin.debug.intro')"></p>
 
-          <!-- Master toggle — canonical AI-checkbox-tunable shape:
-               inline-flex label + checkbox + visible name, then a
-               separate help paragraph below. Matches the AI Integration
-               section's `tuning_ai_retry_enabled` / `tuning_ai_conversation_export_enabled`
-               checkboxes for visual consistency across admin panels. -->
+          <!-- Master toggle — help text BEFORE the checkbox
+               (operator-canonical pattern matching every other admin
+               section: Authentication / Public IP / Notifications /
+               Portainer / OIDC / AI Integration). -->
           <div class="mb-3">
+            <p class="fs-2xs text-[var(--text-faint)] mb-1 leading-snug"
+               x-text="t('admin_hosts.debug_panel_toggle_hint')"></p>
             <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
               <input type="checkbox"
                      x-model="settings.debug_panel_enabled"
@@ -21,8 +22,6 @@
                      class="cursor-pointer">
               <span x-text="t('admin_hosts.debug_panel_toggle_label')"></span>
             </label>
-            <p class="fs-2xs text-[var(--text-faint)] mt-1 leading-snug"
-               x-text="t('admin_hosts.debug_panel_toggle_hint')"></p>
           </div>
 
           <!-- Save button + dirty indicator — same pattern as the
