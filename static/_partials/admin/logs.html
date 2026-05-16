@@ -212,7 +212,13 @@
             </button>
           </div>
 
-          <div class="overflow-x-auto scrollbar">
+          <!-- Loading indicator (parity with Users / Schedules /
+               Backups / Snapshots tables). -->
+          <div x-show="!logFilesLoaded" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+          <div class="overflow-x-auto scrollbar" x-show="logFilesLoaded">
             <table class="w-full fs-sm">
               <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>

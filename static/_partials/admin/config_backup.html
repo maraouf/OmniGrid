@@ -173,8 +173,17 @@
             </div>
           </div>
 
-          <!-- Empty state -->
-          <div x-show="!configBackupSaved.length"
+          <!-- Loading indicator — parity with Users / Schedules /
+               Backups / Logs tables. Shows the spinner BEFORE the
+               first load resolves so the empty-state copy doesn't
+               flash on initial paint. -->
+          <div x-show="!snapshotsLoaded" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+
+          <!-- Empty state (only after loading completes). -->
+          <div x-show="snapshotsLoaded && !configBackupSaved.length"
                class="text-center py-8 px-4 fs-sm text-[var(--text-dim)] italic">
             <svg width="32" height="32" class="text-[var(--text-faint)] mx-auto mb-2" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-folder"/>
@@ -187,7 +196,7 @@
                thead chrome on a `--surface-2` band, value cells in
                `mono fs-xs text-[var(--text-dim)]`, plus a "Produced
                by" column carrying the snapshot's baked-in app_version. -->
-          <div x-show="configBackupSaved.length" class="overflow-x-auto scrollbar">
+          <div x-show="snapshotsLoaded && configBackupSaved.length" class="overflow-x-auto scrollbar">
             <table class="w-full fs-sm">
               <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
