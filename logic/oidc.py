@@ -168,8 +168,8 @@ def _http_timeout_seconds() -> float:
     misconfigured rather than blocking auth entirely.
     """
     try:
-        from logic.tuning import tuning_int as _tuning_int
-        return float(_tuning_int("tuning_oidc_http_timeout_seconds"))
+        from logic.tuning import Tunable, tuning_int as _tuning_int
+        return float(_tuning_int(Tunable.OIDC_HTTP_TIMEOUT_SECONDS))
     except Exception:
         return 15.0
 

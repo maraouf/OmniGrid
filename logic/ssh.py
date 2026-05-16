@@ -113,8 +113,9 @@ DEFAULT_DESTRUCTIVE_PATTERNS = (
 # shared with Webmin so a single Save propagates to both consumers.
 from logic.cooldown import Cooldown
 from logic import tuning as _tuning
+from logic.tuning import Tunable as _Tunable
 _auth_cooldown_timer = Cooldown(
-    seconds_fn=lambda: _tuning.tuning_int("tuning_auth_failure_cooldown_seconds")
+    seconds_fn=lambda: _tuning.tuning_int(_Tunable.AUTH_FAILURE_COOLDOWN_SECONDS)
 )
 
 
@@ -141,7 +142,7 @@ def get_global_ssh_settings() -> dict:
     from logic import tuning as _tuning
     return {
         "user":         (get_setting("ssh_default_user", "") or "").strip(),
-        "port":         _tuning.tuning_int("tuning_ssh_default_port"),
+        "port":         _tuning.tuning_int(_Tunable.SSH_DEFAULT_PORT),
         "private_key":  get_setting("ssh_default_private_key", "") or "",
         "passphrase":   get_setting("ssh_default_private_key_passphrase", "") or "",
         # Password auth fallback — used when private_key is blank, or
@@ -1180,9 +1181,9 @@ async def open_shell(
     )
     # Operator-tunable wall-clocks. Per-call read so
     # Admin → Config edits take effect on the next session.
-    from logic.tuning import tuning_int as _tuning_int
-    _conn_timeout = float(_tuning_int("tuning_ssh_terminal_connect_timeout_seconds"))
-    _login_timeout = float(_tuning_int("tuning_ssh_terminal_login_timeout_seconds"))
+    from logic.tuning import Tunable, tuning_int as _tuning_int
+    _conn_timeout = float(_tuning_int(Tunable.SSH_TERMINAL_CONNECT_TIMEOUT_SECONDS))
+    _login_timeout = float(_tuning_int(Tunable.SSH_TERMINAL_LOGIN_TIMEOUT_SECONDS))
     try:
         conn = await asyncssh.connect(
             host=resolved["host"],

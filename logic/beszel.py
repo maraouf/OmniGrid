@@ -341,8 +341,8 @@ async def fetch_system_history(
     # restart). Defensive fallback to legacy 15s on resolver failure.
     if timeout is None:
         try:
-            from logic.tuning import tuning_int as _tuning_int
-            timeout = float(_tuning_int("tuning_beszel_probe_timeout_seconds"))
+            from logic.tuning import Tunable, tuning_int as _tuning_int
+            timeout = float(_tuning_int(Tunable.BESZEL_PROBE_TIMEOUT_SECONDS))
         except Exception:
             timeout = 15.0
     # Pick aggregation tier from the window when caller didn't override.
@@ -1111,8 +1111,8 @@ async def probe_hub(
         return {"systems": {}, "error": "beszel: missing url / identity / password"}
     if timeout is None:
         try:
-            from logic.tuning import tuning_int as _tuning_int
-            timeout = float(_tuning_int("tuning_beszel_probe_timeout_seconds"))
+            from logic.tuning import Tunable, tuning_int as _tuning_int
+            timeout = float(_tuning_int(Tunable.BESZEL_PROBE_TIMEOUT_SECONDS))
         except Exception:
             timeout = 15.0
     # Defence-in-depth on the admin-only Beszel hub URL setting. CodeQL

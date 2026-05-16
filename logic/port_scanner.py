@@ -226,7 +226,8 @@ async def _probe_one_port(host: str, port: int, timeout_s: float,
             # Lazy-import to keep this module's import graph clean
             # (port_scanner is imported by main.py before tuning).
             from logic import tuning as _tuning
-            banner_timeout = float(_tuning.tuning_int("tuning_port_scan_banner_read_seconds"))
+            from logic.tuning import Tunable
+            banner_timeout = float(_tuning.tuning_int(Tunable.PORT_SCAN_BANNER_READ_SECONDS))
             try:
                 data = await asyncio.wait_for(reader.read(256), timeout=banner_timeout)
                 if data:
