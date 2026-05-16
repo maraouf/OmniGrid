@@ -21,33 +21,66 @@ reads the cached baseline + the LIVE metric value and returns
 """
 from __future__ import annotations
 
+import sqlite3
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from logic.db import db_conn
-
+from logic.tuning import Tunable, tuning_int
 
 # Curated metric roster — the set we compute baselines for. Keeping it
 # small + explicit prevents drift charts for every random `host_*`
 # field (operator confusion if `host_battery_temp_c` got a chip).
 METRICS = ("cpu_pct", "mem_pct", "disk_pct", "ping_rtt_ms")
 
-# Minimum sample count for IQR to be statistically meaningful. Below
-# this, the metric stays unbaselined (frontend hides the chip).
-_MIN_SAMPLES = 50
 
-# Rolling window — 30 days of recent samples. Operators rarely care
-# about drift beyond a month; older samples drift the baseline toward
-# stale values that don't match the current workload.
-_WINDOW_DAYS = 30
+def _min_samples() -> int:
+    """Operator-tunable minimum sample count for IQR to be
+    statistically meaningful. Below this, the metric stays unbaselined
+    (frontend hides the chip). 20 is the practical minimum for a
+    meaningful IQR (Tukey); pre-fix 50 meant the chip didn't surface
+    until ~4 hours of consistent sampling on a fresh deploy. 20 =
+    ~1.5 hours at the default 5-min cadence. Per-call read so an Admin
+    → Config edit takes effect on the next sampler tick."""
+    return tuning_int(Tunable.HOST_BASELINE_MIN_SAMPLES)
+
+
+def _window_days() -> int:
+    """Operator-tunable rolling window (days) for sample lookback.
+    Operators rarely care about drift beyond a month; older samples
+    drift the baseline toward stale values that don't match the
+    current workload. Per-call read."""
+    return tuning_int(Tunable.HOST_BASELINE_WINDOW_DAYS)
+
+
+def _safe_float(v: Any, default: float = 0.0) -> float:
+    """Coerce ``v`` to float or return ``default`` — pyright doesn't
+    narrow ``r[N]`` past `Any | None` even after `is not None` checks
+    in the dict-comprehension context."""
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(v: Any, default: int = 0) -> int:
+    """Companion to :func:`_safe_float` for int fields."""
+    if v is None:
+        return default
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
 
 
 def _percentile(values: list[float], p: float) -> Optional[float]:
     """Linear-interpolation percentile. `values` must be sorted.
 
     Gate dependency note: in this module the helper is only ever called
-    from `_baseline_for`, which short-circuits at `n < _MIN_SAMPLES`
-    (50). The empty-list + single-element branches below are
+    from `_baseline_for`, which short-circuits at `n < _min_samples()`
+    (default 20). The empty-list + single-element branches below are
     defence-in-depth for callers added LATER; do NOT remove them. If
     you reuse this helper from a new call site, audit the input
     invariants — the implementation assumes a sorted, non-empty list
@@ -72,14 +105,14 @@ def _baseline_for(values: list[float]) -> Optional[tuple[float, float, int]]:
     don't have to.
     """
     n = len(values)
-    if n < _MIN_SAMPLES:
+    if n < _min_samples():
         return None
     s = sorted(values)
     median = _percentile(s, 0.5) or 0.0
     q1 = _percentile(s, 0.25) or 0.0
     q3 = _percentile(s, 0.75) or 0.0
     iqr = max(0.0, q3 - q1)
-    return (median, iqr, n)
+    return median, iqr, n
 
 
 def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list[float]]:
@@ -118,10 +151,10 @@ def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list
     # cheap — one extra column at SELECT time).
     _union_sources = [
         ("host_metrics_samples", "cpu_percent"),
-        ("host_beszel_samples",  "cpu_percent"),
-        ("host_pulse_samples",   "cpu_percent"),
-        ("host_webmin_samples",  "cpu_percent"),
-        ("host_snmp_samples",    "cpu_used_pct"),
+        ("host_beszel_samples", "cpu_percent"),
+        ("host_pulse_samples", "cpu_percent"),
+        ("host_webmin_samples", "cpu_percent"),
+        ("host_snmp_samples", "cpu_used_pct"),
     ]
 
     def _table_exists(table_name: str) -> bool:
@@ -131,7 +164,7 @@ def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list
                 (table_name,),
             ).fetchone()
             return row is not None
-        except Exception:
+        except sqlite3.Error:
             return False
 
     # Drop tables that don't exist BEFORE building the UNION so a
@@ -161,16 +194,18 @@ def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list
         try:
             rows = c.execute(sql, params).fetchall()
             for r in rows:
-                cpu = r[0]
-                if cpu is not None:
-                    out["cpu_pct"].append(float(cpu))
-                mu, mt = r[1], r[2]
-                if mu is not None and mt and mt > 0:
-                    out["mem_pct"].append(float(mu) / float(mt) * 100.0)
-                du, dt = r[3], r[4]
-                if du is not None and dt and dt > 0:
-                    out["disk_pct"].append(float(du) / float(dt) * 100.0)
-        except Exception:
+                cpu_v = _safe_float(r[0], default=float('nan'))
+                if cpu_v == cpu_v:  # NaN-guard (NaN != NaN)
+                    out["cpu_pct"].append(cpu_v)
+                mu = _safe_float(r[1])
+                mt = _safe_float(r[2])
+                if r[1] is not None and mt > 0:
+                    out["mem_pct"].append(mu / mt * 100.0)
+                du = _safe_float(r[3])
+                dt = _safe_float(r[4])
+                if r[3] is not None and dt > 0:
+                    out["disk_pct"].append(du / dt * 100.0)
+        except sqlite3.Error:
             # Defensive — `_table_exists` should have filtered every
             # missing table, but a column-schema mismatch (e.g. legacy
             # deploy that never ran the additive ALTER TABLE for
@@ -192,8 +227,8 @@ def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list
             for r in rows:
                 v = r[0]
                 if v is not None:
-                    out["ping_rtt_ms"].append(float(v))
-        except Exception:
+                    out["ping_rtt_ms"].append(_safe_float(v))
+        except sqlite3.Error:
             pass
     return out
 
@@ -204,11 +239,23 @@ def compute_baselines(host_id: str) -> dict[str, dict]:
     """
     if not host_id:
         return {}
-    since_ts = int(time.time() - _WINDOW_DAYS * 86400)
+    since_ts = int(time.time() - _window_days() * 86400)
     out: dict[str, dict] = {}
     try:
         with db_conn() as c:
             samples = _fetch_host_metric_samples(c, host_id, since_ts)
+            # Per-host sample-count diagnostic — operator chasing
+            # "drift chip not showing" needs to see exactly which
+            # metric is short of the threshold. Single line per tick
+            # per host so Admin -> Logs renders one row per host on
+            # every baseline pass.
+            counts = " ".join(
+                f"{m}={len(samples.get(m, []))}" for m in METRICS
+            )
+            print(
+                f"[host_baseline] {host_id} sample counts: {counts} "
+                f"(need >= {_min_samples()} per metric)"
+            )
             for metric, vals in samples.items():
                 bl = _baseline_for(vals)
                 if bl is None:
@@ -238,7 +285,7 @@ def compute_baselines(host_id: str) -> dict[str, dict]:
         # async sampler loop, but propagating the same family of
         # interpreter-control exceptions is the documented contract).
         raise
-    except Exception as e:
+    except (sqlite3.Error, RuntimeError, OSError) as e:
         print(f"[host_baseline] {host_id} compute failed: {e}")
     return out
 
@@ -260,17 +307,17 @@ def load_baselines(host_id: str) -> dict[str, dict]:
             ).fetchall()
             for r in rows:
                 out[r[0]] = {
-                    "median":       float(r[1]) if r[1] is not None else None,
-                    "iqr":          float(r[2]) if r[2] is not None else None,
-                    "sample_count": int(r[3]) if r[3] is not None else 0,
-                    "computed_ts":  int(r[4]) if r[4] is not None else 0,
+                    "median": _safe_float(r[1]) if r[1] is not None else None,
+                    "iqr": _safe_float(r[2]) if r[2] is not None else None,
+                    "sample_count": _safe_int(r[3]),
+                    "computed_ts": _safe_int(r[4]),
                 }
     except (KeyboardInterrupt, SystemExit):
         # See note in `compute_baselines` — propagate interpreter-
         # control exceptions so the asyncio caller's cancellation
         # contract still holds.
         raise
-    except Exception as e:
+    except (sqlite3.Error, RuntimeError, OSError) as e:
         print(f"[host_baseline] {host_id} load failed: {e}")
     return out
 
@@ -284,18 +331,20 @@ def drift_indicator(value: Optional[float], baseline: dict) -> Optional[str]:
     """
     if value is None or not isinstance(baseline, dict):
         return None
-    median = baseline.get("median")
-    iqr = baseline.get("iqr")
-    if median is None or iqr is None:
+    median_raw = baseline.get("median")
+    iqr_raw = baseline.get("iqr")
+    if median_raw is None or iqr_raw is None:
         return None
+    median = _safe_float(median_raw)
+    iqr = _safe_float(iqr_raw)
     # Degenerate IQR (all samples identical) → can't classify drift
     # meaningfully. Returning None hides the chip.
     if iqr <= 0:
         return None
-    delta = float(value) - float(median)
-    if delta > float(iqr):
+    delta = _safe_float(value) - median
+    if delta > iqr:
         return "▲"
-    if delta < -float(iqr):
+    if delta < -iqr:
         return "▼"
     return "━"
 
@@ -319,13 +368,15 @@ def host_drift_for_api(host_id: str, live_metrics: dict) -> dict:
     disk_used = live_metrics.get("host_disk_used")
     disk_total = live_metrics.get("host_disk_total")
     ping_rtt = live_metrics.get("host_ping_rtt_ms")
+    mem_total_f = _safe_float(mem_total)
+    disk_total_f = _safe_float(disk_total)
     live = {
-        "cpu_pct":      float(cpu) if cpu is not None else None,
-        "mem_pct":      (float(mem_used) / float(mem_total) * 100.0)
-                          if mem_used is not None and mem_total else None,
-        "disk_pct":     (float(disk_used) / float(disk_total) * 100.0)
-                          if disk_used is not None and disk_total else None,
-        "ping_rtt_ms":  float(ping_rtt) if ping_rtt is not None else None,
+        "cpu_pct": _safe_float(cpu) if cpu is not None else None,
+        "mem_pct": (_safe_float(mem_used) / mem_total_f * 100.0)
+        if mem_used is not None and mem_total_f > 0 else None,
+        "disk_pct": (_safe_float(disk_used) / disk_total_f * 100.0)
+        if disk_used is not None and disk_total_f > 0 else None,
+        "ping_rtt_ms": _safe_float(ping_rtt) if ping_rtt is not None else None,
     }
     out: dict[str, dict] = {}
     for metric in METRICS:
@@ -334,11 +385,11 @@ def host_drift_for_api(host_id: str, live_metrics: dict) -> dict:
             continue
         b = bl.get(metric, {})
         out[metric] = {
-            "indicator":    ind,
-            "value":        live.get(metric),
-            "median":       b.get("median"),
-            "iqr":          b.get("iqr"),
+            "indicator": ind,
+            "value": live.get(metric),
+            "median": b.get("median"),
+            "iqr": b.get("iqr"),
             "sample_count": b.get("sample_count"),
-            "computed_ts":  b.get("computed_ts"),
+            "computed_ts": b.get("computed_ts"),
         }
     return out

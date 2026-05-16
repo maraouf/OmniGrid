@@ -220,7 +220,7 @@
                 class="fs-xs text-[var(--text-faint)]"
                 x-text="lastTestSuccessLabel('asset_inventory')"></span>
           <button type="button" x-show="isAdmin()" @click="refreshAssetCache()"
-                  class="btn btn-ghost fs-sm inline-flex items-center gap-1.5"
+                  class="btn btn-ghost fs-sm inline-flex items-center gap-1.5 ms-auto"
                   :disabled="assetRefreshing || !settings.asset_inventory_enabled"
                   :title="!settings.asset_inventory_enabled ? t('admin_integrations.disabled_hint') : t('admin_assets.refresh')">
             <svg width="13" height="13" :class="assetRefreshing ? 'spin-md' : ''" aria-hidden="true">
