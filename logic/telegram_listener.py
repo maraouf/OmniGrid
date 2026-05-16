@@ -309,6 +309,54 @@ async def _edit_message(
 # ----------------------------------------------------------------------------
 # Host resolver
 # ----------------------------------------------------------------------------
+def _audit_telegram(
+    op_type: str,
+    *,
+    actor: str,
+    target_id: str = "",
+    target_name: str = "",
+    status: str = "success",
+    error: Optional[str] = None,
+    events: Optional[dict] = None,
+) -> None:
+    """Write one row into the `history` table for a Telegram-issued
+    state-mutating command. Read-only commands (/hosts / /version /
+    /whoami / /myid / /weather / /time) are EXEMPT under the same
+    "high-volume / low-stakes" carve-out as notification_read; only
+    state-mutating commands (cleanup / restart / link / unlink) and
+    the AI free-text path (recorded via record_ai_call) need audit
+    rows. Never raises — a logging failure must not swallow the
+    operator's command reply."""
+    try:
+        import json as _json
+        import time as _time
+        from logic.db import db_conn
+        from logic.ops import assert_op_type
+        assert_op_type(op_type)
+        events_json = None
+        if events:
+            try:
+                events_json = _json.dumps(events, ensure_ascii=False)
+            except (TypeError, ValueError):
+                events_json = None
+        with db_conn() as c:
+            c.execute(
+                "INSERT INTO history ("
+                "  ts, op_type, target_kind, target_name, target_id,"
+                "  status, duration, events, error, actor"
+                ") VALUES (?, ?, 'telegram', ?, ?, ?, 0.0, ?, ?, ?)",
+                (
+                    float(_time.time()), op_type,
+                    target_name or "", target_id or "",
+                    status, events_json, error,
+                    actor or "telegram",
+                ),
+            )
+            c.commit()
+    except Exception as _e:
+        print(f"[telegram_listener] audit row write failed ({op_type}): {_e}")
+
+
 def _load_hosts_config() -> list[dict]:
     """Read the curated host list from settings. Returns a list of
     dicts, NEVER raises — a malformed JSON setting just produces an
@@ -664,27 +712,45 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     """Auto-generated help — iterates `_COMMANDS` so adding a new
     handler shows up in `/help` with no extra wiring.
 
-    Entries with `hidden=True` are skipped (used for aliases like
-    `/start` so the menu stays terse). Each entry's `usage` line is
-    HTML-escaped before render so angle-bracket placeholders survive
-    Telegram's HTML parse_mode.
+    Commands sharing a handler are GROUPED — the primary command's
+    usage stays as-is, and any alias names are appended in a
+    comma-separated suffix on the same line (``/whoami, /myid``).
+    The primary is the first dict entry pointing at that handler;
+    aliases are subsequent entries (typically flagged ``hidden=True``
+    to mark intent, though that flag no longer hides them from /help
+    — it just disambiguates "primary vs alias" for ordering).
     """
     lines = ["<b>OmniGrid Telegram commands</b>", ""]
-    seen = set()
+    # First pass: group commands by their handler function.
+    groups: list[dict] = []  # ordered: [{primary: meta, primary_name, aliases: [name,...]}]
+    handler_to_group: dict = {}
     for name, meta in _COMMANDS.items():
-        if meta.get("hidden"):
-            continue
-        # Dedupe aliases pointing at the same handler — keep the first.
         handler = meta.get("handler")
-        if handler in seen:
+        if handler is None:
             continue
-        seen.add(handler)
-        usage = _escape(meta.get("usage") or name)
-        description = _escape(meta.get("description") or "")
-        if description:
-            lines.append(f"<b>{usage}</b> — {description}")
+        existing = handler_to_group.get(handler)
+        if existing is None:
+            group = {"primary_name": name, "primary": meta, "aliases": []}
+            groups.append(group)
+            handler_to_group[handler] = group
         else:
-            lines.append(f"<b>{usage}</b>")
+            existing["aliases"].append(name)
+    # Second pass: render each group on one line.
+    for g in groups:
+        primary_meta = g["primary"]
+        primary_name = g["primary_name"]
+        usage = _escape(primary_meta.get("usage") or primary_name)
+        aliases = g["aliases"]
+        if aliases:
+            alias_text = ", ".join(_escape(a) for a in aliases)
+            head = f"<b>{usage}</b> <i>(aliases: {alias_text})</i>"
+        else:
+            head = f"<b>{usage}</b>"
+        description = _escape(primary_meta.get("description") or "")
+        if description:
+            lines.append(f"{head} — {description}")
+        else:
+            lines.append(head)
     lines.append("")
     lines.append(
         "<i>Targets resolve by IP, host id, label, or asset short-name. "
@@ -782,6 +848,247 @@ async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
             out_lines.append(f"<i>…and {len(down) - 50} more.</i>")
 
     await _send_reply(client, "\n".join(out_lines))
+
+
+def _fmt_uptime(seconds: float | int | None) -> str:
+    """Render an uptime span as ``Xd Yh`` / ``Xh Ym`` / ``Xm Ys``."""
+    if not seconds or seconds < 0:
+        return ""
+    s = int(seconds)
+    if s >= 86400:
+        d = s // 86400
+        h = (s % 86400) // 3600
+        return f"{d}d {h}h"
+    if s >= 3600:
+        h = s // 3600
+        m = (s % 3600) // 60
+        return f"{h}h {m}m"
+    if s >= 60:
+        m = s // 60
+        sec = s % 60
+        return f"{m}m {sec}s"
+    return f"{s}s"
+
+
+def _fmt_bytes(n: float | int | None) -> str:
+    """Render a byte count as the largest sensible unit (GB / MB / KB / B)."""
+    if not n or n < 0:
+        return ""
+    try:
+        n = float(n)
+    except (TypeError, ValueError):
+        return ""
+    if n >= 1024**4:
+        return f"{n / 1024**4:.1f} TB"
+    if n >= 1024**3:
+        return f"{n / 1024**3:.1f} GB"
+    if n >= 1024**2:
+        return f"{n / 1024**2:.1f} MB"
+    if n >= 1024:
+        return f"{n / 1024:.0f} KB"
+    return f"{int(n)} B"
+
+
+def _fmt_age(ts: float | int | None) -> str:
+    """Render "Updated Xs/m/h ago" relative to now."""
+    if not ts:
+        return ""
+    import time as _t
+    age = max(0, int(_t.time() - float(ts)))
+    if age < 60:
+        return f"{age} seconds ago"
+    if age < 3600:
+        return f"{age // 60} minutes ago"
+    if age < 86400:
+        return f"{age // 3600} hours ago"
+    return f"{age // 86400} days ago"
+
+
+async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/host <target>`` — show last-known stats for one curated host
+    (CPU / memory / disk / uptime + extended provider stats when
+    present: load avg, swap, bandwidth, temperatures, GPUs, container
+    count). Reads the cached `host_snapshots` row — no live probes,
+    so the reply is fast and doesn't trigger any provider traffic.
+
+    Target resolution reuses the same fuzzy-match resolver `/restart`
+    uses (id / label / address / per-provider aliases).
+    """
+    if not args:
+        await _send_reply(client, "Usage: <code>/host &lt;target&gt;</code>")
+        return
+    target = " ".join(args)
+    matched, candidates = _resolve_target(target)
+    if matched is None:
+        if not candidates:
+            await _send_reply(client, f"No host matched <code>{_escape(target)}</code>.")
+            return
+        lines = [f"Multiple hosts matched <code>{_escape(target)}</code>:", ""]
+        for h in candidates[:20]:
+            lines.append(f"• <code>{_escape(h.get('id') or '')}</code> — "
+                         f"{_escape(h.get('label') or '')}")
+        if len(candidates) > 20:
+            lines.append(f"…and {len(candidates) - 20} more.")
+        lines.append("\nNarrow your target and try again.")
+        await _send_reply(client, "\n".join(lines))
+        return
+
+    host_id = matched.get("id") or ""
+    label = matched.get("label") or host_id
+
+    # Pull the merged snapshot blob (last gather's host_* state). The
+    # short-TTL cache inside `load_host_snapshots` keeps the read cheap
+    # under a burst of /host calls.
+    try:
+        from logic.gather import load_host_snapshots
+        snap_map = load_host_snapshots()
+    except Exception as e:
+        await _send_reply(client, f"❌ Snapshot read failed: <code>{_escape(str(e))}</code>")
+        return
+    entry = snap_map.get(host_id) or {}
+    snap_ts = entry.get("ts") if isinstance(entry, dict) else None
+    data = entry.get("data") if isinstance(entry, dict) else None
+    if not isinstance(data, dict) or not data:
+        await _send_reply(
+            client,
+            f"⚠️ No cached readings for <b>{_escape(label)}</b> yet. "
+            f"Wait for the next gather cycle and try again."
+        )
+        return
+
+    out: list[str] = [f"📊 <b>{_escape(label)}</b> "
+                      f"(<code>{_escape(host_id)}</code>)"]
+
+    # Optional system identity sub-line.
+    plat = data.get("host_platform") or ""
+    kern = data.get("host_kernel") or ""
+    if plat or kern:
+        bits = [b for b in (plat, kern) if b]
+        out.append(f"<i>{_escape(' · '.join(bits))}</i>")
+    out.append("")
+
+    # ---- Core stats: CPU / memory / disk / uptime ------------------
+    def _fmt_pct(v):
+        if v is None:
+            return None
+        try:
+            return f"{float(v):.1f}%"
+        except (TypeError, ValueError):
+            return None
+
+    cpu_p = _fmt_pct(data.get("host_cpu_percent"))
+    if cpu_p:
+        out.append(f"🖥 <b>CPU:</b>   {cpu_p}")
+    mem_p = _fmt_pct(data.get("host_mem_percent"))
+    mem_used = data.get("host_mem_used")
+    mem_total = data.get("host_mem_total")
+    if mem_p or mem_used:
+        mu = _fmt_bytes(mem_used)
+        mt = _fmt_bytes(mem_total)
+        if mu and mt:
+            out.append(f"💾 <b>Memory:</b> {mu} / {mt}" + (f"  ({mem_p})" if mem_p else ""))
+        elif mem_p:
+            out.append(f"💾 <b>Memory:</b> {mem_p}")
+    disk_p = _fmt_pct(data.get("host_disk_percent"))
+    disk_used = data.get("host_disk_used")
+    disk_total = data.get("host_disk_total")
+    if disk_p or disk_used:
+        du = _fmt_bytes(disk_used)
+        dt = _fmt_bytes(disk_total)
+        if du and dt:
+            out.append(f"💿 <b>Disk:</b>   {du} / {dt}" + (f"  ({disk_p})" if disk_p else ""))
+        elif disk_p:
+            out.append(f"💿 <b>Disk:</b>   {disk_p}")
+    uptime_str = _fmt_uptime(data.get("host_uptime_seconds"))
+    if uptime_str:
+        out.append(f"⏱ <b>Uptime:</b> {uptime_str}")
+
+    # ---- Extended stats — only emit sections with meaningful data --
+    extended: list[str] = []
+    l1 = data.get("host_load_1m")
+    l5 = data.get("host_load_5m")
+    l15 = data.get("host_load_15m")
+    if any(isinstance(v, (int, float)) and v > 0 for v in (l1, l5, l15)):
+        load_bits = [f"{float(v):.2f}" for v in (l1, l5, l15) if isinstance(v, (int, float))]
+        extended.append(f"📈 <b>Load:</b>   {', '.join(load_bits)}")
+    swap_p = _fmt_pct(data.get("host_swap_percent"))
+    swap_used = data.get("host_swap_used")
+    if swap_p and (data.get("host_swap_percent") or 0) > 0:
+        # Swap_used in Beszel is GB; render directly.
+        if isinstance(swap_used, (int, float)) and swap_used > 0:
+            extended.append(f"🔄 <b>Swap:</b>   {swap_p}  ({swap_used:.1f} GB used)")
+        else:
+            extended.append(f"🔄 <b>Swap:</b>   {swap_p}")
+    bw = data.get("host_bandwidth")
+    if isinstance(bw, (int, float)) and bw > 0:
+        extended.append(f"🌐 <b>Bandwidth:</b> {_fmt_bytes(bw)}/s")
+    # Temperatures — Beszel emits a list of {name, temp_c} after _flatten.
+    temps = data.get("host_temperatures")
+    if isinstance(temps, list) and temps:
+        # Cap at 5 sensors so the message stays readable.
+        bits = []
+        for t in temps[:5]:
+            if not isinstance(t, dict):
+                continue
+            tn = t.get("name") or t.get("sensor") or ""
+            tc = t.get("temp_c") or t.get("c") or t.get("value")
+            if tn and isinstance(tc, (int, float)):
+                bits.append(f"{_escape(str(tn))} {tc:.0f}°C")
+        if bits:
+            extra = f" + {len(temps) - 5} more" if len(temps) > 5 else ""
+            extended.append(f"🌡 <b>Temp:</b>   " + ", ".join(bits) + extra)
+    # GPUs
+    gpus = data.get("host_gpus")
+    if isinstance(gpus, list) and gpus:
+        bits = []
+        for g in gpus[:3]:
+            if not isinstance(g, dict):
+                continue
+            name = g.get("name") or g.get("n") or "GPU"
+            util = g.get("usage_pct") or g.get("u")
+            seg = _escape(str(name))
+            if isinstance(util, (int, float)):
+                seg += f" {float(util):.0f}%"
+            bits.append(seg)
+        if bits:
+            extended.append(f"🎮 <b>GPU:</b>    " + ", ".join(bits))
+    # Containers
+    ct = data.get("host_containers")
+    if isinstance(ct, int) and ct > 0:
+        extended.append(f"🐳 <b>Containers:</b> {ct}")
+    # Services summary (Beszel systemd_services rollup)
+    svcs = data.get("host_services")
+    if isinstance(svcs, dict) and (svcs.get("total") or 0) > 0:
+        total = int(svcs.get("total") or 0)
+        failed = int(svcs.get("failed") or 0)
+        if failed > 0:
+            extended.append(f"⚙️ <b>Services:</b> {failed} failed / {total} total")
+        else:
+            extended.append(f"⚙️ <b>Services:</b> {total} healthy")
+    # Pending package updates (Webmin)
+    pkg_count = data.get("package_updates_count")
+    if isinstance(pkg_count, int) and pkg_count > 0:
+        extended.append(f"📦 <b>Updates:</b> {pkg_count} pending")
+    # UPS (SNMP)
+    ups_status = data.get("host_ups_status")
+    if ups_status:
+        bat = data.get("host_battery_charge")
+        bat_seg = f" ({float(bat):.0f}% battery)" if isinstance(bat, (int, float)) else ""
+        extended.append(f"🔋 <b>UPS:</b>    {_escape(str(ups_status))}{bat_seg}")
+
+    if extended:
+        out.append("")
+        out.extend(extended)
+
+    # ---- Footer: last-updated marker ------------------------------
+    out.append("")
+    age = _fmt_age(snap_ts)
+    if age:
+        out.append(f"<i>Updated {age} (cached snapshot — last gather)</i>")
+    else:
+        out.append("<i>Cached snapshot</i>")
+
+    await _send_reply(client, "\n".join(out))
 
 
 async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
@@ -1133,6 +1440,9 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         except Exception as e:
             print(f"[telegram_listener] spawn remove for {raw_id[:12]} failed: {e}")
 
+    # Per-container `remove_container` ops already write their own
+    # history rows via the do_remove_container path; the dispatcher-
+    # level `telegram_command` row covers the batch entry-point.
     await _send_reply(
         client,
         f"✅ Spawned {spawned} cleanup Operation(s). Watch the SPA's "
@@ -1144,12 +1454,28 @@ async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     """``/link <code>`` — bind the sender's Telegram user_id to an
     OmniGrid user. Code is minted by the SPA's Profile section and
     valid for 15 minutes, single-use."""
-    if not args:
-        await _send_reply(client, "Usage: <code>/link &lt;code&gt;</code>")
-        return
     sender_id = (msg.get("from") or {}).get("id")
     if sender_id is None:
         await _send_reply(client, "Can't read your Telegram user_id from the message.")
+        return
+    # If the sender is already linked, refuse and point them at
+    # /unlink — re-linking without unlinking first would silently
+    # overwrite the existing mapping, which is confusing if the
+    # operator forgot they were already linked or if multiple users
+    # share the same Telegram account (rare but observed). Same
+    # short-circuit whether they typed `/link` bare OR `/link <code>`.
+    existing_username = _lookup_omnigrid_user(sender_id)
+    if existing_username:
+        await _send_reply(
+            client,
+            f"ℹ️ You're already linked to OmniGrid user "
+            f"<b>{_escape(existing_username)}</b>. Run "
+            f"<code>/unlink</code> first if you want to re-link "
+            f"with a fresh code."
+        )
+        return
+    if not args:
+        await _send_reply(client, "Usage: <code>/link &lt;code&gt;</code>")
         return
     code = args[0].strip()
     username = _consume_link_code(code)
@@ -1370,6 +1696,11 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "handler":     _cmd_hosts,
         "usage":       "/hosts",
         "description": "List curated hosts with their status",
+    },
+    "/host": {
+        "handler":     _cmd_host,
+        "usage":       "/host <target>",
+        "description": "Show last-known stats for one host (CPU / memory / disk / uptime + extended provider stats: load, swap, bandwidth, temperatures, GPUs, containers, UPS). Cached readings only — no live probes.",
     },
     "/restart": {
         "handler":     _cmd_restart,
@@ -1674,6 +2005,39 @@ async def _ai_reply(
         if not edited:
             await _send_reply(client, final)
 
+    # Inner helper: record the AI call into `ai_jobs` AND `history`
+    # so Telegram queries show up on the Admin → AI Usage dashboard
+    # and the History tab alongside SPA palette / host-filter calls.
+    # Same `kind` naming convention the SPA uses (palette → ai_palette,
+    # host_filter → ai_host_filter); Telegram → ai_telegram.
+    def _record_call(ok: bool, raw_result: dict | None, answer_text: str) -> None:
+        try:
+            from logic.db import db_conn
+            _ai.record_ai_call(
+                db_conn_factory=db_conn,
+                provider=provider,
+                model=(raw_result or {}).get("model") or model or "",
+                kind="telegram",
+                ok=ok,
+                response_time_ms=int((raw_result or {}).get("response_time_ms") or 0),
+                tokens=(raw_result or {}).get("tokens"),
+                error_detail=(None if ok else ((raw_result or {}).get("detail") or "")),
+                history_actor=omnigrid_username or "telegram",
+                history_events={
+                    "prompt": text,
+                    "answer": answer_text,
+                    "surface": "telegram",
+                    "context": {
+                        "view":        ctx.get("view") if isinstance(ctx, dict) else "telegram",
+                        "hosts_count": len(ctx.get("hosts") or []) if isinstance(ctx, dict) else 0,
+                        "items_count": len(ctx.get("items") or []) if isinstance(ctx, dict) else 0,
+                    },
+                },
+            )
+        except Exception as _rec_err:
+            # Never let a recording failure swallow the operator's reply.
+            print(f"[telegram_listener] record_ai_call failed: {_rec_err}")
+
     try:
         result = await _ai.ask_provider(
             provider,
@@ -1685,10 +2049,12 @@ async def _ai_reply(
             max_tokens=max_toks,
         )
     except Exception as e:
+        _record_call(False, {"detail": str(e)}, "")
         await _deliver(f"❌ AI call failed: <code>{_escape(str(e))}</code>")
         return
     if not isinstance(result, dict) or not result.get("ok"):
         detail = (result or {}).get("detail") if isinstance(result, dict) else "no response"
+        _record_call(False, result if isinstance(result, dict) else None, "")
         await _deliver(
             f"❌ AI provider error: <code>{_escape(str(detail))}</code>"
         )
@@ -1696,8 +2062,13 @@ async def _ai_reply(
     raw_text = (result.get("text") or "").strip()
     clean = _strip_ai_directives(raw_text)
     if not clean:
+        _record_call(True, result, "")
         await _deliver("<i>(empty AI response)</i>")
         return
+    # Record BEFORE truncation so the persisted answer matches what
+    # the model actually returned (truncation is purely a Telegram
+    # wire-limit accommodation, not the canonical record).
+    _record_call(True, result, clean)
     # Telegram caps a single message at 4096 chars including HTML
     # tags. _send_reply will fail HTTP-400 if we exceed; pre-trim
     # with a clear "(truncated)" marker so the operator knows.
@@ -1783,16 +2154,52 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
             f"Command <code>{_escape(head)}</code> has no handler wired. Internal error."
         )
         return
+    # Dispatcher-level audit — every authorised /command writes ONE
+    # history row under `op_type=telegram_command` so Admin → History
+    # shows a complete trail of who used the bot, when, and for what.
+    # AI free-text traffic is logged separately by `_ai_reply` via
+    # `record_ai_call` (op_type=`ai_telegram`) to avoid double-logging.
+    sender_id_audit = (msg.get("from") or {}).get("id")
+    actor_audit = (
+        _lookup_omnigrid_user(sender_id_audit)
+        if sender_id_audit is not None else None
+    ) or "telegram"
+    # Sanitise args BEFORE persisting — `/link <code>` carries a
+    # single-use 6-digit code that would leak via the audit log
+    # otherwise. Same redaction class as auth-secret masking in SSH
+    # audit rows.
+    safe_args = list(args)
+    if head == "/link" and safe_args:
+        safe_args = ["<redacted>"]
+    handler_status = "success"
+    handler_error: Optional[str] = None
     try:
         await handler(client, args, msg)
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as e:  # noqa: BLE001 — never let one bad command crash the loop
+        handler_status = "error"
+        handler_error = f"{type(e).__name__}: {e}"
         print(f"[telegram_listener] handler {head!r} crashed: {e}")
         try:
             await _send_reply(client, f"❌ Command crashed: <code>{_escape(str(e))}</code>")
         except Exception:
             pass
+    # Write the audit row AFTER the handler completes so we capture
+    # the outcome. Best-effort: a logging failure inside
+    # `_audit_telegram` is already swallowed there.
+    _audit_telegram(
+        "telegram_command",
+        actor=actor_audit,
+        target_name=head,
+        status=handler_status,
+        error=handler_error,
+        events={
+            "command":           head,
+            "args":              safe_args,
+            "telegram_user_id":  int(sender_id_audit) if sender_id_audit is not None else None,
+        },
+    )
 
 
 def _load_offset() -> int:

@@ -135,10 +135,11 @@ OP_TYPES: frozenset[str] = frozenset({
     "swarm_agent_health",
     "port_scan_refresh",
     # AI surfaces — kind is dynamic in the call site (`f"ai_{kind}"`); the
-    # values that actually fire today are the two below. Adding a new AI
+    # values that actually fire today are the three below. Adding a new AI
     # kind requires a new literal here AND in the i18n + filter dropdown.
     "ai_palette",
     "ai_host_filter",
+    "ai_telegram",
     # TOTP admin actions — written via raw SQL INSERT in
     # api_admin_user_disable_totp / api_admin_user_force_totp_set. Both
     # bypass `new_op` because they don't spawn an Operation; they're
@@ -236,6 +237,20 @@ OP_TYPES: frozenset[str] = frozenset({
     "user_login",
     "user_logout",
     "oidc_login",
+    # Telegram surfaces — every /command and every authorised text
+    # message routed through the Telegram listener writes ONE history
+    # row at the dispatcher level via _audit_telegram(). The actor is
+    # the linked OmniGrid username (or "telegram" for an unmapped
+    # sender that somehow reached the dispatcher — should never happen
+    # under the mapping gate but defended against). The events JSON
+    # carries `{command, args, status, error?}` so the History tab's
+    # row-detail pane shows which command was invoked + outcome. AI
+    # free-text continues to flow through `ai_telegram` via
+    # record_ai_call, which writes its own richer row to history AND
+    # the ai_jobs table for the AI Usage dashboard — the dispatcher
+    # SKIPS the generic audit row for AI traffic to avoid double-
+    # logging.
+    "telegram_command",
 })
 
 

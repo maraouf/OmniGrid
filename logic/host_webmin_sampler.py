@@ -31,6 +31,7 @@ from typing import Optional
 
 from logic import webmin as _webmin
 from logic import tuning
+from logic.tuning import Tunable
 from logic.db import (
     db_conn,
     get_setting,
@@ -193,7 +194,7 @@ async def _persist_tick(rows: list[tuple]) -> None:
 
 
 async def _prune_old_rows() -> None:
-    days = max(1, int(tuning.tuning_int("tuning_stats_history_days")) or 7)
+    days = max(1, int(tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)) or 7)
     cutoff = int(time.time() - days * 86400)
     try:
         with db_conn() as c:
@@ -212,7 +213,7 @@ async def host_webmin_sampler_loop() -> None:
     iter_count = 0
     try:
         while True:
-            interval = max(30, int(tuning.tuning_int("tuning_stats_sample_interval_seconds")) or 300)
+            interval = max(30, int(tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)) or 300)
             iter_count += 1
             active_set = _active_providers()
             print(
@@ -236,7 +237,7 @@ async def host_webmin_sampler_loop() -> None:
                     await asyncio.sleep(interval)
                     continue
                 verify_tls = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
-                timeout = float(tuning.tuning_int("tuning_webmin_probe_timeout_seconds")) or 8.0
+                timeout = float(tuning.tuning_int(Tunable.WEBMIN_PROBE_TIMEOUT_SECONDS)) or 8.0
                 active = _active_providers()
                 # Fan out — one probe per curated host, in parallel
                 # via gather. Webmin probes are independent so this
@@ -252,7 +253,7 @@ async def host_webmin_sampler_loop() -> None:
                 # ("auto") derives from probe_timeout × N hosts capped
                 # at 5 min. Explicit non-zero values pin the budget
                 # for fleets with unusual fan-out shapes.
-                _budget_override = tuning.tuning_int("tuning_webmin_sampler_budget_seconds")
+                _budget_override = tuning.tuning_int(Tunable.WEBMIN_SAMPLER_BUDGET_SECONDS)
                 if _budget_override > 0:
                     _outer_budget = float(_budget_override)
                 else:

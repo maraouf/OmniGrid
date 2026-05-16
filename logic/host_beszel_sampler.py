@@ -36,6 +36,7 @@ from typing import Optional
 
 from logic import beszel as _beszel
 from logic import tuning
+from logic.tuning import Tunable
 from logic.db import (
     db_conn,
     get_setting,
@@ -109,7 +110,7 @@ async def _probe_one_tick() -> dict:
     # `probe_hub` default (15s) when the tunable resolves to 0 / a
     # bad value. Range-clamped via `tuning_int`'s built-in (lo, hi)
     # enforcement.
-    timeout = float(tuning.tuning_int("tuning_beszel_probe_timeout_seconds")) or 15.0
+    timeout = float(tuning.tuning_int(Tunable.BESZEL_PROBE_TIMEOUT_SECONDS)) or 15.0
     try:
         result = await _beszel.probe_hub(
             base_url, ident, passw,
@@ -323,7 +324,7 @@ async def _prune_old_rows() -> None:
     Beszel agent stopped reporting them — operator removed the unit,
     moved the host, etc.).
     """
-    days = max(1, int(tuning.tuning_int("tuning_stats_history_days")) or 7)
+    days = max(1, int(tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)) or 7)
     cutoff = int(time.time() - days * 86400)
     try:
         with db_conn() as c:
@@ -354,9 +355,9 @@ async def host_beszel_sampler_loop() -> None:
             # "inherit" sentinel — same fallback Pulse / Webmin
             # samplers use). 0 → 300s default keeps legacy
             # deployments unchanged.
-            besz_interval = int(tuning.tuning_int("tuning_beszel_sample_interval_seconds"))
+            besz_interval = int(tuning.tuning_int(Tunable.BESZEL_SAMPLE_INTERVAL_SECONDS))
             interval = (besz_interval if besz_interval > 0
-                        else int(tuning.tuning_int("tuning_stats_sample_interval_seconds"))) or 300
+                        else int(tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS))) or 300
             interval = max(30, interval)
             iter_count += 1
             # Unconditional per-iteration log — fires BEFORE the
