@@ -905,11 +905,16 @@ def _fmt_age(ts: float | int | None) -> str:
 
 
 async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
-    """``/host <target>`` — show last-known stats for one curated host
-    (CPU / memory / disk / uptime + extended provider stats when
-    present: load avg, swap, bandwidth, temperatures, GPUs, container
-    count). Reads the cached `host_snapshots` row — no live probes,
-    so the reply is fast and doesn't trigger any provider traffic.
+    """``/host <target>`` — probe live, then show fresh stats for one
+    curated host (CPU / memory / disk / uptime + extended provider
+    stats when present). Strategy: send a "🔄 Probing live data…"
+    placeholder immediately, run the same per-host live-merge path the
+    SPA's `/api/hosts/one/{id}` uses (lazy-imported from main to side-
+    step the circular import — the listener is started by main's
+    lifespan, so `main` is already loaded by the time this fires), then
+    EDIT the placeholder with the final data. Falls back to the cached
+    `host_snapshots` row when the live probe raises (so a hub outage or
+    auth failure still yields a useful reply).
 
     Target resolution reuses the same fuzzy-match resolver `/restart`
     uses (id / label / address / per-provider aliases).
@@ -936,24 +941,66 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     host_id = matched.get("id") or ""
     label = matched.get("label") or host_id
 
-    # Pull the merged snapshot blob (last gather's host_* state). The
-    # short-TTL cache inside `load_host_snapshots` keeps the read cheap
-    # under a burst of /host calls.
+    # Placeholder reply — operator sees acknowledgement immediately
+    # while the live merge fans out across every configured provider
+    # for this host (NE + Webmin + SNMP inline; Beszel + Pulse from
+    # the cached batch maps). Capture the message_id so we can edit
+    # in place when the final data is ready; if the send fails (rate
+    # limit, transient HTTP), we fall through and the final body
+    # arrives as a new message.
+    placeholder_id = await _send_reply(
+        client,
+        f"🔄 Probing live providers for <b>{_escape(label)}</b>…",
+    )
+
+    # Live per-host merge — same code path /api/hosts/one/{id} runs.
+    # Lazy-import dodges the circular dependency (main → listener via
+    # lifespan; listener → main only at call-time). On any exception
+    # (settings missing, hub outage, timeout) we fall back to the
+    # cached snapshot below so the operator still gets a reply.
+    data: dict | None = None
+    snap_ts: float | None = None
+    live_ok = False
     try:
-        from logic.gather import load_host_snapshots
-        snap_map = load_host_snapshots()
-    except Exception as e:
-        await _send_reply(client, f"❌ Snapshot read failed: <code>{_escape(str(e))}</code>")
-        return
-    entry = snap_map.get(host_id) or {}
-    snap_ts = entry.get("ts") if isinstance(entry, dict) else None
-    data = entry.get("data") if isinstance(entry, dict) else None
+        from main import _merge_one_host, _get_host_provider_state  # lazy
+        state = await _get_host_provider_state(force=True)
+        merged, _hits = await _merge_one_host(matched, state, force=True)
+        if isinstance(merged, dict) and merged:
+            data = merged
+            snap_ts = float(time.time())
+            live_ok = True
+    except Exception as e:  # noqa: BLE001
+        print(f"[telegram_listener] /host live merge failed for {host_id!r}: {e}")
+
+    # Snapshot fallback — same shape as the pre-live-merge implementation.
+    # Triggers when the live probe raised OR returned empty.
+    if not live_ok:
+        try:
+            from logic.gather import load_host_snapshots
+            snap_map = load_host_snapshots()
+        except Exception as e:
+            err = f"❌ Snapshot read failed: <code>{_escape(str(e))}</code>"
+            if placeholder_id is not None:
+                ok = await _edit_message(client, placeholder_id, err)
+                if not ok:
+                    await _send_reply(client, err)
+            else:
+                await _send_reply(client, err)
+            return
+        entry = snap_map.get(host_id) or {}
+        if isinstance(entry, dict):
+            _ts = entry.get("ts")
+            snap_ts = float(_ts) if isinstance(_ts, (int, float)) else None
+            data = entry.get("data")
     if not isinstance(data, dict) or not data:
-        await _send_reply(
-            client,
-            f"⚠️ No cached readings for <b>{_escape(label)}</b> yet. "
-            f"Wait for the next gather cycle and try again."
-        )
+        warn = (f"⚠️ No readings for <b>{_escape(label)}</b> yet. "
+                f"Wait for the next probe cycle and try again.")
+        if placeholder_id is not None:
+            ok = await _edit_message(client, placeholder_id, warn)
+            if not ok:
+                await _send_reply(client, warn)
+        else:
+            await _send_reply(client, warn)
         return
 
     out: list[str] = [f"📊 <b>{_escape(label)}</b> "
@@ -1118,14 +1165,32 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         out.extend(extended)
 
     # ---- Footer: last-updated marker ------------------------------
+    # Two states: LIVE (we just probed every provider — age is seconds)
+    # vs SNAPSHOT (live probe failed, we fell back to host_snapshots —
+    # age is whatever the snapshot row says). The marker copy makes the
+    # source obvious so the operator can tell at a glance whether they
+    # need to investigate a stale snapshot or trust the values.
     out.append("")
-    age = _fmt_age(snap_ts)
-    if age:
-        out.append(f"<i>Updated {age} (cached snapshot — last gather)</i>")
+    if live_ok:
+        out.append("<i>Live probe — just now</i>")
     else:
-        out.append("<i>Cached snapshot</i>")
+        age = _fmt_age(snap_ts)
+        if age:
+            out.append(f"<i>Updated {age} (cached snapshot — live probe failed)</i>")
+        else:
+            out.append("<i>Cached snapshot — live probe failed</i>")
 
-    await _send_reply(client, "\n".join(out))
+    body = "\n".join(out)
+    # Edit the placeholder in place when we have its message_id; falls
+    # back to a fresh reply on edit failure (rate limit, message too
+    # old, etc.). Same pattern as the AI reply path's "🤖 Thinking…"
+    # placeholder handling.
+    if placeholder_id is not None:
+        ok = await _edit_message(client, placeholder_id, body)
+        if not ok:
+            await _send_reply(client, body)
+    else:
+        await _send_reply(client, body)
 
 
 async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
