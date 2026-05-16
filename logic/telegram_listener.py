@@ -119,10 +119,10 @@ _TELEGRAM_API_BASE_DEFAULT = "https://api.telegram.org"
 
 def _telegram_api_base() -> str:
     """Resolve the Telegram Bot API base URL from the
-    ``telegram_api_base`` setting (Admin → Notifications → Telegram).
+    "telegram_api_base" setting (Admin → Notifications → Telegram).
     Falls back to the official upstream when blank."""
     from logic.db import get_setting
-    raw = (get_setting(Settings.TELEGRAM_API_BASE, "") or "").strip()
+    raw = (get_setting(Settings.TELEGRAM_API_BASE) or "").strip()
     if not raw:
         return _TELEGRAM_API_BASE_DEFAULT
     return raw.rstrip("/")
@@ -1872,17 +1872,97 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     humid = data.get("humidity")
     wind = data.get("wind_kmh")
     cond = str(data.get("condition") or "")
+
+    # Operator-flagged: the prior render was a single em-dash chain
+    # ("🌡 24°C — Clear — 💧 52% — 💨 3 km/h") which read as a data
+    # dump. Rebuild as an EXPLANATORY narrative — same shape the AI
+    # palette emits for weather questions — with per-metric comfort
+    # / feel / strength verdicts so the operator gets context, not
+    # just numbers.
+    def _to_float(v) -> Optional[float]:
+        """Coerce a possibly-None / possibly-untyped value to float, or
+        None on failure. Centralised so the pyright-narrowing burden
+        sits in one place."""
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    temp_c_num = _to_float(data.get("temp_c"))
+    humid_num = _to_float(humid)
+    wind_num = _to_float(wind)
+
+    def _temp_verdict(temp_c: Optional[float]) -> str:
+        if temp_c is None: return ""
+        if temp_c <= 0:    return " — freezing, bundle up"
+        if temp_c < 10:    return " — cold, layer up"
+        if temp_c < 18:    return " — cool"
+        if temp_c < 25:    return " — mild and comfortable"
+        if temp_c < 32:    return " — warm"
+        if temp_c < 38:    return " — hot, hydrate often"
+        return " — extreme heat, limit outdoor time"
+
+    def _humid_feel(h: Optional[float]) -> str:
+        if h is None: return ""
+        if h < 25:   return " — dry, watch for static"
+        if h < 50:   return " — feels balanced"
+        if h < 70:   return " — comfortable to slightly humid"
+        if h < 85:   return " — humid"
+        return " — sticky and muggy"
+
+    def _wind_strength(k: Optional[float]) -> str:
+        if k is None: return ""
+        if k < 5:    return " — barely a breeze"
+        if k < 12:   return " — light breeze"
+        if k < 20:   return " — noticeable wind"
+        if k < 30:   return " — flags snapping"
+        if k < 50:   return " — gusty"
+        return " — strong wind, secure loose objects"
+
+    def _cond_emoji(c_str: str) -> str:
+        lc = (c_str or "").lower()
+        if "thunder" in lc:     return "⛈️"
+        if "snow" in lc:        return "❄️"
+        if "rain" in lc or "drizzle" in lc or "shower" in lc: return "🌧️"
+        if "fog" in lc or "mist" in lc:                       return "🌫️"
+        if "overcast" in lc:    return "☁️"
+        if "cloud" in lc:       return "⛅"
+        if "clear" in lc or "sunny" in lc: return "☀️"
+        return ""
+
+    def _takeaway(c_str: str, c_temp: Optional[float], k_wind: Optional[float]) -> str:
+        lc = (c_str or "").lower()
+        if "rain" in lc or "shower" in lc or "drizzle" in lc or "thunder" in lc:
+            return "Bring an umbrella."
+        if "snow" in lc:
+            return "Watch for slippery surfaces."
+        if c_temp is not None and c_temp >= 35:
+            return "AC will earn its keep today."
+        if c_temp is not None and c_temp <= 5:
+            return "Dress in layers and warm up the engine before driving."
+        if k_wind is not None and k_wind >= 40:
+            return "Skip the open-flame BBQ — embers travel."
+        return "Good time to be outside."
+
     head = f"<b>{_escape(label)}</b>"
-    body_parts: list[str] = []
-    if temp is not None:
-        body_parts.append(f"🌡 {temp}")
+    body_lines: list[str] = []
+    emoji = _cond_emoji(cond)
     if cond:
-        body_parts.append(_escape(cond))
+        prefix = f"{emoji} " if emoji else ""
+        body_lines.append(f"{prefix}<b>{_escape(cond)}</b> overhead.")
+    if temp is not None:
+        body_lines.append(f"🌡 <b>{temp}</b>{_temp_verdict(temp_c_num)}.")
     if humid is not None:
-        body_parts.append(f"💧 {humid}%")
+        body_lines.append(f"💧 Humidity <b>{humid}%</b>{_humid_feel(humid_num)}.")
     if wind is not None:
-        body_parts.append(f"💨 {wind} km/h")
-    line1 = " — ".join(body_parts) if body_parts else "(no current data)"
+        body_lines.append(f"💨 Wind <b>{wind} km/h</b>{_wind_strength(wind_num)}.")
+    if not body_lines:
+        body_lines.append("(no current data)")
+    else:
+        body_lines.append(_takeaway(cond, temp_c_num, wind_num))
+    line1 = "\n".join(body_lines)
     # Forecast dates render using the user's `ui_prefs.datetime_format`
     # preference, stripped of time tokens (Open-Meteo returns ISO
     # dates so there's no time component). Falls back to a sensible
