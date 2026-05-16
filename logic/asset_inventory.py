@@ -38,15 +38,16 @@ from logic.tuning import Tunable, tuning_int as _tuning_int
 def _token_timeout_seconds() -> float:
     try:
         return float(_tuning_int(Tunable.ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS))
-    except Exception:
+    except (KeyError, ValueError, TypeError):
         return 10.0
 
 
 def _fetch_timeout_seconds() -> float:
     try:
         return float(_tuning_int(Tunable.ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS))
-    except Exception:
+    except (KeyError, ValueError, TypeError):
         return 15.0
+
 
 # track the operator's `DB_PATH` data dir convention. Reading
 # DB_PATH lazily via os.environ keeps the constant import-time-safe
@@ -104,7 +105,7 @@ async def probe_token(
     # grant Ex3552" and requires body params. So: try Basic first
     # (standards-preferred), fall back to body params on 400/401 so
     # APEX-style servers also work.
-    basic = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+    basic = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode("ascii")
 
     async def _post(method: str) -> tuple[int, str, Any]:
         """Returns (status_code, text_preview, parsed_json_or_None).
@@ -154,17 +155,17 @@ async def probe_token(
         # structured error; non-JSON body is fine too.
         try:
             parsed = resp.json()
-        except Exception:
+        except (ValueError, json.JSONDecodeError):
             parsed = None
         return resp.status_code, (resp.text or "")[:400], parsed
 
-    def _looks_like_apex_user_error(preview: str) -> bool:
+    def _looks_like_apex_user_error(preview_text: str) -> bool:
         # APEX returns: {"error":"invalid_request","error_description":
         # "ERROR occurred due to missing username or password in
         # client_credentials grant Ex3552"}. Match on the distinctive
         # phrase so we only try the non-standard userpass fallback
         # when the server specifically requests those field names.
-        return "missing username or password" in (preview or "").lower()
+        return "missing username or password" in (preview_text or "").lower()
 
     try:
         status, preview, payload = await _post("basic")
@@ -210,8 +211,8 @@ async def probe_token(
                 "error": f"token response missing access_token: {json.dumps(payload)[:200]}"}
     return {
         "ok": True,
-        "token_type":   str(payload.get("token_type") or "Bearer"),
-        "expires_in":   int(payload.get("expires_in") or 0),
+        "token_type": str(payload.get("token_type") or "Bearer"),
+        "expires_in": int(payload.get("expires_in") or 0),
         "access_token": access_token,
         "error": "",
     }
@@ -276,9 +277,8 @@ async def fetch_assets(
     return {"ok": True, "assets": assets, "error": ""}
 
 
-_PAGE_SIZE = 50   # ASSET_SERVICES_DATABASE_RECORDS_LIMITS default (see <asset-api-host> API guide §4.1.3)
+_PAGE_SIZE = 50  # ASSET_SERVICES_DATABASE_RECORDS_LIMITS default (see <asset-api-host> API guide §4.1.3)
 _ERR_NO_RECORDS = "1686"  # ERROR_1686 "no matching records" — tolerated as empty batch
-
 
 _CODE_PREFIX_RE = re.compile(r"^(?:Ex|ERR_|Error_)", re.IGNORECASE)
 
@@ -387,11 +387,11 @@ def _extract_assets_from_payload(payload: Any) -> list:
     if "result" in payload:
         try:
             preview = json.dumps(payload["result"], default=str)[:400]
-        except Exception:
+        except (TypeError, ValueError):
             preview = repr(payload["result"])[:400]
         print(f"[asset_inventory] result sample: {preview}")
     if (str(payload.get("return")) not in ("1", "True")
-            and (payload.get("details") or payload.get("message"))):
+        and (payload.get("details") or payload.get("message"))):
         print(f"[asset_inventory] envelope says NOT success — "
               f"return={payload.get('return')!r} "
               f"code={payload.get('code')!r} "
@@ -563,8 +563,17 @@ async def fetch_assets_lifetime_token(
         )
         return {"ok": False, "assets": [], "error": og_err.message,
                 "error_code": og_err.code, "error_params": og_err.params}
-    if timeout is None:
-        timeout = _fetch_timeout_seconds()
+    # Resolve timeout to a concrete float — `_post_asset_api` requires
+    # non-None and pyright doesn't propagate the `if x is None: x = …`
+    # narrowing through the rest of the function. The dedicated
+    # `timeout_f` local carries the narrowed type into every
+    # downstream call; the original `timeout` parameter stays
+    # Optional for callers.
+    timeout_f: float = (
+        _fetch_timeout_seconds()
+        if timeout is None
+        else float(timeout)
+    )
 
     # Shared base body — service/action are always forwarded when set so
     # upstream's specific error code (Ex3537 for missing service, etc.)
@@ -582,11 +591,17 @@ async def fetch_assets_lifetime_token(
     )
     if not do_paginate:
         body = dict(base)
-        if min_value is not None:
-            body["min_value"] = str(int(min_value))
-        if max_value is not None:
-            body["max_value"] = str(int(max_value))
-        res = await _post_asset_api(endpoint_url, token, body, verify_tls, timeout)
+        # Local narrowing — `min_value`/`max_value` are typed
+        # Optional[int] but inside this branch we either have a
+        # concrete value or skip the key entirely. The intermediate
+        # local lets pyright see the non-None narrowing.
+        mn_local: Optional[int] = min_value
+        mx_local: Optional[int] = max_value
+        if mn_local is not None:
+            body["min_value"] = str(int(mn_local))
+        if mx_local is not None:
+            body["max_value"] = str(int(mx_local))
+        res = await _post_asset_api(endpoint_url, token, body, verify_tls, timeout_f)
         out = {"ok": res["ok"], "assets": res["assets"], "error": res["error"]}
         if not res["ok"]:
             out["error_code"] = res.get("error_code", _err.NETWORK_ERROR)
@@ -597,6 +612,9 @@ async def fetch_assets_lifetime_token(
     # rely on the upstream to advertise its limit — the guide pins it
     # at 50 by default, tenants can tune it server-side, but batching
     # with 50 is always safe (smaller pages are never an error).
+    # `do_paginate` already guards both bounds being non-None — assert
+    # for pyright + as defence against future call-site drift.
+    assert min_value is not None and max_value is not None
     lo = int(min_value)
     hi = int(max_value)
     if lo > hi:
@@ -614,7 +632,7 @@ async def fetch_assets_lifetime_token(
         body = dict(base)
         body["min_value"] = str(cursor)
         body["max_value"] = str(win_hi)
-        res = await _post_asset_api(endpoint_url, token, body, verify_tls, timeout)
+        res = await _post_asset_api(endpoint_url, token, body, verify_tls, timeout_f)
         if not res["ok"]:
             # Tolerate "no matching records" in a window — gaps in the
             # CN range are the norm (deleted assets leave holes).
@@ -624,7 +642,7 @@ async def fetch_assets_lifetime_token(
             return {
                 "ok": False, "assets": [],
                 "error": (f"batch {cursor}-{win_hi}: " + res["error"]).strip(),
-                "error_code":   res.get("error_code", _err.NETWORK_ERROR),
+                "error_code": res.get("error_code", _err.NETWORK_ERROR),
                 "error_params": {**res.get("error_params", {}),
                                  "batch_min": cursor, "batch_max": win_hi},
             }
@@ -643,12 +661,12 @@ def load_cache(cache_path: str = DEFAULT_CACHE_PATH) -> dict:
     render an empty-state card.
     """
     try:
-        with open(cache_path, "r", encoding="utf-8") as f:
+        with open(cache_path, encoding="utf-8") as f:
             raw = f.read()
     except FileNotFoundError:
         return {"ok": False, "ts": 0, "assets": [], "count": 0,
                 "error": "no cache — run Refresh to populate"}
-    except Exception as e:
+    except OSError as e:
         return {"ok": False, "ts": 0, "assets": [], "count": 0,
                 "error": f"{type(e).__name__}: {e}"}
     try:
@@ -659,14 +677,18 @@ def load_cache(cache_path: str = DEFAULT_CACHE_PATH) -> dict:
     if not isinstance(data, dict):
         return {"ok": False, "ts": 0, "assets": [], "count": 0,
                 "error": "cache is not a JSON object"}
-    assets = data.get("assets") if isinstance(data.get("assets"), list) else []
+    # Narrow `assets` to a concrete list so the `len()` + `int()` calls
+    # below see a sized non-None — `dict.get` returns `Any | None`
+    # otherwise, which trips the Sized-vs-None lint.
+    assets_raw = data.get("assets")
+    assets: list = assets_raw if isinstance(assets_raw, list) else []
     return {
-        "ok":     True,
-        "ts":     int(data.get("ts") or 0),
+        "ok": True,
+        "ts": int(data.get("ts") or 0),
         "assets": assets,
-        "count":  len(assets),
+        "count": len(assets),
         "upstream": str(data.get("upstream") or ""),
-        "error":  "",
+        "error": "",
     }
 
 
@@ -683,10 +705,10 @@ def save_cache(
     """
     os.makedirs(os.path.dirname(cache_path) or ".", exist_ok=True)
     payload = {
-        "ts":       int(time.time()),
+        "ts": int(time.time()),
         "upstream": upstream,
-        "count":    len(assets),
-        "assets":   assets,
+        "count": len(assets),
+        "assets": assets,
     }
     # tempfile.NamedTemporaryFile + rename gives us atomicity without
     # a manual flush/fsync (OS handles it). ``delete=False`` because
@@ -873,12 +895,12 @@ def shape_asset(a: dict) -> Optional[dict]:
             if not isinstance(i, dict):
                 continue
             ifaces.append({
-                "name":       str(i.get("Name") or i.get("name") or "").strip(),
-                "ip":         str(i.get("IP") or i.get("ip") or "").strip(),
-                "mac":        str(i.get("MacAddress") or i.get("mac_address") or "").strip(),
-                "number":     i.get("Number"),
-                "comment":    str(i.get("Comment") or "").strip(),
-                "enabled":    i.get("IsEnabled") is not False,
+                "name": str(i.get("Name") or i.get("name") or "").strip(),
+                "ip": str(i.get("IP") or i.get("ip") or "").strip(),
+                "mac": str(i.get("MacAddress") or i.get("mac_address") or "").strip(),
+                "number": i.get("Number"),
+                "comment": str(i.get("Comment") or "").strip(),
+                "enabled": i.get("IsEnabled") is not False,
                 "ip_version": str(i.get("IPVersion") or i.get("ip_version") or "").strip(),
             })
     ifaces.sort(key=lambda x: (
@@ -913,11 +935,11 @@ def shape_asset(a: dict) -> Optional[dict]:
             if not name and number is None:
                 continue
             ports.append({
-                "id":            p.get("ID") or p.get("id"),
-                "name":          name,
-                "number":        number,
-                "service_name":  str(inner.get("ServiceName") or inner.get("service_name") or "").strip(),
-                "protocol":      str(inner.get("Protocol") or inner.get("protocol") or "").strip(),
+                "id": p.get("ID") or p.get("id"),
+                "name": name,
+                "number": number,
+                "service_name": str(inner.get("ServiceName") or inner.get("service_name") or "").strip(),
+                "protocol": str(inner.get("Protocol") or inner.get("protocol") or "").strip(),
             })
 
     # Serial — drop placeholder NONE-prefixed values (VMs without
@@ -938,17 +960,19 @@ def shape_asset(a: dict) -> Optional[dict]:
     # the abbreviation directly (Virtual Machine → "VM", Physical →
     # "PHY", etc.) without the SPA having to fall back to acronym
     # derivation. First non-blank wins.
-    type_obj = a.get("Type") if isinstance(a.get("Type"), dict) else (
-        a.get("type") if isinstance(a.get("type"), dict) else None
-    )
+    # Narrow to a concrete dict so the `.get(key)` cascade below stays
+    # pyright-clean (the conditional expression alone leaves the
+    # variable typed `dict | None` which trips the Member-None lint).
+    _type_raw = a.get("Type") or a.get("type")
+    type_obj: dict = _type_raw if isinstance(_type_raw, dict) else {}
     type_short = ""
     if type_obj:
         for key in (
-            "Shortname", "ShortName", "shortname", "shortName", "short_name",
-            "Short", "short", "Code", "code", "Abbr", "abbr",
-            "Abbreviation", "abbreviation", "Acronym", "acronym",
-            "Symbol", "symbol", "Tag", "tag", "Slug", "slug",
-            "Alias", "alias",
+                "Shortname", "ShortName", "shortname", "shortName", "short_name",
+                "Short", "short", "Code", "code", "Abbr", "abbr",
+                "Abbreviation", "abbreviation", "Acronym", "acronym",
+                "Symbol", "symbol", "Tag", "tag", "Slug", "slug",
+                "Alias", "alias",
         ):
             v = type_obj.get(key)
             if isinstance(v, str) and v.strip():
@@ -956,37 +980,37 @@ def shape_asset(a: dict) -> Optional[dict]:
                 break
 
     return {
-        "id":                a.get("ID") or a.get("id"),
-        "custom_number":     a.get("CustomNumber") or a.get("custom_number"),
-        "vendor":            _pick_named(a.get("Brand"), a.get("brand"),
-                                         a.get("vendor"), a.get("manufacturer")),
-        "brand_link":        (str((brand_obj or {}).get("Link") or "").strip()
-                              if brand_obj else ""),
-        "model":             _pick_named(a.get("Model"), a.get("model"),
-                                         a.get("product"), a.get("product_name")),
-        "serial":            raw_serial,
-        "location":          _pick_named(a.get("Location"), a.get("location"),
-                                         a.get("site"), a.get("room")),
-        "location_details":  (str((location_obj or {}).get("Details") or "").strip()
-                              if location_obj else ""),
-        "type":              _pick_named(a.get("Type"), a.get("type")),
-        "type_short":        type_short,
-        "name":              _pick_named(a.get("Name"), a.get("name")),
-        "hostnames":         hostnames,
-        "primary_ip":        primary_ip,
-        "ram":               _pick_named(a.get("RAM"), a.get("ram"), a.get("memory")),
-        "sku":               _pick_named(a.get("SKU"), a.get("sku")),
-        "firmware":          _pick_named(a.get("Firmware"), a.get("firmware")),
-        "hardware_version":  _pick_named(a.get("HardwareVersion"), a.get("hardware_version")),
-        "barcode":           _pick_named(a.get("Barcode"), a.get("barcode")),
-        "comment":           _pick_named(a.get("Comment"), a.get("comment")),
-        "status_name":       _pick_named(a.get("Status"), a.get("status")),
-        "status_color":      (str((status_obj or {}).get("Color") or "").strip()
-                              if status_obj else ""),
-        "last_modified":     str(a.get("LastModifiedOn") or "").strip(),
-        "created_on":        str(a.get("CreatedOn") or "").strip(),
-        "interfaces":        ifaces,
-        "ports":             ports,
+        "id": a.get("ID") or a.get("id"),
+        "custom_number": a.get("CustomNumber") or a.get("custom_number"),
+        "vendor": _pick_named(a.get("Brand"), a.get("brand"),
+                              a.get("vendor"), a.get("manufacturer")),
+        "brand_link": (str((brand_obj or {}).get("Link") or "").strip()
+                       if brand_obj else ""),
+        "model": _pick_named(a.get("Model"), a.get("model"),
+                             a.get("product"), a.get("product_name")),
+        "serial": raw_serial,
+        "location": _pick_named(a.get("Location"), a.get("location"),
+                                a.get("site"), a.get("room")),
+        "location_details": (str((location_obj or {}).get("Details") or "").strip()
+                             if location_obj else ""),
+        "type": _pick_named(a.get("Type"), a.get("type")),
+        "type_short": type_short,
+        "name": _pick_named(a.get("Name"), a.get("name")),
+        "hostnames": hostnames,
+        "primary_ip": primary_ip,
+        "ram": _pick_named(a.get("RAM"), a.get("ram"), a.get("memory")),
+        "sku": _pick_named(a.get("SKU"), a.get("sku")),
+        "firmware": _pick_named(a.get("Firmware"), a.get("firmware")),
+        "hardware_version": _pick_named(a.get("HardwareVersion"), a.get("hardware_version")),
+        "barcode": _pick_named(a.get("Barcode"), a.get("barcode")),
+        "comment": _pick_named(a.get("Comment"), a.get("comment")),
+        "status_name": _pick_named(a.get("Status"), a.get("status")),
+        "status_color": (str((status_obj or {}).get("Color") or "").strip()
+                         if status_obj else ""),
+        "last_modified": str(a.get("LastModifiedOn") or "").strip(),
+        "created_on": str(a.get("CreatedOn") or "").strip(),
+        "interfaces": ifaces,
+        "ports": ports,
     }
 
 
@@ -1003,13 +1027,17 @@ def index_by_custom_number(assets: list) -> dict[int, dict]:
     for a in assets:
         if not isinstance(a, dict):
             continue
-        cn = a.get("custom_number")
-        if cn is None:
-            cn = a.get("CustomNumber")
-        if cn is None:
-            cn = a.get("customNumber")
+        cn_raw = (
+            a.get("custom_number")
+            or a.get("CustomNumber")
+            or a.get("customNumber")
+        )
+        if cn_raw is None:
+            continue
+        # Coerce via str() so pyright sees a concrete narrow string
+        # type going into int(), even though the dict value is Any.
         try:
-            ci = int(cn)
+            ci = int(str(cn_raw))
         except (TypeError, ValueError):
             continue
         out[ci] = a

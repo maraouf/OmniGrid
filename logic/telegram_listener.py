@@ -2212,7 +2212,6 @@ _MD_ITALIC_UNDER = _re.compile(r"(?<![A-Za-z0-9_])_(?P<inner>[^\s_][^_\n]*?[^\s_
 _MD_HEADING = _re.compile(r"^\s*#{1,6}\s+(?P<inner>.+?)\s*$", flags=_re.MULTILINE)
 _MD_LIST_BULLET = _re.compile(r"^(?P<indent>\s*)[*-]\s+", flags=_re.MULTILINE)
 
-
 # Telegram's `parse_mode=HTML` recognises a fixed tag set. Every other
 # `<` / `>` MUST be escaped or the parser rejects the whole message
 # with HTTP 400. The plain `_escape` helper escapes ALL `<` / `>`
@@ -2564,6 +2563,21 @@ async def _ai_reply(
     # Dedup by handler so aliases (`/start` → `_cmd_help`, `/myid` →
     # `_cmd_whoami`, `/ver` → `_cmd_version`) render alongside their
     # primary rather than as separate phantom commands.
+    # Roster lines wrap each `usage` + alias in `<code>...</code>` so
+    # the AI copies the pattern when echoing commands back — the
+    # post-render `_telegram_safe_escape` preserves `<code>` tags AND
+    # escapes the inner `<target>` to `&lt;target&gt;` correctly inside
+    # the monospace span, where Telegram renders them as literal
+    # angle-bracket text the way the operator expects. Without the
+    # `<code>` wrap, the AI emits `/host <target>` as plain prose and
+    # the safe-escape pass turns `<target>` into `&lt;target&gt;`
+    # rendered literally outside a monospace context — visible bug.
+    # Description field is also un-escaped here (some legacy entries
+    # carry `&amp;` from the /help render path); the safe-escape pass
+    # re-escapes anything Telegram needs.
+    def _unesc(s: str) -> str:
+        return (s or "").replace("&amp;", "&")
+
     _seen_handlers: set = set()
     _roster_lines: list[str] = []
     for _name, _meta in _COMMANDS.items():
@@ -2572,7 +2586,7 @@ async def _ai_reply(
             continue
         _seen_handlers.add(_h)
         _usage = _meta.get("usage") or _name
-        _desc = (_meta.get("description") or "").strip()
+        _desc = _unesc((_meta.get("description") or "").strip())
         # Collect aliases for the same handler so the AI sees the full
         # set of valid invocations.
         _aliases = [
@@ -2580,12 +2594,12 @@ async def _ai_reply(
             if n != _name and m.get("handler") is _h
         ]
         _alias_suffix = (
-            f" (aliases: {', '.join(_aliases)})" if _aliases else ""
+            f" (aliases: <code>{', '.join(_aliases)}</code>)" if _aliases else ""
         )
         _roster_lines.append(
-            f"  - `{_usage}`{_alias_suffix} — {_desc}"
+            f"  - <code>{_usage}</code>{_alias_suffix} — {_desc}"
             if _desc else
-            f"  - `{_usage}`{_alias_suffix}"
+            f"  - <code>{_usage}</code>{_alias_suffix}"
         )
     _command_roster = "\n".join(_roster_lines)
 
@@ -2653,13 +2667,20 @@ async def _ai_reply(
           "not real OmniGrid commands. If the operator asks for a "
           "capability the roster doesn't cover, say so honestly + "
           "redirect them to the SPA (where the action probably "
-          "exists). Render the roster in your reply using the SAME "
-          "groupings the /help command uses (📖 Getting started / "
-          "🖥️ Fleet / ⚙️ Operations / 🔗 Account / ℹ️ Info & weather) "
-          "when the user asks for the full menu; for a one-off "
-          "'how do I X' question cite ONLY the single relevant "
-          "command from the roster.\n\n"
-          "Canonical command list (handler-deduped, aliases grouped):\n"
+          "exists). **Render each slash command wrapped in `<code>...</code>` "
+          "tags** when citing it in your reply — e.g. "
+          "`<code>/host &lt;target&gt;</code>` — so the angle-bracket "
+          "argument placeholders render as monospace literal text "
+          "inside Telegram's HTML formatter instead of being escaped "
+          "to literal `&lt;` / `&gt;` entities in prose. Render the "
+          "roster in your reply using the SAME groupings the /help "
+          "command uses (📖 Getting started / 🖥️ Fleet / ⚙️ Operations "
+          "/ 🔗 Account / ℹ️ Info & weather) when the user asks for "
+          "the full menu; for a one-off 'how do I X' question cite "
+          "ONLY the single relevant command from the roster.\n\n"
+          "Canonical command list (handler-deduped, aliases grouped — "
+          "each `<code>...</code>` block is a literal command spelling "
+          "you should reuse verbatim):\n"
         + _command_roster
     )
     # Token budget honours the operator's `tuning_ai_max_tokens`
