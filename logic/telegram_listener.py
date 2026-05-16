@@ -98,7 +98,6 @@ from typing import Any, Optional
 
 import httpx
 
-
 # ----------------------------------------------------------------------------
 # Telegram Bot API base + long-poll defaults
 # ----------------------------------------------------------------------------
@@ -698,10 +697,10 @@ def _load_user_weather_pref(username: str) -> Optional[dict]:
     unit_raw = (prefs.get("headerWeatherUnit") or "c")
     unit = "f" if str(unit_raw).strip().lower() == "f" else "c"
     return {
-        "lat":   lat_f,
-        "lon":   lon_f,
+        "lat": lat_f,
+        "lon": lon_f,
         "label": label,
-        "unit":  unit,
+        "unit": unit,
     }
 
 
@@ -852,7 +851,9 @@ async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
 
 def _fmt_uptime(seconds: float | int | None) -> str:
     """Render an uptime span as ``Xd Yh`` / ``Xh Ym`` / ``Xm Ys``."""
-    if not seconds or seconds < 0:
+    # Explicit None check so the type-checker narrows the Optional
+    # before the `< 0` comparison.
+    if seconds is None or not seconds or seconds < 0:
         return ""
     s = int(seconds)
     if s >= 86400:
@@ -872,18 +873,22 @@ def _fmt_uptime(seconds: float | int | None) -> str:
 
 def _fmt_bytes(n: float | int | None) -> str:
     """Render a byte count as the largest sensible unit (GB / MB / KB / B)."""
-    if not n or n < 0:
+    # Explicit None check before the `< 0` comparison so the type-checker
+    # narrows the Optional (PyCharm flagged 4× "Member 'None' of
+    # 'float | int | None' does not have attribute '__ge__' / __truediv__'"
+    # because `if not n` doesn't narrow `int | None` → `int` for it).
+    if n is None or not n or n < 0:
         return ""
     try:
         n = float(n)
     except (TypeError, ValueError):
         return ""
-    if n >= 1024**4:
-        return f"{n / 1024**4:.1f} TB"
-    if n >= 1024**3:
-        return f"{n / 1024**3:.1f} GB"
-    if n >= 1024**2:
-        return f"{n / 1024**2:.1f} MB"
+    if n >= 1024 ** 4:
+        return f"{n / 1024 ** 4:.1f} TB"
+    if n >= 1024 ** 3:
+        return f"{n / 1024 ** 3:.1f} GB"
+    if n >= 1024 ** 2:
+        return f"{n / 1024 ** 2:.1f} MB"
     if n >= 1024:
         return f"{n / 1024:.0f} KB"
     return f"{int(n)} B"
@@ -1083,7 +1088,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     rx_total = data.get("host_net_rx_total") or data.get("host_net_rx_total_bytes")
     tx_total = data.get("host_net_tx_total") or data.get("host_net_tx_total_bytes")
     if isinstance(rx_total, (int, float)) and isinstance(tx_total, (int, float)) \
-            and (rx_total > 0 or tx_total > 0):
+        and (rx_total > 0 or tx_total > 0):
         extended.append(
             f"📊 <b>Net total:</b> ↓ {_fmt_bytes(rx_total)} / ↑ {_fmt_bytes(tx_total)}"
         )
@@ -1259,8 +1264,8 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     # success (the reboot fired).
     err = (result.get("error") or "").lower()
     looks_like_reboot_success = (
-        "connection" in err and ("closed" in err or "reset" in err or "broken" in err)
-    ) or result.get("exit_code") == 255
+                                    "connection" in err and ("closed" in err or "reset" in err or "broken" in err)
+                                ) or result.get("exit_code") == 255
     if result.get("ok") or looks_like_reboot_success:
         await _send_reply(client, f"✅ Reboot command sent to <b>{_escape(label)}</b>.")
     else:
@@ -1313,7 +1318,7 @@ async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
         # operator's permissions are immediately legible.
         role_emoji = {"admin": "🛡", "readonly": "👁"}.get(role, "❓")
         role_label = {
-            "admin":    "Admin (full access)",
+            "admin": "Admin (full access)",
             "readonly": "Read-only (no write actions)",
         }.get(role, role)
         await _send_reply(
@@ -1375,8 +1380,11 @@ async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             f"❌ Time lookup upstream error: <code>{_escape(str(err))}</code>"
         )
         return
-    tz_name = (data.get("timezone") or "").strip()
-    tz_abbrev = (data.get("timezone_abbrev") or "").strip()
+    # api_weather's untyped return-shape lets dict values widen to
+    # `str | bool | None` in pyright's view; coerce to str at the
+    # boundary so .strip() / index access below stay well-typed.
+    tz_name = str(data.get("timezone") or "").strip()
+    tz_abbrev = str(data.get("timezone_abbrev") or "").strip()
     if not tz_name:
         await _send_reply(
             client,
@@ -1631,8 +1639,8 @@ async def _cmd_unlink(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
     _save_mappings(mappings)
     # Mapping schema is `{username, linked_at_ms}` post-migration;
     # legacy entries may still be a bare username string.
-    removed_username = (
-        removed.get("username") if isinstance(removed, dict) else str(removed)
+    removed_username: str = str(
+        removed.get("username") if isinstance(removed, dict) else removed
     )
     # SSE event so any OmniGrid tab the operator has open re-renders
     # the Profile → Telegram card without a manual reload.
@@ -1710,10 +1718,14 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
             return f"{round(c * 9 / 5 + 32, 1)}°F"
         return f"{round(c, 1)}°C"
 
+    # Coerce each dict-extracted field to a known shape — api_weather's
+    # untyped return-shape lets pyright widen dict values to
+    # `Any | bool | None`, which then breaks `_escape(cond)` /
+    # `f"..."` interpolation downstream.
     temp = _fmt_temp(data.get("temp_c"))
     humid = data.get("humidity")
     wind = data.get("wind_kmh")
-    cond = data.get("condition") or ""
+    cond = str(data.get("condition") or "")
     head = f"<b>{_escape(label)}</b>"
     body_parts: list[str] = []
     if temp is not None:
@@ -1736,9 +1748,12 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     )
     from datetime import datetime as _dt
     date_only_fmt = _strip_time(_get_user_fmt(username))
-    forecast = data.get("forecast") or []
+    _fc_raw = data.get("forecast")
+    forecast: list = _fc_raw if isinstance(_fc_raw, list) else []
     forecast_lines: list[str] = []
     for day in forecast[:3]:
+        if not isinstance(day, dict):
+            continue
         raw_date = day.get("date") or ""
         try:
             day_dt = _dt.strptime(raw_date, "%Y-%m-%d")
@@ -1781,52 +1796,52 @@ def _escape(s: str) -> str:
 # (used for aliases like `/start` → `_cmd_help`).
 _COMMANDS: dict[str, dict[str, Any]] = {
     "/help": {
-        "handler":     _cmd_help,
-        "usage":       "/help",
+        "handler": _cmd_help,
+        "usage": "/help",
         "description": "Show this command list",
     },
     "/start": {
         # Telegram clients send `/start` automatically when the user
         # first opens a conversation with the bot. Mapping it to help
         # gives a clean first-contact experience.
-        "handler":     _cmd_help,
-        "usage":       "/start",
+        "handler": _cmd_help,
+        "usage": "/start",
         "description": "Show the command list",
-        "hidden":      True,  # don't double up in /help (same handler as /help)
+        "hidden": True,  # don't double up in /help (same handler as /help)
     },
     "/hosts": {
-        "handler":     _cmd_hosts,
-        "usage":       "/hosts",
+        "handler": _cmd_hosts,
+        "usage": "/hosts",
         "description": "List curated hosts with their status",
     },
     "/host": {
-        "handler":     _cmd_host,
-        "usage":       "/host <target>",
+        "handler": _cmd_host,
+        "usage": "/host <target>",
         "description": "Show last-known stats for one host (CPU / memory / disk / uptime + extended provider stats: load, swap, bandwidth, temperatures, GPUs, containers, UPS). Cached readings only — no live probes.",
     },
     "/restart": {
-        "handler":     _cmd_restart,
-        "usage":       "/restart <target>",
+        "handler": _cmd_restart,
+        "usage": "/restart <target>",
         "description": "Restart a host via SSH (destructive — requires confirm)",
     },
     "/cleanup": {
-        "handler":     _cmd_cleanup,
-        "usage":       "/cleanup [confirm]",
+        "handler": _cmd_cleanup,
+        "usage": "/cleanup [confirm]",
         "description": "List (or remove with `confirm`) stopped / failed / orphan containers — same surface as the SPA's topbar Cleanup button. SPA tabs auto-refresh as each removal lands.",
     },
     "/link": {
-        "handler":     _cmd_link,
-        "usage":       "/link <code>",
+        "handler": _cmd_link,
+        "usage": "/link <code>",
         "description": "Link your Telegram account to an OmniGrid user (code minted in Profile → Telegram)",
     },
     "/unlink": {
-        "handler":     _cmd_unlink,
-        "usage":       "/unlink",
+        "handler": _cmd_unlink,
+        "usage": "/unlink",
         "description": "Remove the Telegram → OmniGrid user link",
     },
     "/whoami": {
-        "handler":     _cmd_whoami,
-        "usage":       "/whoami",
+        "handler": _cmd_whoami,
+        "usage": "/whoami",
         "description": "Show your access level &amp; ID (which OmniGrid user you're linked to)",
     },
     "/myid": {
@@ -1835,37 +1850,36 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         # concerned". Same handler, hidden from /help so the menu
         # doesn't double up (the dedup-by-handler logic in _cmd_help
         # already handles this — `hidden: True` makes intent explicit).
-        "handler":     _cmd_whoami,
-        "usage":       "/myid",
+        "handler": _cmd_whoami,
+        "usage": "/myid",
         "description": "Show your access level &amp; ID (alias for /whoami)",
-        "hidden":      True,
+        "hidden": True,
     },
     "/weather": {
-        "handler":     _cmd_weather,
-        "usage":       "/weather",
+        "handler": _cmd_weather,
+        "usage": "/weather",
         "description": "Show the weather for your saved location (set it in Profile → Weather)",
     },
     "/time": {
-        "handler":     _cmd_time,
-        "usage":       "/time",
+        "handler": _cmd_time,
+        "usage": "/time",
         "description": "Show the local time at your saved weather location",
     },
     "/version": {
-        "handler":     _cmd_version,
-        "usage":       "/version",
+        "handler": _cmd_version,
+        "usage": "/version",
         "description": "Show the running OmniGrid version",
     },
     "/ver": {
         # Alias for /version — same handler, hidden so the /help menu
         # doesn't double up. Dedup-by-handler in _cmd_help drops it
         # automatically; `hidden: True` makes intent explicit.
-        "handler":     _cmd_version,
-        "usage":       "/ver",
+        "handler": _cmd_version,
+        "usage": "/ver",
         "description": "Show the running OmniGrid version (alias for /version)",
-        "hidden":      True,
+        "hidden": True,
     },
 }
-
 
 # ----------------------------------------------------------------------------
 # AI fallback for non-`/` text
@@ -1938,11 +1952,11 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             local_iso = now_utc.isoformat(timespec="seconds")
             offset_str = "+00:00"
         ctx["time"] = {
-            "utc_iso":      now_utc.isoformat(timespec="seconds"),
-            "local_iso":    local_iso,
-            "timezone":     resolved_tz_name,
-            "utc_offset":   offset_str,
-            "weekday":      now_utc.strftime("%A"),
+            "utc_iso": now_utc.isoformat(timespec="seconds"),
+            "local_iso": local_iso,
+            "timezone": resolved_tz_name,
+            "utc_offset": offset_str,
+            "weekday": now_utc.strftime("%A"),
         }
     except Exception as e:
         print(f"[telegram_listener] context time build failed: {e}")
@@ -1965,16 +1979,28 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                 if isinstance(wx, dict) and not wx.get("error"):
                     forecast = wx.get("forecast") or []
                     ctx["weather"] = {
-                        "label":        wx.get("label") or loc.get("label") or "",
-                        "temp_c":       wx.get("temp_c"),
-                        "humidity":     wx.get("humidity"),
-                        "wind_kmh":     wx.get("wind_kmh"),
-                        "condition":    wx.get("condition"),
+                        "label": wx.get("label") or loc.get("label") or "",
+                        "temp_c": wx.get("temp_c"),
+                        "humidity": wx.get("humidity"),
+                        "wind_kmh": wx.get("wind_kmh"),
+                        "condition": wx.get("condition"),
                         "weather_code": wx.get("code"),
-                        "forecast":     forecast[:7] if isinstance(forecast, list) else [],
+                        "forecast": forecast[:7] if isinstance(forecast, list) else [],
                     }
         except Exception as e:
             print(f"[telegram_listener] context weather build failed: {e}")
+    # ---- Public IP / ISP / ASN — operator-opt-in ifconfig.co lookup.
+    # Gated behind `ai_public_ip_enabled` (default OFF for privacy);
+    # cached in-process for 10 min so a burst of AI calls hits the
+    # upstream at most once per cache window. Disabled state -> no
+    # `public_ip` key in ctx, prompt-builder skips the block cleanly.
+    try:
+        from logic.public_ip import fetch as _public_ip_fetch
+        _pip = await _public_ip_fetch()
+        if _pip:
+            ctx["public_ip"] = _pip
+    except Exception as e:  # noqa: BLE001
+        print(f"[telegram_listener] context public_ip build failed: {e}")
     # ---- Items: live gather cache, same shape the SPA reads --------
     try:
         from logic import gather as _gather
@@ -2026,24 +2052,24 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                 "up" if snap else "unknown"
             )
             host_records.append({
-                "id":            hid,
-                "label":         h.get("label") or hid,
-                "status":        status,
-                "paused":        hid in paused_set,
-                "address":       h.get("address") or "",
-                "cpu_pct":       snap.get("host_cpu_percent"),
-                "mem_pct":       snap.get("host_mem_percent"),
-                "disk_pct":      snap.get("host_disk_percent"),
-                "uptime_s":      snap.get("host_uptime_seconds"),
+                "id": hid,
+                "label": h.get("label") or hid,
+                "status": status,
+                "paused": hid in paused_set,
+                "address": h.get("address") or "",
+                "cpu_pct": snap.get("host_cpu_percent"),
+                "mem_pct": snap.get("host_mem_percent"),
+                "disk_pct": snap.get("host_disk_percent"),
+                "uptime_s": snap.get("host_uptime_seconds"),
                 "host_hostname": snap.get("host_hostname"),
-                "platform":      snap.get("host_platform"),
-                "kernel":        snap.get("host_kernel"),
+                "platform": snap.get("host_platform"),
+                "kernel": snap.get("host_kernel"),
                 # Operator-typed aliases — the AI uses these to match
                 # "the qotom" / "the r730" against the right host.
-                "beszel_name":   h.get("beszel_name") or "",
-                "pulse_name":    h.get("pulse_name") or "",
-                "webmin_name":   h.get("webmin_name") or "",
-                "snmp_name":     h.get("snmp_name") or "",
+                "beszel_name": h.get("beszel_name") or "",
+                "pulse_name": h.get("pulse_name") or "",
+                "webmin_name": h.get("webmin_name") or "",
+                "snmp_name": h.get("snmp_name") or "",
             })
         ctx["hosts"] = host_records
         # Authoritative counts — the AI must answer "how many hosts"
@@ -2146,18 +2172,18 @@ async def _ai_reply(
         _ai.PALETTE_SYSTEM_PROMPT
         + "\n\n"
         + "TELEGRAM SURFACE OVERRIDE. You are replying to operator "
-        f"'{omnigrid_username}' via Telegram, which is a READ-ONLY "
-        "channel in this deployment. NEVER emit ACTION: / "
-        "ACTION_HOSTS: / MEMORY: / MEMORY-FORGET: / CHART_KIND: "
-        "directives — those are silently stripped before the reply "
-        "reaches the user, so emitting them just wastes tokens. If "
-        "the operator asks you to DO something (restart, pause, "
-        "configure), tell them to use the matching slash command "
-        "(/restart <target>, /cleanup, etc.) or the SPA. Keep "
-        "replies brief — Telegram messages stay readable under 4096 "
-        "characters; aim for under 600. Use the supplied JSON "
-        "records (hosts / items) to answer fleet-state questions "
-        "rather than inventing names from training data."
+          f"'{omnigrid_username}' via Telegram, which is a READ-ONLY "
+          "channel in this deployment. NEVER emit ACTION: / "
+          "ACTION_HOSTS: / MEMORY: / MEMORY-FORGET: / CHART_KIND: "
+          "directives — those are silently stripped before the reply "
+          "reaches the user, so emitting them just wastes tokens. If "
+          "the operator asks you to DO something (restart, pause, "
+          "configure), tell them to use the matching slash command "
+          "(/restart <target>, /cleanup, etc.) or the SPA. Keep "
+          "replies brief — Telegram messages stay readable under 4096 "
+          "characters; aim for under 600. Use the supplied JSON "
+          "records (hosts / items) to answer fleet-state questions "
+          "rather than inventing names from training data."
     )
     # Token budget honours the operator's `tuning_ai_max_tokens`
     # setting (Admin → AI Integration → "Max response tokens"). Hard-
@@ -2178,6 +2204,7 @@ async def _ai_reply(
         max_toks = max(256, int(max_toks))
     except (TypeError, ValueError):
         max_toks = 1024
+
     # Helper: deliver `final` to the operator. Tries the in-place
     # edit first (replaces the "🤖 Thinking…" bubble); on any failure
     # falls back to a fresh sendMessage so the operator never ends up
@@ -2212,7 +2239,7 @@ async def _ai_reply(
                     "answer": answer_text,
                     "surface": "telegram",
                     "context": {
-                        "view":        ctx.get("view") if isinstance(ctx, dict) else "telegram",
+                        "view": ctx.get("view") if isinstance(ctx, dict) else "telegram",
                         "hosts_count": len(ctx.get("hosts") or []) if isinstance(ctx, dict) else 0,
                         "items_count": len(ctx.get("items") or []) if isinstance(ctx, dict) else 0,
                     },
@@ -2345,9 +2372,9 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     # `record_ai_call` (op_type=`ai_telegram`) to avoid double-logging.
     sender_id_audit = (msg.get("from") or {}).get("id")
     actor_audit = (
-        _lookup_omnigrid_user(sender_id_audit)
-        if sender_id_audit is not None else None
-    ) or "telegram"
+                      _lookup_omnigrid_user(sender_id_audit)
+                      if sender_id_audit is not None else None
+                  ) or "telegram"
     # Sanitise args BEFORE persisting — `/link <code>` carries a
     # single-use 6-digit code that would leak via the audit log
     # otherwise. Same redaction class as auth-secret masking in SSH
@@ -2379,9 +2406,9 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
         status=handler_status,
         error=handler_error,
         events={
-            "command":           head,
-            "args":              safe_args,
-            "telegram_user_id":  int(sender_id_audit) if sender_id_audit is not None else None,
+            "command": head,
+            "args": safe_args,
+            "telegram_user_id": int(sender_id_audit) if sender_id_audit is not None else None,
         },
     )
 

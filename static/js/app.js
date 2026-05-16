@@ -395,6 +395,12 @@ function app() {
     headerWeatherUnit:  (typeof localStorage !== 'undefined' ? ((localStorage.getItem('headerWeatherUnit') || 'c').toLowerCase() === 'f' ? 'f' : 'c') : 'c'),
     currentClock: '',
     weather: null,
+    // Public IP + ISP lookup cache for AI palette context.
+    // `publicIp.enabled` is the backend's `ai_public_ip_enabled` gate;
+    // `_publicIpFetchedAt` is the local last-fetch ts so we don't
+    // re-probe more than once per 10 min (matches the backend's TTL).
+    publicIp: null,
+    _publicIpFetchedAt: 0,
     _clockTimer: null,
     _weatherTimer: null,
     // Version snapshot captured at first load. `watchVersion()` polls
@@ -19063,6 +19069,11 @@ function app() {
       this._setAiSidebarQuery('');
       this.aiSidebarBusy = true;
       this._scrollAiSidebarToBottom();
+      // Lazy-fetch the public-IP block so the AI can answer
+      // "what's my public IP / ISP" questions in the same turn.
+      // Fire-and-forget — failure leaves publicIp null and the
+      // prompt-builder skips the block cleanly.
+      try { await this._ensurePublicIp(); } catch (_) {}
       // Persist the user turn IMMEDIATELY — pre-fix `persistAiConversation`
       // only fired in the `finally` block after the AI response landed,
       // so a refresh / redeploy that hit during a slow LLM round-trip
@@ -19920,6 +19931,22 @@ function app() {
     // are out of disk?" with and falls back to fabricating host names
     // + values — observed regression on the AI sidebar before this
     // helper was extracted.
+    // Fetch the public-IP block lazily before each AI palette call.
+    // Backend gates on `ai_public_ip_enabled` (default OFF) and
+    // caches for 10 min — this SPA-side cache layers on top so a
+    // burst of palette calls inside the same 10-min window doesn't
+    // re-fetch even from the warm backend cache. Fire-and-forget;
+    // a slow/failing fetch never blocks the AI call.
+    async _ensurePublicIp() {
+      const now = Date.now();
+      if (this.publicIp && (now - this._publicIpFetchedAt) < 10 * 60 * 1000) return;
+      try {
+        const r = await fetch('/api/public-ip');
+        if (!r.ok) return;
+        this.publicIp = await r.json();
+        this._publicIpFetchedAt = now;
+      } catch (_) { /* silent — AI prompt just omits the block */ }
+    },
     _buildAiPaletteContext() {
       const fmtHost = (h) => {
         const total = Number(h.disk_total || 0);
@@ -20290,6 +20317,23 @@ function app() {
         items_sample_cap: 60,
       };
       if (weatherCtx) ctx.weather = weatherCtx;
+      // Public IP + ISP / ASN — operator-opt-in via the
+      // `ai_public_ip_enabled` setting. The SPA caches the last
+      // /api/public-ip response on `this.publicIp` so repeated AI
+      // calls don't re-fetch; the backend has its own 10-min cache
+      // so even uncached SPA-side calls cost at most one ifconfig.co
+      // round-trip per cache window. Skipped cleanly when the setting
+      // is off (backend returns enabled:false) so the prompt-builder
+      // doesn't render an empty block.
+      if (this.publicIp && this.publicIp.enabled && this.publicIp.ip) {
+        ctx.public_ip = {
+          ip:      this.publicIp.ip,
+          isp:     this.publicIp.isp || '',
+          asn:     this.publicIp.asn || '',
+          country: this.publicIp.country || '',
+          city:    this.publicIp.city || '',
+        };
+      }
       // Current time context. Mirrors the Telegram listener's `time`
       // block in `_build_telegram_ai_context` so the AI palette in the
       // SPA can answer "what time is it" / "what's today's date"
