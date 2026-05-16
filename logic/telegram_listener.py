@@ -376,13 +376,21 @@ def _host_status_emoji(h: dict) -> str:
 # ----------------------------------------------------------------------------
 # Telegram user_id ↔ OmniGrid username mapping
 # ----------------------------------------------------------------------------
-def _load_mappings() -> dict[str, str]:
-    """Return the persisted mapping ``{telegram_user_id_str: username}``.
+def _load_mappings() -> dict[str, dict]:
+    """Return the persisted mapping ``{telegram_user_id_str: {username, linked_at_ms}}``.
 
     Stored as JSON in settings KV under ``telegram_user_mappings``.
     Empty / corrupt rows produce an empty dict. Telegram user_ids are
     keyed as strings (JSON has no int keys) — callers should `str(...)`
     the int before lookup.
+
+    **Schema migration**: legacy entries stored just the username
+    string (``{tg_id: "alice"}``). Reading those produces a dict
+    shape ``{tg_id: {"username": "alice", "linked_at_ms": 0}}``
+    automatically — first save through `_save_mappings` upgrades the
+    on-disk shape. ``linked_at_ms=0`` is the "unknown / pre-migration"
+    sentinel; consumers render "—" instead of a real date when they
+    see it.
     """
     import json
     from logic.db import get_setting
@@ -393,15 +401,43 @@ def _load_mappings() -> dict[str, str]:
         m = json.loads(raw)
     except (ValueError, TypeError):
         return {}
-    return m if isinstance(m, dict) else {}
+    if not isinstance(m, dict):
+        return {}
+    # Normalise legacy string-value entries to the new dict shape.
+    out: dict[str, dict] = {}
+    for tg_id, value in m.items():
+        if isinstance(value, dict):
+            if value.get("username"):
+                out[tg_id] = {
+                    "username": value.get("username"),
+                    "linked_at_ms": int(value.get("linked_at_ms") or 0),
+                }
+        elif isinstance(value, str) and value:
+            # Legacy schema — just the username. Mark linked_at as
+            # unknown (sentinel 0) so the UI renders "—".
+            out[tg_id] = {"username": value, "linked_at_ms": 0}
+    return out
 
 
-def _save_mappings(mappings: dict[str, str]) -> None:
-    """Persist the mapping dict back to settings. Quiet on failure."""
+def _save_mappings(mappings: dict[str, dict]) -> None:
+    """Persist the mapping dict back to settings. Quiet on failure.
+    Always writes the new schema (``{username, linked_at_ms}`` per
+    entry) so a legacy on-disk record gets upgraded on first write."""
     import json
     from logic.db import set_setting
     try:
-        set_setting("telegram_user_mappings", json.dumps(mappings))
+        # Defensive normalisation in case a caller hands us a stale
+        # string-shaped value.
+        clean: dict[str, dict] = {}
+        for tg_id, value in mappings.items():
+            if isinstance(value, dict) and value.get("username"):
+                clean[tg_id] = {
+                    "username": value["username"],
+                    "linked_at_ms": int(value.get("linked_at_ms") or 0),
+                }
+            elif isinstance(value, str) and value:
+                clean[tg_id] = {"username": value, "linked_at_ms": 0}
+        set_setting("telegram_user_mappings", json.dumps(clean))
     except (TypeError, ValueError) as e:
         print(f"[telegram_listener] mapping save failed: {e}")
 
@@ -411,7 +447,10 @@ def _lookup_omnigrid_user(telegram_user_id: int) -> Optional[str]:
     if the user hasn't linked yet."""
     if telegram_user_id is None:
         return None
-    return _load_mappings().get(str(int(telegram_user_id)))
+    entry = _load_mappings().get(str(int(telegram_user_id)))
+    if not entry:
+        return None
+    return entry.get("username")
 
 
 def _consume_link_code(code: str) -> Optional[str]:
@@ -860,30 +899,36 @@ async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     # Render local time using zoneinfo for accurate DST handling. If
     # the IANA tz isn't installed in the container (rare — Python 3.9+
     # ships with zoneinfo + the OS-provided tzdata), fall back to the
-    # UTC offset Open-Meteo returned.
+    # UTC offset Open-Meteo returned. Format follows the user's
+    # `ui_prefs.datetime_format` preference so the Telegram render
+    # matches what they see in the SPA — same token grammar via the
+    # shared `logic.datetime_fmt` module.
+    from logic.datetime_fmt import (
+        apply_datetime_format as _apply_fmt,
+        get_user_datetime_format as _get_user_fmt,
+    )
+    user_fmt = _get_user_fmt(username)
     try:
         from datetime import datetime
         from zoneinfo import ZoneInfo
         now_local = datetime.now(ZoneInfo(tz_name))
-        time_str = now_local.strftime("%H:%M:%S")
-        date_str = now_local.strftime("%A, %d %b %Y")
-    except Exception as e:
+        offset_note = ""
+    except Exception:
         # Fallback: utc_offset_seconds-based math, ignoring DST.
         from datetime import datetime, timezone, timedelta
         try:
             offset = int(data.get("utc_offset_seconds") or 0)
             now_local = datetime.now(timezone.utc) + timedelta(seconds=offset)
-            time_str = now_local.strftime("%H:%M:%S")
-            date_str = now_local.strftime("%A, %d %b %Y") + " (UTC offset)"
+            offset_note = " (UTC offset — IANA tz unavailable)"
         except Exception as e2:
             await _send_reply(client, f"❌ Time format failed: <code>{_escape(str(e2))}</code>")
             return
+    formatted = _apply_fmt(now_local, user_fmt)
     tz_suffix = f" ({_escape(tz_abbrev)})" if tz_abbrev else f" ({_escape(tz_name)})"
     await _send_reply(
         client,
         f"🕒 <b>{_escape(label)}</b>\n"
-        f"<code>{_escape(time_str)}</code>{tz_suffix}\n"
-        f"<i>{_escape(date_str)}</i>"
+        f"<code>{_escape(formatted)}</code>{tz_suffix}{_escape(offset_note)}"
     )
 
 
@@ -907,8 +952,12 @@ async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             "OmniGrid → Profile → Telegram and try again."
         )
         return
+    import time as _time
     mappings = _load_mappings()
-    mappings[str(int(sender_id))] = username
+    mappings[str(int(sender_id))] = {
+        "username": username,
+        "linked_at_ms": int(_time.time() * 1000),
+    }
     _save_mappings(mappings)
     await _send_reply(
         client,
@@ -1011,15 +1060,31 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     if wind is not None:
         body_parts.append(f"💨 {wind} km/h")
     line1 = " — ".join(body_parts) if body_parts else "(no current data)"
+    # Forecast dates render using the user's `ui_prefs.datetime_format`
+    # preference, stripped of time tokens (Open-Meteo returns ISO
+    # dates so there's no time component). Falls back to a sensible
+    # default if the user hasn't set a custom format.
+    from logic.datetime_fmt import (
+        apply_datetime_format as _apply_fmt,
+        get_user_datetime_format as _get_user_fmt,
+        strip_time_tokens as _strip_time,
+    )
+    from datetime import datetime as _dt
+    date_only_fmt = _strip_time(_get_user_fmt(username))
     forecast = data.get("forecast") or []
     forecast_lines: list[str] = []
     for day in forecast[:3]:
-        date = day.get("date") or "?"
+        raw_date = day.get("date") or ""
+        try:
+            day_dt = _dt.strptime(raw_date, "%Y-%m-%d")
+            date_str = _apply_fmt(day_dt, date_only_fmt)
+        except (TypeError, ValueError):
+            date_str = raw_date or "?"
         hi = _fmt_temp(day.get("temp_max_c"))
         lo = _fmt_temp(day.get("temp_min_c"))
         c = day.get("condition") or ""
         forecast_lines.append(
-            f"  • {_escape(date)}: {hi or '?'} / {lo or '?'}  {_escape(c)}"
+            f"  • {_escape(date_str)}: {hi or '?'} / {lo or '?'}  {_escape(c)}"
         )
     text = head + "\n" + line1
     if forecast_lines:

@@ -302,8 +302,8 @@
                  (same chrome as Users admin's row actions). -->
             <div class="mt-5 pt-4 border-t border-[var(--border)]"
                  x-effect="if (notificationsTab === 'telegram' && !telegramLinksLoading && telegramLinks.length === 0 && !telegramLinksError) { loadTelegramLinks(); }">
-              <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                <div>
+              <div class="flex items-start justify-between gap-2 mb-2 flex-wrap">
+                <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2 mb-1">
                     <svg width="13" height="13" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-users"/></svg>
                     <h4 class="font-semibold fs-sm"
@@ -312,9 +312,13 @@
                   <p class="fs-2xs text-[var(--text-faint)] leading-snug"
                      x-text="t('admin.notifications.telegram_links_intro')"></p>
                 </div>
+                <!-- Refresh button floats RIGHT (ms-auto inside a
+                     flex-wrap parent) so on wide viewports it sits in
+                     the corner; on narrow viewports flex-wrap drops it
+                     to the next line right-aligned. -->
                 <button type="button" @click="loadTelegramLinks()"
                         :disabled="telegramLinksLoading"
-                        class="btn btn-soft fs-xs inline-flex items-center gap-1.5"
+                        class="btn btn-soft fs-xs inline-flex items-center gap-1.5 ms-auto flex-shrink-0"
                         :title="t('actions.refresh')">
                   <svg width="11" height="11" :class="telegramLinksLoading ? 'spin-md' : ''" aria-hidden="true">
                     <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
@@ -338,6 +342,7 @@
                     <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_user')"></th>
                     <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_role')"></th>
                     <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_tg_id')"></th>
+                    <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_linked_at')"></th>
                     <th class="text-end px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_actions')"></th>
                   </tr>
                 </thead>
@@ -351,6 +356,12 @@
                               x-text="row.role"></span>
                       </td>
                       <td class="px-2 py-1.5 mono" x-text="row.telegram_user_id"></td>
+                      <!-- Linked-at column — fmtDate takes epoch
+                           SECONDS, the API returns milliseconds. Divide
+                           inline. Legacy rows (linked_at_ms === 0)
+                           render as "—" via fmtDate's null-guard. -->
+                      <td class="px-2 py-1.5 fs-2xs text-[var(--text-dim)]"
+                          x-text="row.linked_at_ms ? fmtDate(row.linked_at_ms / 1000) : '—'"></td>
                       <td class="px-2 py-1.5 text-end">
                         <button type="button"
                                 class="user-action-btn user-action-btn--danger"

@@ -8008,7 +8008,12 @@ async def api_telegram_links_list(
     from logic import telegram_listener as _tg
     mappings = _tg._load_mappings()
     out: list[dict] = []
-    for tg_id_str, username in mappings.items():
+    for tg_id_str, entry in mappings.items():
+        if not isinstance(entry, dict):
+            continue
+        username = entry.get("username")
+        if not username:
+            continue
         try:
             tg_id = int(tg_id_str)
         except (TypeError, ValueError):
@@ -8018,6 +8023,7 @@ async def api_telegram_links_list(
             "telegram_user_id": tg_id,
             "username":         username,
             "role":             role,
+            "linked_at_ms":     int(entry.get("linked_at_ms") or 0),
         })
     out.sort(key=lambda r: (r["username"] or "", r["telegram_user_id"]))
     return {"links": out}
@@ -8035,10 +8041,12 @@ async def api_telegram_links_unlink(
     from logic import telegram_listener as _tg
     mappings = _tg._load_mappings()
     key = str(int(telegram_user_id))
-    removed = mappings.pop(key, None)
-    if removed is not None:
+    removed_entry = mappings.pop(key, None)
+    removed_username = None
+    if isinstance(removed_entry, dict):
+        removed_username = removed_entry.get("username")
         _tg._save_mappings(mappings)
-    return {"removed": removed}
+    return {"removed": removed_username}
 
 
 @app.post("/api/telegram/test")
@@ -19053,15 +19061,23 @@ async def api_me(request: Request):
             from logic import telegram_listener as _tg_listener
             _tg_mappings = _tg_listener._load_mappings()
             _tg_link_id: Optional[int] = None
-            for _tg_id, _og_user in _tg_mappings.items():
-                if _og_user == user.username:
+            _tg_linked_at_ms: int = 0
+            for _tg_id, _entry in _tg_mappings.items():
+                if not isinstance(_entry, dict):
+                    continue
+                if _entry.get("username") == user.username:
                     try:
                         _tg_link_id = int(_tg_id)
                     except (TypeError, ValueError):
                         continue
+                    _tg_linked_at_ms = int(_entry.get("linked_at_ms") or 0)
                     break
             out["telegram_link"] = (
-                {"telegram_user_id": _tg_link_id} if _tg_link_id is not None else None
+                {
+                    "telegram_user_id": _tg_link_id,
+                    "linked_at_ms":     _tg_linked_at_ms,
+                }
+                if _tg_link_id is not None else None
             )
         except Exception as _e:
             print(f"[me] telegram_link lookup failed: {_e}")
@@ -19183,8 +19199,8 @@ async def api_me_telegram_unlink(request: Request):
     mappings = _tg_listener._load_mappings()
     target_username = user.username
     removed: list[str] = []
-    for tg_id, og_user in list(mappings.items()):
-        if og_user == target_username:
+    for tg_id, entry in list(mappings.items()):
+        if isinstance(entry, dict) and entry.get("username") == target_username:
             mappings.pop(tg_id, None)
             removed.append(tg_id)
     if removed:
