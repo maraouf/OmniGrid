@@ -207,6 +207,9 @@ type:
 | `port_scan:completed` | A per-host port scan (on-demand `POST /api/hosts/{id}/port-scan` OR a `port_scan_refresh` schedule fire) finished. | `{host_id, scan_id, target, ports_count, new_ports?}` — hint only; consumers refetch via `GET /api/history/port-scan/{scan_id}/ports` for the full per-port detail. The on-demand POST returns `{scan_id, status: "queued"}` immediately and the SPA waits on this event. |
 | `telegram:linked` | The Telegram listener's `/link` command bound a sender's Telegram user_id to an OmniGrid user. | `{username, telegram_user_id, linked_at_ms}` — SPA scopes by `username === me.username` and re-fetches `/api/me` so the Profile → Telegram card flips to its linked-state banner. |
 | `telegram:unlinked` | The Telegram listener's `/unlink` command (or admin-side `DELETE /api/telegram/links/{tg_id}`) dropped a mapping. | `{username, telegram_user_id}` — SPA scopes by `username === me.username` and re-fetches `/api/me` so the Profile → Telegram card flips back to "Generate code". |
+| `host:bulk_action_applied` | A bulk host action (`/api/hosts/bulk/{pause,resume,snmp_vendors,snmp_tunables}`) committed across N hosts. | `{action, host_ids:[...], actor, ...action-specific}` — single frame for the whole batch, not N per-host frames. Tabs reconcile via in-place row updates keyed on `host_ids`; originating tab self-filters via `client_id`. |
+| `tab:activity` | A tab heartbeated (current view, last interaction) into the `_tab_activity_registry`. | `{client_id, username, view, ts, ...}` — drives the Admin → Sessions "active tabs" panel so admins can see who's looking at what. Originating tab self-filters. |
+| `tab:closed` | A tab fired its `pagehide` cleanup. | `{client_id}` — peer tabs drop the entry from their local view of the registry without waiting for the 90s TTL. Originating tab self-filters. |
 | `:overflow` | Synthetic — the per-subscriber queue dropped events. | `{}` — react with a one-shot REST refresh. |
 | `reconnect` | Synthetic — server hit the SSE max-lifetime cap (default 6 h, tunable via `tuning_sse_max_lifetime_seconds`) and is asking the client to re-upgrade so the auth middleware fires again. | `{}` — `EventSource` reconnects automatically; bespoke clients should drop the connection and reopen. |
 
@@ -614,9 +617,11 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
 ### Bulk host actions (admin-only)
 
 Four endpoints accept `{host_ids: [...]}` plus action-specific params and apply atomically
-across the matched hosts. Each affected host publishes the SAME SSE events the per-host
-endpoint would (`host:failure_state_changed` for pause / resume), so other tabs catch up
-within one event frame. Originating tab self-filters via `client_id`.
+across the matched hosts. The endpoint emits ONE `host:bulk_action_applied` SSE frame
+carrying the full `host_ids` list (not N per-host frames) so other tabs reconcile in a
+single round-trip. The originating tab self-filters via `client_id`. Per-host
+`host:failure_state_changed` events are still fired by the underlying pause / resume
+plumbing where applicable.
 
 ```bash
 # Pause sampling for a list of hosts
