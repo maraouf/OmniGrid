@@ -19055,6 +19055,69 @@ async def api_me_ui_prefs(body: UiPrefsIn, request: Request):
     return {"ui_prefs": merged}
 
 
+@app.post("/api/me/telegram-link-code")
+async def api_me_telegram_link_code(request: Request):
+    """Mint a one-time, 15-minute, single-use code the user pastes into
+    Telegram's `/link <code>` to bind their Telegram user_id to their
+    OmniGrid account.
+
+    Code is 6 digits (zero-padded) for easy typing on mobile. Stored in
+    `users.ui_prefs.telegram_link_code` + `_expires_ms`. Calling this
+    endpoint again before expiry replaces the previous code with a
+    fresh one (operator-visible "Regenerate" semantics).
+
+    Auth required — cookie or token. API tokens (negative ids) cannot
+    link a Telegram account (no `ui_prefs` to read).
+    """
+    import secrets as _secrets
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    if user.id < 0:
+        raise HTTPException(400, "API tokens cannot link Telegram accounts")
+    # 6-digit numeric — easy to type on mobile, ~1M-entry space is
+    # plenty when codes expire in 15 minutes and are single-use.
+    code = f"{_secrets.randbelow(1_000_000):06d}"
+    expires_ms = int(time.time() * 1000) + 15 * 60 * 1000  # +15 minutes
+    with db_conn() as c:
+        merged = auth.update_ui_prefs(c, user.id, {
+            "telegram_link_code": code,
+            "telegram_link_code_expires_ms": expires_ms,
+        })
+    return {
+        "code": code,
+        "expires_ms": expires_ms,
+        "ui_prefs": merged,
+    }
+
+
+@app.delete("/api/me/telegram-link")
+async def api_me_telegram_unlink(request: Request):
+    """Remove the calling user's Telegram mapping (operator-side
+    counterpart to `/unlink` issued from Telegram). Walks the
+    `telegram_user_mappings` JSON and drops every entry mapping any
+    Telegram user_id to this OmniGrid username.
+
+    Auth required.
+    """
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    if user.id < 0:
+        raise HTTPException(400, "API tokens cannot manage Telegram links")
+    from logic import telegram_listener as _tg_listener
+    mappings = _tg_listener._load_mappings()
+    target_username = user.username
+    removed: list[str] = []
+    for tg_id, og_user in list(mappings.items()):
+        if og_user == target_username:
+            mappings.pop(tg_id, None)
+            removed.append(tg_id)
+    if removed:
+        _tg_listener._save_mappings(mappings)
+    return {"removed": removed}
+
+
 @app.post("/api/me/ui-prefs/beacon")
 async def api_me_ui_prefs_beacon(body: UiPrefsIn, request: Request):
     """Beacon-friendly variant of PATCH /api/me/ui-prefs.

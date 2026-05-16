@@ -1018,6 +1018,15 @@ function app() {
     pulseTestResult: null,
     webminTestResult: null,
     telegramTestResult: null,
+    // Profile → Telegram link card state. Code is the 6-digit minted
+    // value the user types into Telegram as `/link <code>`. Expires
+    // 15 minutes after mint; the SPA shows a relative-minutes
+    // countdown next to the code so the user knows when to regenerate.
+    telegramLinkCode: '',
+    telegramLinkExpiresMs: 0,
+    telegramLinkBusy: false,
+    telegramLinkError: '',
+    telegramLinkSuccess: '',
     // Ping test widget state. `pingTestHostId` is the curated
     // host_id picked from the dropdown of opted-in hosts; `pingTestResult`
     // mirrors the shape of the others (pending / ok / detail).
@@ -8839,6 +8848,60 @@ function app() {
              && !!this._portainerLastPassedTest;
     },
 
+    // Profile → Telegram link handlers.
+    async generateTelegramLinkCode() {
+      this.telegramLinkBusy = true;
+      this.telegramLinkError = '';
+      this.telegramLinkSuccess = '';
+      try {
+        const r = await fetch('/api/me/telegram-link-code', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.telegramLinkError = j.detail || `HTTP ${r.status}`;
+          return;
+        }
+        this.telegramLinkCode = j.code || '';
+        this.telegramLinkExpiresMs = j.expires_ms || 0;
+      } catch (e) {
+        this.telegramLinkError = String(e && e.message ? e.message : e);
+      } finally {
+        this.telegramLinkBusy = false;
+      }
+    },
+    async unlinkTelegram() {
+      this.telegramLinkBusy = true;
+      this.telegramLinkError = '';
+      this.telegramLinkSuccess = '';
+      try {
+        const r = await fetch('/api/me/telegram-link', { method: 'DELETE' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.telegramLinkError = j.detail || `HTTP ${r.status}`;
+          return;
+        }
+        const removed = Array.isArray(j.removed) ? j.removed.length : 0;
+        this.telegramLinkSuccess = removed
+          ? this.t('profile.telegram.unlink_success', { count: removed })
+          : this.t('profile.telegram.unlink_nothing');
+      } catch (e) {
+        this.telegramLinkError = String(e && e.message ? e.message : e);
+      } finally {
+        this.telegramLinkBusy = false;
+      }
+    },
+    async copyTelegramLinkCode() {
+      try {
+        await navigator.clipboard.writeText(this.telegramLinkCode || '');
+        this.showToast(this.t('toasts.copied') || 'Copied', 'success');
+      } catch (e) {
+        this.showToast(this.t('toasts.copy_failed') || 'Copy failed', 'error');
+      }
+    },
+    telegramLinkMinsRemaining() {
+      if (!this.telegramLinkExpiresMs) return 0;
+      const ms = this.telegramLinkExpiresMs - Date.now();
+      return Math.max(0, Math.ceil(ms / 60000));
+    },
     async testTelegramConnection() {
       // Mirrors testBeszelConnection — sends a one-shot probe message
       // to the configured Telegram chat / thread, using the in-form
