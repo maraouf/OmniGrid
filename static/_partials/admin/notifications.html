@@ -325,27 +325,29 @@
             <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
                x-text="t('admin.notifications.telegram_listener_intro')"></p>
 
-            <!-- Listener enabled toggle. -->
-            <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer mb-1">
+            <!-- Listener enabled toggle. Help text BEFORE the checkbox
+                 (operator-canonical pattern — same as Authentication /
+                 Public IP / Asset Inventory). -->
+            <p class="fs-2xs text-[var(--text-faint)] mb-1 leading-snug"
+               x-text="t('admin.notifications.telegram_listener_enable_hint')"></p>
+            <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer mb-3">
               <input type="checkbox"
                      x-model="settings.telegram_listener_enabled"
                      :disabled="isReadonly() || !settings.notify_medium_telegram"
                      class="cursor-pointer">
               <span x-text="t('admin.notifications.telegram_listener_enable_label')"></span>
             </label>
-            <p class="fs-2xs text-[var(--text-faint)] mt-1 mb-3 leading-snug"
-               x-text="t('admin.notifications.telegram_listener_enable_hint')"></p>
 
             <!-- Allow destructive commands toggle. -->
-            <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer mb-1">
+            <p class="fs-2xs text-[var(--text-faint)] mb-1 leading-snug"
+               x-text="t('admin.notifications.telegram_allow_destructive_hint')"></p>
+            <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer mb-3">
               <input type="checkbox"
                      x-model="settings.telegram_allow_destructive"
                      :disabled="isReadonly() || !settings.telegram_listener_enabled"
                      class="cursor-pointer">
               <span x-text="t('admin.notifications.telegram_allow_destructive_label')"></span>
             </label>
-            <p class="fs-2xs text-[var(--text-faint)] mt-1 mb-3 leading-snug"
-               x-text="t('admin.notifications.telegram_allow_destructive_hint')"></p>
 
             <!-- Authorized user IDs (CSV). -->
             <div class="mb-1">

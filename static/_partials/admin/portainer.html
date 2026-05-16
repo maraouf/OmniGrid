@@ -133,6 +133,11 @@
                  bootstrap-done latch ensures a deleted-on-purpose
                  row stays deleted across restarts regardless. -->
             <div class="pt-2 border-t border-dashed border-[var(--border)] mt-1">
+              <!-- Help text BEFORE the checkbox (operator-canonical
+                   pattern — matches Authentication / Public IP /
+                   Notifications). -->
+              <p class="fs-xs text-[var(--text-faint)] mb-1"
+                 x-text="t('settings.portainer.swarm_autoheal_bootstrap_hint') || 'On first boot, when Portainer is configured AND no equivalent row exists, OmniGrid auto-creates a 5-minute swarm_agent_health schedule so the autoheal action fires without manual setup. Disable this BEFORE the first boot if you prefer to manage the schedule yourself. Once a schedule exists (auto or manual), this toggle has no further effect — deleting the auto-created row leaves it deleted.'"></p>
               <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
                 <input type="checkbox"
                        x-model="settings.swarm_autoheal_bootstrap_enabled"
@@ -140,8 +145,6 @@
                        :disabled="isReadonly() || !settings.portainer_enabled">
                 <span x-text="t('settings.portainer.swarm_autoheal_bootstrap_label') || 'Auto-create default swarm_agent_health schedule'"></span>
               </label>
-              <p class="fs-xs text-[var(--text-faint)] mt-1"
-                 x-text="t('settings.portainer.swarm_autoheal_bootstrap_hint') || 'On first boot, when Portainer is configured AND no equivalent row exists, OmniGrid auto-creates a 5-minute swarm_agent_health schedule so the autoheal action fires without manual setup. Disable this BEFORE the first boot if you prefer to manage the schedule yourself. Once a schedule exists (auto or manual), this toggle has no further effect — deleting the auto-created row leaves it deleted.'"></p>
             </div>
             <!-- Portainer write-op timeout tiers — operator-tunable
                  wall-clocks for the three categories of outbound

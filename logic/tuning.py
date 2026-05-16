@@ -83,7 +83,9 @@ class Tunable(str, Enum):
     GATHER_CLIENT_TIMEOUT_SECONDS = "tuning_gather_client_timeout_seconds"
     GATHER_ORPHAN_PROBE_TIMEOUT_SECONDS = "tuning_gather_orphan_probe_timeout_seconds"
     HOST_BASELINE_FIRST_TICK_DELAY_SECONDS = "tuning_host_baseline_first_tick_delay_seconds"
+    HOST_BASELINE_MIN_SAMPLES = "tuning_host_baseline_min_samples"
     HOST_BASELINE_RECOMPUTE_INTERVAL_SECONDS = "tuning_host_baseline_recompute_interval_seconds"
+    HOST_BASELINE_WINDOW_DAYS = "tuning_host_baseline_window_days"
     HOST_METRICS_PROBE_CONCURRENCY = "tuning_host_metrics_probe_concurrency"
     HOST_PERMANENT_FAIL_WINDOW_SECONDS = "tuning_host_permanent_fail_window_seconds"
     HOST_PROVIDER_CACHE_TTL_SECONDS = "tuning_host_provider_cache_ttl_seconds"
@@ -252,6 +254,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # the sampler reads `host_baselines`. Operators rebooting under
     # heavy load can raise; default is comfortably fast.
     "tuning_host_baseline_first_tick_delay_seconds": ("HOST_BASELINE_FIRST_TICK_DELAY_SECONDS", 60, 5, 600),
+    # Minimum sample count for the IQR baseline to be statistically
+    # meaningful. Below this, the metric stays unbaselined (drift chip
+    # is hidden). Default 20 = the practical floor for Tukey IQR; ~1.5h
+    # to surface at the default 5-min sampler cadence. Operators wanting
+    # tighter statistical confidence can raise (50 was the original).
+    # Range 5..500.
+    "tuning_host_baseline_min_samples": ("HOST_BASELINE_MIN_SAMPLES", 20, 5, 500),
+    # Rolling-window lookback (days) for the baseline computer. Default
+    # 30 days. Lower for high-churn workloads where "normal" shifts
+    # weekly; raise to smooth seasonal patterns. Range 1..365.
+    "tuning_host_baseline_window_days": ("HOST_BASELINE_WINDOW_DAYS", 30, 1, 365),
     # Wall-clock cap for the cold-cache `_gather()` kick on cache-
     # missing drill-down endpoints. Default 30s — enough headroom for
     # a typical Portainer fan-out. Operators with large fleets / slow

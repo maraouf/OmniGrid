@@ -34,26 +34,43 @@
                  methods list, but existing enrolments stay listed
                  + revocable from Profile so users aren't locked out
                  of cleanup. -->
-            <label class="flex items-center gap-2 fs-sm pt-2 border-t border-[var(--border)] mt-2">
-              <input type="checkbox" x-model="settings.passkeys_allowed"
-                     :disabled="!isAdmin()">
-              <span x-text="t('admin.config.totp.passkeys_allowed_label')"></span>
-            </label>
-            <p class="fs-xs text-[var(--text-faint)] -mt-1 ms-6"
-               x-text="t('admin.config.totp.passkeys_allowed_hint')"></p>
+            <!-- Passkeys block — help text BEFORE the checkbox (matches
+                 the canonical pattern used in Asset Inventory / Public IP
+                 / Port Scan). Indent dropped so the explainer aligns
+                 with the checkbox row's left edge. -->
+            <div class="pt-2 border-t border-[var(--border)] mt-2">
+              <p class="fs-xs text-[var(--text-faint)] mb-1"
+                 x-text="t('admin.config.totp.passkeys_allowed_hint')"></p>
+              <label class="flex items-center gap-2 fs-sm">
+                <input type="checkbox" x-model="settings.passkeys_allowed"
+                       :disabled="!isAdmin()">
+                <span x-text="t('admin.config.totp.passkeys_allowed_label')"></span>
+              </label>
+            </div>
 
-            <label class="flex items-center gap-2 fs-sm">
-              <input type="checkbox" x-model="settings.totp_required_for_admins"
-                     :disabled="!isAdmin() || !settings.totp_allowed">
-              <span x-text="t('admin.config.totp.required_admins_label')"></span>
-            </label>
-            <label class="flex items-center gap-2 fs-sm">
-              <input type="checkbox" x-model="settings.totp_required_for_users"
-                     :disabled="!isAdmin() || !settings.totp_allowed">
-              <span x-text="t('admin.config.totp.required_users_label')"></span>
-            </label>
-            <p class="fs-xs text-[var(--text-faint)] -mt-1 ms-6"
-               x-text="t('admin.config.totp.required_hint')"></p>
+            <!-- Require 2FA for admins — help text BEFORE the checkbox.
+                 Now carries its own explainer (operator request: this
+                 toggle had no descriptive text). -->
+            <div>
+              <p class="fs-xs text-[var(--text-faint)] mb-1"
+                 x-text="t('admin.config.totp.required_admins_hint')"></p>
+              <label class="flex items-center gap-2 fs-sm">
+                <input type="checkbox" x-model="settings.totp_required_for_admins"
+                       :disabled="!isAdmin() || !settings.totp_allowed">
+                <span x-text="t('admin.config.totp.required_admins_label')"></span>
+              </label>
+            </div>
+
+            <!-- Require 2FA for users — help text BEFORE the checkbox. -->
+            <div>
+              <p class="fs-xs text-[var(--text-faint)] mb-1"
+                 x-text="t('admin.config.totp.required_hint')"></p>
+              <label class="flex items-center gap-2 fs-sm">
+                <input type="checkbox" x-model="settings.totp_required_for_users"
+                       :disabled="!isAdmin() || !settings.totp_allowed">
+                <span x-text="t('admin.config.totp.required_users_label')"></span>
+              </label>
+            </div>
 
             <!-- Lockout knobs — same visual treatment as TUNABLES
                  (label → help → textbox + bounds-chips with min / max /

@@ -100,24 +100,29 @@
               <p class="fs-xs text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.admin_group_hint')"></p>
             </div>
           </div>
-          <label class="flex items-start gap-2 fs-sm cursor-pointer">
-            <input type="checkbox" :checked="oidcForm.verify_tls"
-                   @change="oidcForm.verify_tls = $event.target.checked; markOidcFormDirty()"
-                   :disabled="isReadonly() || !oidcForm.enabled" class="mt-0.5">
-            <span>
+          <!-- Verify TLS toggle — help text BEFORE the checkbox
+               (operator-canonical pattern matching Authentication /
+               Public IP / Notifications). Indent dropped so the
+               checkbox row aligns flush-left with the rest of the
+               form. -->
+          <div>
+            <span class="block fs-xs text-[var(--text-faint)] mb-1" x-html="t('settings.oidc.verify_tls_hint')"></span>
+            <label class="flex items-center gap-2 fs-sm cursor-pointer">
+              <input type="checkbox" :checked="oidcForm.verify_tls"
+                     @change="oidcForm.verify_tls = $event.target.checked; markOidcFormDirty()"
+                     :disabled="isReadonly() || !oidcForm.enabled">
               <span class="font-medium" x-text="t('settings.oidc.verify_tls_title')"></span>
-              <span class="block fs-xs text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.verify_tls_hint')"></span>
-            </span>
-          </label>
-          <label class="flex items-start gap-2 fs-sm cursor-pointer">
-            <input type="checkbox" :checked="oidcForm.group_case_sensitive"
-                   @change="oidcForm.group_case_sensitive = $event.target.checked; markOidcFormDirty()"
-                   :disabled="isReadonly() || !oidcForm.enabled" class="mt-0.5">
-            <span>
+            </label>
+          </div>
+          <div>
+            <span class="block fs-xs text-[var(--text-faint)] mb-1" x-html="t('settings.oidc.group_case_sensitive_hint')"></span>
+            <label class="flex items-center gap-2 fs-sm cursor-pointer">
+              <input type="checkbox" :checked="oidcForm.group_case_sensitive"
+                     @change="oidcForm.group_case_sensitive = $event.target.checked; markOidcFormDirty()"
+                     :disabled="isReadonly() || !oidcForm.enabled">
               <span class="font-medium" x-text="t('settings.oidc.group_case_sensitive_title')"></span>
-              <span class="block fs-xs text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.group_case_sensitive_hint')"></span>
-            </span>
-          </label>
+            </label>
+          </div>
           <!-- OIDC tunables — canonical header pattern (icon + h3 +
                intro paragraph) matching every other admin tab
                (AI / Asset Inventory / Portainer / Notifications / NE /

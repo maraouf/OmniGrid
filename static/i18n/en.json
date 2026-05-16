@@ -1591,6 +1591,14 @@
           "label": "Host baseline first-tick delay (seconds)",
           "help": "How long the host-baseline sampler waits after lifespan-start before the first tick fires. Gives schema migrations (the additive `host_baselines` CREATE TABLE in init_db) time to land before the sampler reads / writes the table. Default 60s. Raise it on a heavily-loaded boot where migrations take longer than a minute; lower it to start baselining sooner on a fast container. Range 5..600. Takes effect on the next container restart (the value is read once when the sampler starts)."
         },
+        "tuning_host_baseline_min_samples": {
+          "label": "Host baseline min samples",
+          "help": "Minimum sample count required before the rolling baseline (median + IQR) is published for a metric. Below this, the drift chip (▲ / ▼ / ━) stays hidden on Hosts rows. Default 20 — the practical floor for a meaningful IQR (Tukey); ≈ 1.5h to surface on a fresh deploy at the default 5-min sampler cadence. Operators wanting tighter statistical confidence can raise (50 was the original); lower to surface chips even sooner at the cost of noisier baselines. Range 5..500. Takes effect on the next baseline-sampler tick (default hourly)."
+        },
+        "tuning_host_baseline_window_days": {
+          "label": "Host baseline window (days)",
+          "help": "Rolling-window lookback in days for the baseline computer. Default 30. Lower (e.g. 7) for high-churn workloads where 'normal' shifts weekly so older samples drift the median; raise (e.g. 90) to smooth seasonal patterns. Range 1..365. Takes effect on the next baseline-sampler tick (default hourly)."
+        },
         "tuning_kick_gather_timeout_seconds": {
           "label": "Cold-cache gather kick timeout (seconds)",
           "help": "Wall-clock cap for the cold-cache `_gather()` call that drill-down endpoints (like the Stats → Samples per-(table, host_id) drill-in) trigger when `_cache[\"items\"]` is empty. Without this cap an unreachable Portainer could hang the endpoint indefinitely. Default 30s — enough headroom for a typical Portainer fan-out + registry digest probe. Operators with large fleets / slow registries hit it during incidents; bump to 60-120s in those environments. Range 5..300. Takes effect on the next drill-down lookup."
@@ -2012,8 +2020,9 @@
         "passkeys_allowed_label": "Allow users to enrol passkeys",
         "passkeys_allowed_hint": "Master switch for WebAuthn / FIDO2 passkeys. When off, the passkey \"Add\" button hides in Profile AND already-enrolled passkeys are NOT offered at login. Existing rows stay in the DB so the same user can revoke them, and login resumes when you flip it back on.",
         "required_admins_label": "Require 2FA for admin accounts",
+        "required_admins_hint": "When ON, admin accounts MUST enrol a TOTP code or passkey before the session cookie is issued — the login flow shows the QR + verification step on the first sign-in. Read-only accounts are NOT affected by this toggle (they get their own gate below). Strongest practical defence against a stolen admin password; pair with the lockout knobs below.",
         "required_users_label": "Require 2FA for read-only accounts",
-        "required_hint": "Forced enrolment runs at login: a user without 2FA gets the QR + verification step before the cookie is issued.",
+        "required_hint": "Forced enrolment runs at login for read-only users: any user without 2FA gets the QR + verification step before the cookie is issued. Admins are gated by the toggle above.",
         "max_failures_label": "Lockout after N failed codes",
         "max_failures_hint": "How many consecutive wrong TOTP codes from one user trigger a temporary lockout on their account. Lower it (3-5) for stricter brute-force defence; raise (8-15) when users are typing codes manually from a phone authenticator and fat-fingers happen regularly. Backup codes count against the same threshold. Lockout duration is set by the next field.",
         "lockout_minutes_label": "Lockout duration (minutes)",
