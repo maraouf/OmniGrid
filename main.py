@@ -86,7 +86,15 @@ from logic.version import read_version
 # (cache TTLs, concurrency caps, sample interval, history days) resolve
 # via logic.tuning (DB > env > default).
 from logic import db as _db  # noqa: E402
-from logic.db import DB_PATH, db_conn, get_setting, get_setting_bool, set_setting, active_host_stats_providers  # noqa: E402,F401
+from logic.db import DB_PATH as _DB_PATH_OPT, db_conn, get_setting, get_setting_bool, set_setting, active_host_stats_providers  # noqa: E402,F401
+
+# Narrow DB_PATH from `Optional[str]` (logic.db's typed env-or-None) to
+# `str` for every consumer below. If DB_PATH is missing the boot path
+# already serves the config-error page (see DB_PATH_ERROR handling in
+# `_lifespan`), so by the time any route handler runs we know the value
+# is a real string — fall back to "" instead of None so callers like
+# `os.path.dirname(DB_PATH)` don't trip type-checker None-access errors.
+DB_PATH: str = _DB_PATH_OPT or ""
 from logic import tuning  # noqa: E402
 from logic.tuning import Tunable  # noqa: E402
 from logic import host_baseline as _host_baseline  # noqa: E402
@@ -2628,6 +2636,11 @@ def _history_query(
     eff_offset = max(0, int(offset or 0))
     data_sql = f"SELECT * FROM history{where_sql} ORDER BY ts DESC LIMIT ? OFFSET ?"
     data_params = list(params) + [eff_limit, eff_offset]
+    # Pre-bind `total` so the type-checker sees a single assignment
+    # path: either it's set inside the `if with_total` block OR it
+    # stays 0 (unread on the non-`with_total` return). Without this
+    # the linter flags `total` as possibly-unbound at the return.
+    total = 0
     with db_conn() as c:
         rows = c.execute(data_sql, data_params).fetchall()
         if with_total:
@@ -2789,9 +2802,15 @@ async def api_add_ignore(
     return {"status": "ok"}
 
 
-@app.delete("/api/ignores/{pattern:path}")
+# Drop the `:path` converter on this route — `pattern` here is an
+# ignore-list literal (image / stack name), never a multi-segment path.
+# The converter was a copy-paste from /node_modules and triggers the
+# PyCharm FastAPI inspector's "pattern:path not in function parameters"
+# false positive. Bare `{pattern}` matches a single segment which is all
+# the ignore-pattern surface ever supplies.
+@app.delete("/api/ignores/{pattern}")
 async def api_del_ignore(
-    pattern: str = FastApiPath(...),
+    pattern: str,
     _admin: auth.User = Depends(auth.require_admin),
 ):
     with db_conn() as c:
@@ -3464,8 +3483,8 @@ async def api_get_settings(request: Request):
         "portainer_enabled": (get_setting("portainer_enabled", "true") or "true").lower() == "true",
         "ssh_enabled": (get_setting("ssh_enabled", "true") or "true").lower() == "true",
         "asset_inventory_enabled": (get_setting("asset_inventory_enabled", "true") or "true").lower() == "true",
-        "apprise_url": get_setting("apprise_url", ""),
-        "apprise_tag": get_setting("apprise_tag", ""),
+        "apprise_url": get_setting("apprise_url"),
+        "apprise_tag": get_setting("apprise_tag"),
         "swarm_autoheal_action": (get_setting("swarm_autoheal_action", "notify") or "notify").lower(),
         # First-boot auto-bootstrap toggle for the default
         # swarm_agent_health schedule. Operators flip this to false
@@ -3523,15 +3542,15 @@ async def api_get_settings(request: Request):
             "notify_medium_telegram",
             _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("telegram", False),
         ),
-        "telegram_chat_id": get_setting("telegram_chat_id", ""),
-        "telegram_thread_id": get_setting("telegram_thread_id", ""),
+        "telegram_chat_id": get_setting("telegram_chat_id"),
+        "telegram_thread_id": get_setting("telegram_thread_id"),
         "telegram_verify_tls": (get_setting("telegram_verify_tls", "true") or "true").lower() == "true",
         # Write-only: surface only a `_set` flag, never the raw token.
-        "telegram_bot_token_set": bool((get_setting("telegram_bot_token", "") or "").strip()),
+        "telegram_bot_token_set": bool((get_setting("telegram_bot_token") or "").strip()),
         # Phase 2 — inbound command listener config.
         "telegram_listener_enabled": get_setting_bool("telegram_listener_enabled", False),
         "telegram_allow_destructive": get_setting_bool("telegram_allow_destructive", False),
-        "telegram_authorized_user_ids": get_setting("telegram_authorized_user_ids", ""),
+        "telegram_authorized_user_ids": get_setting("telegram_authorized_user_ids"),
         # TOTP / 2FA policy. Five fields driving the multi-step
         # login flow + Profile enrolment guards + Admin -> Users action
         # enablement. Defaults preserve "no 2FA required" semantics so
@@ -3561,7 +3580,7 @@ async def api_get_settings(request: Request):
         # Open-Meteo upstream (Admin → General). Returned in the
         # clear so the input round-trips and reloads persisted. Blank
         # disables the topbar weather widget (see _open_meteo_url).
-        "open_meteo_url": get_setting("open_meteo_url", "") or "",
+        "open_meteo_url": get_setting("open_meteo_url") or "",
         # Host groups — returned as a parsed list of dicts. Per-group
         # SSH password is masked at the boundary: we replace it with
         # a `password_set: bool` flag so the browser learns whether a
@@ -3575,24 +3594,24 @@ async def api_get_settings(request: Request):
                 ))(g.get("ssh") if isinstance(g.get("ssh"), dict) else {})}
                 for g in groups if isinstance(g, dict)
             ])(json.loads(raw) if (raw or "").strip() else [])
-        ))(get_setting("host_groups", "") or ""),
+        ))(get_setting("host_groups") or ""),
         # Asset inventory (<asset-api-host>). Secret is write-only — UI sees
         # a `_set` flag only. Other fields round-trip in the clear.
         "asset_inventory": {
-            "auth_mode": (get_setting("asset_inventory_auth_mode", "") or "oauth2"),
-            "base_url": get_setting("asset_inventory_base_url", "") or "",
-            "token_url": get_setting("asset_inventory_token_url", "") or "",
-            "client_id": get_setting("asset_inventory_client_id", "") or "",
-            "client_secret_set": bool(get_setting("asset_inventory_client_secret", "")),
-            "scope": get_setting("asset_inventory_scope", "") or "",
-            "lifetime_token_set": bool(get_setting("asset_inventory_lifetime_token", "")),
-            "service": get_setting("asset_inventory_service", "") or "",
-            "action": get_setting("asset_inventory_action", "") or "",
+            "auth_mode": (get_setting("asset_inventory_auth_mode") or "oauth2"),
+            "base_url": get_setting("asset_inventory_base_url") or "",
+            "token_url": get_setting("asset_inventory_token_url") or "",
+            "client_id": get_setting("asset_inventory_client_id") or "",
+            "client_secret_set": bool(get_setting("asset_inventory_client_secret")),
+            "scope": get_setting("asset_inventory_scope") or "",
+            "lifetime_token_set": bool(get_setting("asset_inventory_lifetime_token")),
+            "service": get_setting("asset_inventory_service") or "",
+            "action": get_setting("asset_inventory_action") or "",
             "min_value": (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
-                get_setting("asset_inventory_min_value", "")),
+                get_setting("asset_inventory_min_value")),
             "max_value": (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
-                get_setting("asset_inventory_max_value", "")),
-            "edit_url_template": get_setting("asset_inventory_edit_url_template", "") or "",
+                get_setting("asset_inventory_max_value")),
+            "edit_url_template": get_setting("asset_inventory_edit_url_template") or "",
             # / — TLS verification toggle. Default True.
             "verify_tls": (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower() != "false",
         },
@@ -3612,7 +3631,7 @@ async def api_get_settings(request: Request):
         # field to re-pick the new default on the next form load.
         "ai": {
             "enabled": (get_setting("ai_enabled", "false") or "false").lower() == "true",
-            "active_provider": (get_setting("ai_active_provider", "") or "claude"),
+            "active_provider": (get_setting("ai_active_provider") or "claude"),
             # max_tokens + fallback_max_depth are TUNABLES (DB > env >
             # default with bounds-clamp). /api/me reads them via
             # `tuning_int(...)` too, so the two endpoints agree on the
@@ -3626,14 +3645,14 @@ async def api_get_settings(request: Request):
             # existing deploys don't suddenly start cost-shifting traffic
             # to alternate providers without operator awareness.
             "fallback_enabled": (get_setting("ai_fallback_enabled", "false") or "false").lower() == "true",
-            "fallback_order": get_setting("ai_fallback_order", "") or "",
+            "fallback_order": get_setting("ai_fallback_order") or "",
             "fallback_max_depth": tuning.tuning_int(Tunable.AI_FALLBACK_MAX_DEPTH),
             "providers": {
                 name: {
                     "enabled": (get_setting(f"ai_provider_{name}_enabled", "false") or "false").lower() == "true",
-                    "model": get_setting(f"ai_provider_{name}_model", "") or "",
-                    "base_url": get_setting(f"ai_provider_{name}_base_url", "") or "",
-                    "api_key_set": bool(get_setting(f"ai_provider_{name}_api_key", "")),
+                    "model": get_setting(f"ai_provider_{name}_model") or "",
+                    "base_url": get_setting(f"ai_provider_{name}_base_url") or "",
+                    "api_key_set": bool(get_setting(f"ai_provider_{name}_api_key")),
                 }
                 for name in _ai_supported_providers()
             },
@@ -3646,7 +3665,7 @@ async def api_get_settings(request: Request):
         },
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": tuning.tuning_int(Tunable.BACKUP_RETENTION_COUNT),
-        "scheduler_timezone": get_setting("scheduler_timezone", "") or "",
+        "scheduler_timezone": get_setting("scheduler_timezone") or "",
         # Host-drawer admin debug panel visibility (Admin → Hosts toggle).
         # Default true — preserves the legacy behaviour for existing
         # deploys that haven't touched the setting. Operators who don't
@@ -3674,16 +3693,16 @@ async def api_get_settings(request: Request):
         "host_stats_sources": sorted(active_host_stats_providers()),
         # Beszel Hub — password is write-only. UI only learns "is it set".
         "beszel": {
-            "hub_url": get_setting("beszel_hub_url", ""),
-            "identity": get_setting("beszel_identity", ""),
-            "password_set": bool(get_setting("beszel_password", "")),
+            "hub_url": get_setting("beszel_hub_url"),
+            "identity": get_setting("beszel_identity"),
+            "password_set": bool(get_setting("beszel_password")),
             "verify_tls": (get_setting("beszel_verify_tls", "true") or "true").lower() == "true",
             "aliases": json.loads(get_setting("beszel_aliases", "{}") or "{}"),
         },
         # Pulse — token is write-only like Beszel's password.
         "pulse": {
-            "url": get_setting("pulse_url", ""),
-            "token_set": bool(get_setting("pulse_token", "")),
+            "url": get_setting("pulse_url"),
+            "token_set": bool(get_setting("pulse_token")),
             "verify_tls": (get_setting("pulse_verify_tls", "true") or "true").lower() == "true",
             "aliases": json.loads(get_setting("pulse_aliases", "{}") or "{}"),
         },
@@ -3691,9 +3710,9 @@ async def api_get_settings(request: Request):
         # beszel_password / pulse_token / portainer_api_key). ``aliases``
         # is Docker hostname → Miniserv base URL per host.
         "webmin": {
-            "url": get_setting("webmin_url", ""),
-            "user": get_setting("webmin_user", ""),
-            "password_set": bool(get_setting("webmin_password", "")),
+            "url": get_setting("webmin_url"),
+            "user": get_setting("webmin_user"),
+            "password_set": bool(get_setting("webmin_password")),
             "verify_tls": (get_setting("webmin_verify_tls", "false") or "false").lower() == "true",
             "aliases": json.loads(get_setting("webmin_aliases", "{}") or "{}"),
         },
@@ -3716,7 +3735,7 @@ async def api_get_settings(request: Request):
         # empty list.
         "port_scan": {
             "enabled": get_setting_bool("port_scan_enabled", False),
-            "default_ports": get_setting("port_scan_default_ports", "") or "",
+            "default_ports": get_setting("port_scan_default_ports") or "",
             # Per-port timeout + concurrency now flow through TUNABLES
             # (tuning_port_scan_default_timeout_seconds /
             # tuning_port_scan_default_concurrency). The plain-settings
@@ -3732,7 +3751,7 @@ async def api_get_settings(request: Request):
             # `udp_enabled` flag). Field kept on the response for
             # back-compat with older SPA builds; new SPA ignores it.
             "udp_enabled": True,
-            "udp_default_ports": get_setting("port_scan_udp_default_ports", "") or "",
+            "udp_default_ports": get_setting("port_scan_udp_default_ports") or "",
             "udp_default_timeout": tuning.tuning_int(Tunable.PORT_SCAN_UDP_DEFAULT_TIMEOUT_SECONDS),
             "udp_default_concurrency": tuning.tuning_int(Tunable.PORT_SCAN_UDP_DEFAULT_CONCURRENCY),
         },
@@ -3747,9 +3766,9 @@ async def api_get_settings(request: Request):
             "default_community": get_setting("snmp_default_community", "public") or "public",
             "default_version": (get_setting("snmp_default_version", "v2c") or "v2c").strip().lower(),
             "default_port": tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT),
-            "v3_user": get_setting("snmp_v3_user", "") or "",
-            "v3_auth_key_set": bool(get_setting("snmp_v3_auth_key", "")),
-            "v3_priv_key_set": bool(get_setting("snmp_v3_priv_key", "")),
+            "v3_user": get_setting("snmp_v3_user") or "",
+            "v3_auth_key_set": bool(get_setting("snmp_v3_auth_key")),
+            "v3_priv_key_set": bool(get_setting("snmp_v3_priv_key")),
             "aliases": json.loads(get_setting("snmp_aliases", "{}") or "{}"),
             "has_snmp_support": (lambda: __import__("logic.snmp", fromlist=["has_snmp_support"]).has_snmp_support())(),
             # surface the actual ImportError text from logic.snmp's
@@ -3767,12 +3786,12 @@ async def api_get_settings(request: Request):
         # "use the SPA's built-in default" — the SPA's `providerColor()`
         # helper falls back to the same default constant. Round-tripped
         # in the clear (not a secret).
-        "provider_color_beszel": get_setting("provider_color_beszel", "") or "",
-        "provider_color_pulse": get_setting("provider_color_pulse", "") or "",
-        "provider_color_node_exporter": get_setting("provider_color_node_exporter", "") or "",
-        "provider_color_webmin": get_setting("provider_color_webmin", "") or "",
-        "provider_color_ping": get_setting("provider_color_ping", "") or "",
-        "provider_color_snmp": get_setting("provider_color_snmp", "") or "",
+        "provider_color_beszel": get_setting("provider_color_beszel") or "",
+        "provider_color_pulse": get_setting("provider_color_pulse") or "",
+        "provider_color_node_exporter": get_setting("provider_color_node_exporter") or "",
+        "provider_color_webmin": get_setting("provider_color_webmin") or "",
+        "provider_color_ping": get_setting("provider_color_ping") or "",
+        "provider_color_snmp": get_setting("provider_color_snmp") or "",
         # SSH console — global defaults (Admin → SSH). Secrets
         # redacted per CLAUDE.md's ``_set`` flag contract: the browser
         # learns only whether a private key / passphrase has been set.
@@ -3780,18 +3799,18 @@ async def api_get_settings(request: Request):
         # the full blob round-trips. Destructive patterns are operator-
         # editable regex — shown verbatim for the textarea.
         "ssh": {
-            "user": get_setting("ssh_default_user", "") or "",
+            "user": get_setting("ssh_default_user") or "",
             "port": tuning.tuning_int(Tunable.SSH_DEFAULT_PORT),
-            "private_key_set": bool(get_setting("ssh_default_private_key", "")),
-            "passphrase_set": bool(get_setting("ssh_default_private_key_passphrase", "")),
-            "password_set": bool(get_setting("ssh_default_password", "")),
-            "fqdn_suffix": get_setting("ssh_fqdn_suffix", "") or "",
-            "known_hosts": get_setting("ssh_default_known_hosts", "") or "",
+            "private_key_set": bool(get_setting("ssh_default_private_key")),
+            "passphrase_set": bool(get_setting("ssh_default_private_key_passphrase")),
+            "password_set": bool(get_setting("ssh_default_password")),
+            "fqdn_suffix": get_setting("ssh_fqdn_suffix") or "",
+            "known_hosts": get_setting("ssh_default_known_hosts") or "",
             "custom_actions": (lambda raw:
                                (json.loads(raw) if (raw or "").strip() else [])
-                               )(get_setting("ssh_custom_actions", "")),
+                               )(get_setting("ssh_custom_actions")),
             "destructive_patterns": (
-                get_setting("ssh_destructive_patterns", "") or ""
+                get_setting("ssh_destructive_patterns") or ""
             ),
         },
         # Back-compat: older UI bits read this top-level field.
@@ -3848,7 +3867,10 @@ async def api_set_settings(
     # already filtered server-side; the audit row carries field NAMES
     # only, never values. Skip when the operator submitted an empty body.
     try:
-        touched = sorted(s.model_dump(exclude_unset=True).keys())
+        # Explicit `str(...)` map narrows from Pydantic's `dict[str, Any]`
+        # key view (which pyright widens to `list[Any]`) to `list[str]`
+        # so `', '.join(...)` doesn't trip "Unexpected type" diagnostics.
+        touched: list[str] = sorted(str(k) for k in s.model_dump(exclude_unset=True).keys())
         if touched:
             with db_conn() as c:
                 _ops_mod.write_admin_audit(
@@ -4290,7 +4312,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             pw_candidate = (
                                s.ssh_default_private_key_passphrase
                                if s.ssh_default_private_key_passphrase is not None
-                               else (get_setting("ssh_default_private_key_passphrase", "") or "")
+                               else (get_setting("ssh_default_private_key_passphrase") or "")
                            ) or None
             _asyncssh.import_private_key(
                 s.ssh_default_private_key, passphrase=pw_candidate,
@@ -4448,7 +4470,8 @@ async def _api_set_settings_inner(s, request, _portainer):
             # the password — same convention as the global secret
             # store.
             clean_ssh: dict = {}
-            ssh_in = g.get("ssh") if isinstance(g.get("ssh"), dict) else {}
+            _raw_ssh_in = g.get("ssh")
+            ssh_in: dict = _raw_ssh_in if isinstance(_raw_ssh_in, dict) else {}
             user = str((ssh_in or {}).get("user") or "").strip()
             if user:
                 clean_ssh["user"] = user
@@ -4489,7 +4512,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 clean_ssh["password"] = new_pw
             elif not clear:
                 try:
-                    prior_raw = get_setting("host_groups", "") or ""
+                    prior_raw = get_setting("host_groups") or ""
                     prior_groups = json.loads(prior_raw) if prior_raw.strip() else []
                 except (TypeError, ValueError):
                     prior_groups = []
@@ -4986,7 +5009,7 @@ def _resolve_ai_fallback_chain(active: str) -> tuple[bool, list[str], dict[str, 
         shouldn't surface a confusing "skipping due to..." log line).
     """
     enabled = get_setting_bool("ai_fallback_enabled", False)
-    raw_order = (get_setting("ai_fallback_order", "") or "").strip()
+    raw_order = (get_setting("ai_fallback_order") or "").strip()
     try:
         # AI fallback-chain depth is now a TUNABLE (DB > env > default
         # with bounds clamp). Legacy `ai_fallback_max_depth` plain-
@@ -5004,13 +5027,13 @@ def _resolve_ai_fallback_chain(active: str) -> tuple[bool, list[str], dict[str, 
     for name in _ai_supported_providers():
         if not get_setting_bool(f"ai_provider_{name}_enabled", False):
             continue
-        api_key = (get_setting(f"ai_provider_{name}_api_key", "") or "").strip()
+        api_key = (get_setting(f"ai_provider_{name}_api_key") or "").strip()
         if not api_key:
             continue
         creds[name] = {
             "api_key": api_key,
-            "model": (get_setting(f"ai_provider_{name}_model", "") or "").strip(),
-            "base_url": (get_setting(f"ai_provider_{name}_base_url", "") or "").strip(),
+            "model": (get_setting(f"ai_provider_{name}_model") or "").strip(),
+            "base_url": (get_setting(f"ai_provider_{name}_base_url") or "").strip(),
         }
 
     # Parse the operator-ordered fallback list — strip the active
@@ -5105,7 +5128,7 @@ async def api_admin_stats_overview(
         out["providers_error"] = str(e)
     # Host groups — JSON setting array, count meaningful entries only.
     try:
-        raw = get_setting("host_groups", "") or ""
+        raw = get_setting("host_groups") or ""
         groups = json.loads(raw) if raw.strip() else []
         if not isinstance(groups, list):
             groups = []
@@ -5276,12 +5299,11 @@ async def api_admin_stats_database(
                     # column populates regardless of which code path
                     # we hit; falls through to None on a query failure
                     # (e.g. table renamed mid-query).
-                    cnt = None
                     try:
-                        cnt = int(c.execute(
+                        cnt: int | None = int(c.execute(
                             f"SELECT COUNT(*) FROM \"{tname}\""
                         ).fetchone()[0])
-                    except Exception:
+                    except (sqlite3.OperationalError, TypeError, ValueError):
                         cnt = None
                     tables_info.append({
                         "name": tname,
@@ -5617,19 +5639,11 @@ async def api_admin_stats_network(
             else:
                 target = 96
                 bucket = max(cadence, int(hours * 3600 / target))
-            rows = c.execute(
-                "SELECT (ts / ?) * ? AS bucket_ts, "
-                "       AVG(rx_bytes_per_s) AS rx, "
-                "       AVG(tx_bytes_per_s) AS tx "
-                "  FROM host_net_samples "
-                " WHERE ts >= ? "
-                " GROUP BY bucket_ts "
-                " ORDER BY bucket_ts ASC",
-                (bucket, bucket, cutoff),
-            ).fetchall()
-            # `AVG` here is the per-(bucket, sample) average; multiply
-            # by the count of hosts active in each bucket to get the
-            # fleet sum. Cleaner: re-query summed rate. Pick sum.
+            # Per-bucket fleet rate is SUM (not AVG) across hosts —
+            # the chart shows total inbound/outbound across the fleet,
+            # not the per-host average. A previous AVG-based query
+            # immediately discarded its result before falling back to
+            # this SUM query; lint-flagged as dead code, removed.
             rows = c.execute(
                 "SELECT (ts / ?) * ? AS bucket_ts, "
                 "       SUM(rx_bytes_per_s) AS rx, "
@@ -6480,7 +6494,7 @@ async def api_admin_ai_dashboard(
         "total_cost_usd": 0.0,
         "avg_response_time_ms": None,
         "avg_accuracy_score": None,
-        "active_provider": (get_setting("ai_active_provider", "") or "claude"),
+        "active_provider": (get_setting("ai_active_provider") or "claude"),
     }
     providers: dict[str, dict] = {
         n: {
@@ -6489,7 +6503,7 @@ async def api_admin_ai_dashboard(
             "avg_response_time_ms": None, "avg_accuracy_score": None,
             "models": [],
             "enabled": (get_setting(f"ai_provider_{n}_enabled", "false") or "false").lower() == "true",
-            "model": get_setting(f"ai_provider_{n}_model", "") or "",
+            "model": get_setting(f"ai_provider_{n}_model") or "",
         }
         for n in _provider_names
     }
@@ -6750,11 +6764,11 @@ async def api_admin_ai_test(
     # API key — non-empty body wins; otherwise fall back to saved.
     api_key = (body.get("api_key") or "").strip()
     if not api_key:
-        api_key = (get_setting(f"ai_provider_{p}_api_key", "") or "").strip()
+        api_key = (get_setting(f"ai_provider_{p}_api_key") or "").strip()
     model = (body.get("model") or "").strip() \
-            or (get_setting(f"ai_provider_{p}_model", "") or "").strip()
+            or (get_setting(f"ai_provider_{p}_model") or "").strip()
     base_url = (body.get("base_url") or "").strip() \
-               or (get_setting(f"ai_provider_{p}_base_url", "") or "").strip()
+               or (get_setting(f"ai_provider_{p}_base_url") or "").strip()
     return await _ai.test_provider(
         p,
         api_key=api_key,
@@ -6822,7 +6836,7 @@ async def api_ai_palette(
         return {"ok": False, "status": 0, "provider": "",
                 "detail": "AI integration is disabled. Enable it in Admin → AI Integration first.",
                 "response_time_ms": 0}
-    active = (get_setting("ai_active_provider", "") or "").strip().lower()
+    active = (get_setting("ai_active_provider") or "").strip().lower()
     if active not in _ai.SUPPORTED_PROVIDERS:
         return {"ok": False, "status": 0, "provider": active,
                 "detail": "No active AI provider is selected. Pick one in Admin → AI Integration.",
@@ -6831,9 +6845,9 @@ async def api_ai_palette(
         return {"ok": False, "status": 0, "provider": active,
                 "detail": f"Active provider '{active}' is not enabled. Enable it in Admin → AI Integration.",
                 "response_time_ms": 0}
-    api_key = (get_setting(f"ai_provider_{active}_api_key", "") or "").strip()
-    model = (get_setting(f"ai_provider_{active}_model", "") or "").strip()
-    base_url = (get_setting(f"ai_provider_{active}_base_url", "") or "").strip()
+    api_key = (get_setting(f"ai_provider_{active}_api_key") or "").strip()
+    model = (get_setting(f"ai_provider_{active}_model") or "").strip()
+    base_url = (get_setting(f"ai_provider_{active}_base_url") or "").strip()
 
     query = (body.query or "").strip()
     if not query:
@@ -7313,16 +7327,16 @@ async def api_ai_host_filter(
     if not get_setting_bool("ai_enabled", False):
         return {"ok": False, "detail": "AI integration is disabled. Enable it in Admin → AI Integration first.",
                 "dsl": "", "explanation": "", "response_time_ms": 0}
-    active = (get_setting("ai_active_provider", "") or "").strip().lower()
+    active = (get_setting("ai_active_provider") or "").strip().lower()
     if active not in _ai.SUPPORTED_PROVIDERS:
         return {"ok": False, "detail": "No active AI provider is selected. Pick one in Admin → AI Integration.",
                 "dsl": "", "explanation": "", "response_time_ms": 0}
     if not get_setting_bool(f"ai_provider_{active}_enabled", False):
         return {"ok": False, "detail": f"Active provider '{active}' is not enabled. Enable it in Admin → AI Integration.",
                 "dsl": "", "explanation": "", "response_time_ms": 0}
-    api_key = (get_setting(f"ai_provider_{active}_api_key", "") or "").strip()
-    model = (get_setting(f"ai_provider_{active}_model", "") or "").strip()
-    base_url = (get_setting(f"ai_provider_{active}_base_url", "") or "").strip()
+    api_key = (get_setting(f"ai_provider_{active}_api_key") or "").strip()
+    model = (get_setting(f"ai_provider_{active}_model") or "").strip()
+    base_url = (get_setting(f"ai_provider_{active}_base_url") or "").strip()
 
     query = (body.query or "").strip()
     if not query:
@@ -7353,12 +7367,11 @@ async def api_ai_host_filter(
     )
 
     text = (out.get("text") or "") if isinstance(out, dict) else ""
-    dsl = ""
-    explanation = ""
-    err_detail = ""
     if isinstance(out, dict) and out.get("ok"):
         dsl, explanation, err_detail = _ai.parse_host_filter_response(text)
     else:
+        dsl = ""
+        explanation = ""
         err_detail = (isinstance(out, dict) and out.get("detail")) or "AI request failed."
 
     response_ms = int((out.get("response_time_ms") or 0) if isinstance(out, dict) else 0)
@@ -8087,7 +8100,7 @@ async def api_telegram_test(
     chat_id = _resolve_field(body, "chat_id", "telegram_chat_id")
     thread_id_raw = body.get("thread_id")
     if thread_id_raw is None or str(thread_id_raw).strip() == "":
-        thread_id = (get_setting("telegram_thread_id", "") or "").strip()
+        thread_id = (get_setting("telegram_thread_id") or "").strip()
     else:
         thread_id = str(thread_id_raw).strip()
     if not bot_token:
@@ -8318,7 +8331,7 @@ async def api_asset_inventory_test(
     except Exception:
         body = {}
     auth_mode = (body.get("auth_mode") or "").strip().lower() \
-                or (get_setting("asset_inventory_auth_mode", "") or "oauth2")
+                or (get_setting("asset_inventory_auth_mode") or "oauth2")
     if auth_mode not in ("oauth2", "lifetime_token"):
         auth_mode = "oauth2"
     # honour the `asset_inventory_verify_tls` toggle here too.
@@ -8332,14 +8345,14 @@ async def api_asset_inventory_test(
         verify_tls = bool(body_verify_tls)
     if auth_mode == "lifetime_token":
         base_url = (body.get("base_url") or "").strip().rstrip("/") \
-                   or (get_setting("asset_inventory_base_url", "") or "").strip().rstrip("/")
+                   or (get_setting("asset_inventory_base_url") or "").strip().rstrip("/")
         lifetime_token = body.get("lifetime_token") or ""
         if not lifetime_token:
-            lifetime_token = get_setting("asset_inventory_lifetime_token", "") or ""
+            lifetime_token = get_setting("asset_inventory_lifetime_token") or ""
         service = (body.get("service") or "").strip() \
-                  or (get_setting("asset_inventory_service", "") or "").strip()
+                  or (get_setting("asset_inventory_service") or "").strip()
         action = (body.get("action") or "").strip() \
-                 or (get_setting("asset_inventory_action", "") or "").strip()
+                 or (get_setting("asset_inventory_action") or "").strip()
 
         def _bound(from_body, setting_key):
             raw = from_body
@@ -8377,14 +8390,14 @@ async def api_asset_inventory_test(
         return out
     # Default: OAuth2 client_credentials.
     token_url = (body.get("token_url") or "").strip() \
-                or (get_setting("asset_inventory_token_url", "") or "")
+                or (get_setting("asset_inventory_token_url") or "")
     client_id = (body.get("client_id") or "").strip() \
-                or (get_setting("asset_inventory_client_id", "") or "")
+                or (get_setting("asset_inventory_client_id") or "")
     scope = (body.get("scope") or "").strip() \
-            or (get_setting("asset_inventory_scope", "") or "")
+            or (get_setting("asset_inventory_scope") or "")
     client_secret = body.get("client_secret") or ""
     if not client_secret:
-        client_secret = get_setting("asset_inventory_client_secret", "") or ""
+        client_secret = get_setting("asset_inventory_client_secret") or ""
     if not token_url or not client_id or not client_secret:
         return {"ok": False,
                 "detail": "token_url, client_id and client_secret are all required"}
@@ -8416,16 +8429,16 @@ async def api_asset_inventory_refresh(
     if not _is_asset_inventory_enabled():
         return {"ok": False, "count": 0, "ts": 0,
                 "error": "asset_inventory_disabled"}
-    base_url = (get_setting("asset_inventory_base_url", "") or "").strip().rstrip("/")
-    auth_mode = (get_setting("asset_inventory_auth_mode", "") or "oauth2").strip().lower()
+    base_url = (get_setting("asset_inventory_base_url") or "").strip().rstrip("/")
+    auth_mode = (get_setting("asset_inventory_auth_mode") or "oauth2").strip().lower()
     if auth_mode not in ("oauth2", "lifetime_token"):
         auth_mode = "oauth2"
     if auth_mode == "lifetime_token":
-        lifetime_token = get_setting("asset_inventory_lifetime_token", "") or ""
-        service = (get_setting("asset_inventory_service", "") or "").strip()
-        action = (get_setting("asset_inventory_action", "") or "").strip()
-        min_raw = (get_setting("asset_inventory_min_value", "") or "").strip()
-        max_raw = (get_setting("asset_inventory_max_value", "") or "").strip()
+        lifetime_token = get_setting("asset_inventory_lifetime_token") or ""
+        service = (get_setting("asset_inventory_service") or "").strip()
+        action = (get_setting("asset_inventory_action") or "").strip()
+        min_raw = (get_setting("asset_inventory_min_value") or "").strip()
+        max_raw = (get_setting("asset_inventory_max_value") or "").strip()
         try:
             min_value = int(min_raw) if min_raw else None
         except ValueError:
@@ -8450,10 +8463,10 @@ async def api_asset_inventory_refresh(
         )
         _audit_asset_refresh(_admin, result, "lifetime_token")
         return result
-    token_url = (get_setting("asset_inventory_token_url", "") or "").strip()
-    client_id = (get_setting("asset_inventory_client_id", "") or "").strip()
-    client_secret = get_setting("asset_inventory_client_secret", "") or ""
-    scope = (get_setting("asset_inventory_scope", "") or "").strip()
+    token_url = (get_setting("asset_inventory_token_url") or "").strip()
+    client_id = (get_setting("asset_inventory_client_id") or "").strip()
+    client_secret = get_setting("asset_inventory_client_secret") or ""
+    scope = (get_setting("asset_inventory_scope") or "").strip()
     if not base_url or not token_url or not client_id or not client_secret:
         return {"ok": False, "count": 0, "ts": 0,
                 "error": "asset_inventory_* settings are incomplete — "
@@ -8827,7 +8840,7 @@ async def api_hosts(force: bool = False):
         "active": sorted(active),
         "error": agg_error,
         "provider_errors": errors,
-        "hub_url": get_setting("beszel_hub_url", "") or "",
+        "hub_url": get_setting("beszel_hub_url") or "",
         "hosts": hosts,
         # Counts that let the frontend pick the right empty-state
         # copy — "no curated hosts yet" vs "all curated hosts are
@@ -8950,33 +8963,33 @@ def _compute_host_provider_cache_key() -> tuple[set[str], tuple]:
     # `beszel_password` (without flipping `host_stats_source`)
     # busts the cache too.
     cred_blob = "|".join((
-        get_setting("beszel_hub_url", "") or "",
-        get_setting("beszel_identity", "") or "",
-        get_setting("beszel_password", "") or "",
+        get_setting("beszel_hub_url") or "",
+        get_setting("beszel_identity") or "",
+        get_setting("beszel_password") or "",
         get_setting("beszel_verify_tls", "true") or "true",
-        get_setting("pulse_url", "") or "",
-        get_setting("pulse_token", "") or "",
+        get_setting("pulse_url") or "",
+        get_setting("pulse_token") or "",
         get_setting("pulse_verify_tls", "true") or "true",
-        get_setting("webmin_url", "") or "",
-        get_setting("webmin_user", "") or "",
-        get_setting("webmin_password", "") or "",
+        get_setting("webmin_url") or "",
+        get_setting("webmin_user") or "",
+        get_setting("webmin_password") or "",
         get_setting("webmin_verify_tls", "true") or "true",
-        get_setting("node_exporter_url_template", "") or "",
-        get_setting("node_exporter_overrides", "") or "",
+        get_setting("node_exporter_url_template") or "",
+        get_setting("node_exporter_overrides") or "",
         # SNMP — every credential / default that affects
         # what the probe sees. v3 keys are the security-sensitive
         # ones; the community + port + version + aliases also
         # belong here so a global default change auto-busts the
         # cache without waiting on the explicit invalidate path.
-        get_setting("snmp_default_community", "") or "",
-        get_setting("snmp_default_version", "") or "",
+        get_setting("snmp_default_community") or "",
+        get_setting("snmp_default_version") or "",
         # Default port migrated to TUNABLES — read via tuning_int so a
         # change to `tuning_snmp_default_port` busts this cache too.
         str(tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT)),
-        get_setting("snmp_v3_user", "") or "",
-        get_setting("snmp_v3_auth_key", "") or "",
-        get_setting("snmp_v3_priv_key", "") or "",
-        get_setting("snmp_aliases", "") or "",
+        get_setting("snmp_v3_user") or "",
+        get_setting("snmp_v3_auth_key") or "",
+        get_setting("snmp_v3_priv_key") or "",
+        get_setting("snmp_aliases") or "",
     ))
     cred_hash = hashlib.sha256(cred_blob.encode("utf-8")).hexdigest()[:16]
     return active_set, (tuple(sorted(active_set)), cred_hash)
@@ -9157,9 +9170,9 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
     async def _probe_beszel() -> tuple[dict, str | None]:
         if "beszel" not in active:
             return {}, None
-        hub_url = get_setting("beszel_hub_url", "") or ""
-        ident = get_setting("beszel_identity", "") or ""
-        passw = get_setting("beszel_password", "") or ""
+        hub_url = get_setting("beszel_hub_url") or ""
+        ident = get_setting("beszel_identity") or ""
+        passw = get_setting("beszel_password") or ""
         verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
         if not (hub_url and ident and passw):
             return {}, "missing url / identity / password"
@@ -9169,8 +9182,8 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
     async def _probe_pulse() -> tuple[dict, str | None]:
         if "pulse" not in active:
             return {}, None
-        pulse_url = get_setting("pulse_url", "") or ""
-        pulse_token = get_setting("pulse_token", "") or ""
+        pulse_url = get_setting("pulse_url") or ""
+        pulse_token = get_setting("pulse_token") or ""
         verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
         if not (pulse_url and pulse_token):
             return {}, "missing url / token"
@@ -9191,8 +9204,8 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
     webmin_verify = False
     webmin_aliases: dict[str, str] = {}
     if "webmin" in active:
-        webmin_user = get_setting("webmin_user", "") or ""
-        webmin_password = get_setting("webmin_password", "") or ""
+        webmin_user = get_setting("webmin_user") or ""
+        webmin_password = get_setting("webmin_password") or ""
         webmin_verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
         try:
             wm_aliases_raw = json.loads(get_setting("webmin_aliases", "{}") or "{}")
@@ -9224,17 +9237,17 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
     snmp_v3_priv_key = ""
     snmp_aliases: dict[str, str] = {}
     if "snmp" in active:
-        snmp_default_community = get_setting("snmp_default_community", "") or "public"
+        snmp_default_community = get_setting("snmp_default_community") or "public"
         snmp_default_version = (
-                                   get_setting("snmp_default_version", "") or "v2c"
+                                   get_setting("snmp_default_version") or "v2c"
                                ).strip().lower() or "v2c"
         try:
             snmp_default_port = tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT)
         except (TypeError, ValueError):
             snmp_default_port = 161
-        snmp_v3_user = get_setting("snmp_v3_user", "") or ""
-        snmp_v3_auth_key = get_setting("snmp_v3_auth_key", "") or ""
-        snmp_v3_priv_key = get_setting("snmp_v3_priv_key", "") or ""
+        snmp_v3_user = get_setting("snmp_v3_user") or ""
+        snmp_v3_auth_key = get_setting("snmp_v3_auth_key") or ""
+        snmp_v3_priv_key = get_setting("snmp_v3_priv_key") or ""
         try:
             sn_aliases_raw = json.loads(get_setting("snmp_aliases", "{}") or "{}")
             if isinstance(sn_aliases_raw, dict):
@@ -9473,7 +9486,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     # enable box for the probe to fire, even when snmp_name is set.
     if "snmp" in active:
         from logic import snmp as _snmp
-        row_snmp = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
+        _raw_row_snmp = h.get("snmp")
+        row_snmp: dict = _raw_row_snmp if isinstance(_raw_row_snmp, dict) else {}
         snmp_enabled = row_snmp.get("enabled") is True
         # HARD-GATE: probe ONLY when an alias OR a curated `snmp_name`
         # resolves a target. The previous bare-`h["id"]` fallthrough fanned
@@ -9932,7 +9946,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     # probing on its own cadence). When this host is opted-out
     # (``hosts_config[].ping.enabled == False``), we deliberately skip —
     # no row, no chip, no banner.
-    pcfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
+    _raw_pcfg = h.get("ping")
+    pcfg: dict = _raw_pcfg if isinstance(_raw_pcfg, dict) else {}
     if "ping" in active and pcfg.get("enabled"):
         from logic import ping_sampler as _ping_sampler
         from logic import ping as _ping_mod
@@ -10310,10 +10325,12 @@ def _resolve_ping_target(h: dict) -> Optional[str]:
     Admin → Hosts. If left blank, the chain falls through to provider-
     specific overrides then the bare host_id.
     """
-    ping_cfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
+    _raw_ping_cfg = h.get("ping")
+    ping_cfg: dict = _raw_ping_cfg if isinstance(_raw_ping_cfg, dict) else {}
     if not bool(ping_cfg.get("enabled", False)):
         return None
-    ssh_cfg = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
+    _raw_ssh_cfg = h.get("ssh")
+    ssh_cfg: dict = _raw_ssh_cfg if isinstance(_raw_ssh_cfg, dict) else {}
     candidate = (
         (h.get("address") or "").strip()
         or (ping_cfg.get("host") or "").strip()
@@ -11068,10 +11085,11 @@ async def api_hosts_list(force: bool = False):
     # by host id so `apply_host_snapshot_fallback`'s short-hostname
     # tolerance kicks in if the snapshot was keyed by `host01` while
     # the curated id is `host01.example.com` (or vice versa).
-    snapshots = {}
     try:
-        snapshots = _load_snaps() or {}
-    except Exception:
+        snapshots: dict = _load_snaps() or {}
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+        # Snapshot table not yet migrated, or DB temporarily unavailable
+        # — degrade gracefully to "no fallback data".
         snapshots = {}
 
     hosts = []
@@ -11116,7 +11134,7 @@ async def api_hosts_list(force: bool = False):
         "active": sorted(state["active"]),
         "error": agg_error,
         "provider_errors": state["errors"],
-        "hub_url": get_setting("beszel_hub_url", "") or "",
+        "hub_url": get_setting("beszel_hub_url") or "",
         "hosts": hosts,
         "curated_count": len(curated),
         "enabled_count": sum(1 for h in curated if h.get("enabled", True)),
@@ -11209,7 +11227,7 @@ def _load_hosts_config() -> list[dict]:
     list as "no curated hosts — fall back to auto-discovery where
     applicable."
     """
-    raw = get_setting("hosts_config", "") or ""
+    raw = get_setting("hosts_config") or ""
     if not raw.strip():
         return []
     try:
@@ -12000,7 +12018,7 @@ async def api_hosts_resume_sampling(
         webmin_name = (h.get("webmin_name") or "").strip()
         if webmin_name:
             try:
-                aliases_raw = get_setting("webmin_aliases", "") or ""
+                aliases_raw = get_setting("webmin_aliases") or ""
                 aliases = json.loads(aliases_raw) if aliases_raw else {}
                 if isinstance(aliases, dict):
                     aliased = (aliases.get(webmin_name) or "").strip().rstrip("/")
@@ -12103,7 +12121,7 @@ async def api_hosts_provider_resume(
                 # Resolve the SNMP target the same way `_merge_one_host`
                 # does: alias map > row's snmp_name. Whichever matches
                 # the cool-down key gets cleared.
-                aliases_raw = get_setting("snmp_aliases", "") or ""
+                aliases_raw = get_setting("snmp_aliases") or ""
                 try:
                     aliases = json.loads(aliases_raw) if aliases_raw else {}
                 except Exception:
@@ -12135,7 +12153,7 @@ async def api_hosts_provider_resume(
             webmin_name = (h.get("webmin_name") or "").strip()
             if webmin_name:
                 try:
-                    aliases_raw = get_setting("webmin_aliases", "") or ""
+                    aliases_raw = get_setting("webmin_aliases") or ""
                     aliases = json.loads(aliases_raw) if aliases_raw else {}
                     if isinstance(aliases, dict):
                         aliased = (aliases.get(webmin_name) or "").strip().rstrip("/")
@@ -12314,7 +12332,7 @@ async def api_hosts_test(
     # "passes here" = "works in production".
     active_sources = {
         s.strip().lower() for s in
-        (get_setting("host_stats_source", "") or "").split(",")
+        (get_setting("host_stats_source") or "").split(",")
         if s.strip() and s.strip().lower() != "none"
     }
 
@@ -12340,9 +12358,9 @@ async def api_hosts_test(
         snmp_target = ""
 
     if beszel_name:
-        hub_url = get_setting("beszel_hub_url", "") or ""
-        ident = get_setting("beszel_identity", "") or ""
-        passw = get_setting("beszel_password", "") or ""
+        hub_url = get_setting("beszel_hub_url") or ""
+        ident = get_setting("beszel_identity") or ""
+        passw = get_setting("beszel_password") or ""
         verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
         if hub_url and ident and passw:
             r = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
@@ -12369,8 +12387,8 @@ async def api_hosts_test(
                              "detail": "Beszel creds not configured"}
 
     if pulse_name:
-        pulse_url = get_setting("pulse_url", "") or ""
-        pulse_tok = get_setting("pulse_token", "") or ""
+        pulse_url = get_setting("pulse_url") or ""
+        pulse_tok = get_setting("pulse_token") or ""
         verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
         if pulse_url and pulse_tok:
             r = await _pulse.probe_pulse(pulse_url, pulse_tok, verify_tls=verify)
@@ -12409,8 +12427,8 @@ async def api_hosts_test(
             }
 
     if webmin_url:
-        user = get_setting("webmin_user", "") or ""
-        passw = get_setting("webmin_password", "") or ""
+        user = get_setting("webmin_user") or ""
+        passw = get_setting("webmin_password") or ""
         verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
         if not user or not passw:
             out["webmin"] = {"ok": False, "skipped": False,
@@ -12457,9 +12475,9 @@ async def api_hosts_test(
             # budget exceeded NPM's proxy_read_timeout. Now: per-host
             # walk_concurrency / vendors honoured; per-host
             # wall_clock_budget capped at 50s (NPM proxy ceiling).
-            v3_user_t = (body.get("snmp_v3_user") or "").strip() or (get_setting("snmp_v3_user", "") or "")
-            v3_auth_t = (body.get("snmp_v3_auth_key") or "").strip() or (get_setting("snmp_v3_auth_key", "") or "")
-            v3_priv_t = (body.get("snmp_v3_priv_key") or "").strip() or (get_setting("snmp_v3_priv_key", "") or "")
+            v3_user_t = (body.get("snmp_v3_user") or "").strip() or (get_setting("snmp_v3_user") or "")
+            v3_auth_t = (body.get("snmp_v3_auth_key") or "").strip() or (get_setting("snmp_v3_auth_key") or "")
+            v3_priv_t = (body.get("snmp_v3_priv_key") or "").strip() or (get_setting("snmp_v3_priv_key") or "")
             try:
                 walk_conc_t = int(body.get("snmp_walk_concurrency") or 0) or None
             except (TypeError, ValueError):
@@ -12531,9 +12549,9 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
     errors: dict[str, str] = {}
 
     beszel_names: list[str] = []
-    hub_url = get_setting("beszel_hub_url", "") or ""
-    b_id = get_setting("beszel_identity", "") or ""
-    b_pw = get_setting("beszel_password", "") or ""
+    hub_url = get_setting("beszel_hub_url") or ""
+    b_id = get_setting("beszel_identity") or ""
+    b_pw = get_setting("beszel_password") or ""
     if hub_url and b_id and b_pw:
         verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
         r = await _beszel.probe_hub(hub_url, b_id, b_pw, verify_tls=verify)
@@ -12543,8 +12561,8 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
             beszel_names = sorted((r.get("systems") or {}).keys(), key=str.lower)
 
     pulse_names: list[str] = []
-    pulse_url = get_setting("pulse_url", "") or ""
-    pulse_tok = get_setting("pulse_token", "") or ""
+    pulse_url = get_setting("pulse_url") or ""
+    pulse_tok = get_setting("pulse_token") or ""
     if pulse_url and pulse_tok:
         verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
         r = await _pulse.probe_pulse(pulse_url, pulse_tok, verify_tls=verify)
@@ -12568,8 +12586,8 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
                 for v in wm_aliases_raw.values() if str(v).strip()})
         if isinstance(wm_aliases_raw, dict) else []
     )
-    wm_user = get_setting("webmin_user", "") or ""
-    wm_pass = get_setting("webmin_password", "") or ""
+    wm_user = get_setting("webmin_user") or ""
+    wm_pass = get_setting("webmin_password") or ""
     if wm_urls and wm_user and wm_pass:
         from logic import webmin as _webmin
         verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
@@ -13021,9 +13039,8 @@ async def api_hosts_debug(
         if not _snmp.has_snmp_support():
             providers_raw["snmp"] = {"_error": "pysnmp not installed"}
         else:
-            row_snmp_kick = (record.get("snmp")
-                             if isinstance(record.get("snmp"), dict)
-                             else {})
+            _raw_row_snmp_kick = record.get("snmp")
+            row_snmp_kick: dict = _raw_row_snmp_kick if isinstance(_raw_row_snmp_kick, dict) else {}
             try:
                 sn_aliases_kick = json.loads(
                     get_setting("snmp_aliases", "{}") or "{}"
@@ -13053,9 +13070,9 @@ async def api_hosts_debug(
             enabled_kick = row_snmp_kick.get("enabled") is True
             if target_kick and enabled_kick:
                 community_kick = ((row_snmp_kick.get("community") or "").strip()
-                                  or (get_setting("snmp_default_community", "") or "public"))
+                                  or (get_setting("snmp_default_community") or "public"))
                 version_kick = (((row_snmp_kick.get("version") or "").strip().lower())
-                                or (get_setting("snmp_default_version", "") or "v2c").lower()
+                                or (get_setting("snmp_default_version") or "v2c").lower()
                                 or "v2c")
                 try:
                     port_kick = int(row_snmp_kick.get("port")
@@ -13063,11 +13080,11 @@ async def api_hosts_debug(
                 except (TypeError, ValueError):
                     port_kick = 161
                 v3_user_kick = ((row_snmp_kick.get("v3_user") or "").strip()
-                                or get_setting("snmp_v3_user", "") or "")
+                                or get_setting("snmp_v3_user") or "")
                 v3_auth_kick = ((row_snmp_kick.get("v3_auth_key") or "").strip()
-                                or get_setting("snmp_v3_auth_key", "") or "")
+                                or get_setting("snmp_v3_auth_key") or "")
                 v3_priv_kick = ((row_snmp_kick.get("v3_priv_key") or "").strip()
-                                or get_setting("snmp_v3_priv_key", "") or "")
+                                or get_setting("snmp_v3_priv_key") or "")
                 # Per-host walk_concurrency override — Dell iDRAC9 /
                 # iDRAC10 and other server-class BMCs handle parallel
                 # queries fine and benefit dramatically from
@@ -13148,9 +13165,9 @@ async def api_hosts_debug(
 
     # ---- Beszel --------------------------------------------------
     if "beszel" in active and record.get("beszel_name"):
-        hub_url = get_setting("beszel_hub_url", "") or ""
-        ident = get_setting("beszel_identity", "") or ""
-        passw = get_setting("beszel_password", "") or ""
+        hub_url = get_setting("beszel_hub_url") or ""
+        ident = get_setting("beszel_identity") or ""
+        passw = get_setting("beszel_password") or ""
         verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
         if hub_url and ident and passw:
             try:
@@ -13209,8 +13226,8 @@ async def api_hosts_debug(
 
     # ---- Pulse ---------------------------------------------------
     if "pulse" in active and record.get("pulse_name"):
-        pulse_url = get_setting("pulse_url", "") or ""
-        pulse_tok = get_setting("pulse_token", "") or ""
+        pulse_url = get_setting("pulse_url") or ""
+        pulse_tok = get_setting("pulse_token") or ""
         verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
         if pulse_url and pulse_tok:
             try:
@@ -13242,7 +13259,8 @@ async def api_hosts_debug(
                         v = state.get(key)
                         if isinstance(v, list):
                             candidates.extend(v)
-                    pve = state.get("pve") if isinstance(state.get("pve"), dict) else {}
+                    _raw_pve = state.get("pve")
+                    pve: dict = _raw_pve if isinstance(_raw_pve, dict) else {}
                     for key in ("vms", "containers", "guests", "lxc", "qemu"):
                         v = pve.get(key) if isinstance(pve, dict) else None
                         if isinstance(v, list):
@@ -13318,8 +13336,8 @@ async def api_hosts_debug(
         except ValueError:
             wm_aliases = {}
         wm_url = (wm_aliases.get(record["id"]) or "").strip().rstrip("/")
-        user = get_setting("webmin_user", "") or ""
-        passw = get_setting("webmin_password", "") or ""
+        user = get_setting("webmin_user") or ""
+        passw = get_setting("webmin_password") or ""
         verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
         if not wm_url:
             # No Webmin URL mapped for this host — that's an
@@ -14159,7 +14177,6 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
         })
 
         # ---- 3) Pump bytes both ways + heartbeat ping. ----
-        loop = asyncio.get_event_loop()
         stop_event = asyncio.Event()
 
         async def upstream_to_ws():
@@ -14274,10 +14291,9 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
         # Try to harvest the shell's exit code so the close frame can
         # surface "exit 0" vs "exit 1". asyncssh exposes this on the
         # process once the channel closes.
-        exit_code = None
         try:
-            exit_code = proc.exit_status
-        except Exception:
+            exit_code: int | None = proc.exit_status
+        except AttributeError:
             exit_code = None
         if exit_code not in (None, 0):
             final_error = f"shell exited with code {exit_code}"
@@ -15582,7 +15598,6 @@ async def api_hosts_timeline(
             # missing (e.g. a pre-migration deploy), we silently fall
             # back to the legacy current-state snapshot logic so the
             # timeline doesn't break during the rollout window.
-            transition_rows = []
             try:
                 transition_rows = c.execute(
                     "SELECT ts, host_id, provider, kind, error, actor "
@@ -15591,7 +15606,10 @@ async def api_hosts_timeline(
                     "ORDER BY ts DESC LIMIT ?",
                     (hid, since, lim),
                 ).fetchall()
-            except Exception:
+            except sqlite3.OperationalError:
+                # Pre-migration deploy where host_failure_events table
+                # doesn't exist yet — fall back to empty + the legacy
+                # current-state snapshot path below.
                 transition_rows = []
             if transition_rows:
                 for r in transition_rows:
@@ -16186,7 +16204,8 @@ async def api_hosts_bulk_snmp_vendors(
             new_curated.append(h)
             continue
         try:
-            snmp_block = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
+            _raw_snmp_block = h.get("snmp")
+            snmp_block: dict = _raw_snmp_block if isinstance(_raw_snmp_block, dict) else {}
             existing = set(snmp_block.get("vendors") or [])
             if mode == "set":
                 next_vendors = set(cleaned_input)
@@ -16704,7 +16723,8 @@ async def _run_port_scan_async(
                 }
     except Exception:  # noqa: BLE001
         prev_open_ports = set()
-    curated_services_for_diff = h.get("services") if isinstance(h.get("services"), list) else []
+    _raw_curated_services_for_diff = h.get("services")
+    curated_services_for_diff: list = _raw_curated_services_for_diff if isinstance(_raw_curated_services_for_diff, list) else []
     curated_ports_set = {int(s.get("port") or 0)
                          for s in curated_services_for_diff if isinstance(s, dict)}
     try:
@@ -16807,16 +16827,17 @@ async def _run_port_scan_async(
                     proto = (entry.get("protocol") or "tcp").lower()
                     label = f"{pnum}/{proto}" + (f" ({hint})" if hint else "")
                     await _ops.notify(
-                        event="port_scan_new_port",
-                        severity="info",
-                        actor_username=actor,
-                        target_kind="host",
-                        target_id=hid,
-                        message=(
+                        f"🆕 New open port on {target}: {label}",
+                        (
                             f"{label} listening on {target} — not in the previous "
                             f"scan and not in this host's curated services. "
                             f"Promote to curated in the host drawer if expected."
                         ),
+                        "info",
+                        event="port_scan_new_port",
+                        actor_username=actor,
+                        target_kind="host",
+                        target_id=hid,
                         metadata={
                             "port": pnum,
                             "protocol": proto,
@@ -16909,7 +16930,8 @@ async def api_hosts_port_scan(
     if h is None:
         print(f"[port_scan] skipped host_id={hid!r} — not found in curated list")
         raise HTTPException(404, f"Host not found: {hid}")
-    ps_cfg = h.get("port_scan") if isinstance(h.get("port_scan"), dict) else {}
+    _raw_ps_cfg = h.get("port_scan")
+    ps_cfg: dict = _raw_ps_cfg if isinstance(_raw_ps_cfg, dict) else {}
     # Per-host enabled flag wins; otherwise inherit the master.
     if "enabled" in ps_cfg and not ps_cfg.get("enabled"):
         print(f"[port_scan] skipped host_id={hid!r} — per-host enable flag is False")
@@ -16934,8 +16956,10 @@ async def api_hosts_port_scan(
     # provider and survives provider toggles. Operators set it in
     # Admin → Hosts. If left blank, the chain falls through to
     # provider-specific overrides then the bare host_id.
-    ssh_cfg = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
-    ping_cfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
+    _raw_ssh_cfg = h.get("ssh")
+    ssh_cfg: dict = _raw_ssh_cfg if isinstance(_raw_ssh_cfg, dict) else {}
+    _raw_ping_cfg = h.get("ping")
+    ping_cfg: dict = _raw_ping_cfg if isinstance(_raw_ping_cfg, dict) else {}
     target = (
         (h.get("address") or "").strip()
         or (ping_cfg.get("host") or "").strip()
@@ -16945,12 +16969,17 @@ async def api_hosts_port_scan(
     )
     target = target.strip() or hid
     # Effective config: request body → per-host → global → built-in.
-    body = body or PortScanIn()
+    # Narrow `body` to PortScanIn (drop None) so every `body.X` access
+    # below doesn't trip "Member 'None' of 'PortScanIn | None'" lint
+    # diagnostics. The if-branch reassignment is the only form the
+    # type-checker reliably narrows from `T | None` to `T`.
+    if body is None:
+        body = PortScanIn()
     from logic import port_scanner as _ps
     ports_csv = (
         (body.ports or "").strip()
         or (ps_cfg.get("ports") or "").strip()
-        or (get_setting("port_scan_default_ports", "") or "").strip()
+        or (get_setting("port_scan_default_ports") or "").strip()
     )
     ports_list = _ps.parse_port_csv(ports_csv) if ports_csv else list(_ps.DEFAULT_PORTS)
     timeout_s = (
@@ -16985,7 +17014,7 @@ async def api_hosts_port_scan(
         udp_ports_csv = (
             (body.udp_ports or "").strip()
             or (ps_cfg.get("udp_ports") or "").strip()
-            or (get_setting("port_scan_udp_default_ports", "") or "").strip()
+            or (get_setting("port_scan_udp_default_ports") or "").strip()
         )
         udp_ports_list = (
             _ps.parse_port_csv(udp_ports_csv) if udp_ports_csv
@@ -17013,10 +17042,11 @@ async def api_hosts_port_scan(
     scan_id = str(uuid.uuid4())
     started = time.time()
     max_seconds = tuning.tuning_int(Tunable.PORT_SCAN_MAX_SECONDS)
-    snmp_cfg = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
+    _raw_snmp_cfg = h.get("snmp")
+    snmp_cfg: dict = _raw_snmp_cfg if isinstance(_raw_snmp_cfg, dict) else {}
     snmp_community = (
         snmp_cfg.get("community")
-        or get_setting("snmp_default_community", "")
+        or get_setting("snmp_default_community")
         or "public"
     )
     print(
@@ -17140,8 +17170,10 @@ async def api_ping_test(
     # successfully via the live sampler reported "Test failed" here
     # because the test connect()ed to an unrelated `ssh.host` (or the
     # bare `id`, often unresolvable).
-    ssh_cfg = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
-    pcfg_for_target = h.get("ping") if isinstance(h.get("ping"), dict) else {}
+    _raw_ssh_cfg = h.get("ssh")
+    ssh_cfg: dict = _raw_ssh_cfg if isinstance(_raw_ssh_cfg, dict) else {}
+    _raw_pcfg_for_target = h.get("ping")
+    pcfg_for_target: dict = _raw_pcfg_for_target if isinstance(_raw_pcfg_for_target, dict) else {}
     target = (
         (h.get("address") or "").strip()
         or (pcfg_for_target.get("host") or "").strip()
@@ -17149,7 +17181,8 @@ async def api_ping_test(
         or (ssh_cfg.get("host") or "").strip()
         or hid
     )
-    pcfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
+    _raw_pcfg = h.get("ping")
+    pcfg: dict = _raw_pcfg if isinstance(_raw_pcfg, dict) else {}
     default_port = tuning.tuning_int(Tunable.PING_DEFAULT_PORT) or 443
     port = body.port if body.port is not None else (pcfg.get("port") or default_port)
     use_icmp_global = get_setting_bool("ping_use_icmp", False)
@@ -17196,7 +17229,7 @@ async def api_auth_providers(request: Request):
     oidc_live = oidc.is_configured()
     if oidc_live:
         try:
-            redirect_uri = (get_setting("oidc_redirect_uri", "") or "").strip()
+            redirect_uri = (get_setting("oidc_redirect_uri") or "").strip()
             if redirect_uri:
                 from urllib.parse import urlparse
                 expected_host = (urlparse(redirect_uri).hostname or "").strip().lower()
@@ -17610,7 +17643,7 @@ def _open_meteo_url() -> str:
     from logic.db import get_setting_bool
     if not get_setting_bool("open_meteo_enabled", default=True):
         return ""
-    return (get_setting("open_meteo_url", "") or "").strip().rstrip("/")
+    return (get_setting("open_meteo_url") or "").strip().rstrip("/")
 
 
 _weather_cache: dict[tuple[float, float], tuple[float, dict]] = {}
@@ -17714,7 +17747,8 @@ async def api_weather(
     # temp + weather code + precipitation sum. Empty list when the
     # upstream didn't return a `daily` block (degrades cleanly).
     forecast: list[dict] = []
-    daily = j.get("daily") if isinstance(j.get("daily"), dict) else {}
+    _raw_daily = j.get("daily")
+    daily: dict = _raw_daily if isinstance(_raw_daily, dict) else {}
     times = daily.get("time") or []
     tmaxes = daily.get("temperature_2m_max") or []
     tmines = daily.get("temperature_2m_min") or []
@@ -18076,6 +18110,11 @@ async def api_local_login(
         if not password_ok:
             auth.rate_limit_record_failure(ip, username)
             raise HTTPException(status_code=401, detail="Invalid credentials")
+        # `password_ok` true implies `u is not None` (the `and u is not
+        # None` short-circuit above), but the type-checker doesn't carry
+        # that narrowing across the boolean expression. Explicit assert
+        # so every `u.<field>` access below is well-typed.
+        assert u is not None
         if u.disabled:
             # Password is verified correct; the user just can't log in.
             # Safe to disclose because we already proved the caller
@@ -18943,7 +18982,7 @@ async def api_me(request: Request):
             # `me.client_config.ai.active_provider` being non-empty.
             "ai": {
                 "enabled": get_setting_bool("ai_enabled", False),
-                "active_provider": (get_setting("ai_active_provider", "") or "").strip().lower(),
+                "active_provider": (get_setting("ai_active_provider") or "").strip().lower(),
                 "max_tokens": tuning.tuning_int(Tunable.AI_MAX_TOKENS),
                 # Canonical provider list — the SPA's `aiProviderNames`
                 # reads from this so adding a fifth provider is a
@@ -18980,11 +19019,11 @@ async def api_me(request: Request):
             # hasn't customised. Read once on /api/me and applied to the
             # provider chip via inline `:style` (--chip-bg/-br/-fg).
             "provider_colors": {
-                "beszel": get_setting("provider_color_beszel", "") or "",
-                "pulse": get_setting("provider_color_pulse", "") or "",
-                "node_exporter": get_setting("provider_color_node_exporter", "") or "",
-                "webmin": get_setting("provider_color_webmin", "") or "",
-                "ping": get_setting("provider_color_ping", "") or "",
+                "beszel": get_setting("provider_color_beszel") or "",
+                "pulse": get_setting("provider_color_pulse") or "",
+                "node_exporter": get_setting("provider_color_node_exporter") or "",
+                "webmin": get_setting("provider_color_webmin") or "",
+                "ping": get_setting("provider_color_ping") or "",
             },
             # Canonical SNMP vendor key set — single source of truth at
             # ``logic.snmp._VALID_VENDOR_KEYS``. Surfaced so the Admin →
@@ -19458,9 +19497,13 @@ async def api_upload_avatar(
     their previous avatar (no stale files left around).
     """
     form = await request.form()
-    file = form.get("file")
-    if file is None or not hasattr(file, "read"):
+    file_field = form.get("file")
+    # Starlette's `form.get` returns `UploadFile | str | None`. Narrow
+    # to UploadFile via duck-typing on `.read` so the type-checker
+    # accepts `.content_type` / `.read()` access below.
+    if file_field is None or isinstance(file_field, str) or not hasattr(file_field, "read"):
         raise HTTPException(status_code=400, detail="Field 'file' missing")
+    file = file_field  # type: ignore[assignment]  # narrowed to UploadFile via the isinstance + hasattr guard above
     ct = (file.content_type or "").lower()
     ext = _AVATAR_EXT.get(ct)
     if not ext:
@@ -20670,9 +20713,10 @@ async def api_restore_backup_upload(
 ):
     """Upload a zip file and restore from it. 200 MB cap."""
     form = await request.form()
-    file = form.get("file")
-    if file is None or not hasattr(file, "read"):
+    file_field = form.get("file")
+    if file_field is None or isinstance(file_field, str) or not hasattr(file_field, "read"):
         raise HTTPException(status_code=400, detail="Field 'file' missing")
+    file = file_field  # type: ignore[assignment]  # narrowed via isinstance + hasattr guard
     data = await file.read()
     if len(data) > backups.MAX_UPLOAD_BYTES:
         raise HTTPException(
@@ -21367,11 +21411,15 @@ _NPM_ALLOWED: Set[str] = {
 
 # FastAPI `{path:path}` route-converter accepts segments with slashes —
 # required so a request like `/node_modules/@xterm/xterm/lib/xterm.js`
-# binds the whole tail to `path`. Using the explicit FastAPI `Path(...)`
-# parameter declaration (instead of bare `path: str`) silences the
-# PyCharm / FastAPI-plugin inspector that otherwise flags the converter
-# syntax as a parameter mismatch.
-@app.get("/node_modules/{path:path}")
+# binds the whole tail to `path`. The `Path(...)` parameter declaration
+# below matches the converter name explicitly so FastAPI's resolver is
+# unambiguous. PyCharm's FastAPI inspector still raises a parameter-
+# mismatch warning on the `:path` literal — it's a known limitation of
+# the inspector (it reads `path:path` as a parameter name and can't see
+# the converter is a TYPE annotation, not a name); the inspector noqa
+# directive below silences it.
+# noinspection PyUnresolvedReferences
+@app.get("/node_modules/{path:path}")  # type: ignore[arg-type]
 async def api_node_modules(path: str = FastApiPath(...)):
     """Allowlist-gated static server for the 7 npm files the SPA actually
     uses. Everything else returns 404 — keeps the served surface tight.

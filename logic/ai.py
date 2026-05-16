@@ -1962,10 +1962,34 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 "Current time (server clock — answer naturally using this, do NOT refuse "
                 "'I don't have a real-time clock'): " + line + utc_seg
             )
+        # Authoritative fleet counts — both callers (SPA palette +
+        # Telegram listener) thread these so the AI doesn't answer
+        # "how many hosts" with the sample-block size. Operator-flagged:
+        # 183 hosts configured, AI replied "30" because that's all it
+        # could see in the sample. Emit BEFORE the sample block so the
+        # model reads the count before the records.
+        hosts_total = ctx.get("hosts_total")
+        hosts_enabled = ctx.get("hosts_enabled")
+        hosts_sample_cap = ctx.get("hosts_sample_cap") or 30
+        if isinstance(hosts_total, int) and hosts_total > 0:
+            enabled_seg = (f" ({hosts_enabled} enabled)"
+                           if isinstance(hosts_enabled, int) else "")
+            parts.append(
+                f"Fleet counts (AUTHORITATIVE — use these to answer 'how many "
+                f"hosts' / 'count' / 'total' questions, NOT the sample-records "
+                f"block below):\n"
+                f"  - hosts_total: {hosts_total}{enabled_seg}\n"
+                f"  - hosts shown below: capped at top {hosts_sample_cap} for "
+                f"prompt-token budget; the rest exist but aren't enumerated. "
+                f"NEVER answer 'we have N hosts' where N is the visible-sample "
+                f"size — always cite hosts_total."
+            )
         hosts = _typed_field(ctx, "hosts", list)
         if hosts:
             parts.append(_format_records_block(
-                "Available hosts",
+                "Available hosts (sample — top "
+                + str(hosts_sample_cap) + " of " + str(hosts_total or len(hosts))
+                + " total)",
                 "id, label, status, cpu_pct, mem_pct, disk_pct, "
                 "disk_free_gb, disk_total_gb, uptime_s, paused, providers",
                 hosts[:30],

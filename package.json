@@ -2,9 +2,14 @@
   "name": "omnigrid-vendor",
   "version": "1.1.0",
   "private": true,
-  "description": "Dev-only tooling. Manages the front-end dependencies (alpinejs, sweetalert2, @tailwindcss/browser). The server never runs npm — it just serves node_modules/ directly via FastAPI's StaticFiles mount at /node_modules/.",
+  "type": "module",
+  "description": "Dev-only tooling. Manages the front-end dependencies (alpinejs, sweetalert2, @tailwindcss/browser). The server never runs npm — it just serves node_modules/ directly via FastAPI's StaticFiles mount at /node_modules/. ESLint is a devDependency for static JS lint feedback (npm run lint). `type: module` lets eslint.config.js use ESM `import` syntax without Node's deprecation warning; the browser-served static JS files don't go through Node so this setting doesn't affect them.",
   "engines": {
     "node": ">=18"
+  },
+  "scripts": {
+    "lint": "eslint static/",
+    "lint:fix": "eslint static/ --fix"
   },
   "dependencies": {
     "@tailwindcss/browser": "*",
@@ -14,5 +19,10 @@
     "alpinejs": "^3.15.12",
     "qrcode-generator": "*",
     "sweetalert2": "*"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0"
   }
 }

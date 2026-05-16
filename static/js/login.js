@@ -99,8 +99,10 @@ function applyI18nDom() {
     // 4. As a final defence-in-depth, resolve the value against
     //    `location.origin` via the `URL` constructor and confirm the
     //    result still lives at the SAME origin — catches every
-    //    remaining edge case (e.g. `/​//evil.com` zero-width
-    //    tricks, IDN homographs, mixed-encoding nasties).
+    //    remaining edge case (e.g. zero-width-space injection
+    //    inside the leading slash like `/U+200B//evil.com` —
+    //    parses as a relative path until the browser strips the
+    //    invisible char, IDN homographs, mixed-encoding nasties).
     // Falls back to `/` (the SPA root) on any rejection.
     const raw = new URLSearchParams(location.search).get('next') || '/';
     if (!raw.startsWith('/')) return '/';
@@ -243,7 +245,7 @@ function applyI18nDom() {
   }
 
   function hideEl(el) { if (el) el.style.display = 'none'; }
-  function showEl(el) { if (el) el.style.display = ''; }
+  function _showEl(el) { if (el) el.style.display = ''; }
 
   // ----------------------------------------------------------------
   // WebAuthn / passkey helpers. The wire shape uses base64url
@@ -282,7 +284,7 @@ function applyI18nDom() {
     if (typeof s !== 'string' || s.length === 0) {
       throw new Error('WebAuthn: server sent empty / non-string credential id');
     }
-    if (!/^[A-Za-z0-9_\-]+$/.test(s)) {
+    if (!/^[A-Za-z0-9_-]+$/.test(s)) {
       throw new Error('WebAuthn: server sent malformed base64url credential id (charset)');
     }
     let padded = s.replace(/-/g, '+').replace(/_/g, '/');

@@ -285,6 +285,7 @@ window.__ogCopyAiCode = function (btn) {
   }
 };
 
+// eslint-disable-next-line no-unused-vars -- referenced from static/index.html via Alpine's `x-data="app"`; ESLint scans only this file and can't see the HTML usage.
 function app() {
   return {
     // i18n reactive state. `lang` is watched to trigger Alpine re-renders
@@ -316,7 +317,7 @@ function app() {
           this.persistUiLang(code);
         }
         this.showToast(this.t('toasts.language_changed') || 'Language changed');
-      } catch (e) {
+      } catch (_) {
         // Language fetch failed — surface a fallback message that doesn't
         // require the new dict to have loaded.
         this.showToast(this.t('toasts_extra.language_load_failed'), 'error');
@@ -493,7 +494,7 @@ function app() {
     search: '', statusFilter: '', healthFilter: '',
     sortField: 'name', sortDir: 'asc',
     selected: [],
-    expanded: (() => { try { return JSON.parse(localStorage.getItem('expanded') || '[]'); } catch (e) { return []; } })(),
+    expanded: (() => { try { return JSON.parse(localStorage.getItem('expanded') || '[]'); } catch (_) { return []; } })(),
     loading: false,
     // Background-refresh indicators. The /api/items + /api/hosts/list
     // endpoints serve cached / snapshot data instantly when warm and
@@ -1906,7 +1907,7 @@ function app() {
         // which gate is blocking without inspecting source. Bounded so
         // the log doesn't spam over hours of usage.
         let _idleDebugBudget = 5;
-        const _idleDebug = (reason, extra) => {
+        const _idleDebug = (_reason, _extra) => {
           if (_idleDebugBudget <= 0) return;
           _idleDebugBudget -= 1;
         };
@@ -4064,7 +4065,7 @@ function app() {
       if (!trimmed) return {};
       let parsed;
       try { parsed = JSON.parse(trimmed); }
-      catch (e) { throw new Error(this.t('admin.schedules.params_invalid_json')); }
+      catch (_) { throw new Error(this.t('admin.schedules.params_invalid_json')); }
       if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
         throw new Error(this.t('admin.schedules.params_must_be_object'));
       }
@@ -6195,7 +6196,7 @@ function app() {
         const d = await r.json();
         this.logFiles = Array.isArray(d.files) ? d.files : [];
         this.logFilesDir = d.log_dir || '';
-      } catch (e) {
+      } catch (_) {
         this.showToast(this.t('toasts.network_error'), 'error');
       }
     },
@@ -6341,7 +6342,7 @@ function app() {
           document.body.removeChild(ta);
         }
         this.showToast(this.t('admin.logs.copied', { n: lines.length }), 'success');
-      } catch (e) {
+      } catch (_) {
         this.showToast(this.t('admin.logs.copy_failed'), 'error');
       }
     },
@@ -6432,10 +6433,10 @@ function app() {
           .map(line => line.length >= minIndent ? line.slice(minIndent) : line)
           .join('\n');
       };
-      let withPlaceholders = text.replace(FENCE_RE, (_m, lang, body) => {
+      const withPlaceholders = text.replace(FENCE_RE, (_m, lang, body) => {
         const idx = blocks.length;
         blocks.push({ lang: (lang || '').toLowerCase(), body: dedentBody(body || '') });
-        return ' FENCED_CODE_BLOCK_' + idx + ' ';
+        return '\u0000FENCED_CODE_BLOCK_' + idx + '\u0000';
       });
       let s = this._logEscape(withPlaceholders);
       // Inline replacements first so they apply across line groupings.
@@ -6453,7 +6454,8 @@ function app() {
         // That keeps the block as its own visual unit when surrounded
         // by prose and prevents the trailing <br> from injecting an
         // extra blank line under the <pre>.
-        if (/^ FENCED_CODE_BLOCK_\d+ $/.test(line.trim())) {
+        // eslint-disable-next-line no-control-regex -- U+0000 is INTENTIONAL: invisible delimiter wrapping the FENCED_CODE_BLOCK marker so it can never collide with operator-typed markdown content.
+        if (/^\u0000FENCED_CODE_BLOCK_\d+\u0000$/.test(line.trim())) {
           closeList();
           parts.push(line.trim());
           continue;
@@ -6487,7 +6489,8 @@ function app() {
       // entities. data-code is JSON-encoded then HTML-escaped to
       // survive the attribute parser; the copy handler reads via
       // dataset and JSON.parse.
-      html = html.replace(/ FENCED_CODE_BLOCK_(\d+) /g, (_m, idxStr) => {
+      // eslint-disable-next-line no-control-regex -- see FENCED_CODE_BLOCK delimiter comment above (~line 6456).
+      html = html.replace(/\u0000FENCED_CODE_BLOCK_(\d+)\u0000/g, (_m, idxStr) => {
         const idx = parseInt(idxStr, 10);
         const blk = blocks[idx];
         if (!blk) return '';
@@ -6541,7 +6544,7 @@ function app() {
       // Replace [xxx] at the start of (or inside) the line. Allow
       // underscores / hyphens / colons for tag names like
       // [host_net_sampler] and the [hosts:bulk] sub-tag family.
-      const withTags = esc.replace(/\[([a-z][a-z0-9_.:\-]*?)\]/gi, (_m, tag) => {
+      const withTags = esc.replace(/\[([a-z][a-z0-9_.:-]*?)\]/gi, (_m, tag) => {
         const key = tag.toLowerCase();
         // Colons in tag names map to hyphens in the CSS class so
         // selectors stay simple (no escape required for `:`).
@@ -7407,10 +7410,10 @@ function app() {
         .replace(/dd/g, '')
         .replace(/(?<![A-Za-z])d(?![A-Za-z])/g, '');
       timePart = timePart
-        .replace(/[,;:\s\/\-]+$/g, '')
-        .replace(/^[,;:\s\/\-]+/g, '')
+        .replace(/[,;:\s/-]+$/g, '')
+        .replace(/^[,;:\s/-]+/g, '')
         .replace(/\s{2,}/g, ' ')
-        .replace(/[\/\-]\s*[\/\-]/g, '')
+        .replace(/[/-]\s*[/-]/g, '')
         .trim();
       this.currentClock = this._applyDateTimeFormat(now, timePart || 'HH:mm');
     },
@@ -7734,7 +7737,7 @@ function app() {
             this.newVersionString = this.version;
           }
         }
-      } catch (e) {}
+      } catch (_) {}
     },
     // Start a 60s poll of /api/version so a deploy that lands while
     // the operator has the tab open triggers a hard-refresh banner.
@@ -8655,7 +8658,7 @@ function app() {
           this._oidcLastPassedTest = probedSnapshot;
           this.recordTestSuccess('oidc');
         }
-      } catch (e) {
+      } catch (_) {
         this.oidcTestResult = { ok: false, status: 0, detail: this.t('toasts.network_error') };
       }
     },
@@ -8793,7 +8796,7 @@ function app() {
           this._portainerLastPassedTest = probedSnapshot;
           this.recordTestSuccess('portainer');
         }
-      } catch (e) {
+      } catch (_) {
         this.portainerTestResult = { ok: false, status: 0, detail: this.t('toasts.network_error') };
       }
     },
@@ -8957,7 +8960,7 @@ function app() {
       try {
         await navigator.clipboard.writeText(this.telegramLinkCode || '');
         this.showToast(this.t('toasts.copied') || 'Copied', 'success');
-      } catch (e) {
+      } catch (_) {
         this.showToast(this.t('toasts.copy_failed') || 'Copy failed', 'error');
       }
     },
@@ -9047,7 +9050,7 @@ function app() {
           status: j.status || 0,
         };
         if (j && j.ok) this.recordTestSuccess('telegram');
-      } catch (e) {
+      } catch (_) {
         this.telegramTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
@@ -9076,7 +9079,7 @@ function app() {
           systems: j.systems || [],
         };
         if (j && j.ok) this.recordTestSuccess('beszel');
-      } catch (e) {
+      } catch (_) {
         this.beszelTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
@@ -9102,7 +9105,7 @@ function app() {
           nodes: j.nodes || [],
         };
         if (j && j.ok) this.recordTestSuccess('pulse');
-      } catch (e) {
+      } catch (_) {
         this.pulseTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
@@ -9134,7 +9137,7 @@ function app() {
           detail: j.detail || this.t(j.ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
         };
         if (j && j.ok) this.recordTestSuccess('webmin');
-      } catch (e) {
+      } catch (_) {
         this.webminTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
@@ -9158,7 +9161,7 @@ function app() {
         } else {
           this.showToast(j.detail || this.t('toasts_extra.test_result_failed'), 'error');
         }
-      } catch (e) {
+      } catch (_) {
         this.showToast(this.t('toasts.network_error'), 'error');
       }
     },
@@ -9177,7 +9180,7 @@ function app() {
         } else {
           this.showToast(j.detail || this.t('toasts_extra.test_result_failed'), 'error');
         }
-      } catch (e) {
+      } catch (_) {
         this.showToast(this.t('toasts.network_error'), 'error');
       }
     },
@@ -9227,7 +9230,7 @@ function app() {
             });
         this.pingTestResult = { pending: false, ok: !!j.ok, detail };
         if (j && j.ok) this.recordTestSuccess('ping');
-      } catch (e) {
+      } catch (_) {
         this.pingTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
@@ -9305,7 +9308,7 @@ function app() {
           detail: j.detail || (j.ok ? 'OK' : this.t('toasts.save_failed')),
         };
         if (j && j.ok) this.recordTestSuccess('snmp');
-      } catch (e) {
+      } catch (_) {
         this.snmpTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
@@ -10398,7 +10401,7 @@ function app() {
       try {
         baseEvents = (JSON.parse(this._profileBaseline || '{}').notify_events) || {};
       } catch { return false; }
-      const currentEvents = (this.profileForm && this.profileForm.notify_events) || {};
+      const _currentEvents = (this.profileForm && this.profileForm.notify_events) || {};
       for (const r of rows) {
         if (this.userNotifyEventDisabledByAdmin(r.key)) continue;
         // Resolve current value via the same helper the chip's state
@@ -11552,7 +11555,7 @@ function app() {
           ? 'admin_integrations.toggle_enabled_toast'
           : 'admin_integrations.toggle_disabled_toast';
         this.showToast(this.t(stateKey, { name }), 'success');
-      } catch (e) {
+      } catch (_) {
         // Roll the in-memory toggle back so UI matches server state.
         this.settings[key] = !value;
         this.showToast(this.t('toasts_extra.save_failed_generic'), 'error');
@@ -11598,7 +11601,7 @@ function app() {
         } else {
           this.showToast(this.t('toasts.test_notification_failed'), 'error');
         }
-      } catch (e) {
+      } catch (_) {
         this.notifyTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
         this.showToast(this.t('toasts.test_notification_failed'), 'error');
       }
@@ -12122,7 +12125,7 @@ function app() {
       // show the actual ports (chip strip in the host drawer shows
       // only the LATEST scan; this fetch lets the operator see a
       // historical scan's open-port set without time-travel).
-      let portsHtml = '<div class="swal-events"><span class="text-[var(--text-faint)]">' +
+      const portsHtml = '<div class="swal-events"><span class="text-[var(--text-faint)]">' +
                       esc(this.t('history.port_scan.loading_ports') || 'Loading open ports…') + '</span></div>';
       const containerId = 'port-scan-history-ports-' + (scanId || h.id || 'na');
       Swal.fire({
@@ -12688,7 +12691,7 @@ function app() {
             Promise.all([this.refresh(true), this.loadHistory()])
               .finally(() => holdKeys.forEach(k => this._clearBusy(k)));
           }
-        } catch (e) {}
+        } catch (_) {}
         // Cadence is operator-tunable via Admin → Config →
         // tuning_ops_poll_interval_seconds. Backend
         // multiplies × 1000 before delivery as
@@ -13967,28 +13970,22 @@ function app() {
       // the cross-browser source of truth; localStorage is the
       // per-browser fast-path. Best-effort: a thrown SecurityError
       // (private mode / quota) just falls back to DB-only persistence.
-      let localStorageOk = false;
       try {
         if (typeof localStorage !== 'undefined') {
           const key = 'aiConversation:' + meId;
           localStorage.setItem(key, JSON.stringify(turns));
-          localStorageOk = true;
         }
       } catch (e) {
         if (window.console && console.warn) {
           console.warn('[ai-conv] localStorage write failed:', e);
         }
       }
-      let dbOk = false;
-      let dbStatus = 0;
       try {
         const r = await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prefs: { ai_conversation: turns } }),
         });
-        dbStatus = r.status;
-        dbOk = r.ok;
         if (!r.ok && window.console && console.warn) {
           const txt = await r.text().catch(() => '');
           console.warn('[ai-conv] persist to DB returned ' + r.status, txt.slice(0, 200));
@@ -14819,7 +14816,7 @@ function app() {
       this.aiRange = hours;
       this.loadAiDashboard(true);
     },
-    async loadAiDashboard(force) {
+    async loadAiDashboard(_force) {
       if (this.aiDashboardLoading) return;
       this.aiDashboardLoading = true;
       try {
@@ -16159,7 +16156,7 @@ function app() {
       let i = 0;
       let m = Math.max(0, +refMax || 0);
       while (m >= 1024 && i < u.length - 1) { m /= 1024; i++; }
-      let v = (+n || 0) / Math.pow(1024, i);
+      const v = (+n || 0) / Math.pow(1024, i);
       if (v <= 0 && (+n || 0) === 0) return '0 ' + u[i];
       return (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + ' ' + u[i];
     },
@@ -20219,7 +20216,16 @@ function app() {
         if (i.update_available) out.update_available = true;
         return out;
       };
-      const hostsCtx = (this.hosts || []).slice(0, 30).map(fmtHost).filter(h => h.id);
+      const allHosts = Array.isArray(this.hosts) ? this.hosts : [];
+      const hostsCtx = allHosts.slice(0, 30).map(fmtHost).filter(h => h.id);
+      // Authoritative counts — the AI must answer "how many hosts" from
+      // these, NOT from `hosts.length` (which it sees as the SAMPLE
+      // cap of 30). Operator-flagged: with 183 configured hosts the
+      // AI replied "30 hosts" because that's all it could see in the
+      // sample block. Pass total + enabled separately so the prompt-
+      // builder can teach the AI to cite these for count questions.
+      const hostsTotal = allHosts.length;
+      const hostsEnabled = allHosts.filter(h => h && h.enabled !== false).length;
       // Items cap raised from 30 → 60. On a home-lab fleet with 40+
       // containers and stacks the bare 30-cap silently dropped half
       // the items off the end of the alphabetical-ish slice, so the
@@ -20276,7 +20282,12 @@ function app() {
       const ctx = {
         view:  this.view || '',
         hosts: hostsCtx,
+        hosts_total: hostsTotal,
+        hosts_enabled: hostsEnabled,
+        hosts_sample_cap: 30,
         items: itemsCtx,
+        items_total: (Array.isArray(this.items) ? this.items.length : 0),
+        items_sample_cap: 60,
       };
       if (weatherCtx) ctx.weather = weatherCtx;
       // Current time context. Mirrors the Telegram listener's `time`
@@ -21503,7 +21514,7 @@ function app() {
       const confLabel = t('command_palette.ai.disk_chart.confidence_' + confidence,
         confidence === 'high' ? 'High Confidence'
         : confidence === 'medium' ? 'Medium Confidence' : 'Low Confidence');
-      let summaryParts = [];
+      const summaryParts = [];
       if (currentPct !== null) {
         const freeStr = (cur.total_bytes && cur.used_bytes !== undefined)
           ? esc(fmtBytes(cur.total_bytes - cur.used_bytes) + ' free of ' + fmtBytes(cur.total_bytes))
@@ -22666,9 +22677,6 @@ function app() {
       // design.
       this.hostsConfigExpanded = {};
     },
-    collapseAllHostConfigRows() {
-      this.hostsConfigExpanded = {};
-    },
     // DISKS card — toggle the "show zero-usage mounts" state. Keyed
     // by host.host so each host's toggle is independent.
     toggleHostShowEmptyDisks(hostKey) {
@@ -22933,7 +22941,7 @@ function app() {
     // and the Label is still blank, mirror the ID into Label so they
     // don't have to type it twice. Respects any Label they later
     // type — once it's populated, it stays.
-    onHostRowEdit(idx, field, value) {
+    onHostRowEdit(idx, field, _value) {
       this.markHostRowDirty(idx);
       const row = this.hostsConfig[idx];
       if (!row) return;
@@ -25356,7 +25364,7 @@ function app() {
           this._assetLastPassedTest = probedSnapshot;
           this.recordTestSuccess('asset_inventory');
         }
-      } catch (e) {
+      } catch (_) {
         this.assetTestResult = { ok: false, detail: this.t('toasts.network_error') };
       }
     },
@@ -25594,7 +25602,7 @@ function app() {
         const aid = String(a.id || a.type || '');
         if (!this._loggedMissingTypeShort.has(aid)) {
           this._loggedMissingTypeShort.add(aid);
-          // eslint-disable-next-line no-console
+           
           console.info(
             '[asset] type has no recognised short-name field; available keys:',
             Object.keys(a._raw.Type || {}),
@@ -29382,7 +29390,7 @@ function app() {
       const times = series.map(p => p.ts);
       return this._snmpPathGapped(vals, 100, { times });
     },
-    snmpLoadMax(hostId) {
+    snmpLoadMax(_hostId) {
       // Always 100 % now — chart Y-axis stays fixed so a busy machine
       // doesn't auto-rescale every tick.
       return 100;
@@ -29963,7 +29971,7 @@ function app() {
           return;
         }
         const d = await r.json();
-        let next = Array.isArray(d.series) ? d.series : [];
+        const next = Array.isArray(d.series) ? d.series : [];
         // Enrich the latest series point with live merged stats for
         // `temps` / `gpus` / `temp_max` / `gpu_pwr` / `gpu_usage` /
         // `gpu_vram_pct` when the host has live data but the persisted
@@ -31641,7 +31649,7 @@ function app() {
       this.loadHostTimeline(id, true);
       this.loadHostTriage(id);
     },
-    async loadHostTimeline(hostId, force) {
+    async loadHostTimeline(hostId, _force) {
       const id = (hostId || '').toString();
       if (!id) return;
       const hours = this.hostTimelineRange[id] || 168;
@@ -32212,7 +32220,7 @@ function app() {
         this.drawerNodeSaving = false;
       }
     },
-    parseEvents(j) { try { return JSON.parse(j || '[]'); } catch (e) { return []; } },
+    parseEvents(j) { try { return JSON.parse(j || '[]'); } catch (_) { return []; } },
     // formatTime + formatTimeShort are kept for backwards compatibility
     // with any template bindings — both now delegate to the unified
     // fmt* helpers so every date in the UI renders in dd/mm/yyyy format.
@@ -32280,7 +32288,7 @@ function app() {
       // literals are extracted first to a placeholder so token-replace
       // doesn't see their content.
       const literals = [];
-      let work = String(fmt || this.DEFAULT_DATETIME_FORMAT)
+      const work = String(fmt || this.DEFAULT_DATETIME_FORMAT)
         .replace(/'([^']*)'/g, (_, lit) => {
           literals.push(lit);
           return `\x00${literals.length - 1}\x00`;
@@ -32821,7 +32829,7 @@ function app() {
           return;
         }
         el.outerHTML = html;
-      } catch (e) {
+      } catch (_) {
         // Silent — placeholder removed so popup doesn't carry a
         // stuck spinner. Operator still gets the actual update path.
         const el = document.getElementById(this._RELEASE_NOTES_ASYNC_ID);
@@ -33290,7 +33298,7 @@ function app() {
       // backend dispatch, toast, and popover-close on success.
       try {
         await this.submitRetagPopover(item);
-      } catch (e) {
+      } catch (_) {
         // submitRetagPopover already toasts on its own failure path;
         // this catch is defence-in-depth so a thrown error doesn't
         // leave the popover state stuck open.
@@ -33442,7 +33450,7 @@ function app() {
           const r = await fetch(url, { method: 'POST' });
           if (r.ok) okCount++;
           else { fail++; this._clearBusy(key); }
-        } catch (e) { fail++; this._clearBusy(key); }
+        } catch (_) { fail++; this._clearBusy(key); }
       }
       this.selected = [];
       this.pollOpsNow();
@@ -33528,7 +33536,7 @@ function app() {
           const r = await fetch(url, { method: 'POST' });
           if (r.ok) okCount++;
           else { fail++; this._clearBusy(key); }
-        } catch (e) { fail++; this._clearBusy(key); }
+        } catch (_) { fail++; this._clearBusy(key); }
       }
       if (clearSelection) this.selected = [];
       this.pollOpsNow();
@@ -33579,7 +33587,7 @@ function app() {
           const r = await fetch(`/api/remove/container/${i.raw_id}`, { method: 'POST' });
           if (r.ok) okCount++;
           else { fail++; this._clearBusy(key); }
-        } catch (e) { fail++; this._clearBusy(key); }
+        } catch (_) { fail++; this._clearBusy(key); }
       }
       if (clearSelection) this.selected = [];
       this.pollOpsNow();
