@@ -4131,7 +4131,12 @@
     "fetch_timeout_label": "Fetch timeout (seconds)",
     "fetch_timeout_help": "Outbound HTTP wall-clock for the ifconfig.co request. Raise on slow links / proxy paths. Range 2..60.",
     "test_button": "Test lookup",
-    "test_result_label": "Last lookup"
+    "testing": "Testing…",
+    "test_disabled_hint": "Public-IP lookup is disabled — enable + Save first, then re-test.",
+    "test_result_label": "Last lookup",
+    "tunables_heading": "Tunables",
+    "tunables_intro": "In-process cache TTL + outbound HTTP wall-clock. Per-call reads so an edit takes effect on the next lookup without restart.",
+    "saving": "Saving…"
   },
   "hosts_extra_ssh": {
     "card_title": "SSH",
