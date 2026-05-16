@@ -8352,6 +8352,20 @@ function app() {
         for (const k of (this.notifyMediumKeys || [])) {
           this.settings[k] = (d[k] !== false);
         }
+        // Telegram-specific fields. Plain settings (chat_id / thread_id
+        // / verify_tls) hydrate directly; the bot token follows the
+        // write-only secret contract — `telegram_bot_token` stays
+        // empty in the form, the `_set` flag drives the "saved" hint
+        // + placeholder copy. Without this hydration the snapshot's
+        // chat_id / thread_id would read undefined on first paint and
+        // any operator edit would flip dirty against a phantom
+        // baseline (and the operator's actual saved values wouldn't
+        // appear in the input boxes).
+        this.settings.telegram_bot_token     = '';
+        this.settings.telegram_bot_token_set = !!d.telegram_bot_token_set;
+        this.settings.telegram_chat_id       = (d.telegram_chat_id || '').toString();
+        this.settings.telegram_thread_id     = (d.telegram_thread_id || '').toString();
+        this.settings.telegram_verify_tls    = (d.telegram_verify_tls !== false);
         // TOTP / 2FA policy. Hydrate the five fields so the
         // Admin -> Config tab can render the inputs + the existing
         // saveSettings flow can ship the values back.
@@ -9955,6 +9969,7 @@ function app() {
     notifyMediumKeys: [
       'notify_medium_app',
       'notify_medium_apprise',
+      'notify_medium_telegram',
     ],
     // Group rows for the events grid — label key + (success_key,
     // failure_key) pair. Drives the markup render so the table stays
@@ -10340,6 +10355,23 @@ function app() {
         page_size: (tf.tuning_notification_page_size ?? '').toString(),
         poll_seconds: (tf.tuning_notifications_poll_interval_seconds ?? '').toString(),
       };
+      // Telegram tab state. Bot token is write-only — any non-empty
+      // value in the in-form input flags dirty (operator typed a new
+      // secret); the saved-state baseline shows `<set>` when a token
+      // already exists in DB. Chat / thread IDs and Verify TLS are
+      // plain settings the operator can edit freely.
+      const telegram = {
+        chat_id:    (s.telegram_chat_id || '').trim(),
+        thread_id:  (s.telegram_thread_id || '').trim(),
+        verify_tls: !!s.telegram_verify_tls,
+        // Pending secret: any operator-typed value in the in-form
+        // input is dirty. The DB-saved baseline never carries the raw
+        // token (write-only), only the _set flag — so an empty form
+        // field with a previously-saved token is NOT dirty (snapshot
+        // emits empty); a non-empty form field IS dirty (snapshot
+        // emits a marker that won't match the empty baseline).
+        token_pending: (s.telegram_bot_token || '').trim() ? '<pending>' : '',
+      };
       return JSON.stringify({
         enabled: !!s.apprise_enabled,
         url:     s.apprise_url || '',
@@ -10347,6 +10379,7 @@ function app() {
         events,
         mediums,
         notifTunables,
+        telegram,
       });
     },
     appriseDirty()   { return this._appriseBaseline   !== this._appriseSnapshot(); },
