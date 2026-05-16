@@ -24,19 +24,22 @@
              role="tablist" aria-orientation="horizontal"
              :aria-label="t('admin.notifications.tabs_label')">
           <template x-for="tab in [
-                     ['app',      t('admin.notifications.tab_app')],
-                     ['apprise',  t('admin.notifications.tab_apprise')],
-                     ['telegram', t('admin.notifications.tab_telegram')],
+                     ['app',      t('admin.notifications.tab_app'),      'icon-bell'],
+                     ['apprise',  t('admin.notifications.tab_apprise'),  'icon-arrow-up-right'],
+                     ['telegram', t('admin.notifications.tab_telegram'), 'icon-message-circle'],
                    ]" :key="tab[0]">
             <button type="button"
                     role="tab"
                     :aria-selected="notificationsTab === tab[0]"
                     :tabindex="notificationsTab === tab[0] ? 0 : -1"
                     @click="setNotificationsTab(tab[0])"
-                    class="px-3 py-1.5 rounded fs-xs font-medium"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded fs-xs font-medium"
                     :class="notificationsTab === tab[0]
                             ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
                             : 'text-[var(--text-dim)] hover:bg-[var(--surface-2)]'">
+              <svg width="12" height="12" aria-hidden="true">
+                <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + tab[2]"/>
+              </svg>
               <span x-text="tab[1]"></span>
             </button>
           </template>
@@ -187,13 +190,19 @@
                        : (telegramTestResult ? ((telegramTestResult.ok ? '✓ ' : '✗ ') + (telegramTestResult.detail || '')) : '')"></div>
         </div>
 
-        <!-- Per-event toggles. Same Save button as the Apprise
-             panel above — every event toggle joins the Apprise dirty
-             snapshot so a single Save POST covers everything in this
-             tab. The /api/notify-test endpoint always sends, so a
-             test fires regardless of these checkboxes. -->
-        <div class="mt-6 pt-4 border-t border-[var(--border)]">
-          <h4 class="font-semibold fs-sm mb-1" x-text="t('admin.notifications.events.title')"></h4>
+        <!-- Per-event toggles. Wrapped in a distinct surface-2 box
+             so users see it's a SEPARATE section from the provider
+             tabs above (channel configuration vs event-routing
+             configuration). Same Save button as the Apprise panel —
+             every event toggle joins the Apprise dirty snapshot so a
+             single Save POST covers everything in this admin tab. The
+             /api/notify-test endpoint always sends, so a test fires
+             regardless of these checkboxes. -->
+        <div class="mt-6 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-4">
+          <div class="flex items-center gap-2 mb-1">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-list"/></svg>
+            <h4 class="font-semibold fs-sm" x-text="t('admin.notifications.events.title')"></h4>
+          </div>
           <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.notifications.events.subtitle')"></p>
 
           <!-- Categorised event toggles — same `notifyCategories()`
