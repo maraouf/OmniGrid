@@ -136,6 +136,75 @@ def _format_message(title: str, body: str, severity: str) -> str:
     return head
 
 
+def _parse_chat_id_csv(raw: str) -> list[str]:
+    """Parse the `telegram_chat_id` setting into an ordered list of
+    chat IDs. Mirrors :func:`logic.telegram_listener._parse_chat_id_csv`
+    (kept here as a sibling helper so this module imports nothing from
+    the listener — they share the same CSV contract but no code)."""
+    if not raw:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for piece in raw.split(","):
+        s = piece.strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+async def _send_one(
+    *,
+    client: httpx.AsyncClient,
+    token: str,
+    chat: str,
+    text: str,
+    thread: str,
+    event: str,
+) -> dict:
+    """POST a single sendMessage to one chat. Internal helper used by
+    :func:`send`'s fan-out loop. Returns the canonical `{ok, detail,
+    status}` shape per attempt."""
+    payload: dict = {
+        "chat_id": chat,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    if thread:
+        try:
+            payload["message_thread_id"] = int(thread)
+        except (TypeError, ValueError):
+            pass
+    url = f"{_telegram_api_base()}/bot{token}/sendMessage"
+    try:
+        r = await client.post(url, json=payload)
+        if r.status_code == 200:
+            try:
+                j = r.json()
+                if isinstance(j, dict) and j.get("ok"):
+                    print(f"[notify] telegram ok event={event!r} chat={chat}")
+                    return {"ok": True, "detail": "sent", "status": 200}
+                detail = (j.get("description") if isinstance(j, dict) else "") or "telegram returned ok=false"
+                print(f"[notify] telegram failed event={event!r} chat={chat}: {detail}")
+                return {"ok": False, "detail": f"telegram chat {chat}: {detail}", "status": 200}
+            except (ValueError, TypeError):
+                print(f"[notify] telegram ok-but-not-json event={event!r} chat={chat}")
+                return {"ok": True, "detail": "sent (non-JSON body)", "status": 200}
+        try:
+            j = r.json()
+            detail = (j.get("description") if isinstance(j, dict) else "") or f"HTTP {r.status_code}"
+        except (ValueError, TypeError):
+            detail = f"HTTP {r.status_code}"
+        print(f"[notify] telegram failed event={event!r} chat={chat}: {detail}")
+        return {"ok": False, "detail": f"telegram chat {chat}: {detail}", "status": r.status_code}
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001 — log + drop
+        print(f"[notify] telegram exception event={event!r} chat={chat}: {e}")
+        return {"ok": False, "detail": f"telegram chat {chat}: {e}", "status": 0}
+
+
 async def send(
     *,
     title: str,
@@ -152,77 +221,68 @@ async def send(
     chat_id: Optional[str] = None,
     thread_id: Optional[str] = None,
 ) -> dict:
-    """Send one Telegram message via the Bot API.
+    """Send one Telegram message via the Bot API — fans out to every
+    chat in the `telegram_chat_id` CSV (#0221) so a deploy serving
+    both a group AND 1:1 DMs delivers notifications to every audience.
 
     Returns ``{"ok": bool, "detail": str, "status": int}`` matching the
-    shape every other medium uses. Never raises.
+    shape every other medium uses. Aggregate semantics: ``ok=True`` if
+    AT LEAST ONE chat accepted the message (partial-success is still
+    useful — the operator-visible detail string names which chats
+    failed). Never raises.
     """
     # Lazy import — keeps module import cheap when Telegram isn't used.
     from logic.db import get_setting
 
     token = (bot_token or get_setting(Settings.TELEGRAM_BOT_TOKEN, "") or "").strip()
-    chat = (chat_id or get_setting(Settings.TELEGRAM_CHAT_ID, "") or "").strip()
+    raw_chat = (chat_id or get_setting(Settings.TELEGRAM_CHAT_ID, "") or "").strip()
     thread = (thread_id or get_setting(Settings.TELEGRAM_THREAD_ID, "") or "").strip()
     verify_tls = (get_setting(Settings.TELEGRAM_VERIFY_TLS, "true") or "true").strip().lower() != "false"
 
     if not token:
         return {"ok": False, "detail": "telegram: bot token not configured", "status": 0}
-    if not chat:
+    chats = _parse_chat_id_csv(raw_chat)
+    if not chats:
         return {"ok": False, "detail": "telegram: chat id not configured", "status": 0}
 
     text = _format_message(title, body, severity)
-    payload: dict = {
-        "chat_id": chat,
-        "text": text,
-        "parse_mode": "HTML",
-        # Don't preview link URLs in the message body — the rendered
-        # notification stays compact in mobile clients.
-        "disable_web_page_preview": True,
-    }
-    if thread:
-        # Telegram expects the thread id as an int; tolerate a stringy
-        # setting value here. Invalid (non-int) thread ids silently
-        # downgrade to "post to the supergroup root" rather than failing
-        # the send.
-        try:
-            payload["message_thread_id"] = int(thread)
-        except (TypeError, ValueError):
-            pass
-
-    url = f"{_telegram_api_base()}/bot{token}/sendMessage"
+    # Fan-out to every configured chat. Each chat gets its own POST;
+    # aggregate result is ok=True if any one succeeded. Sequential send
+    # keeps the order predictable for log readers — fan-out volume is
+    # typically 1-3 chats per notification, so parallel overhead would
+    # buy nothing.
     try:
         async with httpx.AsyncClient(verify=verify_tls, timeout=15.0) as client:
-            r = await client.post(url, json=payload)
-        if r.status_code == 200:
-            try:
-                j = r.json()
-                if isinstance(j, dict) and j.get("ok"):
-                    print(f"[notify] telegram ok event={event!r} severity={severity}")
-                    return {"ok": True, "detail": "sent", "status": 200}
-                detail = (j.get("description") if isinstance(j, dict) else "") or "telegram returned ok=false"
-                print(f"[notify] telegram failed event={event!r}: {detail}")
-                return {"ok": False, "detail": f"telegram: {detail}", "status": 200}
-            except (ValueError, TypeError):
-                # Body wasn't JSON — Telegram returned HTTP 200 with an
-                # unexpected body. Treat as success but log the oddity.
-                print(f"[notify] telegram ok-but-not-json event={event!r}")
-                return {"ok": True, "detail": "sent (non-JSON body)", "status": 200}
-        # Non-200: pull Telegram's structured error if present.
-        try:
-            j = r.json()
-            detail = (j.get("description") if isinstance(j, dict) else "") or f"HTTP {r.status_code}"
-        except (ValueError, TypeError):
-            detail = f"HTTP {r.status_code}"
-        # 401 / 404 typically mean a bad token; 400 means a bad chat_id
-        # or thread_id; 403 means the bot was kicked from the chat. All
-        # of those are operator-fixable in Admin → Notifications.
-        print(f"[notify] telegram failed event={event!r}: {detail}")
-        return {"ok": False, "detail": f"telegram: {detail}", "status": r.status_code}
+            results = []
+            for chat in chats:
+                results.append(await _send_one(
+                    client=client, token=token, chat=chat,
+                    text=text, thread=thread, event=event,
+                ))
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e:  # noqa: BLE001 — log + drop
-        print(f"[notify] telegram exception event={event!r}: {e}")
-        return {"ok": False, "detail": f"telegram: {e}", "status": 0}
+
+    ok_count = sum(1 for r in results if r.get("ok"))
+    fail_count = len(results) - ok_count
+    if ok_count == len(results):
+        return {"ok": True, "detail": f"sent to {ok_count} chat(s)", "status": 200}
+    if ok_count == 0:
+        # Every chat failed — return the first failure's detail + status
+        # so the operator sees a concrete error in the toast.
+        first_fail = next(r for r in results if not r.get("ok"))
+        return {
+            "ok": False,
+            "detail": f"telegram: all {fail_count} chat(s) failed; first: {first_fail.get('detail', '')}",
+            "status": first_fail.get("status", 0),
+        }
+    # Partial success — flag ok=True but summarise the failed chats so
+    # the operator can fix them in Admin → Notifications.
+    failed_details = "; ".join(r.get("detail", "") for r in results if not r.get("ok"))
+    return {
+        "ok": True,
+        "detail": f"sent to {ok_count}/{len(results)} chat(s); failed: {failed_details}",
+        "status": 200,
+    }
 
 
 async def probe(

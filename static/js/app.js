@@ -1026,6 +1026,11 @@ function app() {
     pulseTestResult: null,
     webminTestResult: null,
     telegramTestResult: null,
+    // Per-channel Apprise test result chip (#0223 — pre-fix there
+    // was only the shared `notifyTestResult` driving both channels;
+    // each channel now has its own inline chip via the dedicated
+    // /api/apprise/test endpoint).
+    appriseTestResult: null,
     // Notifications page-level Save-row test result. `testNotify`
     // populates this from POST /api/notify-test response. Drives the
     // result chip below the Save row + Test-before-Save gate via
@@ -9340,16 +9345,31 @@ function app() {
     // dummy notification through every enabled medium and returns
     // per-medium ok / detail.
     async testApprise() {
+      // Per-channel Apprise probe (#0223) — fires ONLY the Apprise
+      // medium via the dedicated /api/apprise/test endpoint. Inline
+      // result chip via `appriseTestResult` mirrors the canonical
+      // Test pattern (Portainer / Beszel / Pulse / Webmin / Telegram).
+      // Snapshot captured BEFORE the request so any edit between Test
+      // and Save still re-locks Save through `canSaveApprise`.
+      this.appriseTestResult = { pending: true };
+      const appriseSnap = this._appriseTestSnapshot();
       try {
-        const r = await fetch('/api/notify-test', { method: 'POST' });
+        const r = await fetch('/api/apprise/test', { method: 'POST' });
         const j = await r.json().catch(() => ({}));
-        if (r.ok) {
-          this.showToast(j.detail || this.t('toasts_extra.test_result_ok'), 'success');
-        } else {
-          this.showToast(j.detail || this.t('toasts_extra.test_result_failed'), 'error');
+        const ok = r.ok && !!j.ok;
+        this.appriseTestResult = {
+          pending: false,
+          ok,
+          detail: j.detail || this.t(ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
+          status: j.status || 0,
+          _ts: Date.now(),
+        };
+        if (ok) {
+          this._appriseLastPassedTest = appriseSnap;
+          this.recordTestSuccess('apprise');
         }
       } catch (_) {
-        this.showToast(this.t('toasts.network_error'), 'error');
+        this.appriseTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error'), _ts: Date.now() };
       }
     },
 
@@ -11759,7 +11779,7 @@ function app() {
         } catch (_) {
           detail = ok ? 'Test notification fired' : 'Test failed';
         }
-        this.notifyTestResult = { pending: false, ok, detail };
+        this.notifyTestResult = { pending: false, ok, detail, _ts: Date.now() };
         if (ok) {
           // Stamp per-medium snapshots so Save unlocks. Each medium
           // independently — toggling apprise_enabled mid-test won't
@@ -11772,12 +11792,15 @@ function app() {
             this._telegramLastPassedTest = telegramSnap;
             this.recordTestSuccess('telegram');
           }
+          // Clear any stale Save chip so the merged box shows the
+          // fresh Test outcome instead of the previous Save success.
+          this.providersSaveResult = null;
           this.showToast(this.t('toasts.test_notification_sent'));
         } else {
           this.showToast(this.t('toasts.test_notification_failed'), 'error');
         }
       } catch (_) {
-        this.notifyTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
+        this.notifyTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error'), _ts: Date.now() };
         this.showToast(this.t('toasts.test_notification_failed'), 'error');
       }
     },
@@ -11945,11 +11968,17 @@ function app() {
         this.providersSaveResult = {
           ok: true,
           detail: this.t('admin.notifications.providers_save_success') || 'Channels saved',
+          _ts: Date.now(),
         };
+        // Clear the stale Test chip so the merged-box helper renders
+        // ONLY the fresh Save success (operator-flagged #0222: stacked
+        // Test+Save chips read as redundant on the happy path).
+        this.notifyTestResult = null;
       } catch (e) {
         this.providersSaveResult = {
           ok: false,
           detail: String(e && e.message ? e.message : e),
+          _ts: Date.now(),
         };
       } finally {
         this.settingsSaving = false;

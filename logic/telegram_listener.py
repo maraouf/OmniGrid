@@ -150,11 +150,81 @@ def _telegram_http_timeout() -> int:
 
 
 def _resolved_token_and_chat() -> tuple[str, str]:
-    """Pull bot-token + destination chat-id from the settings store."""
+    """Pull bot-token + PRIMARY destination chat-id from the settings
+    store. The "primary" chat is the FIRST entry in the CSV (`telegram_chat_id`
+    accepts a comma-separated list as of #0221 — see :func:`_authorized_chat_ids`
+    for the full set). Outbound notification fan-out should use
+    :func:`_outbound_chat_ids`; this helper is kept for back-compat with
+    legacy single-chat callers that always wrote to the configured
+    destination."""
     from logic.db import get_setting
     token = (get_setting(Settings.TELEGRAM_BOT_TOKEN) or "").strip()
-    chat = (get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()
+    chats = _parse_chat_id_csv(get_setting(Settings.TELEGRAM_CHAT_ID) or "")
+    # Primary = first entry; empty list → empty string (matches legacy
+    # "no chat configured" sentinel that every caller already handles).
+    chat = chats[0] if chats else ""
     return token, chat
+
+
+def _parse_chat_id_csv(raw: str) -> list[str]:
+    """Parse the `telegram_chat_id` setting into an ordered list of chat
+    IDs. Accepts the legacy single-value shape (no comma — returns a
+    one-element list) AND the CSV multi-chat shape (`-100123,456` —
+    returns `["-100123", "456"]`). Whitespace + empty segments are
+    dropped silently; order is preserved so the FIRST entry stays the
+    canonical "primary" destination for `_resolved_token_and_chat`."""
+    if not raw:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for piece in raw.split(","):
+        s = piece.strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def _authorized_chat_ids() -> set[str]:
+    """Set of every authorised inbound chat ID (set membership matches
+    against `update.message.chat.id` in :func:`_is_authorized`). The
+    legacy single-value setting auto-promotes to a one-element set so
+    existing deploys upgrade silently."""
+    from logic.db import get_setting
+    return set(_parse_chat_id_csv(get_setting(Settings.TELEGRAM_CHAT_ID) or ""))
+
+
+def _outbound_chat_ids() -> list[str]:
+    """Ordered list of every configured outbound destination. Outbound
+    notification fan-out (Apprise medium, scheduler-fired alerts)
+    iterates this list so a deploy with `chat_id = "<group>,<dm>"`
+    delivers to both surfaces. Order matches the operator's CSV input
+    so the "primary" destination stays predictable."""
+    from logic.db import get_setting
+    return _parse_chat_id_csv(get_setting(Settings.TELEGRAM_CHAT_ID) or "")
+
+
+# Inbound-chat context — set by `_process_update` BEFORE dispatching to
+# a command handler, so the reply / edit / typing paths can route back to
+# the SAME chat the command came from (rather than always sending to the
+# primary configured chat). ContextVar over an explicit arg threads
+# cleanly through asyncio + avoids touching ~50 `_send_reply(client, text)`
+# call sites. Default empty string = "no inbound chat known" (e.g.
+# scheduler-fired outbound paths where we want the primary destination).
+from contextvars import ContextVar
+_inbound_chat_id: ContextVar[str] = ContextVar("_inbound_chat_id", default="")
+
+
+def _reply_destination() -> str:
+    """Resolve the chat ID a reply should target. Inbound context (set
+    by `_process_update` when handling a command) wins; outbound paths
+    (scheduler, lifespan startup notifications) fall through to the
+    primary CSV entry from :func:`_resolved_token_and_chat`."""
+    inbound = _inbound_chat_id.get()
+    if inbound:
+        return inbound
+    _, primary = _resolved_token_and_chat()
+    return primary
 
 
 def _listener_enabled() -> bool:
@@ -225,15 +295,19 @@ def _is_authorized(update: dict) -> tuple[bool, str]:
     silently ignore unauthorized messages so an attacker probing a
     public bot doesn't get useful feedback).
     """
-    _, authorized_chat = _resolved_token_and_chat()
-    if not authorized_chat:
+    authorized_chats = _authorized_chat_ids()
+    if not authorized_chats:
         return False, "no telegram_chat_id configured"
     msg = update.get("message") or update.get("edited_message") or {}
     chat_id = (msg.get("chat") or {}).get("id")
     if chat_id is None:
         return False, "no chat.id in message"
-    if str(chat_id) != str(authorized_chat):
-        return False, f"chat_id {chat_id} != configured {authorized_chat}"
+    # CSV-aware membership check (#0221) — `telegram_chat_id` accepts a
+    # comma-separated list so a single bot can serve both a group AND
+    # 1:1 DMs from operators. Single-value legacy setting parses as a
+    # one-element set so deploys upgrade silently.
+    if str(chat_id) not in authorized_chats:
+        return False, f"chat_id {chat_id} not in configured set {sorted(authorized_chats)}"
     allow_list = _authorized_user_ids()
     if allow_list:
         sender_id = (msg.get("from") or {}).get("id")
@@ -300,14 +374,18 @@ async def _telegram_post(
 
 
 def _reply_text(text: str) -> dict:
-    """Build a sendMessage payload targeted at the configured chat.
+    """Build a sendMessage payload targeted at the chat the inbound
+    command came from (per the `_inbound_chat_id` ContextVar set by
+    `_process_update`) — falls back to the primary CSV entry for
+    outbound paths with no inbound context (scheduler / lifespan
+    startup notifications).
 
     Re-uses Phase 1's HTML parse_mode + thread_id behaviour so replies
     land in the same forum topic the original command came from (when
     applicable).
     """
     from logic.db import get_setting
-    chat = (get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()
+    chat = _reply_destination()
     thread = (get_setting(Settings.TELEGRAM_THREAD_ID) or "").strip()
     payload: dict = {
         "chat_id": chat,
@@ -350,7 +428,7 @@ async def _send_chat_action(
     indicator is just immediate feedback while the placeholder is in
     flight. Fire-and-forget; never raises."""
     from logic.db import get_setting
-    chat = (get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()
+    chat = _reply_destination()
     thread = (get_setting(Settings.TELEGRAM_THREAD_ID) or "").strip()
     payload: dict = {"chat_id": chat, "action": action}
     if thread:
@@ -376,8 +454,11 @@ async def _edit_message(
     success; on failure the caller falls back to a fresh ``_send_reply``."""
     if not message_id:
         return False
-    from logic.db import get_setting
-    chat = (get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()
+    # `_reply_destination()` reads the per-handler ContextVar so an
+    # edit lands in the SAME chat as the original placeholder reply
+    # (the placeholder was sent with the same contextvar — they must
+    # agree, otherwise Telegram returns "message to edit not found").
+    chat = _reply_destination()
     payload: dict = {
         "chat_id": chat,
         "message_id": int(message_id),
@@ -3963,6 +4044,18 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
             )
             return
     ok, reason = _is_authorized(update)
+    # Stamp the inbound chat.id onto the contextvar BEFORE any reply
+    # path fires (including the unauthorized log line below — though
+    # that path returns without replying). Set even when `ok=False` so
+    # if a future change adds a reply for some rejected-but-replied
+    # path it lands in the right chat. Stringified for the same reason
+    # `_is_authorized` stringifies: Telegram numeric IDs survive the
+    # JSON round-trip as ints, but the CSV setting + ContextVar are
+    # strings everywhere else.
+    _msg_for_chat = update.get("message") or update.get("edited_message") or {}
+    _inbound_chat = (_msg_for_chat.get("chat") or {}).get("id")
+    if _inbound_chat is not None:
+        _inbound_chat_id.set(str(_inbound_chat))
     if not ok:
         # Silently ignore — don't tip off an attacker probing the bot.
         # Log so operators can diagnose "my command isn't running".

@@ -17333,6 +17333,10 @@ async def api_auth_providers(request: Request):
 
 @app.post("/api/notify-test")
 async def api_notify_test(_admin: auth.User = Depends(auth.require_admin)):
+    """Combined Test — fans out to EVERY enabled medium (app + apprise
+    + telegram). Kept for back-compat with the legacy single-button UX;
+    the Notifications admin tab now ALSO exposes per-channel Test
+    buttons (#0223) so operators can verify each channel independently."""
     await notify("🔔 OmniGrid test", "Notifications are wired up correctly!", "success")
     # Audit row — test-fires of real notifications (Apprise / app medium)
     # are side-effects on subscribers; the audit trail surfaces who-fired-
@@ -17348,6 +17352,39 @@ async def api_notify_test(_admin: auth.User = Depends(auth.require_admin)):
     except Exception as e:
         print(f"[notify] notify_test audit-row write failed: {e}")
     return {"status": "sent"}
+
+
+@app.post("/api/apprise/test")
+async def api_apprise_test(_admin: auth.User = Depends(auth.require_admin)):
+    """Per-channel Apprise Test — fires ONLY the Apprise medium (#0223).
+    Per-channel siblings: `/api/telegram/test` (already exists). The
+    combined `/api/notify-test` route stays for back-compat. Result
+    shape matches the Telegram probe contract so the SPA can render
+    the inline result chip identically across channels."""
+    result = await _ops_mod._notify_medium_apprise(
+        title="🔔 OmniGrid test",
+        body="Apprise channel test — if you see this, the integration is wired correctly.",
+        severity="success",
+        event="apprise_test",
+        actor_username=_admin.username,
+        target_kind="notify", target_id="apprise_test",
+        metadata=None,
+    )
+    try:
+        with db_conn() as c:
+            _ops_mod.write_admin_audit(
+                c, "notify_test",
+                target_kind="notify", target_name="apprise_test",
+                actor=_admin.username or "operator",
+                message=f"apprise channel test fired by {_admin.username or 'operator'}",
+            )
+    except Exception as e:
+        print(f"[notify] apprise_test audit-row write failed: {e}")
+    return _stamp_test_success("apprise", {
+        "ok": bool(result.get("ok")),
+        "detail": result.get("error") or result.get("skipped") or ("sent" if result.get("ok") else "failed"),
+        "status": int(result.get("status") or 0),
+    })
 
 
 # ============================================================================
