@@ -9,7 +9,8 @@ npm is used on the DEV MACHINE ONLY. The server never runs npm or node.
 - `node_modules/` — committed AND shipped to the server via rsync. Served at `/node_modules/`
   by an **allowlist-gated route** in `main.py` (`api_node_modules` + `_NPM_ALLOWED` set,
   registered above the `StaticFiles` catch-all at `/`). The earlier wildcard `app.mount(...)`
-  was replaced by ARCH-003 — see comment block in `main.py` near the route. Files NOT in
+  was replaced by the allowlist-gated route — see comment block in `main.py` near the route.
+  Files NOT in
   `_NPM_ALLOWED` 404 even though they're on disk; this keeps the publicly-reachable surface
   tight.
 - HTML references the dist files directly:

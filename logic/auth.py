@@ -46,7 +46,7 @@ _AUTO_SECRET = False
 if not SESSION_SECRET_ENV:
     SESSION_SECRET_ENV = secrets.token_urlsafe(48)
     _AUTO_SECRET = True
-SESSION_SECRET = SESSION_SECRET_ENV.encode("utf-8")
+SESSION_SECRET = SESSION_SECRET_ENV.encode()
 
 # Auth settings — DB-backed, UI-managed. Every entry below is the seed
 # default used when the `settings` table is empty on first boot. After
@@ -148,6 +148,11 @@ _BOOL_AUTH_KEYS = ("oidc_enabled", "oidc_verify_tls", "oidc_group_case_sensitive
 
 
 def _refresh_auth_settings_cache(conn: sqlite3.Connection) -> None:
+    """Pull every auth-relevant settings row in ONE round-trip and
+    repopulate the module-level cache. Called lazily from
+    `get_auth_settings` when the cache is invalid (post-write or
+    post-restart). Single SELECT keeps the request-path overhead at
+    one DB round-trip per N requests rather than one per setting."""
     global _auth_settings_cache, _auth_settings_cache_valid
     # IN (?,?,...) placeholder list built dynamically so this doesn't need
     # a manual edit every time a new auth setting gets added.
@@ -192,6 +197,10 @@ def set_auth_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
 
 
 def invalidate_auth_settings_cache() -> None:
+    """Drop the in-process auth-settings cache so the next read pulls
+    fresh values from the DB. Call after any `set_auth_setting` write
+    (or any out-of-band SQL UPDATE) so a UI change takes effect on
+    the very next request."""
     global _auth_settings_cache_valid
     _auth_settings_cache_valid = False
 
@@ -200,6 +209,12 @@ def invalidate_auth_settings_cache() -> None:
 # Schema
 # ----------------------------------------------------------------------------
 def init_auth_schema(conn: sqlite3.Connection) -> None:
+    """Idempotent CREATE TABLE / CREATE INDEX for the auth tables —
+    `users` / `sessions` / `api_tokens` / `user_credentials`. Safe to
+    re-run on every boot — schema changes here MUST stay additive
+    (CREATE TABLE IF NOT EXISTS, ALTER ADD COLUMN). Non-additive
+    changes (renames, type changes, data migrations) belong in
+    `logic/migrations.py` instead."""
     conn.executescript("""
                        CREATE TABLE IF NOT EXISTS users
                        (
@@ -402,6 +417,9 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
 # ----------------------------------------------------------------------------
 @dataclass
 class User:
+    """In-memory user record returned by every auth-resolution path.
+    Mirrors the `users` table 1:1 plus a few TOTP / passkey-related
+    flags. Pure data class — no behaviour, no DB binding."""
     id: int
     username: str
     email: Optional[str]
@@ -419,6 +437,10 @@ class User:
 
 
 def _row_to_user(r: sqlite3.Row) -> User:
+    """Convert a `users`-table SQLite row to a :class:`User` dataclass.
+    Defensively probes TOTP / WebAuthn columns added by later
+    migrations via try/except so pre-migration rows don't crash the
+    converter (every callable reads through this single shim)."""
     # Older rows (pre-fix / pre-fix) won't have these columns; sqlite3.Row's
     # keys work like dict keys, so probe via Index lookup with a try/except.
     try:
@@ -438,23 +460,34 @@ def _row_to_user(r: sqlite3.Row) -> User:
 
 
 def hash_password(pw: str) -> str:
-    return bcrypt.hashpw(pw.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+    """bcrypt-hash a plaintext password with cost 12 (the OmniGrid
+    standard — matches the WebAuthn-era enrolment + every reset path).
+    Returns the standard `$2b$...` ASCII string for storage."""
+    # bcrypt.gensalt defaults to rounds=12 — drop the explicit kwarg.
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(pw: str, stored_hash: Optional[str]) -> bool:
+    """Constant-time bcrypt compare. Returns False when `stored_hash`
+    is None / empty (account has no password — passkey-only / SSO)
+    or when bcrypt rejects the hash for shape reasons. Never raises."""
     if not stored_hash:
         return False
     try:
-        return bcrypt.checkpw(pw.encode("utf-8"), stored_hash.encode("utf-8"))
+        return bcrypt.checkpw(pw.encode(), stored_hash.encode())
     except (ValueError, TypeError):
         return False
 
 
 def count_users(conn: sqlite3.Connection) -> int:
+    """Total user rows including disabled. Used by the bootstrap-path
+    gate (`POST /api/local-auth/bootstrap` 403s when this > 0)."""
     return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
 
 
 def get_user(conn: sqlite3.Connection, user_id: int) -> Optional[User]:
+    """Lookup one user by primary key; returns None on miss. `_row_to_user`
+    handles the SQLite row → dataclass shape."""
     r = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
     return _row_to_user(r) if r else None
 
@@ -480,6 +513,9 @@ def get_user_by_username(conn: sqlite3.Connection, username: str) -> Optional[Us
 
 
 def get_user_by_email(conn: sqlite3.Connection, email: str) -> Optional[User]:
+    """Lookup one user by email (case-sensitive). Returns None on
+    miss. Used by the OIDC auto-provision path to detect an existing
+    local-auth user whose email matches the IdP's claim."""
     r = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
     return _row_to_user(r) if r else None
 
@@ -492,6 +528,12 @@ def create_user(
     role: str,
     auth_source: str,
 ) -> User:
+    """Insert a new user row + return the populated :class:`User`.
+    `role` MUST be `"admin"` or `"readonly"`; `auth_source` MUST be
+    `"local"` or `"authentik"` — any other value raises ValueError.
+    `password=None` is the canonical "SSO / passkey-only" shape; the
+    `password_hash` column stays NULL and `verify_password` returns
+    False for that account."""
     if role not in ("admin", "readonly"):
         raise ValueError(f"invalid role: {role}")
     if auth_source not in ("local", "authentik"):
@@ -507,6 +549,9 @@ def create_user(
 
 
 def touch_last_login(conn: sqlite3.Connection, user_id: int) -> None:
+    """Stamp `last_login_at` on the user row. Called from every
+    successful login path (local / OIDC / passkey / TOTP) so the
+    Admin → Users table reflects activity recency."""
     conn.execute("UPDATE users SET last_login_at=? WHERE id=?", (int(time.time()), user_id))
 
 
@@ -594,18 +639,22 @@ def count_active_admins(conn: sqlite3.Connection) -> int:
 
 
 def set_user_role(conn: sqlite3.Connection, user_id: int, role: str) -> None:
+    """Promote / demote a user. `role` MUST be `"admin"` or `"readonly"`;
+    any other value raises ValueError. Callers are responsible for the
+    "last-active-admin" guard via `count_active_admins`."""
     if role not in ("admin", "readonly"):
         raise ValueError(f"invalid role: {role}")
     conn.execute("UPDATE users SET role=? WHERE id=?", (role, user_id))
 
 
 def set_user_disabled(conn: sqlite3.Connection, user_id: int, disabled: bool) -> None:
+    """Flip the disabled flag. Disabling ALSO deletes every active
+    session for the user — a disabled account whose cookie still
+    worked wouldn't really be disabled."""
     conn.execute(
         "UPDATE users SET disabled=? WHERE id=?",
         (1 if disabled else 0, user_id),
     )
-    # Disabling a user should kick them out of every active session — a
-    # disabled user whose cookie still works isn't really disabled.
     if disabled:
         delete_user_sessions(conn, user_id)
 
@@ -666,6 +715,32 @@ def get_user_profile(conn: sqlite3.Connection, user_id: int) -> Optional[dict]:
     return out
 
 
+def _load_user_ui_prefs(conn: sqlite3.Connection, user_id: int) -> dict:
+    """Read + parse the ui_prefs JSON blob for one user.
+
+    Raises ``LookupError`` when the user doesn't exist. Returns an
+    empty dict when the column is NULL / blank / malformed (defensive
+    — JSON parse errors are tolerated since the column is operator-
+    written and a malformed write shouldn't permanently brick the
+    pref-store). Shared by ``update_ui_prefs`` + ``set_user_notify_prefs``
+    so the lookup-validate-parse prelude lives in one place rather
+    than being copy-pasted (was an 11-line duplicate before
+    extraction)."""
+    import json as _json
+    row = conn.execute(
+        "SELECT ui_prefs FROM users WHERE id=?", (user_id,),
+    ).fetchone()
+    if not row:
+        raise LookupError(f"user {user_id} not found")
+    try:
+        cur = _json.loads(row["ui_prefs"]) if row["ui_prefs"] else {}
+        if not isinstance(cur, dict):
+            cur = {}
+    except (ValueError, TypeError):
+        cur = {}
+    return cur
+
+
 def update_ui_prefs(
     conn: sqlite3.Connection,
     user_id: int,
@@ -682,17 +757,7 @@ def update_ui_prefs(
     import json as _json
     if not isinstance(new_prefs, dict):
         raise ValueError("ui_prefs payload must be a dict")
-    row = conn.execute(
-        "SELECT ui_prefs FROM users WHERE id=?", (user_id,),
-    ).fetchone()
-    if not row:
-        raise LookupError(f"user {user_id} not found")
-    try:
-        cur = _json.loads(row["ui_prefs"]) if row["ui_prefs"] else {}
-        if not isinstance(cur, dict):
-            cur = {}
-    except (ValueError, TypeError):
-        cur = {}
+    cur = _load_user_ui_prefs(conn, user_id)
     merged = dict(cur)
     for k, v in new_prefs.items():
         if v is None:
@@ -769,17 +834,7 @@ def set_user_notify_prefs(
     import json as _json
     if not isinstance(prefs, dict):
         raise ValueError("notify prefs payload must be a dict")
-    row = conn.execute(
-        "SELECT ui_prefs FROM users WHERE id=?", (user_id,),
-    ).fetchone()
-    if not row:
-        raise LookupError(f"user {user_id} not found")
-    try:
-        cur = _json.loads(row["ui_prefs"]) if row["ui_prefs"] else {}
-        if not isinstance(cur, dict):
-            cur = {}
-    except (ValueError, TypeError):
-        cur = {}
+    cur = _load_user_ui_prefs(conn, user_id)
     clean: dict = {}
     for k, v in prefs.items():
         ks = str(k)
@@ -818,13 +873,13 @@ def update_user_profile(
     fields: list[str] = []
     values: list = []
     if display_name is not None:
-        fields.append("display_name=?");
+        fields.append("display_name=?")
         values.append(display_name or None)
     if bio is not None:
-        fields.append("bio=?");
+        fields.append("bio=?")
         values.append(bio or None)
     if email is not None:
-        fields.append("email=?");
+        fields.append("email=?")
         values.append(email or None)
     if not fields:
         return
@@ -985,10 +1040,13 @@ def record_totp_failure(
         "WHERE id=?",
         (n, locked_until, user_id),
     )
-    return (n, locked_until)
+    return n, locked_until
 
 
 def clear_totp_lockout(conn: sqlite3.Connection, user_id: int) -> None:
+    """Reset the TOTP failure counter + clear the lockout timestamp.
+    Called on a successful TOTP / backup-code / passkey verify so a
+    user who just got back in doesn't carry forward stale strikes."""
     conn.execute(
         "UPDATE users SET totp_failed_attempts=0, totp_locked_until=NULL "
         "WHERE id=?",
@@ -1219,6 +1277,8 @@ def list_api_tokens(conn: sqlite3.Connection) -> list[dict]:
 
 
 def delete_api_token(conn: sqlite3.Connection, token_id: int) -> None:
+    """Revoke a bearer token by primary key. Subsequent requests with
+    that token resolve to no user (the middleware returns 401)."""
     conn.execute("DELETE FROM api_tokens WHERE id=?", (token_id,))
 
 
@@ -1313,12 +1373,18 @@ def _b64d(data: str) -> bytes:
 
 
 def _sign(token_id: str, expires_at: int) -> str:
-    msg = f"{token_id}.{expires_at}".encode("utf-8")
+    """HMAC-SHA256 the `(token_id, expires_at)` payload with
+    `SESSION_SECRET` → base64url string. Used as the cookie's
+    tamper-resistance signature; recomputed + compared via
+    `hmac.compare_digest` on every request."""
+    msg = f"{token_id}.{expires_at}".encode()
     sig = hmac.new(SESSION_SECRET, msg, hashlib.sha256).digest()
     return _b64e(sig)
 
 
 def issue_session_cookie(token_id: str, expires_at: int) -> str:
+    """Compose the tri-part cookie value: `<token_id>.<expires_at>.<sig>`.
+    Caller stamps as the `og_session` cookie via `set_session_cookie`."""
     return f"{token_id}.{expires_at}.{_sign(token_id, expires_at)}"
 
 
@@ -1369,6 +1435,10 @@ def create_session(
 
 
 def get_active_session(conn: sqlite3.Connection, token_id: str) -> Optional[sqlite3.Row]:
+    """Return the session row when it exists AND hasn't expired, else
+    None. The expiry check is server-side so a stale cookie that
+    survived a clock-skew or `expires_at` rollback can't resurrect a
+    revoked session."""
     r = conn.execute(
         "SELECT * FROM sessions WHERE token_id=? AND expires_at>?",
         (token_id, int(time.time())),
@@ -1416,10 +1486,15 @@ def slide_session_if_needed(
 
 
 def delete_session(conn: sqlite3.Connection, token_id: str) -> None:
+    """Revoke one session by its token_id. Caller's cookie keeps the
+    value but every subsequent request resolves to no user."""
     conn.execute("DELETE FROM sessions WHERE token_id=?", (token_id,))
 
 
 def delete_user_sessions(conn: sqlite3.Connection, user_id: int) -> None:
+    """Revoke EVERY active session for one user. Called from disable,
+    role-demote, password-reset, force-2FA-enrol, and any other
+    "log them all out" path."""
     conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
 
 
@@ -1427,12 +1502,20 @@ def delete_user_sessions(conn: sqlite3.Connection, user_id: int) -> None:
 # API tokens (SHA-256 at rest; raw shown once on create)
 # ----------------------------------------------------------------------------
 def _hash_token(raw: str) -> str:
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    """SHA-256 hex digest of the raw token string — stored at rest so
+    the DB never carries the plaintext token. The raw token is
+    surfaced exactly ONCE on create (one-time reveal modal); after
+    that only the hash is queryable."""
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def create_api_token(
     conn: sqlite3.Connection, name: str, role: str, created_by: Optional[int]
 ) -> str:
+    """Mint a new `og_...` bearer token. Returns the raw token EXACTLY
+    ONCE — the caller (POST /api/tokens) surfaces it in a one-time
+    reveal modal. The DB stores only the SHA-256 hash. `role` must be
+    `"admin"` or `"readonly"`; any other value raises ValueError."""
     if role not in ("admin", "readonly"):
         raise ValueError(f"invalid role: {role}")
     raw = "og_" + secrets.token_urlsafe(32)
@@ -1445,6 +1528,9 @@ def create_api_token(
 
 
 def verify_api_token(conn: sqlite3.Connection, raw: str) -> Optional[dict]:
+    """Look up a bearer token by hash. Returns `{id, name, role}` on
+    match, None on miss. Constant-time enough for our threat model
+    (the lookup is keyed on the hash, not the plaintext)."""
     r = conn.execute(
         "SELECT id,name,role FROM api_tokens WHERE token_hash=?",
         (_hash_token(raw),),
@@ -1456,9 +1542,13 @@ def verify_api_token(conn: sqlite3.Connection, raw: str) -> Optional[dict]:
 
 
 # ----------------------------------------------------------------------------
-# Login rate limiting (in-memory — single-replica deploy, see CLAUDE.md)
+# Login rate limiting (in-memory — single-replica deploy)
 # ----------------------------------------------------------------------------
-_login_attempts: dict[str, dict] = {}
+# Bucket shape — keep concrete so pyright can narrow `rec[...]` reads
+# at every call site. The three field types stay stable: failures is
+# always an int counter, window_start + locked_until are float epoch
+# seconds (`time.time()` is float).
+_login_attempts: dict[str, dict[str, float]] = {}
 
 
 def _username_key(ip: str, username: Optional[str]) -> Optional[str]:
@@ -1485,8 +1575,9 @@ def rate_limit_check(ip: str, username: Optional[str] = None) -> None:
         rec = _login_attempts.get(k)
         if not rec:
             continue
-        if rec.get("locked_until", 0) > now:
-            retry = int(rec["locked_until"] - now)
+        locked_until = float(rec.get("locked_until", 0.0))
+        if locked_until > now:
+            retry = int(locked_until - now)
             raise HTTPException(
                 status_code=429,
                 detail=f"Too many failed logins. Try again in {retry}s.",
@@ -1564,6 +1655,9 @@ AUTH_OPTIONAL_API_PREFIXES = (
 
 
 def _is_fully_public(path: str) -> bool:
+    """True when the path bypasses identity resolution entirely (static
+    assets / SPA shell / `/login` / explicit public-API allowlist).
+    The middleware short-circuits BEFORE touching the DB on these paths."""
     if not path.startswith("/api/") and path != "/metrics":
         # Every non-API path is public. Static assets (CSS, JS, images,
         # vendor bundles), the SPA shell, and the /login HTML page all
@@ -1574,15 +1668,27 @@ def _is_fully_public(path: str) -> bool:
 
 
 def _is_auth_optional(path: str) -> bool:
+    """True for paths that RESOLVE identity (so handlers can read
+    `request.state.user`) but DON'T 401 when none is found. The
+    `/api/me` + `/api/local-auth/*` + `/api/oidc/*` family lives here
+    so the SPA can ask "am I logged in?" without crashing."""
     return any(path.startswith(p) for p in AUTH_OPTIONAL_API_PREFIXES)
 
 
 def _client_ip(request: Request) -> str:
+    """Resolve the client IP — left-most `X-Forwarded-For` entry when the
+    reverse proxy (NPM) injected it, otherwise the direct socket peer.
+    Returns "?" when neither is available (rare — only synthetic test
+    requests with no `request.client` set).
+    """
     # NPM sets X-Forwarded-For; take the left-most entry (original client).
     xff = request.headers.get("x-forwarded-for")
     if xff:
         return xff.split(",")[0].strip()
-    return request.client.host if request.client else "?"
+    client = request.client
+    if client is None:
+        return "?"
+    return client.host
 
 
 def _resolve_user(request: Request, db_conn_factory) -> tuple[Optional[User], Optional[tuple[str, int]]]:
@@ -1650,6 +1756,11 @@ def make_auth_middleware(db_conn_factory):
     """
 
     async def auth_middleware(request: Request, call_next):
+        """ASGI middleware — resolve identity (Bearer / session cookie),
+        gate non-public `/api/*` paths on auth, attach `request.state.user`
+        for downstream handlers, reissue sliding-window cookies, enforce
+        CSRF on cookie-authed write methods, and auto-issue the CSRF
+        cookie when missing."""
         path = request.url.path
         if _is_fully_public(path):
             return await call_next(request)
@@ -1717,6 +1828,9 @@ def make_auth_middleware(db_conn_factory):
 
 
 def _is_bearer_request(request: Request) -> bool:
+    """True when the request carries an `Authorization: Bearer ...`
+    header. Used to short-circuit the CSRF enforcement (bearer auth
+    can't be CSRF'd — no cookie was used)."""
     return request.headers.get("authorization", "").startswith("Bearer ")
 
 
@@ -1740,6 +1854,9 @@ def require_admin(request: Request) -> User:
 # CSRF (double-submit cookie)
 # ----------------------------------------------------------------------------
 def generate_csrf_token() -> str:
+    """Return a fresh URL-safe CSRF token (24 random bytes → 32 chars).
+    Caller stamps it as the double-submit cookie + sends back via the
+    `X-CSRF-Token` header on state-changing requests."""
     return secrets.token_urlsafe(24)
 
 
@@ -1761,12 +1878,20 @@ def require_csrf(request: Request) -> None:
 # Cookie helpers
 # ----------------------------------------------------------------------------
 def _is_https(request: Request) -> bool:
-    # NPM terminates TLS — trust X-Forwarded-Proto it sets upstream.
+    """True when the original client request was HTTPS. Reads
+    `X-Forwarded-Proto` from the reverse proxy (NPM terminates TLS so
+    the inner request scheme is `http`) AND falls back to the inline
+    URL scheme for direct-attach setups. Drives the `Secure` cookie
+    flag in `set_session_cookie` / `set_csrf_cookie`."""
     proto = request.headers.get("x-forwarded-proto", "").lower()
     return proto == "https" or request.url.scheme == "https"
 
 
 def set_session_cookie(response, cookie_value: str, expires_at: int, request: Request) -> None:
+    """Stamp the session cookie on `response`. `httponly=True` so JS
+    can't read it; `secure` derived from the reverse-proxy
+    `X-Forwarded-Proto` header so dev (HTTP) works without TLS while
+    prod (HTTPS via NPM) gets the strict flag."""
     max_age = max(0, expires_at - int(time.time()))
     response.set_cookie(
         key=COOKIE_NAME,
@@ -1780,6 +1905,10 @@ def set_session_cookie(response, cookie_value: str, expires_at: int, request: Re
 
 
 def set_csrf_cookie(response, token: str, expires_at: int, request: Request) -> None:
+    """Stamp the CSRF double-submit cookie on `response`. `httponly=False`
+    is INTENTIONAL — JS reads the value to attach it as the
+    `X-CSRF-Token` header on state-changing requests. Token rotation
+    matches the session cookie's expiry so both refresh together."""
     max_age = max(0, expires_at - int(time.time()))
     response.set_cookie(
         key=CSRF_COOKIE,
@@ -1792,6 +1921,10 @@ def set_csrf_cookie(response, token: str, expires_at: int, request: Request) -> 
     )
 
 
-def clear_session_cookies(response, request: Request) -> None:
+def clear_session_cookies(response, _request: Request) -> None:
+    """Delete the session + CSRF cookies on logout / forced-revoke
+    paths. `_request` is accepted for caller-shape parity (the matching
+    `issue_session_cookies` reads from request to derive Secure/Domain
+    attributes); we don't read it here but keep it for symmetry."""
     response.delete_cookie(COOKIE_NAME, path="/")
     response.delete_cookie(CSRF_COOKIE, path="/")

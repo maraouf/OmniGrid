@@ -27,7 +27,6 @@ from typing import Optional
 
 from logic.settings_keys import Settings
 
-
 _SUPPORTED_DB_TYPES = frozenset({"sqlite"})
 
 DB_TYPE: str = (os.getenv("DB_TYPE") or "sqlite").strip().lower()
@@ -95,17 +94,22 @@ def set_setting(key: str, value: str) -> None:
     Bumps `_settings_version` (a synthetic monotonic int) so the SPA
     can poll a cheap version endpoint to detect cross-tab changes
     without re-fetching the full settings blob. Excluded: the version
-    row itself (avoids recursion). Multi-field admin Saves can call
-    this N times per request — wrap in `defer_settings_version_bump()`
-    to collapse the N bumps into ONE end-of-request bump (the SPA
-    sees one version mismatch instead of N reloads).
+    row itself (avoids recursion) AND every key in
+    `_SETTINGS_VERSION_EXCLUDED` — high-frequency housekeeping rows
+    (Telegram listener offset advances per inbound message, swarm
+    autoheal cooldown anchors, etc.) that are NOT cross-tab-relevant
+    and would otherwise produce a settings-reload storm on every
+    connected SPA tab. Multi-field admin Saves can call this N times
+    per request — wrap in `defer_settings_version_bump()` to collapse
+    the N bumps into ONE end-of-request bump (the SPA sees one
+    version mismatch instead of N reloads).
     """
     with db_conn() as c:
         c.execute(
             "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
             (key, value),
         )
-        if key == _SETTINGS_VERSION_KEY:
+        if key == _SETTINGS_VERSION_KEY or key in _SETTINGS_VERSION_EXCLUDED:
             return
         if _settings_version_deferred_count[0] > 0:
             # A defer-context is active — accumulate one notional bump
@@ -118,6 +122,22 @@ def set_setting(key: str, value: str) -> None:
 
 
 _SETTINGS_VERSION_KEY = "_settings_version"
+# High-frequency housekeeping keys that should NOT bump the
+# settings-version + fire a cross-tab SSE event. These are written
+# many-times-per-second under normal load (Telegram listener offset,
+# swarm autoheal cooldown anchors) and the value isn't operator-
+# relevant — broadcasting `settings:updated` for them would force
+# every connected SPA tab to re-fetch `/api/settings` + `/api/me`,
+# producing a reload storm on chatty deploys. Adding a key here is
+# safe iff: (a) no SPA surface reads it via `/api/settings`, (b) the
+# value is timestamp / counter / offset semantics (write-mostly).
+_SETTINGS_VERSION_EXCLUDED = frozenset({
+    "telegram_last_update_id",
+    "swarm_autoheal_last_restart_ts",
+    "swarm_autoheal_last_notify_ts",
+    "swarm_autoheal_last_notify_set",
+    "swarm_autoheal_bootstrap_done",
+})
 # Single-element lists used as nullable-int / nullable-bool boxes so the
 # context manager + nested-defer support work without globals + lock
 # ceremony. The harness is single-process single-replica per CLAUDE.md
@@ -125,7 +145,6 @@ _SETTINGS_VERSION_KEY = "_settings_version"
 # count because the context manager's enter/exit is synchronous.
 _settings_version_deferred_count = [0]
 _settings_version_pending = [False]
-
 
 from contextlib import contextmanager
 
@@ -335,10 +354,10 @@ def curated_ping_hosts() -> list[dict]:
         transport_raw = (ping_cfg.get("transport") or "").strip().lower()
         transport = transport_raw if transport_raw in ("tcp", "icmp") else ""
         out.append({
-            "id":        hid,
-            "host":      host_target,
-            "port":      port,            # 0 = use ping_default_port
-            "transport": transport,        # "" = use ping_use_icmp global
+            "id": hid,
+            "host": host_target,
+            "port": port,  # 0 = use ping_default_port
+            "transport": transport,  # "" = use ping_use_icmp global
         })
     return out
 
@@ -447,10 +466,10 @@ def curated_snmp_hosts() -> list[dict]:
         # `host_snmp_samples.newest_ts=8.7h ago` — the sampler path
         # was the silent half.
         out.append({
-            "id":        hid,
+            "id": hid,
             "snmp_name": snmp_name,
-            "address":   (row.get("address") or "").strip(),
-            "snmp":      dict(snmp_cfg),
+            "address": (row.get("address") or "").strip(),
+            "snmp": dict(snmp_cfg),
         })
     return out
 

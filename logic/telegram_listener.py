@@ -839,7 +839,14 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
                 head = f"  <b>{usage}</b> <i>(aliases: {alias_text})</i>"
             else:
                 head = f"  <b>{usage}</b>"
-            description = _escape(primary_meta.get("description") or "")
+            # BUG-001 fix: some legacy `_COMMANDS` descriptions carry
+            # `&amp;` literally (e.g. `/whoami` / `/myid` stored
+            # "level &amp; ID" pre-fix). Re-escaping them via `_escape`
+            # produced `&amp;amp;` → visible as literal `&amp;` in
+            # chat. Un-escape FIRST, then re-escape so the round-trip
+            # collapses to a single `&amp;` regardless of source state.
+            _raw_desc = (primary_meta.get("description") or "").replace("&amp;", "&")
+            description = _escape(_raw_desc)
             if description:
                 lines.append(f"{head} — {description}")
             else:
@@ -2482,6 +2489,73 @@ def _telegram_safe_escape(text: str) -> str:
     return _re.sub(r"\x00(?P<idx>\d+)\x01", _restore, escaped)
 
 
+# Matches one open / close / self-closing Telegram-recognised tag.
+# Re-uses the same allowlist as `_TELEGRAM_OK_TAG` so the truncator
+# and the safe-escape stay in lock-step on what counts as a real tag.
+_TELEGRAM_TAG_SPAN = _re.compile(
+    r"</?(?P<name>b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler|br)\b[^>]*>",
+    flags=_re.IGNORECASE,
+)
+
+
+def _truncate_telegram_html(text: str, max_chars: int) -> str:
+    """Trim `text` to at most `max_chars` WITHOUT cutting mid-HTML-tag
+    AND with any unclosed tags closed at the end.
+
+    Steps:
+      1. Walk every recognised tag span in `text[:max_chars]`,
+         tracking the open-stack (`<b>` pushes, `</b>` pops).
+      2. If the requested cut would land INSIDE a tag span (between
+         `<` and `>`), back the cut up to just before the `<`.
+      3. Truncate at the safe boundary.
+      4. Emit matching close tags for every tag still open at the
+         truncation point, in reverse stack order, so Telegram's
+         HTML parser sees well-balanced markup.
+
+    Pre-fix the truncator was a bare `text[:max_chars]` slice — a
+    cut mid `<co` / `<b` left Telegram's parser staring at an
+    unclosed `<` and the whole message HTTP-400'd, so the user
+    saw no reply for any AI response that happened to slice
+    awkwardly. With this helper the truncated bubble always
+    renders.
+    """
+    if max_chars <= 0 or not text:
+        return ""
+    if len(text) <= max_chars:
+        return text
+
+    # Back the cut off any tag that straddles the boundary.
+    cut = max_chars
+    for match in _TELEGRAM_TAG_SPAN.finditer(text):
+        if match.start() >= cut:
+            break
+        if match.end() > cut:
+            # Cut would land inside this tag — pull back to before it.
+            cut = match.start()
+            break
+
+    head = text[:cut]
+    # Build the open-stack so we can close anything still open.
+    stack: list[str] = []
+    for match in _TELEGRAM_TAG_SPAN.finditer(head):
+        raw = match.group(0)
+        name = (match.group("name") or "").lower()
+        if name == "br":
+            continue  # self-closing; no stack pressure
+        if raw.startswith("</"):
+            # Close — pop the most recent matching open.
+            for i in range(len(stack) - 1, -1, -1):
+                if stack[i] == name:
+                    stack.pop(i)
+                    break
+        else:
+            stack.append(name)
+
+    # Close any tags still open, in reverse-of-open order.
+    suffix = "".join(f"</{name}>" for name in reversed(stack))
+    return head + suffix
+
+
 def _markdown_to_telegram_html(text: str) -> str:
     """Convert common Markdown leakage to Telegram-HTML equivalents.
 
@@ -2808,8 +2882,10 @@ async def _ai_reply(
     # Snapshot the REAL Telegram command roster from `_COMMANDS` so the
     # AI grounds its replies in actual commands instead of hallucinating
     # SPA-style names (`/status`, `/services`, `/updates`, `/errors`,
-    # `/update`, `/prune`, `/forecast` are common hallucinations the
-    # operator flagged when the prompt didn't carry the canonical list).
+    # `/prune`, `/forecast` are common hallucinations the user
+    # flagged when the prompt didn't carry the canonical list — note
+    # that the singular `/update` IS a real command now; the plural
+    # `/updates` is the hallucination).
     # Dedup by handler so aliases (`/start` → `_cmd_help`, `/myid` →
     # `_cmd_whoami`, `/ver` → `_cmd_version`) render alongside their
     # primary rather than as separate phantom commands.
@@ -3040,11 +3116,15 @@ async def _ai_reply(
     # while neutralising any other stray `<...>` markup.
     clean = _markdown_to_telegram_html(clean)
     # Telegram caps a single message at 4096 chars including HTML
-    # tags. _send_reply will fail HTTP-400 if we exceed; pre-trim
-    # with a clear "(truncated)" marker so the operator knows.
+    # tags. `_send_reply` will HTTP-400 if we exceed; pre-trim via
+    # the tag-aware `_truncate_telegram_html` so a boundary cut
+    # mid-`<code>` / mid-`<b>` doesn't leave Telegram's parser
+    # staring at an unclosed tag (HTTP-400 fail; operator sees no
+    # reply). The helper backs off to the last safe boundary AND
+    # closes any open tags so the marker bubble stays well-formed.
     max_chars = 3800  # leave headroom for HTML overhead
     if len(clean) > max_chars:
-        clean = clean[:max_chars] + "\n\n<i>…(truncated)</i>"
+        clean = _truncate_telegram_html(clean, max_chars) + "\n\n<i>…(truncated)</i>"
     # Telegram-safe escape preserves the AI's intentional HTML tags
     # (the system prompt instructs HTML, and the Markdown converter
     # just produced more) while escaping every other `<` / `>` so

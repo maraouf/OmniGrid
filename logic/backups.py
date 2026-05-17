@@ -42,7 +42,6 @@ from typing import Optional
 from logic.db import DB_PATH
 from logic.version import APP_VERSION
 
-
 # Layout of the data volume:
 # <data_dir>/omnigrid.db             SQLite file
 # <data_dir>/avatars/                user-uploaded images
@@ -142,7 +141,7 @@ def create_backup(prefix: str = "omnigrid-backup") -> dict:
         meta = {
             "backup_time": int(time.time()),
             "app_version": APP_VERSION,
-            "schema":      "omnigrid-v1",
+            "schema": "omnigrid-v1",
             "schema_head": schema_head,
         }
 
@@ -173,8 +172,8 @@ def list_backups() -> list[dict]:
                 continue  # skip anything that doesn't match our naming rules
             st = entry.stat()
             out.append({
-                "name":  entry.name,
-                "size":  st.st_size,
+                "name": entry.name,
+                "size": st.st_size,
                 "mtime": int(st.st_mtime),
                 # Try to pull the app_version off the metadata for richer UX.
                 # Failures are tolerated — we still list the file.
@@ -365,9 +364,9 @@ def restore_from_file(path: str) -> dict:
         n_av = sum(1 for p in Path(AVATAR_DIR).iterdir() if p.is_file())
 
     return {
-        "restored_from":   os.path.basename(path),
+        "restored_from": os.path.basename(path),
         "safety_snapshot": safety,
-        "avatar_count":    n_av,
+        "avatar_count": n_av,
     }
 
 
