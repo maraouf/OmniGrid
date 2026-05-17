@@ -1043,6 +1043,7 @@ def extract_pulse_host_stats(host: dict) -> dict:
     }
 
 
+# noinspection DuplicatedCode
 def lookup(pulse_hosts: dict, needle: str) -> Optional[dict]:
     """Find a Pulse host record by name, tolerating case + whitespace.
 
