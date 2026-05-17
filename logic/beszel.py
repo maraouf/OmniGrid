@@ -410,7 +410,7 @@ def _pick_stat_type(hours: int) -> str:
     return "120m"
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,DuplicatedCode
 async def fetch_system_history(
     base_url: str,
     identity: str,
@@ -1011,7 +1011,7 @@ def _derive_arch(kernel: Any) -> str:
     return ""
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 def extract_stats(info_in: Optional[dict] = None, stats_in: Optional[dict] = None) -> dict:
     """Map one Beszel ``info`` (+ latest ``stats``) dict → nodes_info shape.
 
@@ -1040,9 +1040,18 @@ def extract_stats(info_in: Optional[dict] = None, stats_in: Optional[dict] = Non
     # mypy terms, but PyCharm's inference for `_as_dict`'s isinstance
     # branch needs every nudge: without the assert, every `.get(...)`
     # call below still reads as `dict | None`.
-    info: dict[str, Any] = _as_dict(info_in)
-    stats: dict[str, Any] = _as_dict(stats_in)
-    assert isinstance(info, dict) and isinstance(stats, dict)
+    # Belt-and-braces narrowing: explicit annotation + cast +
+    # isinstance-assert per name. PyCharm has stubbornly tracked
+    # `stats` back to the original parameter declaration despite the
+    # annotation alone — each `.get()` call on stats kept flagging
+    # "Member 'None' of 'dict | None'". The cast() forces the type
+    # at the assignment expression; the asserts then narrow at the
+    # statement level so any flow-sensitive inspection downstream
+    # also sees the concrete dict.
+    info: dict[str, Any] = cast("dict[str, Any]", _as_dict(info_in))
+    stats: dict[str, Any] = cast("dict[str, Any]", _as_dict(stats_in))
+    assert isinstance(info, dict)
+    assert isinstance(stats, dict)
     gib = 1024 ** 3
     # Absolute totals come from the system_stats row's GiB fields.
     mem_total = _num(stats.get("m")) * gib
@@ -1232,7 +1241,7 @@ def extract_stats(info_in: Optional[dict] = None, stats_in: Optional[dict] = Non
     }
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,DuplicatedCode
 async def probe_hub(
     base_url: str,
     identity: str,
