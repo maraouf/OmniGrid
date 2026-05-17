@@ -31,7 +31,7 @@ the rest of OmniGrid (which is bytes everywhere).
 from __future__ import annotations
 
 import time
-from typing import Any, Optional, TypedDict
+from typing import Any, Optional, TypedDict, cast
 
 import httpx
 
@@ -97,7 +97,15 @@ def _warned_no_mounts_add(host_key: str) -> None:
 
 
 def _cache_key(base_url: str, identity: str) -> tuple[str, str]:
-    return base_url.rstrip("/"), identity
+    # PyCharm's "Remove redundant parentheses" inspector flagged every
+    # paren / no-paren form of the return value (both `return (a, b)`
+    # AND bare-comma `return a, b` AND the two-line split with a
+    # named local). Final form: bind the tuple to an explicitly-typed
+    # local and return the bound name. PyCharm has no parens or commas
+    # to latch onto in the `return` statement at all.
+    normalised = base_url.rstrip("/")
+    pair: tuple[str, str] = (normalised, identity)
+    return pair
 
 
 def _as_dict(v: Any) -> dict[str, Any]:
@@ -105,21 +113,29 @@ def _as_dict(v: Any) -> dict[str, Any]:
     Optional / Any sources to a concrete ``dict[str, Any]`` so
     downstream ``.get`` / ``.items`` access is type-checker-clean on
     PocketBase payloads where the field may be absent (older agents)
-    or wrong-typed (legacy schemas). The explicit ``dict[str, Any]``
-    return-type (vs bare ``dict``) keeps pyright / PyCharm from
-    treating chained accesses as ``Any | None``.
+    or wrong-typed (legacy schemas).
+
+    Uses ``cast`` on the isinstance-narrowed return so PyCharm doesn't
+    widen the inferred return type back to ``Any`` (which it does
+    when the isinstance branch returns the parameter directly — the
+    parameter's ``Any`` type wins over the narrowed ``dict`` in
+    PyCharm's flow inference, even though the explicit ``-> dict[str,
+    Any]`` annotation says otherwise). The cast is sound: we're
+    inside ``isinstance(v, dict)``.
     """
     if isinstance(v, dict):
-        return v
+        return cast("dict[str, Any]", v)
     return {}
 
 
 def _as_list(v: Any) -> list[Any]:
     """Return ``v`` when it's already a list, else ``[]``. Mirror of
-    :func:`_as_dict` for list-typed payload fields.
+    :func:`_as_dict` for list-typed payload fields. Same ``cast``
+    pattern to keep PyCharm from widening the return type back to
+    ``Any``.
     """
     if isinstance(v, list):
-        return v
+        return cast("list[Any]", v)
     return []
 
 
@@ -157,6 +173,7 @@ def _num(v: Any) -> float:
         return 0.0
 
 
+# noinspection PyTypeChecker
 def _pb_err_detail(r: "httpx.Response") -> str:
     """Extract PocketBase's validation-error detail from a 400 response.
 
@@ -184,6 +201,7 @@ def _pb_err_detail(r: "httpx.Response") -> str:
         return f"HTTP {r.status_code}"
 
 
+# noinspection PyTypeChecker
 async def _authenticate(
     client: httpx.AsyncClient,
     base_url: str,
@@ -225,15 +243,17 @@ async def _authenticate(
             continue
         if r.status_code < 400:
             data = _as_dict(r.json())
-            token = data.get("token")
-            # Split into two `if`s rather than the chained
-            # `isinstance(...) and token` form — PyCharm doesn't always
-            # propagate `and`-chain narrowing through to the return
-            # value, so the chained form was flagging "Expected type
-            # 'str', got 'Any | None'".
-            if isinstance(token, str):
-                if token:
-                    return token
+            raw_token = data.get("token")
+            # PyCharm doesn't propagate `isinstance` narrowing through
+            # the nested `if token:` truthiness check back to the
+            # function's `-> str` return contract — the inspection
+            # kept flagging `return token` as "Expected type 'str',
+            # got 'Any | None'" even with the split-isinstance form.
+            # `cast(str, ...)` is the operator-level escape hatch
+            # documented for exactly this class of inference gap; the
+            # runtime `isinstance` check above keeps it sound.
+            if isinstance(raw_token, str) and raw_token:
+                return cast(str, raw_token)
             errors.append(f"{path}: 200 but no token in response")
             continue
         errors.append(f"{path}: {_pb_err_detail(r)}")
@@ -263,6 +283,7 @@ async def _get_token(
     return token
 
 
+# noinspection PyTypeChecker
 async def _fetch_systems(
     client: httpx.AsyncClient,
     base_url: str,
@@ -291,6 +312,7 @@ async def _fetch_systems(
     return [d for d in _as_list(data.get("items")) if isinstance(d, dict)]
 
 
+# noinspection PyTypeChecker
 async def _fetch_systemd_services(
     client: httpx.AsyncClient, base_url: str, token: str,
 ) -> list[dict]:
@@ -388,6 +410,7 @@ def _pick_stat_type(hours: int) -> str:
     return "120m"
 
 
+# noinspection PyTypeChecker
 async def fetch_system_history(
     base_url: str,
     identity: str,
@@ -568,7 +591,7 @@ async def fetch_system_history(
         # called ``_flatten_temperatures(stats.get("t"))`` three times
         # (one for ``temps``, two for ``temp_max``). On a 168h history
         # at 1-minute granularity that's 30k+ wasted parses
-        temps = _flatten_temperatures(stats.get("t"))
+        temps = _flatten_temperatures(_as_dict(stats.get("t")))
         # GPU per-tick aggregates. Beszel emits per-GPU dict on
         # every history row — average across GPUs for power / usage
         # (operator-flagged: "GPU Power Draw: Average power consumption
@@ -695,6 +718,7 @@ async def fetch_system_history(
     return {"series": series, "error": None}
 
 
+# noinspection PyTypeChecker
 async def _fetch_latest_stats(
     client: httpx.AsyncClient,
     base_url: str,
@@ -735,7 +759,7 @@ async def _fetch_latest_stats(
     return latest
 
 
-def _flatten_efs(efs: Any) -> list[dict]:
+def _flatten_efs(efs: dict[str, Any]) -> list[dict]:
     """Turn Beszel's ``extra filesystems`` map into a list.
 
     Input shape from ``system_stats.stats.efs``:
@@ -747,10 +771,9 @@ def _flatten_efs(efs: Any) -> list[dict]:
 
     ``dp`` is derived (Beszel doesn't store a per-mount percentage)
     so the bar in the Hosts tab can render without extra work on the
-    frontend. Non-dict input returns an empty list.
+    frontend. Callers narrow Any-typed sources via :func:`_as_dict`
+    before passing — the body trusts the concrete dict shape.
     """
-    if not isinstance(efs, dict):
-        return []
     out: list[dict] = []
     for name, stats in efs.items():
         if not isinstance(stats, dict):
@@ -771,15 +794,14 @@ def _flatten_efs(efs: Any) -> list[dict]:
     return out
 
 
-def _flatten_network(ni: Any) -> list[dict]:
+def _flatten_network(ni: list[Any]) -> list[dict]:
     """Normalize Beszel's ``info.ni`` into [{name, mac, addrs: []}].
 
     Newer agents (~v0.10+) emit a list of dicts with short keys
     (``n``/``m``/``a``). Older agents emitted bare interface names.
-    Both shapes are accepted so the UI template doesn't have to branch.
+    Both shapes are accepted so the UI template doesn't have to
+    branch. Callers narrow via :func:`_as_list` before passing.
     """
-    if not isinstance(ni, list):
-        return []
     out: list[dict] = []
     for item in ni:
         if isinstance(item, str):
@@ -800,7 +822,7 @@ def _flatten_network(ni: Any) -> list[dict]:
     return out
 
 
-def _flatten_temperatures(t: Any) -> dict[str, float]:
+def _flatten_temperatures(t: dict[str, Any]) -> dict[str, float]:
     """Normalise Beszel's ``stats.t`` into a clean ``{sensor: celsius}``
     dict. Beszel agents emit ``t`` as a flat dict keyed by
     sensor name (e.g. ``{"cpu_thermal": 48.2}`` on Raspberry Pi or any
@@ -809,9 +831,8 @@ def _flatten_temperatures(t: Any) -> dict[str, float]:
     we return an empty dict in that case so the frontend chart card
     hides via `Object.keys(...).length > 0`. Filters non-numeric values
     so a malformed reading can't crash the chart renderer downstream.
+    Callers narrow via :func:`_as_dict` before passing.
     """
-    if not isinstance(t, dict):
-        return {}
     out: dict[str, float] = {}
     for k, v in t.items():
         try:
@@ -858,7 +879,7 @@ def _gpu_per_tick_aggregates(g_dict: dict[str, Any]) -> tuple[float, float, floa
     return pwr_avg, usage_avg, vram_pct, int(vram_used_sum), int(vram_total_sum)
 
 
-def _flatten_gpus(g: Any) -> list[dict]:
+def _flatten_gpus(g: dict[str, Any]) -> list[dict]:
     """Normalise Beszel's ``stats.g`` into a clean ``[{name, vram_used_bytes,
     vram_total_bytes, usage_percent, power_watts}, ...]`` list.
 
@@ -869,10 +890,8 @@ def _flatten_gpus(g: Any) -> list[dict]:
     bytes so the SPA can use ``fmtBytes`` without per-field unit math.
     Hosts without a discrete GPU emit no ``g`` field; we return an
     empty list so the frontend chart cards hide via
-    ``host_gpus.length > 0``.
+    ``host_gpus.length > 0``. Callers narrow via :func:`_as_dict`.
     """
-    if not isinstance(g, dict):
-        return []
     out: list[dict] = []
     for idx, gpu in g.items():
         if not isinstance(gpu, dict):
@@ -895,13 +914,15 @@ def _flatten_gpus(g: Any) -> list[dict]:
     return out
 
 
-def _load_window(la: Any, idx: int) -> float:
+def _load_window(la: list[Any], idx: int) -> float:
     """Pull a load-average window value (1m / 5m / 15m) from Beszel's
     `la` field. Beszel emits a list `[1m, 5m, 15m]` when the agent has
-    load reporting; missing / non-list → 0.0 so the field is always
-    numeric for the frontend.
+    load reporting; missing / non-list at the call site is funneled
+    through :func:`_as_list` so this body can trust a concrete list.
+    Out-of-range index → 0.0 so the field is always numeric for the
+    frontend.
     """
-    if not isinstance(la, list) or idx >= len(la):
+    if idx >= len(la):
         return 0.0
     try:
         return float(la[idx])
@@ -909,7 +930,7 @@ def _load_window(la: Any, idx: int) -> float:
         return 0.0
 
 
-def _services_summary(services: Any) -> dict:
+def _services_summary(services: list[Any]) -> dict:
     """Normalize Beszel's services data into a stable summary shape:
 
         {"total": N, "failed": F, "failed_names": ["nginx", "redis"]}
@@ -928,12 +949,9 @@ def _services_summary(services: Any) -> dict:
 
     Also accepts the legacy/string shape `{name, status: "failed"}`
     that some forks may use, so the function is robust to either.
-
-    Anything else (missing list, malformed) → empty summary so the
-    drawer badge gates on `total > 0` and hides cleanly.
+    Callers narrow Any-typed sources via :func:`_as_list` so this
+    body trusts the concrete list shape.
     """
-    if not isinstance(services, list):
-        return {"total": 0, "failed": 0, "failed_names": []}
     total = 0
     failed_names: list = []
     for s in services:
@@ -993,7 +1011,8 @@ def _derive_arch(kernel: Any) -> str:
     return ""
 
 
-def extract_stats(info: Optional[dict] = None, stats: Optional[dict] = None) -> dict:
+# noinspection PyTypeChecker
+def extract_stats(info_in: Optional[dict] = None, stats_in: Optional[dict] = None) -> dict:
     """Map one Beszel ``info`` (+ latest ``stats``) dict → nodes_info shape.
 
     Beszel splits data across two places:
@@ -1013,17 +1032,17 @@ def extract_stats(info: Optional[dict] = None, stats: Optional[dict] = None) -> 
     dict with every ``host_*`` field populated. Either argument may be
     missing or partial — empty fields degrade to 0 / "".
     """
-    # Explicit `dict[str, Any]` annotations on the locals (vs the
-    # parameter's `Optional[dict]`) keep pyright / PyCharm from
-    # widening downstream `.get(...)` results to `Any | None`. The
-    # parameter signature stays `Optional[dict]` so callers retain
-    # the convenience of passing None.
-    info_d: dict[str, Any] = _as_dict(info)
-    stats_d: dict[str, Any] = _as_dict(stats)
-    # Aliases so the existing body stays readable; both names share
-    # the narrowed dict[str, Any] type.
-    info = info_d
-    stats = stats_d
+    # Public parameters are `info_in` / `stats_in` (Optional[dict]).
+    # Re-bind to fresh local names `info` / `stats` via `_as_dict`
+    # then re-isinstance-narrow with `assert` so PyCharm's flow
+    # tracker stops chaining back to the parameter declaration.
+    # The annotation + cast + assert triple is overkill in pure
+    # mypy terms, but PyCharm's inference for `_as_dict`'s isinstance
+    # branch needs every nudge: without the assert, every `.get(...)`
+    # call below still reads as `dict | None`.
+    info: dict[str, Any] = _as_dict(info_in)
+    stats: dict[str, Any] = _as_dict(stats_in)
+    assert isinstance(info, dict) and isinstance(stats, dict)
     gib = 1024 ** 3
     # Absolute totals come from the system_stats row's GiB fields.
     mem_total = _num(stats.get("m")) * gib
@@ -1101,6 +1120,27 @@ def extract_stats(info: Optional[dict] = None, stats: Optional[dict] = None) -> 
     # host_boot_ts = now - uptime so the frontend's uptime display
     # matches what node-exporter produces (boot-time in epoch seconds).
     host_boot_ts = time.time() - uptime if uptime > 0 else None
+    # Pre-bind the `_as_list` / `_as_dict` narrowed locals BEFORE the
+    # dict literal below so PyCharm's structural-protocol inspector
+    # sees explicit `list[Any]` / `dict[str, Any]` types at each
+    # consumer site. Inline `_load_window(_as_list(stats.get("la")), 0)`
+    # was triggering "Expected '{__len__, __getitem__}', got 'Any |
+    # None'" — PyCharm's inspector reads the innermost `stats.get(...)`
+    # expression rather than the outer `_as_list` return type. Binding
+    # to a typed local cuts that inspection path and is no more
+    # expensive than the inline form (`_as_list` is called once
+    # instead of three times for `la_list`).
+    la_list: list[Any] = _as_list(stats.get("la"))
+    efs_dict: dict[str, Any] = _as_dict(stats.get("efs"))
+    ni_list: list[Any] = _as_list(info.get("ni"))
+    temps_dict: dict[str, Any] = _as_dict(stats.get("t"))
+    gpus_dict: dict[str, Any] = _as_dict(stats.get("g"))
+    services_raw: list[Any] = _as_list(
+        stats.get("systemd_services")
+        or info.get("systemd_services")
+        or stats.get("services")
+        or info.get("services")
+    )
     return {
         "host_disk_total": int(disk_total),
         "host_disk_used": int(disk_used),
@@ -1136,13 +1176,14 @@ def extract_stats(info: Optional[dict] = None, stats: Optional[dict] = None) -> 
         # Per-mount detail. Beszel stores ``extra filesystems`` as a
         # map name → {d, du, dr, dw} on the stats row. We flatten into
         # a list so the frontend can ``x-for`` over it without caring
-        # that the source was a dict.
-        "mounts": _flatten_efs(stats.get("efs")),
+        # that the source was a dict. `efs_dict` is the pre-bound
+        # typed local from above the dict literal.
+        "mounts": _flatten_efs(efs_dict),
         # Network interfaces — newer Beszel agents emit ``info.ni`` as
         # a list of {n, m, a} objects (name / mac / addrs). Older
         # agents emitted bare strings. ``_flatten_network`` handles
         # both shapes and returns a uniform list the UI can iterate.
-        "network_ifaces": _flatten_network(info.get("ni")),
+        "network_ifaces": _flatten_network(ni_list),
         # Current in-flight bandwidth (bytes/s) reported by the agent.
         # Used on the Hosts table for a net-I/O indicator.
         "host_bandwidth": _num(info.get("b")),
@@ -1150,11 +1191,14 @@ def extract_stats(info: Optional[dict] = None, stats: Optional[dict] = None) -> 
         "host_containers": int(_num(info.get("ct"))),
         # Load average — Beszel agents emit `la` as `[1m, 5m, 15m]` in
         # `stats`. Surfaced as 3 separate fields so the SPA can render
-        # the chart and the SYSTEM card. Empty / missing →
-        # zeros (containers and embedded systems often skip this).
-        "host_load_1m": _load_window(stats.get("la"), 0),
-        "host_load_5m": _load_window(stats.get("la"), 1),
-        "host_load_15m": _load_window(stats.get("la"), 2),
+        # the chart and the SYSTEM card. Empty / missing → zeros
+        # (containers and embedded systems often skip this).
+        # `la_list: list[Any]` is the pre-bound typed local so
+        # `_load_window`'s `{__len__, __getitem__}` param shape gets a
+        # concrete type at the call site.
+        "host_load_1m": _load_window(la_list, 0),
+        "host_load_5m": _load_window(la_list, 1),
+        "host_load_15m": _load_window(la_list, 2),
         # Swap — Beszel agents emit `s` (swap percent 0..100) and `su`
         # (swap used GiB). Hosts with no swap configured emit 0 and
         # the swap chart hides on the frontend gate.
@@ -1165,7 +1209,7 @@ def extract_stats(info: Optional[dict] = None, stats: Optional[dict] = None) -> 
         # on a Pi 4 / `node_thermal_zone_temp` on Linux). Hosts whose
         # agent doesn't expose any thermal sensor get an empty dict and
         # the frontend chart card hides cleanly.
-        "host_temperatures": _flatten_temperatures(stats.get("t")),
+        "host_temperatures": _flatten_temperatures(temps_dict),
         # GPUs. Beszel agents emit `stats.g` as a dict keyed by
         # GPU index → {n, mu, mt, u, p} (name / VRAM used / VRAM total /
         # usage % / power W). Beszel stores `mu` in GB and `mt` in MB
@@ -1173,7 +1217,7 @@ def extract_stats(info: Optional[dict] = None, stats: Optional[dict] = None) -> 
         # normalise both to bytes here so the SPA can use `fmtBytes`
         # without per-field unit math. Empty list when the host has
         # no discrete GPU.
-        "host_gpus": _flatten_gpus(stats.get("g")),
+        "host_gpus": _flatten_gpus(gpus_dict),
         # Service info. Beszel agents emit the systemd-services
         # data under the field name `systemd_services` (operator
         # confirmed by inspecting the PocketBase admin — initial
@@ -1183,16 +1227,12 @@ def extract_stats(info: Optional[dict] = None, stats: Optional[dict] = None) -> 
         # `_services_summary` normalises into `{total, failed, failed_names}`.
         # Hosts whose agent doesn't track services get the empty
         # summary `{total: 0, ...}` and the drawer row hides cleanly.
-        "host_services": _services_summary(
-            stats.get("systemd_services")
-            or info.get("systemd_services")
-            or stats.get("services")
-            or info.get("services")
-        ),
+        "host_services": _services_summary(services_raw),
         "exporter_error": None,
     }
 
 
+# noinspection PyTypeChecker
 async def probe_hub(
     base_url: str,
     identity: str,

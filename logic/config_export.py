@@ -99,12 +99,12 @@ def _safe_path(name: str) -> str:
         # Defence-in-depth — the regex alternation should make this
         # unreachable, but a hand-edited regex could drift.
         raise ValueError(f"invalid config snapshot prefix: {prefix!r}")
-    y  = int(m.group("y"))
+    y = int(m.group("y"))
     mo = int(m.group("mo"))
-    d  = int(m.group("d"))
-    h  = int(m.group("h"))
+    d = int(m.group("d"))
+    h = int(m.group("h"))
     mi = int(m.group("mi"))
-    s  = int(m.group("s"))
+    s = int(m.group("s"))
     clean_name = (
         f"{prefix}_{y:04d}.{mo:02d}.{d:02d}_{h:02d}.{mi:02d}.{s:02d}.json"
     )
@@ -150,7 +150,7 @@ def build_snapshot() -> dict:
     """
     snap: dict = {
         "schema_version": 1,
-        "exported_at":    time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     try:
         from logic.version import APP_VERSION as _v
@@ -364,8 +364,8 @@ def save_snapshot_to_disk(*, prefix: str = "config") -> dict:
     os.replace(tmp, out)
     st = os.stat(out)
     return {
-        "name":  os.path.basename(out),
-        "size":  st.st_size,
+        "name": os.path.basename(out),
+        "size": st.st_size,
         "mtime": int(st.st_mtime),
     }
 
@@ -392,8 +392,8 @@ def list_snapshots() -> list[dict]:
             except OSError:
                 continue
             out.append({
-                "name":  entry.name,
-                "size":  int(st.st_size),
+                "name": entry.name,
+                "size": int(st.st_size),
                 "mtime": int(st.st_mtime),
                 "version": _peek_snapshot_version(entry.path),
             })
