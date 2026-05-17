@@ -113,13 +113,17 @@ exactly the last processed update.
 
 Two layers of defence:
 
-- **Layer 1 — chat-id gate.** `update.message.chat.id` must equal the
-  configured `telegram_chat_id`. Messages from any OTHER chat are
-  silently ignored (an attacker probing a public bot gets no useful
-  feedback).
+- **Layer 1 — chat-id gate.** `update.message.chat.id` must be in the
+  configured `telegram_chat_id` set. The setting accepts a single ID
+  OR a comma-separated list (`-1001234567890, 987654321`), so the same
+  bot can serve a group AND 1:1 DMs from operators simultaneously.
+  Messages from any chat NOT in the list are silently ignored (an
+  attacker probing a public bot gets no useful feedback). Replies are
+  routed back to the chat the command came from; outbound
+  notifications fan out to every configured chat.
 - **Layer 2 — authorized user-ids allowlist.** Optional CSV of
   Telegram user_ids in `telegram_authorized_user_ids`. Empty list =
-  any sender in the authorised chat is allowed. Non-empty list
+  any sender in the authorised chats is allowed. Non-empty list
   restricts commands to those user_ids regardless of chat membership.
   Correct for supergroups with multiple members; unnecessary for
   personal DMs.
@@ -325,7 +329,7 @@ Plain settings (managed via the Telegram tab UI):
 | Setting | Default | Notes |
 | --- | --- | --- |
 | `telegram_bot_token` | unset | Write-only secret (`_set` flag in API) |
-| `telegram_chat_id` | unset | Destination chat / supergroup id |
+| `telegram_chat_id` | unset | Destination chat ID, or CSV of multiple chats (e.g. `-1001234567890, 987654321`). Inbound: every listed chat is authorised. Outbound: notifications fan out to every listed chat. Replies route back to the chat the command came from. |
 | `telegram_thread_id` | unset | Optional supergroup topic id |
 | `telegram_verify_tls` | true | Leave ON in production |
 | `telegram_api_base` | `https://api.telegram.org` | Override for self-hosted Bot API |
