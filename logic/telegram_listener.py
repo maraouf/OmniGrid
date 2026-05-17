@@ -469,11 +469,26 @@ def _resolve_target(target: str) -> tuple[Optional[dict], list[dict]]:
             out.append(ssh_host.strip())
         return out
 
-    # 1. Exact IP / per-provider target match
+    # 1. Exact IP / per-provider target match. Gather ALL matches before
+    # returning so a duplicate address (two hosts sharing one IP via
+    # typo OR via overlapping snmp_name / beszel_name aliases) doesn't
+    # silently pick the first one — same disambiguation contract as
+    # the label-path below.
+    provider_hits: list[dict] = []
+    seen_ids: set[str] = set()
     for h in hosts:
         for v in _provider_targets(h):
             if v == target:
-                return h, [h]
+                hid = (h.get("id") or "").strip()
+                if hid in seen_ids:
+                    continue
+                seen_ids.add(hid)
+                provider_hits.append(h)
+                break
+    if len(provider_hits) == 1:
+        return provider_hits[0], provider_hits
+    if provider_hits:
+        return None, provider_hits
 
     # 2. Exact host_id
     for h in hosts:
@@ -1769,7 +1784,11 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
     # has the same convention).
     # noinspection PyProtectedMember
     items = list(_gather._cache.get("items") or [])
-    updatable = [i for i in items if i.get("update_available")]
+    # Canonical "needs an update" signal is `status == "update"` —
+    # gather.py:enrich() sets the status when the remote-digest
+    # comparison shows drift. There's no separate `update_available`
+    # field on items; the Telegram filter must read `status`.
+    updatable = [i for i in items if (i.get("status") or "") == "update"]
     if not items:
         await _send_reply(
             client,
@@ -1844,7 +1863,7 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
             targets = exact
         else:
             partial = [i for i in items
-                       if i.get("update_available")
+                       if (i.get("status") or "") == "update"
                        and target in (i.get("name") or "").lower()]
             if not partial:
                 # Last-resort: tell the operator nothing matched.
@@ -2692,18 +2711,23 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     # `[:30]` cap dropped items past position 30 (gather sorts alpha,
     # not updates-first) and the AI saw a sample that happened to
     # exclude every updatable item. Fix: render the sample as
-    # `updatable_items` (ALL items with `update_available=true`) +
-    # `other_items` (the truncated rest) + a `items_summary` block
+    # `updatable_items` (every item whose status is "update") +
+    # `other_items` (the truncated rest) + an `items_summary` block
     # carrying the authoritative `total` / `updatable_total` /
     # `running_total` counts so the AI can answer count-style
     # questions ("how many stacks need updating?") accurately even
     # when the sample is truncated.
+    # Canonical "needs update" signal is `status == "update"` (set by
+    # gather.py:enrich() from the remote-digest comparison). There is
+    # no separate `update_available` field on items — earlier code in
+    # this module read that key and silently filtered to an empty list.
     try:
         from logic import gather as _gather
         # noinspection PyProtectedMember
         items = list(_gather._cache.get("items") or [])
 
         def _shape(i: dict) -> dict:
+            needs_update = (i.get("status") or "") == "update"
             return {
                 "name": i.get("name"),
                 "status": i.get("status"),
@@ -2711,12 +2735,12 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                 "type": i.get("type"),
                 "replicas": i.get("replicas"),
                 "desired": i.get("desired"),
-                "update_available": bool(i.get("update_available")),
+                "update_available": needs_update,
                 "stack": i.get("stack"),
             }
 
-        updatable = [_shape(i) for i in items if i.get("update_available")]
-        other = [_shape(i) for i in items if not i.get("update_available")]
+        updatable = [_shape(i) for i in items if (i.get("status") or "") == "update"]
+        other = [_shape(i) for i in items if (i.get("status") or "") != "update"]
         # Cap each list independently so a fleet with many updates
         # gets the FULL list even at the cost of "other_items" tail.
         ctx["updatable_items"] = updatable[:60]
@@ -3187,7 +3211,13 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     # to be linked to an OmniGrid user first. /link / /help / /start /
     # /whoami stay open so an unmapped operator can discover the
     # mapping flow + verify their user_id.
-    open_commands = {"/link", "/help", "/start", "/whoami", "/myid"}
+    # /version + /ver + /ip are open per their docstrings: version is
+    # non-sensitive (lets an unmapped operator confirm which build
+    # they're talking to before linking), and /ip is gated separately
+    # by the `tuning_public_ip_enabled` tunable so the dispatcher gate
+    # doesn't need to second-guess it.
+    open_commands = {"/link", "/help", "/start", "/whoami", "/myid",
+                     "/version", "/ver", "/ip"}
     if head not in open_commands:
         sender_id = (msg.get("from") or {}).get("id")
         mapped = _lookup_omnigrid_user(sender_id) if sender_id is not None else None

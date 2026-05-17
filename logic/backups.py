@@ -95,6 +95,8 @@ def _backup_path(name: str) -> str:
 
 def _snapshot_db_to(path: str) -> None:
     """Consistent DB snapshot via SQLite's online .backup() API."""
+    if DB_PATH is None:
+        raise RuntimeError("DB_PATH unset — refusing to snapshot")
     src = sqlite3.connect(DB_PATH)
     try:
         dst = sqlite3.connect(path)
@@ -135,7 +137,7 @@ def create_backup(prefix: str = "omnigrid-backup") -> dict:
             from logic.migrations import _current_version as _mig_head
             with _db_conn() as _c:
                 schema_head = int(_mig_head(_c))
-        except Exception:
+        except (sqlite3.Error, RuntimeError, ImportError, ValueError):
             schema_head = 0
 
         meta = {
@@ -145,7 +147,7 @@ def create_backup(prefix: str = "omnigrid-backup") -> dict:
             "schema_head": schema_head,
         }
 
-        with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as z:
             z.write(db_tmp, arcname="omnigrid.db")
             # Whole avatars tree — preserves user-uploaded images.
             n_av = 0
@@ -162,6 +164,10 @@ def create_backup(prefix: str = "omnigrid-backup") -> dict:
 
 
 def list_backups() -> list[dict]:
+    """Return one ``{name, size, mtime, version}`` row per backup zip in
+    ``BACKUP_DIR``, newest-first. Filenames that don't match the
+    OmniGrid naming pattern are silently skipped (foreign zips dropped
+    into the dir aren't returned to the UI)."""
     ensure_dirs()
     out = []
     for entry in os.scandir(BACKUP_DIR):
@@ -184,15 +190,21 @@ def list_backups() -> list[dict]:
 
 
 def _read_metadata_version(path: str) -> Optional[str]:
+    """Read ``app_version`` out of a backup zip's ``metadata.json``.
+    Returns None on any failure (malformed zip, missing metadata,
+    bad JSON) so list_backups() can still surface the row."""
     try:
-        with zipfile.ZipFile(path, "r") as z:
-            raw = z.read("metadata.json").decode("utf-8")
+        with zipfile.ZipFile(path) as z:
+            raw = z.read("metadata.json").decode()
         return json.loads(raw).get("app_version")
-    except Exception:
+    except (zipfile.BadZipFile, KeyError, json.JSONDecodeError, OSError):
         return None
 
 
 def delete_backup(name: str) -> None:
+    """Delete the backup zip with the given filename. No-op if the file
+    is already gone (idempotent for the rare double-delete from a
+    flaky network or stale list cache)."""
     p = _backup_path(name)
     if os.path.exists(p):
         os.remove(p)
@@ -222,7 +234,7 @@ def prune_backups(keep: int) -> list[str]:
         try:
             delete_backup(e["name"])
             removed.append(e["name"])
-        except Exception as exc:
+        except OSError as exc:
             print(f"[backups] prune: failed to delete {e['name']}: {exc}")
     return removed
 
@@ -233,7 +245,7 @@ def _validate_zip_entries(path: str) -> None:
     metadata.json). Reject anything unexpected — refuse to extract a
     backup we don't recognise.
     """
-    with zipfile.ZipFile(path, "r") as z:
+    with zipfile.ZipFile(path) as z:
         names = z.namelist()
     # Path-traversal guard.
     for n in names:
@@ -271,9 +283,9 @@ def restore_from_file(path: str) -> dict:
     # Backups taken pre-fix have no schema_head and bypass this check
     # (back-compat — those legacy backups are presumed compatible).
     try:
-        with zipfile.ZipFile(path, "r") as z:
+        with zipfile.ZipFile(path) as z:
             try:
-                raw_meta = z.read("metadata.json").decode("utf-8")
+                raw_meta = z.read("metadata.json").decode()
                 backup_meta = json.loads(raw_meta)
             except (KeyError, json.JSONDecodeError):
                 backup_meta = {}
@@ -284,7 +296,7 @@ def restore_from_file(path: str) -> dict:
             try:
                 with _db_conn() as _c:
                     live_head = int(_mig_head(_c))
-            except Exception:
+            except (sqlite3.Error, RuntimeError, ImportError, ValueError):
                 live_head = 0
             if backup_head > live_head:
                 raise ValueError(
@@ -295,7 +307,7 @@ def restore_from_file(path: str) -> dict:
                 )
     except ValueError:
         raise
-    except Exception as e:
+    except (zipfile.BadZipFile, OSError) as e:
         # Defensive — never let a metadata-read hiccup block a legitimate
         # restore. A malformed metadata.json was already permitted by
         # `_validate_zip_entries`'s tolerant shape check.
@@ -308,12 +320,12 @@ def restore_from_file(path: str) -> dict:
     try:
         safety_meta = create_backup(prefix="auto-before-restore")
         safety = safety_meta["name"]
-    except Exception as e:
+    except (OSError, sqlite3.Error, RuntimeError, zipfile.BadZipFile) as e:
         print(f"[backups] WARN: couldn't take safety snapshot: {e}")
 
     # 2) Extract to a temp dir.
     with tempfile.TemporaryDirectory(prefix="og-rst-") as tmp:
-        with zipfile.ZipFile(path, "r") as z:
+        with zipfile.ZipFile(path) as z:
             # Explicit extract + per-entry path guard (ZipFile's .extractall
             # respects our earlier validation, but re-check each target path
             # against the extraction root to be thorough).
@@ -330,6 +342,8 @@ def restore_from_file(path: str) -> dict:
         #  Any in-flight db_conn() is an independent sqlite3 handle on the
         #  old inode; it'll see old data until it closes, which is fine
         #  (every db_conn() is a short-lived context manager).
+        if DB_PATH is None:
+            raise RuntimeError("DB_PATH unset — refusing to swap DB")
         os.replace(new_db, DB_PATH)
 
         # 4) Replace avatars dir. Move old one to a tmp name, move new in,
@@ -350,7 +364,7 @@ def restore_from_file(path: str) -> dict:
             # Success — clean up the old tree.
             if os.path.isdir(bak_av):
                 shutil.rmtree(bak_av, ignore_errors=True)
-        except Exception:
+        except (OSError, shutil.Error):
             # Best-effort rollback of the avatars swap. DB was already
             # replaced, so the user still needs to know restore partially
             # landed — we re-raise.

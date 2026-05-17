@@ -20419,7 +20419,12 @@ function app() {
         if (i.type)    out.type = i.type;
         if (i.replicas !== undefined) out.replicas = i.replicas;
         if (i.desired  !== undefined) out.desired = i.desired;
-        if (i.update_available) out.update_available = true;
+        // Canonical "needs update" signal is `status === 'update'` —
+        // gather.py sets that from the remote-digest comparison. There
+        // is no separate `update_available` field, but we re-emit one
+        // on the AI context so the prompt's "every item with
+        // update_available=true" copy stays accurate.
+        if ((i.status || '') === 'update') out.update_available = true;
         return out;
       };
       const allHosts = Array.isArray(this.hosts) ? this.hosts : [];
@@ -32964,7 +32969,7 @@ function app() {
         } else {
           containers += 1;
         }
-        const updateChip = it.update_available
+        const updateChip = ((it.status || '') === 'update')
           ? ` <span class="blast-radius-chip blast-radius-chip--update">${esc(this.t('blast_radius.has_update') || 'update available')}</span>`
           : '';
         lines.push(`<li class="blast-radius-item">`

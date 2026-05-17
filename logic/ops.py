@@ -66,11 +66,11 @@ def _portainer_op_timeout(tier: str) -> float:
     fallback = {"short": 120.0, "medium": 300.0, "long": 600.0}.get(tier, 300.0)
     try:
         return float(_tuning_int(f"tuning_portainer_op_timeout_{tier}_seconds"))
-    except Exception:
+    except (KeyError, ValueError, TypeError):
         return fallback
 
-MAX_OPS = 50
 
+MAX_OPS = 50
 
 # ---------------------------------------------------------------------------
 # Canonical op_type registry — single source of truth for every value that
@@ -130,6 +130,7 @@ OP_TYPES: frozenset[str] = frozenset({
     "prune_all_nodes",
     "gather_refresh",
     "backup",
+    "config_backup",
     "asset_inventory_refresh",
     "prune_logs",
     "prune_notifications",
@@ -254,7 +255,6 @@ OP_TYPES: frozenset[str] = frozenset({
     "telegram_command",
 })
 
-
 # Canonical op-status enum.
 #
 # Backend writes one of these into the `history.status` column. The History tab
@@ -320,6 +320,7 @@ def write_admin_audit(
     optional `message`) gives the History UI a row body to expand
     when the operator clicks the audit row.
     """
+    import sqlite3 as _sqlite3
     import time as _time
     import json as _json
     assert_op_type(op_type)
@@ -341,7 +342,7 @@ def write_admin_audit(
                 events_json, error, actor or "ui",
             ),
         )
-    except Exception as e:
+    except (_sqlite3.Error, TypeError, ValueError) as e:
         print(f"[ops] warning — failed to write admin audit row {op_type!r}: {e!r}")
 
 
@@ -395,7 +396,6 @@ NOTIFY_EVENT_DEFAULTS = {
     for name in NOTIFY_EVENT_NAMES
 }
 
-
 # Per-medium default state. Mirrors the per-event defaults map above so
 # `api_get_settings` has a single source of truth + the dispatcher
 # below can short-circuit a missing-row read to the same value the
@@ -408,8 +408,8 @@ NOTIFY_MEDIUM_NAMES = ("app", "apprise", "telegram")
 # the operator configures it. App + Apprise default ON to preserve
 # legacy behaviour for upgrades from pre-Telegram deploys.
 NOTIFY_MEDIUM_DEFAULTS = {
-    "app":      True,
-    "apprise":  True,
+    "app": True,
+    "apprise": True,
     "telegram": False,
 }
 
@@ -468,7 +468,6 @@ NOTIFY_DEPRECATED_PLACEHOLDERS: dict[str, str | None] = {
     # "removed_token": None,
 }
 
-
 NOTIFY_PLACEHOLDERS = (
     "name",
     "type",
@@ -487,21 +486,19 @@ NOTIFY_PLACEHOLDERS = (
     "status",
 )
 
-
 # Sample placeholder values for the live-preview pane in the admin
 # editor. The shape mirrors what `build_template_values` produces at
 # real render time. Kept short / readable so previews don't wrap.
 NOTIFY_TEMPLATE_SAMPLES: dict = {
-    "name":    "example-stack",
-    "type":    "update_stack",
-    "actor":   "alice",
-    "host":    "swarm-mgr-01",
-    "time":    "2026-05-04T12:34:56Z",
-    "error":   "HTTP 500: connection refused",
+    "name": "example-stack",
+    "type": "update_stack",
+    "actor": "alice",
+    "host": "swarm-mgr-01",
+    "time": "2026-05-04T12:34:56Z",
+    "error": "HTTP 500: connection refused",
     "message": "Probe ran, 3 nodes flagged unhealthy",
-    "status":  "success",
+    "status": "success",
 }
-
 
 # Per-event hard-coded defaults. Each value mirrors the string the
 # corresponding `_do_*` handler used to pass to `notify()` BEFORE the
@@ -522,52 +519,52 @@ NOTIFY_TEMPLATE_SAMPLES: dict = {
 NOTIFY_TEMPLATE_DEFAULTS: dict = {
     "stack_update_success": {
         "title": "✅ Stack updated: {name}",
-        "body":  "",  # body filled at fire time with duration; see do_update_stack
+        "body": "",  # body filled at fire time with duration; see do_update_stack
     },
     "stack_update_failure": {
         "title": "❌ Stack update failed: {name}",
-        "body":  "{error}",
+        "body": "{error}",
     },
     "container_update_success": {
         "title": "✅ Container updated: {name}",
-        "body":  "",
+        "body": "",
     },
     "container_update_failure": {
         "title": "❌ Container update failed: {name}",
-        "body":  "{error}",
+        "body": "{error}",
     },
     "container_restart_success": {
         "title": "🔄 Container restarted: {name}",
-        "body":  "",
+        "body": "",
     },
     "container_restart_failure": {
         "title": "❌ Container restart failed: {name}",
-        "body":  "{error}",
+        "body": "{error}",
     },
     "container_remove_success": {
         "title": "🗑 Container removed: {name}",
-        "body":  "",
+        "body": "",
     },
     "container_remove_failure": {
         "title": "❌ Container remove failed: {name}",
-        "body":  "{error}",
+        "body": "{error}",
     },
     "service_restart_success": {
         "title": "🔄 Service restarted: {name}",
-        "body":  "",
+        "body": "",
     },
     "service_restart_failure": {
         "title": "❌ Service restart failed: {name}",
-        "body":  "{error}",
+        "body": "{error}",
     },
     "swarm_agent_restart_success": {
         "title": "🔄 Portainer agent restarted: {name}",
-        "body":  "Force-update applied; agents on every node will respawn "
-                 "and re-register with the manager.",
+        "body": "Force-update applied; agents on every node will respawn "
+                "and re-register with the manager.",
     },
     "swarm_agent_restart_failure": {
         "title": "❌ Portainer agent restart failed: {name}",
-        "body":  "{error}",
+        "body": "{error}",
     },
     "swarm_agent_unhealthy": {
         "title": "⚠️ Swarm agent unhealthy: {name}",
@@ -575,30 +572,30 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
         # regardless of severity, vs ``{error}`` which is only set on
         # severity=="error". Warnings (this event's typical severity)
         # would render an empty body otherwise.
-        "body":  "{message}",
+        "body": "{message}",
     },
     "swarm_agent_recovered": {
         "title": "✅ Swarm agent recovered: {name}",
         # Recovered events use {message} for the same reason as the
         # paired unhealthy event — severity is "success" so {error}
         # would resolve to empty.
-        "body":  "{message}",
+        "body": "{message}",
     },
     "prune_success": {
         "title": "🧹 Prune complete on {name}",
-        "body":  "",  # body filled at fire time with reclaimed-bytes summary.
+        "body": "",  # body filled at fire time with reclaimed-bytes summary.
     },
     "prune_failure": {
         "title": "❌ Prune failed on {name}",
-        "body":  "{error}",
+        "body": "{error}",
     },
     "user_login": {
         "title": "🔓 {actor} signed in",
-        "body":  "",
+        "body": "",
     },
     "host_paused": {
         "title": "⚠️ Host sampling paused: {name}",
-        "body":  "{error}",
+        "body": "{error}",
     },
     # Port-scan provider — fires when a scan reveals an open port not
     # in the previous scan AND not in the host's curated services.
@@ -607,19 +604,19 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
     # (http-alt) is now listening on host01").
     "port_scan_new_port": {
         "title": "🔍 New open port on {name}",
-        "body":  "{message}",
+        "body": "{message}",
     },
     "totp_audit_log_failed": {
         "title": "TOTP audit-row missing for {name}",
-        "body":  "{message}",
+        "body": "{message}",
     },
     "overlay_cleanup_success": {
         "title": "Stale overlay cleaned: {name}",
-        "body":  "{message}",
+        "body": "{message}",
     },
     "overlay_cleanup_failure": {
         "title": "Overlay cleanup failed: {name}",
-        "body":  "{message}",
+        "body": "{message}",
     },
 }
 
@@ -664,7 +661,7 @@ def template_default(event: str, kind: str, locale: str = "en") -> str:
         # cache-miss so we fall through to the dict.
         if resolved and resolved != i18n_key:
             return resolved
-    except Exception as e:  # noqa: BLE001
+    except (ImportError, KeyError, ValueError, TypeError) as e:
         print(f"[notify] i18n lookup failed for {event}.{kind}: {e}")
     # Legacy dict fallback.
     entry = NOTIFY_TEMPLATE_DEFAULTS.get(event)
@@ -683,7 +680,7 @@ def resolve_template(event: str, kind: str, locale: str = "en") -> str:
     """
     title_key, body_key = template_setting_keys(event)
     db_key = title_key if kind == "title" else body_key
-    raw = (get_setting(db_key, "") or "").strip()
+    raw = (get_setting(db_key) or "").strip()
     if raw:
         return raw
     return template_default(event, kind, locale)
@@ -698,6 +695,7 @@ def resolve_actor_locale(actor_username: Optional[str]) -> str:
     if not actor_username:
         return "en"
     try:
+        import sqlite3 as _sqlite3
         import logic.auth as _auth
         from logic.db import db_conn as _db_conn
         with _db_conn() as c:
@@ -713,7 +711,7 @@ def resolve_actor_locale(actor_username: Optional[str]) -> str:
         if lang:
             from logic.i18n import pick_locale as _pick
             return _pick(lang)
-    except Exception:  # noqa: BLE001
+    except (_sqlite3.Error, ImportError, ValueError, TypeError, AttributeError):
         pass
     return "en"
 
@@ -786,14 +784,14 @@ def build_template_values(
     if len(msg_str) > 500:
         msg_str = msg_str[:500]
     return {
-        "name":    target_name or "",
-        "type":    op_type or event or "",
-        "actor":   actor or "system",
-        "host":    host or "",
-        "time":    rendered_time,
-        "error":   err_str,
+        "name": target_name or "",
+        "type": op_type or event or "",
+        "actor": actor or "system",
+        "host": host or "",
+        "time": rendered_time,
+        "error": err_str,
         "message": msg_str,
-        "status":  status or "",
+        "status": status or "",
     }
 
 
@@ -882,12 +880,12 @@ def audit_template_data() -> dict:
                 if tok not in whitelist:
                     unknown_placeholders.append({
                         "event": event,
-                        "kind":  kind,
+                        "kind": kind,
                         "token": tok,
                     })
     return {
-        "missing_defaults":     missing,
-        "unknown_defaults":     unknown,
+        "missing_defaults": missing,
+        "unknown_defaults": unknown,
         "unknown_placeholders": unknown_placeholders,
     }
 
@@ -939,7 +937,6 @@ def audit_template_and_log() -> dict:
 # variant (silent) rather than re-flooding the log.
 audit_template_coverage = audit_template_data
 
-
 # Mapping from operation status hints to the four-level severity
 # taxonomy used by the in-app store + log viewer. Kept narrow on
 # purpose — every caller passes one of "info" / "success" / "error"
@@ -983,6 +980,11 @@ def _human_bytes(n: int) -> str:
 
 
 class Operation:
+    """In-memory record of one write operation. Carries the event log
+    until completion, then `persist_history` flushes the durable row to
+    the SQLite `history` table. Lives in the process-local `ops` dict
+    until eviction (`MAX_OPS` cap, finished ops drop first)."""
+
     __slots__ = ("id", "op_type", "target_id", "target_name", "target_stack",
                  "started", "ended", "status", "events", "error", "actor")
 
@@ -1001,6 +1003,8 @@ class Operation:
         self.actor = actor
 
     def log(self, msg: str, level: str = "info"):
+        """Append one event to the live op log + publish an `op:updated`
+        SSE frame so the live panel updates in-place without a poll."""
         self.events.append({"ts": time.time(), "level": level, "msg": msg})
         print(f"[op {self.id}] {level}: {msg}")
         # SSE — publish a minimal delta. Full op shape is available
@@ -1015,6 +1019,9 @@ class Operation:
         })
 
     def done(self, status: str, error: Optional[str] = None):
+        """Mark this op as finished. Publishes the terminal `op:completed`
+        SSE frame; caller is responsible for `persist_history(op)` to
+        flush the durable row."""
         self.status = status
         self.ended = time.time()
         self.error = error
@@ -1026,6 +1033,7 @@ class Operation:
         })
 
     def to_dict(self):
+        """Serialise this op to the dict shape consumed by `/api/ops`."""
         return {
             "id": self.id, "op_type": self.op_type, "target_id": self.target_id,
             "target_name": self.target_name, "target_stack": self.target_stack,
@@ -1042,6 +1050,11 @@ ops_order: list[str] = []
 
 def new_op(op_type: str, target_id: str, target_name: str,
            target_stack: Optional[str] = None, actor: str = "ui") -> Operation:
+    """Construct a new :class:`Operation`, register it in the in-memory
+    `ops` dict, publish the `op:created` SSE frame, and evict the
+    oldest completed op when the cap is hit. Returns the Operation —
+    callers stamp events via `op.log(...)` and finish with `op.done(...)
+    + persist_history(op)`."""
     # Validate against the canonical registry — logs a WARN line when
     # `op_type` isn't recognised. Doesn't raise (so existing behaviour
     # is back-compat); the WARN surfaces in Admin → Logs so a new
@@ -1085,7 +1098,7 @@ def persist_history(op: Operation) -> None:
         history_id = cur.lastrowid
     try:
         metrics.OPS_TOTAL.labels(op_type=op.op_type, status=op.status).inc()
-    except Exception as e:
+    except (ValueError, AttributeError) as e:
         print(f"[metrics] OPS_TOTAL inc failed: {e}")
     # SSE — fire AFTER the row commits so the SPA's prepend lands a
     # row that's already visible to /api/history.
@@ -1112,12 +1125,18 @@ def persist_history(op: Operation) -> None:
 async def _notify_medium_apprise(
     *, title: str, body: str, severity: str,
     event: Optional[str], actor_username: Optional[str],
-    target_kind: Optional[str], target_id: Optional[str],
-    metadata: Optional[dict],
+    target_kind: Optional[str], target_id: Optional[str],  # noqa: ARG001 — contract for MediumSender shape
+    metadata: Optional[dict],  # noqa: ARG001 — contract for MediumSender shape
 ) -> dict:
     """Existing fire-and-forget Apprise dispatcher, lifted from the
     original :func:`notify`. Returns a structured ``{ok, skipped, ...}``
     dict so the caller can log per-medium outcomes.
+
+    ``target_kind`` / ``target_id`` / ``metadata`` parameters are
+    intentionally unused here — they're part of the
+    :data:`MediumSender` shape so the app + telegram mediums can
+    consume them, and dropping them from this signature would break
+    the per-medium dispatch contract.
     """
     if (get_setting(Settings.APPRISE_ENABLED, "true") or "true").lower() != "true":
         # Master toggle keeps the legacy short-circuit semantics; the
@@ -1125,7 +1144,7 @@ async def _notify_medium_apprise(
         # silencing Apprise without flipping the per-medium switch.
         print("[notify] apprise skipped — apprise disabled in Admin → Notifications")
         return {"ok": False, "skipped": "apprise_disabled"}
-    url = get_setting(Settings.APPRISE_URL, "")
+    url = get_setting(Settings.APPRISE_URL)
     if not url:
         print("[notify] apprise skipped — no apprise_url configured")
         return {"ok": False, "skipped": "no_url"}
@@ -1136,14 +1155,15 @@ async def _notify_medium_apprise(
     user_email: Optional[str] = None
     if event and actor_username:
         try:
+            import sqlite3 as _sqlite3
             from logic import auth as _auth
             with db_conn() as _c:
                 _u = _auth.get_user_by_username(_c, actor_username)
                 if _u and _u.id >= 0:
                     user_email = (getattr(_u, "email", "") or "").strip() or None
-        except Exception as _e:
+        except (_sqlite3.Error, ImportError, AttributeError, ValueError) as _e:
             print(f"[notify] apprise user-email lookup failed for '{actor_username}': {_e}")
-    tag = get_setting(Settings.APPRISE_TAG, "")
+    tag = get_setting(Settings.APPRISE_TAG)
     body = body or title  # Apprise rejects empty bodies.
     try:
         # Apprise piggy-backs on Portainer's `VERIFY_TLS` for HTTPS
@@ -1171,7 +1191,7 @@ async def _notify_medium_apprise(
                 return {"ok": False, "status": r.status_code, "body": r.text[:200]}
             print(f"[notify] apprise ok {r.status_code} → {url} tag={tag!r}")
             return {"ok": True, "status": r.status_code}
-    except Exception as e:
+    except (httpx.HTTPError, OSError, ValueError) as e:
         print(f"[notify] apprise ERROR → {url}: {e}")
         return {"ok": False, "error": str(e)}
 
@@ -1203,6 +1223,7 @@ async def _notify_medium_app(
         except (TypeError, ValueError) as e:
             print(f"[notify] app metadata not JSON-serialisable, dropping: {e}")
             md_json = None
+    import sqlite3 as _sqlite3
     try:
         with db_conn() as c:
             cur = c.execute(
@@ -1219,9 +1240,9 @@ async def _notify_medium_app(
                 "SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL"
             ).fetchone()
             unread_count = int(unread_row["n"]) if unread_row else 0
-    except Exception as e:
-        print(f"[notify] app INSERT failed: {e}")
-        return {"ok": False, "error": str(e)}
+    except (_sqlite3.Error, RuntimeError) as insert_err:
+        print(f"[notify] app INSERT failed: {insert_err}")
+        return {"ok": False, "error": str(insert_err)}
     payload = {
         "id": new_id,
         "ts": ts,
@@ -1236,12 +1257,12 @@ async def _notify_medium_app(
     }
     try:
         events.publish("notification:created", payload)
-    except Exception as e:
+    except (RuntimeError, ValueError, TypeError) as publish_err:
         # SSE publish failures must not break the dispatch — the DB row
         # is the source of truth, the SPA's polling fallback will pick
         # it up on the next /api/notifications round-trip. Verb stays
-        # off the ERROR-severity regex per CLAUDE.md.
-        print(f"[notify] app SSE publish dropped: {e}")
+        # off the ERROR-severity regex per convention.
+        print(f"[notify] app SSE publish dropped: {publish_err}")
     print(f"[notify] app ok id={new_id} event={event!r} severity={severity}")
     return {"ok": True, "id": new_id, "unread_count": unread_count}
 
@@ -1251,6 +1272,8 @@ async def _notify_medium_app(
 # the same shape and registering here. CLAUDE.md "Canonical extension
 # pattern: add a notification medium" is the full contract.
 MediumSender = Callable[..., Awaitable[dict]]
+
+
 async def _notify_medium_telegram(**kwargs) -> dict:
     """Dispatcher entry for the Telegram medium. Lazy-imports the
     module so a deploy without `telegram_bot_token` configured doesn't
@@ -1261,8 +1284,8 @@ async def _notify_medium_telegram(**kwargs) -> dict:
 
 
 NOTIFY_MEDIUMS: dict[str, MediumSender] = {
-    "app":      _notify_medium_app,
-    "apprise":  _notify_medium_apprise,
+    "app": _notify_medium_app,
+    "apprise": _notify_medium_apprise,
     "telegram": _notify_medium_telegram,
 }
 
@@ -1319,7 +1342,7 @@ async def notify(
     # Per-event admin gate.
     if event:
         default_on = NOTIFY_EVENT_DEFAULTS.get(event, True)
-        if get_setting_bool(notify_event_key(event), default=default_on) is False:
+        if not get_setting_bool(notify_event_key(event), default=default_on):
             print(f"[notify] skipped — event '{event}' disabled by operator")
             return
     # Template override. Pull the legacy literal `title` / `body` apart
@@ -1418,6 +1441,7 @@ async def notify(
     user_event_pref: Optional[Union[bool, dict]] = None
     if event and actor_username:
         try:
+            import sqlite3 as _sqlite3
             from logic import auth as _auth
             with db_conn() as _c:
                 _u = _auth.get_user_by_username(_c, actor_username)
@@ -1425,7 +1449,7 @@ async def notify(
                     prefs_map = _auth.get_user_notify_prefs(_c, _u.id) or {}
                     if event in prefs_map:
                         user_event_pref = prefs_map[event]
-        except Exception as _e:
+        except (_sqlite3.Error, ImportError, AttributeError, ValueError) as _e:
             # Defensive: never let a pref lookup failure break the
             # admin-gate decision. user_event_pref stays None ⇒ default
             # to "enabled across every medium" (legacy behaviour).
@@ -1469,7 +1493,7 @@ async def notify(
         #   way to silence a medium). bool False already short-circuited
         #   above so we don't see it here.
         if isinstance(user_event_pref, dict):
-            if user_event_pref.get(medium_name, True) is False:
+            if not user_event_pref.get(medium_name, True):
                 print(
                     f"[notify] medium '{medium_name}' skipped — user "
                     f"'{actor_username}' routed '{event}' away from "
@@ -1542,7 +1566,9 @@ async def notify_with_retry(
                   f"retrying in {retry_after:.0f}s")
             try:
                 await asyncio.sleep(retry_after)
-            except Exception:
+            except asyncio.CancelledError:
+                raise
+            except (RuntimeError, OSError):
                 return
 
 
@@ -1589,10 +1615,11 @@ def _retag_compose_to_latest(
         quote = m.group("quote") or ""
         repo = m.group("repo")
         old_tag = m.group("tag") or ""
+        full_match = m.group()
         if target_image_repo and repo != target_image_repo:
-            return m.group(0)
-        if old_tag == nt and "@sha256:" not in m.group(0):
-            return m.group(0)
+            return full_match
+        if old_tag == nt and "@sha256:" not in full_match:
+            return full_match
         old_image = repo + (f":{old_tag}" if old_tag else "")
         new_image = f"{repo}:{nt}"
         replacements.append((old_image, new_image))
@@ -1610,6 +1637,13 @@ async def do_update_stack(
     target_image_repo: Optional[str] = None,
     new_tag: str = "latest",
 ) -> None:
+    """Pull-and-recreate the named Swarm stack via Portainer's
+    ``Prune + PullImage`` stack-update endpoint. Optionally retags
+    every (or one specific) ``image:`` line in the compose file to
+    ``new_tag`` first — used by the operator-flow "switch this stack
+    to :latest" button. Logs progress to the in-memory Operation;
+    fires a notification on completion + the cache invalidation
+    after persist_history."""
     try:
         op.log(f"Starting stack update (id={stack_id}, retag={retag_to_latest}"
                + (f", new_tag={new_tag!r}" if retag_to_latest else "")
@@ -1668,6 +1702,12 @@ async def do_update_stack(
 
 
 async def do_update_container(op: Operation, container_id: str) -> None:
+    """Recreate one standalone container via Portainer's
+    ``/containers/{id}/recreate?PullImage=true`` endpoint. Resolves
+    the target's Swarm node from the gather cache and threads
+    `X-PortainerAgent-Target` so worker-node containers route
+    correctly. Logs to the Operation, notifies on completion,
+    invalidates the gather cache in the finally block."""
     try:
         node = portainer.node_for_container(gather.get_cache(), container_id)
         op.log("Recreating container with PullImage=true"
@@ -1850,6 +1890,7 @@ async def do_retag_container_to_latest(
                     )
                     return {}
                 return (resp.json() or {}).get("Config") or {}
+
             old_image_cfg = await _image_config(old_image_ref, "old")
             new_image_cfg = await _image_config(new_image_ref, "new")
             # Diagnostic — surface what each image declared so the
