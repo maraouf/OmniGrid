@@ -37,7 +37,6 @@ import httpx
 
 from logic.merge import normalize_arch as _normalize_arch
 
-
 # In-process token cache so every gather doesn't re-auth. Keyed by
 # (base_url, identity) — an operator changing the Hub URL or identity
 # in Settings will miss the cache and re-auth, which is correct.
@@ -64,6 +63,7 @@ _token_cache: dict[tuple[str, str], dict] = {}
 # has been up long enough that one duplicate log line in N thousand is
 # acceptable.
 from collections import OrderedDict as _OrderedDict
+
 _WARNED_NO_MOUNTS_CAP = 1024
 _warned_no_mounts: "_OrderedDict[str, None]" = _OrderedDict()
 _warned_sample_no_efs: bool = False
@@ -361,8 +361,8 @@ async def fetch_system_history(
     # doesn't support placeholder bind for arbitrary filter expressions,
     # so escape via doubling — `'` → `''` is the standard SQL-style
     # escape that PB's filter parser accepts.
-    safe_system  = str(system_id).replace("'", "''")
-    safe_type    = str(stat_type).replace("'", "''")
+    safe_system = str(system_id).replace("'", "''")
+    safe_type = str(stat_type).replace("'", "''")
     filt = f"(system='{safe_system}'&&type='{safe_type}')"
     url = base_url.rstrip("/") + "/api/collections/system_stats/records"
     params = {"filter": filt, "sort": "created", "perPage": str(per_page)}
@@ -457,8 +457,8 @@ async def fetch_system_history(
         # populate it (containers, embedded systems).
         la = stats.get("la") or stats.get("loadavg") or []
         if isinstance(la, list):
-            la1  = _num(la[0]) if len(la) > 0 else 0.0
-            la5  = _num(la[1]) if len(la) > 1 else 0.0
+            la1 = _num(la[0]) if len(la) > 0 else 0.0
+            la5 = _num(la[1]) if len(la) > 1 else 0.0
             la15 = _num(la[2]) if len(la) > 2 else 0.0
         else:
             la1 = la5 = la15 = 0.0
@@ -475,8 +475,8 @@ async def fetch_system_history(
         # `threads` if a future agent emits them, then 1.
         cpus_arr = stats.get("cpus") if isinstance(stats.get("cpus"), list) else []
         cores = max(1, len(cpus_arr) or int(_num(stats.get("c")) or _num(stats.get("threads")) or 1))
-        la1_pct  = min(100.0, (la1  / cores) * 100.0)
-        la5_pct  = min(100.0, (la5  / cores) * 100.0)
+        la1_pct = min(100.0, (la1 / cores) * 100.0)
+        la5_pct = min(100.0, (la5 / cores) * 100.0)
         la15_pct = min(100.0, (la15 / cores) * 100.0)
         # Compute per-sensor temperatures ONCE per point. Earlier ship
         # called ``_flatten_temperatures(stats.get("t"))`` three times
@@ -501,7 +501,7 @@ async def fetch_system_history(
                 continue
             gpu_pwr_sum += _num(_gpu.get("p"))
             gpu_usage_sum += _num(_gpu.get("u"))
-            gpu_vram_used_sum += _num(_gpu.get("mu")) * 1024 ** 3   # GB → bytes
+            gpu_vram_used_sum += _num(_gpu.get("mu")) * 1024 ** 3  # GB → bytes
             gpu_vram_total_sum += _num(_gpu.get("mt")) * 1024 ** 2  # MB → bytes
             gpu_n += 1
         gpu_pwr_avg = (gpu_pwr_sum / gpu_n) if gpu_n else 0.0
@@ -511,33 +511,33 @@ async def fetch_system_history(
             if gpu_vram_total_sum else 0.0
         )
         series.append({
-            "t":   ts,
+            "t": ts,
             "cpu": _num(stats.get("cpu")),
-            "mp":  _num(stats.get("mp")),
-            "dp":  _num(stats.get("dp")),
-            "mu":  _num(stats.get("mu")),   # mem used GiB
-            "du":  _num(stats.get("du")),   # disk used GiB
-            "b":   b,    # network bytes/s (legacy aggregate)
-            "nr":  nr,   # net recv bytes/s (newer)
-            "ns":  ns,   # net send bytes/s (newer)
+            "mp": _num(stats.get("mp")),
+            "dp": _num(stats.get("dp")),
+            "mu": _num(stats.get("mu")),  # mem used GiB
+            "du": _num(stats.get("du")),  # disk used GiB
+            "b": b,  # network bytes/s (legacy aggregate)
+            "nr": nr,  # net recv bytes/s (newer)
+            "ns": ns,  # net send bytes/s (newer)
             "net": net,  # preferred aggregate for the net chart
-            "dr":  dr,   # disk read bytes/s (host-wide, summed across mounts)
-            "dw":  dw,   # disk write bytes/s
-            "la1":  la1,  # load avg 1m (raw load — backward compat for callers)
-            "la5":  la5,  # load avg 5m
-            "la15": la15, # load avg 15m
+            "dr": dr,  # disk read bytes/s (host-wide, summed across mounts)
+            "dw": dw,  # disk write bytes/s
+            "la1": la1,  # load avg 1m (raw load — backward compat for callers)
+            "la5": la5,  # load avg 5m
+            "la15": la15,  # load avg 15m
             # percent-of-cores variants for the host-drawer
             # Load chart (operator wants 0-100 % rendering, not raw
             # 0.18 / 0.22 / 0.18 numbers).
-            "la1_pct":  la1_pct,
-            "la5_pct":  la5_pct,
+            "la1_pct": la1_pct,
+            "la5_pct": la5_pct,
             "la15_pct": la15_pct,
             # Swap usage % — Beszel agents emit `s` for swap percent
             # used (0..100). Hosts without a swap configured emit 0
             # consistently → chart hides on the frontend gate.
-            "s":   _num(stats.get("s")),
+            "s": _num(stats.get("s")),
             # Swap used in GiB — `su` field. Pair with `s` for the chart.
-            "su":  _num(stats.get("su")),
+            "su": _num(stats.get("su")),
             # Per-sensor temperatures — Beszel agents emit `stats.t` as
             # a flat ``{sensor_name: celsius}`` dict (e.g. cpu_thermal /
             # core_0 / nvme_composite). The frontend's hostChart helper
@@ -548,14 +548,14 @@ async def fetch_system_history(
             # operator can see which sensor is hottest. Missing →
             # empty dict + None scalar; the frontend chart card hides
             # on `Object.keys(temps).length > 0`.
-            "temps":    temps,
+            "temps": temps,
             "temp_max": max(temps.values()) if temps else 0.0,
             # GPU aggregates — gpu_pwr / gpu_usage / gpu_vram_pct
             # power dedicated per-GPU chart cards. Plus the absolute
             # VRAM used / total (bytes) for the legend value formatting.
-            "gpu_pwr":             gpu_pwr_avg,
-            "gpu_usage":           gpu_usage_avg,
-            "gpu_vram_pct":        gpu_vram_pct,
+            "gpu_pwr": gpu_pwr_avg,
+            "gpu_usage": gpu_usage_avg,
+            "gpu_vram_pct": gpu_vram_pct,
             "gpu_vram_used_bytes": int(gpu_vram_used_sum),
             "gpu_vram_total_bytes": int(gpu_vram_total_sum),
         })
@@ -684,8 +684,8 @@ def _flatten_efs(efs) -> list[dict]:
         d = _num(stats.get("d"))
         du = _num(stats.get("du"))
         out.append({
-            "n":  str(name),
-            "d":  d,
+            "n": str(name),
+            "d": d,
             "du": du,
             "dp": (du / d * 100) if d > 0 else 0.0,
             "dr": _num(stats.get("dr")),
@@ -721,8 +721,8 @@ def _flatten_network(ni) -> list[dict]:
         if not isinstance(addrs, list):
             addrs = []
         out.append({
-            "name":  name,
-            "mac":   mac,
+            "name": name,
+            "mac": mac,
             "addrs": [str(a) for a in addrs if a],
         })
     return out
@@ -781,10 +781,10 @@ def _flatten_gpus(g) -> list[dict]:
         out.append({
             "index": str(idx),
             "name": str(gpu.get("n") or ""),
-            "vram_used_bytes":  int(vram_used_gb * 1024 ** 3),
+            "vram_used_bytes": int(vram_used_gb * 1024 ** 3),
             "vram_total_bytes": int(vram_total_mb * 1024 ** 2),
-            "usage_percent":    usage_pct,
-            "power_watts":      power_w,
+            "usage_percent": usage_pct,
+            "power_watts": power_w,
         })
     return out
 
@@ -851,9 +851,9 @@ def _services_summary(services) -> dict:
         if is_failed:
             failed_names.append(name)
     return {
-        "total":         total,
-        "failed":        len(failed_names),
-        "failed_names":  failed_names,
+        "total": total,
+        "failed": len(failed_names),
+        "failed_names": failed_names,
     }
 
 
@@ -921,10 +921,10 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         stats = {}
     gib = 1024 ** 3
     # Absolute totals come from the system_stats row's GiB fields.
-    mem_total  = _num(stats.get("m"))  * gib
-    mem_used   = _num(stats.get("mu")) * gib
-    disk_total = _num(stats.get("d"))  * gib
-    disk_used  = _num(stats.get("du")) * gib
+    mem_total = _num(stats.get("m")) * gib
+    mem_used = _num(stats.get("mu")) * gib
+    disk_total = _num(stats.get("d")) * gib
+    disk_used = _num(stats.get("du")) * gib
     # When the Beszel agent has reported extra filesystems, prefer
     # their sum for the aggregate. Reason: `stats.d` is the agent's
     # primary disk (often a container / incus overlay that the
@@ -992,13 +992,13 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
     host_boot_ts = (time.time() - uptime) if uptime > 0 else None
     return {
         "host_disk_total": int(disk_total),
-        "host_disk_used":  int(disk_used),
-        "host_disk_free":  max(0, int(disk_total - disk_used)),
-        "host_mem_total":  int(mem_total),
-        "host_mem_used":   int(mem_used),
-        "host_mem_avail":  max(0, int(mem_total - mem_used)),
-        "host_boot_ts":    host_boot_ts,
-        "host_uptime_s":   int(uptime),
+        "host_disk_used": int(disk_used),
+        "host_disk_free": max(0, int(disk_total - disk_used)),
+        "host_mem_total": int(mem_total),
+        "host_mem_used": int(mem_used),
+        "host_mem_avail": max(0, int(mem_total - mem_used)),
+        "host_boot_ts": host_boot_ts,
+        "host_uptime_s": int(uptime),
         # Extended metadata — consumed by the Hosts tab's header row
         # and the SYSTEM / HARDWARE cards when expanded. All come from
         # ``info``; ``stats`` is only for absolute numbers above.
@@ -1009,46 +1009,46 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         # no longer matches — recompute from the EFS sum so the chip
         # value agrees with the new total.
         "host_disk_percent": disk_pct_efs if disk_pct_efs is not None else _num(info.get("dp")),
-        "host_cores":       int(_num(info.get("c"))),
-        "host_threads":     int(_num(info.get("t"))),
-        "host_cpu_model":   str(info.get("m") or ""),
-        "host_platform":    str(info.get("p") or info.get("platform") or ""),
-        "host_os":          str(info.get("os") or ""),
-        "host_kernel":      str(info.get("k") or info.get("kernel") or ""),
+        "host_cores": int(_num(info.get("c"))),
+        "host_threads": int(_num(info.get("t"))),
+        "host_cpu_model": str(info.get("m") or ""),
+        "host_platform": str(info.get("p") or info.get("platform") or ""),
+        "host_os": str(info.get("os") or ""),
+        "host_kernel": str(info.get("k") or info.get("kernel") or ""),
         # Beszel doesn't emit architecture as its own field — derive it
         # from the kernel suffix the same way Beszel's own UI does
         # (e.g. "6.12.7+deb13+1-amd64" → "amd64"). Empty when the
         # kernel isn't present either.
-        "host_arch":        _derive_arch(info.get("k") or info.get("kernel") or "")
-                            or str(info.get("a") or info.get("arch") or ""),
-        "host_agent":       str(info.get("v") or info.get("agent") or ""),
+        "host_arch": _derive_arch(info.get("k") or info.get("kernel") or "")
+                     or str(info.get("a") or info.get("arch") or ""),
+        "host_agent": str(info.get("v") or info.get("agent") or ""),
         # Per-mount detail. Beszel stores ``extra filesystems`` as a
         # map name → {d, du, dr, dw} on the stats row. We flatten into
         # a list so the frontend can ``x-for`` over it without caring
         # that the source was a dict.
-        "mounts":           _flatten_efs(stats.get("efs")),
+        "mounts": _flatten_efs(stats.get("efs")),
         # Network interfaces — newer Beszel agents emit ``info.ni`` as
         # a list of {n, m, a} objects (name / mac / addrs). Older
         # agents emitted bare strings. ``_flatten_network`` handles
         # both shapes and returns a uniform list the UI can iterate.
-        "network_ifaces":   _flatten_network(info.get("ni")),
+        "network_ifaces": _flatten_network(info.get("ni")),
         # Current in-flight bandwidth (bytes/s) reported by the agent.
         # Used on the Hosts table for a net-I/O indicator.
-        "host_bandwidth":   _num(info.get("b")),
+        "host_bandwidth": _num(info.get("b")),
         # Container count — homelab-relevant when a host runs Docker.
-        "host_containers":  int(_num(info.get("ct"))),
+        "host_containers": int(_num(info.get("ct"))),
         # Load average — Beszel agents emit `la` as `[1m, 5m, 15m]` in
         # `stats`. Surfaced as 3 separate fields so the SPA can render
         # the chart and the SYSTEM card. Empty / missing →
         # zeros (containers and embedded systems often skip this).
-        "host_load_1m":     _load_window(stats.get("la"), 0),
-        "host_load_5m":     _load_window(stats.get("la"), 1),
-        "host_load_15m":    _load_window(stats.get("la"), 2),
+        "host_load_1m": _load_window(stats.get("la"), 0),
+        "host_load_5m": _load_window(stats.get("la"), 1),
+        "host_load_15m": _load_window(stats.get("la"), 2),
         # Swap — Beszel agents emit `s` (swap percent 0..100) and `su`
         # (swap used GiB). Hosts with no swap configured emit 0 and
         # the swap chart hides on the frontend gate.
         "host_swap_percent": _num(stats.get("s")),
-        "host_swap_used":    _num(stats.get("su")),
+        "host_swap_used": _num(stats.get("su")),
         # Temperature sensors. Beszel agents emit `stats.t` as a
         # dict of `<sensor_name>: <celsius>` (e.g. {"cpu_thermal": 48.2}
         # on a Pi 4 / `node_thermal_zone_temp` on Linux). Hosts whose
@@ -1062,7 +1062,7 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         # normalise both to bytes here so the SPA can use `fmtBytes`
         # without per-field unit math. Empty list when the host has
         # no discrete GPU.
-        "host_gpus":             _flatten_gpus(stats.get("g")),
+        "host_gpus": _flatten_gpus(stats.get("g")),
         # Service info. Beszel agents emit the systemd-services
         # data under the field name `systemd_services` (operator
         # confirmed by inspecting the PocketBase admin — initial
@@ -1072,13 +1072,13 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         # `_services_summary` normalises into `{total, failed, failed_names}`.
         # Hosts whose agent doesn't track services get the empty
         # summary `{total: 0, ...}` and the drawer row hides cleanly.
-        "host_services":         _services_summary(
+        "host_services": _services_summary(
             stats.get("systemd_services")
             or info.get("systemd_services")
             or stats.get("services")
             or info.get("services")
         ),
-        "exporter_error":   None,
+        "exporter_error": None,
     }
 
 

@@ -84,15 +84,15 @@ def _scheduler_tz():
     """
     try:
         from logic.db import get_setting
-        tz_name = (get_setting(Settings.SCHEDULER_TIMEZONE, "") or "").strip()
-    except Exception:
+        tz_name = (get_setting(Settings.SCHEDULER_TIMEZONE) or "").strip()
+    except (sqlite3.Error, RuntimeError, ImportError):
         return None
     if not tz_name:
         return None
     try:
-        from zoneinfo import ZoneInfo
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
         return ZoneInfo(tz_name)
-    except Exception as e:
+    except (ZoneInfoNotFoundError, ValueError, OSError) as e:
         # Log once per process — otherwise a bad TZ spams the tick loop.
         global _tz_warn_logged
         if not globals().get("_tz_warn_logged"):
@@ -120,15 +120,15 @@ def scheduler_tz_state() -> dict:
     """
     try:
         from logic.db import get_setting
-        configured = (get_setting(Settings.SCHEDULER_TIMEZONE, "") or "").strip()
-    except Exception:
+        configured = (get_setting(Settings.SCHEDULER_TIMEZONE) or "").strip()
+    except (sqlite3.Error, RuntimeError, ImportError):
         return {"configured": "", "resolved": None, "fallback": False}
     if not configured:
         return {"configured": "", "resolved": None, "fallback": False}
     try:
-        from zoneinfo import ZoneInfo
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
         ZoneInfo(configured)
-    except Exception:
+    except (ZoneInfoNotFoundError, ValueError, OSError):
         return {"configured": configured, "resolved": None, "fallback": True}
     return {"configured": configured, "resolved": configured, "fallback": False}
 
@@ -146,14 +146,23 @@ def _today_anchor_ts(hh: int, mm: int, now: Optional[float] = None) -> float:
     natively; the legacy mktime path uses isdst=-1 to let libc decide.
     """
     import datetime
-    now = now if now is not None else time.time()
+    # Concrete-float local so the type checker doesn't see `Optional[float]`
+    # flow into `datetime.fromtimestamp` + `time.localtime` below.
+    # Declare-then-assign so the annotation applies BEFORE the if/else;
+    # otherwise Pyright sees `now_ts: float` only on the `if` branch and
+    # infers the merge as `float | float | None` from the `else` re-bind.
+    now_ts: float
+    if now is None:
+        now_ts = time.time()
+    else:
+        now_ts = float(now)
     tz = _scheduler_tz()
     if tz is not None:
-        now_local = datetime.datetime.fromtimestamp(now, tz=tz)
+        now_local = datetime.datetime.fromtimestamp(now_ts, tz=tz)
         anchor = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
         return anchor.timestamp()
     # Legacy path — container-local clock via time.mktime.
-    t = time.localtime(now)
+    t = time.localtime(now_ts)
     return time.mktime((
         t.tm_year, t.tm_mon, t.tm_mday,
         hh, mm, 0, 0, 0, -1,
@@ -187,8 +196,15 @@ def _next_fixed_time_run(
     transitions in the host timezone don't drift the wall-clock anchor.
     """
     import datetime
-    now = now if now is not None else time.time()
-    anchor = _today_anchor_ts(hh, mm, now)
+    # Declare-then-assign so the annotation applies BEFORE the if/else;
+    # otherwise Pyright sees `now_ts: float` only on the `if` branch and
+    # infers the merge as `float | float | None` from the `else` re-bind.
+    now_ts: float
+    if now is None:
+        now_ts = time.time()
+    else:
+        now_ts = float(now)
+    anchor = _today_anchor_ts(hh, mm, now_ts)
     last = int(last_run_at or 0)
     # Grace window: the tick interval is 60s, so the tick that lands
     # right after a fixed-time anchor (e.g. anchor=01:00:00, tick runs
@@ -198,8 +214,8 @@ def _next_fixed_time_run(
     # crossed the anchor, fire now" window. Beyond that → tomorrow
     # (preserves the original no-catch-up contract for restarts /
     # late-edited schedules).
-    GRACE = TICK_INTERVAL_SECONDS * 2
-    if last < anchor and now < anchor + GRACE:
+    grace = TICK_INTERVAL_SECONDS * 2
+    if last < anchor and now_ts < anchor + grace:
         return int(anchor)
     # Derive "tomorrow" in the same zone the anchor was computed in —
     # using container-local here would drift the date boundary by the
@@ -208,10 +224,10 @@ def _next_fixed_time_run(
     # legacy deploys, falling back to time.localtime.
     tz = _scheduler_tz()
     if tz is not None:
-        now_local = datetime.datetime.fromtimestamp(now, tz=tz)
+        now_local = datetime.datetime.fromtimestamp(now_ts, tz=tz)
         tomorrow = now_local.date() + datetime.timedelta(days=1)
     else:
-        t = time.localtime(now)
+        t = time.localtime(now_ts)
         tomorrow = datetime.date(t.tm_year, t.tm_mon, t.tm_mday) + datetime.timedelta(days=1)
     return int(_day_anchor_ts(hh, mm, tomorrow.year, tomorrow.month, tomorrow.day))
 
@@ -245,44 +261,50 @@ def _next_weekly_run(
     we jump ahead to the next qualifying day. Scans up to 8 days so a
     full week is always covered regardless of where ``last_run_at`` sits.
     """
-    now = now if now is not None else time.time()
+    # Declare-then-assign so the annotation applies BEFORE the if/else;
+    # otherwise Pyright sees `now_ts: float` only on the `if` branch and
+    # infers the merge as `float | float | None` from the `else` re-bind.
+    now_ts: float
+    if now is None:
+        now_ts = time.time()
+    else:
+        now_ts = float(now)
     last = int(last_run_at or 0)
     if not days_of_week:
         # No days selected — fall back to daily so a misconfigured row
         # doesn't silently never fire.
-        return _next_fixed_time_run(hh, mm, last_run_at, now)
+        return _next_fixed_time_run(hh, mm, last_run_at, now_ts)
     dow_set = {int(d) for d in days_of_week if 0 <= int(d) <= 6}
     import datetime
     # `base_date` MUST come from the same timezone the anchor calc
     # uses (`_day_anchor_ts` honours `_scheduler_tz()`). Without
     # alignment, container-local time near midnight in operator-TZ
     # can produce the wrong day-of-week and either fire a day early
-    # / late or skip the firing day entirely. See in
-    # notes/code_review_2026-04-25.md.
+    # / late or skip the firing day entirely.
     tz = _scheduler_tz()
     if tz is not None:
-        nowdt = datetime.datetime.fromtimestamp(now, tz=tz)
+        nowdt = datetime.datetime.fromtimestamp(now_ts, tz=tz)
         base_date = nowdt.date()
     else:
-        today = time.localtime(now)
+        today = time.localtime(now_ts)
         base_date = datetime.date(today.tm_year, today.tm_mon, today.tm_mday)
     # Same grace window as `_next_fixed_time_run` — the tick that lands
     # 30s after a weekly anchor needs to still recognise today as the
     # firing day, otherwise it skips to next week.
-    GRACE = TICK_INTERVAL_SECONDS * 2
+    grace = TICK_INTERVAL_SECONDS * 2
     for offset in range(8):
         d = base_date + datetime.timedelta(days=offset)
         # Python weekday(): Mon=0..Sun=6 — matches our storage convention.
         if d.weekday() not in dow_set:
             continue
         anchor = _day_anchor_ts(hh, mm, d.year, d.month, d.day)
-        if anchor + GRACE <= now:  # past anchor + grace → skip
+        if anchor + grace <= now_ts:  # past anchor + grace → skip
             continue
         if anchor <= last:  # already fired for this anchor
             continue
         return int(anchor)
     # Defensive fallback — shouldn't happen since at least one day is valid
-    return int(now + 86400)
+    return int(now_ts + 86400)
 
 
 def _next_monthly_run(
@@ -295,36 +317,43 @@ def _next_monthly_run(
     up to 13 months. Same no-catch-up contract as the daily/weekly
     helpers: a passed anchor today with no run skips to next month.
     """
-    now = now if now is not None else time.time()
+    # Declare-then-assign so the annotation applies BEFORE the if/else;
+    # otherwise Pyright sees `now_ts: float` only on the `if` branch and
+    # infers the merge as `float | float | None` from the `else` re-bind.
+    now_ts: float
+    if now is None:
+        now_ts = time.time()
+    else:
+        now_ts = float(now)
     last = int(last_run_at or 0)
     dom = max(1, min(int(day_of_month), 31))
     # `y, m` MUST come from the same timezone the anchor calc uses —
     # at month boundaries, container-local UTC can disagree with
-    # operator-TZ and pick the wrong calendar month. See .
+    # operator-TZ and pick the wrong calendar month.
     tz = _scheduler_tz()
     if tz is not None:
         import datetime
-        nowdt = datetime.datetime.fromtimestamp(now, tz=tz)
+        nowdt = datetime.datetime.fromtimestamp(now_ts, tz=tz)
         y, m = nowdt.year, nowdt.month
     else:
-        t = time.localtime(now)
+        t = time.localtime(now_ts)
         y, m = t.tm_year, t.tm_mon
     # Same grace window as the daily/weekly helpers — accept the tick
     # that lands shortly AFTER the anchor as still firing this month
     # rather than punting to next month.
-    GRACE = TICK_INTERVAL_SECONDS * 2
+    grace = TICK_INTERVAL_SECONDS * 2
     for _ in range(14):
         last_day = calendar.monthrange(y, m)[1]
         target_day = min(dom, last_day)
         anchor = _day_anchor_ts(hh, mm, y, m, target_day)
-        if anchor + GRACE > now and anchor > last:
+        if anchor + grace > now_ts and anchor > last:
             return int(anchor)
         if m == 12:
             y += 1
             m = 1
         else:
             m += 1
-    return int(now + 86400)
+    return int(now_ts + 86400)
 
 
 # ----------------------------------------------------------------------------
@@ -475,10 +504,13 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
         hhmm = _parse_hhmm(d["run_at_hhmm"])
     except ValueError:
         hhmm = None
-    last_run = d.get("last_run_at")
+    # Narrow `last_run_at` to int — `dict.get` types as `Any | None` so
+    # arithmetic on `None or 0` confuses Pyright into seeing `None.__add__`.
+    last_run: int = int(d.get("last_run_at") or 0)
     if mode == "interval" or not hhmm:
-        base = d.get("last_run_at") or d.get("created_at") or 0
-        d["next_run_at"] = int(base) + int(d.get("interval_seconds") or 0)
+        base: int = int(d.get("last_run_at") or d.get("created_at") or 0)
+        interval: int = int(d.get("interval_seconds") or 0)
+        d["next_run_at"] = base + interval
     elif mode == "daily":
         d["next_run_at"] = _next_fixed_time_run(hhmm[0], hhmm[1], last_run)
     elif mode == "weekly":
@@ -490,8 +522,9 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
             hhmm[0], hhmm[1], d["day_of_month"] or 1, last_run,
         )
     else:  # defensive: unknown mode → behave like interval
-        base = d.get("last_run_at") or d.get("created_at") or 0
-        d["next_run_at"] = int(base) + int(d.get("interval_seconds") or 0)
+        base = int(d.get("last_run_at") or d.get("created_at") or 0)
+        interval = int(d.get("interval_seconds") or 0)
+        d["next_run_at"] = base + interval
     return d
 
 
@@ -499,6 +532,17 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 # CRUD helpers
 # ----------------------------------------------------------------------------
 def list_schedules(conn: sqlite3.Connection) -> list[dict]:
+    """
+    Return every persisted schedule row as a list of dicts.
+
+    Sorted by name (case-insensitive collation). Each dict carries the
+    legacy schema fields PLUS computed ``cadence_mode`` + ``next_run_at``
+    via :func:`_row_to_dict`, so callers don't have to redo the mode-
+    specific due-time math.
+
+    :param conn: open SQLite connection.
+    :returns: list of dicts, one per schedule row, newest by name first.
+    """
     rows = conn.execute(
         "SELECT * FROM schedules ORDER BY name COLLATE NOCASE"
     ).fetchall()
@@ -506,6 +550,12 @@ def list_schedules(conn: sqlite3.Connection) -> list[dict]:
 
 
 def get_schedule(conn: sqlite3.Connection, schedule_id: int) -> Optional[dict]:
+    """Return one schedule row decoded as a dict by primary-key id.
+
+    Returns ``None`` when no row matches. Output dict is identical to
+    :func:`list_schedules` per-row shape (carries computed
+    ``cadence_mode`` + ``next_run_at`` via :func:`_row_to_dict`).
+    """
     r = conn.execute(
         "SELECT * FROM schedules WHERE id=?", (schedule_id,),
     ).fetchone()
@@ -513,6 +563,14 @@ def get_schedule(conn: sqlite3.Connection, schedule_id: int) -> Optional[dict]:
 
 
 def get_schedule_by_name(conn: sqlite3.Connection, name: str) -> Optional[dict]:
+    """Return one schedule row decoded as a dict, looked up by name.
+
+    Match is case-sensitive (matches the unique-index contract on the
+    ``schedules.name`` column). Returns ``None`` when no row matches.
+    Used by the bootstrap helpers (``bootstrap_swarm_agent_health_schedule``
+    + ``seed_default_schedules``) to decide whether the canonical row
+    already exists before INSERT.
+    """
     r = conn.execute(
         "SELECT * FROM schedules WHERE name=?", (name,),
     ).fetchone()
@@ -721,6 +779,19 @@ def update_schedule(
 
 
 def delete_schedule(conn: sqlite3.Connection, schedule_id: int) -> None:
+    """
+    Remove one schedule row by primary-key id.
+
+    Idempotent — safe to call on a non-existent id (the underlying
+    ``DELETE`` is a no-op when no row matches). The admin UI's delete
+    button relies on this contract so a double-click can't surface a
+    confusing "schedule not found" toast after the first click already
+    removed the row.
+
+    :param conn: open SQLite connection.
+    :param schedule_id: primary-key id of the row to remove.
+    :returns: None. Side effect only — the row is gone (or already was).
+    """
     conn.execute("DELETE FROM schedules WHERE id=?", (schedule_id,))
 
 
@@ -786,12 +857,12 @@ async def _await_op_completion(op_id: str) -> tuple[int, str]:
         op = _ops.ops.get(op_id)
         if op is None:
             # Ring-buffer eviction beat us — still technically done.
-            return (0, "error")
+            return 0, "error"
         if op.status != "running":
             duration = int((op.ended or time.time()) - op.started)
-            return (duration, op.status)
+            return duration, op.status
         await asyncio.sleep(2)
-    return (0, "error")
+    return 0, "error"
 
 
 async def _run_prune_node(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
@@ -808,13 +879,13 @@ async def _run_prune_node(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
         raise ValueError("prune_node requires a 'hostname' param")
     op = _ops.new_op(
         "prune_node", hostname, hostname,
-        target_stack=None, actor=SCHEDULER_ACTOR,
+        actor=SCHEDULER_ACTOR,
     )
     asyncio.create_task(_ops.do_prune_node(op, hostname))
     return op.id, _await_op_completion(op.id)
 
 
-async def _run_prune_all_nodes(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
+async def _run_prune_all_nodes(_params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
     """Fan out ``docker system prune`` across every known Swarm node.
 
     params: {} (ignored). Hostnames are read from the latest gather
@@ -860,23 +931,27 @@ async def _run_prune_all_nodes(params: dict) -> tuple[str, Awaitable[tuple[int, 
     for host in hostnames:
         op = _ops.new_op(
             "prune_node", host, host,
-            target_stack=None, actor=SCHEDULER_ACTOR,
+            actor=SCHEDULER_ACTOR,
         )
         child_ops.append(op)
         asyncio.create_task(_ops.do_prune_node(op, host))
 
     async def waiter() -> tuple[int, str]:
+        """Await every child prune-op in parallel; aggregate into
+        (longest-duration, status). Children run in parallel so
+        durations don't sum — the longest is the wall-clock cost.
+        Status is success iff every child succeeded; otherwise error."""
         results = await asyncio.gather(
             *(_await_op_completion(o.id) for o in child_ops),
         )
         longest = max((d for d, _s in results), default=0)
         all_ok = all(s == "success" for _d, s in results)
-        return (longest, "success" if all_ok else "error")
+        return longest, "success" if all_ok else "error"
 
     return parent_id, waiter()
 
 
-async def _run_gather_refresh(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
+async def _run_gather_refresh(_params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
     """Force-refresh the gather cache.
 
     Doesn't go through the ops.py system — :func:`logic.gather.gather`
@@ -888,12 +963,13 @@ async def _run_gather_refresh(params: dict) -> tuple[str, Awaitable[tuple[int, s
     op_id = "sched-" + secrets.token_hex(4)
 
     async def runner() -> tuple[int, str]:
+        """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         started = time.time()
         status = "success"
         err: Optional[str] = None
         try:
             await gather.gather()
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             status = "error"
             err = str(e)
             print(f"[scheduler] gather_refresh failed: {e}")
@@ -918,15 +994,15 @@ async def _run_gather_refresh(params: dict) -> tuple[str, Awaitable[tuple[int, s
                         "[]", err, SCHEDULER_ACTOR,
                     ),
                 )
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"[scheduler] gather_refresh history write failed: {e}")
-        return (duration, status)
+        return duration, status
 
     task = asyncio.create_task(runner())
     return op_id, task  # type: ignore[return-value]
 
 
-async def _run_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
+async def _run_backup(_params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
     """Create a full backup zip via :func:`logic.backups.create_backup`.
 
     No ops.py Operation — backups don't have a per-target context worth
@@ -941,6 +1017,7 @@ async def _run_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
     op_id = "sched-" + secrets.token_hex(4)
 
     async def runner() -> tuple[int, str]:
+        """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         started = time.time()
         status = "success"
         err: Optional[str] = None
@@ -970,7 +1047,7 @@ async def _run_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
                         f"[scheduler] backup retention: pruned {len(pruned)} older "
                         f"file(s), kept {keep} newest"
                     )
-        except Exception as e:
+        except (sqlite3.Error, OSError, RuntimeError, ValueError) as e:
             status = "error"
             err = str(e)
             print(f"[scheduler] backup failed: {e}")
@@ -990,16 +1067,16 @@ async def _run_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
                         "[]", err, SCHEDULER_ACTOR,
                     ),
                 )
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"[scheduler] backup history write failed: {e}")
-        return (duration, status)
+        return duration, status
 
     task = asyncio.create_task(runner())
     return op_id, task  # type: ignore[return-value]
 
 
 async def _run_asset_inventory_refresh(
-    params: dict,
+    _params: dict,
 ) -> tuple[str, Awaitable[tuple[int, str]]]:
     """Refresh the <asset-api-host> asset inventory cache.
 
@@ -1020,6 +1097,7 @@ async def _run_asset_inventory_refresh(
     op_id = "sched-" + secrets.token_hex(4)
 
     async def runner() -> tuple[int, str]:
+        """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         from logic import asset_inventory as _ai
         from logic.db import get_setting
 
@@ -1119,7 +1197,7 @@ async def _run_asset_inventory_refresh(
                 )
         except Exception as e:
             print(f"[scheduler] asset_inventory_refresh history write failed: {e}")
-        return (duration, status)
+        return duration, status
 
     task = asyncio.create_task(runner())
     return op_id, task  # type: ignore[return-value]
@@ -1137,6 +1215,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
     op_id = "sched-" + secrets.token_hex(4)
 
     async def runner() -> tuple[int, str]:
+        """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         from logic import logs as _logs_mod
         from logic import tuning as _tuning_mod
         from logic.tuning import Tunable
@@ -1197,7 +1276,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
                 )
         except Exception as e:
             print(f"[scheduler] prune_logs history write failed: {e}")
-        return (duration, status)
+        return duration, status
 
     task = asyncio.create_task(runner())
     return op_id, task  # type: ignore[return-value]
@@ -1217,6 +1296,7 @@ async def _run_prune_notifications(
     op_id = "sched-" + secrets.token_hex(4)
 
     async def runner() -> tuple[int, str]:
+        """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         from logic import tuning as _tuning_mod
         from logic.tuning import Tunable
 
@@ -1268,7 +1348,7 @@ async def _run_prune_notifications(
                 )
         except Exception as e:
             print(f"[scheduler] prune_notifications history write dropped: {e}")
-        return (duration, status)
+        return duration, status
 
     task = asyncio.create_task(runner())
     return op_id, task  # type: ignore[return-value]
@@ -1398,6 +1478,7 @@ async def _run_swarm_agent_health(
     op_id = "sched-" + secrets.token_hex(4)
 
     async def runner() -> tuple[int, str]:
+        """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         from logic import stats as _stats_mod
         from logic import tuning as _tuning_mod
         from logic.tuning import Tunable
@@ -1604,7 +1685,7 @@ async def _run_swarm_agent_health(
             and _swarm_autoheal_last_persisted_action == "noop_healthy"):
             # Skip persistence; preserve the last-persisted-action so
             # the NEXT non-noop tick still sees the right baseline.
-            return (duration, status)
+            return duration, status
         _ops.assert_op_type("swarm_agent_health")
         try:
             with db_conn() as c:
@@ -1627,7 +1708,7 @@ async def _run_swarm_agent_health(
             _swarm_autoheal_last_persisted_action = action_taken
         except Exception as e:
             print(f"[scheduler] swarm_agent_health history write failed: {e}")
-        return (duration, status)
+        return duration, status
 
     task = asyncio.create_task(runner())
     return op_id, task  # type: ignore[return-value]
@@ -1681,6 +1762,7 @@ async def _run_port_scan_refresh(
     op_id = "sched-" + secrets.token_hex(4)
 
     async def runner() -> tuple[int, str]:
+        """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         # Late-import main to avoid the circular dependency
         # (main.py imports logic.schedules at module load).
         import main as _main
@@ -1752,10 +1834,17 @@ async def _run_port_scan_refresh(
             paused_ids: set[str] = set()
             try:
                 with db_conn() as c:
+                    # The composite-PK migration moved the per-(provider,
+                    # host) shape from prefixed `<provider>:<host_id>`
+                    # legacy keys to a dedicated `provider` column where
+                    # whole-host pauses use an empty-string provider
+                    # sentinel. Filter by `provider = ''` instead of the
+                    # legacy LIKE-leading-wildcard pattern so the
+                    # idx_host_failure_state_provider index gets used.
                     paused_rows = c.execute(
                         "SELECT host_id FROM host_failure_state "
                         "WHERE paused_at IS NOT NULL AND resolved_at IS NULL "
-                        "AND host_id NOT LIKE '%:%'"
+                        "AND provider = ''"
                     ).fetchall()
                 paused_ids = {str(r["host_id"]) for r in paused_rows}
             except Exception:  # noqa: BLE001
@@ -1938,7 +2027,7 @@ async def _run_port_scan_refresh(
             op_id, started, duration, status,
             err, target_name, events_payload,
         )
-        return (duration, status)
+        return duration, status
 
     task = asyncio.create_task(runner())
     return op_id, task  # type: ignore[return-value]
@@ -1987,7 +2076,7 @@ def _record_history_row(
         print(f"[scheduler] port_scan_refresh history write failed: {e}")
 
 
-async def _run_config_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
+async def _run_config_backup(_params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
     """Snapshot current admin configuration to ``CONFIG_BACKUP_DIR``.
 
     Mirrors ``_run_backup``'s shape (no per-target Operation; synth op_id
@@ -2004,6 +2093,7 @@ async def _run_config_backup(params: dict) -> tuple[str, Awaitable[tuple[int, st
     op_id = "sched-" + secrets.token_hex(4)
 
     async def runner() -> tuple[int, str]:
+        """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         from logic import config_export as _cfg_export
         started = time.time()
         status = "success"
@@ -2030,7 +2120,7 @@ async def _run_config_backup(params: dict) -> tuple[str, Awaitable[tuple[int, st
                         f"[scheduler] config_backup retention: pruned "
                         f"{len(pruned)} older file(s), kept {keep} newest"
                     )
-        except Exception as e:
+        except (sqlite3.Error, OSError, RuntimeError, ValueError) as e:
             status = "error"
             err = str(e)
             print(f"[scheduler] config_backup failed: {e}")
@@ -2050,9 +2140,9 @@ async def _run_config_backup(params: dict) -> tuple[str, Awaitable[tuple[int, st
                         "[]", err, SCHEDULER_ACTOR,
                     ),
                 )
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"[scheduler] config_backup history write failed: {e}")
-        return (duration, status)
+        return duration, status
 
     task = asyncio.create_task(runner())
     return op_id, task  # type: ignore[return-value]
@@ -2142,7 +2232,6 @@ def bootstrap_swarm_agent_health_schedule(conn: sqlite3.Connection) -> dict:
             kind="swarm_agent_health",
             params={},
             interval_seconds=300,  # 5 min — matches the runbook's docstring.
-            enabled=True,
         )
     except sqlite3.IntegrityError:
         # Race with another bootstrap caller, or a row with the same
@@ -2259,7 +2348,7 @@ async def fire_schedule(schedule: dict) -> str:
             "op_id": op_id,
             "phase": "start",
         })
-    except Exception as e:
+    except (RuntimeError, ValueError, TypeError) as e:
         print(f"[events] schedule:fired (start) publish failed: {e}")
 
     # Waiter: completes the record_run row with the real duration and
@@ -2267,13 +2356,15 @@ async def fire_schedule(schedule: dict) -> str:
     async def _await_and_record():
         try:
             duration, status = await done_awaitable
-        except Exception as e:
+        except (asyncio.CancelledError, asyncio.InvalidStateError, RuntimeError, ValueError) as e:
+            if isinstance(e, asyncio.CancelledError):
+                raise
             print(f"[scheduler] waiter for {op_id} failed: {e}")
             duration, status = 0, "error"
         try:
             with db_conn() as c:
                 record_run(c, int(schedule["id"]), op_id, duration, status)
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"[scheduler] record_run update for {op_id} failed: {e}")
         # SSE — fire END event with the resolved duration + status so
         # the SPA can update the row in place and append the queue
@@ -2289,7 +2380,7 @@ async def fire_schedule(schedule: dict) -> str:
                 "duration": duration,
                 "status": status,
             })
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError) as e:
             print(f"[events] schedule:fired (end) publish failed: {e}")
 
     asyncio.create_task(_await_and_record())
@@ -2326,7 +2417,7 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
     """
     from logic.db import get_setting, set_setting
 
-    if (get_setting(Settings.DEFAULT_SCHEDULES_SEEDED, "") or "").lower() == "true":
+    if (get_setting(Settings.DEFAULT_SCHEDULES_SEEDED) or "").lower() == "true":
         return
 
     # `seed_default_schedules` is called from BOTH
@@ -2350,10 +2441,10 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
         pass
     # Re-check inside the transaction in case the other caller won the
     # serialisation race + flipped the flag mid-flight.
-    if (get_setting(Settings.DEFAULT_SCHEDULES_SEEDED, "") or "").lower() == "true":
+    if (get_setting(Settings.DEFAULT_SCHEDULES_SEEDED) or "").lower() == "true":
         try:
             conn.commit()
-        except Exception:
+        except sqlite3.Error:
             pass
         return
 
@@ -2369,7 +2460,6 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
                 kind="gather_refresh",
                 params={},
                 interval_seconds=900,
-                enabled=True,
             )
             seeded = True
         except sqlite3.IntegrityError:

@@ -45,6 +45,7 @@ in :data:`NOTIFY_PLACEHOLDERS` (curated whitelist) — see
 """
 import asyncio
 import json
+import sqlite3 as _sqlite3
 import time
 import uuid
 from typing import Awaitable, Callable, Optional, Union
@@ -320,7 +321,6 @@ def write_admin_audit(
     optional `message`) gives the History UI a row body to expand
     when the operator clicks the audit row.
     """
-    import sqlite3 as _sqlite3
     import time as _time
     import json as _json
     assert_op_type(op_type)
@@ -665,7 +665,7 @@ def template_default(event: str, kind: str, locale: str = "en") -> str:
         print(f"[notify] i18n lookup failed for {event}.{kind}: {e}")
     # Legacy dict fallback.
     entry = NOTIFY_TEMPLATE_DEFAULTS.get(event)
-    if not entry:
+    if not isinstance(entry, dict):
         return ""
     return entry.get(kind) or ""
 
@@ -695,7 +695,6 @@ def resolve_actor_locale(actor_username: Optional[str]) -> str:
     if not actor_username:
         return "en"
     try:
-        import sqlite3 as _sqlite3
         import logic.auth as _auth
         from logic.db import db_conn as _db_conn
         with _db_conn() as c:
@@ -1122,11 +1121,12 @@ def persist_history(op: Operation) -> None:
 # ---------------------------------------------------------------------
 
 
+# noinspection PyUnusedLocal
 async def _notify_medium_apprise(
     *, title: str, body: str, severity: str,
     event: Optional[str], actor_username: Optional[str],
-    target_kind: Optional[str], target_id: Optional[str],  # noqa: ARG001 — contract for MediumSender shape
-    metadata: Optional[dict],  # noqa: ARG001 — contract for MediumSender shape
+    target_kind: Optional[str], target_id: Optional[str],
+    metadata: Optional[dict],
 ) -> dict:
     """Existing fire-and-forget Apprise dispatcher, lifted from the
     original :func:`notify`. Returns a structured ``{ok, skipped, ...}``
@@ -1135,8 +1135,9 @@ async def _notify_medium_apprise(
     ``target_kind`` / ``target_id`` / ``metadata`` parameters are
     intentionally unused here — they're part of the
     :data:`MediumSender` shape so the app + telegram mediums can
-    consume them, and dropping them from this signature would break
-    the per-medium dispatch contract.
+    consume them. The ``# noinspection PyUnusedLocal`` directive
+    above silences PyCharm's unused-parameter warning for the whole
+    function.
     """
     if (get_setting(Settings.APPRISE_ENABLED, "true") or "true").lower() != "true":
         # Master toggle keeps the legacy short-circuit semantics; the
@@ -1155,7 +1156,6 @@ async def _notify_medium_apprise(
     user_email: Optional[str] = None
     if event and actor_username:
         try:
-            import sqlite3 as _sqlite3
             from logic import auth as _auth
             with db_conn() as _c:
                 _u = _auth.get_user_by_username(_c, actor_username)
@@ -1223,7 +1223,6 @@ async def _notify_medium_app(
         except (TypeError, ValueError) as e:
             print(f"[notify] app metadata not JSON-serialisable, dropping: {e}")
             md_json = None
-    import sqlite3 as _sqlite3
     try:
         with db_conn() as c:
             cur = c.execute(
@@ -1441,7 +1440,6 @@ async def notify(
     user_event_pref: Optional[Union[bool, dict]] = None
     if event and actor_username:
         try:
-            import sqlite3 as _sqlite3
             from logic import auth as _auth
             with db_conn() as _c:
                 _u = _auth.get_user_by_username(_c, actor_username)
@@ -1880,8 +1878,8 @@ async def do_retag_container_to_latest(
                      f"/docker/images/{encoded}/json")
                 try:
                     resp = await client.get(u, headers=portainer.headers(agent_target=node))
-                except Exception as e:
-                    op.log(f"image inspect ({label}) failed: {e}", "warning")
+                except (httpx.HTTPError, OSError) as inspect_err:
+                    op.log(f"image inspect ({label}) failed: {inspect_err}", "warning")
                     return {}
                 if resp.status_code >= 400:
                     op.log(
@@ -2056,6 +2054,11 @@ async def do_retag_container_to_latest(
 
 
 async def do_restart_container(op: Operation, container_id: str) -> None:
+    """Restart one standalone container via Portainer's
+    ``/containers/{id}/restart`` endpoint. Threads
+    `X-PortainerAgent-Target` for worker-node containers; logs
+    progress + fires the matching restart_success / restart_failure
+    notification."""
     try:
         node = portainer.node_for_container(gather.get_cache(), container_id)
         op.log("Restarting container" + (f" on node '{node}'" if node else ""))
@@ -2084,6 +2087,13 @@ async def do_restart_container(op: Operation, container_id: str) -> None:
 
 
 async def do_remove_container(op: Operation, container_id: str) -> None:
+    """Force-remove one container + its anonymous volumes via Portainer's
+    ``DELETE /containers/{id}?force=true&v=true`` endpoint. Idempotent
+    on HTTP 404 (the same end-state as a fresh delete — surface as
+    success). Threads `X-PortainerAgent-Target` for worker-node
+    containers; logs to the Operation, fires
+    container_remove_success / _failure, invalidates the gather
+    cache in the finally block."""
     try:
         node = portainer.node_for_container(gather.get_cache(), container_id)
         if node:
@@ -2125,6 +2135,11 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
 
 
 async def do_restart_service(op: Operation, service_id: str) -> None:
+    """Restart one Swarm service by bumping its `TaskTemplate.ForceUpdate`
+    counter — Docker treats the increment as a "re-deploy without
+    image change" trigger, so the tasks respawn without a fresh
+    pull. Fires service_restart_success / _failure; invalidates the
+    gather cache in the finally block."""
     try:
         op.log("Fetching current service spec")
         async with portainer.write_client(timeout=_portainer_op_timeout("medium")) as client:
@@ -2325,8 +2340,8 @@ async def do_prune_node(op: Operation, hostname: str) -> dict:
                         totals[counter_key] += deleted
                     totals["space_reclaimed"] += reclaimed
                     op.log(f"{label}: removed {deleted}, reclaimed {reclaimed:,} B")
-                except Exception as e:
-                    op.log(f"{label}: {e}", "error")
+                except (httpx.HTTPError, OSError, ValueError, KeyError) as prune_err:
+                    op.log(f"{label}: {prune_err}", "error")
 
             # Order matches `docker system prune`: containers first (frees
             # their images), then images, networks, volumes, build cache.
