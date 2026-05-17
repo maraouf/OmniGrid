@@ -86,7 +86,7 @@ from logic.version import read_version
 # (cache TTLs, concurrency caps, sample interval, history days) resolve
 # via logic.tuning (DB > env > default).
 from logic import db as _db  # noqa: E402
-from logic.db import DB_PATH as _DB_PATH_OPT, db_conn, get_setting, get_setting_bool, set_setting, active_host_stats_providers  # noqa: E402,F401
+from logic.db import DB_PATH as _DB_PATH_OPT, db_conn, get_setting, get_setting_bool, load_settings_json, set_setting, active_host_stats_providers  # noqa: E402,F401
 
 # Narrow DB_PATH from `Optional[str]` (logic.db's typed env-or-None) to
 # `str` for every consumer below. If DB_PATH is missing the boot path
@@ -3583,6 +3583,23 @@ async def api_get_settings(request: Request):
         "telegram_api_base": get_setting(Settings.TELEGRAM_API_BASE, ""),
         # Write-only: surface only a `_set` flag, never the raw token.
         "telegram_bot_token_set": bool((get_setting(Settings.TELEGRAM_BOT_TOKEN) or "").strip()),
+        # Diagnostics block — surfaces "what's missing for the listener
+        # to fire" in the Admin form so operators don't have to grep
+        # Admin → Logs for `[telegram_listener] unauthorized update:
+        # no telegram_chat_id configured`. Each flag is True iff that
+        # specific setting is configured (non-empty for strings, set
+        # for write-only credentials). The SPA's Telegram section
+        # reads these to render an inline "Missing: <list>" hint
+        # under the form.
+        "telegram_diagnostics": {
+            "bot_token_configured": bool((get_setting(Settings.TELEGRAM_BOT_TOKEN) or "").strip()),
+            "chat_id_configured": bool((get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()),
+            "listener_enabled": get_setting_bool(Settings.TELEGRAM_LISTENER_ENABLED, False),
+            "notify_medium_enabled": get_setting_bool(
+                Settings.NOTIFY_MEDIUM_TELEGRAM,
+                _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("telegram", False),
+            ),
+        },
         # Phase 2 — inbound command listener config.
         "telegram_listener_enabled": get_setting_bool(Settings.TELEGRAM_LISTENER_ENABLED, False),
         "telegram_allow_destructive": get_setting_bool(Settings.TELEGRAM_ALLOW_DESTRUCTIVE, False),
@@ -11280,14 +11297,12 @@ def _load_hosts_config() -> list[dict]:
     list as "no curated hosts — fall back to auto-discovery where
     applicable."
     """
-    raw = get_setting(Settings.HOSTS_CONFIG) or ""
-    if not raw.strip():
-        return []
-    try:
-        parsed = json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(parsed, list):
+    # Routed through `load_settings_json` so the parse / isinstance /
+    # fallback dance lives in one place.
+    parsed = load_settings_json(
+        Settings.HOSTS_CONFIG, default=[], expected_type=list,
+    )
+    if not parsed:
         return []
     clean: list[dict] = []
     for i, h in enumerate(parsed):
@@ -17825,7 +17840,10 @@ async def api_weather(
         # use this for "weather forecast next 5 days" questions; the
         # topbar widget keeps showing current-only and ignores the
         # forecast payload (small enough to ride the same response).
-        "daily": "temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum",
+        "daily": (
+            "temperature_2m_max,temperature_2m_min,weather_code,"
+            "precipitation_sum,sunrise,sunset"
+        ),
         "forecast_days": "7",
         "timezone": "auto",
     }
@@ -17851,6 +17869,12 @@ async def api_weather(
     tmines = daily.get("temperature_2m_min") or []
     dcodes = daily.get("weather_code") or []
     precips = daily.get("precipitation_sum") or []
+    # Sunrise / sunset surface the day's daylight window — Open-Meteo
+    # returns ISO timestamps in the resolved IANA timezone (we pass
+    # `timezone=auto`). Consumed by `/weather` for "should I go for a
+    # run" / "is it light out" practical questions.
+    sunrises = daily.get("sunrise") or []
+    sunsets = daily.get("sunset") or []
     for i in range(min(len(times), 7)):
         try:
             d_code = int(dcodes[i]) if i < len(dcodes) else 0
@@ -17864,6 +17888,8 @@ async def api_weather(
             "code": d_code,
             "condition": d_desc,
             "precip_mm": precips[i] if i < len(precips) else None,
+            "sunrise": sunrises[i] if i < len(sunrises) else None,
+            "sunset": sunsets[i] if i < len(sunsets) else None,
         })
     body = {
         "configured": True,

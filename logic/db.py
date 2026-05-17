@@ -20,10 +20,11 @@ Adding a new adapter means: extend ``_SUPPORTED_DB_TYPES``, branch on
 ``DB_TYPE`` in ``db_conn``, and (likely) split the table-create
 statements in main.py:init_db() to handle dialect differences.
 """
+import json
 import os
 import sqlite3
 from contextlib import contextmanager
-from typing import Optional
+from typing import Any, Optional
 
 from logic.settings_keys import Settings
 
@@ -472,3 +473,48 @@ def get_setting_bool(key: str, default: bool = False) -> bool:
     if s in _FALSY_STRINGS:
         return False
     return default
+
+
+def load_settings_json(
+    key: str,
+    default: Any = None,
+    expected_type: Any = (list, dict),
+) -> Any:
+    """Read a JSON-serialised settings row tolerantly.
+
+    Replaces the recurring four-step idiom across every operator-
+    facing JSON setting:
+
+        raw = (get_setting(KEY) or "").strip()
+        if not raw: return <empty>
+        try: parsed = json.loads(raw)
+        except (ValueError, TypeError): return <empty>
+        if not isinstance(parsed, <shape>): return <empty>
+        return parsed
+
+    Args:
+        key: The settings table key to read.
+        default: Returned on missing / empty / corrupt / wrong-type row.
+            Caller picks the appropriate empty shape (``[]`` for list-
+            valued settings, ``{}`` for dict-valued, ``None`` for
+            optional).
+        expected_type: One or more concrete types the parsed JSON's
+            top-level value MUST be an instance of. Default accepts
+            either ``list`` OR ``dict`` (the two top-level JSON
+            containers). Pass a single type (``list``) to require a
+            specific shape.
+
+    Returns the parsed JSON value when valid, else ``default``. NEVER
+    raises — callers can rely on the return type matching either
+    ``default`` or ``expected_type``.
+    """
+    raw = (get_setting(key) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = json.loads(raw)
+    except (ValueError, TypeError):
+        return default
+    if not isinstance(value, expected_type):
+        return default
+    return value

@@ -42,19 +42,23 @@ material.
 
 from __future__ import annotations
 
-import io
 import json
 import os
 import re
 import sqlite3
 import time
-from typing import Optional
 
 from logic.db import DB_PATH, db_conn
 
 # ----- Disk layout ----------------------------------------------------------
 
-_DATA_DIR = os.path.dirname(DB_PATH)
+# `DB_PATH` is typed Optional[str] (env-driven, blanks on a fresh boot
+# with no env file). Coerce to a concrete str before `os.path.dirname`
+# so the static type-checker stops flagging the call site — the
+# downstream `ensure_dir` builds the directory unconditionally so an
+# empty string falls back to the CWD, which is acceptable for the
+# fresh-deploy edge case (operator hasn't run init_db yet anyway).
+_DATA_DIR = os.path.dirname(DB_PATH or "")
 CONFIG_BACKUP_DIR = os.path.join(_DATA_DIR, "config_backups")
 
 # Strict canonical filename: `<prefix>_<YYYY>.<MM>.<DD>_<HH>.<MM>.<SS>.json`
@@ -77,6 +81,10 @@ _SAFE_NAME = _NAME_RE
 
 
 def ensure_dir() -> None:
+    """Create the config-backup directory if it doesn't already exist.
+    Idempotent — safe to call on every save / restore. The directory
+    sits inside `/app/data` (alongside the SQLite DB) so a bind-mount
+    deploy persists snapshots across container restarts."""
     os.makedirs(CONFIG_BACKUP_DIR, exist_ok=True)
 
 
@@ -152,10 +160,14 @@ def build_snapshot() -> dict:
         "schema_version": 1,
         "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+    # noinspection PyBroadException
     try:
-        from logic.version import APP_VERSION as _v
-        snap["app_version"] = str(_v)
-    except Exception:
+        # Preserve the CONSTANT-naming convention (UPPER_CASE) when
+        # aliasing — `APP_VERSION as _v` was flagging "Constant
+        # variable imported as non-constant".
+        from logic.version import APP_VERSION as _APP_VERSION
+        snap["app_version"] = str(_APP_VERSION)
+    except Exception:  # noqa: BLE001
         snap["app_version"] = "unknown"
 
     with db_conn() as c:
@@ -409,12 +421,15 @@ def _peek_snapshot_version(path: str):
     `_read_metadata_version` shape so the SPA's "Produced by" column
     renders the same way for both flavours of backup. Returns None on
     any failure — the row still renders, just with a `—` placeholder."""
+    # noinspection PyBroadException
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        # `"r"` is the default open mode; dropped to satisfy the
+        # "Argument equals to the default parameter value" inspector.
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         v = data.get("app_version")
         return str(v) if v else None
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -422,7 +437,7 @@ def read_snapshot(name: str) -> dict:
     """Load one saved snapshot. Raises ``ValueError`` on bad name /
     parse failure."""
     full = _safe_path(name)
-    with open(full, "r", encoding="utf-8") as f:
+    with open(full, encoding="utf-8") as f:
         try:
             return json.load(f)
         except json.JSONDecodeError as e:

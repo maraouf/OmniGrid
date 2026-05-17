@@ -164,6 +164,33 @@ def _allow_destructive() -> bool:
     return get_setting_bool(Settings.TELEGRAM_ALLOW_DESTRUCTIVE)
 
 
+def _destructive_confirm_text(confirm_command: str, action_phrase: str) -> str:
+    """Build the canonical "Reply with /CMD confirm ... to ACTION"
+    prompt + admin-pointer hint that gates destructive commands.
+
+    Shared by ``/restart`` / ``/cleanup`` / ``/update`` so future
+    operator-flagged phrasing tweaks (i18n, copy edits, link-target
+    changes) land in ONE place instead of three near-duplicates.
+
+    Args:
+        confirm_command: The full confirm-form including the leading
+            slash AND the `confirm` keyword AND any target args, pre-
+            escaped — e.g. ``/restart confirm web01.example.com`` or
+            ``/cleanup confirm``. The helper wraps it in
+            ``<code>...</code>``.
+        action_phrase: Descriptive phrase that completes "to <phrase>"
+            — e.g. ``reboot <b>web01</b>`` (HTML allowed) or
+            ``remove all 5 container(s)`` or ``proceed``.
+
+    Returns a two-line HTML string ready to drop into ``_send_reply``.
+    """
+    return (
+        f"⚠️ Reply with <code>{confirm_command}</code> to {action_phrase}.\n"
+        f"<i>(Or enable 'Allow destructive Telegram commands' in "
+        f"Admin → Notifications → Telegram to skip this step.)</i>"
+    )
+
+
 def _authorized_user_ids() -> set[int]:
     """Parse the comma-separated allow-list of Telegram user_ids.
 
@@ -433,36 +460,74 @@ def _audit_telegram(
 def _load_hosts_config() -> list[dict]:
     """Read the curated host list from settings. Returns a list of
     dicts, NEVER raises — a malformed JSON setting just produces an
-    empty list."""
-    import json
-    from logic.db import get_setting
-    raw = (get_setting(Settings.HOSTS_CONFIG) or "").strip()
-    if not raw:
-        return []
-    try:
-        cfg = json.loads(raw)
-    except (ValueError, TypeError):
-        return []
-    return cfg if isinstance(cfg, list) else []
+    empty list. Thin wrapper over :func:`logic.db.load_settings_json`
+    so the parse / isinstance / fallback dance lives in one place."""
+    from logic.db import load_settings_json
+    return load_settings_json(Settings.HOSTS_CONFIG, default=[], expected_type=list)
+
+
+# In-process cache for the asset-inventory file read. `_resolve_target`
+# hits the priority-4 asset-join on every `/host` / `/restart` / etc.
+# match-by-asset-short-name; the underlying JSON cache file is operator-
+# manually-refreshed, so reading it on every command was wasteful disk
+# IO. Cache layered on file mtime + 60s TTL so an operator-driven
+# refresh (POST /api/asset-inventory/refresh) AND a slow drift both
+# trigger a re-read on the next hit. Cleared via _asset_inventory_cache[0]
+# reset if needed.
+_ASSET_INVENTORY_CACHE_TTL_S = 60.0
+_asset_inventory_cache: list = [0.0, 0.0, []]  # [last_check_ts, file_mtime_ns, items]
 
 
 def _load_asset_inventory() -> list[dict]:
     """Read the cached asset inventory. Returns the list of asset
-    dicts, NEVER raises."""
+    dicts, NEVER raises.
+
+    Two-layer cache:
+      1. Short-TTL (60s) cache holds the parsed `items` list.
+      2. File mtime check on every TTL expiry — if mtime hasn't
+         changed since the last read, skip re-parsing the JSON.
+
+    Operator-driven refresh (`POST /api/asset-inventory/refresh`)
+    rewrites the file atomically via `.tmp + os.replace`, so the
+    mtime advances and the cache invalidates on the next hit.
+    """
     import json
+    import time as _time
     from pathlib import Path
+    now = _time.time()
+    last_check_ts, cached_mtime_ns, cached_items = _asset_inventory_cache
+    if (now - last_check_ts) < _ASSET_INVENTORY_CACHE_TTL_S and cached_items:
+        return cached_items  # type: ignore[return-value]
     try:
         path = Path("/app/data/asset_inventory.json")
         if not path.exists():
+            _asset_inventory_cache[0] = now
+            _asset_inventory_cache[2] = []
             return []
+        # mtime gate — if the file hasn't changed since the last
+        # successful read, skip the JSON parse entirely and just
+        # bump the TTL anchor.
+        try:
+            stat = path.stat()
+            current_mtime_ns = int(stat.st_mtime_ns)
+        except OSError:
+            current_mtime_ns = 0
+        if current_mtime_ns == cached_mtime_ns and cached_items:
+            _asset_inventory_cache[0] = now
+            return cached_items  # type: ignore[return-value]
         with path.open(encoding="utf-8") as f:
             data = json.load(f)
         items = data.get("items") if isinstance(data, dict) else None
-        if isinstance(items, list):
-            return items
+        result: list[dict] = items if isinstance(items, list) else []
+        _asset_inventory_cache[0] = now
+        _asset_inventory_cache[1] = current_mtime_ns
+        _asset_inventory_cache[2] = result
+        return result
     except (OSError, ValueError, TypeError):
-        return []
-    return []
+        # Defensive: keep the previous cache on transient read errors
+        # so a brief disk hiccup doesn't blank `/host` resolution.
+        _asset_inventory_cache[0] = now
+        return cached_items if isinstance(cached_items, list) else []  # type: ignore[return-value]
 
 
 def _rank_candidates(candidates: list[dict]) -> list[dict]:
@@ -497,6 +562,47 @@ def _rank_candidates(candidates: list[dict]) -> list[dict]:
             h.get("id") or "",
         ),
     )
+
+
+async def _reply_no_match_or_candidates(
+    client: httpx.AsyncClient,
+    target: str,
+    matched: Optional[dict],
+    candidates: list[dict],
+) -> bool:
+    """Render the disambiguation / no-match reply for `/host`-style
+    target resolution. Returns ``True`` when the caller should bail
+    (reply sent), ``False`` when ``matched`` is a single host and the
+    caller should proceed.
+
+    Shared by ``_cmd_host`` / ``_cmd_restart`` (and any future command
+    that takes a target arg) so the disambiguation copy + cap + footer
+    are defined once. Operator-flagged in the DUP-004 finding —
+    drift here used to require two-site edits (e.g. when the cap of
+    20 changed, or the "Narrow your target" copy was tweaked).
+
+    The candidates list is already ranked via ``_rank_candidates`` at
+    the ``_resolve_target`` exit, so the first 20 are the most
+    actionable rows.
+    """
+    if matched is not None:
+        return False
+    if not candidates:
+        await _send_reply(
+            client, f"No host matched <code>{_escape(target)}</code>."
+        )
+        return True
+    lines = [f"Multiple hosts matched <code>{_escape(target)}</code>:", ""]
+    for h in candidates[:20]:
+        lines.append(
+            f"• <code>{_escape(h.get('id') or '')}</code> — "
+            f"{_escape(h.get('label') or '')}"
+        )
+    if len(candidates) > 20:
+        lines.append(f"…and {len(candidates) - 20} more.")
+    lines.append("\nNarrow your target and try again.")
+    await _send_reply(client, "\n".join(lines))
+    return True
 
 
 def _resolve_target(target: str) -> tuple[Optional[dict], list[dict]]:
@@ -656,16 +762,11 @@ def _load_mappings() -> dict[str, dict]:
     sentinel; consumers render "—" instead of a real date when they
     see it.
     """
-    import json
-    from logic.db import get_setting
-    raw = (get_setting(Settings.TELEGRAM_USER_MAPPINGS) or "").strip()
-    if not raw:
-        return {}
-    try:
-        m = json.loads(raw)
-    except (ValueError, TypeError):
-        return {}
-    if not isinstance(m, dict):
+    from logic.db import load_settings_json
+    m = load_settings_json(
+        Settings.TELEGRAM_USER_MAPPINGS, default={}, expected_type=dict,
+    )
+    if not m:
         return {}
     # Normalise legacy string-value entries to the new dict shape.
     out: dict[str, dict] = {}
@@ -686,18 +787,36 @@ def _load_mappings() -> dict[str, dict]:
 def _save_mappings(mappings: dict[str, dict]) -> None:
     """Persist the mapping dict back to settings. Quiet on failure.
     Always writes the new schema (``{username, linked_at_ms}`` per
-    entry) so a legacy on-disk record gets upgraded on first write."""
+    entry) so a legacy on-disk record gets upgraded on first write.
+
+    `linked_at_ms` is clamped to `[0, now_ms + 86_400_000]` (24h
+    future window) so a corrupted setting row OR a clock-skewed
+    incoming value can't render a year-2999 timestamp in the
+    Profile → Telegram UI. The future-window allowance accommodates
+    NTP-skewed agents up to a day off; anything beyond that gets
+    floored to "now".
+    """
     import json
+    import time as _time
     from logic.db import set_setting
     try:
+        now_ms = int(_time.time() * 1000)
+        max_ms = now_ms + 86_400_000  # 24h future window for clock skew
         # Defensive normalisation in case a caller hands us a stale
         # string-shaped value.
         clean: dict[str, dict] = {}
         for tg_id, value in mappings.items():
             if isinstance(value, dict) and value.get("username"):
+                raw_ms = int(value.get("linked_at_ms") or 0)  # type: ignore[arg-type]
+                # Clamp: below 0 -> 0 (sentinel "unknown"); above the
+                # 24h-future cap -> floor to `now_ms`.
+                if raw_ms < 0:
+                    raw_ms = 0
+                elif raw_ms > max_ms:
+                    raw_ms = now_ms
                 clean[tg_id] = {
                     "username": value["username"],
-                    "linked_at_ms": int(value.get("linked_at_ms") or 0),  # type: ignore[arg-type]  # `or 0` falls through to literal int when missing
+                    "linked_at_ms": raw_ms,
                 }
             elif isinstance(value, str) and value:
                 clean[tg_id] = {"username": value, "linked_at_ms": 0}
@@ -971,17 +1090,48 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         by_cat.setdefault(g["category"], []).append(g)
 
     lines = ["<b>🤖 OmniGrid Telegram commands</b>", ""]
+
     # Render categories in declared order; an unknown category (typo
     # or new tag without a heading) renders last under "Other" so it
-    # surfaces visually instead of silently dropping.
+    # surfaces visually instead of silently dropping. Operator-flagged
+    # (UX-ENH-001): groups containing ONLY `_OPEN_COMMANDS` entries
+    # render FIRST so unmapped first-time users see what they can
+    # actually run before scrolling past the gated commands. Stable
+    # secondary sort by the declared `cat_order` so the within-tier
+    # ordering still respects the operator-curated category order.
+    def _category_open_count(cat_key: str) -> int:
+        return sum(
+            1 for grp in by_cat.get(cat_key, [])
+            if grp.get("primary_name") in _OPEN_COMMANDS
+        )
+
     rendered_cats = sorted(
         by_cat.keys(),
-        key=lambda c: cat_order.get(c, len(cat_order)),
+        key=lambda c: (
+            # First key: NEGATIVE open-command ratio so categories
+            # with more open commands surface first.
+            -(_category_open_count(c) / max(1, len(by_cat.get(c, [])))),
+            # Second key: original declared order.
+            cat_order.get(c, len(cat_order)),
+        ),
     )
     for cat in rendered_cats:
         heading = cat_headings.get(cat, "🧩 Other")
-        lines.append(f"<b>{_escape(heading)}</b>")
-        for g in by_cat[cat]:
+        # Annotate the heading with how many commands in this category
+        # need a link, so an unmapped first-timer can skip gated
+        # categories at a glance.
+        cat_groups = by_cat[cat]
+        open_count = sum(
+            1 for g in cat_groups if g.get("primary_name") in _OPEN_COMMANDS
+        )
+        if open_count == len(cat_groups):
+            heading_suffix = " <i>(no link required)</i>"
+        elif open_count == 0:
+            heading_suffix = " <i>(/link required)</i>"
+        else:
+            heading_suffix = f" <i>({open_count} of {len(cat_groups)} open)</i>"
+        lines.append(f"<b>{_escape(heading)}</b>{heading_suffix}")
+        for g in cat_groups:
             primary_meta = g["primary"]
             primary_name = g["primary_name"]
             usage = _escape(primary_meta.get("usage") or primary_name)
@@ -1018,7 +1168,9 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         "resolve by IP, host id, label, or asset short-name. "
         "⚠️ Destructive commands (e.g. /restart) require a typed "
         "confirm step unless 'Allow destructive Telegram commands' "
-        "is enabled in Admin.</i>"
+        "is enabled in Admin. 💬 Any non-slash text is routed through "
+        "the AI palette for a conversational reply — also gated on "
+        "/link.</i>"
     )
     await _send_reply(client, "\n".join(lines))
 
@@ -1111,6 +1263,19 @@ async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
         if len(down) > 50:
             out_lines.append(f"<i>…and {len(down) - 50} more.</i>")
 
+    # Footer — disclose the cap dimension so operators understand
+    # WHY 50. Telegram caps a single message at 4096 chars and the
+    # bot's `_send_reply` would HTTP-400 above that. Surfacing the
+    # SPA's Hosts view as the alternative gives operators a clear
+    # path to the full list. Only fires when at least one group was
+    # truncated; otherwise the reply already fits.
+    if len(active) > 50 or len(down) > 50:
+        out_lines.append("")
+        out_lines.append(
+            "<i>Cap is 50 per group to fit Telegram's 4096-char message "
+            "limit — use the SPA's Hosts view for the full list.</i>"
+        )
+
     await _send_reply(client, "\n".join(out_lines))
 
 
@@ -1198,19 +1363,9 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         return
     target = " ".join(args)
     matched, candidates = _resolve_target(target)
-    if matched is None:
-        if not candidates:
-            await _send_reply(client, f"No host matched <code>{_escape(target)}</code>.")
-            return
-        lines = [f"Multiple hosts matched <code>{_escape(target)}</code>:", ""]
-        for h in candidates[:20]:
-            lines.append(f"• <code>{_escape(h.get('id') or '')}</code> — "
-                         f"{_escape(h.get('label') or '')}")
-        if len(candidates) > 20:
-            lines.append(f"…and {len(candidates) - 20} more.")
-        lines.append("\nNarrow your target and try again.")
-        await _send_reply(client, "\n".join(lines))
+    if await _reply_no_match_or_candidates(client, target, matched, candidates):
         return
+    assert matched is not None  # narrowed by the helper's False branch
 
     host_id = matched.get("id") or ""
     label = matched.get("label") or host_id
@@ -1226,6 +1381,52 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         client,
         f"🔄 Probing live providers for <b>{_escape(label)}</b>…",
     )
+
+    # Cycle the placeholder emoji every ~3s so the operator gets a
+    # visible "still working" signal during the 5-30s probe window.
+    # Telegram's edit-rate limit accommodates ~1 edit/sec; 3s is well
+    # under that. The task is cancelled below as soon as the live
+    # merge resolves (success path edits the placeholder anyway).
+    async def _cycle_placeholder() -> None:
+        if placeholder_id is None:
+            return
+        glyphs = ("⏳", "🔀", "🔄")
+        idx = 0
+        try:
+            while True:
+                await asyncio.sleep(3)
+                idx = (idx + 1) % len(glyphs)
+                # noinspection PyBroadException
+                try:
+                    await _edit_message(
+                        client, placeholder_id,
+                        f"{glyphs[idx]} Probing live providers for "
+                        f"<b>{_escape(label)}</b>…",
+                    )
+                except Exception:  # noqa: BLE001
+                    # Edit-rate hits / transient HTTP — silently stop
+                    # cycling, the next handler-final edit will catch up.
+                    return
+        except asyncio.CancelledError:
+            # Normal: the await-task path cancels us when probing
+            # completes. Don't propagate — there's nothing meaningful
+            # to do other than exit cleanly.
+            return
+
+    _placeholder_cycle_task = asyncio.create_task(_cycle_placeholder())
+
+    async def _stop_cycle() -> None:
+        """Cancel + await the placeholder-cycle task so it doesn't
+        keep editing the final reply bubble after the handler exits.
+        Safe to call multiple times; the task's `_done` flag short-
+        circuits the second cancel."""
+        if _placeholder_cycle_task.done():
+            return
+        _placeholder_cycle_task.cancel()
+        try:
+            await _placeholder_cycle_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            return
 
     # Live per-host merge — same code path /api/hosts/one/{id} runs.
     # Lazy-import dodges the circular dependency (main → listener via
@@ -1245,6 +1446,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         import_failed = True
         err = (f"⚠️ Backend still warming up. Try <code>/host {_escape(target)}</code> "
                f"again in a moment.\n<i>Internal: {_escape(str(imp_err))}</i>")
+        await _stop_cycle()
         await _replace_placeholder(client, placeholder_id, err)
         return
     if not import_failed:
@@ -1268,6 +1470,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         # noinspection PyBroadException
         except Exception as e:
             err = f"❌ Snapshot read failed: <code>{_escape(str(e))}</code>"
+            await _stop_cycle()
             await _replace_placeholder(client, placeholder_id, err)
             return
         entry = snap_map.get(host_id) or {}
@@ -1276,8 +1479,52 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             snap_ts = float(_ts) if isinstance(_ts, (int, float)) else None
             data = entry.get("data")
     if not isinstance(data, dict) or not data:
-        warn = (f"⚠️ No readings for <b>{_escape(label)}</b> yet. "
-                f"Wait for the next probe cycle and try again.")
+        # Surface the list of providers CONFIGURED on this host so
+        # the operator can self-diagnose "wait, why no readings?".
+        # Common cases: a `<provider>_name` typo (alias doesn't
+        # resolve), the provider's master toggle is off in Admin →
+        # Host stats, or `enabled: false` on the per-host sub-dict.
+        # Without this hint the operator has to open the SPA's
+        # host drawer to see which providers are mapped.
+        # Provider name fields → human-readable labels for the hint.
+        # Tuple-on-one-line form (vs the multi-line literal) to keep
+        # PyCharm's "Incorrect whitespace" inspector happy on the
+        # continuation indent.
+        _provider_fields = (("snmp_name", "SNMP"), ("beszel_name", "Beszel"),
+                            ("pulse_name", "Pulse"), ("webmin_name", "Webmin"),
+                            ("ne_url", "node-exporter"))
+        provider_hints: list[str] = []
+        for field, label_human in _provider_fields:
+            field_val = matched.get(field)
+            if isinstance(field_val, str) and field_val.strip():
+                provider_hints.append(label_human)
+        ssh_raw = matched.get("ssh")
+        if isinstance(ssh_raw, dict) and ssh_raw.get("enabled"):
+            provider_hints.append("SSH")
+        ping_raw = matched.get("ping")
+        if isinstance(ping_raw, dict) and ping_raw.get("enabled"):
+            provider_hints.append("Ping")
+        if provider_hints:
+            providers_line = (
+                f"\n<i>Providers configured for this host: "
+                f"{', '.join(_escape(p) for p in provider_hints)}. "
+                f"Check Admin → Host stats master toggles + the per-"
+                f"host name fields if this persists.</i>"
+            )
+        else:
+            providers_line = (
+                f"\n<i>No host-stats providers are mapped on this row. "
+                f"Open Admin → Hosts and set at least one of "
+                f"<code>snmp_name</code> / <code>beszel_name</code> / "
+                f"<code>pulse_name</code> / <code>webmin_name</code> / "
+                f"<code>ne_url</code>.</i>"
+            )
+        warn = (
+            f"⚠️ No readings for <b>{_escape(label)}</b> yet. "
+            f"Wait for the next probe cycle and try again."
+            + providers_line
+        )
+        await _stop_cycle()
         await _replace_placeholder(client, placeholder_id, warn)
         return
 
@@ -1462,7 +1709,10 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     # Edit the placeholder in place when we have its message_id; falls
     # back to a fresh reply on edit failure (rate limit, message too
     # old, etc.). Same pattern as the AI reply path's "🤖 Thinking…"
-    # placeholder handling.
+    # placeholder handling. Cancel the emoji-cycle task first so it
+    # doesn't race a final-edit and re-stamp the bubble with the
+    # spinner emoji AFTER the actual reply lands.
+    await _stop_cycle()
     await _replace_placeholder(client, placeholder_id, body)
 
 
@@ -1489,30 +1739,17 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     else:
         target = " ".join(args)
     matched, candidates = _resolve_target(target)
-    if matched is None:
-        if not candidates:
-            await _send_reply(client, f"No host matched <code>{_escape(target)}</code>.")
-            return
-        lines = [f"Multiple hosts matched <code>{_escape(target)}</code>:", ""]
-        for h in candidates[:20]:
-            lines.append(f"• <code>{_escape(h.get('id') or '')}</code> — "
-                         f"{_escape(h.get('label') or '')}")
-        if len(candidates) > 20:
-            lines.append(f"…and {len(candidates) - 20} more.")
-        lines.append("\nNarrow your target and try again.")
-        await _send_reply(client, "\n".join(lines))
+    if await _reply_no_match_or_candidates(client, target, matched, candidates):
         return
+    assert matched is not None  # narrowed by the helper's False branch
 
     # Destructive gate
     if not is_confirm and not _allow_destructive():
         host_id = matched.get("id") or ""
-        await _send_reply(
-            client,
-            f"⚠️ Reply with <code>/restart confirm {_escape(host_id)}</code> "
-            f"to reboot <b>{_escape(matched.get('label') or host_id)}</b>.\n"
-            f"<i>(Or enable 'Allow destructive Telegram commands' in "
-            f"Admin → Notifications → Telegram to skip this step.)</i>"
-        )
+        await _send_reply(client, _destructive_confirm_text(
+            f"/restart confirm {_escape(host_id)}",
+            f"reboot <b>{_escape(matched.get('label') or host_id)}</b>",
+        ))
         return
 
     # Per-(sender, command) cooldown so a confirmed restart can't be
@@ -1562,7 +1799,17 @@ async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     version. Reads the version baked into the image at build time
     (`/app/VERSION.txt` populated by the deploy pipeline's
     ``--build-arg VERSION=<X.Y.Z>``). Non-sensitive — works pre-link
-    so unmapped operators can confirm which build they're talking to."""
+    so unmapped operators can confirm which build they're talking to.
+
+    Augmented (UX-ENH-005) with the baked image's build time + a
+    short git SHA when available — operator scrolling Telegram for
+    "is my deploy live yet?" gets the answer in one message without
+    needing to also hit `/api/version`. Both fields are best-effort:
+    build time comes from the `/app/VERSION.txt` file mtime (set by
+    the Dockerfile's `RUN echo ... > /app/VERSION.txt`), git SHA
+    from an optional `/app/GIT_SHA` file the deploy pipeline writes.
+    Missing either → that field's line is omitted, never errors.
+    """
     try:
         from logic.version import read_version
         version = read_version()
@@ -1570,6 +1817,38 @@ async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     except Exception as e:
         await _send_reply(client, f"❌ Version lookup failed: <code>{_escape(str(e))}</code>")
         return
+    # Build-time hint from VERSION.txt mtime. The Dockerfile writes
+    # the file at build time so its mtime IS the build timestamp.
+    # Defensive: if the file doesn't exist (running outside the
+    # container) we skip the line entirely.
+    build_time_line = ""
+    try:
+        import os as _os
+        from datetime import datetime as _dt, timezone as _tz
+        version_file = "/app/VERSION.txt"
+        if _os.path.exists(version_file):
+            mtime = _os.path.getmtime(version_file)
+            build_dt = _dt.fromtimestamp(mtime, tz=_tz.utc)
+            build_time_line = (
+                f"\n🕓 Built: <i>{_escape(build_dt.strftime('%Y-%m-%d %H:%M UTC'))}</i>"
+            )
+    except (OSError, ValueError):
+        build_time_line = ""
+    # Optional git SHA — the deploy pipeline may write a `/app/GIT_SHA`
+    # file (one line, short SHA). When absent, skip cleanly.
+    sha_line = ""
+    try:
+        from pathlib import Path as _Path
+        sha_path = _Path("/app/GIT_SHA")
+        if sha_path.exists():
+            sha_raw = sha_path.read_text(encoding="utf-8").strip()
+            # Defensive: only accept hex SHA up to 40 chars so a
+            # corrupted file doesn't render arbitrary text.
+            if sha_raw and len(sha_raw) <= 40 and all(c in "0123456789abcdefABCDEF" for c in sha_raw):
+                sha_line = f"\n🔖 SHA: <code>{_escape(sha_raw[:12])}</code>"
+    except (OSError, ValueError):
+        sha_line = ""
+
     if not version or version == "0.0.0-dev":
         # Dev build (no --build-arg VERSION passed) — call it out so
         # the operator knows they're not on a tagged release.
@@ -1578,11 +1857,13 @@ async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) ->
             f"📦 OmniGrid <b><code>{_escape(version or '0.0.0-dev')}</code></b>\n"
             f"<i>Unversioned build — built locally without "
             f"<code>--build-arg VERSION</code>.</i>"
+            + build_time_line + sha_line
         )
         return
     await _send_reply(
         client,
         f"📦 OmniGrid <b><code>{_escape(version)}</code></b>"
+        + build_time_line + sha_line
     )
 
 
@@ -1819,12 +2100,15 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
             stack = i.get("stack") or "(no stack)"
             by_stack.setdefault(stack, []).append(i)
         # Cap visible items so the message stays under Telegram's 4096
-        # char wire limit. 40 is comfortable headroom.
+        # char wire limit. 40 is comfortable headroom. Sort stacks by
+        # DESCENDING per-stack count so an operator scanning a long
+        # list sees concentration first — pairs with the `(N)` count
+        # suffix added to each heading below.
         shown = 0
         max_shown = 40
-        for stack in sorted(by_stack.keys()):
+        for stack in sorted(by_stack.keys(), key=lambda s: (-len(by_stack[s]), s)):
             group = by_stack[stack]
-            lines.append(f"<b>{_escape(stack)}</b>")
+            lines.append(f"<b>{_escape(stack)}</b> <i>({len(group)})</i>")
             for i in group:
                 if shown >= max_shown:
                     break
@@ -1839,12 +2123,10 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         if len(removables) > shown:
             lines.append(f"<i>…and {len(removables) - shown} more.</i>")
         lines.append("")
-        lines.append(
-            "⚠️ Reply with <code>/cleanup confirm</code> to remove all "
-            f"{len(removables)} container(s).\n"
-            "<i>(Or enable 'Allow destructive Telegram commands' in "
-            "Admin → Notifications → Telegram to skip this step.)</i>"
-        )
+        lines.append(_destructive_confirm_text(
+            "/cleanup confirm",
+            f"remove all {len(removables)} container(s)",
+        ))
         await _send_reply(client, "\n".join(lines))
         return
 
@@ -2071,12 +2353,11 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
         if n > 10:
             lines.append(f"  <i>…and {n - 10} more</i>")
         lines.append("")
-        if target == "all":
-            lines.append("Send <code>/update all confirm</code> to proceed.")
-        else:
-            lines.append(
-                f"Send <code>/update {_escape(target)} confirm</code> to proceed."
-            )
+        confirm_command = (
+            "/update all confirm" if target == "all"
+            else f"/update {_escape(target)} confirm"
+        )
+        lines.append(_destructive_confirm_text(confirm_command, "proceed"))
         await _send_reply(client, "\n".join(lines))
         return
 
@@ -2492,7 +2773,35 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         forecast_lines.append(
             f"  • {_escape(date_str)}: {hi or '?'} / {lo or '?'}  {_escape(c)}"
         )
-    text = head + "\n" + line1
+    # Sunrise / sunset — pull TODAY'S daylight window from the
+    # forecast block so the operator gets a "is it light out / when
+    # does it get dark" hint without a separate /time query.
+    # Open-Meteo returns ISO timestamps in the resolved IANA
+    # timezone; we surface just HH:MM since the date is implicit
+    # ("today's" daylight window). First forecast entry is always
+    # the current calendar day per `timezone=auto`.
+    sunrise_str = ""
+    sunset_str = ""
+    if forecast and isinstance(forecast[0], dict):
+        for src_key, target in (("sunrise", "sunrise_str"), ("sunset", "sunset_str")):
+            raw = forecast[0].get(src_key)
+            if not isinstance(raw, str) or "T" not in raw:
+                continue
+            # "2026-05-17T05:47" → "05:47"
+            hhmm = raw.split("T", 1)[1][:5]
+            if target == "sunrise_str":
+                sunrise_str = hhmm
+            else:
+                sunset_str = hhmm
+    daylight_line = ""
+    if sunrise_str and sunset_str:
+        daylight_line = f"\n☀️ Sunrise <b>{sunrise_str}</b> · 🌙 Sunset <b>{sunset_str}</b>"
+    elif sunrise_str:
+        daylight_line = f"\n☀️ Sunrise <b>{sunrise_str}</b>"
+    elif sunset_str:
+        daylight_line = f"\n🌙 Sunset <b>{sunset_str}</b>"
+
+    text = head + "\n" + line1 + daylight_line
     if forecast_lines:
         text += "\n\n<b>Next 3 days:</b>\n" + "\n".join(forecast_lines)
     await _send_reply(client, text)
@@ -3751,7 +4060,19 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     # IS the canonical record; this is just a friendlier surface
     # label).
     safe_args = list(args)
-    target_name_audit = head
+    # Preserve the first positional arg in `target_name` so the
+    # History tab's row preview shows "/host web01" / "/restart svc-x"
+    # instead of bare "/host" / "/restart" for every invocation.
+    # Operator-triage usecase: scanning Admin → History for "what did
+    # the bot touch at 2am?" reads cleanly when the target identifier
+    # is on the row. Cap at 64 chars so a pasted megablob doesn't
+    # blow up the column width. `/link` keeps the redacted-context
+    # stamp because its arg IS the secret.
+    if safe_args:
+        first_arg = str(safe_args[0])[:64]
+        target_name_audit = f"{head} {first_arg}"
+    else:
+        target_name_audit = head
     if head == "/link" and safe_args:
         safe_args = ["<redacted>"]
         target_name_audit = "/link (code redacted)"
