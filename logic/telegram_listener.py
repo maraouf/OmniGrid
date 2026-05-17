@@ -90,9 +90,11 @@ Three commands ship in Phase 2.1:
 Phase 2.2 (deferred): ``/status``, ``/exec <target> <command>`` (gated
 behind an even stricter allow-list), per-event ack from Telegram.
 """
+# noinspection SpellCheckingInspection
 from __future__ import annotations
 
 import asyncio
+import re as _re
 import sqlite3
 import time
 from collections import OrderedDict as _OrderedDict
@@ -100,6 +102,7 @@ from typing import Any, Optional
 
 import httpx
 
+from logic.cooldown import Cooldown as _Cooldown
 from logic.settings_keys import (
     Settings,
     ai_provider_api_key_key,
@@ -245,6 +248,57 @@ def _is_authorized(update: dict) -> tuple[bool, str]:
     return True, ""
 
 
+async def _telegram_post(
+    client: httpx.AsyncClient,
+    method: str,
+    payload: dict,
+    *,
+    timeout: float = 15.0,
+    log_label: str = "request",
+    silent_failure: bool = False,
+) -> tuple[bool, dict]:
+    """Shared POST skeleton for Telegram Bot API calls (DUP-002
+    consolidation — pre-fix `_send_reply` / `_edit_message` /
+    `_send_chat_action` each carried the same ~20-line shape
+    "build URL → POST → log on non-200 → re-raise cancellation
+    → swallow + log on broad exception" inline; that's ~60 LOC of
+    duplicate plumbing).
+
+    Per-method specifics (payload composition, body parsing, return
+    type translation) stay at the call site — only the POST + error
+    plumbing is shared. Returns ``(ok, body)`` where ``ok`` is True
+    on HTTP 200; ``body`` is the parsed JSON dict (empty on parse
+    failure or non-200). Cancellation propagates per the cancellation-
+    semantics rule; every other exception is logged + swallowed.
+
+    ``silent_failure=True`` suppresses the non-200 log line (used by
+    decorative calls like the typing indicator where the operator
+    doesn't care about a hiccup)."""
+    token, _ = _resolved_token_and_chat()
+    if not token:
+        return False, {}
+    try:
+        r = await client.post(
+            f"{_telegram_api_base()}/bot{token}/{method}",
+            json=payload, timeout=timeout,
+        )
+        if r.status_code != 200:
+            if not silent_failure:
+                print(f"[telegram_listener] {log_label} failed: HTTP {r.status_code}: {r.text[:200]}")
+            return False, {}
+        try:
+            return True, (r.json() or {})
+        except (ValueError, TypeError):
+            return True, {}
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    # noinspection PyBroadException
+    except Exception as e:  # noqa: BLE001
+        if not silent_failure:
+            print(f"[telegram_listener] {log_label} exception: {e}")
+        return False, {}
+
+
 def _reply_text(text: str) -> dict:
     """Build a sendMessage payload targeted at the configured chat.
 
@@ -274,29 +328,16 @@ async def _send_reply(client: httpx.AsyncClient, text: str) -> Optional[int]:
     ``message_id`` on success (so callers can later edit the message
     via :func:`_edit_message`); returns None on any failure. Existing
     fire-and-forget callers discard the return value silently."""
-    token, _ = _resolved_token_and_chat()
-    if not token:
+    ok, body = await _telegram_post(
+        client, "sendMessage", _reply_text(text),
+        log_label="reply",
+    )
+    if not ok:
         return None
     try:
-        r = await client.post(
-            f"{_telegram_api_base()}/bot{token}/sendMessage",
-            json=_reply_text(text),
-            timeout=15.0,
-        )
-        if r.status_code != 200:
-            print(f"[telegram_listener] reply failed: HTTP {r.status_code}")
-            return None
-        try:
-            body = r.json() or {}
-            msg_id = ((body.get("result") or {}).get("message_id"))
-            return int(msg_id) if msg_id is not None else None  # type: ignore[arg-type]
-        except (ValueError, TypeError):
-            return None
-    except (asyncio.CancelledError, KeyboardInterrupt):
-        raise
-    # noinspection PyBroadException
-    except Exception as e:  # noqa: BLE001
-        print(f"[telegram_listener] reply exception: {e}")
+        msg_id = ((body.get("result") or {}).get("message_id"))
+        return int(msg_id) if msg_id is not None else None  # type: ignore[arg-type]
+    except (ValueError, TypeError, AttributeError):
         return None
 
 
@@ -308,9 +349,6 @@ async def _send_chat_action(
     send a placeholder reply that gets edited in place — the typing
     indicator is just immediate feedback while the placeholder is in
     flight. Fire-and-forget; never raises."""
-    token, _ = _resolved_token_and_chat()
-    if not token:
-        return
     from logic.db import get_setting
     chat = (get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()
     thread = (get_setting(Settings.TELEGRAM_THREAD_ID) or "").strip()
@@ -320,16 +358,12 @@ async def _send_chat_action(
             payload["message_thread_id"] = int(thread)
         except (TypeError, ValueError):
             pass
-    try:
-        await client.post(
-            f"{_telegram_api_base()}/bot{token}/sendChatAction",
-            json=payload, timeout=5.0,
-        )
-    except (asyncio.CancelledError, KeyboardInterrupt):
-        raise
-    except (httpx.HTTPError, OSError):
-        # Typing indicator is decorative — never surface the failure.
-        pass
+    # `silent_failure=True` — typing indicator is decorative; a
+    # transient hiccup must not surface in Admin → Logs.
+    await _telegram_post(
+        client, "sendChatAction", payload,
+        timeout=5.0, log_label="chat_action", silent_failure=True,
+    )
 
 
 async def _edit_message(
@@ -340,8 +374,7 @@ async def _edit_message(
     so the operator sees the response land in the same bubble. Caller
     is expected to have pre-truncated to 4096 chars. Returns True on
     success; on failure the caller falls back to a fresh ``_send_reply``."""
-    token, _ = _resolved_token_and_chat()
-    if not token or not message_id:
+    if not message_id:
         return False
     from logic.db import get_setting
     chat = (get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()
@@ -352,21 +385,11 @@ async def _edit_message(
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
-    try:
-        r = await client.post(
-            f"{_telegram_api_base()}/bot{token}/editMessageText",
-            json=payload, timeout=10.0,
-        )
-        if r.status_code != 200:
-            print(f"[telegram_listener] edit failed: HTTP {r.status_code}: {r.text[:200]}")
-            return False
-        return True
-    except (asyncio.CancelledError, KeyboardInterrupt):
-        raise
-    # noinspection PyBroadException
-    except Exception as e:  # noqa: BLE001
-        print(f"[telegram_listener] edit exception: {e}")
-        return False
+    ok, _body = await _telegram_post(
+        client, "editMessageText", payload,
+        timeout=10.0, log_label="edit",
+    )
+    return ok
 
 
 async def _replace_placeholder(
@@ -408,55 +431,6 @@ async def _replace_placeholder(
 # ----------------------------------------------------------------------------
 # Host resolver
 # ----------------------------------------------------------------------------
-def _audit_telegram(
-    op_type: str,
-    *,
-    actor: str,
-    target_id: str = "",
-    target_name: str = "",
-    status: str = "success",
-    error: Optional[str] = None,
-    events: Optional[dict] = None,
-) -> None:
-    """Write one row into the `history` table for a Telegram-issued
-    state-mutating command. Read-only commands (/hosts / /version /
-    /whoami / /myid / /weather / /time) are EXEMPT under the same
-    "high-volume / low-stakes" carve-out as notification_read; only
-    state-mutating commands (cleanup / restart / link / unlink) and
-    the AI free-text path (recorded via record_ai_call) need audit
-    rows. Never raises — a logging failure must not swallow the
-    operator's command reply."""
-    try:
-        import json as _json
-        import time as _time
-        from logic.db import db_conn
-        from logic.ops import assert_op_type
-        assert_op_type(op_type)
-        events_json = None
-        if events:
-            try:
-                events_json = _json.dumps(events, ensure_ascii=False)
-            except (TypeError, ValueError):
-                events_json = None
-        with db_conn() as c:
-            c.execute(
-                "INSERT INTO history ("
-                "  ts, op_type, target_kind, target_name, target_id,"
-                "  status, duration, events, error, actor"
-                ") VALUES (?, ?, 'telegram', ?, ?, ?, 0.0, ?, ?, ?)",
-                (
-                    float(_time.time()), op_type,
-                    target_name or "", target_id or "",
-                    status, events_json, error,
-                    actor or "telegram",
-                ),
-            )
-            c.commit()
-    # noinspection PyBroadException
-    except Exception as _e:
-        print(f"[telegram_listener] audit row write failed ({op_type}): {_e}")
-
-
 def _load_hosts_config() -> list[dict]:
     """Read the curated host list from settings. Returns a list of
     dicts, NEVER raises — a malformed JSON setting just produces an
@@ -605,6 +579,7 @@ async def _reply_no_match_or_candidates(
     return True
 
 
+# noinspection SpellCheckingInspection
 def _resolve_target(target: str) -> tuple[Optional[dict], list[dict]]:
     """Match a command target string against curated hosts.
 
@@ -1343,6 +1318,7 @@ def _fmt_age(ts: float | int | None) -> str:
 
 
 # noinspection PyUnusedLocal
+# noinspection SpellCheckingInspection
 async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/host <target>`` — probe live, then show fresh stats for one
     curated host (CPU / memory / disk / uptime + extended provider
@@ -1607,8 +1583,11 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     # Cumulative network counters (total throughput since boot / counter reset).
     rx_total = data.get("host_net_rx_total") or data.get("host_net_rx_total_bytes")
     tx_total = data.get("host_net_tx_total") or data.get("host_net_tx_total_bytes")
-    if isinstance(rx_total, (int, float)) and isinstance(tx_total, (int, float)) \
-        and (rx_total > 0 or tx_total > 0):
+    if (
+        isinstance(rx_total, (int, float))
+        and isinstance(tx_total, (int, float))
+        and (rx_total > 0 or tx_total > 0)
+    ):
         extended.append(
             f"📊 <b>Net total:</b> ↓ {_fmt_bytes(rx_total)} / ↑ {_fmt_bytes(tx_total)}"
         )
@@ -1956,6 +1935,7 @@ async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
 
 
 # noinspection PyUnusedLocal
+# noinspection SpellCheckingInspection
 async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/time`` — show the current local time at the linked user's
     saved weather location. Uses Open-Meteo's resolved IANA timezone
@@ -2676,41 +2656,66 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     wind_num = _to_float(wind)
 
     def _temp_verdict(temp_c: Optional[float]) -> str:
-        if temp_c is None: return ""
-        if temp_c <= 0:    return " — freezing, bundle up"
-        if temp_c < 10:    return " — cold, layer up"
-        if temp_c < 18:    return " — cool"
-        if temp_c < 25:    return " — mild and comfortable"
-        if temp_c < 32:    return " — warm"
-        if temp_c < 38:    return " — hot, hydrate often"
+        if temp_c is None:
+            return ""
+        if temp_c <= 0:
+            return " — freezing, bundle up"
+        if temp_c < 10:
+            return " — cold, layer up"
+        if temp_c < 18:
+            return " — cool"
+        if temp_c < 25:
+            return " — mild and comfortable"
+        if temp_c < 32:
+            return " — warm"
+        if temp_c < 38:
+            return " — hot, hydrate often"
         return " — extreme heat, limit outdoor time"
 
     def _humid_feel(h: Optional[float]) -> str:
-        if h is None: return ""
-        if h < 25:   return " — dry, watch for static"
-        if h < 50:   return " — feels balanced"
-        if h < 70:   return " — comfortable to slightly humid"
-        if h < 85:   return " — humid"
+        if h is None:
+            return ""
+        if h < 25:
+            return " — dry, watch for static"
+        if h < 50:
+            return " — feels balanced"
+        if h < 70:
+            return " — comfortable to slightly humid"
+        if h < 85:
+            return " — humid"
         return " — sticky and muggy"
 
     def _wind_strength(k: Optional[float]) -> str:
-        if k is None: return ""
-        if k < 5:    return " — barely a breeze"
-        if k < 12:   return " — light breeze"
-        if k < 20:   return " — noticeable wind"
-        if k < 30:   return " — flags snapping"
-        if k < 50:   return " — gusty"
+        if k is None:
+            return ""
+        if k < 5:
+            return " — barely a breeze"
+        if k < 12:
+            return " — light breeze"
+        if k < 20:
+            return " — noticeable wind"
+        if k < 30:
+            return " — flags snapping"
+        if k < 50:
+            return " — gusty"
         return " — strong wind, secure loose objects"
 
     def _cond_emoji(c_str: str) -> str:
         lc = (c_str or "").lower()
-        if "thunder" in lc:     return "⛈️"
-        if "snow" in lc:        return "❄️"
-        if "rain" in lc or "drizzle" in lc or "shower" in lc: return "🌧️"
-        if "fog" in lc or "mist" in lc:                       return "🌫️"
-        if "overcast" in lc:    return "☁️"
-        if "cloud" in lc:       return "⛅"
-        if "clear" in lc or "sunny" in lc: return "☀️"
+        if "thunder" in lc:
+            return "⛈️"
+        if "snow" in lc:
+            return "❄️"
+        if "rain" in lc or "drizzle" in lc or "shower" in lc:
+            return "🌧️"
+        if "fog" in lc or "mist" in lc:
+            return "🌫️"
+        if "overcast" in lc:
+            return "☁️"
+        if "cloud" in lc:
+            return "⛅"
+        if "clear" in lc or "sunny" in lc:
+            return "☀️"
         return ""
 
     def _takeaway(c_str: str, c_temp: Optional[float], k_wind: Optional[float]) -> str:
@@ -2961,8 +2966,6 @@ _COMMANDS: dict[str, dict[str, Any]] = {
 # ----------------------------------------------------------------------------
 # AI fallback for non-`/` text
 # ----------------------------------------------------------------------------
-import re as _re
-
 # Strip every action / memory directive the AI palette knows about
 # BEFORE rendering text back to Telegram. Telegram is read-only for
 # AI in this phase — slash-commands are the only path that can
@@ -3228,6 +3231,7 @@ def _markdown_to_telegram_html(text: str) -> str:
     return text
 
 
+# noinspection SpellCheckingInspection
 async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     """Build the fleet-context block fed to the AI palette so it
     answers from real OmniGrid state instead of hallucinating host
@@ -3480,10 +3484,9 @@ _AI_CALL_BUCKETS: dict[int, list[float]] = {}
 # fast intentionally re-send after a real wait. Default 30s; tunable
 # is hardcoded for now (the SSH-side cooldown class uses the same
 # default; revisit if operators want per-command tuning). Shares the
-# `logic.cooldown.Cooldown` class so the arming / remaining-time
-# protocol matches Webmin's auth-failure cooldown.
-from logic.cooldown import Cooldown as _Cooldown
-
+# `logic.cooldown.Cooldown` class (imported at the top of the file)
+# so the arming / remaining-time protocol matches Webmin's auth-
+# failure cooldown.
 _DESTRUCTIVE_COOLDOWN = _Cooldown(seconds=30)
 
 
@@ -3544,6 +3547,7 @@ def _ai_rate_limit_check(user_id: int, calls_per_minute: int) -> tuple[bool, flo
 
 
 # noinspection PyUnusedLocal
+# noinspection SpellCheckingInspection
 async def _ai_reply(
     client: httpx.AsyncClient,
     text: str,
@@ -3942,6 +3946,7 @@ def _mark_update_seen(update_id: int) -> bool:
     return True
 
 
+# noinspection SpellCheckingInspection
 async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     """Authorize + parse + dispatch one incoming Update."""
     # Belt-and-braces dedupe: if we've already processed this exact
@@ -4096,22 +4101,32 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
             # loop alive for the next update.
             pass
     # Write the audit row AFTER the handler completes so we capture
-    # the outcome. Best-effort: a logging failure inside
-    # `_audit_telegram` is already swallowed there.
-    _audit_telegram(
-        "telegram_command",
-        actor=actor_audit,
-        target_name=target_name_audit,
-        status=handler_status,
-        error=handler_error,
-        events={
-            "command": head,
-            "args": safe_args,
-            "telegram_user_id": int(sender_id_audit) if sender_id_audit is not None else None,  # type: ignore[arg-type]  # guard above narrows None branch
-            "telegram_username": tg_username or None,
-            "telegram_display_name": tg_display_name or None,
-        },
-    )
+    # the outcome. Best-effort: `write_admin_audit` swallows + logs its
+    # own SQL errors; the outer `db_conn()` wrap is caught defensively
+    # so an import / connection failure can't block the command reply.
+    try:
+        from logic.db import db_conn as _db_conn
+        from logic.ops import write_admin_audit as _write_admin_audit
+        with _db_conn() as _c:
+            _write_admin_audit(
+                _c, "telegram_command",
+                target_kind="telegram",
+                target_name=target_name_audit or "",
+                target_id="",
+                actor=actor_audit or "telegram",
+                status=handler_status,
+                error=handler_error,
+                events_dict={
+                    "command": head,
+                    "args": safe_args,
+                    "telegram_user_id": int(sender_id_audit) if sender_id_audit is not None else None,  # type: ignore[arg-type]  # guard above narrows None branch
+                    "telegram_username": tg_username or None,
+                    "telegram_display_name": tg_display_name or None,
+                },
+            )
+    # noinspection PyBroadException
+    except Exception as _audit_err:
+        print(f"[telegram_listener] audit row write failed (telegram_command): {_audit_err}")
 
 
 def _load_offset() -> int:

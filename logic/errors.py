@@ -39,7 +39,6 @@ import socket
 from dataclasses import dataclass, field
 from typing import Optional
 
-
 # Single source of truth: code -> message. Populated exclusively via
 # the ``_define()`` helper below so duplicates are impossible (the
 # helper raises on the second registration of the same code).
@@ -111,7 +110,6 @@ NETWORK_ERROR = _define(
     "Network error reaching the upstream.",
 )
 
-
 # ============================================================================
 # OG0100..OG0199 — Authentication / authorization
 # ============================================================================
@@ -155,7 +153,6 @@ AUTH_WEBAUTHN_LIBRARY_MISSING = _define(
     "library is not installed.",
 )
 
-
 # ============================================================================
 # OG0200..OG0299 — Upstream API envelope / response shape
 # ============================================================================
@@ -180,7 +177,6 @@ UPSTREAM_UNEXPECTED = _define(
     "Upstream returned an unexpected response.",
 )
 
-
 # ============================================================================
 # OG0300..OG0399 — Asset inventory
 # ============================================================================
@@ -194,7 +190,6 @@ ASSET_RANGE_INVALID = _define(
     "OG0301",
     "Invalid range — min_value must be less than or equal to max_value.",
 )
-
 
 # ============================================================================
 # OG0800..OG0899 — auth / session / OIDC
@@ -232,7 +227,6 @@ AUTH_OIDC_TOKEN_VALIDATION_FAILED = _define(
     "OG0899",
     "OIDC id_token validation failed.",
 )
-
 
 # ============================================================================
 # OG0900..OG0999 — Misc
@@ -273,8 +267,8 @@ class OGError:
         response dicts — mergeable with ``{"ok": False, **err.to_dict()}``.
         """
         return {
-            "error_code":   self.code,
-            "error":        self.message,
+            "error_code": self.code,
+            "error": self.message,
             "error_params": self.params,
         }
 
@@ -367,7 +361,7 @@ def classify_exception(exc: Exception) -> OGError:
     # wrappers that stringify the underlying errno message without
     # preserving the original exception type.
     if ("no route to host" in text_lower
-            or "network is unreachable" in text_lower):
+        or "network is unreachable" in text_lower):
         return make_error(
             HOST_UNREACHABLE,
             params={"detail": text},
@@ -379,10 +373,10 @@ def classify_exception(exc: Exception) -> OGError:
     # ConnectError, but the underlying gaierror is chained via
     # __cause__). Matching on message text catches both cases.
     if ("name or service not known" in text_lower
-            or "nodename nor servname provided" in text_lower
-            or "name resolution" in text_lower
-            or "temporary failure in name resolution" in text_lower
-            or "getaddrinfo failed" in text_lower):
+        or "nodename nor servname provided" in text_lower
+        or "name resolution" in text_lower
+        or "temporary failure in name resolution" in text_lower
+        or "getaddrinfo failed" in text_lower):
         return make_error(
             DNS_RESOLVE_FAILED,
             params={"detail": text},
@@ -401,7 +395,7 @@ def classify_exception(exc: Exception) -> OGError:
     # TLS / SSL — covers ssl.SSLError, httpx.ProtocolError wrapping
     # an SSL layer, and certificate-verification failures.
     if ("certificate" in text_lower or "ssl:" in text_lower
-            or "tls" in text_lower or "handshake" in text_lower):
+        or "tls" in text_lower or "handshake" in text_lower):
         return make_error(TLS_HANDSHAKE_FAILED, override_message=text)
 
     # ConnectionRefusedError (stdlib) — rarely bubbles past httpx, but

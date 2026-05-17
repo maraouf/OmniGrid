@@ -29,7 +29,6 @@ import re
 import time
 from typing import AsyncIterator, Optional
 
-
 # Identifier shape allowed in the publish-trace log line. Hosts /
 # ops / schedules use lowercase alphanumerics + a small set of
 # separators; anything outside that allow-list is rendered as a
@@ -54,13 +53,18 @@ def _sanitise_ident(value: object) -> str:
     """
     if value is None:
         return ""
+    # `value: Any` widens to anything the caller might pass — guard
+    # against `str(<object>)` producing a useless `<object at 0x...>`
+    # representation by restricting to str / int / float upstream.
+    if not isinstance(value, (str, int, float)):
+        return "<id>"
     s = str(value)
     if not s:
         return ""
     m = _SAFE_IDENT_RE.fullmatch(s)
     if m is None:
         return "<id>"
-    return m.group(0)
+    return m.group()
 
 
 # Per-subscriber queue cap. Long enough to absorb a normal burst (a
@@ -96,9 +100,12 @@ class EventBus:
         self._dropped: int = 0
 
     def subscriber_count(self) -> int:
+        """Return the number of currently-connected SSE subscribers."""
         return len(self._subs)
 
     def dropped_count(self) -> int:
+        """Return the cumulative count of dropped events (drop-oldest
+        overflow across every subscriber's queue since process start)."""
         return self._dropped
 
     def publish(
@@ -211,7 +218,7 @@ def publish(
     _ident_raw = (payload or {}).get("id")
     if _ident_raw is None:
         _ident_raw = (payload or {}).get("host_id") or (payload or {}).get("op_id") \
-                or (payload or {}).get("schedule_id")
+                     or (payload or {}).get("schedule_id")
     _ident = _sanitise_ident(_ident_raw) if _ident_raw is not None else ""
     # Suppress the trace for high-frequency event types whose only
     # consumer is the SPA's per-row chip pulse — on a 200-host fleet
@@ -256,8 +263,12 @@ def publish(
 
 
 def subscriber_count() -> int:
+    """Module-level convenience — forwards to ``bus.subscriber_count()``
+    so callers don't need to reach into the singleton."""
     return bus.subscriber_count()
 
 
 def dropped_count() -> int:
+    """Module-level convenience — forwards to ``bus.dropped_count()``
+    so callers don't need to reach into the singleton."""
     return bus.dropped_count()

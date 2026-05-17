@@ -31,7 +31,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Callable
 
-
 # Canonical default — matches the SPA's `DEFAULT_DATETIME_FORMAT` so a
 # user who hasn't set a custom preference gets the same render in both
 # surfaces.
@@ -51,22 +50,22 @@ _MONTHS_SHORT = (
 # accessor is a callable `(now) -> str`.
 _TOKENS: list[tuple[str, Callable[[datetime], str]]] = [
     ("yyyy", lambda d: f"{d.year:04d}"),
-    ("yy",   lambda d: f"{d.year % 100:02d}"),
+    ("yy", lambda d: f"{d.year % 100:02d}"),
     ("MMMM", lambda d: _MONTHS_LONG[d.month - 1]),
-    ("MMM",  lambda d: _MONTHS_SHORT[d.month - 1]),
-    ("MM",   lambda d: f"{d.month:02d}"),
-    ("M",    lambda d: str(d.month)),
-    ("dd",   lambda d: f"{d.day:02d}"),
-    ("d",    lambda d: str(d.day)),
-    ("HH",   lambda d: f"{d.hour:02d}"),
-    ("H",    lambda d: str(d.hour)),
-    ("hh",   lambda d: f"{((d.hour + 11) % 12) + 1:02d}"),
-    ("h",    lambda d: str(((d.hour + 11) % 12) + 1)),
-    ("mm",   lambda d: f"{d.minute:02d}"),
-    ("m",    lambda d: str(d.minute)),
-    ("ss",   lambda d: f"{d.second:02d}"),
-    ("s",    lambda d: str(d.second)),
-    ("a",    lambda d: "PM" if d.hour >= 12 else "AM"),
+    ("MMM", lambda d: _MONTHS_SHORT[d.month - 1]),
+    ("MM", lambda d: f"{d.month:02d}"),
+    ("M", lambda d: str(d.month)),
+    ("dd", lambda d: f"{d.day:02d}"),
+    ("d", lambda d: str(d.day)),
+    ("HH", lambda d: f"{d.hour:02d}"),
+    ("H", lambda d: str(d.hour)),
+    ("hh", lambda d: f"{((d.hour + 11) % 12) + 1:02d}"),
+    ("h", lambda d: str(((d.hour + 11) % 12) + 1)),
+    ("mm", lambda d: f"{d.minute:02d}"),
+    ("m", lambda d: str(d.minute)),
+    ("ss", lambda d: f"{d.second:02d}"),
+    ("s", lambda d: str(d.second)),
+    ("a", lambda d: "PM" if d.hour >= 12 else "AM"),
 ]
 
 
@@ -87,11 +86,11 @@ def apply_datetime_format(d: datetime, fmt: str | None) -> str:
     literals: list[str] = []
 
     def _stash(match):
-        literals.append(match.group(1))
+        literals.append(match.group("lit"))
         return f"\x00{len(literals) - 1}\x00"
 
     import re as _re
-    work = _re.sub(r"'([^']*)'", _stash, fmt_clean)
+    work = _re.sub(r"'(?P<lit>[^']*)'", _stash, fmt_clean)
 
     # Walk char-by-char, greedily matching the longest token at each
     # position. Anything not matched passes through verbatim.
@@ -115,7 +114,11 @@ def apply_datetime_format(d: datetime, fmt: str | None) -> str:
             if work.startswith(token, i):
                 try:
                     out.append(accessor(d))
-                except Exception:
+                except (IndexError, ValueError, TypeError, AttributeError):
+                    # Accessor failure (impossible month index, weird
+                    # datetime subclass missing an attr, etc.) — swallow
+                    # silently so a single bad token doesn't blank the
+                    # whole render.
                     pass
                 i += len(token)
                 matched = True
@@ -154,6 +157,7 @@ def get_user_datetime_format(username: str) -> str:
     canonical default when unset / malformed. Read-only DB query;
     never raises."""
     import json
+    import sqlite3 as _sqlite3
     from logic.db import db_conn
     if not username:
         return DEFAULT_DATETIME_FORMAT
@@ -162,7 +166,9 @@ def get_user_datetime_format(username: str) -> str:
             row = c.execute(
                 "SELECT ui_prefs FROM users WHERE username = ?", (username,)
             ).fetchone()
-    except Exception:
+    except (_sqlite3.Error, RuntimeError, OSError):
+        # DB unreachable / users table missing / locked — fall through
+        # to the canonical default so callers always get a valid fmt.
         return DEFAULT_DATETIME_FORMAT
     if not row:
         return DEFAULT_DATETIME_FORMAT

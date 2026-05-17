@@ -19,7 +19,7 @@ correct and simple.
 from __future__ import annotations
 
 import time
-from typing import Callable, Optional, Tuple, Hashable, Union
+from typing import Callable, Optional, Tuple, Hashable, Union, cast
 
 
 class Cooldown:
@@ -57,7 +57,10 @@ class Cooldown:
             if seconds <= 0:
                 raise ValueError("Cooldown window must be > 0 seconds")
         self._resolver = resolver
-        self._fixed = float(seconds) if resolver is None else 0.0
+        # When `resolver is None` the callable branch above didn't fire,
+        # so `seconds` is guaranteed numeric here — cast narrows the
+        # Union for the type checker without changing runtime behaviour.
+        self._fixed = float(cast(float, seconds)) if resolver is None else 0.0
         # `_armed` maps key → epoch-second timestamp at which the
         # cooldown expires. Lazy expiry: ``remaining()`` pops a key
         # whose expiry is in the past, so the dict can never grow
@@ -73,11 +76,13 @@ class Cooldown:
         if self._resolver is not None:
             try:
                 v = float(self._resolver())
-            except Exception:
+            except (ValueError, TypeError, RuntimeError, KeyError, OSError, AttributeError):
                 # Resolver failure (DB unreachable, settings table
-                # missing, etc.) — fall back to a safe default of 300s
-                # (matches the historical hardcoded value across the
-                # original Webmin + SSH consumers).
+                # missing, missing TUNABLES key, malformed value, etc.)
+                # — fall back to a safe default of 300s (matches the
+                # historical hardcoded value across the original Webmin
+                # + SSH consumers). asyncio.CancelledError extends
+                # BaseException and is intentionally NOT caught.
                 v = 300.0
             return v if v > 0 else 300.0
         return self._fixed
