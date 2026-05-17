@@ -505,8 +505,14 @@ def _resolve_target(target: str) -> tuple[Optional[dict], list[dict]]:
     # 4 + 5. Asset inventory match via custom_number
     assets = _load_asset_inventory()
     asset_hits: list[dict] = []
+    seen_asset_host_ids: set[str] = set()
     for asset in assets:
-        short = (asset.get("type_short") or asset.get("Type", {}).get("ShortName") or "").lower()
+        # Defensive: malformed asset rows can carry `"Type": null` or a
+        # bare string — `.get("ShortName")` would AttributeError on
+        # either. Coerce to a dict before reaching in.
+        _type_raw = asset.get("Type")
+        type_dict: dict = _type_raw if isinstance(_type_raw, dict) else {}
+        short = (asset.get("type_short") or type_dict.get("ShortName") or "").lower()
         serial = (asset.get("serial") or "").lower()
         model = (asset.get("model") or "").lower()
         custom_number = asset.get("custom_number")
@@ -521,11 +527,16 @@ def _resolve_target(target: str) -> tuple[Optional[dict], list[dict]]:
             matched_field = True
         if not matched_field:
             continue
-        # Join to host via custom_number
+        # Join to host via custom_number. `custom_number` SHOULD be 1:1
+        # but `hosts_config` doesn't enforce uniqueness, so gather every
+        # match (id-deduped) — same disambiguation contract as the
+        # priority-1 IP-match path.
         for h in hosts:
             if h.get("custom_number") == custom_number:
-                asset_hits.append(h)
-                break
+                hid = (h.get("id") or "").strip()
+                if hid and hid not in seen_asset_host_ids:
+                    seen_asset_host_ids.add(hid)
+                    asset_hits.append(h)
     if len(asset_hits) == 1:
         return asset_hits[0], asset_hits
     if asset_hits:
@@ -1089,17 +1100,34 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     data: dict | None = None
     snap_ts: float | None = None
     live_ok = False
+    import_failed = False
     try:
         from main import _merge_one_host, _get_host_provider_state  # lazy
-        state = await _get_host_provider_state(force=True)
-        merged, _hits = await _merge_one_host(matched, state, force=True)
-        if isinstance(merged, dict) and merged:
-            data = merged
-            snap_ts = float(time.time())
-            live_ok = True
-    # noinspection PyBroadException
-    except Exception as e:  # noqa: BLE001
-        print(f"[telegram_listener] /host live merge failed for {host_id!r}: {e}")
+    except ImportError as imp_err:
+        # Race with lifespan startup — main isn't fully loaded yet.
+        # Tell the operator instead of silently falling through to the
+        # snapshot path (which may also be empty on a fresh deploy).
+        import_failed = True
+        err = (f"⚠️ Backend still warming up. Try <code>/host {_escape(target)}</code> "
+               f"again in a moment.\n<i>Internal: {_escape(str(imp_err))}</i>")
+        if placeholder_id is not None:
+            ok = await _edit_message(client, placeholder_id, err)
+            if not ok:
+                await _send_reply(client, err)
+        else:
+            await _send_reply(client, err)
+        return
+    if not import_failed:
+        try:
+            state = await _get_host_provider_state(force=True)
+            merged, _hits = await _merge_one_host(matched, state, force=True)
+            if isinstance(merged, dict) and merged:
+                data = merged
+                snap_ts = float(time.time())
+                live_ok = True
+        # noinspection PyBroadException
+        except Exception as e:  # noqa: BLE001
+            print(f"[telegram_listener] /host live merge failed for {host_id!r}: {e}")
 
     # Snapshot fallback — same shape as the pre-live-merge implementation.
     # Triggers when the live probe raised OR returned empty.
@@ -1925,10 +1953,17 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
     skipped = 0
     sender_id = (msg.get("from") or {}).get("id")
     actor_username = _lookup_omnigrid_user(sender_id) or "telegram"
+    # Dedupe stacks across targets — multiple items can share a parent
+    # stack (e.g. a service item + its orphan task containers + the
+    # stack item itself), and triple-firing the same do_update_stack
+    # races against itself. Track every stack we've already spawned.
+    spawned_stacks: set[int] = set()
     for i in targets:
         kind = i.get("type") or ""
         name = i.get("name") or ""
         raw_id = i.get("raw_id") or i.get("id") or ""
+        stack_name = i.get("stack") or ""
+        stack_id = i.get("stack_id")
         if not name or not raw_id:
             skipped += 1
             continue
@@ -1940,24 +1975,57 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
                 except (TypeError, ValueError):
                     skipped += 1
                     continue
+                if sid in spawned_stacks:
+                    continue
+                spawned_stacks.add(sid)
                 op = new_op(
                     "update_stack", str(sid), name,
                     target_stack=name, actor=f"telegram:{actor_username}",
                 )
                 asyncio.create_task(do_update_stack(op, sid))
                 spawned += 1
-            elif kind in ("container", "orphan"):
+            elif kind == "container":
+                # Standalone (non-Swarm) container — direct recreate
+                # works because there's no overlay network with
+                # attachable=false to fight.
                 op = new_op(
                     "update_container", str(raw_id), name,
-                    target_stack=i.get("stack") or None,
+                    target_stack=stack_name or None,
                     actor=f"telegram:{actor_username}",
                 )
                 asyncio.create_task(do_update_container(op, str(raw_id)))
                 spawned += 1
+            elif kind in ("service", "orphan"):
+                # Swarm services + orphan Swarm task containers can't
+                # be updated via the container-recreate endpoint —
+                # Docker rejects attach to overlay networks that
+                # aren't manually attachable. The canonical path is
+                # to re-deploy the PARENT STACK. Dedupe by stack_id
+                # so /update all on a stack with 3 services + 2 orphans
+                # fires ONE stack update, not five racing operations.
+                try:
+                    sid = int(stack_id) if stack_id is not None else 0
+                except (TypeError, ValueError):
+                    sid = 0
+                if not sid:
+                    # No stack association — nothing we can route to.
+                    # Skip gracefully so a mixed batch still fires
+                    # the others.
+                    skipped += 1
+                    continue
+                if sid in spawned_stacks:
+                    continue
+                spawned_stacks.add(sid)
+                target_label = stack_name or name
+                op = new_op(
+                    "update_stack", str(sid), target_label,
+                    target_stack=target_label,
+                    actor=f"telegram:{actor_username}",
+                )
+                asyncio.create_task(do_update_stack(op, sid))
+                spawned += 1
             else:
-                # Services don't have a direct "update" path — they're
-                # part of a stack that gets re-deployed. Skip
-                # gracefully so a mixed batch still fires the others.
+                # Unknown item type — skip rather than guess.
                 skipped += 1
         except (RuntimeError, ValueError, KeyError) as e:
             print(f"[telegram_listener] update spawn failed for {name!r}: {e}")
@@ -2457,7 +2525,25 @@ _MD_FENCE = _re.compile(r"```(?:[a-zA-Z0-9_-]*)?\s*\n?(?P<inner>.*?)```", flags=
 _MD_INLINE_CODE = _re.compile(r"(?<!`)`(?P<inner>[^`\n]+?)`(?!`)")
 _MD_BOLD_STAR = _re.compile(r"\*\*(?P<inner>[^\s*][^*\n]*?[^\s*]|\S)\*\*")
 _MD_BOLD_UNDER = _re.compile(r"__(?P<inner>[^\s_][^_\n]*?[^\s_]|\S)__")
-_MD_ITALIC_STAR = _re.compile(r"(?<!\*)\*(?P<inner>[^\s*][^*\n]*?[^\s*]|\S)\*(?!\*)")
+# Italic-star is tightened against two surface bugs:
+# (a) BUG-011 — `**bold **then *italic*** here` (asymmetric nested italic
+#     in bold) used to leak a stray `<i>*</i>` because the bold regex's
+#     forbid-`*`-in-inner makes it skip + italic matches the inner three
+#     asterisks the wrong way. The bold pre-pass at line below now runs
+#     a SECOND star-bold regex that allows nested italic specifically
+#     for that shape, so by the time italic-star fires every legitimate
+#     `*...*` is unwrapped first. Telegram's HTML parser also tolerates
+#     stray `*` chars now via `_telegram_safe_escape` so a residual
+#     unmatched `*` renders as literal.
+# (b) BUG-012 — `a*b*c` arithmetic-shorthand (no spaces) used to render
+#     as `a<i>b</i>c`. The lookbehind+lookahead now require WHITESPACE
+#     OR START/END-OF-STRING around the asterisks (operators rarely
+#     type `*italic*` jammed against alphanum on both sides; markdown
+#     authors universally space it). Word-boundary-jammed `*` survives
+#     as literal.
+_MD_ITALIC_STAR = _re.compile(
+    r"(?<![*A-Za-z0-9_])\*(?P<inner>[^\s*][^*\n]*?[^\s*]|\S)\*(?![*A-Za-z0-9_])"
+)
 _MD_ITALIC_UNDER = _re.compile(r"(?<![A-Za-z0-9_])_(?P<inner>[^\s_][^_\n]*?[^\s_]|\S)_(?![A-Za-z0-9_])")
 _MD_HEADING = _re.compile(r"^\s*#{1,6}\s+(?P<inner>.+?)\s*$", flags=_re.MULTILINE)
 _MD_LIST_BULLET = _re.compile(r"^(?P<indent>\s*)[*-]\s+", flags=_re.MULTILINE)
@@ -2490,7 +2576,7 @@ def _telegram_safe_escape(text: str) -> str:
     tokens: list[str] = []
 
     def _stash(match):
-        tokens.append(match.group(0))
+        tokens.append(match.group())
         return f"\x00{len(tokens) - 1}\x01"
 
     stashed = _TELEGRAM_OK_TAG.sub(_stash, text)
@@ -2503,7 +2589,7 @@ def _telegram_safe_escape(text: str) -> str:
 
     def _restore(match):
         idx = int(match.group("idx"))
-        return tokens[idx] if 0 <= idx < len(tokens) else match.group(0)
+        return tokens[idx] if 0 <= idx < len(tokens) else match.group()
 
     return _re.sub(r"\x00(?P<idx>\d+)\x01", _restore, escaped)
 
@@ -2557,7 +2643,7 @@ def _truncate_telegram_html(text: str, max_chars: int) -> str:
     # Build the open-stack so we can close anything still open.
     stack: list[str] = []
     for match in _TELEGRAM_TAG_SPAN.finditer(head):
-        raw = match.group(0)
+        raw = match.group()
         name = (match.group("name") or "").lower()
         if name == "br":
             continue  # self-closing; no stack pressure
