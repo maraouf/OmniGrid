@@ -42,7 +42,6 @@ from logic import backups, gather, ops as _ops
 from logic.db import db_conn
 from logic.settings_keys import Settings
 
-
 # Clock-time schedules use "HH:MM" — 24-hour, container local time. Matches
 # what a human types when they say "run at 1 AM". We don't accept seconds;
 # per-second precision is meaningless against a 60-second tick loop.
@@ -279,7 +278,7 @@ def _next_weekly_run(
         anchor = _day_anchor_ts(hh, mm, d.year, d.month, d.day)
         if anchor + GRACE <= now:  # past anchor + grace → skip
             continue
-        if anchor <= last:         # already fired for this anchor
+        if anchor <= last:  # already fired for this anchor
             continue
         return int(anchor)
     # Defensive fallback — shouldn't happen since at least one day is valid
@@ -363,23 +362,54 @@ def init_schedules_schema(conn: sqlite3.Connection) -> None:
     module-owned schema hooks (auth, etc.).
     """
     conn.executescript("""
-    CREATE TABLE IF NOT EXISTS schedules (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE NOT NULL,
-        kind TEXT NOT NULL,
-        params TEXT,
-        interval_seconds INTEGER NOT NULL,
-        enabled INTEGER NOT NULL DEFAULT 1,
-        last_run_at INTEGER,
-        last_duration INTEGER,
-        last_status TEXT,
-        last_op_id TEXT,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_schedules_enabled
-        ON schedules(enabled, last_run_at);
-    """)
+                       CREATE TABLE IF NOT EXISTS schedules
+                       (
+                           id
+                           INTEGER
+                           PRIMARY
+                           KEY
+                           AUTOINCREMENT,
+                           name
+                           TEXT
+                           UNIQUE
+                           NOT
+                           NULL,
+                           kind
+                           TEXT
+                           NOT
+                           NULL,
+                           params
+                           TEXT,
+                           interval_seconds
+                           INTEGER
+                           NOT
+                           NULL,
+                           enabled
+                           INTEGER
+                           NOT
+                           NULL
+                           DEFAULT
+                           1,
+                           last_run_at
+                           INTEGER,
+                           last_duration
+                           INTEGER,
+                           last_status
+                           TEXT,
+                           last_op_id
+                           TEXT,
+                           created_at
+                           INTEGER
+                           NOT
+                           NULL,
+                           updated_at
+                           INTEGER
+                           NOT
+                           NULL
+                       );
+                       CREATE INDEX IF NOT EXISTS idx_schedules_enabled
+                           ON schedules(enabled, last_run_at);
+                       """)
     # Idempotent column adds for deployments upgrading from earlier schemas.
     # - run_at_hhmm: time-of-day anchor for daily/weekly/monthly modes.
     # - cadence_mode: which of the four modes the row is using. Legacy rows
@@ -387,10 +417,10 @@ def init_schedules_schema(conn: sqlite3.Connection) -> None:
     # - days_of_week: JSON int array (Mon=0..Sun=6) — weekly mode only.
     # - day_of_month: 1..31 (clamped to the month's last day) — monthly only.
     for ddl in (
-        "ALTER TABLE schedules ADD COLUMN run_at_hhmm TEXT",
-        "ALTER TABLE schedules ADD COLUMN cadence_mode TEXT",
-        "ALTER TABLE schedules ADD COLUMN days_of_week TEXT",
-        "ALTER TABLE schedules ADD COLUMN day_of_month INTEGER",
+            "ALTER TABLE schedules ADD COLUMN run_at_hhmm TEXT",
+            "ALTER TABLE schedules ADD COLUMN cadence_mode TEXT",
+            "ALTER TABLE schedules ADD COLUMN days_of_week TEXT",
+            "ALTER TABLE schedules ADD COLUMN day_of_month INTEGER",
     ):
         try:
             conn.execute(ddl)
@@ -873,6 +903,7 @@ async def _run_gather_refresh(params: dict) -> tuple[str, Awaitable[tuple[int, s
         # because that also bumps a Prometheus counter tied to op_type names
         # — keep gather_refresh out of that bucket so it doesn't inflate
         # omnigrid_ops_total with cache-refresh noise.
+        _ops.assert_op_type("gather_refresh")
         try:
             with db_conn() as c:
                 c.execute(
@@ -944,6 +975,7 @@ async def _run_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
             err = str(e)
             print(f"[scheduler] backup failed: {e}")
         duration = int(time.time() - started)
+        _ops.assert_op_type("backup")
         try:
             with db_conn() as c:
                 c.execute(
@@ -1069,6 +1101,7 @@ async def _run_asset_inventory_refresh(
             print(f"[scheduler] asset_inventory_refresh failed: {e}")
 
         duration = int(time.time() - started)
+        _ops.assert_op_type("asset_inventory_refresh")
         try:
             with db_conn() as c:
                 c.execute(
@@ -1099,7 +1132,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
     twice in a minute just produces a second history row with 0 files
     deleted. Mirrors the gather_refresh / asset_inventory_refresh
     pattern: no Operation, writes a history row directly when done so
-    it shows up in the History tab + the schedules queue. 
+    it shows up in the History tab + the schedules queue.
     """
     op_id = "sched-" + secrets.token_hex(4)
 
@@ -1146,6 +1179,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
         # leaves `days=None`, in which case the suffix drops cleanly.
         target_suffix = f" (days={days})" if days is not None else ""
         target_name = f"{removed} log file(s){target_suffix}"
+        _ops.assert_op_type("prune_logs")
         try:
             with db_conn() as c:
                 c.execute(
@@ -1216,6 +1250,7 @@ async def _run_prune_notifications(
         duration = int(time.time() - started)
         target_suffix = f" (days={days})" if days is not None else ""
         target_name = f"{removed} notification(s){target_suffix}"
+        _ops.assert_op_type("prune_notifications")
         try:
             with db_conn() as c:
                 c.execute(
@@ -1398,11 +1433,11 @@ async def _run_swarm_agent_health(
                     )
                     elapsed_s = started - _swarm_autoheal_last_restart_ts
                     if _swarm_autoheal_last_restart_ts > 0 \
-                       and elapsed_s < cooldown_min * 60:
+                        and elapsed_s < cooldown_min * 60:
                         action_taken = "skipped_cooldown"
                         print(
                             f"[scheduler] swarm_agent_health: cooldown "
-                            f"({int(elapsed_s)}s < {cooldown_min*60}s); "
+                            f"({int(elapsed_s)}s < {cooldown_min * 60}s); "
                             f"unhealthy={unhealthy_hosts}",
                         )
                     else:
@@ -1458,7 +1493,7 @@ async def _run_swarm_agent_health(
                     # configured notification mediums (in-app +
                     # Apprise external) without auto-restarting.
                     #
-                  # Transitions-only de-dup: fire ONE
+                    # Transitions-only de-dup: fire ONE
                     # `swarm_agent_unhealthy` per host that just became
                     # unhealthy AND ONE `swarm_agent_recovered` per host
                     # that just recovered. A sustained outage no longer
@@ -1565,11 +1600,12 @@ async def _run_swarm_agent_health(
         # diagnostic regardless of repeat count).
         global _swarm_autoheal_last_persisted_action
         if (action_taken == "noop_healthy"
-                and status == "ok"
-                and _swarm_autoheal_last_persisted_action == "noop_healthy"):
+            and status == "ok"
+            and _swarm_autoheal_last_persisted_action == "noop_healthy"):
             # Skip persistence; preserve the last-persisted-action so
             # the NEXT non-noop tick still sees the right baseline.
             return (duration, status)
+        _ops.assert_op_type("swarm_agent_health")
         try:
             with db_conn() as c:
                 c.execute(
@@ -1657,8 +1693,8 @@ async def _run_port_scan_refresh(
         err: Optional[str] = None
         selected: list[str] = []
         skipped: dict[str, list[str]] = {
-            "disabled":  [], "no_address": [],
-            "paused":    [], "too_recent":   [],
+            "disabled": [], "no_address": [],
+            "paused": [], "too_recent": [],
         }
         first_skip_reason = ""
 
@@ -1670,9 +1706,9 @@ async def _run_port_scan_refresh(
                     op_id, started, duration, "success",
                     None, "0 selected (master toggle off)",
                     {
-                        "selected":          [],
-                        "skipped_master":    True,
-                        "skipped":           skipped,
+                        "selected": [],
+                        "skipped_master": True,
+                        "skipped": skipped,
                     },
                 )
                 print(
@@ -1783,10 +1819,10 @@ async def _run_port_scan_refresh(
                     op_id, started, duration, "success",
                     None, "0 selected (nothing eligible)",
                     {
-                        "selected":  [],
-                        "skipped":   skipped,
+                        "selected": [],
+                        "skipped": skipped,
                         "max_hosts": max_hosts,
-                        "min_age":   min_age,
+                        "min_age": min_age,
                     },
                 )
                 return (duration, "success")
@@ -1894,9 +1930,9 @@ async def _run_port_scan_refresh(
         # summary at the top, and one row per scan below it.
         target_name = f"{len(selected)} host(s) scanned"
         events_payload = {
-            "selected":           selected,
-            "skipped":            skipped,
-            "skipped_first":      first_skip_reason or None,
+            "selected": selected,
+            "skipped": skipped,
+            "skipped_first": first_skip_reason or None,
         }
         _record_history_row(
             op_id, started, duration, status,
@@ -1909,13 +1945,13 @@ async def _run_port_scan_refresh(
 
 
 def _record_history_row(
-    op_id:        str,
-    started:      float,
-    duration:     int,
-    status:       str,
-    err:          Optional[str],
-    target_name:  str,
-    events:       dict,
+    op_id: str,
+    started: float,
+    duration: int,
+    status: str,
+    err: Optional[str],
+    target_name: str,
+    events: dict,
 ) -> None:
     """Shared history-row writer for the port_scan_refresh tick.
 
@@ -1999,6 +2035,7 @@ async def _run_config_backup(params: dict) -> tuple[str, Awaitable[tuple[int, st
             err = str(e)
             print(f"[scheduler] config_backup failed: {e}")
         duration = int(time.time() - started)
+        _ops.assert_op_type("config_backup")
         try:
             with db_conn() as c:
                 c.execute(
@@ -2022,16 +2059,16 @@ async def _run_config_backup(params: dict) -> tuple[str, Awaitable[tuple[int, st
 
 
 SCHEDULE_KINDS: dict[str, KindRunner] = {
-    "prune_node":                _run_prune_node,
-    "prune_all_nodes":           _run_prune_all_nodes,
-    "gather_refresh":            _run_gather_refresh,
-    "backup":                    _run_backup,
-    "config_backup":             _run_config_backup,
-    "asset_inventory_refresh":   _run_asset_inventory_refresh,
-    "prune_logs":                _run_prune_logs,
-    "prune_notifications":       _run_prune_notifications,
-    "swarm_agent_health":        _run_swarm_agent_health,
-    "port_scan_refresh":         _run_port_scan_refresh,
+    "prune_node": _run_prune_node,
+    "prune_all_nodes": _run_prune_all_nodes,
+    "gather_refresh": _run_gather_refresh,
+    "backup": _run_backup,
+    "config_backup": _run_config_backup,
+    "asset_inventory_refresh": _run_asset_inventory_refresh,
+    "prune_logs": _run_prune_logs,
+    "prune_notifications": _run_prune_notifications,
+    "swarm_agent_health": _run_swarm_agent_health,
+    "port_scan_refresh": _run_port_scan_refresh,
 }
 
 
@@ -2181,10 +2218,10 @@ def audit_schedule_kinds() -> dict:
             f"{missing_docstrings}"
         )
     return {
-        "kinds_audited":       audited,
-        "missing_async":       sorted(missing_async),
-        "name_mismatches":     sorted(name_mismatches),
-        "missing_docstrings":  sorted(missing_docstrings),
+        "kinds_audited": audited,
+        "missing_async": sorted(missing_async),
+        "name_mismatches": sorted(name_mismatches),
+        "missing_docstrings": sorted(missing_docstrings),
     }
 
 

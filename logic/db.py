@@ -47,7 +47,8 @@ elif not DB_PATH:
 else:
     # Create the parent dir at import (once per process). Safe on restart —
     # exist_ok. "" dirname falls back to "." so relative paths work in dev.
-    os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+    _db_path_dir = os.path.dirname(DB_PATH) or "."
+    os.makedirs(_db_path_dir, exist_ok=True)
 
 
 @contextmanager
@@ -70,6 +71,11 @@ def db_conn():
         # caught this. If it didn't, refuse to silently open SQLite for
         # a caller that asked for something else.
         raise RuntimeError(f"db_conn(): no adapter for DB_TYPE={DB_TYPE!r}")
+    if DB_PATH is None:
+        # Unreachable in practice — DB_PATH_ERROR is set when DB_PATH is
+        # None, and we raised above. Explicit narrowing for the type
+        # checker so the sqlite3.connect call below typechecks cleanly.
+        raise RuntimeError("DB_PATH is None")
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
@@ -140,13 +146,11 @@ _SETTINGS_VERSION_EXCLUDED = frozenset({
 })
 # Single-element lists used as nullable-int / nullable-bool boxes so the
 # context manager + nested-defer support work without globals + lock
-# ceremony. The harness is single-process single-replica per CLAUDE.md
+# ceremony. OmniGrid runs single-process single-replica by deployment
 # invariant; an asyncio re-entrant defer would still write the right
 # count because the context manager's enter/exit is synchronous.
 _settings_version_deferred_count = [0]
 _settings_version_pending = [False]
-
-from contextlib import contextmanager
 
 
 @contextmanager
@@ -178,7 +182,7 @@ def defer_settings_version_bump():
             try:
                 with db_conn() as c:
                     _bump_settings_version_in(c)
-            except Exception:
+            except (sqlite3.Error, RuntimeError, OSError):
                 # Defence-in-depth: a defer-exit bump failure must NOT
                 # propagate out of the context manager and break the
                 # caller's request. SPA loses one cross-tab notification
@@ -199,15 +203,16 @@ def _bump_settings_version_in(c) -> None:
         ).fetchone()
         cur = 0
         if row and row["value"]:
+            raw_val = row["value"]
             try:
-                cur = int(row["value"])
+                cur = int(str(raw_val))
             except (TypeError, ValueError):
                 cur = 0
         c.execute(
             "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
             (_SETTINGS_VERSION_KEY, str(cur + 1)),
         )
-    except Exception:
+    except (sqlite3.Error, RuntimeError):
         # Defence-in-depth: a version-bump failure must NOT roll back
         # the operator's actual settings write. Worst case the SPA
         # misses a cross-tab notification — recoverable on next poll.
@@ -218,7 +223,7 @@ def get_settings_version() -> int:
     """Return the current `_settings_version`. 0 when never written.
     Used by `/api/settings/version` so the SPA can detect cross-tab
     changes without re-fetching the full settings blob."""
-    raw = get_setting(_SETTINGS_VERSION_KEY, "")
+    raw = get_setting(_SETTINGS_VERSION_KEY)
     if not raw:
         return 0
     try:
@@ -251,7 +256,7 @@ def active_host_stats_providers() -> set[str]:
     only need to update this helper plus the validation list in
     ``api_set_settings``.
     """
-    raw = (get_setting(Settings.HOST_STATS_SOURCE, "") or "").strip()
+    raw = (get_setting(Settings.HOST_STATS_SOURCE) or "").strip()
     if not raw:
         if (get_setting(Settings.NODE_EXPORTER_ENABLED, "false") or "false").lower() == "true":
             return {"node_exporter"}
@@ -261,6 +266,44 @@ def active_host_stats_providers() -> set[str]:
         t = token.strip().lower()
         if t and t != "none":
             out.add(t)
+    return out
+
+
+def _walk_hosts_config() -> list[dict]:
+    """Walk the ``hosts_config`` JSON settings row → list of enabled
+    host dicts.
+
+    Shared prelude for every ``curated_*_hosts`` helper. Returns ONLY
+    rows that are dicts AND not explicitly disabled. Caller layers
+    provider-specific gates (ne_url present / snmp.enabled true / etc.)
+    on top. Pre-fix every helper carried its own copy of the 8-line
+    JSON-parse + isinstance + enabled-gate loop — 4 byte-for-byte
+    duplicates flagged by PyCharm's duplicate detector. This helper
+    is the single source of truth; consumers iterate the returned
+    list and filter for their provider.
+
+    Returns empty list on missing / malformed settings — forgiving
+    contract matches what the helpers had before, so a stale settings
+    blob can't crash the lifespan tasks.
+    """
+    import json as _json
+
+    raw = get_setting(Settings.HOSTS_CONFIG) or ""
+    if not raw.strip():
+        return []
+    try:
+        parsed = _json.loads(raw)
+    except ValueError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    out: list[dict] = []
+    for row in parsed:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("enabled", True):
+            continue
+        out.append(row)
     return out
 
 
@@ -279,23 +322,8 @@ def curated_ne_hosts() -> list[dict]:
     skipped — same forgiving contract the samplers had before, so a
     stale settings blob can't crash the lifespan task.
     """
-    import json as _json
-
-    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
-    if not raw.strip():
-        return []
-    try:
-        parsed = _json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(parsed, list):
-        return []
     out: list[dict] = []
-    for row in parsed:
-        if not isinstance(row, dict):
-            continue
-        if not row.get("enabled", True):
-            continue
+    for row in _walk_hosts_config():
         ne_url = (row.get("ne_url") or "").strip()
         if not ne_url:
             continue
@@ -321,36 +349,26 @@ def curated_ping_hosts() -> list[dict]:
     consumers (a future debug endpoint, a UI count badge) should use
     this rather than re-walking ``hosts_config``.
     """
-    import json as _json
-
-    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
-    if not raw.strip():
-        return []
-    try:
-        parsed = _json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(parsed, list):
-        return []
     out: list[dict] = []
-    for row in parsed:
-        if not isinstance(row, dict):
-            continue
-        if not row.get("enabled", True):
-            continue
-        ping_cfg = row.get("ping") if isinstance(row.get("ping"), dict) else {}
+    for row in _walk_hosts_config():
+        _ping_raw = row.get("ping")
+        ping_cfg: dict = _ping_raw if isinstance(_ping_raw, dict) else {}
         if not ping_cfg.get("enabled"):
             continue
         hid = (row.get("id") or "").strip()
         if not hid:
             continue
-        ssh_cfg = row.get("ssh") if isinstance(row.get("ssh"), dict) else {}
+        _ssh_raw = row.get("ssh")
+        ssh_cfg: dict = _ssh_raw if isinstance(_ssh_raw, dict) else {}
         host_target = (ssh_cfg.get("fqdn") or ssh_cfg.get("host") or hid).strip() or hid
-        try:
-            port_override = ping_cfg.get("port")
-            port = int(port_override) if port_override not in (None, "", 0) else 0
-        except (TypeError, ValueError):
+        port_override = ping_cfg.get("port")
+        if port_override in (None, "", 0):
             port = 0
+        else:
+            try:
+                port = int(port_override)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                port = 0
         transport_raw = (ping_cfg.get("transport") or "").strip().lower()
         transport = transport_raw if transport_raw in ("tcp", "icmp") else ""
         out.append({
@@ -383,23 +401,8 @@ def curated_beszel_hosts() -> list[dict]:
     badges, and external tooling that wants to enumerate Beszel-
     tracked hosts without round-tripping through the sampler module.
     """
-    import json as _json
-
-    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
-    if not raw.strip():
-        return []
-    try:
-        parsed = _json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(parsed, list):
-        return []
     out: list[dict] = []
-    for row in parsed:
-        if not isinstance(row, dict):
-            continue
-        if not row.get("enabled", True):
-            continue
+    for row in _walk_hosts_config():
         hid = (row.get("id") or "").strip()
         bname = (row.get("beszel_name") or "").strip()
         if not hid or not bname:
@@ -422,49 +425,27 @@ def curated_snmp_hosts() -> list[dict]:
     stays I/O-free beyond the one settings read.
 
     Single source of truth for "which hosts is OmniGrid SNMP-probing
-    right now" — consumed by the per-host probe path and (post-fix)
-    by the host_metrics_sampler's permanent-fail tracking pass.
+    right now" — consumed by the per-host probe path and the
+    host_metrics_sampler's permanent-fail tracking pass.
     """
-    import json as _json
-
-    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
-    if not raw.strip():
-        return []
-    try:
-        parsed = _json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(parsed, list):
-        return []
     out: list[dict] = []
-    for row in parsed:
-        if not isinstance(row, dict):
-            continue
-        if not row.get("enabled", True):
-            continue
-        snmp_cfg = row.get("snmp") if isinstance(row.get("snmp"), dict) else {}
-        if snmp_cfg.get("enabled") is not True:
+    for row in _walk_hosts_config():
+        _snmp_raw = row.get("snmp")
+        snmp_cfg: dict = _snmp_raw if isinstance(_snmp_raw, dict) else {}
+        if not snmp_cfg.get("enabled"):
             continue
         hid = (row.get("id") or "").strip()
         if not hid:
             continue
         snmp_name = (row.get("snmp_name") or "").strip()
-        # Caller may resolve `snmp_aliases[hid]` to override snmp_name —
-        # we leave that lookup to the consumer so this helper stays
-        # narrow-scoped (matches CLAUDE.md's "logic/db.py is the
-        # I/O-free shape layer" rule). The shared `address` field
-        # rides along so `_probe_one_snmp` can fall through to it
-        # via the canonical chain `aliases → snmp_name → address →
-        # SKIP`. Pre-fix this loader emitted only `id` / `snmp_name` /
-        # `snmp`, so address-only SNMP hosts (snmp.enabled=true with
-        # snmp_name blank, address populated) appeared in the output
-        # but `_probe_one_snmp(host).get("address")` returned None →
-        # resolver fell through to "" → sampler returned early on
-        # `if not snmp_target` → host_snmp_samples never wrote.
-        # Caught when an operator's debug panel showed `last_ok_ts=43s
-        # ago` (per-host probe path stamping success) but
-        # `host_snmp_samples.newest_ts=8.7h ago` — the sampler path
-        # was the silent half.
+        # snmp_aliases lookup is the caller's job — this helper stays
+        # I/O-free beyond the one settings read. The shared `address`
+        # field rides along so the SNMP probe path can fall through
+        # to it via the canonical chain aliases → snmp_name → address
+        # → SKIP. Address-only SNMP hosts (snmp.enabled=true with
+        # snmp_name blank, address populated) must reach the probe
+        # path or the sampler returns early and host_snmp_samples
+        # never writes.
         out.append({
             "id": hid,
             "snmp_name": snmp_name,
@@ -482,7 +463,7 @@ def get_setting_bool(key: str, default: bool = False) -> bool:
     `get_setting(...).lower() == "true"` pattern that's case-fragile
     and silently treats any non-"true" string as False.
     """
-    raw = get_setting(key, "")
+    raw = get_setting(key)
     if not raw:
         return default
     s = str(raw).strip().lower()

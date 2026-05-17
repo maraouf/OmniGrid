@@ -13853,6 +13853,7 @@ def _ssh_write_audit_row(
             ),
         }
     ]
+    _ops_mod.assert_op_type("ssh_run")
     try:
         with db_conn() as c:
             c.execute(
@@ -14005,6 +14006,7 @@ def _ssh_terminal_audit_open(
     ``None`` if the insert failed (audit-log breakage must never block
     the session itself — operator visibility is best-effort by design).
     """
+    _ops_mod.assert_op_type("ssh_terminal")
     try:
         with db_conn() as c:
             cur = c.execute(
@@ -15820,6 +15822,7 @@ def _bulk_write_history_rows(
     """
     if not host_ids:
         return
+    _ops_mod.assert_op_type(op_type)
     try:
         with db_conn() as c:
             c.executemany(
@@ -16672,6 +16675,7 @@ async def _run_port_scan_async(
                             "udp",
                         ),
                     )
+                _ops_mod.assert_op_type("port_scan")
                 c.execute(
                     "INSERT INTO history "
                     "(ts, op_type, target_kind, target_name, target_id, "
@@ -16835,6 +16839,7 @@ async def _run_port_scan_async(
                 events_json = json.dumps(events_payload, ensure_ascii=False)
             except (TypeError, ValueError):
                 events_json = "{}"
+            _ops_mod.assert_op_type("port_scan")
             c.execute(
                 "INSERT INTO history "
                 "(ts, op_type, target_kind, target_name, target_id, "
@@ -18519,6 +18524,16 @@ async def api_local_login_totp_setup_confirm(
             c, user_id, ip, request.headers.get("user-agent"),
             auth_method="totp",
         )
+        _ops_mod.write_admin_audit(
+            c, "user_login",
+            target_kind="user", target_id=u.username,
+            actor=u.username,
+            events=[{
+                "method": "local_totp_setup",
+                "auth_source": u.auth_source,
+                "ip": ip,
+            }],
+        )
     print(f"[totp] {u.username} enrolled (forced by policy)")
     csrf = auth.generate_csrf_token()
     resp = JSONResponse({
@@ -18922,6 +18937,16 @@ async def api_local_bootstrap(
         cookie_value, expires_at = auth.create_session(
             c, u.id, ip, request.headers.get("user-agent"),
             auth_method="bootstrap",
+        )
+        _ops_mod.write_admin_audit(
+            c, "user_login",
+            target_kind="user", target_id=u.username,
+            actor=u.username,
+            events=[{
+                "method": "bootstrap",
+                "auth_source": "local",
+                "ip": ip,
+            }],
         )
     csrf = auth.generate_csrf_token()
     resp = JSONResponse(
