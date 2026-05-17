@@ -31,7 +31,8 @@ the rest of OmniGrid (which is bytes everywhere).
 from __future__ import annotations
 
 import time
-from typing import Any, Optional, TypedDict, cast
+from collections import OrderedDict as _OrderedDict
+from typing import Any, Optional, TypedDict
 
 import httpx
 
@@ -77,7 +78,6 @@ _token_cache: dict[tuple[str, str], _TokenEntry] = {}
 # next time it shows mounts=0 — fine, since eviction means the process
 # has been up long enough that one duplicate log line in N thousand is
 # acceptable.
-from collections import OrderedDict as _OrderedDict
 
 _WARNED_NO_MOUNTS_CAP = 1024
 _warned_no_mounts: _OrderedDict[str, None] = _OrderedDict()
@@ -114,28 +114,18 @@ def _as_dict(v: Any) -> dict[str, Any]:
     downstream ``.get`` / ``.items`` access is type-checker-clean on
     PocketBase payloads where the field may be absent (older agents)
     or wrong-typed (legacy schemas).
-
-    Uses ``cast`` on the isinstance-narrowed return so PyCharm doesn't
-    widen the inferred return type back to ``Any`` (which it does
-    when the isinstance branch returns the parameter directly — the
-    parameter's ``Any`` type wins over the narrowed ``dict`` in
-    PyCharm's flow inference, even though the explicit ``-> dict[str,
-    Any]`` annotation says otherwise). The cast is sound: we're
-    inside ``isinstance(v, dict)``.
     """
     if isinstance(v, dict):
-        return cast("dict[str, Any]", v)
+        return v
     return {}
 
 
 def _as_list(v: Any) -> list[Any]:
     """Return ``v`` when it's already a list, else ``[]``. Mirror of
-    :func:`_as_dict` for list-typed payload fields. Same ``cast``
-    pattern to keep PyCharm from widening the return type back to
-    ``Any``.
+    :func:`_as_dict` for list-typed payload fields.
     """
     if isinstance(v, list):
-        return cast("list[Any]", v)
+        return v
     return []
 
 
@@ -146,10 +136,10 @@ def _resolve_probe_timeout(default: float = 15.0) -> float:
     on the next call without restart. Defensive fallback to the legacy
     15s on resolver failure (import error / corrupt DB / missing key).
     """
+    # noinspection PyBroadException
     try:
         from logic.tuning import Tunable, tuning_int as _tuning_int
         return float(_tuning_int(Tunable.BESZEL_PROBE_TIMEOUT_SECONDS))
-    # noinspection PyBroadException
     except Exception:  # noqa: BLE001
         return default
 
@@ -182,6 +172,7 @@ def _pb_err_detail(r: "httpx.Response") -> str:
     failed (usually "Failed to authenticate" for wrong password or
     "invalid email" for a malformed identity).
     """
+    # noinspection PyBroadException
     try:
         j = _as_dict(r.json())
         msg = j.get("message") or ""
@@ -196,7 +187,6 @@ def _pb_err_detail(r: "httpx.Response") -> str:
             if parts:
                 return f"{msg} ({'; '.join(parts)})" if msg else "; ".join(parts)
         return msg or f"HTTP {r.status_code}"
-    # noinspection PyBroadException
     except Exception:  # noqa: BLE001
         return f"HTTP {r.status_code}"
 
@@ -244,16 +234,8 @@ async def _authenticate(
         if r.status_code < 400:
             data = _as_dict(r.json())
             raw_token = data.get("token")
-            # PyCharm doesn't propagate `isinstance` narrowing through
-            # the nested `if token:` truthiness check back to the
-            # function's `-> str` return contract — the inspection
-            # kept flagging `return token` as "Expected type 'str',
-            # got 'Any | None'" even with the split-isinstance form.
-            # `cast(str, ...)` is the operator-level escape hatch
-            # documented for exactly this class of inference gap; the
-            # runtime `isinstance` check above keeps it sound.
             if isinstance(raw_token, str) and raw_token:
-                return cast(str, raw_token)
+                return raw_token
             errors.append(f"{path}: 200 but no token in response")
             continue
         errors.append(f"{path}: {_pb_err_detail(r)}")
@@ -1032,26 +1014,8 @@ def extract_stats(info_in: Optional[dict] = None, stats_in: Optional[dict] = Non
     dict with every ``host_*`` field populated. Either argument may be
     missing or partial — empty fields degrade to 0 / "".
     """
-    # Public parameters are `info_in` / `stats_in` (Optional[dict]).
-    # Re-bind to fresh local names `info` / `stats` via `_as_dict`
-    # then re-isinstance-narrow with `assert` so PyCharm's flow
-    # tracker stops chaining back to the parameter declaration.
-    # The annotation + cast + assert triple is overkill in pure
-    # mypy terms, but PyCharm's inference for `_as_dict`'s isinstance
-    # branch needs every nudge: without the assert, every `.get(...)`
-    # call below still reads as `dict | None`.
-    # Belt-and-braces narrowing: explicit annotation + cast +
-    # isinstance-assert per name. PyCharm has stubbornly tracked
-    # `stats` back to the original parameter declaration despite the
-    # annotation alone — each `.get()` call on stats kept flagging
-    # "Member 'None' of 'dict | None'". The cast() forces the type
-    # at the assignment expression; the asserts then narrow at the
-    # statement level so any flow-sensitive inspection downstream
-    # also sees the concrete dict.
-    info: dict[str, Any] = cast("dict[str, Any]", _as_dict(info_in))
-    stats: dict[str, Any] = cast("dict[str, Any]", _as_dict(stats_in))
-    assert isinstance(info, dict)
-    assert isinstance(stats, dict)
+    info: dict[str, Any] = _as_dict(info_in)
+    stats: dict[str, Any] = _as_dict(stats_in)
     gib = 1024 ** 3
     # Absolute totals come from the system_stats row's GiB fields.
     mem_total = _num(stats.get("m")) * gib
@@ -1179,8 +1143,10 @@ def extract_stats(info_in: Optional[dict] = None, stats_in: Optional[dict] = Non
         # from the kernel suffix the same way Beszel's own UI does
         # (e.g. "6.12.7+deb13+1-amd64" → "amd64"). Empty when the
         # kernel isn't present either.
-        "host_arch": _derive_arch(str(info.get("k") or info.get("kernel") or ""))
-                     or str(info.get("a") or info.get("arch") or ""),
+        "host_arch": (
+            _derive_arch(str(info.get("k") or info.get("kernel") or ""))
+            or str(info.get("a") or info.get("arch") or "")
+        ),
         "host_agent": str(info.get("v") or info.get("agent") or ""),
         # Per-mount detail. Beszel stores ``extra filesystems`` as a
         # map name → {d, du, dr, dw} on the stats row. We flatten into
@@ -1465,6 +1431,7 @@ async def probe_hub(
     return {"systems": out, "error": None}
 
 
+# noinspection DuplicatedCode
 def lookup(systems_map: dict[str, dict], needle: str) -> Optional[dict]:
     """Find a Beszel system record by name, tolerating case + whitespace.
 
