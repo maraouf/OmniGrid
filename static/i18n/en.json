@@ -2000,6 +2000,10 @@
           "label": "Telegram HTTP timeout (seconds)",
           "help": "Outer HTTP wall-clock for the listener's `getUpdates` call. MUST be larger than the long-poll timeout so Telegram has time to flush the response after a long-poll wake-up. Default 35 (= 25 + 10). Operators behind a tight reverse-proxy `proxy_read_timeout` should lower both this and the long-poll timeout in lock-step. Range 5..120. Takes effect on the next listener iteration."
         },
+        "tuning_telegram_ai_calls_per_minute": {
+          "label": "Telegram AI calls per minute (per user)",
+          "help": "Per-Telegram-user rate limit for AI palette calls. Every non-`/command` Telegram message routes through the AI palette, which costs real money on every paid provider. A rolling 60s bucket counts calls per Telegram user_id; over-quota senders receive a `⏳ Slow down` reply instead of an AI call. Default 6 (one every 10s) — generous for human typing, tight enough to catch a runaway script or accidental loop. Range 1..120; set to 120 to effectively disable the limit on a private bot you trust. Takes effect on the next AI call."
+        },
         "tuning_webmin_sampler_budget_seconds": {
           "label": "Webmin sampler tick budget (seconds)",
           "help": "Outer wall-clock cap for one Webmin sampler tick (fans out per-host `_probe_one_host` calls). Without an outer cap a single wedged Webmin host can starve the whole tick. 0 = auto-derive from `probe_timeout × hosts capped at 5 min` — safe default for fleets < 60 hosts. Operators with very large fleets can pin a higher value if their per-host probe is fast and they want a bigger fan-out window. Range 0..600s. Resolved per-tick."

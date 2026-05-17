@@ -428,6 +428,40 @@ def _load_asset_inventory() -> list[dict]:
     return []
 
 
+def _rank_candidates(candidates: list[dict]) -> list[dict]:
+    """Sort an ambiguous-match list so the most actionable rows surface
+    first. Operator-flagged: prior order was whatever insertion order
+    ``hosts_config`` happened to have, which made disambiguation feel
+    arbitrary.
+
+    Ranking key (lower is better, stable secondary by host_id):
+      0. enabled hosts before disabled ones (operator usually wants
+         the live host when typing an ambiguous match)
+      1. last-known status — up < paused < down / unknown — when the
+         curated row carries a recent probe outcome
+      2. host_id ascending for stable tie-break
+    """
+
+    def _status_weight(row: dict) -> int:
+        status = (row.get("_last_status") or row.get("status") or "").lower()
+        if status == "up":
+            return 0
+        if status == "paused":
+            return 1
+        if status in ("down", "unknown", "unconfigured"):
+            return 2
+        return 3  # no status info available
+
+    return sorted(
+        candidates,
+        key=lambda h: (
+            0 if h.get("enabled", True) else 1,
+            _status_weight(h),
+            h.get("id") or "",
+        ),
+    )
+
+
 def _resolve_target(target: str) -> tuple[Optional[dict], list[dict]]:
     """Match a command target string against curated hosts.
 
@@ -435,7 +469,9 @@ def _resolve_target(target: str) -> tuple[Optional[dict], list[dict]]:
       - ``matched_host`` is the single curated row when there's an
         unambiguous match. ``None`` when zero or multiple matches.
       - ``candidates`` is the full list of fuzzy matches (1+ entries)
-        so the caller can show a disambiguation prompt.
+        so the caller can show a disambiguation prompt — sorted via
+        :func:`_rank_candidates` so enabled / up hosts surface first
+        regardless of ``hosts_config`` insertion order.
 
     Priority chain (first non-empty match wins):
       1. Exact IP match against ``address`` / ``snmp_name`` / ``beszel_name``
@@ -488,7 +524,7 @@ def _resolve_target(target: str) -> tuple[Optional[dict], list[dict]]:
     if len(provider_hits) == 1:
         return provider_hits[0], provider_hits
     if provider_hits:
-        return None, provider_hits
+        return None, _rank_candidates(provider_hits)
 
     # 2. Exact host_id
     for h in hosts:
@@ -500,7 +536,7 @@ def _resolve_target(target: str) -> tuple[Optional[dict], list[dict]]:
     if len(label_hits) == 1:
         return label_hits[0], label_hits
     if label_hits:
-        return None, label_hits
+        return None, _rank_candidates(label_hits)
 
     # 4 + 5. Asset inventory match via custom_number
     assets = _load_asset_inventory()
@@ -540,7 +576,7 @@ def _resolve_target(target: str) -> tuple[Optional[dict], list[dict]]:
     if len(asset_hits) == 1:
         return asset_hits[0], asset_hits
     if asset_hits:
-        return None, asset_hits
+        return None, _rank_candidates(asset_hits)
 
     # 6. Substring fallback across host_id / label / provider targets
     sub_hits: list[dict] = []
@@ -554,7 +590,7 @@ def _resolve_target(target: str) -> tuple[Optional[dict], list[dict]]:
             sub_hits.append(h)
     if len(sub_hits) == 1:
         return sub_hits[0], sub_hits
-    return None, sub_hits
+    return None, _rank_candidates(sub_hits)
 
 
 def _host_status_emoji(h: dict) -> str:
@@ -789,6 +825,12 @@ def _load_user_weather_pref(username: str) -> Optional[dict]:
 # ----------------------------------------------------------------------------
 # Command handlers
 # ----------------------------------------------------------------------------
+# One-shot dedupe set so `_cmd_help` only WARN-logs each missing
+# category key ONCE per process — otherwise every /help fired against
+# a misconfigured _COMMANDS entry would re-spam the log.
+_WARNED_MISSING_CATS: set[str] = set()
+
+
 # noinspection PyUnusedLocal
 async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """Auto-generated help — iterates `_COMMANDS` so adding a new
@@ -805,7 +847,10 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     # Category metadata — ordered list so the rendered menu stays
     # stable + a single source of truth for the emoji + heading copy.
     # Adding a new category: append a tuple here AND tag every command
-    # in `_COMMANDS` with the matching key.
+    # in `_COMMANDS` with the matching key. The validation block below
+    # WARN-logs any `_COMMANDS` entry whose `category` key is missing
+    # from this list so the silent-fallthrough-to-"Other" failure mode
+    # becomes operator-visible.
     categories: list[tuple[str, str]] = [
         ("getting_started", "📖 Getting started"),
         ("fleet", "🖥️ Fleet"),
@@ -816,6 +861,29 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     ]
     cat_order = {key: idx for idx, (key, _) in enumerate(categories)}
     cat_headings = dict(categories)
+
+    # Derive the in-use category set from `_COMMANDS` and surface a
+    # one-shot WARN when a key has no heading metadata. Without this,
+    # adding a new category to `_COMMANDS` without extending the
+    # `categories` list above silently buckets the affected commands
+    # under "🧩 Other" (line below uses `cat_headings.get(..., "🧩 Other")`
+    # as the fallback). Visible failure mode > invisible drift.
+    _used_cats = {
+        (meta.get("category") or "misc")
+        for meta in _COMMANDS.values()
+        if meta.get("handler") is not None
+    }
+    _missing_cats = _used_cats - set(cat_headings)
+    new_warns = _missing_cats - _WARNED_MISSING_CATS
+    if new_warns:
+        print(
+            f"[telegram_listener] /help: category key(s) "
+            f"{sorted(new_warns)!r} used in _COMMANDS have no entry in "
+            f"the `categories` list — those commands will render under "
+            f"'🧩 Other'. Add `(<key>, '<emoji> <heading>')` to the "
+            f"`categories` list in `_cmd_help`."
+        )
+        _WARNED_MISSING_CATS.update(new_warns)
 
     # First pass: group commands by handler (dedup aliases). Records
     # the FIRST occurrence as the primary for that handler — subsequent
@@ -2555,10 +2623,62 @@ _MD_LIST_BULLET = _re.compile(r"^(?P<indent>\s*)[*-]\s+", flags=_re.MULTILINE)
 # we want to PRESERVE the formatting tags introduced by
 # `_markdown_to_telegram_html` while still neutralising stray
 # `<unknown>` markup the AI might have emitted directly.
+#
+# Includes `<a>` so AI-generated hyperlinks survive the escape pass.
+# Telegram accepts ONE attribute on `<a>` — `href` — and rejects the
+# whole message if any other attribute is present OR if the scheme
+# isn't `http(s)` / `tg://`. The `_sanitize_a_tag` helper below
+# strips every attribute except a whitelisted `href` so an AI emit of
+# `<a href="..." target="_blank" onclick="...">` reduces to a
+# Telegram-acceptable shape.
 _TELEGRAM_OK_TAG = _re.compile(
-    r"</?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler|br)\b[^>]*>",
+    r"</?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler|br|a)\b[^>]*>",
     flags=_re.IGNORECASE,
 )
+
+# Capture the `href` value (double-quoted, single-quoted, or unquoted).
+# Used by `_sanitize_a_tag` to extract the URL from an arbitrary
+# attribute list. Named-group syntax to comply with the operator-lint
+# preference against anonymous capture groups.
+_TELEGRAM_A_HREF = _re.compile(
+    r"""href\s*=\s*(?:"(?P<dq>[^"]*)"|'(?P<sq>[^']*)'|(?P<bare>[^\s>]+))""",
+    flags=_re.IGNORECASE,
+)
+
+
+def _sanitize_a_tag(raw: str) -> str:
+    """Reduce a captured `<a ...>` opening tag to `<a href="...">` with
+    a single whitelisted `href` attribute, or to the literal `&lt;a&gt;`
+    when no usable href exists. Closing `</a>` passes through unchanged.
+
+    Telegram's HTML parser HTTP-400s any `<a>` with attributes other
+    than `href` (or with an `href` scheme outside `http(s)` / `tg://`).
+    AI-emitted tags occasionally carry `target` / `rel` / `onclick`;
+    this helper strips them so the AI's link intent survives without
+    poisoning the rest of the reply.
+    """
+    low = raw.lower().lstrip()
+    if low.startswith("</a"):
+        return "</a>"
+    m = _TELEGRAM_A_HREF.search(raw)
+    if not m:
+        # No href — Telegram requires it for `<a>`. Render the literal
+        # string so the operator sees the missing-href bug.
+        return "&lt;a&gt;"
+    href = m.group("dq") or m.group("sq") or m.group("bare") or ""
+    # Schemes allowed by Telegram's parse_mode=HTML: http, https, tg.
+    # Anything else (javascript:, data:, file:, mailto:) gets blanked.
+    if not href.startswith(("http://", "https://", "tg://")):
+        return "&lt;a&gt;"
+    # HTML-escape the href so embedded `"` / `&` / `<` / `>` can't
+    # break the tag or smuggle additional attributes.
+    safe_href = (
+        href.replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+    return f'<a href="{safe_href}">'
 
 
 def _telegram_safe_escape(text: str) -> str:
@@ -2570,13 +2690,22 @@ def _telegram_safe_escape(text: str) -> str:
     HTML-escape the remainder, then swap the tags back. This way
     converter-emitted `<b>` / `<i>` / `<code>` reaches Telegram intact
     while a stray `<unknown>` becomes `&lt;unknown&gt;` and renders
-    as literal characters rather than breaking the parser."""
+    as literal characters rather than breaking the parser.
+
+    `<a>` tags are run through `_sanitize_a_tag` BEFORE stashing so
+    only a whitelisted `href` attribute survives — Telegram rejects
+    any other attribute or unsafe scheme."""
     if not text:
         return text or ""
     tokens: list[str] = []
 
     def _stash(match):
-        tokens.append(match.group())
+        raw = match.group()
+        # Sanitise `<a>` tags so only href survives; everything else
+        # in the OK-tag set is recognised verbatim by Telegram.
+        if raw[:2].lower() == "<a" and (len(raw) < 3 or not raw[2].isalpha()):
+            raw = _sanitize_a_tag(raw)
+        tokens.append(raw)
         return f"\x00{len(tokens) - 1}\x01"
 
     stashed = _TELEGRAM_OK_TAG.sub(_stash, text)
@@ -2598,7 +2727,7 @@ def _telegram_safe_escape(text: str) -> str:
 # Re-uses the same allowlist as `_TELEGRAM_OK_TAG` so the truncator
 # and the safe-escape stay in lock-step on what counts as a real tag.
 _TELEGRAM_TAG_SPAN = _re.compile(
-    r"</?(?P<name>b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler|br)\b[^>]*>",
+    r"</?(?P<name>b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler|br|a)\b[^>]*>",
     flags=_re.IGNORECASE,
 )
 
@@ -2915,6 +3044,43 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     return ctx
 
 
+# Per-Telegram-user AI call bucket — tracks call timestamps per
+# sender so `_ai_reply` can short-circuit a runaway user before the
+# AI call fires. Survives the lifetime of the listener process;
+# resets on container restart (acceptable — a restart is itself a
+# rate-limit signal).
+_AI_CALL_BUCKETS: dict[int, list[float]] = {}
+
+
+def _ai_rate_limit_check(user_id: int, calls_per_minute: int) -> tuple[bool, float]:
+    """Return ``(allowed, wait_seconds)`` for a sender's next AI call.
+
+    Window is a rolling 60s — counts how many AI calls this user has
+    made in the past minute and compares against the configured cap.
+    `allowed=False` returns the seconds remaining until the OLDEST
+    call in the window ages out (so the SPA reply can tell the
+    operator how long to wait).
+
+    Cleans up the bucket as a side effect — every check evicts stale
+    (>60s old) timestamps, so the dict stays bounded at
+    ``calls_per_minute`` entries per active user.
+    """
+    now = time.time()
+    window_start = now - 60.0
+    bucket = _AI_CALL_BUCKETS.get(user_id, [])
+    # Evict stale entries up front so the length check below is honest.
+    bucket = [t for t in bucket if t >= window_start]
+    if len(bucket) >= max(1, int(calls_per_minute)):
+        # The oldest call sets the wait — once IT ages out, a new call
+        # can fit in the rolling window. Cheap O(1) probe at index 0.
+        wait_s = max(0.0, bucket[0] + 60.0 - now)
+        _AI_CALL_BUCKETS[user_id] = bucket
+        return False, wait_s
+    bucket.append(now)
+    _AI_CALL_BUCKETS[user_id] = bucket
+    return True, 0.0
+
+
 # noinspection PyUnusedLocal
 async def _ai_reply(
     client: httpx.AsyncClient,
@@ -2947,6 +3113,7 @@ async def _ai_reply(
     try:
         from logic import ai as _ai
         from logic.db import get_setting, get_setting_bool
+        from logic.tuning import Tunable, tuning_int as _tuning_int
     # noinspection PyBroadException
     except Exception as e:
         print(f"[telegram_listener] _ai_reply import failed: {e}")
@@ -2959,6 +3126,26 @@ async def _ai_reply(
             "available commands."
         )
         return
+    # Per-Telegram-user rate limit — catches runaway "user types fast
+    # OR has a script in a loop" before the AI call fires. Cap lives
+    # in the `tuning_telegram_ai_calls_per_minute` TUNABLE (default 6).
+    # Senders without a numeric user_id (rare; edited_message from
+    # anonymous-admin channel?) bypass the limit — there's no stable
+    # bucket key to use for them.
+    sender_id_raw = (msg.get("from") or {}).get("id")
+    if isinstance(sender_id_raw, int):
+        cap = _tuning_int(Tunable.TELEGRAM_AI_CALLS_PER_MINUTE)
+        allowed, wait_s = _ai_rate_limit_check(sender_id_raw, cap)
+        if not allowed:
+            await _send_reply(
+                client,
+                f"⏳ Slow down — you've hit the AI rate limit "
+                f"({cap}/min). Try again in {int(wait_s) + 1}s. The "
+                f"cap is operator-tunable via "
+                f"<code>tuning_telegram_ai_calls_per_minute</code> "
+                f"in OmniGrid → Admin → Config."
+            )
+            return
     provider = (get_setting(Settings.AI_ACTIVE_PROVIDER) or "").strip().lower()
     if not provider:
         await _send_reply(client, "No AI provider configured. Set one in Admin → AI Integration.")
@@ -3217,6 +3404,19 @@ async def _ai_reply(
     # the model actually returned (truncation is purely a Telegram
     # wire-limit accommodation, not the canonical record).
     _record_call(True, result, clean)
+    # Pre-truncate the RAW text BEFORE the Markdown→HTML conversion.
+    # Order rationale: the converter inflates the string by ~30-50% in
+    # code-heavy responses (`**bold**` → `<b>bold</b>` adds 5 chars per
+    # pair; triple-backtick fences add a `<code>` / `</code>` wrap).
+    # Slicing AFTER conversion meant a `\n\n<i>…(truncated)</i>` marker
+    # had to fight an already-inflated post-conversion string, AND the
+    # tag-aware truncator was occasionally backing off past content
+    # that would have survived the inflation. Slicing BEFORE conversion
+    # at a generous raw-char budget gives the converter the headroom
+    # to grow safely and the safer cut point (raw text has no tags).
+    raw_max_chars = 2800  # raw budget — leaves ~1300 chars for tag inflation
+    if len(clean) > raw_max_chars:
+        clean = clean[:raw_max_chars].rstrip() + "\n\n…(truncated)"
     # Defence-in-depth Markdown→HTML rescue. The Telegram-surface
     # system prompt tells the AI to use HTML tags, but models
     # occasionally leak `**bold**` / `## Header` / `` `code` `` /
@@ -3225,13 +3425,13 @@ async def _ai_reply(
     # escape pass; the escape pass then preserves recognised tags
     # while neutralising any other stray `<...>` markup.
     clean = _markdown_to_telegram_html(clean)
-    # Telegram caps a single message at 4096 chars including HTML
-    # tags. `_send_reply` will HTTP-400 if we exceed; pre-trim via
-    # the tag-aware `_truncate_telegram_html` so a boundary cut
-    # mid-`<code>` / mid-`<b>` doesn't leave Telegram's parser
-    # staring at an unclosed tag (HTTP-400 fail; operator sees no
-    # reply). The helper backs off to the last safe boundary AND
-    # closes any open tags so the marker bubble stays well-formed.
+    # Defensive second-pass cap — Telegram itself caps a single message
+    # at 4096 chars including HTML tags. The raw-budget cap above plus
+    # the converter's typical inflation should keep us well under, but
+    # a pathological code-fence-only reply could still cross 4096; the
+    # tag-aware `_truncate_telegram_html` backs off to the last safe
+    # boundary AND closes any open tags so the marker bubble stays
+    # well-formed if it does.
     max_chars = 3800  # leave headroom for HTML overhead
     if len(clean) > max_chars:
         clean = _truncate_telegram_html(clean, max_chars) + "\n\n<i>…(truncated)</i>"
@@ -3336,10 +3536,16 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     # Sanitise args BEFORE persisting — `/link <code>` carries a
     # single-use 6-digit code that would leak via the audit log
     # otherwise. Same redaction class as auth-secret masking in SSH
-    # audit rows.
+    # audit rows. Stamp the `target_name` with an inline redaction
+    # hint too so operators reading Admin → History see WHY the row
+    # has no arg detail (defensive — the redacted `events.args=[...]`
+    # IS the canonical record; this is just a friendlier surface
+    # label).
     safe_args = list(args)
+    target_name_audit = head
     if head == "/link" and safe_args:
         safe_args = ["<redacted>"]
+        target_name_audit = "/link (code redacted)"
     handler_status = "success"
     handler_error: Optional[str] = None
     try:
@@ -3365,7 +3571,7 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     _audit_telegram(
         "telegram_command",
         actor=actor_audit,
-        target_name=head,
+        target_name=target_name_audit,
         status=handler_status,
         error=handler_error,
         events={
@@ -3443,18 +3649,33 @@ async def listener_loop() -> None:
                         await asyncio.sleep(5)
                         continue
                     updates = body.get("result") or []
-                    for update in updates:
-                        update_id = update.get("update_id")
-                        if isinstance(update_id, int):
-                            offset = update_id + 1
-                            _save_offset(update_id)
-                        try:
-                            await _process_update(client, update)
-                        except (asyncio.CancelledError, KeyboardInterrupt):
-                            raise
-                        # noinspection PyBroadException
-                        except Exception as e:  # noqa: BLE001
-                            print(f"[telegram_listener] update processing failed: {e}")
+                    # Wrap per-update writes in defer_settings_version_bump
+                    # so the per-message `_save_offset` (which calls
+                    # `set_setting(TELEGRAM_LAST_UPDATE_ID, ...)`) doesn't
+                    # bump `_settings_version` once per message — a chatty
+                    # group at 5 msgs/sec would otherwise fan out 5 SSE
+                    # `settings:updated` events per second to every other
+                    # tab. Inside the context, N saves collapse to ONE
+                    # bump on exit (and `_save_offset` is the only
+                    # settings-writer in this code path, so collapsing
+                    # here is exhaustive). The offset cursor isn't
+                    # cross-tab-relevant on its own, but the version
+                    # exclusion-list approach (per-key suppression) is
+                    # heavier than this single-line wrap.
+                    from logic.db import defer_settings_version_bump as _defer
+                    with _defer():
+                        for update in updates:
+                            update_id = update.get("update_id")
+                            if isinstance(update_id, int):
+                                offset = update_id + 1
+                                _save_offset(update_id)
+                            try:
+                                await _process_update(client, update)
+                            except (asyncio.CancelledError, KeyboardInterrupt):
+                                raise
+                            # noinspection PyBroadException
+                            except Exception as e:  # noqa: BLE001
+                                print(f"[telegram_listener] update processing failed: {e}")
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
             except httpx.HTTPError as e:
