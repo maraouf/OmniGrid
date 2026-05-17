@@ -242,7 +242,7 @@ OP_TYPES: frozenset[str] = frozenset({
     "oidc_login",
     # Telegram surfaces — every /command and every authorised text
     # message routed through the Telegram listener writes ONE history
-    # row at the dispatcher level via _audit_telegram(). The actor is
+    # row at the dispatcher level via write_admin_audit(). The actor is
     # the linked OmniGrid username (or "telegram" for an unmapped
     # sender that somehow reached the dispatcher — should never happen
     # under the mapping gate but defended against). The events JSON
@@ -304,12 +304,17 @@ def write_admin_audit(
     status: str = "success",
     message: str | None = None,
     error: str | None = None,
+    events_dict: dict | None = None,
 ) -> None:
     """Synchronous audit-trail writer for admin write-actions that
     don't go through `new_op` / `Operation`. Used by the 18 admin
     write-routes covered by the CLAUDE.md "Admin write-actions
     audit-trail gap" rule (user / session / token / backup /
-    config-backup / schedule / notification CRUD).
+    config-backup / schedule / notification CRUD), AND by the
+    Telegram listener for command audit rows (DUP-003 consolidation —
+    pre-fix `logic.telegram_listener._audit_telegram` carried a
+    parallel INSERT helper; now a thin call site here with
+    `target_kind="telegram"` + structured `events_dict`).
 
     Mirrors the TOTP audit pattern (`api_admin_user_disable_totp` /
     `api_admin_user_force_totp_set`) — calls `assert_op_type` for
@@ -317,19 +322,31 @@ def write_admin_audit(
     logged so a bad audit row can't roll back the actual admin
     action; the operator sees the failure in Admin → Logs.
 
-    The single-line `events` JSON (one info-level event with the
-    optional `message`) gives the History UI a row body to expand
-    when the operator clicks the audit row.
+    Two `events` JSON shapes supported: when ``events_dict`` is
+    provided it's serialised directly (used by the Telegram listener
+    to record structured command / args / sender fields); otherwise
+    the auto-built single-line `[{ts, level, msg}]` shape is used
+    when ``message`` is non-empty. Both forms produce a row body the
+    History UI can expand.
     """
     import time as _time
     import json as _json
     assert_op_type(op_type)
     try:
-        events_json = _json.dumps([{
-            "ts": _time.time(),
-            "level": "error" if status == "error" else "info",
-            "msg": message or "",
-        }]) if message else None
+        events_json: str | None
+        if events_dict is not None:
+            try:
+                events_json = _json.dumps(events_dict, ensure_ascii=False)
+            except (TypeError, ValueError):
+                events_json = None
+        elif message:
+            events_json = _json.dumps([{
+                "ts": _time.time(),
+                "level": "error" if status == "error" else "info",
+                "msg": message,
+            }])
+        else:
+            events_json = None
         conn.execute(
             "INSERT INTO history "
             "(ts, op_type, target_kind, target_name, target_id, "
@@ -391,7 +408,7 @@ NOTIFY_EVENT_NAMES = (
     "overlay_cleanup_success",
     "overlay_cleanup_failure",
 )
-NOTIFY_EVENT_DEFAULTS = {
+NOTIFY_EVENT_DEFAULTS: dict[str, bool] = {
     name: (False if name in ("user_login", "port_scan_new_port") else True)
     for name in NOTIFY_EVENT_NAMES
 }
@@ -422,8 +439,8 @@ NOTIFY_MEDIUM_DEFAULTS = {
 #    mirrors the literals previously baked into each `_do_*` handler.
 # 3. Empty string (defence in depth — should never hit if DEFAULTS is
 #    complete; the audit gate logs a WARN if an event ships without one).
-# Renders via `str.format_map(SafeDict(values))` so a typo'd placeholder
-# (`{tagret}`) renders verbatim as `{tagret}` instead of raising
+# Renders via `str.format_map(SafeDict(values))` so a mistyped placeholder
+# (`{xxx}`) renders verbatim as `{xxx}` instead of raising
 # KeyError — the operator sees the typo in the rendered output.
 # ---------------------------------------------------------------------
 
@@ -431,7 +448,7 @@ NOTIFY_MEDIUM_DEFAULTS = {
 class SafeDict(dict):
     """``str.format_map``-compatible dict that returns ``{key}`` literal
     for missing keys. Lets a typo in an admin-edited template render
-    visibly in the output (e.g. ``"hi {tagret}"`` → ``"hi {tagret}"``)
+    visibly in the output (e.g. ``"hi {xxx}"`` → ``"hi {xxx}"``)
     rather than raising ``KeyError`` mid-dispatch.
     """
 
@@ -1866,6 +1883,7 @@ async def do_retag_container_to_latest(
             # env vars don't leak into the new container while operator-
             # set env vars survive.
             from urllib.parse import quote as _qt
+
             async def _image_config(ref: str, label: str) -> dict:
                 # Image refs contain `:` and `/` (e.g. `ghcr.io/foo/bar:latest`).
                 # `quote(safe='/:')` keeps both literal so Docker's route
@@ -2238,7 +2256,7 @@ async def do_restart_swarm_agent(op: Operation) -> None:
     try:
         async with portainer.write_client(timeout=_portainer_op_timeout("medium")) as client:
             op.log("Discovering Portainer agent service")
-            sid, sname, matches = await discover_swarm_agent_service(client)
+            sid, service_name, matches = await discover_swarm_agent_service(client)
             if not matches:
                 raise RuntimeError(
                     "No Portainer agent service found — looked for image "
@@ -2254,8 +2272,8 @@ async def do_restart_swarm_agent(op: Operation) -> None:
                     f"via `docker service update --force <name>`.")
             # Single match — proceed.
             op.target_id = str(sid)
-            op.target_name = sname or "<portainer-agent>"
-            op.log(f"Match: {sname} (id {sid})")
+            op.target_name = service_name or "<portainer-agent>"
+            op.log(f"Match: {service_name} (id {sid})")
             ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
             svc = await portainer.pg(client, f"{ep}/services/{sid}")
             version = svc["Version"]["Index"]

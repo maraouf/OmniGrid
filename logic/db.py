@@ -242,6 +242,7 @@ _TRUTHY_STRINGS = frozenset({"true", "1", "yes", "y", "on"})
 _FALSY_STRINGS = frozenset({"false", "0", "no", "n", "off"})
 
 
+# noinspection SpellCheckingInspection
 def active_host_stats_providers() -> set[str]:
     """Parse the ``host_stats_source`` setting → set of active providers.
 
@@ -270,6 +271,7 @@ def active_host_stats_providers() -> set[str]:
     return out
 
 
+# noinspection DuplicatedCode
 def _walk_hosts_config() -> list[dict]:
     """Walk the ``hosts_config`` JSON settings row → list of enabled
     host dicts.
@@ -308,6 +310,7 @@ def _walk_hosts_config() -> list[dict]:
     return out
 
 
+# noinspection DuplicatedCode
 def curated_ne_hosts() -> list[dict]:
     """Curated ``hosts_config`` rows that the NE samplers can probe.
 
@@ -324,6 +327,7 @@ def curated_ne_hosts() -> list[dict]:
     stale settings blob can't crash the lifespan task.
     """
     out: list[dict] = []
+    # noinspection DuplicatedCode
     for row in _walk_hosts_config():
         ne_url = (row.get("ne_url") or "").strip()
         if not ne_url:
@@ -335,6 +339,7 @@ def curated_ne_hosts() -> list[dict]:
     return out
 
 
+# noinspection SpellCheckingInspection
 def curated_ping_hosts() -> list[dict]:
     """Curated ``hosts_config`` rows opted-in for ping probing.
 
@@ -381,6 +386,7 @@ def curated_ping_hosts() -> list[dict]:
     return out
 
 
+# noinspection DuplicatedCode
 def curated_beszel_hosts() -> list[dict]:
     """Curated ``hosts_config`` rows opted-in for Beszel — one row per
     enabled host whose ``beszel_name`` field resolves a target.
@@ -403,15 +409,17 @@ def curated_beszel_hosts() -> list[dict]:
     tracked hosts without round-tripping through the sampler module.
     """
     out: list[dict] = []
+    # noinspection DuplicatedCode
     for row in _walk_hosts_config():
         hid = (row.get("id") or "").strip()
-        bname = (row.get("beszel_name") or "").strip()
-        if not hid or not bname:
+        beszel_name = (row.get("beszel_name") or "").strip()
+        if not hid or not beszel_name:
             continue
-        out.append({"id": hid, "beszel_name": bname})
+        out.append({"id": hid, "beszel_name": beszel_name})
     return out
 
 
+# noinspection DuplicatedCode
 def curated_snmp_hosts() -> list[dict]:
     """Curated ``hosts_config`` rows opted-in for SNMP probing.
 
