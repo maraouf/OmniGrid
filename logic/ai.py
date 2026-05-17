@@ -1994,13 +1994,60 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 "disk_free_gb, disk_total_gb, uptime_s, paused, providers",
                 hosts[:30],
             ))
+        # Items counts — mirror the hosts_total pattern so the model
+        # can answer "how many stacks need updating" / "any updates?"
+        # accurately even when the sample is truncated. Telegram
+        # context-builder emits `items_summary` (`total` /
+        # `updatable_total` / `running_total`) alongside the partitioned
+        # `updatable_items` + `other_items` lists; SPA context-builder
+        # emits `items_total` / `items_sample_cap` directly. Accept
+        # either shape so neither caller has to massage payloads.
+        items_summary = _typed_field(ctx, "items_summary", dict) or {}
+        items_total = (
+            ctx.get("items_total")
+            or items_summary.get("total")
+        )
+        items_updatable_total = items_summary.get("updatable_total")
+        items_running_total = items_summary.get("running_total")
+        items_sample_cap = ctx.get("items_sample_cap") or 60
+        if isinstance(items_total, int) and items_total > 0:
+            extra_seg = ""
+            if isinstance(items_updatable_total, int):
+                extra_seg += f", updatable_total: {items_updatable_total}"
+            if isinstance(items_running_total, int):
+                extra_seg += f", running_total: {items_running_total}"
+            parts.append(
+                f"Items counts (AUTHORITATIVE — use these to answer "
+                f"'how many items' / 'any pending updates' / 'how many "
+                f"running' questions, NOT the sample-records block "
+                f"below):\n"
+                f"  - items_total: {items_total}{extra_seg}\n"
+                f"  - items shown below: capped at top {items_sample_cap} for "
+                f"prompt-token budget; the rest exist but aren't enumerated. "
+                f"NEVER answer 'we have N items' / 'N updates available' "
+                f"where N is the visible-sample size — always cite the "
+                f"matching counter above."
+            )
+        # Render dedicated `updatable_items` block FIRST when the
+        # Telegram context-builder emitted one — guarantees the AI
+        # sees every updatable item regardless of alphabetical
+        # position in the unified `items` list. SPA callers fall
+        # through to the legacy single `items` block below.
+        updatable_items = _typed_field(ctx, "updatable_items", list)
+        if updatable_items:
+            parts.append(_format_records_block(
+                "Updatable items (every item with update_available=true)",
+                "name, status, health, type, replicas, desired, "
+                "update_available, stack",
+                updatable_items[:60],
+            ))
         items = _typed_field(ctx, "items", list)
         if items:
             parts.append(_format_records_block(
-                "Available items",
+                "Available items (sample)",
                 "name, status, health, type, replicas, desired, "
                 "update_available",
-                items[:30],
+                items[:items_sample_cap],
             ))
         weather = _typed_field(ctx, "weather", dict)
         if weather:

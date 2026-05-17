@@ -1,4 +1,4 @@
-"""Schema migration infrastructure (ARCH-002).
+"""Schema migration infrastructure.
 
 Today's `init_db()` uses two patterns to evolve the schema:
 
@@ -57,7 +57,6 @@ import sqlite3
 import time
 from typing import Callable, List, Tuple
 
-
 MigrationFn = Callable[[sqlite3.Connection], None]
 
 
@@ -69,10 +68,20 @@ def init_migrations_schema(conn: sqlite3.Connection) -> None:
     """
     conn.executescript(
         """
-        CREATE TABLE IF NOT EXISTS schema_migrations (
-            version    INTEGER PRIMARY KEY,
-            name       TEXT NOT NULL,
-            applied_at REAL NOT NULL
+        CREATE TABLE IF NOT EXISTS schema_migrations
+        (
+            version
+            INTEGER
+            PRIMARY
+            KEY,
+            name
+            TEXT
+            NOT
+            NULL,
+            applied_at
+            REAL
+            NOT
+            NULL
         );
         """
     )
@@ -244,9 +253,10 @@ def _migration_002_split_provider_host_pk(conn: sqlite3.Connection) -> None:
     # ----- host_provider_last_ok ---------------------------------------
     conn.execute(
         """
-        CREATE TABLE host_provider_last_ok_v2 (
-            host_id    TEXT NOT NULL,
-            provider   TEXT NOT NULL,
+        CREATE TABLE host_provider_last_ok_v2
+        (
+            host_id    TEXT    NOT NULL,
+            provider   TEXT    NOT NULL,
             last_ok_ts INTEGER NOT NULL,
             PRIMARY KEY (host_id, provider)
         )
@@ -281,10 +291,11 @@ def _migration_002_split_provider_host_pk(conn: sqlite3.Connection) -> None:
     # ----- host_failure_state ------------------------------------------
     conn.execute(
         """
-        CREATE TABLE host_failure_state_v2 (
-            host_id              TEXT NOT NULL,
-            provider             TEXT NOT NULL DEFAULT '',
-            first_failure_ts     REAL NOT NULL,
+        CREATE TABLE host_failure_state_v2
+        (
+            host_id              TEXT    NOT NULL,
+            provider             TEXT    NOT NULL DEFAULT '',
+            first_failure_ts     REAL    NOT NULL,
             consecutive_failures INTEGER NOT NULL DEFAULT 0,
             paused               INTEGER NOT NULL DEFAULT 0,
             paused_at            REAL,
@@ -377,21 +388,22 @@ def _migration_003_history_target_kind(conn: sqlite3.Connection) -> None:
     # table scan.
     conn.execute(
         """
-        UPDATE history SET target_kind = CASE
-            WHEN op_type IN (
-                'update_stack', 'update_container',
-                'restart_service', 'restart_container',
-                'remove_container'
-            ) THEN 'op'
-            WHEN op_type = 'ssh_run' THEN 'ssh'
-            WHEN op_type IN (
-                'gather_refresh', 'prune_node', 'prune_all_nodes',
-                'backup', 'asset_inventory_refresh', 'prune_logs',
-                'prune_notifications', 'swarm_agent_health'
-            ) THEN 'schedule'
-            WHEN op_type LIKE 'hosts_bulk_%' THEN 'hosts'
-            ELSE 'system'
-        END
+        UPDATE history
+        SET target_kind = CASE
+                              WHEN op_type IN (
+                                               'update_stack', 'update_container',
+                                               'restart_service', 'restart_container',
+                                               'remove_container'
+                                  ) THEN 'op'
+                              WHEN op_type = 'ssh_run' THEN 'ssh'
+                              WHEN op_type IN (
+                                               'gather_refresh', 'prune_node', 'prune_all_nodes',
+                                               'backup', 'asset_inventory_refresh', 'prune_logs',
+                                               'prune_notifications', 'swarm_agent_health'
+                                  ) THEN 'schedule'
+                              WHEN op_type LIKE 'hosts_bulk_%' THEN 'hosts'
+                              ELSE 'system'
+            END
         WHERE target_kind IS NULL
         """
     )
