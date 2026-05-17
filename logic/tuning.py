@@ -167,6 +167,7 @@ class Tunable(str, Enum):
     STATS_UNTARGETED_TIMEOUT_SECONDS = "tuning_stats_untargeted_timeout_seconds"
     SWARM_AGENT_UNHEALTHY_THRESHOLD = "tuning_swarm_agent_unhealthy_threshold"
     SWARM_AUTOHEAL_COOLDOWN_MINUTES = "tuning_swarm_autoheal_cooldown_minutes"
+    TELEGRAM_AI_CALLS_PER_MINUTE = "tuning_telegram_ai_calls_per_minute"
     TELEGRAM_HTTP_TIMEOUT_SECONDS = "tuning_telegram_http_timeout_seconds"
     TELEGRAM_LONG_POLL_TIMEOUT_SECONDS = "tuning_telegram_long_poll_timeout_seconds"
     WEBMIN_FAILURE_PAUSE_ROUNDS = "tuning_webmin_failure_pause_rounds"
@@ -240,6 +241,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # 5..120. Operators behind a tight reverse-proxy `proxy_read_timeout`
     # may want to lower both this and the long-poll timeout in lock-step.
     "tuning_telegram_http_timeout_seconds": ("TELEGRAM_HTTP_TIMEOUT_SECONDS", 35, 5, 120),
+    # Per-Telegram-user AI rate limit (calls per minute). An authorised
+    # user typing rapid-fire questions can rack up AI calls faster than
+    # the user intends — every non-`/command` Telegram message routes
+    # through the AI palette, which costs real money on every paid
+    # provider. The listener's `_ai_reply` consults this counter via a
+    # tiny in-memory bucket keyed by Telegram user_id; over-quota
+    # senders get a short "slow down" reply instead of an AI call.
+    # Default 6 (one every 10s) — generous for human typing, tight
+    # enough to catch a runaway bot/loop. Range 1..120; set to 120 to
+    # effectively disable the limit on a private bot you trust.
+    "tuning_telegram_ai_calls_per_minute": ("TELEGRAM_AI_CALLS_PER_MINUTE", 6, 1, 120),
     "tuning_stats_history_days": ("STATS_HISTORY_DAYS", 7, 1, 365),
     "tuning_stats_sample_interval_seconds": ("STATS_SAMPLE_INTERVAL_SECONDS", 300, 30, 3600),
     # host_baseline_sampler cadence — controls how often the lifespan

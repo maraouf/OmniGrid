@@ -379,6 +379,15 @@ AI_FALLBACK_MAX_DEPTH=1
 TELEGRAM_LONG_POLL_TIMEOUT_SECONDS=25
 TELEGRAM_HTTP_TIMEOUT_SECONDS=35
 
+# Per-Telegram-user AI rate limit (calls per minute). Every non-`/command`
+# Telegram message routes through the AI palette, which costs real money
+# on every paid provider. A rolling 60s bucket counts calls per Telegram
+# user_id; over-quota senders receive a `⏳ Slow down` reply instead of
+# an AI call. Default 6 (one every 10s) — generous for human typing,
+# tight enough to catch a runaway script. Range 1..120; set to 120 to
+# effectively disable the limit on a private bot you trust.
+TELEGRAM_AI_CALLS_PER_MINUTE=6
+
 # Host baseline sampler — controls the per-host drift detector. The
 # sampler recomputes a 30-day rolling baseline (median ± IQR) for CPU%
 # / Memory% / Disk% / Ping RTT once per `recompute_interval`. Baselines
@@ -659,6 +668,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `CONFIG_BACKUP_RETENTION_COUNT`   | Runtime     | `30`                 | Number of `config_backup` snapshots retained under `/app/data/config_backups/`. 0 = unlimited. Range 0..1000. |
 | `TELEGRAM_LONG_POLL_TIMEOUT_SECONDS` | Runtime  | `25`                 | Telegram `getUpdates` long-poll timeout. Range 1..50 (Telegram server cap). |
 | `TELEGRAM_HTTP_TIMEOUT_SECONDS`   | Runtime     | `35`                 | Outer HTTP timeout for the Telegram listener; should sit slightly above the long-poll value. Range 5..120. |
+| `TELEGRAM_AI_CALLS_PER_MINUTE`    | Runtime     | `6`                  | Per-Telegram-user rate limit for AI palette calls (rolling 60s bucket per user_id). Range 1..120. |
 | `HOST_BASELINE_RECOMPUTE_INTERVAL_SECONDS` | Runtime | `3600`        | Cadence for the host-baseline drift sampler. Range 60..86400. |
 | `HOST_BASELINE_FIRST_TICK_DELAY_SECONDS` | Runtime | `60`             | Delay before the first baseline pass after lifespan start. Range 5..600. |
 | `HOST_BASELINE_MIN_SAMPLES`       | Runtime     | `20`                 | Minimum sample count before a metric gets an IQR baseline (drift chip is hidden below this). Range 5..500. |

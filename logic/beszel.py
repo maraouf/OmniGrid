@@ -31,16 +31,31 @@ the rest of OmniGrid (which is bytes everywhere).
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Any, Optional, TypedDict
 
 import httpx
 
 from logic.merge import normalize_arch as _normalize_arch
 
+
+class _TokenEntry(TypedDict):
+    """Shape of one cached PocketBase token entry.
+
+    Explicit TypedDict (vs `dict[str, Any]`) so:
+      - `entry["token"]` narrows to `str` without a runtime cast.
+      - `entry["expires"]` narrows to `float`.
+      - PyCharm/pyright stop emitting the spurious
+        `(tuple[str, str], dict[tuple[str, str], Any])` overload
+        confusion on `_token_cache[key] = {...}` assignment.
+    """
+    token: str
+    expires: float
+
+
 # In-process token cache so every gather doesn't re-auth. Keyed by
 # (base_url, identity) — an operator changing the Hub URL or identity
 # in Settings will miss the cache and re-auth, which is correct.
-_token_cache: dict[tuple[str, str], dict] = {}
+_token_cache: dict[tuple[str, str], _TokenEntry] = {}
 
 # Module-level dedupe for the per-host "mounts=0 — agent not reporting
 # efs" diagnostic. Without this set, every gather cycle re-prints the
@@ -65,7 +80,7 @@ _token_cache: dict[tuple[str, str], dict] = {}
 from collections import OrderedDict as _OrderedDict
 
 _WARNED_NO_MOUNTS_CAP = 1024
-_warned_no_mounts: "_OrderedDict[str, None]" = _OrderedDict()
+_warned_no_mounts: _OrderedDict[str, None] = _OrderedDict()
 _warned_sample_no_efs: bool = False
 
 
@@ -82,7 +97,64 @@ def _warned_no_mounts_add(host_key: str) -> None:
 
 
 def _cache_key(base_url: str, identity: str) -> tuple[str, str]:
-    return (base_url.rstrip("/"), identity)
+    return base_url.rstrip("/"), identity
+
+
+def _as_dict(v: Any) -> dict[str, Any]:
+    """Return ``v`` when it's already a dict, else ``{}``. Narrows
+    Optional / Any sources to a concrete ``dict[str, Any]`` so
+    downstream ``.get`` / ``.items`` access is type-checker-clean on
+    PocketBase payloads where the field may be absent (older agents)
+    or wrong-typed (legacy schemas). The explicit ``dict[str, Any]``
+    return-type (vs bare ``dict``) keeps pyright / PyCharm from
+    treating chained accesses as ``Any | None``.
+    """
+    if isinstance(v, dict):
+        return v
+    return {}
+
+
+def _as_list(v: Any) -> list[Any]:
+    """Return ``v`` when it's already a list, else ``[]``. Mirror of
+    :func:`_as_dict` for list-typed payload fields.
+    """
+    if isinstance(v, list):
+        return v
+    return []
+
+
+def _resolve_probe_timeout(default: float = 15.0) -> float:
+    """Resolve the Beszel probe timeout via the live TUNABLE.
+
+    Per-use read so a Save in Admin → Host stats → Beszel takes effect
+    on the next call without restart. Defensive fallback to the legacy
+    15s on resolver failure (import error / corrupt DB / missing key).
+    """
+    try:
+        from logic.tuning import Tunable, tuning_int as _tuning_int
+        return float(_tuning_int(Tunable.BESZEL_PROBE_TIMEOUT_SECONDS))
+    # noinspection PyBroadException
+    except Exception:  # noqa: BLE001
+        return default
+
+
+def _num(v: Any) -> float:
+    """Coerce anything number-ish to a float, falling back to 0.
+
+    Beszel's JSON has been known to emit numbers as strings in older
+    hub versions; be tolerant so a field-type change doesn't blank the
+    whole row.
+
+    Explicit ``v: Any`` annotation (vs unannotated) prevents PyCharm
+    from inferring a narrower param type from the body's ``float(v)``
+    call — without it, every caller passing ``stats.get("X")`` (which
+    PyCharm sees as ``Any | None``) gets flagged as "Expected type
+    'str | int | float | bytes', got 'Any | None'".
+    """
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _pb_err_detail(r: "httpx.Response") -> str:
@@ -94,9 +166,9 @@ def _pb_err_detail(r: "httpx.Response") -> str:
     "invalid email" for a malformed identity).
     """
     try:
-        j = r.json() or {}
+        j = _as_dict(r.json())
         msg = j.get("message") or ""
-        data = j.get("data") or {}
+        data = _as_dict(j.get("data"))
         if data:
             parts = []
             for field, info in data.items():
@@ -107,7 +179,8 @@ def _pb_err_detail(r: "httpx.Response") -> str:
             if parts:
                 return f"{msg} ({'; '.join(parts)})" if msg else "; ".join(parts)
         return msg or f"HTTP {r.status_code}"
-    except Exception:
+    # noinspection PyBroadException
+    except Exception:  # noqa: BLE001
         return f"HTTP {r.status_code}"
 
 
@@ -146,14 +219,21 @@ async def _authenticate(
                 json={"identity": identity, "password": password},
                 headers={"Content-Type": "application/json"},
             )
-        except Exception as e:
+        # noinspection PyBroadException
+        except Exception as e:  # noqa: BLE001
             errors.append(f"{path}: {e}")
             continue
         if r.status_code < 400:
-            data = r.json() or {}
+            data = _as_dict(r.json())
             token = data.get("token")
-            if token:
-                return token
+            # Split into two `if`s rather than the chained
+            # `isinstance(...) and token` form — PyCharm doesn't always
+            # propagate `and`-chain narrowing through to the return
+            # value, so the chained form was flagging "Expected type
+            # 'str', got 'Any | None'".
+            if isinstance(token, str):
+                if token:
+                    return token
             errors.append(f"{path}: 200 but no token in response")
             continue
         errors.append(f"{path}: {_pb_err_detail(r)}")
@@ -173,11 +253,13 @@ async def _get_token(
     key = _cache_key(base_url, identity)
     if not force_refresh:
         entry = _token_cache.get(key)
-        if entry and entry.get("expires", 0) > time.time():
+        # `entry: _TokenEntry | None` — explicit None-check narrows
+        # before reading typed fields.
+        if entry is not None and entry["expires"] > time.time():
             return entry["token"]
     token = await _authenticate(client, base_url, identity, password)
     # PocketBase tokens default to ~1 hour; cache for 45 min to stay safe.
-    _token_cache[key] = {"token": token, "expires": time.time() + 45 * 60}
+    _token_cache[key] = _TokenEntry(token=token, expires=time.time() + 45 * 60)
     return token
 
 
@@ -200,11 +282,18 @@ async def _fetch_systems(
         raise PermissionError("401")
     if r.status_code >= 400:
         raise RuntimeError(f"beszel fetch systems: HTTP {r.status_code}")
-    data = r.json() or {}
-    return list(data.get("items") or [])
+    data = _as_dict(r.json())
+    # Narrow the items list to genuine dicts so consumers can iterate
+    # with `rec: dict` (vs `rec: Any`) and chain `.get()` calls without
+    # tripping pyright's "Member None of dict | None" warnings on each
+    # link. A non-dict entry in the PB response would be a schema bug
+    # we'd rather skip than panic on.
+    return [d for d in _as_list(data.get("items")) if isinstance(d, dict)]
 
 
-async def _fetch_systemd_services(client, base_url: str, token: str) -> list:
+async def _fetch_systemd_services(
+    client: httpx.AsyncClient, base_url: str, token: str,
+) -> list[dict]:
     """Fetch every record from the `systemd_services` PocketBase collection.
 
     Beszel agents that have systemd-tracking enabled emit one record per
@@ -247,14 +336,15 @@ async def _fetch_systemd_services(client, base_url: str, token: str) -> list:
     """
     base = (base_url.rstrip("/")
             + "/api/collections/systemd_services/records")
-    out: list = []
+    out: list[dict] = []
     page = 1
     max_pages = 20  # 20 * 500 = 10000-record safety ceiling
     while page <= max_pages:
         url = f"{base}?perPage=500&page={page}"
+        # noinspection PyBroadException
         try:
             r = await client.get(url, headers={"Authorization": token})  # lgtm[py/full-ssrf]
-        except Exception:
+        except Exception:  # noqa: BLE001
             return out
         if r.status_code == 401:
             raise PermissionError("401")
@@ -262,8 +352,8 @@ async def _fetch_systemd_services(client, base_url: str, token: str) -> list:
             return []
         if r.status_code >= 400:
             return out
-        env = r.json() or {}
-        items = list(env.get("items") or [])
+        env = _as_dict(r.json())
+        items: list[dict] = [d for d in _as_list(env.get("items")) if isinstance(d, dict)]
         out.extend(items)
         total_pages = int(env.get("totalPages") or 1)
         if page >= total_pages or not items:
@@ -340,11 +430,7 @@ async def fetch_system_history(
     # Admin → Host stats → Beszel takes effect on the next call without
     # restart). Defensive fallback to legacy 15s on resolver failure.
     if timeout is None:
-        try:
-            from logic.tuning import Tunable, tuning_int as _tuning_int
-            timeout = float(_tuning_int(Tunable.BESZEL_PROBE_TIMEOUT_SECONDS))
-        except Exception:
-            timeout = 15.0
+        timeout = _resolve_probe_timeout()
     # Pick aggregation tier from the window when caller didn't override.
     # Explicit value wins so the test endpoints / operator probes still
     # work the legacy way.
@@ -371,23 +457,25 @@ async def fetch_system_history(
             token = await _get_token(client, base_url, identity, password)
             r = await client.get(url, params=params, headers={"Authorization": token})  # lgtm[py/full-ssrf]
             if r.status_code == 401:
-                token = await _get_token(
-                    client, base_url, identity, password, force_refresh=True,
-                )
+                token = await _get_token(client, base_url, identity, password, force_refresh=True)
                 r = await client.get(url, params=params, headers={"Authorization": token})  # lgtm[py/full-ssrf]
             if r.status_code >= 400:
                 return {"series": [], "error": f"HTTP {r.status_code}"}
-    except Exception as e:
+    # noinspection PyBroadException
+    except Exception as e:  # noqa: BLE001
         return {"series": [], "error": str(e)}
 
-    items = (r.json() or {}).get("items") or []
+    # Filter to dict entries so the per-point loop sees `it: dict`,
+    # which keeps the chained `.get()` accesses below type-checker
+    # clean (vs the bare `_as_list` form yielding `Any` items).
+    items: list[dict] = [d for d in _as_list(_as_dict(r.json()).get("items")) if isinstance(d, dict)]
     # One-shot diagnostic — dump the first row's stats keys + a sample
     # of values so operators can see what the hub actually exposes for
     # this system. The "Net In/Out chart is flat at 0" support request
     # almost always boils down to "Beszel agent isn't tracking NICs"
     # (needs NICS=eth0 env var); this log reveals that in one line.
     if items:
-        first_stats = items[0].get("stats") or {}
+        first_stats = _as_dict(items[0].get("stats"))
         sample_keys = sorted(first_stats.keys())
         net_like = {k: first_stats[k] for k in sample_keys
                     if any(tag in k.lower() for tag in ("n", "b", "rx", "tx", "net"))}
@@ -395,9 +483,9 @@ async def fetch_system_history(
               f"stats_keys={sample_keys[:25]} net_like={net_like}")
     series: list[dict] = []
     for it in items:
-        stats = it.get("stats") or {}
+        stats = _as_dict(it.get("stats"))
         # Created timestamp → epoch seconds for the frontend.
-        created = it.get("created") or ""
+        created = str(it.get("created") or "")
         try:
             import datetime as _dt
             # PocketBase emits "2026-04-22 12:34:56.789Z" — normalize.
@@ -405,13 +493,13 @@ async def fetch_system_history(
             if iso.endswith("Z"):
                 iso = iso[:-1] + "+00:00"
             ts = int(_dt.datetime.fromisoformat(iso).timestamp())
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
             ts = 0
         # Net recv/send — try multiple field names across Beszel schema
         # versions. ``nr``/``ns`` are newer (v0.10+); ``bi``/``bo`` appear
         # in older dumps; some builds emit nested ``net.rx``/``net.tx``.
         # First truthy pair wins.
-        net_obj = stats.get("net") if isinstance(stats.get("net"), dict) else {}
+        net_obj = _as_dict(stats.get("net"))
         nr = (_num(stats.get("nr"))
               or _num(stats.get("bi"))
               or _num(stats.get("rx"))
@@ -446,7 +534,7 @@ async def fetch_system_history(
         dr = _num(stats.get("dr"))
         dw = _num(stats.get("dw"))
         if not dr and not dw:
-            efs = stats.get("efs") if isinstance(stats.get("efs"), dict) else {}
+            efs = _as_dict(stats.get("efs"))
             for _name, mstats in efs.items():
                 if isinstance(mstats, dict):
                     dr += _num(mstats.get("dr"))
@@ -455,13 +543,11 @@ async def fetch_system_history(
         # `[1m, 5m, 15m]`. Some builds use `loadavg` instead. Default
         # to zeros so the chart can render even when the agent doesn't
         # populate it (containers, embedded systems).
-        la = stats.get("la") or stats.get("loadavg") or []
-        if isinstance(la, list):
-            la1 = _num(la[0]) if len(la) > 0 else 0.0
-            la5 = _num(la[1]) if len(la) > 1 else 0.0
-            la15 = _num(la[2]) if len(la) > 2 else 0.0
-        else:
-            la1 = la5 = la15 = 0.0
+        la_raw = stats.get("la") or stats.get("loadavg")
+        la = _as_list(la_raw)
+        la1 = _num(la[0]) if len(la) > 0 else 0.0
+        la5 = _num(la[1]) if len(la) > 1 else 0.0
+        la15 = _num(la[2]) if len(la) > 2 else 0.0
         # Load → percent-of-cores so the chart can render with a 0-100
         # Y-axis (operator-flagged: raw load values like 0.18 looked
         # ambiguous next to CPU% / Memory% cards). Same convention the
@@ -473,11 +559,11 @@ async def fetch_system_history(
         # most-reliable signal in a `system_stats` row (info.c lives in
         # `system.info`, not `stats`); fall back to explicit `c` /
         # `threads` if a future agent emits them, then 1.
-        cpus_arr = stats.get("cpus") if isinstance(stats.get("cpus"), list) else []
+        cpus_arr = _as_list(stats.get("cpus"))
         cores = max(1, len(cpus_arr) or int(_num(stats.get("c")) or _num(stats.get("threads")) or 1))
-        la1_pct = min(100.0, (la1 / cores) * 100.0)
-        la5_pct = min(100.0, (la5 / cores) * 100.0)
-        la15_pct = min(100.0, (la15 / cores) * 100.0)
+        la1_pct = min(100.0, la1 / cores * 100.0)
+        la5_pct = min(100.0, la5 / cores * 100.0)
+        la15_pct = min(100.0, la15 / cores * 100.0)
         # Compute per-sensor temperatures ONCE per point. Earlier ship
         # called ``_flatten_temperatures(stats.get("t"))`` three times
         # (one for ``temps``, two for ``temp_max``). On a 168h history
@@ -490,26 +576,12 @@ async def fetch_system_history(
         # across GPUs for VRAM totals so multi-GPU rigs surface their
         # combined memory pressure. Missing `g` → zeros; chart hides
         # on `host_gpus.length > 0` gate.
-        g_dict = stats.get("g") if isinstance(stats.get("g"), dict) else {}
-        gpu_pwr_sum = 0.0
-        gpu_usage_sum = 0.0
-        gpu_vram_used_sum = 0.0
-        gpu_vram_total_sum = 0.0
-        gpu_n = 0
-        for _idx, _gpu in g_dict.items():
-            if not isinstance(_gpu, dict):
-                continue
-            gpu_pwr_sum += _num(_gpu.get("p"))
-            gpu_usage_sum += _num(_gpu.get("u"))
-            gpu_vram_used_sum += _num(_gpu.get("mu")) * 1024 ** 3  # GB → bytes
-            gpu_vram_total_sum += _num(_gpu.get("mt")) * 1024 ** 2  # MB → bytes
-            gpu_n += 1
-        gpu_pwr_avg = (gpu_pwr_sum / gpu_n) if gpu_n else 0.0
-        gpu_usage_avg = (gpu_usage_sum / gpu_n) if gpu_n else 0.0
-        gpu_vram_pct = (
-            (gpu_vram_used_sum / gpu_vram_total_sum * 100.0)
-            if gpu_vram_total_sum else 0.0
-        )
+        # Per-tick GPU aggregates via the shared helper — averages
+        # power / usage across GPUs and sums VRAM totals so multi-GPU
+        # rigs surface their combined memory pressure. Missing `g` →
+        # zeros; the host-drawer chart hides on `host_gpus.length > 0`.
+        gpu_pwr_avg, gpu_usage_avg, gpu_vram_pct, gpu_vram_used_bytes_tick, gpu_vram_total_bytes_tick = \
+            _gpu_per_tick_aggregates(_as_dict(stats.get("g")))
         series.append({
             "t": ts,
             "cpu": _num(stats.get("cpu")),
@@ -556,8 +628,8 @@ async def fetch_system_history(
             "gpu_pwr": gpu_pwr_avg,
             "gpu_usage": gpu_usage_avg,
             "gpu_vram_pct": gpu_vram_pct,
-            "gpu_vram_used_bytes": int(gpu_vram_used_sum),
-            "gpu_vram_total_bytes": int(gpu_vram_total_sum),
+            "gpu_vram_used_bytes": gpu_vram_used_bytes_tick,
+            "gpu_vram_total_bytes": gpu_vram_total_bytes_tick,
         })
 
     # ---- Net I/O fallback from node-exporter samples --------------------
@@ -575,7 +647,7 @@ async def fetch_system_history(
             from logic import host_net_sampler as _hns
             since = min(p["t"] for p in series if p.get("t"))
             ne_samples = _hns.recent_samples(host_id, since - 300)
-        except Exception as e:
+        except (ImportError, AttributeError, ValueError, KeyError, TypeError) as e:
             ne_samples = []
             print(f"[beszel] net-fallback lookup failed for host_id={host_id!r}: {e}")
         if ne_samples:
@@ -650,18 +722,20 @@ async def _fetch_latest_stats(
         # Stats table failure is non-fatal — we still have percentages
         # from info. Returning {} means the caller degrades gracefully.
         return {}
-    items = (r.json() or {}).get("items") or []
+    # Filter to dict entries up-front so the loop variable narrows
+    # to `dict` (vs `Any`) — keeps the chained .get() type-clean.
+    items = [d for d in _as_list(_as_dict(r.json()).get("items")) if isinstance(d, dict)]
     # Items are sorted newest-first; first sighting of a system id wins.
     latest: dict[str, dict] = {}
     for it in items:
         sid = it.get("system")
         if not sid or sid in latest:
             continue
-        latest[sid] = it.get("stats") or {}
+        latest[str(sid)] = _as_dict(it.get("stats"))
     return latest
 
 
-def _flatten_efs(efs) -> list[dict]:
+def _flatten_efs(efs: Any) -> list[dict]:
     """Turn Beszel's ``extra filesystems`` map into a list.
 
     Input shape from ``system_stats.stats.efs``:
@@ -687,7 +761,7 @@ def _flatten_efs(efs) -> list[dict]:
             "n": str(name),
             "d": d,
             "du": du,
-            "dp": (du / d * 100) if d > 0 else 0.0,
+            "dp": du / d * 100 if d > 0 else 0.0,
             "dr": _num(stats.get("dr")),
             "dw": _num(stats.get("dw")),
         })
@@ -697,7 +771,7 @@ def _flatten_efs(efs) -> list[dict]:
     return out
 
 
-def _flatten_network(ni) -> list[dict]:
+def _flatten_network(ni: Any) -> list[dict]:
     """Normalize Beszel's ``info.ni`` into [{name, mac, addrs: []}].
 
     Newer agents (~v0.10+) emit a list of dicts with short keys
@@ -717,9 +791,7 @@ def _flatten_network(ni) -> list[dict]:
         if not name:
             continue
         mac = str(item.get("m") or item.get("mac") or "").strip()
-        addrs = item.get("a") or item.get("addrs") or []
-        if not isinstance(addrs, list):
-            addrs = []
+        addrs = _as_list(item.get("a") or item.get("addrs"))
         out.append({
             "name": name,
             "mac": mac,
@@ -728,7 +800,7 @@ def _flatten_network(ni) -> list[dict]:
     return out
 
 
-def _flatten_temperatures(t) -> dict[str, float]:
+def _flatten_temperatures(t: Any) -> dict[str, float]:
     """Normalise Beszel's ``stats.t`` into a clean ``{sensor: celsius}``
     dict. Beszel agents emit ``t`` as a flat dict keyed by
     sensor name (e.g. ``{"cpu_thermal": 48.2}`` on Raspberry Pi or any
@@ -752,7 +824,41 @@ def _flatten_temperatures(t) -> dict[str, float]:
     return out
 
 
-def _flatten_gpus(g) -> list[dict]:
+def _gpu_per_tick_aggregates(g_dict: dict[str, Any]) -> tuple[float, float, float, int, int]:
+    """Aggregate per-GPU stats from one Beszel ``stats.g`` payload.
+
+    Returns ``(power_avg_w, usage_avg_pct, vram_used_pct,
+    vram_used_bytes, vram_total_bytes)``. Beszel agents emit ``g`` as
+    a dict keyed by GPU index → ``{n, mu, mt, u, p}`` with units
+    ``mu``=GB and ``mt``=MB — normalised to bytes here so consumers
+    can use `fmtBytes` without per-field unit math. Empty / non-dict
+    input → ``(0.0, 0.0, 0.0, 0, 0)``.
+
+    Factored out so the per-history-tick GPU computation in
+    :func:`fetch_system_history` and any future per-host aggregator
+    don't duplicate the same 20-line loop. The matching list-shape
+    output for the host drawer lives in :func:`_flatten_gpus`.
+    """
+    pwr_sum = 0.0
+    usage_sum = 0.0
+    vram_used_sum = 0.0
+    vram_total_sum = 0.0
+    n = 0
+    for _idx, _gpu in g_dict.items():
+        if not isinstance(_gpu, dict):
+            continue
+        pwr_sum += _num(_gpu.get("p"))
+        usage_sum += _num(_gpu.get("u"))
+        vram_used_sum += _num(_gpu.get("mu")) * 1024 ** 3  # GB → bytes
+        vram_total_sum += _num(_gpu.get("mt")) * 1024 ** 2  # MB → bytes
+        n += 1
+    pwr_avg = pwr_sum / n if n else 0.0
+    usage_avg = usage_sum / n if n else 0.0
+    vram_pct = vram_used_sum / vram_total_sum * 100.0 if vram_total_sum else 0.0
+    return pwr_avg, usage_avg, vram_pct, int(vram_used_sum), int(vram_total_sum)
+
+
+def _flatten_gpus(g: Any) -> list[dict]:
     """Normalise Beszel's ``stats.g`` into a clean ``[{name, vram_used_bytes,
     vram_total_bytes, usage_percent, power_watts}, ...]`` list.
 
@@ -789,7 +895,7 @@ def _flatten_gpus(g) -> list[dict]:
     return out
 
 
-def _load_window(la, idx: int) -> float:
+def _load_window(la: Any, idx: int) -> float:
     """Pull a load-average window value (1m / 5m / 15m) from Beszel's
     `la` field. Beszel emits a list `[1m, 5m, 15m]` when the agent has
     load reporting; missing / non-list → 0.0 so the field is always
@@ -803,7 +909,7 @@ def _load_window(la, idx: int) -> float:
         return 0.0
 
 
-def _services_summary(services) -> dict:
+def _services_summary(services: Any) -> dict:
     """Normalize Beszel's services data into a stable summary shape:
 
         {"total": N, "failed": F, "failed_names": ["nginx", "redis"]}
@@ -857,7 +963,7 @@ def _services_summary(services) -> dict:
     }
 
 
-def _derive_arch(kernel: str) -> str:
+def _derive_arch(kernel: Any) -> str:
     """Pull an architecture suffix (``x86_64`` / ``arm64`` / ...) out of a
     kernel string. Returns ``""`` on no match. Matches Beszel's own
     frontend which parses the kernel token for arch because the agent
@@ -867,35 +973,27 @@ def _derive_arch(kernel: str) -> str:
     saw ``x86_64`` while Beszel-only hosts saw ``amd64`` for the same
     physical CPU.
     """
-    if not kernel:
+    # `kernel: Any` so call sites can pass `info.get("k")` directly
+    # (PyCharm types that as `Any | None`); coerce to str here so the
+    # body's `.rsplit` / `.lower` calls have a concrete shape.
+    kernel_s = str(kernel or "")
+    if not kernel_s:
         return ""
-    tail = kernel.rsplit("-", 1)[-1].lower()
+    tail = kernel_s.rsplit("-", 1)[-1].lower()
     known = ("amd64", "x86_64", "arm64", "aarch64", "armv7l", "armv6l",
              "armhf", "i686", "i386", "riscv64", "ppc64le", "s390x")
     if tail in known:
         return _normalize_arch(tail)
     # Common substring fallback — some distros decorate the kernel with
     # extra tags after the arch (``-pve``, ``-generic``).
+    kernel_lower = kernel_s.lower()
     for a in known:
-        if a in kernel.lower():
+        if a in kernel_lower:
             return _normalize_arch(a)
     return ""
 
 
-def _num(v) -> float:
-    """Coerce anything number-ish to a float, falling back to 0.
-
-    Beszel's JSON has been known to emit numbers as strings in older
-    hub versions; be tolerant so a field-type change doesn't blank the
-    whole row.
-    """
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
+def extract_stats(info: Optional[dict] = None, stats: Optional[dict] = None) -> dict:
     """Map one Beszel ``info`` (+ latest ``stats``) dict → nodes_info shape.
 
     Beszel splits data across two places:
@@ -915,10 +1013,17 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
     dict with every ``host_*`` field populated. Either argument may be
     missing or partial — empty fields degrade to 0 / "".
     """
-    if not isinstance(info, dict):
-        info = {}
-    if not isinstance(stats, dict):
-        stats = {}
+    # Explicit `dict[str, Any]` annotations on the locals (vs the
+    # parameter's `Optional[dict]`) keep pyright / PyCharm from
+    # widening downstream `.get(...)` results to `Any | None`. The
+    # parameter signature stays `Optional[dict]` so callers retain
+    # the convenience of passing None.
+    info_d: dict[str, Any] = _as_dict(info)
+    stats_d: dict[str, Any] = _as_dict(stats)
+    # Aliases so the existing body stays readable; both names share
+    # the narrowed dict[str, Any] type.
+    info = info_d
+    stats = stats_d
     gib = 1024 ** 3
     # Absolute totals come from the system_stats row's GiB fields.
     mem_total = _num(stats.get("m")) * gib
@@ -938,8 +1043,23 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
     # ~84% used. Sum-from-EFS short-circuits when the EFS list is
     # empty, preserving legacy behaviour for hosts without
     # `EXTRA_FILESYSTEMS=` configured.
-    efs_raw = stats.get("efs") if isinstance(stats.get("efs"), dict) else None
+    efs_raw = _as_dict(stats.get("efs"))
     disk_pct_efs: float | None = None
+    # Resolved ONCE so the two diagnostic prints below stay in sync
+    # without re-walking the same info-fallback chain twice (the prior
+    # shape duplicated the `info.get("h") or info.get("host") or "?"`
+    # line in both try-blocks). `_emit_diag` factors out the
+    # try/print/except dance so neither call site repeats the
+    # broad-except boilerplate the linter was flagging as duplicated.
+    _hk = info.get("h") or info.get("host") or "?"
+
+    def _emit_diag(line: str) -> None:
+        # noinspection PyBroadException
+        try:
+            print(line)
+        except Exception:  # noqa: BLE001
+            pass
+
     # Always-on probe-entry diagnostic — prints once per extract_stats
     # call so the operator can verify the deployed image carries this
     # code. Pre-fix the deployment has NO `[beszel] extract-stats` log
@@ -947,15 +1067,10 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
     # the operator sees the chip showing pre-fix values AND no
     # `[beszel] extract-stats` line, the running container is on the
     # pre-fix image and a redeploy is the answer.
-    try:
-        _hk = (info.get("h") or info.get("host") or "?")
-        _efs_keys = list(efs_raw.keys()) if efs_raw else []
-        print(
-            f"[beszel] extract-stats {_hk}: stats.d={_num(stats.get('d')):.1f} GiB "
-            f"efs_keys={_efs_keys}"
-        )
-    except Exception:  # noqa: BLE001
-        pass
+    _emit_diag(
+        f"[beszel] extract-stats {_hk}: stats.d={_num(stats.get('d')):.1f} GiB "
+        f"efs_keys={list(efs_raw.keys())}"
+    )
     if efs_raw:
         efs_total_gib = 0.0
         efs_used_gib = 0.0
@@ -967,29 +1082,25 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         if efs_total_gib > 0:
             disk_total = efs_total_gib * gib
             disk_used = efs_used_gib * gib
-            disk_pct_efs = (efs_used_gib / efs_total_gib * 100.0) if efs_total_gib > 0 else 0.0
+            disk_pct_efs = efs_used_gib / efs_total_gib * 100.0
             # Verbose diagnostic — confirms the EFS aggregation branch
             # fired AND prints the totals so the operator can verify
             # the chip / chart match. Cheap (one print per probe per
             # EFS-configured host); a fleet-wide grep `[beszel] efs-`
             # in Admin → Logs answers "is the fix actually running on
             # this deploy" without requiring a fresh debug-panel paste.
-            try:
-                _hk = (info.get("h") or info.get("host") or "?")
-                print(
-                    f"[beszel] efs-aggregate {_hk}: "
-                    f"total={efs_total_gib:.1f} GiB used={efs_used_gib:.1f} GiB "
-                    f"({disk_pct_efs:.1f}%) overrides stats.d={_num(stats.get('d')):.1f} GiB"
-                )
-            except Exception:  # noqa: BLE001
-                pass
+            _emit_diag(
+                f"[beszel] efs-aggregate {_hk}: "
+                f"total={efs_total_gib:.1f} GiB used={efs_used_gib:.1f} GiB "
+                f"({disk_pct_efs:.1f}%) overrides stats.d={_num(stats.get('d')):.1f} GiB"
+            )
     # Percentages fallback: if the stats row is absent but info has
     # mp/dp percentages, we still cannot derive absolute bytes — leave
     # them at 0 and let the UI show "—" for those cells.
     uptime = _num(info.get("u"))
     # host_boot_ts = now - uptime so the frontend's uptime display
     # matches what node-exporter produces (boot-time in epoch seconds).
-    host_boot_ts = (time.time() - uptime) if uptime > 0 else None
+    host_boot_ts = time.time() - uptime if uptime > 0 else None
     return {
         "host_disk_total": int(disk_total),
         "host_disk_used": int(disk_used),
@@ -1019,7 +1130,7 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         # from the kernel suffix the same way Beszel's own UI does
         # (e.g. "6.12.7+deb13+1-amd64" → "amd64"). Empty when the
         # kernel isn't present either.
-        "host_arch": _derive_arch(info.get("k") or info.get("kernel") or "")
+        "host_arch": _derive_arch(str(info.get("k") or info.get("kernel") or ""))
                      or str(info.get("a") or info.get("arch") or ""),
         "host_agent": str(info.get("v") or info.get("agent") or ""),
         # Per-mount detail. Beszel stores ``extra filesystems`` as a
@@ -1110,11 +1221,7 @@ async def probe_hub(
     if not base_url or not identity or not password:
         return {"systems": {}, "error": "beszel: missing url / identity / password"}
     if timeout is None:
-        try:
-            from logic.tuning import Tunable, tuning_int as _tuning_int
-            timeout = float(_tuning_int(Tunable.BESZEL_PROBE_TIMEOUT_SECONDS))
-        except Exception:
-            timeout = 15.0
+        timeout = _resolve_probe_timeout()
     # Defence-in-depth on the admin-only Beszel hub URL setting. CodeQL
     # py/full-ssrf flags every `client.get(url, ...)` below as the URL
     # flows from a settings field — see ``logic/url_safety.py`` for the
@@ -1133,16 +1240,15 @@ async def probe_hub(
             try:
                 records = await _fetch_systems(client, base_url, token)
             except PermissionError:
-                token = await _get_token(
-                    client, base_url, identity, password, force_refresh=True,
-                )
+                token = await _get_token(client, base_url, identity, password, force_refresh=True)
                 records = await _fetch_systems(client, base_url, token)
             # Absolute mem/disk totals live in a separate collection.
             # Non-fatal — a failure here just means no host_*_total
             # values (UI falls back to percentages / Docker numbers).
+            # noinspection PyBroadException
             try:
                 latest_stats = await _fetch_latest_stats(client, base_url, token)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"[beszel] warn: fetch stats failed: {e}")
                 latest_stats = {}
             # systemd_services collection. One record per
@@ -1150,6 +1256,7 @@ async def probe_hub(
             # field. Group here so the per-system loop below can
             # attach a summary in O(1).
             services_by_system: dict[str, list] = {}
+            # noinspection PyBroadException
             try:
                 svc_records = await _fetch_systemd_services(client, base_url, token)
                 for svc in svc_records:
@@ -1166,10 +1273,11 @@ async def probe_hub(
                           f"sample_system_fk={sample.get('system')!r}; "
                           f"sample_name={sample.get('name')!r}; "
                           f"sample_state={sample.get('state')!r}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"[beszel] warn: fetch systemd_services failed: {e}")
                 services_by_system = {}
-    except Exception as e:
+    # noinspection PyBroadException
+    except Exception as e:  # noqa: BLE001
         # Surface the probe failure in stdout so it lands in Admin →
         # Logs. Mirrors the Pulse fix — operators should be
         # able to see WHY the provider is down without grepping the
@@ -1188,11 +1296,20 @@ async def probe_hub(
     if latest_stats:
         global _warned_sample_no_efs
         sample_sid = next(iter(latest_stats))
-        sample = latest_stats[sample_sid] or {}
+        sample = _as_dict(latest_stats[sample_sid])
         efs = sample.get("efs")
         if efs:
             shape = "dict" if isinstance(efs, dict) else type(efs).__name__
-            keys = list(efs.keys()) if isinstance(efs, dict) else (efs if isinstance(efs, list) else [])
+            # Pull keys in a way that narrows cleanly for pyright /
+            # PyCharm — `if isinstance` blocks per shape, vs the
+            # earlier double-ternary that PyCharm flagged for redundant
+            # parens around the inner conditional.
+            if isinstance(efs, dict):
+                keys = list(efs.keys())
+            elif isinstance(efs, list):
+                keys = efs
+            else:
+                keys = []
             print(f"[beszel] sample efs for system_id={sample_sid!r}: "
                   f"type={shape} count={len(keys)} keys={keys[:8]}")
             # If ``efs`` reappears after a prior warning (operator set
@@ -1214,11 +1331,11 @@ async def probe_hub(
         # field (just a friendly label in Beszel's UI) and to
         # ``info.h`` (agent-reported hostname) so we never drop a
         # record just because of one missing field.
-        info = rec.get("info") or {}
+        info = _as_dict(rec.get("info"))
         host_key = (
-            (rec.get("host") or "").strip()
-            or (info.get("h") or "").strip()
-            or (rec.get("name") or "").strip()
+            str(rec.get("host") or "").strip()
+            or str(info.get("h") or "").strip()
+            or str(rec.get("name") or "").strip()
         )
         if not host_key:
             continue
@@ -1234,7 +1351,7 @@ async def probe_hub(
         # collection is empty (Beszel agent not tracking units) keep
         # the empty `{total: 0, ...}` summary from extract_stats —
         # frontend gates on `total > 0` and hides cleanly.
-        svc_records_for_system = services_by_system.get(rec_id) or []
+        svc_records_for_system = _as_list(services_by_system.get(rec_id))
         if svc_records_for_system:
             stats["host_services"] = _services_summary(svc_records_for_system)
             # Raw per-unit list for downstream consumers that need the
@@ -1247,7 +1364,7 @@ async def probe_hub(
             # if it just wants the rolled summary again.
             stats["host_services_raw"] = svc_records_for_system
             services_match_count += 1
-        mounts = stats.get("mounts") or []
+        mounts = _as_list(stats.get("mounts"))
         if mounts:
             # Positive mount line ALSO used to fire every cycle — kept
             # only when something changed (mount count changed since
@@ -1271,15 +1388,15 @@ async def probe_hub(
                 _warned_no_mounts_add(host_key)
         # Carry the top-level status so callers can tell a paused /
         # down system from one that's actually fresh.
-        stats["beszel_status"] = rec.get("status") or "unknown"
+        stats["beszel_status"] = str(rec.get("status") or "unknown")
         # Record id + last-updated ISO string power the Hosts view's
         # "Updated Xs ago" sub-line and the deep-link back to Beszel.
-        stats["beszel_id"] = rec.get("id") or ""
-        stats["beszel_updated"] = rec.get("updated") or ""
+        stats["beszel_id"] = str(rec.get("id") or "")
+        stats["beszel_updated"] = str(rec.get("updated") or "")
         # Friendly name from Beszel (operator-editable). Used as the
         # display label in the Hosts tab while ``host_key`` is the
         # stable identity for alias lookups.
-        stats["beszel_name"] = (rec.get("name") or "").strip()
+        stats["beszel_name"] = str(rec.get("name") or "").strip()
         stats["beszel_host"] = host_key
         out[host_key] = stats
     # Diagnostic — when systemd_services were fetched but didn't
@@ -1299,7 +1416,7 @@ async def probe_hub(
     return {"systems": out, "error": None}
 
 
-def lookup(systems_map: dict, needle: str) -> Optional[dict]:
+def lookup(systems_map: dict[str, dict], needle: str) -> Optional[dict]:
     """Find a Beszel system record by name, tolerating case + whitespace.
 
     Mirrors :func:`logic.pulse.lookup` so per-host samplers using the
