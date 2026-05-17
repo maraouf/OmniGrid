@@ -95,6 +95,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import time
+from collections import OrderedDict as _OrderedDict
 from typing import Any, Optional
 
 import httpx
@@ -339,6 +340,42 @@ async def _edit_message(
     except Exception as e:  # noqa: BLE001
         print(f"[telegram_listener] edit exception: {e}")
         return False
+
+
+async def _replace_placeholder(
+    client: httpx.AsyncClient,
+    placeholder_id: Optional[int],
+    body: str,
+) -> None:
+    """Replace a "🤖 Thinking…" placeholder with the final ``body``.
+
+    If the edit succeeds: the operator sees the answer land in the
+    same bubble (preferred UX — chat-app convention).
+
+    If the edit FAILS (Telegram rejected the HTML, message was
+    deleted, network blip): we send the body as a fresh reply AND
+    stamp the placeholder with "(edit failed — see reply below)" so
+    the operator can tell which bubble is current. Pre-fix the fresh
+    reply would land below an UN-stamped "Thinking…" placeholder,
+    which an operator could mistake for "still in progress".
+
+    No placeholder → just send a fresh reply.
+    """
+    if placeholder_id is None:
+        await _send_reply(client, body)
+        return
+    ok = await _edit_message(client, placeholder_id, body)
+    if ok:
+        return
+    # Stamp the placeholder first so the about-to-arrive fresh reply
+    # has unambiguous context. Best-effort — a second edit failure
+    # falls through to the original "two bubbles" problem, but the
+    # body still lands so the operator gets the answer.
+    await _edit_message(
+        client, placeholder_id,
+        "<i>(edit failed — see reply below)</i>",
+    )
+    await _send_reply(client, body)
 
 
 # ----------------------------------------------------------------------------
@@ -825,10 +862,15 @@ def _load_user_weather_pref(username: str) -> Optional[dict]:
 # ----------------------------------------------------------------------------
 # Command handlers
 # ----------------------------------------------------------------------------
-# One-shot dedupe set so `_cmd_help` only WARN-logs each missing
-# category key ONCE per process — otherwise every /help fired against
-# a misconfigured _COMMANDS entry would re-spam the log.
+# One-shot dedupe sets so `_cmd_help` only WARN-logs each kind of
+# missing-metadata once per process — otherwise every /help fired
+# against a misconfigured _COMMANDS entry would re-spam the log.
+# `_WARNED_MISSING_CATS` tracks unknown category keys (used in
+# _COMMANDS but missing from the `categories` heading list).
+# `_WARNED_MISSING_CMD_CAT` tracks commands whose `_COMMANDS` entry
+# omits the `category` field entirely (silent fall-through to "misc").
 _WARNED_MISSING_CATS: set[str] = set()
+_WARNED_MISSING_CMD_CAT: set[str] = set()
 
 
 # noinspection PyUnusedLocal
@@ -896,11 +938,27 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             continue
         existing = handler_to_group.get(handler)
         if existing is None:
+            # WARN-log when a _COMMANDS entry is missing the `category`
+            # key OR carries a falsy value. The dispatcher buckets the
+            # command under "misc" (rendered as "🧩 Other") regardless
+            # so the command still works — but the silent-default
+            # behaviour masks "I forgot to tag the new command" during
+            # authoring. Dedupe per (command-name) so each instance
+            # WARNs exactly once per process.
+            raw_cat = meta.get("category")
+            if not raw_cat and name not in _WARNED_MISSING_CMD_CAT:
+                print(
+                    f"[telegram_listener] /help: command {name!r} has "
+                    f"no `category` key (or empty) in `_COMMANDS` — "
+                    f"will render under '🧩 Other'. Add a category tag "
+                    f"to the `_COMMANDS` entry."
+                )
+                _WARNED_MISSING_CMD_CAT.add(name)
             group = {
                 "primary_name": name,
                 "primary": meta,
                 "aliases": [],
-                "category": meta.get("category") or "misc",
+                "category": raw_cat or "misc",
             }
             groups.append(group)
             handler_to_group[handler] = group
@@ -928,11 +986,18 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             primary_name = g["primary_name"]
             usage = _escape(primary_meta.get("usage") or primary_name)
             aliases = g["aliases"]
+            # 🔓 marker on commands that bypass the omnigrid-user-mapping
+            # gate so unmapped senders can see at a glance which ones
+            # actually work pre-link. Read from `_OPEN_COMMANDS` (the
+            # same set `_process_update` consults at dispatch time), so
+            # adding / removing an open command is a one-line edit
+            # that propagates to both the gate AND the help menu.
+            open_marker = "🔓 " if primary_name in _OPEN_COMMANDS else ""
             if aliases:
                 alias_text = ", ".join(_escape(a) for a in aliases)
-                head = f"  <b>{usage}</b> <i>(aliases: {alias_text})</i>"
+                head = f"  {open_marker}<b>{usage}</b> <i>(aliases: {alias_text})</i>"
             else:
-                head = f"  <b>{usage}</b>"
+                head = f"  {open_marker}<b>{usage}</b>"
             # BUG-001 fix: some legacy `_COMMANDS` descriptions carry
             # `&amp;` literally (e.g. `/whoami` / `/myid` stored
             # "level &amp; ID" pre-fix). Re-escaping them via `_escape`
@@ -948,10 +1013,12 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         lines.append("")  # blank line between categories
 
     lines.append(
-        "<i>🎯 Targets resolve by IP, host id, label, or asset "
-        "short-name. ⚠️ Destructive commands (e.g. /restart) require "
-        "a typed confirm step unless 'Allow destructive Telegram "
-        "commands' is enabled in Admin.</i>"
+        "<i>🔓 = available without /link (everything else needs your "
+        "Telegram account mapped to an OmniGrid user). 🎯 Targets "
+        "resolve by IP, host id, label, or asset short-name. "
+        "⚠️ Destructive commands (e.g. /restart) require a typed "
+        "confirm step unless 'Allow destructive Telegram commands' "
+        "is enabled in Admin.</i>"
     )
     await _send_reply(client, "\n".join(lines))
 
@@ -1178,12 +1245,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         import_failed = True
         err = (f"⚠️ Backend still warming up. Try <code>/host {_escape(target)}</code> "
                f"again in a moment.\n<i>Internal: {_escape(str(imp_err))}</i>")
-        if placeholder_id is not None:
-            ok = await _edit_message(client, placeholder_id, err)
-            if not ok:
-                await _send_reply(client, err)
-        else:
-            await _send_reply(client, err)
+        await _replace_placeholder(client, placeholder_id, err)
         return
     if not import_failed:
         try:
@@ -1206,12 +1268,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         # noinspection PyBroadException
         except Exception as e:
             err = f"❌ Snapshot read failed: <code>{_escape(str(e))}</code>"
-            if placeholder_id is not None:
-                ok = await _edit_message(client, placeholder_id, err)
-                if not ok:
-                    await _send_reply(client, err)
-            else:
-                await _send_reply(client, err)
+            await _replace_placeholder(client, placeholder_id, err)
             return
         entry = snap_map.get(host_id) or {}
         if isinstance(entry, dict):
@@ -1221,12 +1278,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     if not isinstance(data, dict) or not data:
         warn = (f"⚠️ No readings for <b>{_escape(label)}</b> yet. "
                 f"Wait for the next probe cycle and try again.")
-        if placeholder_id is not None:
-            ok = await _edit_message(client, placeholder_id, warn)
-            if not ok:
-                await _send_reply(client, warn)
-        else:
-            await _send_reply(client, warn)
+        await _replace_placeholder(client, placeholder_id, warn)
         return
 
     out: list[str] = [f"📊 <b>{_escape(label)}</b> "
@@ -1411,12 +1463,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     # back to a fresh reply on edit failure (rate limit, message too
     # old, etc.). Same pattern as the AI reply path's "🤖 Thinking…"
     # placeholder handling.
-    if placeholder_id is not None:
-        ok = await _edit_message(client, placeholder_id, body)
-        if not ok:
-            await _send_reply(client, body)
-    else:
-        await _send_reply(client, body)
+    await _replace_placeholder(client, placeholder_id, body)
 
 
 # noinspection PyUnusedLocal
@@ -1468,6 +1515,17 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         )
         return
 
+    # Per-(sender, command) cooldown so a confirmed restart can't be
+    # replayed indefinitely. 30s default — see `_destructive_cooldown_check`.
+    sender_id_cd = (msg.get("from") or {}).get("id")
+    allowed, wait_s = _destructive_cooldown_check(sender_id_cd, "/restart")
+    if not allowed:
+        await _send_reply(
+            client,
+            f"⏳ <code>/restart</code> is on cooldown — wait "
+            f"{int(wait_s) + 1}s before re-running."
+        )
+        return
     # Execute via the standard SSH runner
     host_id = matched.get("id") or ""
     label = matched.get("label") or host_id
@@ -1794,6 +1852,19 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     # Resolve the actor (linked OmniGrid username) so the history rows
     # the Ops persist carry the right attribution.
     sender_id = (msg.get("from") or {}).get("id")
+    # Per-(sender, command) cooldown so a confirmed destructive
+    # command can't be replayed indefinitely. 30s default — long
+    # enough to stop accidental rapid-fire, short enough that an
+    # operator intentionally re-running after a real interval isn't
+    # blocked.
+    allowed, wait_s = _destructive_cooldown_check(sender_id, "/cleanup")
+    if not allowed:
+        await _send_reply(
+            client,
+            f"⏳ <code>/cleanup</code> is on cooldown — wait "
+            f"{int(wait_s) + 1}s before re-running."
+        )
+        return
     actor = _lookup_omnigrid_user(sender_id) if sender_id is not None else None
     actor = actor or "telegram"
 
@@ -2009,6 +2080,17 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
         await _send_reply(client, "\n".join(lines))
         return
 
+    # Per-(sender, command) cooldown so a confirmed update can't be
+    # replayed indefinitely. 30s default — see `_destructive_cooldown_check`.
+    sender_id = (msg.get("from") or {}).get("id")
+    allowed_cd, wait_cd = _destructive_cooldown_check(sender_id, "/update")
+    if not allowed_cd:
+        await _send_reply(
+            client,
+            f"⏳ <code>/update</code> is on cooldown — wait "
+            f"{int(wait_cd) + 1}s before re-running."
+        )
+        return
     # Fire the updates. Each item gets its own Operation. Mirrors
     # the SPA's per-row "Update" button.
     try:
@@ -2019,7 +2101,6 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
 
     spawned = 0
     skipped = 0
-    sender_id = (msg.get("from") or {}).get("id")
     actor_username = _lookup_omnigrid_user(sender_id) or "telegram"
     # Dedupe stacks across targets — multiple items can share a parent
     # stack (e.g. a service item + its orphan task containers + the
@@ -2434,6 +2515,22 @@ def _escape(s: str) -> str:
 #   2. Add an entry below with handler / usage / description (+ hidden
 #      if it's an alias / undocumented surface)
 #
+# Commands that bypass the omnigrid-user-mapping gate in
+# `_process_update`. An unmapped operator can run these without first
+# `/link`-ing their account — used for discovery / self-service:
+#   /link, /help, /start — mapping flow itself
+#   /whoami, /myid       — show the sender's own telegram_user_id
+#   /version, /ver       — non-sensitive build identifier
+#   /ip                  — gated separately by `tuning_public_ip_enabled`
+# `_cmd_help` reads this set to render a 🔓 marker next to open commands
+# so unmapped senders can see at a glance which ones actually work
+# pre-link (operator-flagged: prior /help output had no distinction,
+# leading to "tried /host and got 🔒 Link your account first" confusion).
+_OPEN_COMMANDS: set[str] = {
+    "/link", "/help", "/start", "/whoami", "/myid",
+    "/version", "/ver", "/ip",
+}
+
 # `usage` is rendered HTML-escaped inside `<b>...</b>` — write it the
 # way you want it to read in Telegram, with literal `<target>` /
 # `<arg>` placeholders. `description` follows in plain text after the
@@ -3041,6 +3138,20 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         ctx["hosts_total"] = 0
         ctx["hosts_enabled"] = 0
         ctx["hosts_sample_cap"] = 30
+    # ---- Tunables: effective per-knob values ----------------------
+    # Mirror the SPA's `_buildAiPaletteContext` `tunables` block so AI
+    # replies on Telegram have the same grounding for cadence /
+    # timeout / threshold questions ("what's the Beszel sample
+    # interval?" / "how long is the scheduler cooldown?"). The
+    # palette user-prompt builder consumes `ctx["tunables"]` directly
+    # when present (see `logic/ai.py:build_palette_user_prompt`).
+    try:
+        from logic.tuning import TUNABLES, tuning_int
+        ctx["tunables"] = {key: tuning_int(key) for key in TUNABLES}
+    # noinspection PyBroadException
+    except Exception as e:
+        print(f"[telegram_listener] context tunables build failed: {e}")
+        ctx["tunables"] = {}
     return ctx
 
 
@@ -3050,6 +3161,48 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
 # resets on container restart (acceptable — a restart is itself a
 # rate-limit signal).
 _AI_CALL_BUCKETS: dict[int, list[float]] = {}
+
+# Per-(telegram_user_id, command_head) cooldown for destructive verbs
+# (`/cleanup confirm`, `/restart <target> confirm`, `/update <target>
+# confirm`). Operator-flagged: a confirmed-destructive command can be
+# replayed by simply re-sending the same line — bot has no memory of
+# "you just ran this 5 seconds ago". The cooldown stops accidental /
+# malicious rapid-fire reuse while still letting an operator typing
+# fast intentionally re-send after a real wait. Default 30s; tunable
+# is hardcoded for now (the SSH-side cooldown class uses the same
+# default; revisit if operators want per-command tuning). Shares the
+# `logic.cooldown.Cooldown` class so the arming / remaining-time
+# protocol matches Webmin's auth-failure cooldown.
+from logic.cooldown import Cooldown as _Cooldown
+
+_DESTRUCTIVE_COOLDOWN = _Cooldown(seconds=30)
+
+
+def _destructive_cooldown_check(
+    sender_id: Optional[int], head: str,
+) -> tuple[bool, float]:
+    """Return ``(allowed, wait_s)`` for a destructive command replay.
+
+    ``allowed=False`` returns the seconds remaining on the cooldown
+    so the reply can tell the operator how long to wait. Arms the
+    cooldown as a side effect on ``allowed=True`` so subsequent calls
+    within the window are rate-limited.
+
+    Anonymous senders (no numeric user_id — rare; edited_message from
+    an anonymous-admin channel) bypass — no stable key to use. Same
+    bypass shape as :func:`_ai_rate_limit_check`.
+    """
+    if not isinstance(sender_id, int):
+        return True, 0.0
+    # `Cooldown.remaining` returns Optional[float] — None when the key
+    # has never been armed OR has expired. Narrow to a concrete float
+    # before the comparison so the `> 0` check (and the tuple-return
+    # type) stay type-clean.
+    remaining = _DESTRUCTIVE_COOLDOWN.remaining(sender_id, head)
+    if remaining is not None and remaining > 0:
+        return False, float(remaining)
+    _DESTRUCTIVE_COOLDOWN.arm(sender_id, head)
+    return True, 0.0
 
 
 def _ai_rate_limit_check(user_id: int, calls_per_minute: int) -> tuple[bool, float]:
@@ -3332,11 +3485,11 @@ async def _ai_reply(
     # falls back to a fresh sendMessage so the operator never ends up
     # without a visible reply.
     async def _deliver(final: str) -> None:
-        edited = False
-        if placeholder_id:
-            edited = await _edit_message(client, placeholder_id, final)
-        if not edited:
-            await _send_reply(client, final)
+        # Route through `_replace_placeholder` so an edit failure
+        # stamps "(edit failed — see reply below)" on the
+        # "🤖 Thinking…" bubble before the fresh reply lands —
+        # operator can tell which bubble is current.
+        await _replace_placeholder(client, placeholder_id, final)
 
     # Inner helper: record the AI call into `ai_jobs` AND `history`
     # so Telegram queries show up on the Admin → AI Usage dashboard
@@ -3446,8 +3599,55 @@ async def _ai_reply(
 # ----------------------------------------------------------------------------
 # Long-poll loop
 # ----------------------------------------------------------------------------
+
+# In-process de-dup of recently-seen update_ids. Belt-and-braces guard
+# against a duplicate-dispatch path producing two identical replies
+# for one operator command. The outer loop's offset cursor SHOULD make
+# this impossible (Telegram won't redeliver updates whose ids are <
+# the offset we passed), but operator-reported "I typed /weather once
+# and got two identical replies" symptoms imply some edge — likely a
+# Telegram-side redelivery during a long-poll-window crossing OR an
+# offset-save race after a network blip — slips through. A bounded
+# FIFO of recently-processed update_ids catches that without needing
+# to identify the root cause: re-dispatch sees the id in the set,
+# logs once, and returns silently.
+_SEEN_UPDATE_IDS_CAP = 512
+_seen_update_ids: "_OrderedDict[int, None]" = _OrderedDict()
+
+
+def _mark_update_seen(update_id: int) -> bool:
+    """Return True if this update_id is NEW (not seen before in this
+    process). Side-effect: records the id with FIFO eviction at
+    `_SEEN_UPDATE_IDS_CAP`. Returns False on a duplicate so callers
+    can short-circuit.
+    """
+    if update_id in _seen_update_ids:
+        # Re-insert at the tail so a duplicate within the LRU window
+        # doesn't immediately age out — keeps the dedupe sticky for
+        # repeated rapid replays.
+        _seen_update_ids.move_to_end(update_id)
+        return False
+    _seen_update_ids[update_id] = None
+    while len(_seen_update_ids) > _SEEN_UPDATE_IDS_CAP:
+        _seen_update_ids.popitem(last=False)
+    return True
+
+
 async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     """Authorize + parse + dispatch one incoming Update."""
+    # Belt-and-braces dedupe: if we've already processed this exact
+    # update_id in this process, silently drop. Without this, an
+    # operator-reported "typed /weather once, got two identical
+    # replies" path slips through whatever offset-cursor race or
+    # Telegram redelivery surfaces it.
+    update_id_raw = update.get("update_id")
+    if isinstance(update_id_raw, int):
+        if not _mark_update_seen(update_id_raw):
+            print(
+                f"[telegram_listener] duplicate update_id={update_id_raw} "
+                f"— already processed in this lifespan, skipping"
+            )
+            return
     ok, reason = _is_authorized(update)
     if not ok:
         # Silently ignore — don't tip off an attacker probing the bot.
@@ -3502,9 +3702,7 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     # they're talking to before linking), and /ip is gated separately
     # by the `tuning_public_ip_enabled` tunable so the dispatcher gate
     # doesn't need to second-guess it.
-    open_commands = {"/link", "/help", "/start", "/whoami", "/myid",
-                     "/version", "/ver", "/ip"}
-    if head not in open_commands:
+    if head not in _OPEN_COMMANDS:
         sender_id = (msg.get("from") or {}).get("id")
         mapped = _lookup_omnigrid_user(sender_id) if sender_id is not None else None
         if not mapped:
@@ -3528,11 +3726,22 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     # shows a complete trail of who used the bot, when, and for what.
     # AI free-text traffic is logged separately by `_ai_reply` via
     # `record_ai_call` (op_type=`ai_telegram`) to avoid double-logging.
-    sender_id_audit = (msg.get("from") or {}).get("id")
+    from_obj = msg.get("from") or {}
+    sender_id_audit = from_obj.get("id")
     actor_audit = (
                       _lookup_omnigrid_user(sender_id_audit)
                       if sender_id_audit is not None else None
                   ) or "telegram"
+    # Forensic-review fields — surface the operator's Telegram handle
+    # alongside the numeric user_id so Admin → History rows are
+    # readable without a separate user_id → @handle lookup. `username`
+    # is the @-handle (may be absent for users who haven't set one);
+    # `display_name` falls back to `first_name + last_name` so a
+    # bot-only account without a @handle still shows SOMETHING.
+    tg_username = str(from_obj.get("username") or "").strip()
+    tg_first = str(from_obj.get("first_name") or "").strip()
+    tg_last = str(from_obj.get("last_name") or "").strip()
+    tg_display_name = (tg_first + (" " + tg_last if tg_last else "")).strip()
     # Sanitise args BEFORE persisting — `/link <code>` carries a
     # single-use 6-digit code that would leak via the audit log
     # otherwise. Same redaction class as auth-secret masking in SSH
@@ -3578,6 +3787,8 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
             "command": head,
             "args": safe_args,
             "telegram_user_id": int(sender_id_audit) if sender_id_audit is not None else None,  # type: ignore[arg-type]  # guard above narrows None branch
+            "telegram_username": tg_username or None,
+            "telegram_display_name": tg_display_name or None,
         },
     )
 
@@ -3598,6 +3809,115 @@ def _save_offset(update_id: int) -> None:
         set_setting(Settings.TELEGRAM_LAST_UPDATE_ID, str(int(update_id)))
     except (TypeError, ValueError):
         pass
+
+
+# Category → leading-emoji map for the `setMyCommands` description
+# prefix. Telegram doesn't support per-command icons natively in the
+# `/` autocomplete menu, but emoji glyphs in the description string
+# render as inline characters, which is the closest available
+# affordance. Keys match `_COMMANDS[*].category`.
+_TELEGRAM_MENU_EMOJIS: dict[str, str] = {
+    "getting_started": "📖",
+    "fleet": "🖥",
+    "ops": "⚙️",
+    "account": "🔗",
+    "info": "ℹ️",
+    "misc": "🧩",
+}
+
+# One-shot guard so we don't re-call `setMyCommands` on every loop
+# iteration — Telegram's setMyCommands has a soft rate limit and the
+# registration is per-bot, not per-update. Reset on:
+#   - bot-token change (operator rotated the token in admin settings)
+# detected by comparing the live token against the last registered
+# token hash. Failure to register is non-fatal — the bot still works,
+# just without the `/` autocomplete menu.
+_LAST_REGISTERED_TOKEN_HASH: list[Optional[str]] = [None]
+
+
+async def _register_telegram_commands(client: httpx.AsyncClient) -> None:
+    """Push the current `_COMMANDS` set to Telegram's `setMyCommands`
+    so the `/` autocomplete menu in Telegram clients shows every
+    available command + description.
+
+    Behaviour:
+      - One-shot per `(token,)` — skipped if we've already registered
+        with the same token in this process. Operator can force a
+        re-register by restarting the listener (cooperative with
+        the per-tick gate at the top of `listener_loop`).
+      - Skips `hidden=True` entries (aliases, internal commands).
+      - Dedupes by handler so alias commands don't appear twice.
+      - Prefixes each description with the category's emoji glyph
+        (Telegram's `/` menu doesn't support icons natively but
+        renders emoji inline as the closest substitute).
+      - Truncates each description at 240 chars (Telegram cap is 256,
+        leaving headroom for the emoji prefix + separator).
+      - Strips the leading `/` from each command name (Telegram's
+        `command` field expects bare names like `help`, not `/help`).
+      - Best-effort: failure logs once and returns; the bot still
+        responds to commands without the menu.
+    """
+    import hashlib as _hashlib
+    token, _ = _resolved_token_and_chat()
+    if not token:
+        return
+    token_hash = _hashlib.sha256(token.encode()).hexdigest()[:16]
+    if _LAST_REGISTERED_TOKEN_HASH[0] == token_hash:
+        return
+    # Dedupe by handler — `/start` shares `_cmd_help`'s handler, so
+    # we only register the primary `/help` entry.
+    seen_handlers: set[Any] = set()
+    commands_payload: list[dict] = []
+    for name, meta in _COMMANDS.items():
+        if meta.get("hidden"):
+            continue
+        handler = meta.get("handler")
+        if handler is None or handler in seen_handlers:
+            continue
+        seen_handlers.add(handler)
+        # Telegram expects bare command names without the leading `/`.
+        cmd_name = name.lstrip("/").lower()
+        if not cmd_name or len(cmd_name) > 32:
+            continue
+        cat = meta.get("category") or "misc"
+        emoji = _TELEGRAM_MENU_EMOJIS.get(cat, "🧩")
+        # Strip any pre-escaped `&amp;` from descriptions stored
+        # for the /help HTML render path (BUG-001 lineage); the
+        # `setMyCommands` API expects plain text.
+        raw_desc = (meta.get("description") or "").replace("&amp;", "&")
+        # Compact description: emoji prefix + plain description text
+        # capped at 240 chars to stay within Telegram's 256-char limit.
+        desc = f"{emoji} {raw_desc}"[:240].strip()
+        if not desc:
+            desc = cmd_name
+        commands_payload.append({"command": cmd_name, "description": desc})
+    if not commands_payload:
+        return
+    # Telegram caps at 100 commands. We've got ~20 today; defensive
+    # truncation in case the roster grows past that one day.
+    commands_payload = commands_payload[:100]
+    try:
+        r = await client.post(
+            f"{_telegram_api_base()}/bot{token}/setMyCommands",
+            json={"commands": commands_payload},
+            timeout=10.0,
+        )
+        if r.status_code == 200 and (r.json() or {}).get("ok"):
+            print(
+                f"[telegram_listener] setMyCommands OK — "
+                f"{len(commands_payload)} commands registered"
+            )
+            _LAST_REGISTERED_TOKEN_HASH[0] = token_hash
+        else:
+            print(
+                f"[telegram_listener] setMyCommands failed: "
+                f"HTTP {r.status_code} body={r.text[:200]}"
+            )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    # noinspection PyBroadException
+    except Exception as e:  # noqa: BLE001
+        print(f"[telegram_listener] setMyCommands exception: {e}")
 
 
 async def listener_loop() -> None:
@@ -3631,6 +3951,15 @@ async def listener_loop() -> None:
                 http_to = _telegram_http_timeout()
                 long_poll_to = _telegram_long_poll_timeout()
                 async with httpx.AsyncClient(timeout=http_to) as client:
+                    # Register the `/` autocomplete menu via Telegram's
+                    # `setMyCommands` API on the first iteration of
+                    # each (token,) lifetime. The helper guards against
+                    # re-calling on every iteration via a token-hash
+                    # check, so this is effectively one-shot per
+                    # listener-process unless the operator rotates the
+                    # bot token. Non-fatal: a failure logs and the loop
+                    # continues without the menu.
+                    await _register_telegram_commands(client)
                     r = await client.get(
                         f"{_telegram_api_base()}/bot{token}/getUpdates",
                         params={
