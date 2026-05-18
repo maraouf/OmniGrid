@@ -14,7 +14,8 @@
                    range pickers used elsewhere in the app. -->
               <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
                    role="group"
-                   :aria-label="t('stats.range.aria_label')">
+                   :aria-label="t('stats.range.aria_label')"
+                   @keydown="_buttonGroupArrowKey($event)">
                 <template x-for="opt in [[1,'range_1h'],[24,'range_24h'],[168,'range_7d'],[720,'range_30d']]" :key="opt[0]">
                   <button type="button"
                           @click="loadStatsIncidents(opt[0])"
@@ -196,7 +197,7 @@
                                 const pct = Math.min(1, v / max);
                                 return 'background: color-mix(in srgb, var(--danger) ' + Math.round(15 + pct * 70) + '%, transparent)';
                               })()"
-                              :title="(((statsIncidents.heatmap || [])[dow] || [])[hour - 1] || 0) + ' failure(s)'"></td>
+                              :title="t('stats.incidents.heatmap.cell_title', { count: (((statsIncidents.heatmap || [])[dow] || [])[hour - 1] || 0) })"></td>
                         </template>
                       </tr>
                     </template>

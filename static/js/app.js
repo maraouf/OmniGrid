@@ -1044,6 +1044,12 @@ function app() {
     telegramLinks: [],
     telegramLinksLoading: false,
     telegramLinksError: '',
+    // Set to true on first successful (or failed) `loadTelegramLinks`
+    // completion. Gates the empty-state message + table-show in the
+    // partial so the brief flash of "no links yet" between tab-open
+    // and the first fetch landing doesn't appear (matches the
+    // Users / Sessions / Tokens admin tables' loading-gate pattern).
+    telegramLinksLoaded: false,
     // Last-passed-test snapshots (parallel to portainer / oidc /
     // asset patterns). Captured at the moment a /api/notify-test
     // returns ok. Compared to the current form snapshot at Save time
@@ -9181,6 +9187,11 @@ function app() {
         this.telegramLinksError = String(e && e.message ? e.message : e);
       } finally {
         this.telegramLinksLoading = false;
+        // Flag the first completion (success OR failure) so the
+        // empty-state / table-show gates can flip from "loading
+        // skeleton" to the real content without a flash of
+        // "no links yet" in between.
+        this.telegramLinksLoaded = true;
       }
     },
     async adminUnlinkTelegramRow(row) {
@@ -13739,15 +13750,29 @@ function app() {
     // sibling tabs.
     _tabActivitySnapshot() {
       const drawerHostId = (this.drawerHost && this.drawerHost.id) || null;
-      // Operator-friendly title — "Hosts → web01" / "Admin → Schedules" /
-      // "Stacks". Surfaced in the topbar popover so operators don't have
-      // to mentally translate raw view ids.
+      // Operator-friendly title — i18n'd so non-en operators see
+      // localised text in the topbar tab-activity popover. Top-level
+      // view labels come from the existing `nav.*` keys the topbar
+      // sidebar already consumes; the leg-join uses a dedicated
+      // `topbar.tabs.path_separator` key so a locale that wants a
+      // different glyph (or a plain dash) can override it without
+      // touching this code.
       const v = (this.view || '').toString();
-      let title = v ? (v.charAt(0).toUpperCase() + v.slice(1)) : '';
-      if (v === 'admin' && this.adminTab)         title = 'Admin → ' + this.adminTab;
-      else if (v === 'settings' && this.settingsSection) title = 'Settings → ' + this.settingsSection;
-      else if (v === 'stats' && this.statsTab)    title = 'Stats → ' + this.statsTab;
-      else if (v === 'hosts' && drawerHostId)     title = 'Hosts → ' + drawerHostId;
+      const _navLabel = (key) => {
+        const out = this.t('nav.' + key);
+        // Fallback to capitalised view id if the locale doesn't define
+        // the key — keeps the popover useful even on incomplete bundles.
+        return (out && out !== 'nav.' + key) ? out : (key.charAt(0).toUpperCase() + key.slice(1));
+      };
+      const _join = (leg, target) => {
+        const tmpl = this.t('topbar.tabs.path_separator', { leg, target });
+        return (tmpl && tmpl !== 'topbar.tabs.path_separator') ? tmpl : (leg + ' → ' + target);
+      };
+      let title = v ? _navLabel(v) : '';
+      if (v === 'admin' && this.adminTab)               title = _join(_navLabel('admin'),    this.adminTab);
+      else if (v === 'settings' && this.settingsSection) title = _join(_navLabel('settings'), this.settingsSection);
+      else if (v === 'stats' && this.statsTab)          title = _join(_navLabel('stats'),    this.statsTab);
+      else if (v === 'hosts' && drawerHostId)           title = _join(_navLabel('hosts'),    drawerHostId);
       return {
         view:             v || null,
         drawer_host:      drawerHostId,
@@ -17386,6 +17411,26 @@ function app() {
         // they're full-screen overlays the operator opened explicitly.
         if (this.aiModalKey) { this.closeAiModal(); e.preventDefault(); return; }
         if (this.editingSchedule) { this.cancelEditSchedule(); e.preventDefault(); return; }
+        // AI sidebar inline-confirm chip — pending destructive
+        // confirmation. WCAG 3.2.4 + standard alertdialog UX
+        // expectation: Escape dismisses the confirm without firing
+        // the action. Pre-fix the operator had to click Cancel to
+        // dismiss; Esc now triggers `cancelInlineAction` for the
+        // most-recent pending-confirm turn. Slots ABOVE the sidebar-
+        // close branch so the confirm dismisses without also closing
+        // the chat.
+        if (this.aiSidebarOpen && Array.isArray(this.aiConversation)) {
+          const _pendingIdx = this.aiConversation
+            .map((t, idx) => (t && t.pending_confirm) ? idx : -1)
+            .filter(idx => idx >= 0)
+            .pop();  // most-recent pending — there should be at most one
+          if (_pendingIdx !== undefined && _pendingIdx >= 0
+              && typeof this.cancelInlineAction === 'function') {
+            this.cancelInlineAction(_pendingIdx);
+            e.preventDefault();
+            return;
+          }
+        }
         // AI sidebar slots above drawerHost / drawerItem so ESC closes the
         // chat first when both are open — same priority order as
         // commandPaletteOpen (which is the AI sidebar's mode-cousin).
@@ -21838,16 +21883,30 @@ function app() {
         : confidence === 'medium' ? 'Medium Confidence' : 'Low Confidence');
       const summaryParts = [];
       if (currentPct !== null) {
+        // i18n'd summary fragments. Pre-fix the chart's tick labels +
+        // aria-label + band tooltips were migrated to `t()` but this
+        // summary row leaked English ('free of' / '% used' / '%/day').
+        // Each key takes `{value}` placeholders so locales control the
+        // unit ordering (e.g. "45% used" vs "45% utilizado").
+        const _freeOfTmpl = t('command_palette.ai.disk_chart.summary_free_of_label',
+          '{free} free of {total}');
+        const _usedTmpl = t('command_palette.ai.disk_chart.summary_used_label',
+          '{pct}% used');
         const freeStr = (cur.total_bytes && cur.used_bytes !== undefined)
-          ? esc(fmtBytes(cur.total_bytes - cur.used_bytes) + ' free of ' + fmtBytes(cur.total_bytes))
+          ? esc(_freeOfTmpl
+              .replace('{free}', fmtBytes(cur.total_bytes - cur.used_bytes))
+              .replace('{total}', fmtBytes(cur.total_bytes)))
           : '';
-        summaryParts.push('<strong>' + currentPct + '% used</strong>'
+        const usedStr = _usedTmpl.replace('{pct}', String(currentPct));
+        summaryParts.push('<strong>' + esc(usedStr) + '</strong>'
           + (freeStr ? ' · <span class="ai-resp-chart-sub">' + freeStr + '</span>' : ''));
       }
       let trendLabel = '';
       if (typeof slope === 'number') {
         const sign = slope > 0 ? '+' : '';
-        trendLabel = sign + slope.toFixed(2) + '%/day';
+        const _trendTmpl = t('command_palette.ai.disk_chart.summary_per_day_label',
+          '{value}%/day');
+        trendLabel = _trendTmpl.replace('{value}', sign + slope.toFixed(2));
       }
       let exhaustionLabel = '';
       if (exhaustionTs) {
@@ -22266,6 +22325,78 @@ function app() {
         next = (idx + dir + radios.length) % radios.length;
       }
       const target = radios[next];
+      target.focus();
+      target.click();
+    },
+
+    // WAI-ARIA tab pattern for VERTICAL page-sidebar tablists (Settings
+    // / Admin / Stats). Each sidebar carries `role="tablist"
+    // aria-orientation="vertical"` + per-button `role="tab"` already;
+    // this helper adds the missing arrow-key navigation. Bind on the
+    // sidebar wrapper via `@keydown="_sidebarTablistArrowKey($event)"`.
+    // Contract: ArrowUp / ArrowDown / Home / End move focus between
+    // tabs (with wrap), focus follows by clicking the target so the
+    // bound section model updates. Skips disabled tabs.
+    _sidebarTablistArrowKey(ev) {
+      const key = ev.key;
+      if (key !== 'ArrowUp' && key !== 'ArrowDown'
+          && key !== 'Home' && key !== 'End') return;
+      const group = ev.currentTarget;
+      const tabs = Array.from(group.querySelectorAll('[role="tab"]'))
+        .filter(t => !t.disabled);
+      if (!tabs.length) return;
+      ev.preventDefault();
+      let idx = tabs.indexOf(document.activeElement);
+      if (idx < 0) idx = tabs.findIndex(t => t.getAttribute('aria-selected') === 'true');
+      if (idx < 0) idx = 0;
+      let next = idx;
+      if (key === 'Home') next = 0;
+      else if (key === 'End') next = tabs.length - 1;
+      else {
+        const dir = (key === 'ArrowDown') ? 1 : -1;
+        next = (idx + dir + tabs.length) % tabs.length;
+      }
+      const target = tabs[next];
+      target.focus();
+      target.click();
+    },
+
+    // Generic horizontal button-group arrow-key navigation. For
+    // chip-strip patterns (stats range-pickers, refresh-interval
+    // picker, host-stats provider chip strip) that use
+    // `role="group"` + per-button `aria-pressed` rather than the
+    // full radio-group semantics. Bind on the wrapper via
+    // `@keydown="_buttonGroupArrowKey($event)"`. ArrowLeft/Right move
+    // focus + click (focus-follows-selection); Home / End jump to
+    // ends. ArrowUp / Down also wired so up-down keyboards work
+    // (common on operator workflows where the chip strip sits in
+    // a vertical-flow page). RTL-aware.
+    _buttonGroupArrowKey(ev) {
+      const key = ev.key;
+      if (key !== 'ArrowLeft' && key !== 'ArrowRight'
+          && key !== 'ArrowUp' && key !== 'ArrowDown'
+          && key !== 'Home' && key !== 'End') return;
+      const group = ev.currentTarget;
+      const btns = Array.from(group.querySelectorAll('button')).filter(b => !b.disabled);
+      if (!btns.length) return;
+      ev.preventDefault();
+      let isRtl = false;
+      try { isRtl = group.matches(':dir(rtl)'); }
+      catch (_e) {
+        isRtl = (document.documentElement.dir === 'rtl' || document.body.dir === 'rtl');
+      }
+      let idx = btns.indexOf(document.activeElement);
+      if (idx < 0) idx = btns.findIndex(b => b.getAttribute('aria-pressed') === 'true');
+      if (idx < 0) idx = 0;
+      let next = idx;
+      if (key === 'Home') next = 0;
+      else if (key === 'End') next = btns.length - 1;
+      else {
+        let dir = (key === 'ArrowRight' || key === 'ArrowDown') ? 1 : -1;
+        if (isRtl && (key === 'ArrowLeft' || key === 'ArrowRight')) dir = -dir;
+        next = (idx + dir + btns.length) % btns.length;
+      }
+      const target = btns[next];
       target.focus();
       target.click();
     },
@@ -33597,7 +33728,17 @@ function app() {
       const medium = (data.medium || '').toString().trim().toLowerCase();
       const body = (data.body || '').toString().trim();
       const title = (data.title || '').toString().trim();
-      const KNOWN_MEDIUMS = ['app', 'apprise', 'telegram'];
+      // Consume the canonical set surfaced on `/api/me.notify_mediums`
+      // (sourced from `logic.ops.NOTIFY_MEDIUMS` server-side). Pre-fix
+      // this dispatcher hardcoded `['app', 'apprise', 'telegram']` as
+      // a parallel literal that would silently drift when a future
+      // medium lands in `logic/ops.py:NOTIFY_MEDIUMS`. Defensive
+      // fallback to the historical list when `notifyMediumNames()`
+      // isn't available (e.g. /api/me hasn't hydrated yet).
+      const KNOWN_MEDIUMS = (typeof this.notifyMediumNames === 'function'
+        && this.notifyMediumNames().length)
+        ? this.notifyMediumNames()
+        : ['app', 'apprise', 'telegram'];
       if (!medium || KNOWN_MEDIUMS.indexOf(medium) < 0) {
         this.showToast(
           this.t('toasts_extra.send_notification_bad_medium')

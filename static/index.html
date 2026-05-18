@@ -505,10 +505,22 @@
            previous version hid the bar after SSE connected which
            operators reported as "the bar disappears".
            `w-full sm:w-auto` keeps the mobile-row wrap behaviour. -->
+      <!-- `role="radiogroup"` per WAI-ARIA — Live / Off / 30s / 1m /
+           5m are mutually-exclusive choices, not arbitrary buttons.
+           Each chip gets `aria-pressed` so screen-reader users hear
+           which is active. Arrow-key navigation wired via the shared
+           `_buttonGroupArrowKey` helper used elsewhere (stats range
+           pickers etc.). Chip labels are i18n'd via `topbar.refresh_*`
+           keys so non-Latin numerals + locale-specific unit
+           abbreviations land correctly. -->
       <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none w-full sm:w-auto"
-           :title="t('topbar.refresh_picker_title')">
+           role="radiogroup"
+           :aria-label="t('topbar.refresh_picker_label')"
+           :title="t('topbar.refresh_picker_title')"
+           @keydown="_buttonGroupArrowKey($event)">
         <span class="px-1.5 fs-3xs text-faint uppercase tracking-wider" x-text="t('topbar.refresh_label')"></span>
         <button type="button" @click="setRefreshInterval(-1)"
+                :aria-pressed="refreshInterval===-1 ? 'true' : 'false'"
                 :class="refreshInterval===-1 ? 'bg-[var(--success)] text-[var(--text-on-success)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                 class="px-2 py-0.5 rounded fs-xs font-medium transition flex items-center gap-1"
                 :title="t('topbar.refresh_live_title')">
@@ -516,8 +528,9 @@
                 :style="`background: ${refreshInterval===-1 ? 'currentColor' : 'var(--success)'}`"></span>
           <span x-text="t('topbar.refresh_live')"></span>
         </button>
-        <template x-for="p in [[t('topbar.off'),0],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
+        <template x-for="p in [[t('topbar.off'),0],[t('topbar.refresh_30s'),30],[t('topbar.refresh_1m'),60],[t('topbar.refresh_5m'),300]]" :key="p[1]">
           <button type="button" @click="setRefreshInterval(p[1])"
+                  :aria-pressed="refreshInterval===p[1] ? 'true' : 'false'"
                   :class="refreshInterval===p[1] ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                   class="px-2 py-0.5 rounded fs-xs font-medium transition" x-text="p[0]"></button>
         </template>
@@ -3149,7 +3162,8 @@
     <div x-show="view==='settings'" class="page-layout">
       <aside class="page-sidebar"
              role="tablist" aria-orientation="vertical"
-             :aria-label="t('settings.title')">
+             :aria-label="t('settings.title')"
+             @keydown="_sidebarTablistArrowKey($event)">
         <div class="page-sidebar-header">
           <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/></svg>
           <span x-text="t('settings.title')"></span>
@@ -3202,7 +3216,8 @@
       </div>
       <aside class="page-sidebar"
              role="tablist" aria-orientation="vertical"
-             :aria-label="t('nav.admin')">
+             :aria-label="t('nav.admin')"
+             @keydown="_sidebarTablistArrowKey($event)">
         <div class="page-sidebar-header">
           <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
           <span x-text="t('nav.admin')"></span>
@@ -3261,7 +3276,8 @@
       </div>
       <aside class="page-sidebar"
              role="tablist" aria-orientation="vertical"
-             :aria-label="t('nav.stats')">
+             :aria-label="t('nav.stats')"
+             @keydown="_sidebarTablistArrowKey($event)">
         <div class="page-sidebar-header">
           <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/></svg>
           <span x-text="t('nav.stats')"></span>
@@ -9164,17 +9180,24 @@
                x-html="_renderAiAnswerMd(turn.text)"></div>
           <!-- Pending inline confirmation — destructive action awaits
                operator's Yes / Cancel click in-conversation. Replaces
-               the SweetAlert popup that the modal palette uses. -->
+               the SweetAlert popup that the modal palette uses.
+               `role="alertdialog"` per WAI-ARIA 1.2 mandates an
+               `aria-describedby` reference to a node carrying the
+               consequence summary. The visible prompt span IS the
+               consequence summary so we point describedby at it via
+               an id stamped per turn-index (one chip per pending turn). -->
           <div x-show="turn.role === 'assistant' && turn.pending_confirm"
                class="ai-confirm-chip"
                role="alertdialog"
                aria-live="assertive"
                aria-atomic="true"
-               :aria-label="t('ai_sidebar.confirm_run_prompt', { action: turn.action_label })">
+               :aria-label="t('ai_sidebar.confirm_run_prompt', { action: turn.action_label })"
+               :aria-describedby="'ai-confirm-desc-' + idx">
             <svg width="11" height="11" aria-hidden="true">
               <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-alert-triangle'"/>
             </svg>
             <span class="ai-confirm-label"
+                  :id="'ai-confirm-desc-' + idx"
                   x-text="t('ai_sidebar.confirm_run_prompt', { action: turn.action_label })"></span>
             <button type="button"
                     class="ai-confirm-btn ai-confirm-btn-yes"

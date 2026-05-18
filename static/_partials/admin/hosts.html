@@ -593,7 +593,7 @@
                              @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { password: $event.target.value }); markHostRowDirty(idx)"
                              :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
                              class="w-full fs-sm py-1.5"
-                             placeholder="override for this host only">
+                             :placeholder="t('admin_hosts.ssh_password_override_placeholder')">
                     </div>
                   </div>
                 </div>
