@@ -509,7 +509,13 @@
              Portainer / OIDC / Asset Inventory). #0223: the combined
              page-level Test button was retired in favour of per-channel
              Test buttons that live INSIDE each tab (Apprise / Telegram),
-             so the operator can verify each channel independently. -->
+             so the operator can verify each channel independently.
+             Scope hint operator-flagged the "Save"
+             button in this section looked identical to the "Save event
+             toggles" button below, so we spell out the scope inline +
+             use a descriptive button label ("Save channel configuration"). -->
+        <p class="fs-xs text-[var(--text-faint)] mb-2"
+           x-text="t('admin.notifications.providers_save_scope_hint')"></p>
         <div class="flex items-center gap-3 flex-wrap" x-show="isAdmin()">
           <button type="button" @click="saveProviders()"
                   :disabled="settingsSaving || !canSaveNotifications() || !providersDirty()"
@@ -542,10 +548,11 @@
       <!-- ============== PER-EVENT NOTIFICATIONS — SIBLING SECTION
            Stands alone as a top-level card outside the channel-
            configuration section above so the operator sees it as a
-           DISTINCT concern (event routing vs channel setup). Save
-           button in the parent section still commits both surfaces
-           because `appriseDirty()` covers every dirty field on the
-           page regardless of which section it lives in. ============ -->
+           DISTINCT concern (event routing vs channel setup). Its Save
+           button + dirty signal + result chip are INDEPENDENT from the
+           channel-configuration section above — they don't share
+           snapshots, don't share POSTs, and don't share success/error
+           chips. ============ -->
       <section x-show="adminTab==='notifications'"
                class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 mt-4">
         <div class="flex items-center gap-2 mb-1">
@@ -711,8 +718,12 @@
              same input is fine — the dirty cue still fires once. -->
         <!-- Per-event Save row — strictly the notify_event_* toggles.
              NO test gate (per-event toggles don't round-trip), own
-             dirty signal, own result chip. -->
-        <div class="flex items-center gap-3 mt-4 pt-4 border-t border-[var(--border)] flex-wrap" x-show="isAdmin()">
+             dirty signal, own result chip. Scope hint
+             clarifies that this Save is independent of the channel-
+             configuration Save in the section above. -->
+        <p class="fs-xs text-[var(--text-faint)] mt-4 mb-2 pt-4 border-t border-[var(--border)]"
+           x-text="t('admin.notifications.per_event_save_scope_hint')"></p>
+        <div class="flex items-center gap-3 flex-wrap" x-show="isAdmin()">
           <button type="button" @click="savePerEvent()"
                   :disabled="settingsSaving || !perEventDirty()"
                   :class="perEventDirty() ? 'ring-2 ring-[var(--warning)]' : ''"

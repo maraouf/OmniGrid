@@ -3536,6 +3536,43 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         if not isinstance(list_resp, dict):
             list_resp = {}
         api_hosts = list_resp.get("hosts") or []
+
+        # `api_hosts_list` is the SKELETON endpoint — it returns
+        # snapshot-derived status but doesn't fan out per-host probes
+        # (the SPA does that via `/api/hosts/one/{id}` after the list
+        # paints). The skeleton returns `unknown` for hosts whose
+        # snapshot is empty / stale OR whose providers haven't probed
+        # successfully yet — even when those hosts ARE up and being
+        # actively monitored. Operator-flagged: 10 of 11 "unknown"
+        # hosts (ftth, router5g, server, vcenter, nvr, stream,
+        # hdhomerun, winxpx64, win7x64, win10x64) are actually working
+        # in the SPA view. Reconcile by promoting `unknown` →
+        # `up` when ANY provider on the host has a `last_ok_ts`
+        # within the last hour in `host_provider_last_ok`. This
+        # matches the SPA Hosts view's effective rendering after
+        # the per-host fan-out lands.
+        try:
+            from main import _get_provider_state_index as _state_index
+            provider_state = _state_index() or {}
+        # noinspection PyBroadException
+        except Exception as _idx_err:  # noqa: BLE001
+            print(f"[telegram_listener] provider state index unavailable: {_idx_err}")
+            provider_state = {}
+        _RECENT_OK_WINDOW_S = 3600  # within last hour = "up"
+        _now_ts = time.time()
+        for row in api_hosts:
+            if (row.get("status") or "").lower() != "unknown":
+                continue
+            hid = row.get("id") or ""
+            providers = provider_state.get(hid) or {}
+            recent_ok = any(
+                int((info or {}).get("last_ok_ts") or 0) > 0
+                and (_now_ts - int((info or {}).get("last_ok_ts") or 0)) < _RECENT_OK_WINDOW_S
+                for info in providers.values()
+            )
+            if recent_ok:
+                row["status"] = "up"
+
         # Status taxonomy (canonical from `_shape_host_api_row`):
         # up / down / paused / loading / unconfigured / unknown
         status_counts: dict[str, int] = {}

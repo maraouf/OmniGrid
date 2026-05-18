@@ -11874,14 +11874,27 @@ function app() {
     },
     // ---- Providers vs per-event Save split --------------------------
     // The notifications page has TWO functionally separate Save
-    // buttons. The first (in the parent providers section) commits
-    // channel configuration (Apprise URL/tag, Telegram credentials,
-    // medium toggles, listener config, in-app tunables). The second
-    // (in the per-event sibling section) commits ONLY the per-event
-    // notification toggles. They have independent dirty signals,
-    // independent save handlers, and independent success/error chips
-    // so an action on one button never visually conflates with the
-    // other.
+    // buttons. The first ("Save channel configuration", in the
+    // providers section) commits Apprise URL/tag, Telegram credentials,
+    // medium toggles, listener config, and in-app tunables. The second
+    // ("Save event toggles", in the per-event sibling section)
+    // commits ONLY the per-event notification opt-ins. They have:
+    //   - independent dirty trackers (`providersDirty()` vs
+    //     `perEventDirty()`) backed by disjoint snapshot helpers
+    //     (`_providersSnapshot` vs `_perEventSnapshot`).
+    //   - independent save handlers (`saveProviders` builds a payload
+    //     containing only Apprise/Telegram/medium/tunable keys;
+    //     `savePerEvent` builds one containing only `notify_event_*`
+    //     keys). They never share a POST.
+    //   - independent success/error chips (`providersSaveResult` vs
+    //     `perEventSaveResult`).
+    //   - independent button labels ("Save channel configuration" vs
+    //     "Save event toggles") + inline scope-hint paragraphs so the
+    //     operator can never mistake one for the other.
+    // Result: editing a per-event toggle ONLY enables the per-event
+    // Save button; editing a channel field ONLY enables the channel
+    // Save button. An action on one button never visually conflates
+    // with the other.
     _providersSnapshot() {
       const s = this.settings || {};
       const tf = this.tuningForm || {};
