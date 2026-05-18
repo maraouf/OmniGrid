@@ -17,7 +17,8 @@
                    click per operator preference. -->
               <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
                    role="group"
-                   :aria-label="t('stats.range.aria_label')">
+                   :aria-label="t('stats.range.aria_label')"
+                   @keydown="_buttonGroupArrowKey($event)">
                 <template x-for="opt in [[1,'range_1h'],[24,'range_24h'],[168,'range_7d'],[720,'range_30d'],[2160,'range_90d']]" :key="opt[0]">
                   <button type="button"
                           @click="_runWithBusy('stats_network', () => loadStatsNetwork(opt[0]))"

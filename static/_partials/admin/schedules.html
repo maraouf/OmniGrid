@@ -379,11 +379,17 @@
           </div>
         </section>
 
-        <!-- Edit modal -->
+        <!-- Edit modal. role="dialog" + aria-modal="true" + focus-
+             trap wired to match every modal in static/index.html
+             (canonical pattern). The aria-label is the visible title
+             so AT users hear the modal's purpose on focus. -->
         <div x-show="editingSchedule" x-cloak class="fixed inset-0 z-50 fade-in">
           <div class="absolute inset-0 backdrop" @click="cancelEditSchedule()"></div>
           <div class="absolute inset-0 flex items-center justify-center p-4">
             <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md w-full max-w-lg slide-in p-5"
+                 role="dialog" aria-modal="true"
+                 :aria-label="t('admin.schedules.edit_title_modal')"
+                 @keydown="editingSchedule && _focusTrapKeydown($event, $el)"
                  @click.stop>
               <div class="flex items-center justify-between mb-3">
                 <h3 class="font-semibold fs-md" x-text="t('admin.schedules.edit_title_modal')"></h3>

@@ -445,11 +445,23 @@
                    class="fs-xs px-3 py-2 rounded mb-2 bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]"
                    x-text="telegramLinksError"></div>
 
-              <div x-show="!telegramLinksLoading && telegramLinks.length === 0 && !telegramLinksError"
+              <!-- Loading skeleton — visible until the first
+                   `loadTelegramLinks` completion lands. Pre-fix the
+                   empty-state message ("no links yet") flashed in the
+                   gap between tab-open and the first fetch resolving;
+                   mirrors the loading-gate pattern Users / Sessions /
+                   Tokens admin tables use. -->
+              <div x-show="!telegramLinksLoaded"
+                   class="loading-state flex items-center gap-2 py-3 fs-xs text-[var(--text-faint)]">
+                <span class="spin-lg" aria-hidden="true"></span>
+                <span x-text="t('actions.loading')"></span>
+              </div>
+
+              <div x-show="telegramLinksLoaded && telegramLinks.length === 0 && !telegramLinksError"
                    class="fs-xs text-[var(--text-faint)] italic py-3"
                    x-text="t('admin.notifications.telegram_links_empty')"></div>
 
-              <table x-show="telegramLinks.length > 0"
+              <table x-show="telegramLinksLoaded && telegramLinks.length > 0"
                      class="w-full fs-xs">
                 <thead>
                   <tr class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">

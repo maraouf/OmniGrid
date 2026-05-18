@@ -190,6 +190,10 @@
     "stats_title": "Live stats polling cadence",
     "refresh_label": "Refresh",
     "refresh_picker_title": "How the dashboard stays current. Exactly ONE of: \"Live\" — connect to the event stream, every chart updates instantly via push (recommended); \"Off\" — close the event stream and stop polling, the dashboard becomes a static snapshot; or a cadence (30s / 1m / 5m) — close the event stream and poll every chart at that rate. Switching modes immediately opens or closes the connection.",
+    "refresh_picker_label": "Refresh cadence",
+    "refresh_30s": "30s",
+    "refresh_1m": "1m",
+    "refresh_5m": "5m",
     "refresh_live": "Live",
     "refresh_live_title": "Open the event stream and update every chart on push. Closes when you pick Off or an interval.",
     "off": "Off",
@@ -205,7 +209,8 @@
       "label": "{count} tabs",
       "popover_title": "Other OmniGrid tabs",
       "popover_empty": "No sibling tabs.",
-      "row_focus_title": "Click to focus that tab (best-effort cross-window focus)"
+      "row_focus_title": "Click to focus that tab (best-effort cross-window focus)",
+      "path_separator": "{leg} → {target}"
     }
   },
   "events": {
@@ -321,6 +326,7 @@
       "heatmap": {
         "title": "Failure heatmap",
         "hint": "Failure events bucketed by day-of-week × hour-of-day in the scheduler timezone. Darker cells = more failures.",
+        "cell_title": "{count, plural, one {# failure} other {# failures}}",
         "dow_mon": "Mon",
         "dow_tue": "Tue",
         "dow_wed": "Wed",
@@ -721,6 +727,7 @@
     "remove_container_title": "Remove container",
     "save": "Save",
     "saving": "Saving…",
+    "loading": "Loading…",
     "save_changes": "Save changes",
     "cancel": "Cancel",
     "close": "Close",
@@ -2614,6 +2621,9 @@
         "long_horizon": "no exhaustion in window",
         "exhaustion_now": "fills imminently",
         "exhaustion_days": "runs out in ~{days} days",
+        "summary_used_label": "{pct}% used",
+        "summary_free_of_label": "{free} free of {total}",
+        "summary_per_day_label": "{value}%/day",
         "source_label": "Source",
         "source_node_exporter": "node-exporter (root disk)",
         "source_pulse": "Pulse (full pool)",
@@ -3924,6 +3934,7 @@
       "ssh_port_label": "Port",
       "ssh_password_label": "Password",
       "ssh_password_placeholder": "(leave blank to keep current)",
+      "ssh_password_override_placeholder": "override for this host only",
       "ssh_password_set": " · set",
       "ssh_clear_label": "Clear",
       "ssh_clear_armed": "Clear armed (save to apply)",

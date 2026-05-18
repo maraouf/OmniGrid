@@ -196,7 +196,8 @@
                 <div class="flex items-center gap-2">
                   <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
                        role="group"
-                       :aria-label="t('stats.ai_cost.rt_trend.range_label')">
+                       :aria-label="t('stats.ai_cost.rt_trend.range_label')"
+                       @keydown="_buttonGroupArrowKey($event)">
                     <template x-for="opt in ['1h', '24h', '7d', '30d', '90d']" :key="opt">
                       <button type="button"
                               @click="_runWithBusy('stats_ai_cost', () => loadStatsAiCost(opt))"
