@@ -609,6 +609,20 @@
                       class="tabs-pill-row"
                       :title="t('topbar.tabs.row_focus_title')">
                 <div class="tabs-pill-row-title" x-text="tab.title || tab.view || '—'"></div>
+                <!-- Device chip: form-factor emoji + platform · browser.
+                     Backend parses the request's User-Agent header at
+                     heartbeat time and stamps `tab.device` so operators
+                     can tell which machine the OTHER tab is on without
+                     scrolling. Tooltip carries the raw UA string for
+                     two-laptop disambiguation. Hidden when the source
+                     tab is from a pre-fix client that doesn't carry the
+                     `device` block yet. -->
+                <div x-show="tab.device && tab.device.platform"
+                     class="tabs-pill-row-device fs-3xs text-[var(--text-faint)]"
+                     :title="tab.device && tab.device.ua ? tab.device.ua : ''">
+                  <span x-text="_tabActivityDeviceEmoji(tab.device)"></span>
+                  <span x-text="_tabActivityDeviceLabel(tab.device)"></span>
+                </div>
                 <!-- Rich label: filter chip state + selection count
                      summary. Only renders when the source tab actually
                      had filters or a selection active so quiet rows

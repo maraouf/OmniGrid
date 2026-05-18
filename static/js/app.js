@@ -13866,6 +13866,45 @@ function app() {
       return fragments.join(' · ');
     },
 
+    // Device descriptor renderers — drive the small "📱 iPhone · Safari"
+    // chip in the tab-activity popover so the operator can tell which
+    // machine the OTHER tab is on. Backend stamps `device =
+    // {form_factor, platform, browser, ua}` on every heartbeat entry
+    // (see `_parse_tab_activity_device` in main.py); these helpers
+    // map that descriptor into renderable text + an emoji prefix.
+    _tabActivityDeviceEmoji(device) {
+      if (!device || typeof device !== 'object') return '';
+      const ff = String(device.form_factor || '').toLowerCase();
+      if (ff === 'mobile') return '📱';
+      if (ff === 'tablet') return '💻';
+      // 'desktop' or anything else falls through to the desktop glyph
+      // — better than rendering no emoji at all (operator can still
+      // disambiguate via the platform / browser label).
+      return '🖥️';
+    },
+    _tabActivityDeviceLabel(device) {
+      if (!device || typeof device !== 'object') return '';
+      // Platform + browser pair via the i18n bundle so non-en locales
+      // get localised labels. Backend tags are stable English keys
+      // (`iOS` / `Mac` / `Chrome` / etc.) — the i18n key encodes the
+      // same as a lower-cased slug under `topbar.tabs.device.platform.*`
+      // / `topbar.tabs.device.browser.*`. Fallback to the raw English
+      // tag when the locale doesn't define the key (forward-compat
+      // for novel UA detection cases).
+      const platformKey = String(device.platform || 'Other').toLowerCase().replace(/[^a-z0-9]+/g, '_');
+      const browserKey  = String(device.browser  || 'Other').toLowerCase().replace(/[^a-z0-9]+/g, '_');
+      const platformLabel = this.t('topbar.tabs.device.platform.' + platformKey);
+      const browserLabel  = this.t('topbar.tabs.device.browser.'  + browserKey);
+      const p = (platformLabel && platformLabel !== 'topbar.tabs.device.platform.' + platformKey)
+                ? platformLabel
+                : String(device.platform || '');
+      const b = (browserLabel && browserLabel !== 'topbar.tabs.device.browser.' + browserKey)
+                ? browserLabel
+                : String(device.browser || '');
+      if (p && b) return p + ' · ' + b;
+      return p || b || '';
+    },
+
     // "Reproduce here" handoff — pull the other tab's filter + drawer
     // state into the CURRENT tab. Operator clicks a row in the
     // tab-activity popover when they want to mirror state from

@@ -43,7 +43,7 @@ import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Annotated, Any, Optional, Set, cast
+from typing import Annotated, Any, Iterable, Optional, Set, cast
 
 # Load .env BEFORE any os.getenv() calls (including those done at import time
 # in auth.py). The file lives in the /app bind-mount and travels with the
@@ -9128,7 +9128,11 @@ async def api_hosts(force: bool = False):
         # one provider IS active (the early-return at the top of
         # `api_hosts` short-circuits the no-provider case).
         hosts.append(
-            _shape_host_api_row(h, s, entry["_providers"], any_provider_enabled=True)
+            _shape_host_api_row(
+                h, s, entry["_providers"],
+                any_provider_enabled=True,
+                active=active,
+            )
         )
 
     # Aggregate error — non-fatal; UI shows the first one per provider.
@@ -10652,6 +10656,7 @@ def _shape_host_api_row(
     merged: dict,
     providers_hit: list[str],
     any_provider_enabled: bool = True,
+    active: Optional[Iterable[str]] = None,
 ) -> dict:
     """Shape a (curated_host, merged_stats) pair into the wire format.
 
@@ -10662,6 +10667,16 @@ def _shape_host_api_row(
     "no data" banner, because there's literally nothing OmniGrid
     could have done. Operators see a clear "configure a provider"
     path instead of a false red alert.
+
+    ``active`` — when supplied (recommended), the set of provider
+    names currently enabled globally. Used to intersect the per-row
+    field gate so a stale field for a globally-disabled provider
+    (e.g. `beszel_name` left over from a prior config when Beszel is
+    no longer enabled) does NOT flip the row to `status: "unknown"`.
+    Same drift class as the SNMP `enabled` flag gate above, but at
+    the per-field-per-provider layer. Legacy bool gate retained for
+    back-compat — when ``active`` is None the OLD whole-row OR-chain
+    fires (matches pre-fix behaviour).
     """
     s = merged or {}
     # Status precedence (revised — see operator complaint that hosts
@@ -10725,6 +10740,9 @@ def _shape_host_api_row(
             or (h.get("address") or "").strip()
         )
     )
+    # Frozenset for the refined gate below. Empty when caller didn't
+    # supply `active` — the legacy bool gate handles that branch.
+    _active_set: frozenset[str] = frozenset(active) if active is not None else frozenset()
     if non_beszel_hit:
         host_status = "up"
     elif beszel_st in ("up", "down"):
@@ -10758,13 +10776,30 @@ def _shape_host_api_row(
         # Live status overwrites this on the next /api/hosts/one
         # response.
         host_status = "up"
-    elif (not any_provider_enabled) or not (
-        (h.get("beszel_name") or "").strip()
-        or (h.get("pulse_name") or "").strip()
-        or (h.get("webmin_name") or "").strip()
-        or (h.get("ne_url") or "").strip()
-        or ping_enabled
-        or snmp_mapped
+    elif (
+        # Refined gate (when caller supplied `active`): each per-row
+        # field must align with a globally-enabled provider for that
+        # field to count as "mapped". A stale `beszel_name` while
+        # Beszel is globally disabled NO LONGER trips this branch into
+        # `unknown` — the field-provider PAIR has to align. Legacy gate
+        # (when `active is None`) kept verbatim so back-compat callers
+        # see the old whole-row OR-chain.
+        (active is not None and not (
+            ("beszel"        in _active_set and (h.get("beszel_name") or "").strip())
+            or ("pulse"        in _active_set and (h.get("pulse_name") or "").strip())
+            or ("webmin"       in _active_set and (h.get("webmin_name") or "").strip())
+            or ("node_exporter" in _active_set and (h.get("ne_url") or "").strip())
+            or ("ping"         in _active_set and ping_enabled)
+            or ("snmp"         in _active_set and snmp_mapped)
+        ))
+        or (active is None and ((not any_provider_enabled) or not (
+            (h.get("beszel_name") or "").strip()
+            or (h.get("pulse_name") or "").strip()
+            or (h.get("webmin_name") or "").strip()
+            or (h.get("ne_url") or "").strip()
+            or ping_enabled
+            or snmp_mapped
+        )))
     ):
         host_status = "unconfigured"
     else:
@@ -11462,7 +11497,9 @@ async def api_hosts_list(force: bool = False):
         # providers list. The next `/api/hosts/one/{id}` refresh
         # populates `providers` with the live hits.
         hosts.append(_shape_host_api_row(
-            h, merged, [], any_provider_enabled=any_enabled,
+            h, merged, [],
+            any_provider_enabled=any_enabled,
+            active=state["active"],
         ))
     agg_error = "; ".join(f"{k}: {v}" for k, v in state["errors"].items()) or None
     return {
@@ -11538,7 +11575,9 @@ async def api_hosts_one(host_id: str, request: Request, force: bool = False):
     probe_elapsed_ms = int((time.monotonic() - _probe_start) * 1000)
     any_enabled = bool(state["active"])
     row = _shape_host_api_row(
-        h, merged, providers, any_provider_enabled=any_enabled,
+        h, merged, providers,
+        any_provider_enabled=any_enabled,
+        active=state["active"],
     )
     row["_probe_elapsed_ms"] = probe_elapsed_ms
     # NO SSE publish here. Earlier this endpoint published
@@ -13831,6 +13870,7 @@ async def api_hosts_debug(
         rendered = _shape_host_api_row(
             record, merged, providers_hit,
             any_provider_enabled=bool(active),
+            active=active,
         )
     except Exception as e:
         rendered = {"_error": str(e)}
@@ -18008,6 +18048,76 @@ def _tab_activity_prune() -> None:
         _tab_activity_registry.pop(cid, None)
 
 
+def _parse_tab_activity_device(ua: str) -> dict:
+    """Parse a User-Agent string into a compact device descriptor.
+
+    Returns ``{form_factor, platform, browser, ua}`` where every field
+    is a short tagged-string from a closed set so the SPA's popover can
+    render an emoji + i18n-keyed label without further string juggling.
+
+    Heuristic intentionally simple — UA parsing is messy but the popover
+    only needs enough resolution to answer "is the other tab on a
+    phone, a Mac, or a Windows laptop?" Field values:
+      * ``form_factor`` ∈ {mobile, tablet, desktop}
+      * ``platform``    ∈ {iOS, Android, Windows, Mac, Linux, BSD, ChromeOS, Other}
+      * ``browser``     ∈ {Chrome, Firefox, Safari, Edge, Opera, Other}
+
+    ``ua`` is the original string capped at 200 chars for the hover
+    tooltip (two-laptop disambiguation). Empty input → every field
+    ``Other`` / ``desktop`` so the parser never returns ``None``.
+    """
+    s = (ua or "").strip()[:512]
+    low = s.lower()
+    # Form-factor first — iPad must NOT match the iPhone branch (its UA
+    # carries `Macintosh` on modern Safari for "Request Desktop Site"
+    # behaviour, but still includes `iPad` when not toggled).
+    if "ipad" in low or ("tablet" in low and "mobile" not in low):
+        form_factor = "tablet"
+    elif "iphone" in low or "ipod" in low or "mobi" in low or ("android" in low and "mobile" in low):
+        form_factor = "mobile"
+    else:
+        form_factor = "desktop"
+    # Platform — order matters because iOS UAs contain "Mac OS X"-ish
+    # tokens and ChromeOS UAs contain "Linux".
+    if "iphone" in low or "ipad" in low or "ipod" in low:
+        platform = "iOS"
+    elif "android" in low:
+        platform = "Android"
+    elif "cros" in low or "chromeos" in low:
+        platform = "ChromeOS"
+    elif "windows" in low:
+        platform = "Windows"
+    elif "mac os" in low or "macintosh" in low:
+        platform = "Mac"
+    elif "freebsd" in low or "openbsd" in low or "netbsd" in low:
+        platform = "BSD"
+    elif "linux" in low:
+        platform = "Linux"
+    else:
+        platform = "Other"
+    # Browser — Edge/Opera must precede Chrome because they ALSO carry
+    # `Chrome/` in their UA. Safari last because every WebKit-based
+    # browser carries `Safari/` in its UA.
+    if "edg/" in low or "edge/" in low:
+        browser = "Edge"
+    elif "opr/" in low or "opera" in low:
+        browser = "Opera"
+    elif "firefox/" in low or "fxios" in low:
+        browser = "Firefox"
+    elif "chrome/" in low or "crios" in low:
+        browser = "Chrome"
+    elif "safari/" in low:
+        browser = "Safari"
+    else:
+        browser = "Other"
+    return {
+        "form_factor": form_factor,
+        "platform": platform,
+        "browser": browser,
+        "ua": s[:200],
+    }
+
+
 class _TabActivityIn(BaseModel):
     """Body for the heartbeat endpoint. Every field optional — the SPA
     sends only what's relevant to the current location. Rich-state
@@ -18067,6 +18177,13 @@ async def api_tabs_activity_heartbeat(
     selection_clean: Optional[list] = None
     if isinstance(body.selection, list):
         selection_clean = [str(x)[:128] for x in body.selection[:50] if isinstance(x, (str, int))]
+    # Device descriptor from the request's User-Agent header — gives
+    # operators a "which machine is the OTHER tab on" hint in the
+    # popover (📱 iPhone · Safari / 🖥️ Mac · Firefox /...). Backend
+    # parse so the SPA payload stays small AND so we don't depend on
+    # client-hints API support (Safari lags). Hover-title carries the
+    # raw UA (capped) for two-laptop disambiguation.
+    device = _parse_tab_activity_device(request.headers.get("user-agent") or "")
     entry = {
         "actor": actor,
         "view": (body.view or "").strip() or None,
@@ -18079,6 +18196,7 @@ async def api_tabs_activity_heartbeat(
         "filters": filters_clean if filters_clean else None,
         "selection": selection_clean if selection_clean else None,
         "rich_label": (body.rich_label or "").strip() or None,
+        "device": device,
         "ts": time.time(),
     }
     _tab_activity_registry[cid] = entry
