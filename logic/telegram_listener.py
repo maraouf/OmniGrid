@@ -3543,12 +3543,20 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             st = (row.get("status") or "unknown").lower()
             status_counts[st] = status_counts.get(st, 0) + 1
 
-        # Pass 1 — order rows so the truncated sample is REPRESENTATIVE
-        # (up/down/paused first; unconfigured/loading/unknown last) so
-        # the AI sees real telemetry rather than a wall of "unknown"
-        # when the snapshot table is sparse.
-        order = {"up": 0, "down": 1, "paused": 2,
-                 "loading": 3, "unconfigured": 4, "unknown": 5}
+        # Pass 1 — order rows so PROBLEM hosts (down / unknown / paused)
+        # appear FIRST in the truncated sample. Pre-fix the order put
+        # `up` first which on a 100+ host fleet pushed the 11 unknowns
+        # past the sample_cap=60 — the AI saw `hosts_unknown: 11` in
+        # the summary but ZERO unknown rows in the sample, so it could
+        # REPORT the count but couldn't NAME any of them. Operator-
+        # flagged: "ai has to list down these hosts to understand
+        # more". Sort order now: down → unknown → paused → up →
+        # unconfigured → loading. `unconfigured` sits LATE because
+        # those are intentional inventory-only rows the operator
+        # rarely needs to enumerate; `down` / `unknown` / `paused`
+        # are the actionable ones.
+        order = {"down": 0, "unknown": 1, "paused": 2,
+                 "up": 3, "unconfigured": 4, "loading": 5}
         api_hosts_sorted = sorted(
             api_hosts, key=lambda r: order.get((r.get("status") or "unknown").lower(), 9),
         )
@@ -3580,10 +3588,28 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
 
         host_records = [_shape(r) for r in api_hosts_sorted[:sample_cap]]
 
+        # `problem_hosts` block — the FULL list of every host whose
+        # status is anything OTHER than `up`, regardless of sample
+        # cap. The AI needs to NAME unknown / down / paused hosts when
+        # the operator asks "which hosts are down?" or "list the
+        # problem hosts" — answering "there are 11 unknown" without
+        # names is useless. Capped at 200 to bound prompt size on a
+        # very degraded fleet; in practice <30 problem hosts is the
+        # common case so the cap rarely fires. Each entry carries the
+        # minimum fields the AI needs to identify the host (id +
+        # label + status + address + provider aliases). Same `_shape`
+        # function as the main hosts[] sample.
+        PROBLEM_STATUSES = {"down", "unknown", "paused"}
+        problem_hosts = [
+            _shape(r) for r in api_hosts
+            if (r.get("status") or "unknown").lower() in PROBLEM_STATUSES
+        ][:200]
+
         hosts_total = int(list_resp.get("curated_count") or 0) or len(api_hosts)
         hosts_enabled = int(list_resp.get("enabled_count") or 0) or len(api_hosts)
 
         ctx["hosts"] = host_records
+        ctx["problem_hosts"] = problem_hosts
         ctx["hosts_total"] = hosts_total
         ctx["hosts_enabled"] = hosts_enabled
         ctx["hosts_sample_cap"] = sample_cap
@@ -3604,11 +3630,13 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             "loading": status_counts.get("loading", 0),
             "sample_cap": sample_cap,
             "sample_size": len(host_records),
+            "problem_count": len(problem_hosts),
         }
     # noinspection PyBroadException
     except Exception as e:
         print(f"[telegram_listener] context hosts build failed: {e}")
         ctx["hosts"] = []
+        ctx["problem_hosts"] = []
         ctx["hosts_total"] = 0
         ctx["hosts_enabled"] = 0
         ctx["hosts_sample_cap"] = sample_cap
@@ -3617,6 +3645,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             "up": 0, "down": 0, "paused": 0,
             "unconfigured": 0, "unknown": 0, "loading": 0,
             "sample_cap": sample_cap, "sample_size": 0,
+            "problem_count": 0,
         }
     # ---- Tunables: effective per-knob values ----------------------
     # Mirror the SPA's `_buildAiPaletteContext` `tunables` block so AI
@@ -4028,11 +4057,74 @@ async def _ai_reply(
         )
         return
     raw_text = (result.get("text") or "").strip()
+    # ------------------------------------------------------------------
+    # AI-directive dispatch — Telegram side.
+    #
+    # The SPA's AI sidebar parses `ACTION: <name>` + `ACTION_DATA: {...}`
+    # directives and dispatches them via the inline-confirm chip in the
+    # sidebar. Telegram has no equivalent UI primitive, so this handler
+    # was previously SILENT on action directives — it stripped them from
+    # the visible reply and discarded them. Operator-flagged: typing
+    # "send notification to telegram saying hi" produced the AI reply
+    # "I'll send 'hi' to your Telegram channel" but nothing actually
+    # arrived. The operator's typed message IS the explicit intent
+    # (same destructive-confirm role the SPA chip plays), so we now
+    # dispatch SAFE actions inline and append the outcome to the reply
+    # so the operator sees the result in one cohesive message.
+    #
+    # Currently dispatched: `send_notification` only (the operator-typed
+    # one this fix targets). Other actions (cleanup_stopped /
+    # restart_* / update_* / schedule_*) stay SPA-only because their
+    # blast radius justifies a UI-side confirm.
+    action_outcome_line = ""
+    try:
+        actions, _ = _ai.parse_palette_actions(raw_text)
+        action_data, _ = _ai.parse_palette_action_data(raw_text)
+        if "send_notification" in actions and isinstance(action_data, dict):
+            from logic.ops import notify_one_medium as _notify_one_medium
+            medium = (action_data.get("medium") or "").strip().lower()
+            note_body = (action_data.get("body") or "").strip()
+            note_title = (action_data.get("title") or "").strip() or "🔔 OmniGrid"
+            if medium and note_body and medium in ("app", "apprise", "telegram"):
+                send_result = await _notify_one_medium(
+                    medium=medium,
+                    title=note_title,
+                    body=note_body,
+                    actor_username=omnigrid_username or "telegram-operator",
+                    metadata={"source": "telegram_ai_send_notification"},
+                )
+                if send_result.get("ok"):
+                    action_outcome_line = (
+                        f"\n\n✅ Sent <code>{_escape(note_body[:60])}"
+                        f"{'…' if len(note_body) > 60 else ''}</code> to "
+                        f"<b>{_escape(medium)}</b>."
+                    )
+                else:
+                    _detail = send_result.get("detail") or send_result.get("error") or "unknown error"
+                    action_outcome_line = (
+                        f"\n\n❌ Send to <b>{_escape(medium)}</b> failed: "
+                        f"<code>{_escape(str(_detail))}</code>"
+                    )
+            else:
+                action_outcome_line = (
+                    "\n\n⚠️ <i>send_notification action emitted without a "
+                    "valid medium + body — nothing dispatched.</i>"
+                )
+    # noinspection PyBroadException
+    except Exception as _act_err:  # noqa: BLE001
+        print(f"[telegram_listener] ai action dispatch failed: {_act_err}")
+    # ------------------------------------------------------------------
+
     clean = _strip_ai_directives(raw_text)
     if not clean:
         _record_call(True, result, "")
         await _deliver("<i>(empty AI response)</i>")
         return
+    # Append the action-outcome line (if any) to the conversational
+    # reply so the operator sees BOTH the AI's natural-language framing
+    # AND the actual dispatch result in one bubble.
+    if action_outcome_line:
+        clean = clean + action_outcome_line
     # Record BEFORE truncation so the persisted answer matches what
     # the model actually returned (truncation is purely a Telegram
     # wire-limit accommodation, not the canonical record).

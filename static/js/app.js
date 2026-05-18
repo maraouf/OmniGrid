@@ -8671,6 +8671,23 @@ function app() {
           this._providersBaseline = this._providersSnapshot();
           this._perEventBaseline  = this._perEventSnapshot();
         } catch (_) {}
+        // Optimistic Test-pass stamp on load. Operator-flagged: after a
+        // page reload the per-channel Save was disabled forever because
+        // `_<medium>LastPassedTest` resets to '' on every refresh — so
+        // flipping ANY field (even non-test-relevant ones like
+        // `telegram_allow_destructive`) couldn't unlock Save until the
+        // operator ran the per-channel Test button again. Since the
+        // settings just loaded WERE persisted through a Save (which
+        // requires Test to pass), we can reasonably stamp the current
+        // test-snapshot as "passed" at hydrate time. The Test gate then
+        // only re-fires when a test-RELEVANT field (URL / token / chat
+        // ID / verify_tls / enabled) actually changes from the loaded
+        // baseline — non-test-relevant edits (allow_destructive,
+        // listener_enabled, authorized_user_ids, etc.) Save freely.
+        try {
+          this._appriseLastPassedTest = this._appriseTestSnapshot();
+          this._telegramLastPassedTest = this._telegramTestSnapshot();
+        } catch (_) {}
         this._openMeteoBaseline  = this._openMeteoSnapshot();
         this._portainerBaseline  = this._portainerSnapshot();
         this._oidcBaseline       = this._oidcSnapshot();
