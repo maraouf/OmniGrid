@@ -1,430 +1,437 @@
-      <div x-show="statsTab==='samples'" class="space-y-4">
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
-                 :aria-busy="_loadBusy.stats_samples === true ? 'true' : 'false'">
-          <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
-            <div>
-              <div class="flex items-center gap-2 mb-2">
-                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
-                <h3 class="font-semibold fs-md" x-text="t('stats.samples.title')"></h3>
-              </div>
-              <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.samples.hint')"></p>
-            </div>
-            <button type="button"
-                    @click="_runWithBusy('stats_samples', () => loadStatsSamples())"
-                    :disabled="_loadBusy.stats_samples === true"
-                    :title="t('actions.reload')"
-                    :aria-label="t('actions.reload')"
-                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.stats_samples === true ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-              </svg>
-              <span x-text="t('actions.reload')"></span>
-            </button>
-          </div>
+<!--suppress ALL -->
+<div x-show="statsTab==='samples'" class="space-y-4">
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
+           :aria-busy="_loadBusy.stats_samples === true ? 'true' : 'false'">
+    <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+          </svg>
+          <h3 class="font-semibold fs-md" x-text="t('stats.samples.title')"></h3>
+        </div>
+        <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.samples.hint')"></p>
+      </div>
+      <button type="button"
+              @click="_runWithBusy('stats_samples', () => loadStatsSamples())"
+              :disabled="_loadBusy.stats_samples === true"
+              :title="t('actions.reload')"
+              :aria-label="t('actions.reload')"
+              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="_loadBusy.stats_samples === true ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+        </svg>
+        <span x-text="t('actions.reload')"></span>
+      </button>
+    </div>
 
-          <div x-show="!statsSamplesLoaded" class="loading-state">
-            <span class="spin-lg" aria-hidden="true"></span>
-            <span x-text="t('loading.section')"></span>
-          </div>
+    <div x-show="!statsSamplesLoaded" class="loading-state">
+      <span class="spin-lg" aria-hidden="true"></span>
+      <span x-text="t('loading.section')"></span>
+    </div>
 
-          <div x-show="statsSamplesLoaded" class="p-5 space-y-5">
+    <div x-show="statsSamplesLoaded" class="p-5 space-y-5">
 
-            <!-- Grand total card -->
-            <div class="stats-card" style="cursor:default">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.samples.grand_total.label')"></div>
-                <div class="stats-card-value mono" x-text="Number((statsSamples.grand_total || 0)).toLocaleString()"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.samples.grand_total.sub', { count: (statsSamples.tables || []).length })"></div>
-              </div>
-            </div>
+      <!-- Grand total card -->
+      <div class="stats-card" style="cursor:default">
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.samples.grand_total.label')"></div>
+          <div class="stats-card-value mono" x-text="Number((statsSamples.grand_total || 0)).toLocaleString()"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.samples.grand_total.sub', { count: (statsSamples.tables || []).length })"></div>
+        </div>
+      </div>
 
-            <hr class="border-[var(--border)] my-2">
+      <hr class="border-[var(--border)] my-2">
 
-            <!-- Per-table breakdown — sorted client-side by rows desc
-                 for at-a-glance "which sample family writes most". -->
-            <div>
-              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.samples.tables.title')"></h4>
-              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.samples.tables.hint')"></p>
-              <div class="overflow-x-auto scrollbar">
-                <table class="w-full fs-sm">
-                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
-                    <tr>
-                      <!-- Sortable column headers — `<button>` inside
-                           `<th>` so the interactive surface is a real
-                           button (keyboard / AT support) and the
-                           `<th>` carries the `aria-sort` direction per
-                           WAI-ARIA 1.2 column-header pattern. The
-                           `_sortAria` helper returns 'none' /
-                           'ascending' / 'descending' from
-                           (currentField, currentDir) per the canonical
-                           shape — same pattern the AI partial's sort
-                           headers already use. -->
-                      <th class="text-start px-4 py-2"
-                          :aria-sort="_sortAria('provider', statsSamplesSortBy, statsSamplesSortDir)">
-                        <button type="button"
-                                class="w-full text-start cursor-pointer select-none hover:text-[var(--text)]"
-                                @click="sortStatsSamplesBy('provider')">
-                          <span x-text="t('stats.samples.tables.col_provider') + _statsSamplesSortIndicator('provider')"></span>
-                        </button>
-                      </th>
-                      <th class="text-start px-4 py-2"
-                          :aria-sort="_sortAria('name', statsSamplesSortBy, statsSamplesSortDir)">
-                        <button type="button"
-                                class="w-full text-start cursor-pointer select-none hover:text-[var(--text)]"
-                                @click="sortStatsSamplesBy('name')">
-                          <span x-text="t('stats.samples.tables.col_name') + _statsSamplesSortIndicator('name')"></span>
-                        </button>
-                      </th>
-                      <th class="text-start px-4 py-2"
-                          :aria-sort="_sortAria('kind', statsSamplesSortBy, statsSamplesSortDir)">
-                        <button type="button"
-                                class="w-full text-start cursor-pointer select-none hover:text-[var(--text)]"
-                                @click="sortStatsSamplesBy('kind')">
-                          <span x-text="t('stats.samples.tables.col_kind') + _statsSamplesSortIndicator('kind')"></span>
-                        </button>
-                      </th>
-                      <th class="text-end px-4 py-2"
-                          :aria-sort="_sortAria('rows', statsSamplesSortBy, statsSamplesSortDir)">
-                        <button type="button"
-                                class="w-full text-end cursor-pointer select-none hover:text-[var(--text)]"
-                                @click="sortStatsSamplesBy('rows')">
-                          <span x-text="t('stats.samples.tables.col_rows') + _statsSamplesSortIndicator('rows')"></span>
-                        </button>
-                      </th>
-                      <th class="text-end px-4 py-2"
-                          :aria-sort="_sortAria('unique_hosts', statsSamplesSortBy, statsSamplesSortDir)">
-                        <button type="button"
-                                class="w-full text-end cursor-pointer select-none hover:text-[var(--text)]"
-                                @click="sortStatsSamplesBy('unique_hosts')">
-                          <span x-text="t('stats.samples.tables.col_hosts') + _statsSamplesSortIndicator('unique_hosts')"></span>
-                        </button>
-                      </th>
-                      <th class="text-start px-4 py-2"
-                          :aria-sort="_sortAria('oldest_ts', statsSamplesSortBy, statsSamplesSortDir)">
-                        <button type="button"
-                                class="w-full text-start cursor-pointer select-none hover:text-[var(--text)]"
-                                @click="sortStatsSamplesBy('oldest_ts')">
-                          <span x-text="t('stats.samples.tables.col_oldest') + _statsSamplesSortIndicator('oldest_ts')"></span>
-                        </button>
-                      </th>
-                      <th class="text-start px-4 py-2"
-                          :aria-sort="_sortAria('newest_ts', statsSamplesSortBy, statsSamplesSortDir)">
-                        <button type="button"
-                                class="w-full text-start cursor-pointer select-none hover:text-[var(--text)]"
-                                @click="sortStatsSamplesBy('newest_ts')">
-                          <span x-text="t('stats.samples.tables.col_newest') + _statsSamplesSortIndicator('newest_ts')"></span>
-                        </button>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="row in _statsSamplesSorted()" :key="row.name">
-                      <!-- Whole-row click opens the per-provider
-                           drill-down modal. Error rows + zero-row
-                           rows skip the open (no useful detail to
-                           render). `cursor: pointer` only when the
-                           row is openable so the affordance is
-                           honest. -->
-                      <tr class="border-t border-[var(--border)] hover:bg-[var(--surface-2)] transition"
-                          :class="row.error ? 'opacity-60 cursor-default' : (Number(row.rows || 0) > 0 ? 'cursor-pointer' : 'cursor-default')"
-                          @click="if (!row.error && Number(row.rows || 0) > 0) openStatsSamplesDrillDown(row)"
-                          :title="(!row.error && Number(row.rows || 0) > 0) ? t('stats.samples.drill_down.open_title') : ''">
-                        <td class="px-4 py-2 mono fs-xs">
+      <!-- Per-table breakdown — sorted client-side by rows desc
+           for at-a-glance "which sample family writes most". -->
+      <div>
+        <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.samples.tables.title')"></h4>
+        <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.samples.tables.hint')"></p>
+        <div class="overflow-x-auto scrollbar">
+          <table class="w-full fs-sm">
+            <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+            <tr>
+              <!-- Sortable column headers — `<button>` inside
+                   `<th>` so the interactive surface is a real
+                   button (keyboard / AT support) and the
+                   `<th>` carries the `aria-sort` direction per
+                   WAI-ARIA 1.2 column-header pattern. The
+                   `_sortAria` helper returns 'none' /
+                   'ascending' / 'descending' from
+                   (currentField, currentDir) per the canonical
+                   shape — same pattern the AI partial's sort
+                   headers already use. -->
+              <th class="text-start px-4 py-2"
+                  :aria-sort="_sortAria('provider', statsSamplesSortBy, statsSamplesSortDir)">
+                <button type="button"
+                        class="w-full text-start cursor-pointer select-none hover:text-[var(--text)]"
+                        @click="sortStatsSamplesBy('provider')">
+                  <span x-text="t('stats.samples.tables.col_provider') + _statsSamplesSortIndicator('provider')"></span>
+                </button>
+              </th>
+              <th class="text-start px-4 py-2"
+                  :aria-sort="_sortAria('name', statsSamplesSortBy, statsSamplesSortDir)">
+                <button type="button"
+                        class="w-full text-start cursor-pointer select-none hover:text-[var(--text)]"
+                        @click="sortStatsSamplesBy('name')">
+                  <span x-text="t('stats.samples.tables.col_name') + _statsSamplesSortIndicator('name')"></span>
+                </button>
+              </th>
+              <th class="text-start px-4 py-2"
+                  :aria-sort="_sortAria('kind', statsSamplesSortBy, statsSamplesSortDir)">
+                <button type="button"
+                        class="w-full text-start cursor-pointer select-none hover:text-[var(--text)]"
+                        @click="sortStatsSamplesBy('kind')">
+                  <span x-text="t('stats.samples.tables.col_kind') + _statsSamplesSortIndicator('kind')"></span>
+                </button>
+              </th>
+              <th class="text-end px-4 py-2"
+                  :aria-sort="_sortAria('rows', statsSamplesSortBy, statsSamplesSortDir)">
+                <button type="button"
+                        class="w-full text-end cursor-pointer select-none hover:text-[var(--text)]"
+                        @click="sortStatsSamplesBy('rows')">
+                  <span x-text="t('stats.samples.tables.col_rows') + _statsSamplesSortIndicator('rows')"></span>
+                </button>
+              </th>
+              <th class="text-end px-4 py-2"
+                  :aria-sort="_sortAria('unique_hosts', statsSamplesSortBy, statsSamplesSortDir)">
+                <button type="button"
+                        class="w-full text-end cursor-pointer select-none hover:text-[var(--text)]"
+                        @click="sortStatsSamplesBy('unique_hosts')">
+                  <span x-text="t('stats.samples.tables.col_hosts') + _statsSamplesSortIndicator('unique_hosts')"></span>
+                </button>
+              </th>
+              <th class="text-start px-4 py-2"
+                  :aria-sort="_sortAria('oldest_ts', statsSamplesSortBy, statsSamplesSortDir)">
+                <button type="button"
+                        class="w-full text-start cursor-pointer select-none hover:text-[var(--text)]"
+                        @click="sortStatsSamplesBy('oldest_ts')">
+                  <span x-text="t('stats.samples.tables.col_oldest') + _statsSamplesSortIndicator('oldest_ts')"></span>
+                </button>
+              </th>
+              <th class="text-start px-4 py-2"
+                  :aria-sort="_sortAria('newest_ts', statsSamplesSortBy, statsSamplesSortDir)">
+                <button type="button"
+                        class="w-full text-start cursor-pointer select-none hover:text-[var(--text)]"
+                        @click="sortStatsSamplesBy('newest_ts')">
+                  <span x-text="t('stats.samples.tables.col_newest') + _statsSamplesSortIndicator('newest_ts')"></span>
+                </button>
+              </th>
+            </tr>
+            </thead>
+            <tbody>
+            <template x-for="row in _statsSamplesSorted()" :key="row.name">
+              <!-- Whole-row click opens the per-provider
+                   drill-down modal. Error rows + zero-row
+                   rows skip the open (no useful detail to
+                   render). `cursor: pointer` only when the
+                   row is openable so the affordance is
+                   honest. -->
+              <tr class="border-t border-[var(--border)] hover:bg-[var(--surface-2)] transition"
+                  :class="row.error ? 'opacity-60 cursor-default' : (Number(row.rows || 0) > 0 ? 'cursor-pointer' : 'cursor-default')"
+                  @click="if (!row.error && Number(row.rows || 0) > 0) openStatsSamplesDrillDown(row)"
+                  :title="(!row.error && Number(row.rows || 0) > 0) ? t('stats.samples.drill_down.open_title') : ''">
+                <td class="px-4 py-2 mono fs-xs">
                           <span class="chip pill-custom fs-3xs uppercase"
                                 :style="providerChipStyle(row.provider)"
                                 x-text="row.provider"></span>
-                        </td>
-                        <td class="px-4 py-2 mono" x-text="row.name"></td>
-                        <td class="px-4 py-2 fs-xs text-[var(--text-dim)]" x-text="row.kind"></td>
-                        <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.rows || 0).toLocaleString()"></td>
-                        <td class="px-4 py-2 mono text-end" x-text="row.unique_hosts != null ? Number(row.unique_hosts).toLocaleString() : '—'"></td>
-                        <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
-                            :title="row.oldest_ts ? fmtDate(row.oldest_ts) : ''"
-                            x-text="row.oldest_ts ? fmtDate(row.oldest_ts) : '—'"></td>
-                        <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
-                            :title="row.newest_ts ? fmtDate(row.newest_ts) : ''"
-                            x-text="row.newest_ts ? fmtDate(row.newest_ts) : '—'"></td>
-                      </tr>
-                    </template>
-                    <tr x-show="!(statsSamples.tables || []).length">
-                      <td colspan="7" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.samples.tables.empty')"></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                </td>
+                <td class="px-4 py-2 mono" x-text="row.name"></td>
+                <td class="px-4 py-2 fs-xs text-[var(--text-dim)]" x-text="row.kind"></td>
+                <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.rows || 0).toLocaleString()"></td>
+                <td class="px-4 py-2 mono text-end" x-text="row.unique_hosts != null ? Number(row.unique_hosts).toLocaleString() : '—'"></td>
+                <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
+                    :title="row.oldest_ts ? fmtDate(row.oldest_ts) : ''"
+                    x-text="row.oldest_ts ? fmtDate(row.oldest_ts) : '—'"></td>
+                <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
+                    :title="row.newest_ts ? fmtDate(row.newest_ts) : ''"
+                    x-text="row.newest_ts ? fmtDate(row.newest_ts) : '—'"></td>
+              </tr>
+            </template>
+            <tr x-show="!(statsSamples.tables || []).length">
+              <td colspan="7" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.samples.tables.empty')"></td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-            <hr class="border-[var(--border)] my-2">
+      <hr class="border-[var(--border)] my-2">
 
-            <!-- Samples-written chart — sums every sample-bearing
-                 table's rows per bucket over the operator-selected
-                 range. Backend (`/api/admin/stats/samples?range=X`)
-                 returns `bucket_totals: [{date, total}, ...]` already
-                 sorted ASC, ZERO-FILLED for missing buckets so the
-                 chart shows a contiguous timeline. SVG-based with
-                 proper x + y axis labels (operator-flagged the prior
-                 CSS bar chart for missing axis values). Per-section
-                 range picker (1h / 24h / 7d / 30d / 90d) — the rest
-                 of the Samples tab stays all-time. -->
-            <div>
-              <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                <h4 class="font-semibold fs-sm" x-text="t('stats.samples.daily_chart.title')"></h4>
-                <!-- Range picker — same segmented control pattern as
-                     the Incidents window picker at the top of the
-                     stats page. Click reloads the chart with the new
-                     bucket size; the Samples table sections above
-                     don't refetch. -->
-                <div class="flex items-center gap-2">
-                  <!-- Delegates to the shared `og-range-picker` component.
-                       String options (`'1h'` / `'24h'` / ...) match the
-                       backend's range query param shape; the loader
-                       wraps in `_runWithBusy` so the inline spinner +
-                       section Reload button reflect the in-flight
-                       refetch. -->
-                  <div x-data="{
-                         rpOptions: ['1h', '24h', '7d', '30d', '90d'].map(o => ({
-                           value: o,
-                           label: t('stats.range.range_' + o)
-                         })),
-                         get rpCurrent() { return statsSamples.range || statsSamplesRange; },
-                         rpOnChange: (v) => _runWithBusy('stats_samples', () => loadStatsSamples(v)),
-                         rpAriaLabel: t('stats.samples.daily_chart.range_label')
-                       }">
-                    <!-- INCLUDE: _components/og-range-picker.html -->
-                  </div>
-                  <!-- Inline spinner — same `spin-md` glyph as the
-                       Reload button at the section header so operators
-                       get visual feedback as soon as a chip is clicked,
-                       even before the chart re-renders. -->
-                  <svg x-show="_loadBusy.stats_samples === true"
-                       width="13" height="13" class="spin-md text-[var(--text-dim)]" aria-hidden="true">
-                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-                  </svg>
-                </div>
-              </div>
-              <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('stats.samples.daily_chart.hint')"></p>
-
-              <div x-show="!(statsSamples.bucket_totals || statsSamples.daily_totals || []).length"
-                   class="text-center py-8 fs-sm text-[var(--text-faint)] italic"
-                   x-text="t('stats.samples.daily_chart.empty')"></div>
-
-              <div x-show="(statsSamples.bucket_totals || statsSamples.daily_totals || []).length"
-                   :class="_loadBusy.stats_samples === true ? 'chart-loading' : ''"
-                   class="bg-[var(--bg)] border border-[var(--border)] rounded-md p-3">
-                <!-- SVG bar chart with proper x + y axes. See
-                     `_renderSamplesBucketChart()` in static/js/app.js
-                     for the full renderer. The container's
-                     `x-html` re-evaluates whenever statsSamples
-                     changes, so the range-picker click → loadStatsSamples
-                     → response → redraw cycle is implicit. -->
-                <div x-html="_renderSamplesBucketChart(statsSamples.bucket_totals || statsSamples.daily_totals || [], statsSamples.range || statsSamplesRange)"></div>
-                <div class="flex justify-between items-center mt-2 fs-2xs text-[var(--text-dim)]">
-                  <span x-text="t('stats.samples.daily_chart.legend_total', { n: Number((statsSamples.bucket_totals || statsSamples.daily_totals || []).reduce((a, d) => a + (d.total || 0), 0)).toLocaleString() })"></span>
-                  <span x-text="t('stats.samples.daily_chart.legend_days', { n: (statsSamples.bucket_totals || statsSamples.daily_totals || []).length })"></span>
-                </div>
-              </div>
-            </div>
-
-            <hr class="border-[var(--border)] my-2">
-
-            <!-- Errors block — surfaces tables that couldn't be queried.
-                 Usually means the schema didn't ship them yet (fresh
-                 deploy, sampler never ran). Hidden when empty. -->
-            <div x-show="(statsSamples.errors || []).length"
-                 class="rounded-md p-3 fs-xs bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]">
-              <div class="font-semibold mb-1" x-text="t('stats.samples.errors.title')"></div>
-              <ul class="mono space-y-0.5">
-                <template x-for="e in (statsSamples.errors || [])" :key="e.table">
-                  <li><span x-text="e.table"></span>: <span class="text-[var(--text-faint)]" x-text="e.error"></span></li>
-                </template>
-              </ul>
-            </div>
-
+      <!-- Samples-written chart — sums every sample-bearing
+           table's rows per bucket over the operator-selected
+           range. Backend (`/api/admin/stats/samples?range=X`)
+           returns `bucket_totals: [{date, total}, ...]` already
+           sorted ASC, ZERO-FILLED for missing buckets so the
+           chart shows a contiguous timeline. SVG-based with
+           proper x + y axis labels (operator-flagged the prior
+           CSS bar chart for missing axis values). Per-section
+           range picker (1h / 24h / 7d / 30d / 90d) — the rest
+           of the Samples tab stays all-time. -->
+      <div>
+        <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.samples.daily_chart.title')"></h4>
+        <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('stats.samples.daily_chart.hint')"></p>
+        <!-- Range picker + Reload button paired in their own
+             row BELOW the heading + hint — matches the network
+             tab's picker-plus-reload pattern so every stats
+             sub-tab uses the same affordance shape. Click on a
+             chip reloads the chart with the new bucket size;
+             the Samples table sections above don't refetch. -->
+        <div class="flex items-center gap-2 flex-wrap mb-3">
+          <!-- Delegates to the shared `og-range-picker` component.
+               String options (`'1h'` / `'24h'` / ...) match the
+               backend's range query param shape; the loader
+               wraps in `_runWithBusy` so the Reload button +
+               section-header Reload button reflect the in-flight
+               refetch. -->
+          <div x-data="{
+                       rpOptions: ['1h', '24h', '7d', '30d', '90d'].map(o => ({
+                         value: o,
+                         label: t('stats.range.range_' + o)
+                       })),
+                       get rpCurrent() { return statsSamples.range || statsSamplesRange; },
+                       rpOnChange: (v) => _runWithBusy('stats_samples', () => loadStatsSamples(v)),
+                       rpAriaLabel: t('stats.samples.daily_chart.range_label')
+                     }">
+            <!-- INCLUDE: _components/og-range-picker.html -->
           </div>
-        </section>
+          <button type="button"
+                  @click="_runWithBusy('stats_samples', () => loadStatsSamples(statsSamples.range || statsSamplesRange))"
+                  :disabled="_loadBusy.stats_samples === true"
+                  :title="t('actions.reload')"
+                  :aria-label="t('actions.reload')"
+                  class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+            <svg width="13" height="13" :class="_loadBusy.stats_samples === true ? 'spin-md' : ''" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+            </svg>
+            <span x-text="t('actions.reload')"></span>
+          </button>
+        </div>
 
-        <!-- Per-provider drill-down modal. Opens on row click in the
-             per-table breakdown above; lists every host's row count
-             for the picked sample-bearing table sorted DESC. Footer
-             total cross-checks against the outer per-table count
-             (operator-flagged: "make sure the total count matches on
-             both, sum of all hosts displayed in popup is equal the
-             outside number"). Click backdrop / Esc / ✕ to close. -->
-        <div x-show="statsSamplesDrillDown.open"
-             class="fixed inset-0 z-50 flex items-center justify-center p-4"
-             style="background: var(--backdrop)"
-             @click.self="closeStatsSamplesDrillDown()"
-             @keydown.escape.window="if (statsSamplesDrillDown.open) closeStatsSamplesDrillDown()"
-             x-cloak>
-          <!-- role="dialog" + aria-modal + focus-trap wired to match
-               every modal in static/index.html (canonical pattern). -->
-          <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md shadow-lg w-full max-w-2xl max-h-[80vh] flex flex-col"
-               role="dialog" aria-modal="true"
-               :aria-label="t('stats.samples.drill_down.title')"
-               @keydown="statsSamplesDrillDown.open && _focusTrapKeydown($event, $el)">
-            <!-- Header -->
-            <div class="p-4 border-b border-[var(--border)] flex justify-between items-center gap-3">
-              <div class="min-w-0">
-                <h3 class="font-semibold fs-md truncate"
-                    x-text="t('stats.samples.drill_down.title', { label: statsSamplesDrillDown.label })"></h3>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                   x-text="t('stats.samples.drill_down.hint')"></p>
-              </div>
-              <button type="button"
-                      class="user-action-btn"
-                      @click="closeStatsSamplesDrillDown()"
-                      :title="t('actions.close')"
-                      :aria-label="t('actions.close')">
-                <svg width="14" height="14" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
-                </svg>
-              </button>
-            </div>
+        <div x-show="!(statsSamples.bucket_totals || statsSamples.daily_totals || []).length"
+             class="text-center py-8 fs-sm text-[var(--text-faint)] italic"
+             x-text="t('stats.samples.daily_chart.empty')"></div>
 
-            <!-- Loading state -->
-            <div x-show="statsSamplesDrillDown.loading" class="loading-state">
-              <span class="spin-lg" aria-hidden="true"></span>
-              <span x-text="t('loading.section')"></span>
-            </div>
-
-            <!-- Error banner -->
-            <div x-show="!statsSamplesDrillDown.loading && statsSamplesDrillDown.error"
-                 class="m-4 rounded-md p-3 fs-xs bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]"
-                 x-text="statsSamplesDrillDown.error"></div>
-
-            <!-- Body — per-host rows (sorted DESC server-side). -->
-            <div x-show="!statsSamplesDrillDown.loading && !statsSamplesDrillDown.error"
-                 class="flex-1 overflow-y-auto scrollbar">
-              <table class="w-full fs-sm">
-                <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)] sticky top-0">
-                  <tr>
-                    <th class="text-start px-4 py-2" x-text="t('stats.samples.drill_down.col_host')"></th>
-                    <th class="text-end px-4 py-2" x-text="t('stats.samples.drill_down.col_rows')"></th>
-                    <th class="px-2 py-2 w-12"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <template x-for="row in (statsSamplesDrillDown.rows || [])" :key="row.host_id || '<unknown>'">
-                    <tr class="border-t border-[var(--border)]"
-                        :class="row.curated ? 'cursor-pointer hover:bg-[var(--surface-2)] transition' : 'opacity-70'"
-                        @click="if (row.curated && row.host_id) { closeStatsSamplesDrillDown(); openHostDrawerById(row.host_id); }"
-                        :title="row.curated ? t('stats.samples.drill_down.row_open_title') : t('stats.samples.drill_down.row_orphan_title')">
-                      <td class="px-4 py-2">
-                        <div class="mono fs-xs" x-text="row.host_id || '—'"></div>
-                        <!-- Curated label — operator-readable "what
-                             is this host?". Renders dim under the
-                             host_id when set. -->
-                        <div class="fs-3xs text-[var(--text-dim)] mt-0.5"
-                             x-show="row.label"
-                             x-text="row.label"></div>
-                        <!-- Per-provider name aliases — useful when
-                             the operator pastes a Beszel / Pulse /
-                             SNMP / Webmin name from a different UI
-                             and needs to match it back to the curated
-                             id. Each chip only renders when the alias
-                             is set + DIFFERS from the curated id. -->
-                        <div class="flex flex-wrap gap-1 mt-1 fs-3xs"
-                             x-show="(row.address && row.address !== row.host_id) || (row.beszel_name && row.beszel_name !== row.host_id) || (row.pulse_name && row.pulse_name !== row.host_id) || (row.snmp_name && row.snmp_name !== row.host_id) || (row.webmin_name && row.webmin_name !== row.host_id)">
-                          <!-- `address` field carries TWO different
-                               meanings depending on the table:
-                                 - host_col === 'item_id': the
-                                   container's image (e.g.
-                                   "traefik:v2.10"). Chip title shifts
-                                   to "Image".
-                                 - else: the curated host's `address`
-                                   field (canonical probe target). -->
-                          <span x-show="row.address && row.address !== row.host_id"
-                                class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
-                                :title="statsSamplesDrillDown.host_col === 'item_id' ? t('stats.samples.drill_down.alias_image') : t('stats.samples.drill_down.alias_address')"
-                                x-text="(statsSamplesDrillDown.host_col === 'item_id' ? 'image: ' : '') + row.address"></span>
-                          <span x-show="row.beszel_name && row.beszel_name !== row.host_id"
-                                class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
-                                :title="t('stats.samples.drill_down.alias_beszel')"
-                                x-text="'beszel: ' + row.beszel_name"></span>
-                          <span x-show="row.pulse_name && row.pulse_name !== row.host_id"
-                                class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
-                                :title="t('stats.samples.drill_down.alias_pulse')"
-                                x-text="'pulse: ' + row.pulse_name"></span>
-                          <span x-show="row.snmp_name && row.snmp_name !== row.host_id"
-                                class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
-                                :title="t('stats.samples.drill_down.alias_snmp')"
-                                x-text="'snmp: ' + row.snmp_name"></span>
-                          <span x-show="row.webmin_name && row.webmin_name !== row.host_id"
-                                class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
-                                :title="t('stats.samples.drill_down.alias_webmin')"
-                                x-text="'webmin: ' + row.webmin_name"></span>
-                        </div>
-                        <!-- Orphan marker. Context-aware: the
-                             Portainer `stats_samples` table uses
-                             `item_id` (container ids like
-                             `ctn:abc123`) which won't match a curated
-                             HOST id by design — those are containers,
-                             not hosts. Render a distinct "container
-                             no longer running" marker for that case
-                             instead of the misleading "host removed"
-                             text. -->
-                        <div class="fs-3xs italic text-[var(--text-faint)] mt-0.5"
-                             x-show="!row.curated && row.host_id">
-                          <span x-show="statsSamplesDrillDown.host_col === 'item_id'"
-                                x-text="t('stats.samples.drill_down.orphan_marker_item')"></span>
-                          <span x-show="statsSamplesDrillDown.host_col !== 'item_id'"
-                                x-text="t('stats.samples.drill_down.orphan_marker')"></span>
-                        </div>
-                      </td>
-                      <td class="px-4 py-2 mono text-end font-semibold align-top" x-text="Number(row.rows || 0).toLocaleString()"></td>
-                      <!-- Delete-orphan column. Only renders for orphan
-                           rows (host_id has no matching curated entry).
-                           Click → SwAl confirm → DELETE backend → modal
-                           re-fetches so the row disappears. Audited as
-                           `samples_prune_orphan`. -->
-                      <td class="px-2 py-2 text-end align-top">
-                        <!-- Defensive map-or-empty access so a state-
-                             shape change can't reintroduce the
-                             "Delete looks permanently disabled" bug
-                             (Alpine's error-trap falls back to truthy
-                             when reading `[key]` on undefined). -->
-                        <button type="button"
-                                x-show="!row.curated && row.host_id"
-                                @click.stop="pruneStatsSampleRows(row)"
-                                :disabled="!!(statsSamplesDrillDown.pruning || {})[row.host_id]"
-                                class="user-action-btn user-action-btn--danger"
-                                :title="t('stats.samples.drill_down.prune_button_title')"
-                                :aria-label="t('stats.samples.drill_down.prune_button_aria')">
-                          <svg width="13" height="13"
-                               :class="(statsSamplesDrillDown.pruning || {})[row.host_id] ? 'spin-md' : ''"
-                               aria-hidden="true">
-                            <use :href="(statsSamplesDrillDown.pruning || {})[row.host_id]
-                                        ? '/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw'
-                                        : '/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2'"/>
-                          </svg>
-                        </button>
-                      </td>
-                    </tr>
-                  </template>
-                  <tr x-show="!(statsSamplesDrillDown.rows || []).length">
-                    <td colspan="3" class="text-center py-6 text-[var(--text-faint)]"
-                        x-text="t('stats.samples.drill_down.empty')"></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <!-- Footer — total cross-checks the outer row count. A
-                 mismatch is a SQL bug, not an expected divergence. -->
-            <div x-show="!statsSamplesDrillDown.loading && !statsSamplesDrillDown.error"
-                 class="p-4 border-t border-[var(--border)] flex justify-between items-center fs-xs bg-[var(--surface-2)]">
-              <span class="text-[var(--text-dim)]"
-                    x-text="t('stats.samples.drill_down.footer_total', { total: Number(statsSamplesDrillDown.total || 0).toLocaleString(), outer: Number(statsSamplesDrillDown.outer || 0).toLocaleString() })"></span>
-              <span x-show="Number(statsSamplesDrillDown.total || 0) !== Number(statsSamplesDrillDown.outer || 0)"
-                    class="text-[var(--danger)] font-semibold"
-                    x-text="t('stats.samples.drill_down.mismatch_warn')"></span>
-              <span x-show="Number(statsSamplesDrillDown.total || 0) === Number(statsSamplesDrillDown.outer || 0) && Number(statsSamplesDrillDown.total || 0) > 0"
-                    class="text-[var(--success)]"
-                    x-text="t('stats.samples.drill_down.match_ok')"></span>
-            </div>
+        <div x-show="(statsSamples.bucket_totals || statsSamples.daily_totals || []).length"
+             :class="_loadBusy.stats_samples === true ? 'chart-loading' : ''"
+             class="bg-[var(--bg)] border border-[var(--border)] rounded-md p-3">
+          <!-- SVG bar chart with proper x + y axes. See
+               `_renderSamplesBucketChart()` in static/js/app.js
+               for the full renderer. The container's
+               `x-html` re-evaluates whenever statsSamples
+               changes, so the range-picker click → loadStatsSamples
+               → response → redraw cycle is implicit. -->
+          <div x-html="_renderSamplesBucketChart(statsSamples.bucket_totals || statsSamples.daily_totals || [], statsSamples.range || statsSamplesRange)"></div>
+          <div class="flex justify-between items-center mt-2 fs-2xs text-[var(--text-dim)]">
+            <span x-text="t('stats.samples.daily_chart.legend_total', { n: Number((statsSamples.bucket_totals || statsSamples.daily_totals || []).reduce((a, d) => a + (d.total || 0), 0)).toLocaleString() })"></span>
+            <span x-text="t('stats.samples.daily_chart.legend_days', { n: (statsSamples.bucket_totals || statsSamples.daily_totals || []).length })"></span>
           </div>
         </div>
       </div>
+
+      <hr class="border-[var(--border)] my-2">
+
+      <!-- Errors block — surfaces tables that couldn't be queried.
+           Usually means the schema didn't ship them yet (fresh
+           deploy, sampler never ran). Hidden when empty. -->
+      <div x-show="(statsSamples.errors || []).length"
+           class="rounded-md p-3 fs-xs bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]">
+        <div class="font-semibold mb-1" x-text="t('stats.samples.errors.title')"></div>
+        <ul class="mono space-y-0.5">
+          <template x-for="e in (statsSamples.errors || [])" :key="e.table">
+            <li><span x-text="e.table"></span>: <span class="text-[var(--text-faint)]" x-text="e.error"></span></li>
+          </template>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Per-provider drill-down modal. Opens on row click in the
+       per-table breakdown above; lists every host's row count
+       for the picked sample-bearing table sorted DESC. Footer
+       total cross-checks against the outer per-table count
+       (operator-flagged: "make sure the total count matches on
+       both, sum of all hosts displayed in popup is equal the
+       outside number"). Click backdrop / Esc / ✕ to close. -->
+  <div x-show="statsSamplesDrillDown.open"
+       class="fixed inset-0 z-50 flex items-center justify-center p-4"
+       style="background: var(--backdrop)"
+       @click.self="closeStatsSamplesDrillDown()"
+       @keydown.escape.window="if (statsSamplesDrillDown.open) closeStatsSamplesDrillDown()"
+       x-cloak>
+    <!-- role="dialog" + aria-modal + focus-trap wired to match
+         every modal in static/index.html (canonical pattern). -->
+    <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md shadow-lg w-full max-w-2xl max-h-[80vh] flex flex-col"
+         role="dialog" aria-modal="true"
+         :aria-label="t('stats.samples.drill_down.title')"
+         @keydown="statsSamplesDrillDown.open && _focusTrapKeydown($event, $el)">
+      <!-- Header -->
+      <div class="p-4 border-b border-[var(--border)] flex justify-between items-center gap-3">
+        <div class="min-w-0">
+          <h3 class="font-semibold fs-md truncate"
+              x-text="t('stats.samples.drill_down.title', { label: statsSamplesDrillDown.label })"></h3>
+          <p class="fs-2xs text-[var(--text-faint)] mt-1"
+             x-text="t('stats.samples.drill_down.hint')"></p>
+        </div>
+        <button type="button"
+                class="user-action-btn"
+                @click="closeStatsSamplesDrillDown()"
+                :title="t('actions.close')"
+                :aria-label="t('actions.close')">
+          <svg width="14" height="14" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Loading state -->
+      <div x-show="statsSamplesDrillDown.loading" class="loading-state">
+        <span class="spin-lg" aria-hidden="true"></span>
+        <span x-text="t('loading.section')"></span>
+      </div>
+
+      <!-- Error banner -->
+      <div x-show="!statsSamplesDrillDown.loading && statsSamplesDrillDown.error"
+           class="m-4 rounded-md p-3 fs-xs bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]"
+           x-text="statsSamplesDrillDown.error"></div>
+
+      <!-- Body — per-host rows (sorted DESC server-side). -->
+      <div x-show="!statsSamplesDrillDown.loading && !statsSamplesDrillDown.error"
+           class="flex-1 overflow-y-auto scrollbar">
+        <table class="w-full fs-sm">
+          <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)] sticky top-0">
+          <tr>
+            <th class="text-start px-4 py-2" x-text="t('stats.samples.drill_down.col_host')"></th>
+            <th class="text-end px-4 py-2" x-text="t('stats.samples.drill_down.col_rows')"></th>
+            <th class="px-2 py-2 w-12"></th>
+          </tr>
+          </thead>
+          <tbody>
+          <template x-for="row in (statsSamplesDrillDown.rows || [])" :key="row.host_id || '<unknown>'">
+            <tr class="border-t border-[var(--border)]"
+                :class="row.curated ? 'cursor-pointer hover:bg-[var(--surface-2)] transition' : 'opacity-70'"
+                @click="if (row.curated && row.host_id) { closeStatsSamplesDrillDown(); openHostDrawerById(row.host_id); }"
+                :title="row.curated ? t('stats.samples.drill_down.row_open_title') : t('stats.samples.drill_down.row_orphan_title')">
+              <td class="px-4 py-2">
+                <div class="mono fs-xs" x-text="row.host_id || '—'"></div>
+                <!-- Curated label — operator-readable "what
+                     is this host?". Renders dim under the
+                     host_id when set. -->
+                <div class="fs-3xs text-[var(--text-dim)] mt-0.5"
+                     x-show="row.label"
+                     x-text="row.label"></div>
+                <!-- Per-provider name aliases — useful when
+                     the operator pastes a Beszel / Pulse /
+                     SNMP / Webmin name from a different UI
+                     and needs to match it back to the curated
+                     id. Each chip only renders when the alias
+                     is set + DIFFERS from the curated id. -->
+                <div class="flex flex-wrap gap-1 mt-1 fs-3xs"
+                     x-show="(row.address && row.address !== row.host_id) || (row.beszel_name && row.beszel_name !== row.host_id) || (row.pulse_name && row.pulse_name !== row.host_id) || (row.snmp_name && row.snmp_name !== row.host_id) || (row.webmin_name && row.webmin_name !== row.host_id)">
+                  <!-- `address` field carries TWO different
+                       meanings depending on the table:
+                         - host_col === 'item_id': the
+                           container's image (e.g.
+                           "traefik:v2.10"). Chip title shifts
+                           to "Image".
+                         - else: the curated host's `address`
+                           field (canonical probe target). -->
+                  <span x-show="row.address && row.address !== row.host_id"
+                        class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
+                        :title="statsSamplesDrillDown.host_col === 'item_id' ? t('stats.samples.drill_down.alias_image') : t('stats.samples.drill_down.alias_address')"
+                        x-text="(statsSamplesDrillDown.host_col === 'item_id' ? 'image: ' : '') + row.address"></span>
+                  <span x-show="row.beszel_name && row.beszel_name !== row.host_id"
+                        class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
+                        :title="t('stats.samples.drill_down.alias_beszel')"
+                        x-text="'beszel: ' + row.beszel_name"></span>
+                  <span x-show="row.pulse_name && row.pulse_name !== row.host_id"
+                        class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
+                        :title="t('stats.samples.drill_down.alias_pulse')"
+                        x-text="'pulse: ' + row.pulse_name"></span>
+                  <span x-show="row.snmp_name && row.snmp_name !== row.host_id"
+                        class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
+                        :title="t('stats.samples.drill_down.alias_snmp')"
+                        x-text="'snmp: ' + row.snmp_name"></span>
+                  <span x-show="row.webmin_name && row.webmin_name !== row.host_id"
+                        class="px-1.5 py-0.5 rounded bg-[var(--surface-2)] mono text-[var(--text-faint)]"
+                        :title="t('stats.samples.drill_down.alias_webmin')"
+                        x-text="'webmin: ' + row.webmin_name"></span>
+                </div>
+                <!-- Orphan marker. Context-aware: the
+                     Portainer `stats_samples` table uses
+                     `item_id` (container ids like
+                     `ctn:abc123`) which won't match a curated
+                     HOST id by design — those are containers,
+                     not hosts. Render a distinct "container
+                     no longer running" marker for that case
+                     instead of the misleading "host removed"
+                     text. -->
+                <div class="fs-3xs italic text-[var(--text-faint)] mt-0.5"
+                     x-show="!row.curated && row.host_id">
+                          <span x-show="statsSamplesDrillDown.host_col === 'item_id'"
+                                x-text="t('stats.samples.drill_down.orphan_marker_item')"></span>
+                  <span x-show="statsSamplesDrillDown.host_col !== 'item_id'"
+                        x-text="t('stats.samples.drill_down.orphan_marker')"></span>
+                </div>
+              </td>
+              <td class="px-4 py-2 mono text-end font-semibold align-top" x-text="Number(row.rows || 0).toLocaleString()"></td>
+              <!-- Delete-orphan column. Only renders for orphan
+                   rows (host_id has no matching curated entry).
+                   Click → SwAl confirm → DELETE backend → modal
+                   re-fetches so the row disappears. Audited as
+                   `samples_prune_orphan`. -->
+              <td class="px-2 py-2 text-end align-top">
+                <!-- Defensive map-or-empty access so a state-
+                     shape change can't reintroduce the
+                     "Delete looks permanently disabled" bug
+                     (Alpine's error-trap falls back to truthy
+                     when reading `[key]` on undefined). -->
+                <button type="button"
+                        x-show="!row.curated && row.host_id"
+                        @click.stop="pruneStatsSampleRows(row)"
+                        :disabled="!!(statsSamplesDrillDown.pruning || {})[row.host_id]"
+                        class="user-action-btn user-action-btn--danger"
+                        :title="t('stats.samples.drill_down.prune_button_title')"
+                        :aria-label="t('stats.samples.drill_down.prune_button_aria')">
+                  <svg width="13" height="13"
+                       :class="(statsSamplesDrillDown.pruning || {})[row.host_id] ? 'spin-md' : ''"
+                       aria-hidden="true">
+                    <use :href="(statsSamplesDrillDown.pruning || {})[row.host_id]
+                                        ? '/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw'
+                                        : '/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2'"/>
+                  </svg>
+                </button>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="!(statsSamplesDrillDown.rows || []).length">
+            <td colspan="3" class="text-center py-6 text-[var(--text-faint)]"
+                x-text="t('stats.samples.drill_down.empty')"></td>
+          </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Footer — total cross-checks the outer row count. A
+           mismatch is a SQL bug, not an expected divergence. -->
+      <div x-show="!statsSamplesDrillDown.loading && !statsSamplesDrillDown.error"
+           class="p-4 border-t border-[var(--border)] flex justify-between items-center fs-xs bg-[var(--surface-2)]">
+              <span class="text-[var(--text-dim)]"
+                    x-text="t('stats.samples.drill_down.footer_total', { total: Number(statsSamplesDrillDown.total || 0).toLocaleString(), outer: Number(statsSamplesDrillDown.outer || 0).toLocaleString() })"></span>
+        <span x-show="Number(statsSamplesDrillDown.total || 0) !== Number(statsSamplesDrillDown.outer || 0)"
+              class="text-[var(--danger)] font-semibold"
+              x-text="t('stats.samples.drill_down.mismatch_warn')"></span>
+        <span x-show="Number(statsSamplesDrillDown.total || 0) === Number(statsSamplesDrillDown.outer || 0) && Number(statsSamplesDrillDown.total || 0) > 0"
+              class="text-[var(--success)]"
+              x-text="t('stats.samples.drill_down.match_ok')"></span>
+      </div>
+    </div>
+  </div>
+</div>

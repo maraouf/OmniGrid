@@ -1,43 +1,44 @@
 <!doctype html>
+<!--suppress ALL -->
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-<title data-i18n-title="login.tab_title">OmniGrid — Sign in</title>
-<script>
-  (function () {
-    let pref = localStorage.getItem('theme') || 'auto';
-    let sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
-    let resolved = pref === 'auto' ? (sysLight ? 'light' : 'dark') : pref;
-    document.documentElement.setAttribute('data-theme', resolved);
-    // Apply the persisted language + direction ASAP so the login form
-    // doesn't flash in the wrong direction. The full i18n helper below
-    // handles dict loading and string substitution.
-    let lang = localStorage.getItem('lang') || 'en';
-    document.documentElement.setAttribute('lang', lang);
-    document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
-  })();
-</script>
-<link rel="icon" type="image/svg+xml" href="/img/logo/omnigrid.svg" />
-<link rel="icon" type="image/png" href="/img/logo/omnigrid.png" />
-<link rel="stylesheet" href="/css/style.css" />
-<!-- Shared i18n helper (same one the main SPA uses). Provides window.I18N
-     + window.t and resolves window.__i18nReady once the user's language
-     is loaded. login.js waits on that promise before sweeping the DOM. -->
-<script src="/js/i18n.js?v=__APP_VERSION__"></script>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <title data-i18n-title="login.tab_title">OmniGrid — Sign in</title>
+  <script>
+    (function () {
+      let pref = localStorage.getItem('theme') || 'auto';
+      let sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      let resolved = pref === 'auto' ? (sysLight ? 'light' : 'dark') : pref;
+      document.documentElement.setAttribute('data-theme', resolved);
+      // Apply the persisted language + direction ASAP so the login form
+      // doesn't flash in the wrong direction. The full i18n helper below
+      // handles dict loading and string substitution.
+      let lang = localStorage.getItem('lang') || 'en';
+      document.documentElement.setAttribute('lang', lang);
+      document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+    })();
+  </script>
+  <link rel="icon" type="image/svg+xml" href="/img/logo/omnigrid.svg"/>
+  <link rel="icon" type="image/png" href="/img/logo/omnigrid.png"/>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <!-- Shared i18n helper (same one the main SPA uses). Provides window.I18N
+       + window.t and resolves window.__i18nReady once the user's language
+       is loaded. login.js waits on that promise before sweeping the DOM. -->
+  <script src="/js/i18n.js?v=__APP_VERSION__"></script>
 </head>
 <body class="login">
- <div class="login-wrap">
-  <img src="/img/logo/omnigrid.svg" alt="OmniGrid" class="login-logo" />
+<div class="login-wrap">
+  <img src="/img/logo/omnigrid.svg" alt="OmniGrid" class="login-logo"/>
   <form class="login-card" id="login" autocomplete="on">
     <h1 data-i18n="app.name">OmniGrid</h1>
     <p class="sub" data-i18n="login.title">Sign in to continue.</p>
 
     <label for="u" data-i18n="login.username">Username</label>
-    <input id="u" name="username" type="text" autofocus required />
+    <input id="u" name="username" type="text" autofocus required/>
 
     <label for="p" data-i18n="login.password">Password</label>
-    <input id="p" name="password" type="password" required />
+    <input id="p" name="password" type="password" required/>
 
     <button type="submit" id="btn" data-i18n="login.sign_in">Sign in</button>
 
@@ -47,7 +48,7 @@
     <div class="sso-wrap" id="ssoWrap" hidden>
       <div class="sso-divider"><span data-i18n="login.or">or</span></div>
       <a class="btn-sso" id="ssoBtn" href="#">
-        <img src="/img/icons/authentik.svg" alt="" class="sso-icon" aria-hidden="true" />
+        <img src="/img/icons/authentik.svg" alt="" class="sso-icon" aria-hidden="true"/>
         <span data-i18n="login.sso_button">Sign in with Authentik</span>
       </a>
     </div>
@@ -56,7 +57,7 @@
 
     <div class="footer" id="ver"></div>
   </form>
- </div>
+</div>
 
 <!-- qrcode-generator: pure-JS QR rendering (no DOM dep, ~30 KB). Used by
      the TOTP setup step to render the otpauth:// URI as an SVG. Loaded

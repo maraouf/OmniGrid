@@ -18,6 +18,8 @@
 // `<slug>-dark.svg` under `static/img/icons/` AND add the slug here.
 // Operators who set `h.icon = '<slug>-dark'` explicitly bypass the
 // auto-swap (the `-dark` suffix is detected and short-circuits).
+// noinspection ALL
+
 const KNOWN_DARK_ICONS = new Set([
   // Pre-fix manual variants — also listed in KNOWN_ICONS as separate
   // slugs (`glinet-dark`, `portainer-dark`) for explicit-override
@@ -245,9 +247,13 @@ const CURATED_REFRESH_FIELDS = new Set([
 // async clipboard API isn't available (older browsers / iframes
 // without the clipboard permission).
 window.__ogCopyAiCode = function (btn) {
-  if (!btn) return;
+  if (!btn) {
+    return;
+  }
   const wrapper = btn.closest('.ai-resp-code-block');
-  if (!wrapper) return;
+  if (!wrapper) {
+    return;
+  }
   let body = '';
   try {
     body = JSON.parse(wrapper.dataset.code || '""');
@@ -302,7 +308,9 @@ function app() {
       return (window.I18N ? window.I18N.t(key, vars) : key);
     },
     async setLang(code) {
-      if (!code || code === this.lang) return;
+      if (!code || code === this.lang) {
+        return;
+      }
       try {
         await window.I18N.load(code);
         this.lang = code;
@@ -326,9 +334,13 @@ function app() {
     async persistUiLang(value) {
       // Skip API-token pseudo-users (negative ids) — /api/me/ui-prefs
       // returns 400 for them.
-      if (!this.me || !this.me.id || this.me.id < 0) return;
+      if (!this.me || !this.me.id || this.me.id < 0) {
+        return;
+      }
       const code = String(value || '').trim().toLowerCase();
-      if (!code) return;
+      if (!code) {
+        return;
+      }
       try {
         await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
@@ -720,7 +732,9 @@ function app() {
       try {
         const raw = localStorage.getItem('hostsConfigPage');
         const n = parseInt(raw, 10);
-        if (Number.isFinite(n) && n >= 1) return n;
+        if (Number.isFinite(n) && n >= 1) {
+          return n;
+        }
       } catch {}
       return 1;
     })(),
@@ -728,7 +742,9 @@ function app() {
       try {
         const raw = localStorage.getItem('hostsConfigPerPage');
         const n = parseInt(raw, 10);
-        if (Number.isFinite(n) && [10, 25, 50, 100, 200].includes(n)) return n;
+        if (Number.isFinite(n) && [10, 25, 50, 100, 200].includes(n)) {
+          return n;
+        }
       } catch {}
       return 50;
     })(),
@@ -796,7 +812,9 @@ function app() {
       try {
         const raw = localStorage.getItem('hostGroupsPage');
         const n = parseInt(raw, 10);
-        if (Number.isFinite(n) && n >= 1) return n;
+        if (Number.isFinite(n) && n >= 1) {
+          return n;
+        }
       } catch {}
       return 1;
     })(),
@@ -804,7 +822,9 @@ function app() {
       try {
         const raw = localStorage.getItem('hostGroupsPerPage');
         const n = parseInt(raw, 10);
-        if (Number.isFinite(n) && [10, 25, 50, 100, 200].includes(n)) return n;
+        if (Number.isFinite(n) && [10, 25, 50, 100, 200].includes(n)) {
+          return n;
+        }
       } catch {}
       return 50;
     })(),
@@ -935,12 +955,18 @@ function app() {
         const k = localStorage.getItem('refreshInterval');
         if (k != null) {
           const n = parseInt(k, 10);
-          if ([-1, 0, 30, 60, 300].includes(n)) return n;
+          if ([-1, 0, 30, 60, 300].includes(n)) {
+            return n;
+          }
         }
         const s = parseInt(localStorage.getItem('statsInterval') || '', 10);
-        if ([0, 30, 60, 300].includes(s)) return s;
+        if ([0, 30, 60, 300].includes(s)) {
+          return s;
+        }
         const a = parseInt(localStorage.getItem('autoRefresh') || '', 10);
-        if (Number.isFinite(a) && a >= 0) return [0, 30, 60, 300].includes(a) ? a : 60;
+        if (Number.isFinite(a) && a >= 0) {
+          return [0, 30, 60, 300].includes(a) ? a : 60;
+        }
         return -1;
       } catch { return -1; }
     })(),
@@ -1821,7 +1847,9 @@ function app() {
         // it out on the next page load and fell through to the
         // default). Whitelist now matches `setHostStatsTab`'s own
         // valid set so the persisted tab actually persists.
-        if (v && ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp'].includes(v)) return v;
+        if (v && ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp'].includes(v)) {
+          return v;
+        }
       } catch {}
       return 'beszel';
     })(),
@@ -1831,12 +1859,16 @@ function app() {
     notificationsTab: (() => {
       try {
         const v = localStorage.getItem('notificationsTab');
-        if (v && ['app', 'apprise', 'telegram'].includes(v)) return v;
+        if (v && ['app', 'apprise', 'telegram'].includes(v)) {
+          return v;
+        }
       } catch {}
       return 'app';
     })(),
     setNotificationsTab(name) {
-      if (!['app', 'apprise', 'telegram'].includes(name)) return;
+      if (!['app', 'apprise', 'telegram'].includes(name)) {
+        return;
+      }
       this.notificationsTab = name;
       try { localStorage.setItem('notificationsTab', name); } catch {}
     },
@@ -1902,7 +1934,9 @@ function app() {
         const obs = new MutationObserver(() => {
           // Debounce — multiple Alpine x-if toggles fire in bursts;
           // wrapping in microtask keeps the work tight.
-          if (this._wrapPwdScheduled) return;
+          if (this._wrapPwdScheduled) {
+            return;
+          }
           this._wrapPwdScheduled = true;
           queueMicrotask(() => {
             this._wrapPwdScheduled = false;
@@ -1965,7 +1999,9 @@ function app() {
         // the log doesn't spam over hours of usage.
         let _idleDebugBudget = 5;
         const _idleDebug = (_reason, _extra) => {
-          if (_idleDebugBudget <= 0) return;
+          if (_idleDebugBudget <= 0) {
+            return;
+          }
           _idleDebugBudget -= 1;
         };
         const idleFillTick = () => {
@@ -2018,10 +2054,18 @@ function app() {
             let nextId = null;
             for (const h of hosts) {
               const id = h && h.id;
-              if (!id) continue;
-              if (seen.has(id)) continue;
-              if (queued.has(id)) continue;
-              if (obsPending.has(id)) continue;
+              if (!id) {
+                continue;
+              }
+              if (seen.has(id)) {
+                continue;
+              }
+              if (queued.has(id)) {
+                continue;
+              }
+              if (obsPending.has(id)) {
+                continue;
+              }
               nextId = id;
               break;
             }
@@ -2075,8 +2119,12 @@ function app() {
           tickCount += 1;
           const intervalSeconds = (this.me && this.me.client_config
             && Number(this.me.client_config.hosts_idle_fill_seconds)) || 0;
-          if (intervalSeconds <= 0) return;
-          if (tickCount % Math.max(1, Math.round(intervalSeconds)) !== 0) return;
+          if (intervalSeconds <= 0) {
+            return;
+          }
+          if (tickCount % Math.max(1, Math.round(intervalSeconds)) !== 0) {
+            return;
+          }
           idleFillTick();
         }, 1000);
       } catch (_) {}
@@ -2229,7 +2277,9 @@ function app() {
             // visible regardless of the `.open` class, but we also
             // flip the state so reads of `aiSidebarOpen` elsewhere
             // (focus trap, ESC handler) stay consistent.
-            if (this.aiSidebarPinned) this.aiSidebarOpen = true;
+            if (this.aiSidebarPinned) {
+              this.aiSidebarOpen = true;
+            }
           } catch (_) {}
           // AI assistant conversation history — restore from
           // ui_prefs.ai_conversation so a hard reload (or moving to a
@@ -2257,7 +2307,9 @@ function app() {
                 const raw = localStorage.getItem('aiConversation:' + m.id);
                 if (raw) {
                   const parsed = JSON.parse(raw);
-                  if (Array.isArray(parsed)) lsConv = parsed;
+                  if (Array.isArray(parsed)) {
+                    lsConv = parsed;
+                  }
                 }
               }
             } catch (_) { /* private-mode / corrupt entry — skip */ }
@@ -2279,9 +2331,13 @@ function app() {
               // tightens back to exact cutoff comparison.
               const filtered = cutoff > 0
                 ? conv.filter(t => {
-                    if (!t) return false;
+                    if (!t) {
+                      return false;
+                    }
                     const ts = Number(t.ts);
-                    if (!Number.isFinite(ts) || ts <= 0) return true; // legacy / missing ts → preserve
+                    if (!Number.isFinite(ts) || ts <= 0) {
+                      return true;
+                    } // legacy / missing ts → preserve
                     return ts > cutoff;
                   })
                 : conv;
@@ -2364,7 +2420,9 @@ function app() {
 
       if (window.matchMedia) {
         const mq = window.matchMedia('(prefers-color-scheme: light)');
-        const onSys = () => { if (this.themePref === 'auto') this.applyTheme(); };
+        const onSys = () => { if (this.themePref === 'auto') {
+          this.applyTheme();
+        } };
         mq.addEventListener ? mq.addEventListener('change', onSys) : mq.addListener(onSys);
       }
       this.applyTheme();
@@ -2412,7 +2470,9 @@ function app() {
       // textarea is always present even when hidden).
       this.$nextTick(() => {
         const el = document.getElementById('og-ai-sidebar-input');
-        if (!el) return;
+        if (!el) {
+          return;
+        }
         // Iteration 4 — also moved the placeholder + disabled
         // bindings + keydown handler off the Alpine attribute path
         // so the textarea is FULLY outside Alpine's reactivity until
@@ -2446,7 +2506,9 @@ function app() {
         el.addEventListener('keydown', onKey);
         let pendingTimer = null;
         const flushSoon = () => {
-          if (pendingTimer) return;  // already scheduled
+          if (pendingTimer) {
+            return;
+          }  // already scheduled
           pendingTimer = setTimeout(() => {
             pendingTimer = null;
             const value = el.value || '';
@@ -2477,7 +2539,9 @@ function app() {
         // future refactor introduces hot-reload semantics this
         // hook makes the cleanup obvious).
         this._aiSidebarInputCleanup = () => {
-          if (pendingTimer) clearTimeout(pendingTimer);
+          if (pendingTimer) {
+            clearTimeout(pendingTimer);
+          }
           el.removeEventListener('input', flushSoon);
         };
       });
@@ -2554,7 +2618,9 @@ function app() {
       // The original $watch stays for ASSIGNMENT paths.
       let _aiPersistDebounce = null;
       this.$watch('aiConversation', () => {
-        if (_aiPersistDebounce) clearTimeout(_aiPersistDebounce);
+        if (_aiPersistDebounce) {
+          clearTimeout(_aiPersistDebounce);
+        }
         _aiPersistDebounce = setTimeout(() => {
           _aiPersistDebounce = null;
           try { this.persistAiConversation(); } catch (_) {}
@@ -2564,18 +2630,24 @@ function app() {
         localStorage.setItem('view', v);
         this._pushRoute();
         // Load admin data lazily — only when the user actually navigates there.
-        if (v === 'admin') this.openAdminTab(this.adminTab);
+        if (v === 'admin') {
+          this.openAdminTab(this.adminTab);
+        }
         // Same lazy-load contract for Stats — without this, a
         // localStorage-restored or route-applied view='stats' lands
         // with statsOverview={} and loadStatsOverview() never fires,
         // so the dashboard renders a perpetual loading spinner.
-        if (v === 'stats') this.openStatsTab(this.statsTab || 'dashboard');
+        if (v === 'stats') {
+          this.openStatsTab(this.statsTab || 'dashboard');
+        }
         // Lazy-load hosts on first entry and (re)start its refresh timer.
         // Leaving the tab clears the timer so we're not hammering the hub
         // when the view isn't visible.
         if (v === 'hosts') {
           this.loadHosts();
-          if (this._hostsTimer) clearInterval(this._hostsTimer);
+          if (this._hostsTimer) {
+            clearInterval(this._hostsTimer);
+          }
           // Honour the "stats off" master switch — when the
           // operator picked Off, the host poll's 15s rebuild cycle
           // (with its brief loading-spinner flash on every row)
@@ -2587,7 +2659,9 @@ function app() {
             // tooltip ticks + we resume polling within one cadence
             // window if SSE drops), but the work is conditional.
             this._hostsTimer = setInterval(() => {
-              if (this._sseConnected) return;
+              if (this._sseConnected) {
+                return;
+              }
               this.loadHosts();
             }, this.statsInterval * 1000);
           }
@@ -2605,7 +2679,9 @@ function app() {
       // current work without losing their place).
       this.$watch('showNotificationsPopup', open => {
         if (open) {
-          if (this._notificationsPollHandle) clearInterval(this._notificationsPollHandle);
+          if (this._notificationsPollHandle) {
+            clearInterval(this._notificationsPollHandle);
+          }
           // Operator-tunable poll cadence — when SSE is disconnected
           // AND the notifications popup is open, fall back to polling
           // at this interval. Defaults to 30s; operators on slow
@@ -2616,8 +2692,12 @@ function app() {
           const pollSec = (this.me && this.me.client_config
             && Number(this.me.client_config.notifications_poll_seconds)) || 30;
           this._notificationsPollHandle = setInterval(() => {
-            if (this._sseConnected) return;
-            if (this.showNotificationsPopup) this.loadNotifications();
+            if (this._sseConnected) {
+              return;
+            }
+            if (this.showNotificationsPopup) {
+              this.loadNotifications();
+            }
           }, pollSec * 1000);
         } else if (this._notificationsPollHandle) {
           clearInterval(this._notificationsPollHandle);
@@ -2697,8 +2777,12 @@ function app() {
         const isPaletteCombo = cmdMod && (
           e.key === 'k' || e.key === 'K' || e.code === 'KeyK'
         );
-        if (!isPaletteCombo) return;
-        if (e._cmdpal_handled) return;
+        if (!isPaletteCombo) {
+          return;
+        }
+        if (e._cmdpal_handled) {
+          return;
+        }
         e._cmdpal_handled = true;
         e.preventDefault();
         e.stopPropagation();
@@ -2715,7 +2799,9 @@ function app() {
         // sidebar. If it DID fire, the overlay is already up so we
         // do nothing on keyup. Skip the entire dance on key-repeat
         // (operator holding Cmd while tapping K repeatedly).
-        if (e.repeat) return;
+        if (e.repeat) {
+          return;
+        }
         if (this._cmdkLongPressTimer) {
           try { clearTimeout(this._cmdkLongPressTimer); } catch (_) {}
           this._cmdkLongPressTimer = null;
@@ -2731,7 +2817,9 @@ function app() {
           // `e.key` as 'k'/'K' depending on Shift state at release;
           // we already gated Shift out on keydown so this is a
           // belt-and-braces check.
-          if (up.code !== 'KeyK' && up.key !== 'k' && up.key !== 'K') return;
+          if (up.code !== 'KeyK' && up.key !== 'k' && up.key !== 'K') {
+            return;
+          }
           window.removeEventListener('keyup', onUp, { capture: true });
           if (this._cmdkLongPressTimer) {
             try { clearTimeout(this._cmdkLongPressTimer); } catch (_) {}
@@ -2739,8 +2827,12 @@ function app() {
           }
           if (!firedLong) {
             // Short press — original AI sidebar toggle.
-            if (this.aiSidebarOpen) this.closeAiSidebar();
-            else this.openAiSidebar();
+            if (this.aiSidebarOpen) {
+              this.closeAiSidebar();
+            }
+            else {
+              this.openAiSidebar();
+            }
           }
           // firedLong=true → overlay already open, leave it alone.
         };
@@ -2756,7 +2848,9 @@ function app() {
       // `@click.stop` so they're EXCLUDED from this handler — taps
       // anywhere else dismiss whatever's open.
       document.addEventListener('click', () => {
-        if (this.metricTooltipOpen) this.metricTooltipOpen = null;
+        if (this.metricTooltipOpen) {
+          this.metricTooltipOpen = null;
+        }
       });
       // Warn when closing / reloading the tab with unsaved Hosts
       // edits. Browsers ignore a custom string (Chrome shows their
@@ -2919,15 +3013,31 @@ function app() {
         digit:    /\d/.test(pw),
         symbol:   /[^A-Za-z0-9]/.test(pw),
       };
-      if (!pw) return { score: 0, label: '', color: 'faint', criteria };
+      if (!pw) {
+        return {score: 0, label: '', color: 'faint', criteria};
+      }
       let score = 0;
-      if (criteria.length8)  score += 1;
-      if (criteria.length12) score += 1;
-      if (criteria.lower && criteria.upper) score += 1;
-      if (criteria.digit)  score += 1;
-      if (criteria.symbol) score += 1;
-      if (score > 4) score = 4;
-      if (!criteria.length8) score = Math.min(score, 1);
+      if (criteria.length8)  {
+        score += 1;
+      }
+      if (criteria.length12) {
+        score += 1;
+      }
+      if (criteria.lower && criteria.upper) {
+        score += 1;
+      }
+      if (criteria.digit)  {
+        score += 1;
+      }
+      if (criteria.symbol) {
+        score += 1;
+      }
+      if (score > 4) {
+        score = 4;
+      }
+      if (!criteria.length8) {
+        score = Math.min(score, 1);
+      }
       const labelKeys = [
         'password.strength.too_short',
         'password.strength.weak',
@@ -2946,7 +3056,9 @@ function app() {
 
     // --- Profile: password change ---------------------------------------
     async changePassword() {
-      if (this.passwordBusy) return;
+      if (this.passwordBusy) {
+        return;
+      }
       const f = this.passwordForm;
       if (f.next !== f.confirm) {
         this.showToast(this.t('toasts.password_mismatch'), 'error');
@@ -3013,7 +3125,9 @@ function app() {
           // medium. `!!v` collapses undefined → false, false → false,
           // true → true.
           const b = !!v;
-          for (const m of mediums) slot[m] = b;
+          for (const m of mediums) {
+            slot[m] = b;
+          }
         }
         events[bare] = slot;
       }
@@ -3042,7 +3156,9 @@ function app() {
     // divergence in display_name / bio / email / notify_events flips
     // the Save button to its "unsaved changes" treatment.
     profileDirty() {
-      if (!this.me) return false;
+      if (!this.me) {
+        return false;
+      }
       return this._profileBaseline !== this._profileSnapshot();
     },
     // Per-user notification toggle disable gate. Returns true
@@ -3052,7 +3168,9 @@ function app() {
     // backend also rejects an opt-IN attempt for a globally-disabled
     // event with a 400.
     userNotifyEventDisabledByAdmin(eventKey) {
-      if (!this.me || !this.me.notify_events_admin) return false;
+      if (!this.me || !this.me.notify_events_admin) {
+        return false;
+      }
       const bare = (eventKey || '').replace(/^notify_event_/, '');
       return this.me.notify_events_admin[bare] === false;
     },
@@ -3071,27 +3189,41 @@ function app() {
       // form field changed. Compared against the server-supplied
       // baseline captured into `assetStatus.enabled` by loadSettings.
       const enabledBaseline = (s.enabled !== false);
-      if ((this.settings && (this.settings.asset_inventory_enabled !== false)) !== enabledBaseline) return true;
+      if ((this.settings && (this.settings.asset_inventory_enabled !== false)) !== enabledBaseline) {
+        return true;
+      }
       // Status's auth_mode comes through as 'lifetime_token' or anything-else;
       // form normalises to 'oauth2' as the default fallback.
       const baseAuth = (s.auth_mode === 'lifetime_token') ? 'lifetime_token' : 'oauth2';
-      if ((f.auth_mode || 'oauth2') !== baseAuth) return true;
+      if ((f.auth_mode || 'oauth2') !== baseAuth) {
+        return true;
+      }
       const fields = [
         'base_url', 'token_url', 'client_id', 'scope',
         'service', 'action', 'edit_url_template',
       ];
       for (const k of fields) {
-        if (norm(f[k]) !== norm(s[k])) return true;
+        if (norm(f[k]) !== norm(s[k])) {
+          return true;
+        }
       }
       // min_value / max_value — form holds strings, status numbers.
       const sMin = (s.min_value != null) ? String(s.min_value) : '';
       const sMax = (s.max_value != null) ? String(s.max_value) : '';
-      if (norm(f.min_value) !== sMin) return true;
-      if (norm(f.max_value) !== sMax) return true;
+      if (norm(f.min_value) !== sMin) {
+        return true;
+      }
+      if (norm(f.max_value) !== sMax) {
+        return true;
+      }
       // Write-only secrets: any non-empty value in the form is a pending
       // change. Blank = keep current; the operator hasn't typed anything.
-      if ((f.client_secret  || '').length > 0) return true;
-      if ((f.lifetime_token || '').length > 0) return true;
+      if ((f.client_secret  || '').length > 0) {
+        return true;
+      }
+      if ((f.lifetime_token || '').length > 0) {
+        return true;
+      }
       // Asset-inventory-scoped tunables wired into THIS section's
       // Save so editing them flips the same amber ring as the rest of
       // the asset form. Mirror of the notifications panel pattern
@@ -3116,13 +3248,17 @@ function app() {
       for (const k of tunableKeys) {
         const cur = (tf[k] == null ? '' : String(tf[k]).trim());
         const base = (baseline[k] == null ? '' : String(baseline[k]).trim());
-        if (cur !== base) return true;
+        if (cur !== base) {
+          return true;
+        }
       }
       return false;
     },
 
     async saveProfile() {
-      if (this.profileBusy) return;
+      if (this.profileBusy) {
+        return;
+      }
       this.profileBusy = true;
       try {
         // Profile (display_name / bio / email) — same payload as before;
@@ -3195,7 +3331,9 @@ function app() {
     // --- Profile: avatar upload ------------------------------------------
     async uploadAvatar(ev) {
       const file = ev.target.files && ev.target.files[0];
-      if (!file) return;
+      if (!file) {
+        return;
+      }
       // Client-side sanity — server re-validates.
       if (!/^image\//.test(file.type)) {
         this.showToast(this.t('toasts.pick_image'), 'error'); return;
@@ -3211,7 +3349,9 @@ function app() {
         if (r.ok) {
           this.showToast(this.t('toasts.avatar_updated'));
           const rm = await fetch('/api/me');
-          if (rm.ok) this.me = await rm.json();
+          if (rm.ok) {
+            this.me = await rm.json();
+          }
         } else {
           const j = await r.json().catch(() => ({}));
           this.showToast(j.detail || this.t('toasts.upload_failed'), 'error');
@@ -3225,13 +3365,17 @@ function app() {
     },
 
     async clearAvatar() {
-      if (!confirm(this.t('settings.profile.avatar_prompt_remove'))) return;
+      if (!confirm(this.t('settings.profile.avatar_prompt_remove'))) {
+        return;
+      }
       try {
         const r = await fetch('/api/me/avatar', { method: 'DELETE' });
         if (r.ok) {
           this.showToast(this.t('toasts.avatar_removed'));
           const rm = await fetch('/api/me');
-          if (rm.ok) this.me = await rm.json();
+          if (rm.ok) {
+            this.me = await rm.json();
+          }
         }
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
@@ -3278,7 +3422,9 @@ function app() {
       const byNode = new Map();
       for (const id in (this.nodes || {})) {
         const host = this.nodes[id];
-        if (host) byNode.set(host, { name: host, items: [], stacks: {} });
+        if (host) {
+          byNode.set(host, {name: host, items: [], stacks: {}});
+        }
       }
 
       // Pick which items we're filtering over. Reuse the same filter
@@ -3291,14 +3437,18 @@ function app() {
         const nodes = new Set();
         if (Array.isArray(it.placements) && it.placements.length) {
           for (const p of it.placements) {
-            if (p && p.node && p.node !== '?' && p.node !== 'local') nodes.add(p.node);
+            if (p && p.node && p.node !== '?' && p.node !== 'local') {
+              nodes.add(p.node);
+            }
           }
         }
         if (nodes.size === 0 && it.node && it.node !== '?' && it.node !== 'local') {
           nodes.add(it.node);
         }
         // No identifiable node → park under a synthetic "Unpinned" group.
-        if (nodes.size === 0) nodes.add('__unpinned__');
+        if (nodes.size === 0) {
+          nodes.add('__unpinned__');
+        }
 
         for (const n of nodes) {
           if (!byNode.has(n)) {
@@ -3365,15 +3515,21 @@ function app() {
       }
       // Sort: real nodes alphabetically, "Unpinned" last.
       return out.sort((a, b) => {
-        if (a.is_unpinned !== b.is_unpinned) return a.is_unpinned ? 1 : -1;
+        if (a.is_unpinned !== b.is_unpinned) {
+          return a.is_unpinned ? 1 : -1;
+        }
         return (a.name || '').localeCompare(b.name || '');
       });
     },
 
     toggleNode(name) {
       const i = this.expanded.indexOf('node:' + name);
-      if (i >= 0) this.expanded.splice(i, 1);
-      else this.expanded.push('node:' + name);
+      if (i >= 0) {
+        this.expanded.splice(i, 1);
+      }
+      else {
+        this.expanded.push('node:' + name);
+      }
     },
     isNodeExpanded(name) {
       return this.expanded.includes('node:' + name);
@@ -3425,7 +3581,9 @@ function app() {
           cancelButtonText: this.t('actions.cancel'),
           confirmButtonColor: this._cssVar('--danger'),
         });
-        if (!res.isConfirmed) return;
+        if (!res.isConfirmed) {
+          return;
+        }
       }
       try {
         const r = await fetch('/api/prune/node/' + encodeURIComponent(host), { method: 'POST' });
@@ -3463,14 +3621,20 @@ function app() {
     // hue value produces a pleasant colour in both light and dark themes
     // (the token `--avatar-hue` feeds into a hsl() in style.css).
     initial() {
-      if (!this.me || !this.me.username) return '?';
+      if (!this.me || !this.me.username) {
+        return '?';
+      }
       const c = this.me.username.trim().charAt(0);
       return c ? c.toUpperCase() : '?';
     },
     avatarHue() {
-      if (!this.me || !this.me.username) return 210;
+      if (!this.me || !this.me.username) {
+        return 210;
+      }
       let h = 0;
-      for (const ch of this.me.username) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+      for (const ch of this.me.username) {
+        h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+      }
       return h % 360;
     },
 
@@ -3489,13 +3653,19 @@ function app() {
     },
     _applyRouteFromPath() {
       const parts = (location.pathname || '/').split('/').filter(Boolean);
-      if (!parts.length) return;
+      if (!parts.length) {
+        return;
+      }
       const head = parts[0];
-      if (!this._routeViews().has(head)) return;
+      if (!this._routeViews().has(head)) {
+        return;
+      }
       // Only assign if the current state differs, so this doesn't
       // thrash re-renders when the pushState we just wrote fires
       // popstate-like flows (it doesn't — noted for future-proofing).
-      if (this.view !== head) this.view = head;
+      if (this.view !== head) {
+        this.view = head;
+      }
       const sub = parts[1];
       if (head === 'settings' && sub) {
         if ((this.settingsSections || []).some(s => s.id === sub)) {
@@ -3542,18 +3712,38 @@ function app() {
       // view, set sub-tab, fire the matching loader.
       this.view = 'stats';
       this.statsTab = tab || 'dashboard';
-      if (this.statsTab === 'dashboard') await this.loadStatsOverview();
-      else if (this.statsTab === 'database') await this.loadStatsDatabase();
-      else if (this.statsTab === 'samples') await this.loadStatsSamples();
-      else if (this.statsTab === 'incidents') await this.loadStatsIncidents();
-      else if (this.statsTab === 'network') await this.loadStatsNetwork();
-      else if (this.statsTab === 'ai_cost') await this.loadStatsAiCost();
+      if (this.statsTab === 'dashboard') {
+        await this.loadStatsOverview();
+      }
+      else {
+        if (this.statsTab === 'database') {
+          await this.loadStatsDatabase();
+        } else {
+          if (this.statsTab === 'samples') {
+            await this.loadStatsSamples();
+          } else {
+            if (this.statsTab === 'incidents') {
+              await this.loadStatsIncidents();
+            } else {
+              if (this.statsTab === 'network') {
+                await this.loadStatsNetwork();
+              } else {
+                if (this.statsTab === 'ai_cost') {
+                  await this.loadStatsAiCost();
+                }
+              }
+            }
+          }
+        }
+      }
       this._pushRoute && this._pushRoute();
     },
     async loadStatsOverview() {
       try {
         const r = await fetch('/api/admin/stats/overview');
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         this.statsOverview = await r.json();
       } catch (_) {} finally {
         this.statsOverviewLoaded = true;
@@ -3562,7 +3752,9 @@ function app() {
     async loadStatsDatabase() {
       try {
         const r = await fetch('/api/admin/stats/database');
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         this.statsDatabase = await r.json();
       } catch (_) {} finally {
         this.statsDatabaseLoaded = true;
@@ -3597,8 +3789,12 @@ function app() {
         }
         av = (av == null ? '' : String(av)).toLowerCase();
         bv = (bv == null ? '' : String(bv)).toLowerCase();
-        if (av < bv) return -1 * dir;
-        if (av > bv) return  1 * dir;
+        if (av < bv) {
+          return -1 * dir;
+        }
+        if (av > bv) {
+          return 1 * dir;
+        }
         return 0;
       });
     },
@@ -3617,7 +3813,9 @@ function app() {
       }
     },
     _statsSamplesSortIndicator(col) {
-      if (this.statsSamplesSortBy !== col) return '';
+      if (this.statsSamplesSortBy !== col) {
+        return '';
+      }
       return this.statsSamplesSortDir === 'asc' ? ' ▲' : ' ▼';
     },
     async loadStatsSamples(range) {
@@ -3625,7 +3823,9 @@ function app() {
       this.statsSamplesRange = r_arg;
       try {
         const r = await fetch('/api/admin/stats/samples?range=' + encodeURIComponent(r_arg));
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         this.statsSamples = await r.json();
       } catch (_) {} finally {
         this.statsSamplesLoaded = true;
@@ -3635,7 +3835,9 @@ function app() {
     // ONE sample-bearing table, sorted DESC. Footer total cross-checks
     // against the outer per-table count rendered on the Samples page.
     async openStatsSamplesDrillDown(row) {
-      if (!row || !row.name) return;
+      if (!row || !row.name) {
+        return;
+      }
       const label = (row.provider || '') + ' — ' + (row.name || '');
       this.statsSamplesDrillDown = {
         open:    true,
@@ -3675,7 +3877,9 @@ function app() {
         if (d.outer_count !== undefined && d.outer_count !== null) {
           this.statsSamplesDrillDown.outer = Number(d.outer_count);
         }
-        if (d.error) this.statsSamplesDrillDown.error = d.error;
+        if (d.error) {
+          this.statsSamplesDrillDown.error = d.error;
+        }
       } catch (e) {
         this.statsSamplesDrillDown.error = (e && e.message) || String(e);
       } finally {
@@ -3694,10 +3898,16 @@ function app() {
     // `samples_prune_orphan` op_type so History shows what got
     // pruned + when + by whom.
     async pruneStatsSampleRows(row) {
-      if (!row || !row.host_id) return;
+      if (!row || !row.host_id) {
+        return;
+      }
       const table = this.statsSamplesDrillDown.table;
-      if (!table) return;
-      if (this.statsSamplesDrillDown.pruning[row.host_id]) return;
+      if (!table) {
+        return;
+      }
+      if (this.statsSamplesDrillDown.pruning[row.host_id]) {
+        return;
+      }
       const hostId = row.host_id;
       const rowCount = Number(row.rows || 0).toLocaleString();
       const ok = await this.confirmDialog({
@@ -3711,7 +3921,9 @@ function app() {
         confirmColor: this._cssVar('--danger'),
         focusConfirm: false,
       });
-      if (!ok) return;
+      if (!ok) {
+        return;
+      }
       this.statsSamplesDrillDown.pruning[row.host_id] = true;
       try {
         const r = await fetch('/api/admin/stats/samples/by-host', {
@@ -3756,7 +3968,9 @@ function app() {
       this.statsIncidentsHours = h;
       try {
         const r = await fetch('/api/admin/stats/incidents?hours=' + encodeURIComponent(h));
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         this.statsIncidents = await r.json();
       } catch (_) {} finally {
         this.statsIncidentsLoaded = true;
@@ -3767,7 +3981,9 @@ function app() {
       this.statsNetworkHours = h;
       try {
         const r = await fetch('/api/admin/stats/network?hours=' + encodeURIComponent(h));
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         this.statsNetwork = await r.json();
       } catch (_) {} finally {
         this.statsNetworkLoaded = true;
@@ -3779,17 +3995,29 @@ function app() {
     // operator's range pick.
     statsNetworkRangeLabel() {
       const h = Number(this.statsNetworkHours) || 168;
-      if (h === 1)    return '1h';
-      if (h === 24)   return '24h';
-      if (h === 168)  return '7d';
-      if (h === 720)  return '30d';
-      if (h === 2160) return '90d';
+      if (h === 1)    {
+        return '1h';
+      }
+      if (h === 24)   {
+        return '24h';
+      }
+      if (h === 168)  {
+        return '7d';
+      }
+      if (h === 720)  {
+        return '30d';
+      }
+      if (h === 2160) {
+        return '90d';
+      }
       return h + 'h';
     },
     // Format a bytes-per-second rate into a human-readable string
     // (e.g. "12.4 MB/s"). Wraps `fmtBytes` for the value, appends "/s".
     fmtBps(bps) {
-      if (bps == null || !Number.isFinite(+bps) || +bps <= 0) return '0 B/s';
+      if (bps == null || !Number.isFinite(+bps) || +bps <= 0) {
+        return '0 B/s';
+      }
       return this.fmtBytes(bps) + '/s';
     },
     // Stacked-area chart for fleet network throughput. Two series:
@@ -3798,7 +4026,9 @@ function app() {
     // as the 90d growth chart so the Stats family reads as a coherent
     // visual treatment.
     _renderFleetNetChart(points) {
-      if (!Array.isArray(points) || points.length < 2) return '';
+      if (!Array.isArray(points) || points.length < 2) {
+        return '';
+      }
       const W = 720, H = 220;
       const PAD_L = 80, PAD_R = 16, PAD_T = 12, PAD_B = 24;
       const plotW = W - PAD_L - PAD_R;
@@ -3809,7 +4039,9 @@ function app() {
       let yMax = 0;
       for (const p of points) {
         const sum = (Number(p.rx_bps) || 0) + (Number(p.tx_bps) || 0);
-        if (sum > yMax) yMax = sum;
+        if (sum > yMax) {
+          yMax = sum;
+        }
       }
       const padded = yMax * 1.1;
       if (padded > 0) {
@@ -3817,10 +4049,20 @@ function app() {
         const base = Math.pow(10, exp);
         const m = padded / base;
         let snap;
-        if (m <= 1) snap = 1;
-        else if (m <= 2) snap = 2;
-        else if (m <= 5) snap = 5;
-        else snap = 10;
+        if (m <= 1) {
+          snap = 1;
+        }
+        else {
+          if (m <= 2) {
+            snap = 2;
+          } else {
+            if (m <= 5) {
+              snap = 5;
+            } else {
+              snap = 10;
+            }
+          }
+        }
         yMax = snap * base;
       } else {
         yMax = 1;
@@ -3902,7 +4144,9 @@ function app() {
       try {
         const qs = '?range=' + encodeURIComponent(r0);
         const r = await fetch('/api/admin/stats/ai-cost' + qs);
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         this.statsAiCost = await r.json();
       } catch (_) {} finally {
         this.statsAiCostLoaded = true;
@@ -3912,11 +4156,19 @@ function app() {
     // (e.g. "2m 14s" / "1h 23m" / "—"). Used by the Stats → Incidents
     // MTTR cells.
     fmtDurationShort(seconds) {
-      if (seconds == null || !Number.isFinite(+seconds) || +seconds <= 0) return '—';
+      if (seconds == null || !Number.isFinite(+seconds) || +seconds <= 0) {
+        return '—';
+      }
       const s = Math.round(+seconds);
-      if (s < 60) return s + 's';
-      if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
-      if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+      if (s < 60) {
+        return s + 's';
+      }
+      if (s < 3600) {
+        return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+      }
+      if (s < 86400) {
+        return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+      }
       return Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h';
     },
 
@@ -3924,89 +4176,113 @@ function app() {
       // Stop the logs poller when leaving the Logs tab; it restarts
       // when the tab is opened again. Keeps network traffic silent
       // while the operator is elsewhere.
-      if (this.adminTab === 'logs' && tab !== 'logs') this._stopLogPoll();
+      if (this.adminTab === 'logs' && tab !== 'logs') {
+        this._stopLogPoll();
+      }
       this.adminTab = tab;
-      if (tab === 'users') await this.loadUsers();
-      else if (tab === 'sessions') await this.loadSessions();
-      else if (tab === 'tokens') await this.loadTokens();
-      else if (tab === 'backups') await this.loadBackups();
-      else if (tab === 'config_backup') await this.loadConfigBackupSaved();
-      else if (tab === 'schedules') {
-        // Fire both loads in parallel — the scheduled table and the queue
-        // table aren't related state-wise, no reason to wait on each other.
-        await Promise.all([this.loadSchedules(), this.loadScheduleQueue()]);
+      if (tab === 'users') {
+        await this.loadUsers();
       }
-      else if (tab === 'logs') {
-        await this.loadLogs(true);
-        // Logs tab also renders the `tuning_log_retention_days`
-        // settings card (moved from Process tunables) so it needs
-        // the tuningForm/tuningEffective state too. Cheap call,
-        // dedupes against `tuningLoaded` so a re-open doesn't double
-        // fetch.
-        if (!this.tuningLoaded) await this.loadTuning();
-        this._startLogPoll();
-      }
-      // The four ex-Settings sections all read from the same /api/settings
-      // payload, so a single load covers all of them. Load on every
-      // open so edits from another tab don't go stale.
-      else if (['notifications', 'general', 'portainer', 'oidc', 'host_stats'].includes(tab)) {
-        await this.loadSettings();
-        // Webmin section in host_stats also renders a tunable card
-        // (tuning_webmin_probe_budget_seconds); ensure tuning state
-        // is available the first time the operator visits.
-        if (tab === 'host_stats' && !this.tuningLoaded) await this.loadTuning();
-        // Notifications tab now hosts the relocated
-        // tuning_notification_retention_days card; same lazy-load
-        // pattern as host_stats so the bounds-chips + effective-value
-        // chip render on first visit instead of waiting for the
-        // operator to bounce through Admin → Config first.
-        if (tab === 'notifications' && !this.tuningLoaded) await this.loadTuning();
-        // The Ping test-target picker reads from `hostsConfig` (loaded
-        // by the Hosts admin tab). When the operator opens the host_stats
-        // tab without ever visiting Admin → Hosts in this session, the
-        // picker is empty and the dropdown shows "No ping-enabled hosts"
-        // even though there are some. Lazy-load on first visit.
-        if (tab === 'host_stats' && !(Array.isArray(this.hostsConfig) && this.hostsConfig.length)) {
-          this.loadHostsConfig().catch(() => {});
+      else {
+        if (tab === 'sessions') {
+          await this.loadSessions();
+        } else {
+          if (tab === 'tokens') {
+            await this.loadTokens();
+          } else {
+            if (tab === 'backups') {
+              await this.loadBackups();
+            } else {
+              if (tab === 'config_backup') {
+                await this.loadConfigBackupSaved();
+              } else {
+                if (tab === 'schedules') {
+                  // Fire both loads in parallel — the scheduled table and the queue
+                  // table aren't related state-wise, no reason to wait on each other.
+                  await Promise.all([this.loadSchedules(), this.loadScheduleQueue()]);
+                } else if (tab === 'logs') {
+                  await this.loadLogs(true);
+                  // Logs tab also renders the `tuning_log_retention_days`
+                  // settings card (moved from Process tunables) so it needs
+                  // the tuningForm/tuningEffective state too. Cheap call,
+                  // dedupes against `tuningLoaded` so a re-open doesn't double
+                  // fetch.
+                  if (!this.tuningLoaded) {
+                    await this.loadTuning();
+                  }
+                  this._startLogPoll();
+                }
+                  // The four ex-Settings sections all read from the same /api/settings
+                  // payload, so a single load covers all of them. Load on every
+                // open so edits from another tab don't go stale.
+                else if (['notifications', 'general', 'portainer', 'oidc', 'host_stats'].includes(tab)) {
+                  await this.loadSettings();
+                  // Webmin section in host_stats also renders a tunable card
+                  // (tuning_webmin_probe_budget_seconds); ensure tuning state
+                  // is available the first time the operator visits.
+                  if (tab === 'host_stats' && !this.tuningLoaded) {
+                    await this.loadTuning();
+                  }
+                  // Notifications tab now hosts the relocated
+                  // tuning_notification_retention_days card; same lazy-load
+                  // pattern as host_stats so the bounds-chips + effective-value
+                  // chip render on first visit instead of waiting for the
+                  // operator to bounce through Admin → Config first.
+                  if (tab === 'notifications' && !this.tuningLoaded) {
+                    await this.loadTuning();
+                  }
+                  // The Ping test-target picker reads from `hostsConfig` (loaded
+                  // by the Hosts admin tab). When the operator opens the host_stats
+                  // tab without ever visiting Admin → Hosts in this session, the
+                  // picker is empty and the dropdown shows "No ping-enabled hosts"
+                  // even though there are some. Lazy-load on first visit.
+                  if (tab === 'host_stats' && !(Array.isArray(this.hostsConfig) && this.hostsConfig.length)) {
+                    this.loadHostsConfig().catch(() => {
+                    });
+                  }
+                } else if (tab === 'hosts') {
+                  await this.loadHostsConfig();
+                  // Host groups live in /api/settings; load it alongside so the
+                  // groups editor at the bottom of this tab has current data.
+                  await this.loadSettings();
+                } else if (tab === 'assets') {
+                  await this.loadSettings();
+                  await this.loadAssetCache();
+                } else if (tab === 'ai') {
+                  // Hydrates the per-provider form state + the dashboard.
+                  // Two parallel calls — settings primes the form, dashboard
+                  // primes the tile grid. Failure of either is non-fatal: the
+                  // partial degrades to an empty-state.
+                  await Promise.all([this.loadSettings(), this.loadAiDashboard(true)]);
+                  // AI tab also renders the relocated `tuning_ai_retry_*`
+                  // tunables (sub-section "Auto-retry on transient overload");
+                  // ensure tuning state is hydrated on first visit so the
+                  // section's `x-show="tuningLoaded"` gate fires and the
+                  // bounds-chips / effective-value / form bindings render
+                  // instead of staying invisible. Same lazy-load pattern as
+                  // host_stats / notifications / logs tabs.
+                  if (!this.tuningLoaded) {
+                    await this.loadTuning();
+                  }
+                } else if (tab === 'config') {
+                  await this.loadTuning();
+                }
+                  // Port Scan admin tab — same lazy-load pattern as Host stats /
+                  // Notifications / Logs / AI: the four port-scan tunables
+                  // (timeout / concurrency / max_seconds / banner_read) bind to
+                  // `tuningForm[...]`, so first-visit needs the tuning state
+                  // hydrated before the inputs render. Also load settings so
+                // `port_scan_enabled` + `port_scan_default_ports` round-trip.
+                else if (tab === 'port_scan') {
+                  await this.loadSettings();
+                  if (!this.tuningLoaded) {
+                    await this.loadTuning();
+                  }
+                }
+              }
+            }
+          }
         }
-      }
-      else if (tab === 'hosts') {
-        await this.loadHostsConfig();
-        // Host groups live in /api/settings; load it alongside so the
-        // groups editor at the bottom of this tab has current data.
-        await this.loadSettings();
-      }
-      else if (tab === 'assets') {
-        await this.loadSettings();
-        await this.loadAssetCache();
-      }
-      else if (tab === 'ai') {
-        // Hydrates the per-provider form state + the dashboard.
-        // Two parallel calls — settings primes the form, dashboard
-        // primes the tile grid. Failure of either is non-fatal: the
-        // partial degrades to an empty-state.
-        await Promise.all([this.loadSettings(), this.loadAiDashboard(true)]);
-        // AI tab also renders the relocated `tuning_ai_retry_*`
-        // tunables (sub-section "Auto-retry on transient overload");
-        // ensure tuning state is hydrated on first visit so the
-        // section's `x-show="tuningLoaded"` gate fires and the
-        // bounds-chips / effective-value / form bindings render
-        // instead of staying invisible. Same lazy-load pattern as
-        // host_stats / notifications / logs tabs.
-        if (!this.tuningLoaded) await this.loadTuning();
-      }
-      else if (tab === 'config') {
-        await this.loadTuning();
-      }
-      // Port Scan admin tab — same lazy-load pattern as Host stats /
-      // Notifications / Logs / AI: the four port-scan tunables
-      // (timeout / concurrency / max_seconds / banner_read) bind to
-      // `tuningForm[...]`, so first-visit needs the tuning state
-      // hydrated before the inputs render. Also load settings so
-      // `port_scan_enabled` + `port_scan_default_ports` round-trip.
-      else if (tab === 'port_scan') {
-        await this.loadSettings();
-        if (!this.tuningLoaded) await this.loadTuning();
       }
     },
 
@@ -4018,13 +4294,17 @@ function app() {
     async loadSchedules() {
       try {
         const r = await fetch('/api/schedules');
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         const d = await r.json();
         // in-place reconcile (keyed on id) instead of wholesale
         // reassignment so any auto-refresh pass doesn't tear down the
         // row's expanded-detail / inline-edit state.
         this._reconcileById(this.schedules, d.schedules || []);
-        if (Array.isArray(d.kinds) && d.kinds.length) this.scheduleKinds = d.kinds;
+        if (Array.isArray(d.kinds) && d.kinds.length) {
+          this.scheduleKinds = d.kinds;
+        }
         if (typeof d.min_interval_seconds === 'number') {
           this.scheduleMinInterval = d.min_interval_seconds;
         }
@@ -4046,7 +4326,9 @@ function app() {
           + '&page_size=' + encodeURIComponent(this.scheduleQueuePageSize)
           + (search ? '&search=' + encodeURIComponent(search) : '');
         const r = await fetch(url);
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         const d = await r.json();
         // in-place reconcile keyed on op_id when present;
         // synthetic ops (op_id is null on legacy rows / direct
@@ -4054,7 +4336,9 @@ function app() {
         // (name + ts) so the reconciler can still match them across
         // ticks without trashing the row identity.
         const queue = (d.queue || []).map(row => {
-          if (row && row.op_id != null && row.op_id !== '') return row;
+          if (row && row.op_id != null && row.op_id !== '') {
+            return row;
+          }
           // Stamp a synthetic _key so _reconcileById can match it.
           return { ...row, _key: `${row && row.name || ''}@${row && row.ts || 0}` };
         });
@@ -4087,7 +4371,9 @@ function app() {
     scheduleQueuePageItems() { return this.scheduleQueue; },
     setScheduleQueuePageSize(n) {
       const v = parseInt(n, 10);
-      if (![10, 25, 50].includes(v)) return;
+      if (![10, 25, 50].includes(v)) {
+        return;
+      }
       this.scheduleQueuePageSize = v;
       this.scheduleQueuePage = 1;
       try { localStorage.setItem('scheduleQueuePageSize', String(v)); } catch {}
@@ -4097,7 +4383,9 @@ function app() {
     scheduleQueueGoto(page) {
       const total = this.scheduleQueueTotalPages;
       const p = Math.max(1, Math.min(total, parseInt(page, 10) || 1));
-      if (p === this.scheduleQueuePage) return;
+      if (p === this.scheduleQueuePage) {
+        return;
+      }
       this.scheduleQueuePage = p;
       this.loadScheduleQueue();
     },
@@ -4105,7 +4393,9 @@ function app() {
     // typing. Reset to page 1 so the new filtered result starts at
     // the top instead of an out-of-range page.
     onScheduleQueueSearchInput() {
-      if (this._scheduleQueueSearchTimer) clearTimeout(this._scheduleQueueSearchTimer);
+      if (this._scheduleQueueSearchTimer) {
+        clearTimeout(this._scheduleQueueSearchTimer);
+      }
       this._scheduleQueueSearchTimer = setTimeout(() => {
         this.scheduleQueuePage = 1;
         this.loadScheduleQueue();
@@ -4122,7 +4412,9 @@ function app() {
     // has no params) doesn't require typing braces.
     _parseParamsText(raw) {
       const trimmed = (raw || '').trim();
-      if (!trimmed) return {};
+      if (!trimmed) {
+        return {};
+      }
       let parsed;
       try { parsed = JSON.parse(trimmed); }
       catch (_) { throw new Error(this.t('admin.schedules.params_invalid_json')); }
@@ -4133,7 +4425,9 @@ function app() {
     },
 
     async createSchedule() {
-      if (this.scheduleBusy) return;
+      if (this.scheduleBusy) {
+        return;
+      }
       const s = this.newSchedule;
       if (!s.name || !s.name.trim()) {
         this.showToast(this.t('admin.schedules.name_required'), 'error');
@@ -4152,7 +4446,9 @@ function app() {
       // Cadence bundle — HH:MM is required for non-interval modes;
       // weekly needs at least one day; monthly needs a 1..31 day.
       const cadencePayload = this._buildCadencePayload(s);
-      if (cadencePayload === null) return;  // helper already toasted
+      if (cadencePayload === null) {
+        return;
+      }  // helper already toasted
       let params;
       try { params = this._parseParamsText(s.params_text); }
       catch (e) { this.showToast(e.message, 'error'); return; }
@@ -4211,7 +4507,9 @@ function app() {
       };
       this.$nextTick(() => {
         this.$nextTick(() => {
-          if (!this.editingSchedule) return;
+          if (!this.editingSchedule) {
+            return;
+          }
           this.editingSchedule.kind = targetKind;
           this.editingSchedule.cadence_mode = targetCadence;
         });
@@ -4284,8 +4582,12 @@ function app() {
       // predictable.
       const arr = Array.isArray(s.days_of_week) ? [...s.days_of_week] : [];
       const i = arr.indexOf(day);
-      if (i >= 0) arr.splice(i, 1);
-      else arr.push(day);
+      if (i >= 0) {
+        arr.splice(i, 1);
+      }
+      else {
+        arr.push(day);
+      }
       s.days_of_week = arr;
     },
 
@@ -4294,7 +4596,9 @@ function app() {
     },
 
     async saveSchedule() {
-      if (!this.editingSchedule) return;
+      if (!this.editingSchedule) {
+        return;
+      }
       const e = this.editingSchedule;
       if (!e.name || !e.name.trim()) {
         this.showToast(this.t('admin.schedules.name_required'), 'error');
@@ -4311,7 +4615,9 @@ function app() {
         return;
       }
       const cadencePayload = this._buildCadencePayload(e);
-      if (cadencePayload === null) return;
+      if (cadencePayload === null) {
+        return;
+      }
       let params;
       try { params = this._parseParamsText(e.params_text); }
       catch (err) { this.showToast(err.message, 'error'); return; }
@@ -4380,7 +4686,9 @@ function app() {
         cancelButtonText: this.t('actions.cancel'),
         confirmButtonColor: this._cssVar('--danger'),
       });
-      if (!res.isConfirmed) return;
+      if (!res.isConfirmed) {
+        return;
+      }
       try {
         const r = await fetch('/api/schedules/' + s.id, { method: 'DELETE' });
         if (r.ok) {
@@ -4406,7 +4714,9 @@ function app() {
           confirmColor: this._cssVar('--danger'),
           focusConfirm: true,
         });
-        if (!ok) return;
+        if (!ok) {
+          return;
+        }
       }
       try {
         const r = await fetch('/api/schedules/' + s.id + '/run', { method: 'POST' });
@@ -4430,16 +4740,26 @@ function app() {
     // humanInterval is similar but operates on the schedule's configured
     // interval — keep them separate so fmtDuration stays generic.
     humanInterval(sec) {
-      if (!sec || sec <= 0) return '—';
+      if (!sec || sec <= 0) {
+        return '—';
+      }
       const d = Math.floor(sec / 86400);
       const h = Math.floor((sec % 86400) / 3600);
       const m = Math.floor((sec % 3600) / 60);
       const s = sec % 60;
       const parts = [];
-      if (d) parts.push(d + 'd');
-      if (h) parts.push(h + 'h');
-      if (m) parts.push(m + 'm');
-      if (!parts.length) parts.push(s + 's');
+      if (d) {
+        parts.push(d + 'd');
+      }
+      if (h) {
+        parts.push(h + 'h');
+      }
+      if (m) {
+        parts.push(m + 'm');
+      }
+      if (!parts.length) {
+        parts.push(s + 's');
+      }
       // Keep it tight — two units max for readability ("1d 6h", not "1d 6h 15m 30s").
       return parts.slice(0, 2).join(' ');
     },
@@ -4448,7 +4768,9 @@ function app() {
     // execution columns. Pure JS, no dependency. Returns '—' for unset
     // timestamps so the column renders a visible placeholder.
     humanRelTime(epoch) {
-      if (!epoch) return '—';
+      if (!epoch) {
+        return '—';
+      }
       const delta = Math.round(epoch - (Date.now() / 1000));
       const abs = Math.abs(delta);
       let value, unit;
@@ -4467,9 +4789,13 @@ function app() {
     // clock-anchored cadences, so this only fires for schedules the
     // tick loop is about to fire on its next pass).
     humanNextRun(epoch) {
-      if (!epoch) return '—';
+      if (!epoch) {
+        return '—';
+      }
       const delta = Math.round(epoch - (Date.now() / 1000));
-      if (delta <= 60) return this.t('admin.schedules.due_soon');
+      if (delta <= 60) {
+        return this.t('admin.schedules.due_soon');
+      }
       return this.humanRelTime(epoch);
     },
 
@@ -4499,8 +4825,12 @@ function app() {
       // Consistent pill colour across tables. Matches the existing pill
       // token families (pill-ok / pill-error / pill-unknown) so new UI
       // doesn't invent its own palette.
-      if (status === 'success') return 'pill pill-ok';
-      if (status === 'error')   return 'pill pill-error';
+      if (status === 'success') {
+        return 'pill pill-ok';
+      }
+      if (status === 'error')   {
+        return 'pill pill-error';
+      }
       return 'pill pill-unknown';
     },
 
@@ -4515,7 +4845,9 @@ function app() {
       }
     },
     async createBackup() {
-      if (this.backupBusy) return;
+      if (this.backupBusy) {
+        return;
+      }
       this.backupBusy = true;
       try {
         const r = await fetch('/api/backups', { method: 'POST' });
@@ -4548,7 +4880,9 @@ function app() {
     // sentinel "__OMITTED__"; on import those entries are skipped so
     // the live DB's secret material is preserved.
     async downloadConfigBackup() {
-      if (this.configBackupBusy) return;
+      if (this.configBackupBusy) {
+        return;
+      }
       this.configBackupBusy = true;
       try {
         // Anchor-click pattern matches every other download path in
@@ -4571,7 +4905,9 @@ function app() {
       }
     },
     async saveConfigBackupToDisk() {
-      if (this.configBackupBusy) return;
+      if (this.configBackupBusy) {
+        return;
+      }
       this.configBackupBusy = true;
       try {
         const r = await fetch('/api/admin/config-backup/save', { method: 'POST' });
@@ -4591,7 +4927,9 @@ function app() {
     async loadConfigBackupSaved() {
       try {
         const r = await fetch('/api/admin/config-backup/list');
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         const d = await r.json();
         this.configBackupSaved = Array.isArray(d.files) ? d.files : [];
       } catch (_) {}
@@ -4608,12 +4946,16 @@ function app() {
     // already implies intent.
     async importConfigBackupFile(ev) {
       const file = ev && ev.target && ev.target.files && ev.target.files[0];
-      if (!file) return;
+      if (!file) {
+        return;
+      }
       // Reset the input so the same file can be re-picked after a
       // failed import (browsers don't fire `change` for the same
       // value twice in a row).
       ev.target.value = '';
-      if (this.configBackupBusy) return;
+      if (this.configBackupBusy) {
+        return;
+      }
       let payload;
       try {
         const text = await file.text();
@@ -4629,7 +4971,9 @@ function app() {
         confirmText: this.t('admin.config_backup.import_confirm_button'),
         focusConfirm: false,
       });
-      if (!ok) return;
+      if (!ok) {
+        return;
+      }
       this.configBackupBusy = true;
       try {
         const r = await fetch('/api/admin/config-backup/import', {
@@ -4662,7 +5006,9 @@ function app() {
       }
     },
     async restoreConfigBackupSaved(name) {
-      if (this.configBackupBusy) return;
+      if (this.configBackupBusy) {
+        return;
+      }
       const ok = await this.confirmDialog({
         title: this.t('admin.config_backup.import_confirm_title'),
         html:  this.t('admin.config_backup.import_confirm_body', { name: name }),
@@ -4670,7 +5016,9 @@ function app() {
         confirmText: this.t('admin.config_backup.import_confirm_button'),
         focusConfirm: false,
       });
-      if (!ok) return;
+      if (!ok) {
+        return;
+      }
       this.configBackupBusy = true;
       try {
         const r = await fetch('/api/admin/config-backup/saved/' + encodeURIComponent(name) + '/restore', {
@@ -4699,7 +5047,9 @@ function app() {
       }
     },
     async deleteConfigBackupSaved(name) {
-      if (this.configBackupBusy) return;
+      if (this.configBackupBusy) {
+        return;
+      }
       const ok = await this.confirmDialog({
         title: this.t('admin.config_backup.delete_confirm_title'),
         html:  this.t('admin.config_backup.delete_confirm_body', { name: name }),
@@ -4707,7 +5057,9 @@ function app() {
         confirmText: this.t('actions.delete'),
         focusConfirm: false,
       });
-      if (!ok) return;
+      if (!ok) {
+        return;
+      }
       this.configBackupBusy = true;
       try {
         const r = await fetch('/api/admin/config-backup/saved/' + encodeURIComponent(name), {
@@ -4762,8 +5114,12 @@ function app() {
         (this.settings.host_stats_source || '')
           .split(',').map(s => s.trim()).filter(s => s && s !== 'none'),
       );
-      if (on) current.add(name);
-      else current.delete(name);
+      if (on) {
+        current.add(name);
+      }
+      else {
+        current.delete(name);
+      }
       this.settings.host_stats_source = current.size
         ? Array.from(current).sort().join(',')
         : 'none';
@@ -4779,7 +5135,9 @@ function app() {
       // this hardcoded a parallel literal that lagged behind every
       // new tab — `port_scan` shipped in `HOST_STATS_TAB_ORDER` but
       // got silently rejected here, so the tab couldn't be clicked.
-      if (!this.HOST_STATS_TAB_ORDER.includes(name)) return;
+      if (!this.HOST_STATS_TAB_ORDER.includes(name)) {
+        return;
+      }
       this.hostStatsTab = name;
       try { localStorage.setItem('hostStatsTab', name); } catch {}
     },
@@ -4804,7 +5162,9 @@ function app() {
       // the form `provider-tab-<key>` so the lookup is deterministic.
       this.$nextTick(() => {
         const el = document.getElementById('provider-tab-' + order[next]);
-        if (el && typeof el.focus === 'function') el.focus();
+        if (el && typeof el.focus === 'function') {
+          el.focus();
+        }
       });
     },
 
@@ -4858,7 +5218,9 @@ function app() {
         'provider_color_ping', 'provider_color_snmp',
       ];
       const subset = {};
-      for (const k of pick) subset[k] = s[k];
+      for (const k of pick) {
+        subset[k] = s[k];
+      }
       try { return JSON.stringify(subset); } catch { return ''; }
     },
     // Cheap dirty check — called from the template every render. String
@@ -5223,7 +5585,9 @@ function app() {
           const cur = (this.tuningForm || {})[k];
           const curStr = (cur == null ? '' : String(cur).trim());
           const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
-          if (curStr !== baseStr) return true;
+          if (curStr !== baseStr) {
+            return true;
+          }
         }
       } catch (_) {}
       // The host_stats baseline JSON-string carries the four Port Scan
@@ -5237,16 +5601,22 @@ function app() {
       } catch (_) { base = {}; }
       try {
         for (const k of this._portScanSectionPlainKeys()) {
-          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) return true;
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) {
+            return true;
+          }
         }
       } catch (_) {}
       return false;
     },
     async savePortScanSection() {
-      if (this.hostStatsSaving) return;
+      if (this.hostStatsSaving) {
+        return;
+      }
       for (const k of this._portScanSectionTuningKeys()) {
         const raw = (this.tuningForm || {})[k];
-        if (raw === '' || raw == null) continue;
+        if (raw === '' || raw == null) {
+          continue;
+        }
         const n = Number(raw);
         if (!Number.isFinite(n) || !Number.isInteger(n)) {
           this.showToast(this.t('admin.config.errors.must_be_int', {
@@ -5322,19 +5692,25 @@ function app() {
           const cur = (this.tuningForm || {})[k];
           const curStr = (cur == null ? '' : String(cur).trim());
           const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
-          if (curStr !== baseStr) return true;
+          if (curStr !== baseStr) {
+            return true;
+          }
         }
       } catch (_) {}
       return false;
     },
     async savePublicIpSection() {
-      if (this.publicIpSaving) return;
+      if (this.publicIpSaving) {
+        return;
+      }
       // Validate every tunable against its declared (min, max) bounds
       // BEFORE the POST so a typo lands a toast instead of a partial
       // save.
       for (const k of this._publicIpSectionTuningKeys()) {
         const raw = (this.tuningForm || {})[k];
-        if (raw === '' || raw == null) continue;
+        if (raw === '' || raw == null) {
+          continue;
+        }
         const n = Number(raw);
         if (!Number.isFinite(n) || !Number.isInteger(n)) {
           this.showToast(this.t('admin.config.errors.must_be_int', {
@@ -5388,7 +5764,9 @@ function app() {
       // consumer sees) so the operator can confirm end-to-end without
       // leaving the admin tab. Spinner + ok/error chip-tone mirror
       // the Asset Inventory "Test connection" UX shape.
-      if (this.publicIpTesting) return;
+      if (this.publicIpTesting) {
+        return;
+      }
       this.publicIpTesting = true;
       this.publicIpTestResult = '';
       this.publicIpTestOk = false;
@@ -5434,19 +5812,25 @@ function app() {
           const cur = (this.tuningForm || {})[k];
           const curStr = (cur == null ? '' : String(cur).trim());
           const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
-          if (curStr !== baseStr) return true;
+          if (curStr !== baseStr) {
+            return true;
+          }
         }
       } catch (_) {}
       return false;
     },
     async saveConfigBackupSection() {
-      if (this.configBackupBusy) return;
+      if (this.configBackupBusy) {
+        return;
+      }
       // Per-key int + bounds validation. Blank input clears the DB
       // override (falls back to env / default) — same contract every
       // other section's save uses.
       for (const k of this._configBackupSectionTuningKeys()) {
         const raw = (this.tuningForm || {})[k];
-        if (raw === '' || raw == null) continue;
+        if (raw === '' || raw == null) {
+          continue;
+        }
         const n = Number(raw);
         if (!Number.isFinite(n) || !Number.isInteger(n)) {
           this.showToast(this.t('admin.config.errors.must_be_int', {
@@ -5524,7 +5908,9 @@ function app() {
           const cur = (this.tuningForm || {})[k];
           const curStr = (cur == null ? '' : String(cur).trim());
           const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
-          if (curStr !== baseStr) return true;
+          if (curStr !== baseStr) {
+            return true;
+          }
         }
       } catch (_) {}
       let base = {};
@@ -5535,12 +5921,18 @@ function app() {
       } catch (_) { base = {}; }
       try {
         for (const k of this._snmpSectionPlainKeys()) {
-          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) return true;
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) {
+            return true;
+          }
         }
         // Typed-but-not-saved v3 secrets dirty the section even
         // though they're omitted from the baseline diff.
-        if (((this.settings || {}).snmp_v3_auth_key || '').trim() !== '') return true;
-        if (((this.settings || {}).snmp_v3_priv_key || '').trim() !== '') return true;
+        if (((this.settings || {}).snmp_v3_auth_key || '').trim() !== '') {
+          return true;
+        }
+        if (((this.settings || {}).snmp_v3_priv_key || '').trim() !== '') {
+          return true;
+        }
       } catch (_) {}
       try {
         const curSrc = String((this.settings || {}).host_stats_source || '');
@@ -5548,17 +5940,23 @@ function app() {
         if (curSrc !== baseSrcStr) {
           const curHas = curSrc.split(',').map(s => s.trim()).includes('snmp');
           const baseHas = baseSrcStr.split(',').map(s => s.trim()).includes('snmp');
-          if (curHas !== baseHas) return true;
+          if (curHas !== baseHas) {
+            return true;
+          }
         }
       } catch (_) {}
       return false;
     },
     async saveSnmpSection() {
-      if (this.hostStatsSaving) return;
+      if (this.hostStatsSaving) {
+        return;
+      }
       // Tunable bounds-check first — bail before touching the DB.
       for (const k of this._snmpSectionTuningKeys()) {
         const raw = (this.tuningForm || {})[k];
-        if (raw === '' || raw == null) continue;
+        if (raw === '' || raw == null) {
+          continue;
+        }
         const n = Number(raw);
         if (!Number.isFinite(n) || !Number.isInteger(n)) {
           this.showToast(this.t('admin.config.errors.must_be_int', {
@@ -5604,8 +6002,12 @@ function app() {
         body.snmp_v3_user = (s.snmp_v3_user || '').trim();
       }
       // v3 secrets follow keep-current-if-blank — only POST when typed.
-      if (s.snmp_v3_auth_key) body.snmp_v3_auth_key = s.snmp_v3_auth_key;
-      if (s.snmp_v3_priv_key) body.snmp_v3_priv_key = s.snmp_v3_priv_key;
+      if (s.snmp_v3_auth_key) {
+        body.snmp_v3_auth_key = s.snmp_v3_auth_key;
+      }
+      if (s.snmp_v3_priv_key) {
+        body.snmp_v3_priv_key = s.snmp_v3_priv_key;
+      }
       if (s.snmp_aliases_json !== undefined) {
         const raw = (s.snmp_aliases_json || '').trim() || '{}';
         let aliases = {};
@@ -5629,8 +6031,12 @@ function app() {
         const sources = new Set(
           (s.host_stats_source || '').split(',').map(x => x.trim()).filter(Boolean)
         );
-        if (this.hasHostStatsSource('snmp')) sources.add('snmp');
-        else sources.delete('snmp');
+        if (this.hasHostStatsSource('snmp')) {
+          sources.add('snmp');
+        }
+        else {
+          sources.delete('snmp');
+        }
         body.host_stats_source = [...sources].join(',');
         // Section-owned tunables.
         for (const k of this._snmpSectionTuningKeys()) {
@@ -5681,7 +6087,9 @@ function app() {
           const cur = (this.tuningForm || {})[k];
           const curStr = (cur == null ? '' : String(cur).trim());
           const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
-          if (curStr !== baseStr) return true;
+          if (curStr !== baseStr) {
+            return true;
+          }
         }
       } catch (_) {}
       let base = {};
@@ -5692,7 +6100,9 @@ function app() {
       } catch (_) { base = {}; }
       try {
         for (const k of this._pingSectionPlainKeys()) {
-          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) return true;
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) {
+            return true;
+          }
         }
       } catch (_) {}
       try {
@@ -5701,16 +6111,22 @@ function app() {
         if (curSrc !== baseSrcStr) {
           const curHas = curSrc.split(',').map(s => s.trim()).includes('ping');
           const baseHas = baseSrcStr.split(',').map(s => s.trim()).includes('ping');
-          if (curHas !== baseHas) return true;
+          if (curHas !== baseHas) {
+            return true;
+          }
         }
       } catch (_) {}
       return false;
     },
     async savePingSection() {
-      if (this.hostStatsSaving) return;
+      if (this.hostStatsSaving) {
+        return;
+      }
       for (const k of this._pingSectionTuningKeys()) {
         const raw = (this.tuningForm || {})[k];
-        if (raw === '' || raw == null) continue;
+        if (raw === '' || raw == null) {
+          continue;
+        }
         const n = Number(raw);
         if (!Number.isFinite(n) || !Number.isInteger(n)) {
           this.showToast(this.t('admin.config.errors.must_be_int', {
@@ -5741,8 +6157,12 @@ function app() {
         const sources = new Set(
           (this.settings.host_stats_source || '').split(',').map(s => s.trim()).filter(Boolean)
         );
-        if (this.hasHostStatsSource('ping')) sources.add('ping');
-        else sources.delete('ping');
+        if (this.hasHostStatsSource('ping')) {
+          sources.add('ping');
+        }
+        else {
+          sources.delete('ping');
+        }
         body.host_stats_source = [...sources].join(',');
         for (const k of this._pingSectionTuningKeys()) {
           const v = (this.tuningForm || {})[k];
@@ -5789,7 +6209,9 @@ function app() {
           const cur = (this.tuningForm || {})[k];
           const curStr = (cur == null ? '' : String(cur).trim());
           const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
-          if (curStr !== baseStr) return true;
+          if (curStr !== baseStr) {
+            return true;
+          }
         }
       } catch (_) {}
       let base = {};
@@ -5800,7 +6222,9 @@ function app() {
       } catch (_) { base = {}; }
       try {
         for (const k of this._neSectionPlainKeys()) {
-          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) return true;
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) {
+            return true;
+          }
         }
       } catch (_) {}
       try {
@@ -5809,16 +6233,22 @@ function app() {
         if (curSrc !== baseSrcStr) {
           const curHas = curSrc.split(',').map(s => s.trim()).includes('node_exporter');
           const baseHas = baseSrcStr.split(',').map(s => s.trim()).includes('node_exporter');
-          if (curHas !== baseHas) return true;
+          if (curHas !== baseHas) {
+            return true;
+          }
         }
       } catch (_) {}
       return false;
     },
     async saveNeSection() {
-      if (this.hostStatsSaving) return;
+      if (this.hostStatsSaving) {
+        return;
+      }
       for (const k of this._neSectionTuningKeys()) {
         const raw = (this.tuningForm || {})[k];
-        if (raw === '' || raw == null) continue;
+        if (raw === '' || raw == null) {
+          continue;
+        }
         const n = Number(raw);
         if (!Number.isFinite(n) || !Number.isInteger(n)) {
           this.showToast(this.t('admin.config.errors.must_be_int', {
@@ -5849,8 +6279,12 @@ function app() {
         const sources = new Set(
           (this.settings.host_stats_source || '').split(',').map(s => s.trim()).filter(Boolean)
         );
-        if (this.hasHostStatsSource('node_exporter')) sources.add('node_exporter');
-        else sources.delete('node_exporter');
+        if (this.hasHostStatsSource('node_exporter')) {
+          sources.add('node_exporter');
+        }
+        else {
+          sources.delete('node_exporter');
+        }
         body.host_stats_source = [...sources].join(',');
         for (const k of this._neSectionTuningKeys()) {
           const v = (this.tuningForm || {})[k];
@@ -5910,7 +6344,9 @@ function app() {
           const cur = (this.tuningForm || {})[k];
           const curStr = (cur == null ? '' : String(cur).trim());
           const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
-          if (curStr !== baseStr) return true;
+          if (curStr !== baseStr) {
+            return true;
+          }
         }
       } catch (_) {}
       // Plain-settings + secret diff. The host-stats baseline is a
@@ -5923,9 +6359,13 @@ function app() {
       } catch (_) { base = {}; }
       try {
         for (const k of this._webminSectionPlainKeys()) {
-          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) return true;
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) {
+            return true;
+          }
         }
-        if (((this.settings || {}).webmin_password || '').trim() !== '') return true;
+        if (((this.settings || {}).webmin_password || '').trim() !== '') {
+          return true;
+        }
       } catch (_) {}
       // Master-toggle membership diff — flipping the Webmin source on
       // / off via the sub-tab's checkbox marks the section dirty.
@@ -5935,17 +6375,23 @@ function app() {
         if (curSrc !== baseSrcStr) {
           const curHas = curSrc.split(',').map(s => s.trim()).includes('webmin');
           const baseHas = baseSrcStr.split(',').map(s => s.trim()).includes('webmin');
-          if (curHas !== baseHas) return true;
+          if (curHas !== baseHas) {
+            return true;
+          }
         }
       } catch (_) {}
       return false;
     },
     async saveWebminSection() {
-      if (this.hostStatsSaving) return;
+      if (this.hostStatsSaving) {
+        return;
+      }
       // Validate the section's tunables against TUNABLES bounds.
       for (const k of this._webminSectionTuningKeys()) {
         const raw = (this.tuningForm || {})[k];
-        if (raw === '' || raw == null) continue;
+        if (raw === '' || raw == null) {
+          continue;
+        }
         const n = Number(raw);
         if (!Number.isFinite(n) || !Number.isInteger(n)) {
           this.showToast(this.t('admin.config.errors.must_be_int', {
@@ -5979,8 +6425,12 @@ function app() {
         const sources = new Set(
           (this.settings.host_stats_source || '').split(',').map(s => s.trim()).filter(Boolean)
         );
-        if (this.hasHostStatsSource('webmin')) sources.add('webmin');
-        else sources.delete('webmin');
+        if (this.hasHostStatsSource('webmin')) {
+          sources.add('webmin');
+        }
+        else {
+          sources.delete('webmin');
+        }
         body.host_stats_source = [...sources].join(',');
         // Secret (keep-current-if-blank).
         if ((this.settings.webmin_password || '').trim() !== '') {
@@ -6025,17 +6475,23 @@ function app() {
           const cur = (this.tuningForm || {})[k];
           const curStr = (cur == null ? '' : String(cur).trim());
           const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
-          if (curStr !== baseStr) return true;
+          if (curStr !== baseStr) {
+            return true;
+          }
         }
       } catch (_) {}
       return false;
     },
     async saveLogsSection() {
-      if (this.tuningSaving) return;
+      if (this.tuningSaving) {
+        return;
+      }
       // Validate the section's tunables against TUNABLES bounds first.
       for (const k of this._logsSectionTuningKeys()) {
         const raw = (this.tuningForm || {})[k];
-        if (raw === '' || raw == null) continue;
+        if (raw === '' || raw == null) {
+          continue;
+        }
         const n = Number(raw);
         if (!Number.isFinite(n) || !Number.isInteger(n)) {
           this.showToast(this.t('admin.config.errors.must_be_int', {
@@ -6069,7 +6525,9 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         // Refresh tuning baseline so the section's dirty cue clears.
         await this.loadTuning();
         this.showToast(this.t('admin.config.saved_toast'));
@@ -6080,7 +6538,9 @@ function app() {
       }
     },
     async saveRetention() {
-      if (this.retentionSaving) return;
+      if (this.retentionSaving) {
+        return;
+      }
       this.retentionSaving = true;
       // Backups section owns its retention tunable. Per the
       // section-saves-its-own-tunables convention, this handler
@@ -6125,7 +6585,9 @@ function app() {
     // "Unsaved" indicator clears, and reports failure via toast.
     debugSaving: false,
     async saveDebugSettings() {
-      if (this.debugSaving) return;
+      if (this.debugSaving) {
+        return;
+      }
       this.debugSaving = true;
       try {
         const r = await fetch('/api/settings', {
@@ -6151,7 +6613,9 @@ function app() {
 
     totpPolicySaving: false,
     async saveTotpPolicy() {
-      if (this.totpPolicySaving) return;
+      if (this.totpPolicySaving) {
+        return;
+      }
       this.totpPolicySaving = true;
       try {
         const s = this.settings || {};
@@ -6182,7 +6646,9 @@ function app() {
     },
 
     async saveOpenMeteoUrl() {
-      if (this.openMeteoSaving) return;
+      if (this.openMeteoSaving) {
+        return;
+      }
       this.openMeteoSaving = true;
       try {
         const url = (this.settings.open_meteo_url || '').trim().replace(/\/+$/, '');
@@ -6202,7 +6668,9 @@ function app() {
           this._openMeteoBaseline = this._openMeteoSnapshot();
           this.showToast(this.t('admin_integrations.open_meteo_saved'), 'success');
           // Re-fetch weather now so the topbar reflects the new upstream.
-          if (this.loadHeaderWeather) this.loadHeaderWeather();
+          if (this.loadHeaderWeather) {
+            this.loadHeaderWeather();
+          }
         } else {
           const j = await r.json().catch(() => ({}));
           this.showToast(j.detail || this.t('toasts_extra.save_failed_generic'), 'error');
@@ -6215,7 +6683,9 @@ function app() {
     },
 
     async saveSchedulerSettings() {
-      if (this.schedulerSaving) return;
+      if (this.schedulerSaving) {
+        return;
+      }
       this.schedulerSaving = true;
       try {
         const tz = (this.settings.scheduler_timezone || '').trim();
@@ -6249,11 +6719,19 @@ function app() {
         // `replace`, we pull the full tail and reset client state.
         const qs = replace ? '?limit=500' : ('?since=' + this.logSinceTs);
         const r = await fetch('/api/logs' + qs);
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         const d = await r.json();
         const lines = d.logs || [];
-        if (replace) this.logLines = lines;
-        else if (lines.length) this.logLines = [...this.logLines, ...lines];
+        if (replace) {
+          this.logLines = lines;
+        }
+        else {
+          if (lines.length) {
+            this.logLines = [...this.logLines, ...lines];
+          }
+        }
         // Cap the client-side buffer at 2× server MAX so the UI doesn't
         // grow forever even if the session stays on the tab for hours.
         const cap = (d.max || 2000) * 2;
@@ -6267,9 +6745,13 @@ function app() {
         // hasn't scrolled up. $nextTick so the DOM has the new rows.
         this.$nextTick(() => {
           const box = document.getElementById('log-viewer');
-          if (!box) return;
+          if (!box) {
+            return;
+          }
           const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
-          if (replace || atBottom) box.scrollTop = box.scrollHeight;
+          if (replace || atBottom) {
+            box.scrollTop = box.scrollHeight;
+          }
         });
       } catch (_) {}
     },
@@ -6279,7 +6761,9 @@ function app() {
       // 2s poll — fast enough for "watch a deploy" UX, slow enough to
       // not hammer the admin API when nothing's happening.
       this.logPollHandle = setInterval(() => {
-        if (this.logAuto) this.loadLogs(false);
+        if (this.logAuto) {
+          this.loadLogs(false);
+        }
       }, 2000);
     },
 
@@ -6299,7 +6783,9 @@ function app() {
         cancelButtonText: this.t('actions.cancel'),
         confirmButtonColor: this._cssVar('--danger'),
       });
-      if (!res.isConfirmed) return;
+      if (!res.isConfirmed) {
+        return;
+      }
       try {
         const r = await fetch('/api/logs', { method: 'DELETE' });
         if (r.ok) {
@@ -6314,10 +6800,16 @@ function app() {
       const q = (this.logFilter || '').toLowerCase();
       const sev = this.logSeverityFilter || {};
       const allSevOn = this.logSeverityLevels.every(k => sev[k]);
-      if (!q && allSevOn) return this.logLines;
+      if (!q && allSevOn) {
+        return this.logLines;
+      }
       return this.logLines.filter(l => {
-        if (!allSevOn && !sev[this.logSeverity(l)]) return false;
-        if (q && !l.text.toLowerCase().includes(q)) return false;
+        if (!allSevOn && !sev[this.logSeverity(l)]) {
+          return false;
+        }
+        if (q && !l.text.toLowerCase().includes(q)) {
+          return false;
+        }
         return true;
       });
     },
@@ -6334,7 +6826,9 @@ function app() {
     logSeverityCount(level) {
       let n = 0;
       for (const l of (this.logLines || [])) {
-        if (this.logSeverity(l) === level) n++;
+        if (this.logSeverity(l) === level) {
+          n++;
+        }
       }
       return n;
     },
@@ -6342,12 +6836,16 @@ function app() {
     // is-active state. False if any level is off.
     logAllSeverityOn() {
       for (const k of this.logSeverityLevels) {
-        if (!this.logSeverityFilter[k]) return false;
+        if (!this.logSeverityFilter[k]) {
+          return false;
+        }
       }
       return true;
     },
     setAllLogSeverity(on) {
-      for (const k of this.logSeverityLevels) this.logSeverityFilter[k] = !!on;
+      for (const k of this.logSeverityLevels) {
+        this.logSeverityFilter[k] = !!on;
+      }
       this._persistLogSeverity();
     },
     setLogSeverityErrorsOnly() {
@@ -6364,7 +6862,9 @@ function app() {
     _restoreLogSeverity() {
       try {
         const raw = localStorage.getItem('logSeverityFilter');
-        if (!raw) return;
+        if (!raw) {
+          return;
+        }
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') {
           for (const k of this.logSeverityLevels) {
@@ -6381,7 +6881,9 @@ function app() {
     async loadLogFiles() {
       try {
         const r = await fetch('/api/admin/logs/files');
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
         const d = await r.json();
         this.logFiles = Array.isArray(d.files) ? d.files : [];
         this.logFilesDir = d.log_dir || '';
@@ -6396,7 +6898,9 @@ function app() {
       this.logSelectedFile = name;
       await this._fetchLogFileBody();
       // Restart the auto-tail poll for the newly-selected file.
-      if (this._logFileTimer) clearInterval(this._logFileTimer);
+      if (this._logFileTimer) {
+        clearInterval(this._logFileTimer);
+      }
       this._logFileTimer = setInterval(() => {
         if (this.logsSubTab !== 'files' || !this.logSelectedFile || !this.logFileAutoTail) {
           return;
@@ -6431,13 +6935,17 @@ function app() {
     // without the timestamp tint.
     parsedLogFileLines() {
       const body = this.logFileBody || '';
-      if (!body) return [];
+      if (!body) {
+        return [];
+      }
       const lines = body.split('\n');
       // ISO ts + 1 or more spaces + LEVEL token + space + rest.
       const RX = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s+(ERROR|WARN|SUCCESS|INFO)\s+(.*)$/;
       const out = [];
       for (const raw of lines) {
-        if (!raw) continue;
+        if (!raw) {
+          continue;
+        }
         const m = RX.exec(raw);
         if (m) {
           const epoch = Date.parse(m[1]) / 1000;
@@ -6482,18 +6990,24 @@ function app() {
       // returned zero rows).
       const q = (this.logFilter || '').trim().toLowerCase();
       const filterByText = (l) => {
-        if (!q) return true;
+        if (!q) {
+          return true;
+        }
         const text = (l && (l.text || l.body || l.msg || '')) + '';
         return text.toLowerCase().includes(q);
       };
-      if (allOn) return q ? lines.filter(filterByText) : lines;
+      if (allOn) {
+        return q ? lines.filter(filterByText) : lines;
+      }
       return lines.filter(l => !!sev[this.logSeverityFor(l)] && filterByText(l));
     },
     // Per-level count for the Files-tab pill chips.
     logFileSeverityCount(level) {
       let n = 0;
       for (const l of this.parsedLogFileLines()) {
-        if (this.logSeverityFor(l) === level) n++;
+        if (this.logSeverityFor(l) === level) {
+          n++;
+        }
       }
       return n;
     },
@@ -6505,7 +7019,9 @@ function app() {
     // insecure contexts).
     async copyFilteredLogs() {
       const lines = this.filteredLogLines();
-      if (!lines.length) return;
+      if (!lines.length) {
+        return;
+      }
       const body = lines.map(l => {
         const ts = this.fmtDate ? this.fmtDate(l.ts) : String(l.ts);
         const stream = (l.stream || '').toUpperCase();
@@ -6544,7 +7060,9 @@ function app() {
     // → 'error'; WARN / WARNING → 'warn'; otherwise 'info'.
     // Lowercase compare so "Error:", "error:", "ERROR:" all match.
     logSeverity(l) {
-      if (!l) return 'info';
+      if (!l) {
+        return 'info';
+      }
       const text = (l.text || '').toLowerCase();
       // stderr AND a tell-tale tag beats "happy-looking" body — but
       // a stderr line with no negative keywords stays at 'info' (our
@@ -6552,10 +7070,14 @@ function app() {
       if (/\berror\b|\bfail(?:ed|ure)?\b|\btraceback\b|\bcritical\b|\bfatal\b/.test(text)) {
         return 'error';
       }
-      if (/\bwarn(?:ing)?\b|deprecat/.test(text)) return 'warn';
+      if (/\bwarn(?:ing)?\b|deprecat/.test(text)) {
+        return 'warn';
+      }
       // Explicit success/OK lines get their own class so
       // "[xxx] probe SUCCESS" / "OK —" read as green.
-      if (/\bsuccess\b|\bok —|→ ok\b/i.test(l.text || '')) return 'ok';
+      if (/\bsuccess\b|\bok —|→ ok\b/i.test(l.text || '')) {
+        return 'ok';
+      }
       return 'info';
     },
     // Escape HTML-unsafe characters before wrapping known prefixes in
@@ -6586,7 +7108,9 @@ function app() {
     // (`_text_` would misfire on snake_case identifiers). Output is
     // already-escaped HTML, safe to inject via swal `html:` payload.
     _renderAiAnswerMd(text) {
-      if (!text) return '';
+      if (!text) {
+        return '';
+      }
       // Three-pass parser:
       //   1. Extract fenced code blocks (```...```) BEFORE escaping or
       //      inline replacements run. The block body is HTML-escaped
@@ -6610,17 +7134,27 @@ function app() {
       // Python's textwrap.dedent: find the smallest leading-ws prefix
       // across non-empty lines, strip it from every line.
       const dedentBody = (raw) => {
-        if (!raw) return raw;
+        if (!raw) {
+          return raw;
+        }
         const lines = raw.split('\n');
         let minIndent = -1;
         for (const line of lines) {
-          if (line.trim() === '') continue;
+          if (line.trim() === '') {
+            continue;
+          }
           const m = /^[ \t]*/.exec(line);
           const n = m ? m[0].length : 0;
-          if (minIndent < 0 || n < minIndent) minIndent = n;
-          if (minIndent === 0) break;
+          if (minIndent < 0 || n < minIndent) {
+            minIndent = n;
+          }
+          if (minIndent === 0) {
+            break;
+          }
         }
-        if (minIndent <= 0) return raw;
+        if (minIndent <= 0) {
+          return raw;
+        }
         return lines
           .map(line => line.length >= minIndent ? line.slice(minIndent) : line)
           .join('\n');
@@ -6655,11 +7189,15 @@ function app() {
         const ulMatch = /^\s*[*-]\s+(.+)$/.exec(line);
         const olMatch = /^\s*(\d+)\.\s+(.+)$/.exec(line);
         if (ulMatch) {
-          if (listKind && listKind !== 'ul') closeList();
+          if (listKind && listKind !== 'ul') {
+            closeList();
+          }
           if (!listKind) { parts.push('<ul class="ai-resp-list">'); listKind = 'ul'; }
           parts.push('<li>' + ulMatch[1] + '</li>');
         } else if (olMatch) {
-          if (listKind && listKind !== 'ol') closeList();
+          if (listKind && listKind !== 'ol') {
+            closeList();
+          }
           if (!listKind) { parts.push('<ol class="ai-resp-list">'); listKind = 'ol'; }
           parts.push('<li>' + olMatch[2] + '</li>');
         } else {
@@ -6685,7 +7223,9 @@ function app() {
       html = html.replace(/\u0000FENCED_CODE_BLOCK_(\d+)\u0000/g, (_m, idxStr) => {
         const idx = parseInt(idxStr, 10);
         const blk = blocks[idx];
-        if (!blk) return '';
+        if (!blk) {
+          return '';
+        }
         const escBody = this._logEscape(blk.body);
         const dataCode = this._logEscape(JSON.stringify(blk.body));
         const langAttr = blk.lang
@@ -6753,11 +7293,15 @@ function app() {
         showCancelButton: true, confirmButtonText: this.t('actions.delete'),
         cancelButtonText: this.t('actions.cancel'),
       });
-      if (!res.isConfirmed) return;
+      if (!res.isConfirmed) {
+        return;
+      }
       try {
         const r = await fetch('/api/backups/' + encodeURIComponent(b.name), { method: 'DELETE' });
         if (r.ok) { this.showToast(this.t('toasts.backup_deleted')); await this.loadBackups(); }
-        else this.showToast(this.t('toasts.delete_failed'), 'error');
+        else {
+          this.showToast(this.t('toasts.delete_failed'), 'error');
+        }
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
     async restoreBackup(b) {
@@ -6769,7 +7313,9 @@ function app() {
         cancelButtonText: this.t('actions.cancel'),
         confirmButtonColor: this._cssVar('--danger'),
       });
-      if (!res.isConfirmed) return;
+      if (!res.isConfirmed) {
+        return;
+      }
       try {
         const r = await fetch('/api/backups/' + encodeURIComponent(b.name) + '/restore', { method: 'POST' });
         if (r.ok) {
@@ -6793,7 +7339,9 @@ function app() {
     },
     async restoreBackupFromFile(ev) {
       const file = ev.target.files && ev.target.files[0];
-      if (!file) return;
+      if (!file) {
+        return;
+      }
       const res = await Swal.fire({
         title: this.t('admin.backups.restore_upload_title'),
         html: this.t('admin.backups.restore_upload_html', {
@@ -6833,7 +7381,9 @@ function app() {
     async loadUsers() {
       try {
         const r = await fetch('/api/users');
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         const d = await r.json();
         this.users = d.users || [];
       } catch (_) {} finally {
@@ -6907,7 +7457,9 @@ function app() {
         cancelButtonText: this.t('actions.cancel'),
         confirmButtonColor: this._cssVar('--danger'),
       });
-      if (!res.isConfirmed) return;
+      if (!res.isConfirmed) {
+        return;
+      }
       try {
         const r = await fetch('/api/users/' + u.id, { method: 'DELETE' });
         if (r.ok) { this.showToast(this.t('toasts.user_deleted')); await this.loadUsers(); }
@@ -6931,7 +7483,9 @@ function app() {
         confirmButtonText: this.t('dialogs.reset_button'),
         cancelButtonText: this.t('actions.cancel'),
       });
-      if (!res.isConfirmed || !res.value) return;
+      if (!res.isConfirmed || !res.value) {
+        return;
+      }
       try {
         const r = await fetch('/api/users/' + u.id + '/reset-password', {
           method: 'POST',
@@ -6972,16 +7526,22 @@ function app() {
     _b64uEncode(buf) {
       const b = new Uint8Array(buf);
       let s = '';
-      for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+      for (let i = 0; i < b.length; i++) {
+        s += String.fromCharCode(b[i]);
+      }
       return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     },
 
     _b64uDecode(s) {
       s = (s || '').replace(/-/g, '+').replace(/_/g, '/');
-      while (s.length % 4) s += '=';
+      while (s.length % 4) {
+        s += '=';
+      }
       const bin = atob(s);
       const out = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      for (let i = 0; i < bin.length; i++) {
+        out[i] = bin.charCodeAt(i);
+      }
       return out.buffer;
     },
 
@@ -7071,11 +7631,15 @@ function app() {
         confirmButtonText: this.t('settings.profile.passkeys.add_button'),
         cancelButtonText: this.t('actions.cancel'),
         inputValidator: (val) => {
-          if (val && val.length > 64) return this.t('settings.profile.passkeys.name_prompt_body');
+          if (val && val.length > 64) {
+            return this.t('settings.profile.passkeys.name_prompt_body');
+          }
           return null;
         },
       });
-      if (!nameRes.isConfirmed) return;
+      if (!nameRes.isConfirmed) {
+        return;
+      }
       const friendlyName = (nameRes.value || '').trim();
       this.passkeys.busy = true;
       try {
@@ -7148,10 +7712,13 @@ function app() {
           return;
         }
         await this.loadPasskeys();
-        if (this.me) this.me.passkeys = { ...(this.me.passkeys || {}),
-          count: (this.passkeys.list || []).length,
-          supported: true,
-        };
+        if (this.me) {
+          this.me.passkeys = {
+            ...(this.me.passkeys || {}),
+            count: (this.passkeys.list || []).length,
+            supported: true,
+          };
+        }
         this.showToast(this.t('toasts.passkey_added'));
       } catch (_) {
         this.showToast(this.t('toasts.network_error'), 'error');
@@ -7171,7 +7738,9 @@ function app() {
         cancelButtonText: this.t('actions.cancel'),
         confirmButtonColor: this._cssVar('--danger'),
       });
-      if (!res.isConfirmed) return;
+      if (!res.isConfirmed) {
+        return;
+      }
       this.passkeys.busy = true;
       try {
         const r = await fetch('/api/me/webauthn/' + encodeURIComponent(pk.id), {
@@ -7183,9 +7752,12 @@ function app() {
           return;
         }
         await this.loadPasskeys();
-        if (this.me) this.me.passkeys = { ...(this.me.passkeys || {}),
-          count: (this.passkeys.list || []).length,
-        };
+        if (this.me) {
+          this.me.passkeys = {
+            ...(this.me.passkeys || {}),
+            count: (this.passkeys.list || []).length,
+          };
+        }
         this.showToast(this.t('toasts.passkey_revoked'));
       } catch (_) {
         this.showToast(this.t('toasts.network_error'), 'error');
@@ -7195,7 +7767,9 @@ function app() {
     },
 
     relativeWhen(epochSeconds) {
-      if (!epochSeconds) return '';
+      if (!epochSeconds) {
+        return '';
+      }
       const now = Date.now() / 1000;
       const diff = Math.max(0, now - Number(epochSeconds));
       if (diff < 60) {
@@ -7239,8 +7813,12 @@ function app() {
     },
 
     totpDisplayCode(c) {
-      if (!c || !c.code) return '';
-      if (this.totpCodesRevealed) return c.code;
+      if (!c || !c.code) {
+        return '';
+      }
+      if (this.totpCodesRevealed) {
+        return c.code;
+      }
       // Same character count + the space, masked.
       const len = String(c.code).replace(/\s/g, '').length;
       const half = Math.floor(len / 2);
@@ -7270,10 +7848,14 @@ function app() {
 
     _renderTotpQr() {
       const el = document.getElementById('totp-enrol-qr');
-      if (!el) return;
+      if (!el) {
+        return;
+      }
       el.textContent = '';
       const uri = this.totpEnrol.uri;
-      if (!uri) return;
+      if (!uri) {
+        return;
+      }
       if (!window.qrcode) {
         const code = document.createElement('code');
         code.className = 'mono totp-qr-fallback';
@@ -7336,7 +7918,9 @@ function app() {
         this.totpEnrolStage = 'reveal';
         this.totpEnrol = { secret: '', uri: '', code: '' };
         await this.loadTotpStatus();
-        if (this.me) this.me.totp = { ...(this.me.totp || {}), enabled: true };
+        if (this.me) {
+          this.me.totp = {...(this.me.totp || {}), enabled: true};
+        }
         this.showToast(this.t('toasts.totp_enabled'));
       } catch (_) {
         this.showToast(this.t('toasts.network_error'), 'error');
@@ -7352,7 +7936,9 @@ function app() {
 
     downloadBackupCodes(codes) {
       const list = (codes && codes.length) ? codes : this.totpRevealCodes;
-      if (!list || !list.length) return;
+      if (!list || !list.length) {
+        return;
+      }
       const blob = new Blob([list.join('\n') + '\n'], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -7370,7 +7956,9 @@ function app() {
         confirmButtonText: this.t('settings.profile.totp.regen_confirm_button'),
         cancelButtonText: this.t('actions.cancel'),
       });
-      if (!res.isConfirmed) return;
+      if (!res.isConfirmed) {
+        return;
+      }
       try {
         const r = await fetch('/api/me/totp/regenerate-codes', { method: 'POST' });
         if (!r.ok) {
@@ -7404,7 +7992,9 @@ function app() {
         confirmButtonText: this.t('settings.profile.totp.disable_confirm_button'),
         cancelButtonText: this.t('actions.cancel'),
       });
-      if (!res.isConfirmed || !res.value) return;
+      if (!res.isConfirmed || !res.value) {
+        return;
+      }
       this.totpDisableBusy = true;
       try {
         const r = await fetch('/api/me/totp/disable', {
@@ -7418,7 +8008,9 @@ function app() {
           return;
         }
         await this.loadTotpStatus();
-        if (this.me) this.me.totp = { ...(this.me.totp || {}), enabled: false };
+        if (this.me) {
+          this.me.totp = {...(this.me.totp || {}), enabled: false};
+        }
         this.showToast(this.t('toasts.totp_disabled'));
       } catch (_) {
         this.showToast(this.t('toasts.network_error'), 'error');
@@ -7440,7 +8032,9 @@ function app() {
         cancelButtonText: this.t('actions.cancel'),
         confirmButtonColor: this._cssVar('--danger'),
       });
-      if (!res.isConfirmed) return;
+      if (!res.isConfirmed) {
+        return;
+      }
       try {
         const r = await fetch('/api/users/' + u.id + '/disable-totp', {
           method: 'POST',
@@ -7480,7 +8074,9 @@ function app() {
         cancelButtonText: this.t('actions.cancel'),
         confirmButtonColor: this._cssVar('--primary'),
       });
-      if (!res.isConfirmed) return;
+      if (!res.isConfirmed) {
+        return;
+      }
       try {
         const r = await fetch('/api/users/' + u.id + '/totp-force', {
           method: 'POST',
@@ -7502,7 +8098,9 @@ function app() {
     async loadSessions() {
       try {
         const r = await fetch('/api/sessions');
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         const d = await r.json();
         this.sessions = d.sessions || [];
       } catch (_) {} finally {
@@ -7518,18 +8116,24 @@ function app() {
         confirmButtonText: this.t('admin.sessions.revoke'),
         cancelButtonText: this.t('actions.cancel'),
       });
-      if (!res.isConfirmed) return;
+      if (!res.isConfirmed) {
+        return;
+      }
       try {
         const r = await fetch('/api/sessions/' + encodeURIComponent(s.token_id), { method: 'DELETE' });
         if (r.ok) { this.showToast(this.t('toasts.session_revoked')); await this.loadSessions(); }
-        else this.showToast(this.t('toasts.revoke_failed'), 'error');
+        else {
+          this.showToast(this.t('toasts.revoke_failed'), 'error');
+        }
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
     async loadTokens() {
       try {
         const r = await fetch('/api/tokens');
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         const d = await r.json();
         this.tokens = d.tokens || [];
       } catch (_) {} finally {
@@ -7567,11 +8171,15 @@ function app() {
         confirmButtonText: this.t('admin.tokens.revoke'),
         cancelButtonText: this.t('actions.cancel'),
       });
-      if (!res.isConfirmed) return;
+      if (!res.isConfirmed) {
+        return;
+      }
       try {
         const r = await fetch('/api/tokens/' + tk.id, { method: 'DELETE' });
         if (r.ok) { this.showToast(this.t('toasts.token_revoked')); await this.loadTokens(); }
-        else this.showToast(this.t('toasts.revoke_failed'), 'error');
+        else {
+          this.showToast(this.t('toasts.revoke_failed'), 'error');
+        }
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
@@ -7610,7 +8218,9 @@ function app() {
       this.currentClock = this._applyDateTimeFormat(now, timePart || 'HH:mm');
     },
     startHeaderClock() {
-      if (this._clockTimer) return;
+      if (this._clockTimer) {
+        return;
+      }
       this.tickHeaderClock();
       // 10s cadence — granular enough to keep minutes synced without
       // hammering the render loop.
@@ -7637,7 +8247,9 @@ function app() {
       }
     },
     startHeaderWeather() {
-      if (this._weatherTimer) return;
+      if (this._weatherTimer) {
+        return;
+      }
       this.loadHeaderWeather();
       // 10 min cadence — backend already caches 10 min per coord, so
       // this matches the server-side TTL. Even if the operator has ten
@@ -7723,7 +8335,9 @@ function app() {
         // forget; we don't wait for it). Empty draft → unset so the
         // SPA falls back to DEFAULT_DATETIME_FORMAT.
         if (this.me) {
-          if (!this.me.ui_prefs) this.me.ui_prefs = {};
+          if (!this.me.ui_prefs) {
+            this.me.ui_prefs = {};
+          }
           this.me.ui_prefs.datetime_format = dtFmtTrimmed || '';
         }
       } catch (_) {}
@@ -7743,7 +8357,9 @@ function app() {
       // Toast confirmation — per-browser preferences auto-save on
       // change, but operators coming from the per-user Profile section
       // expect a visual "saved" signal.
-      if (this.showToast) this.showToast(this.t('toasts_extra.topbar_saved'), 'success');
+      if (this.showToast) {
+        this.showToast(this.t('toasts_extra.topbar_saved'), 'success');
+      }
     },
     // apply server-side ui_prefs onto local state. Called from
     // init() right after /api/me lands. Server is the cross-device
@@ -7794,7 +8410,9 @@ function app() {
     // topbar chip uses 1 (matches the °C-only pre-fix display);
     // forecast min/max uses 0 (the pre-fix Math.round path).
     formatTempPref(c, decimals = 1) {
-      if (c == null || !Number.isFinite(+c)) return '';
+      if (c == null || !Number.isFinite(+c)) {
+        return '';
+      }
       const f = (+c) * 9 / 5 + 32;
       const v = (this.headerWeatherUnit === 'f') ? f : (+c);
       const factor = Math.pow(10, Math.max(0, decimals | 0));
@@ -7804,8 +8422,12 @@ function app() {
     // return the bare number (no suffix). Used by AI palette context
     // where the JSON payload carries the unit separately.
     convertTempPref(c) {
-      if (c == null || !Number.isFinite(+c)) return null;
-      if (this.headerWeatherUnit === 'f') return Math.round(((+c) * 9 / 5 + 32) * 10) / 10;
+      if (c == null || !Number.isFinite(+c)) {
+        return null;
+      }
+      if (this.headerWeatherUnit === 'f') {
+        return Math.round(((+c) * 9 / 5 + 32) * 10) / 10;
+      }
       return Math.round((+c) * 10) / 10;
     },
     // Inline SVG path(s) per WMO-icon slug. Kept tiny — the topbar chip
@@ -7873,7 +8495,9 @@ function app() {
       try { clearTimeout(this._refreshingWd[key]); } catch (_) {}
       if (this[key]) {
         this._refreshingWd[key] = setTimeout(() => {
-          if (this[key]) this[key] = false;
+          if (this[key]) {
+            this[key] = false;
+          }
         }, this._LOAD_BUSY_MAX_MS || 30000);
       } else {
         delete this._refreshingWd[key];
@@ -7892,8 +8516,12 @@ function app() {
       return Number.isFinite(n) && n >= 5000 ? n : 30000;
     },
     async _runWithBusy(key, fn) {
-      if (!key || typeof fn !== 'function') return;
-      if (this._loadBusy[key]) return;
+      if (!key || typeof fn !== 'function') {
+        return;
+      }
+      if (this._loadBusy[key]) {
+        return;
+      }
       this._loadBusy[key] = true;
       // Watchdog — if the inner fn hangs (network blip, dead probe,
       // slow listing) clear the busy flag after _LOAD_BUSY_MAX_MS so
@@ -7902,7 +8530,9 @@ function app() {
       // resolves, finally{} would re-clear (already false — no-op).
       try { clearTimeout(this._loadBusyWd[key]); } catch (_) {}
       this._loadBusyWd[key] = setTimeout(() => {
-        if (this._loadBusy[key]) this._loadBusy[key] = false;
+        if (this._loadBusy[key]) {
+          this._loadBusy[key] = false;
+        }
       }, this._LOAD_BUSY_MAX_MS);
       try { await fn(); }
       finally {
@@ -7914,7 +8544,9 @@ function app() {
     async loadVersion() {
       try {
         const r = await fetch('/api/version');
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         const d = await r.json();
         this.version = d.version || '';
         // First successful fetch — lock in the boot version so the
@@ -7935,7 +8567,9 @@ function app() {
     // the operator has the tab open triggers a hard-refresh banner.
     // Idempotent — safe to call from init() even on hot-reload.
     startVersionWatcher() {
-      if (this._versionTimer) return;
+      if (this._versionTimer) {
+        return;
+      }
       this._versionTimer = setInterval(() => this.loadVersion(), 60000);
     },
     // Force a cache-busting reload when the operator clicks the
@@ -8016,8 +8650,15 @@ function app() {
           diagnosis = 'OK — has_stats=true (bar should render)';
           okCount++;
         }
-        if (sparkCount === 0 && diagnosis.startsWith('OK')) diagnosis += ' but spark line empty';
-        else if (sparkCount > 0 && !s) { diagnosis += ' (sparks alone — bar fallback to 0)'; sparkOnly++; }
+        if (sparkCount === 0 && diagnosis.startsWith('OK')) {
+          diagnosis += ' but spark line empty';
+        }
+        else {
+          if (sparkCount > 0 && !s) {
+            diagnosis += ' (sparks alone — bar fallback to 0)';
+            sparkOnly++;
+          }
+        }
         rows.push({
           id, name: i.name, type: i.type, status: i.status,
           stats_entry: !!s,
@@ -8119,7 +8760,9 @@ function app() {
         // normalised against the largest thing on the cluster.
         let m = 1;
         for (const id in this.stats) {
-          if (this.stats[id].size_root > m) m = this.stats[id].size_root;
+          if (this.stats[id].size_root > m) {
+            m = this.stats[id].size_root;
+          }
         }
         this._maxSize = m;
       } catch (e) {
@@ -8219,7 +8862,9 @@ function app() {
     // is wasted work — we refresh on a 5-minute cadence.
     async loadSparks() {
       const ids = (this.items || []).map(i => i.id).filter(Boolean);
-      if (!ids.length) return;
+      if (!ids.length) {
+        return;
+      }
       try {
         const params = new URLSearchParams({ item_id: ids.join(','), hours: '24' });
         const r = await fetch('/api/stats/history?' + params.toString());
@@ -8258,7 +8903,9 @@ function app() {
       }
     },
     pollSparks() {
-      if (this._sparksTimer) clearInterval(this._sparksTimer);
+      if (this._sparksTimer) {
+        clearInterval(this._sparksTimer);
+      }
       // Off mode kills the sparks timer too. The picker's
       // "static snapshot" promise must hold for sparklines as well as
       // every other chart. Live and interval modes stay at the 5min
@@ -8278,11 +8925,17 @@ function app() {
     // element with x-show so new installs don't render empty rectangles.
     sparkPoints(item, key) {
       const rows = this.sparks[item && item.id];
-      if (!rows || rows.length < 2) return '';
+      if (!rows || rows.length < 2) {
+        return '';
+      }
       const W = 60, H = 10;
       const vals = rows.map(r => {
-        if (key === 'cpu') return r.cpu || 0;
-        if (key === 'mem') return r.mem_limit ? (r.mem_used / r.mem_limit) * 100 : 0;
+        if (key === 'cpu') {
+          return r.cpu || 0;
+        }
+        if (key === 'mem') {
+          return r.mem_limit ? (r.mem_used / r.mem_limit) * 100 : 0;
+        }
         // 'disk' → per-item image-disk footprint (size_root, bytes).
         // Snapshot of the image's bytes-on-disk at each sampler tick;
         // sparkline shows image-size drift over time (catches image
@@ -8290,11 +8943,17 @@ function app() {
         // window's lo/hi via the shared min-max normalisation below
         // so a flat-ish image renders centred rather than pinned to
         // the bottom edge.
-        if (key === 'disk') return r.size_root || 0;
+        if (key === 'disk') {
+          return r.size_root || 0;
+        }
         return 0;
       });
       let lo = Infinity, hi = -Infinity;
-      for (const v of vals) { if (v < lo) lo = v; if (v > hi) hi = v; }
+      for (const v of vals) { if (v < lo) {
+        lo = v;
+      } if (v > hi) {
+        hi = v;
+      } }
       // Empty series → bail (no samples to plot). Disk-specific: when
       // EVERY sample reports size_root=0 we treat it as "no data" so
       // pre-migration deploys (where size_root wasn't persisted yet)
@@ -8305,8 +8964,12 @@ function app() {
       // the truthful flat line at the baseline rather than dropping
       // to the "Collecting data" hint (the data IS being collected,
       // it's just all zeros).
-      if (!Number.isFinite(lo)) return '';
-      if (key === 'disk' && hi <= 0) return '';
+      if (!Number.isFinite(lo)) {
+        return '';
+      }
+      if (key === 'disk' && hi <= 0) {
+        return '';
+      }
       // Keep the sparkline visually centred when the signal is flat —
       // map the flat value to the MIDPOINT of the box (not the
       // bottom edge) so an idle 0% CPU renders a visible line
@@ -8328,7 +8991,9 @@ function app() {
       // Colour follows the CURRENT reading (not the sparkline max) so the
       // line visually agrees with the stat-bar it sits beside.
       const s = this.statsFor(item);
-      if (!s || !s.has_stats) return 'muted';
+      if (!s || !s.has_stats) {
+        return 'muted';
+      }
       const v = key === 'cpu' ? s.cpu_percent : this.memPercent(item);
       return this.barLevel(v);
     },
@@ -8363,14 +9028,20 @@ function app() {
       const byKey = new Map();
       for (const row of target) {
         const k = keyOf(row);
-        if (k != null) byKey.set(k, row);
+        if (k != null) {
+          byKey.set(k, row);
+        }
       }
       for (const inc of incoming) {
         const k = keyOf(inc);
-        if (k == null) continue;
+        if (k == null) {
+          continue;
+        }
         const existing = byKey.get(k);
         if (existing) {
-          for (const f of Object.keys(inc)) existing[f] = inc[f];
+          for (const f of Object.keys(inc)) {
+            existing[f] = inc[f];
+          }
         } else {
           target.push({ ...inc });
           byKey.set(k, target[target.length - 1]);
@@ -8387,7 +9058,9 @@ function app() {
         }
       }
       // Trim any trailing slots if the new array is shorter.
-      while (target.length > ordered.length) target.pop();
+      while (target.length > ordered.length) {
+        target.pop();
+      }
     },
 
     async refresh(force=false) {
@@ -8395,11 +9068,15 @@ function app() {
       // Watchdog cap — mirror the `_runWithBusy` pattern so a hung fetch
       // (server not responding, network blip) can't leave the topbar
       // spinner stuck across the session. Cleared on natural resolve.
-      const _wd = setTimeout(() => { if (this.loading) this.loading = false; },
+      const _wd = setTimeout(() => { if (this.loading) {
+          this.loading = false;
+        } },
                              this._LOAD_BUSY_MAX_MS || 30000);
       try {
         const r = await fetch('/api/items' + (force ? '?force=true' : ''));
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         const d = await r.json();
         // in-place reconcile for items + stacks instead of
         // wholesale array reassignment. Keeps Alpine from tearing
@@ -8439,7 +9116,9 @@ function app() {
         // Live mode skipped /api/stats entirely — bars stayed on
         // seeded stale data forever. Now any non-Off mode loads
         // stats; only `refreshInterval === 0` (explicit Off) skips.
-        if (force && this.refreshInterval !== 0) this.loadStats(true);
+        if (force && this.refreshInterval !== 0) {
+          this.loadStats(true);
+        }
       } catch (e) {
         try { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
         catch (_) {}
@@ -8781,7 +9460,9 @@ function app() {
     },
 
     async saveOidcSettings() {
-      if (this.oidcSaving) return;
+      if (this.oidcSaving) {
+        return;
+      }
       this.oidcSaving = true;
       try {
         await this._saveOidcSettingsImpl();
@@ -8814,7 +9495,9 @@ function app() {
       const tunableKeys = ['tuning_oidc_http_timeout_seconds'];
       for (const k of tunableKeys) {
         const raw = tf[k];
-        if (raw == null || String(raw).trim() === '') continue;
+        if (raw == null || String(raw).trim() === '') {
+          continue;
+        }
         const n = parseInt(raw, 10);
         const bounds = (this.tuningBounds || {})[k] || {};
         if (!Number.isFinite(n) || (bounds.lo != null && n < bounds.lo) || (bounds.hi != null && n > bounds.hi)) {
@@ -8881,7 +9564,9 @@ function app() {
     // mutating `_oidcSnapshot()` away from `_oidcLastPassedTest`.
     canSaveOidc() {
       const enabled = !!(this.oidcForm && this.oidcForm.enabled);
-      if (!enabled) return true;
+      if (!enabled) {
+        return true;
+      }
       return this._oidcLastPassedTest === this._oidcSnapshot()
              && !!this._oidcLastPassedTest;
     },
@@ -8897,7 +9582,9 @@ function app() {
     },
 
     async savePortainerSettings() {
-      if (this.portainerSaving) return;
+      if (this.portainerSaving) {
+        return;
+      }
       this.portainerSaving = true;
       try {
         await this._savePortainerSettingsImpl();
@@ -8950,7 +9637,9 @@ function app() {
       ];
       for (const k of tunableKeys) {
         const raw = tf[k];
-        if (raw == null || String(raw).trim() === '') continue;
+        if (raw == null || String(raw).trim() === '') {
+          continue;
+        }
         const n = parseInt(raw, 10);
         const bounds = (this.tuningBounds || {})[k] || {};
         if (!Number.isFinite(n) || (bounds.lo != null && n < bounds.lo) || (bounds.hi != null && n > bounds.hi)) {
@@ -9021,7 +9710,9 @@ function app() {
     // just so the label updates IMMEDIATELY on Test-success without
     // waiting for the next /api/me round-trip.
     recordTestSuccess(key) {
-      if (!key) return;
+      if (!key) {
+        return;
+      }
       const ts = Math.floor(Date.now() / 1000);
       this._lastTestSuccess = { ...(this._lastTestSuccess || {}), [key]: ts };
     },
@@ -9063,7 +9754,9 @@ function app() {
         // it out of the form's submitted-fields set so it can't
         // accidentally leak into a future POST. Idempotent —
         // re-runs of this helper find the existing field and skip.
-        if (form.dataset.usernameInjected === '1') continue;
+        if (form.dataset.usernameInjected === '1') {
+          continue;
+        }
         if (form.querySelector('input[autocomplete="username"]')) {
           form.dataset.usernameInjected = '1';
           continue;
@@ -9086,14 +9779,26 @@ function app() {
     // tick refreshes every label without reloading.
     lastTestSuccessLabel(key) {
       const ts = (this._lastTestSuccess || {})[key];
-      if (!ts) return '';
+      if (!ts) {
+        return '';
+      }
       const now = this._lastTestSuccessNow || Math.floor(Date.now() / 1000);
       const delta = Math.max(0, now - ts);
       let rel;
-      if (delta < 60) rel = this.t('common.just_now') || 'just now';
-      else if (delta < 3600) rel = this.t('common.minutes_ago', { count: Math.floor(delta / 60) }) || `${Math.floor(delta / 60)}m ago`;
-      else if (delta < 86400) rel = this.t('common.hours_ago', { count: Math.floor(delta / 3600) }) || `${Math.floor(delta / 3600)}h ago`;
-      else rel = this.t('common.days_ago', { count: Math.floor(delta / 86400) }) || `${Math.floor(delta / 86400)}d ago`;
+      if (delta < 60) {
+        rel = this.t('common.just_now') || 'just now';
+      }
+      else {
+        if (delta < 3600) {
+          rel = this.t('common.minutes_ago', {count: Math.floor(delta / 60)}) || `${Math.floor(delta / 60)}m ago`;
+        } else {
+          if (delta < 86400) {
+            rel = this.t('common.hours_ago', {count: Math.floor(delta / 3600)}) || `${Math.floor(delta / 3600)}h ago`;
+          } else {
+            rel = this.t('common.days_ago', {count: Math.floor(delta / 86400)}) || `${Math.floor(delta / 86400)}d ago`;
+          }
+        }
+      }
       return this.t('admin.last_connected_label', { rel: rel }) || `Last connected ${rel}`;
     },
     // Save-button gate. When portainer_enabled is OFF, no test required
@@ -9104,7 +9809,9 @@ function app() {
     // mutates `_portainerSnapshot()` away from `_portainerLastPassedTest`,
     // re-locking Save and prompting the operator to re-test.
     canSavePortainer() {
-      if (!(this.settings || {}).portainer_enabled) return true;
+      if (!(this.settings || {}).portainer_enabled) {
+        return true;
+      }
       return this._portainerLastPassedTest === this._portainerSnapshot()
              && !!this._portainerLastPassedTest;
     },
@@ -9176,7 +9883,9 @@ function app() {
       }
     },
     telegramLinkMinsRemaining() {
-      if (!this.telegramLinkExpiresMs) return 0;
+      if (!this.telegramLinkExpiresMs) {
+        return 0;
+      }
       const ms = this.telegramLinkExpiresMs - Date.now();
       return Math.max(0, Math.ceil(ms / 60000));
     },
@@ -9210,7 +9919,9 @@ function app() {
       // delete-user pattern.
       const u = (row && row.username) || '';
       const tgId = row && row.telegram_user_id;
-      if (!tgId) return;
+      if (!tgId) {
+        return;
+      }
       const confirmed = await this.confirmDialog({
         title: this.t('admin.notifications.telegram_links_unlink_confirm_title') || 'Unlink Telegram user?',
         text: this.t('admin.notifications.telegram_links_unlink_confirm_text', { user: u, tg_id: tgId }),
@@ -9218,7 +9929,9 @@ function app() {
         confirmButtonText: this.t('admin.notifications.telegram_links_unlink_button') || 'Unlink',
         cancelButtonText: this.t('actions.cancel'),
       });
-      if (!confirmed) return;
+      if (!confirmed) {
+        return;
+      }
       try {
         const r = await fetch('/api/telegram/links/' + encodeURIComponent(String(tgId)), {
           method: 'DELETE',
@@ -9265,7 +9978,9 @@ function app() {
           detail: j.detail || this.t(j.ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
           status: j.status || 0,
         };
-        if (j && j.ok) this.recordTestSuccess('telegram');
+        if (j && j.ok) {
+          this.recordTestSuccess('telegram');
+        }
       } catch (_) {
         this.telegramTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
@@ -9294,7 +10009,9 @@ function app() {
           detail: j.detail || this.t(j.ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
           systems: j.systems || [],
         };
-        if (j && j.ok) this.recordTestSuccess('beszel');
+        if (j && j.ok) {
+          this.recordTestSuccess('beszel');
+        }
       } catch (_) {
         this.beszelTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
@@ -9320,7 +10037,9 @@ function app() {
           detail: j.detail || this.t(j.ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
           nodes: j.nodes || [],
         };
-        if (j && j.ok) this.recordTestSuccess('pulse');
+        if (j && j.ok) {
+          this.recordTestSuccess('pulse');
+        }
       } catch (_) {
         this.pulseTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
@@ -9352,7 +10071,9 @@ function app() {
           ok: !!j.ok,
           detail: j.detail || this.t(j.ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
         };
-        if (j && j.ok) this.recordTestSuccess('webmin');
+        if (j && j.ok) {
+          this.recordTestSuccess('webmin');
+        }
       } catch (_) {
         this.webminTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
@@ -9460,7 +10181,9 @@ function app() {
               host: j.host || hid, port: j.port || '?', error: j.error || '—',
             });
         this.pingTestResult = { pending: false, ok: !!j.ok, detail };
-        if (j && j.ok) this.recordTestSuccess('ping');
+        if (j && j.ok) {
+          this.recordTestSuccess('ping');
+        }
       } catch (_) {
         this.pingTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
@@ -9513,12 +10236,24 @@ function app() {
       // defaults server-side.
       const ovr = (row && row.snmp) || {};
       const body = { host: target };
-      if (ovr.community) body.community = ovr.community;
-      if (ovr.version)   body.version   = ovr.version;
-      if (ovr.port)      body.port      = ovr.port;
-      if (ovr.v3_user)   body.v3_user   = ovr.v3_user;
-      if (ovr.v3_auth_key) body.v3_auth_key = ovr.v3_auth_key;
-      if (ovr.v3_priv_key) body.v3_priv_key = ovr.v3_priv_key;
+      if (ovr.community) {
+        body.community = ovr.community;
+      }
+      if (ovr.version)   {
+        body.version = ovr.version;
+      }
+      if (ovr.port)      {
+        body.port = ovr.port;
+      }
+      if (ovr.v3_user)   {
+        body.v3_user = ovr.v3_user;
+      }
+      if (ovr.v3_auth_key) {
+        body.v3_auth_key = ovr.v3_auth_key;
+      }
+      if (ovr.v3_priv_key) {
+        body.v3_priv_key = ovr.v3_priv_key;
+      }
       this.snmpTestResult = { pending: true };
       try {
         const r = await fetch('/api/snmp/test', {
@@ -9538,7 +10273,9 @@ function app() {
           pending: false, ok: !!j.ok,
           detail: j.detail || (j.ok ? 'OK' : this.t('toasts.save_failed')),
         };
-        if (j && j.ok) this.recordTestSuccess('snmp');
+        if (j && j.ok) {
+          this.recordTestSuccess('snmp');
+        }
       } catch (_) {
         this.snmpTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
@@ -9637,7 +10374,9 @@ function app() {
     moveSshCustomAction(idx, delta) {
       const arr = (this.sshSettings.custom_actions || []).slice();
       const target = idx + delta;
-      if (target < 0 || target >= arr.length) return;
+      if (target < 0 || target >= arr.length) {
+        return;
+      }
       const [row] = arr.splice(idx, 1);
       arr.splice(target, 0, row);
       this.sshSettings.custom_actions = arr;
@@ -9667,12 +10406,20 @@ function app() {
             cancelButtonText: this.t('actions.cancel'),
           })).isConfirmed
         : window.confirm(promptTitle);
-      if (!ok) return;
+      if (!ok) {
+        return;
+      }
       try {
         const body = {};
-        if (kind === 'private_key') body.clear_ssh_private_key = true;
-        if (kind === 'passphrase')  body.clear_ssh_passphrase  = true;
-        if (kind === 'password')    body.clear_ssh_password    = true;
+        if (kind === 'private_key') {
+          body.clear_ssh_private_key = true;
+        }
+        if (kind === 'passphrase')  {
+          body.clear_ssh_passphrase = true;
+        }
+        if (kind === 'password')    {
+          body.clear_ssh_password = true;
+        }
         const r = await fetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -9757,8 +10504,12 @@ function app() {
     // never touches SSH. `refresh: true` bypasses the short-circuit so
     // "Test connection" can force a fresh status read.
     async loadSshStatus(hostId, { refresh = false } = {}) {
-      if (!hostId) return;
-      if (!refresh && this.sshStatus[hostId]) return this.sshStatus[hostId];
+      if (!hostId) {
+        return;
+      }
+      if (!refresh && this.sshStatus[hostId]) {
+        return this.sshStatus[hostId];
+      }
       try {
         const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/ssh/status');
         if (!r.ok) {
@@ -9773,7 +10524,9 @@ function app() {
       }
     },
     async toggleSshCard(hostId) {
-      if (!hostId) return;
+      if (!hostId) {
+        return;
+      }
       const open = !this.sshOpen[hostId];
       this.sshOpen = { ...this.sshOpen, [hostId]: open };
       if (open) {
@@ -9803,7 +10556,9 @@ function app() {
       }
     },
     async testSshConnection(hostId) {
-      if (!hostId) return;
+      if (!hostId) {
+        return;
+      }
       this.sshTestBusy = { ...this.sshTestBusy, [hostId]: true };
       try {
         const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/ssh/test', {
@@ -9857,8 +10612,12 @@ function app() {
       return !!(h && h.status === 'up');
     },
     sshDisabledReason(h) {
-      if (!h) return '';
-      if (h.status === 'up') return '';
+      if (!h) {
+        return '';
+      }
+      if (h.status === 'up') {
+        return '';
+      }
       // Human-readable hint for the disabled tooltip — reason varies
       // by status so the operator knows whether to wait (loading),
       // configure a provider (unconfigured), or investigate (down /
@@ -9868,7 +10627,9 @@ function app() {
       });
     },
     runSshCustomAction(hostId, action) {
-      if (!hostId || !action || !action.command) return;
+      if (!hostId || !action || !action.command) {
+        return;
+      }
       const resolved = (this.sshStatus[hostId] && this.sshStatus[hostId].resolved) || {};
       const host = resolved.host || hostId;
       const cmd = String(action.command).replace(/\{host\}/g, host);
@@ -9937,7 +10698,9 @@ function app() {
     },
     async copySshOutput(hostId) {
       const r = this.sshResult[hostId];
-      if (!r) return;
+      if (!r) {
+        return;
+      }
       const blob = [
         '$ ' + (this.sshCommand[hostId] || ''),
         '--- exit ---',
@@ -9961,7 +10724,9 @@ function app() {
     // The modal lives at top-level so its WS survives drawer-state
     // transitions; closing drops the socket cleanly.
     openHostTerminal(host) {
-      if (!host || !host.id) return;
+      if (!host || !host.id) {
+        return;
+      }
       // Admin-only is also enforced server-side; this UI gate just
       // avoids "click button → 4403" friction.
       if (!this.me || this.me.role !== 'admin') {
@@ -9993,7 +10758,9 @@ function app() {
     },
     _spawnTerminal(host) {
       const container = this.$refs.terminalHost;
-      if (!container) return;
+      if (!container) {
+        return;
+      }
       // ---- 1) xterm.js setup ----
       const term = new window.Terminal({
         fontFamily: 'Menlo, Consolas, "DejaVu Sans Mono", monospace',
@@ -10014,8 +10781,12 @@ function app() {
       const wlAddon = (typeof window.WebLinksAddon === 'function')
         ? new window.WebLinksAddon()
         : null;
-      if (fit) term.loadAddon(fit);
-      if (wlAddon) term.loadAddon(wlAddon);
+      if (fit) {
+        term.loadAddon(fit);
+      }
+      if (wlAddon) {
+        term.loadAddon(wlAddon);
+      }
       term.open(container);
       // ---- Resize-to-container helper. ----
       // The earlier "staircase of fit()" approach kept failing because
@@ -10044,7 +10815,9 @@ function app() {
       // Firefox ~12px, Safari ~14px) without making the gap visible.
       const _MANUAL_SCROLLBAR_RESERVE = 18;
       const measureAndResize = () => {
-        if (!term || !container || !container.isConnected) return false;
+        if (!term || !container || !container.isConnected) {
+          return false;
+        }
         // Manual measurement path (canonical). FitAddon was the
         // original approach but its `proposeDimensions()` silently
         // returns `undefined` on flex children with `min-height: 0`,
@@ -10058,7 +10831,9 @@ function app() {
         // from the current value, so ResizeObserver re-fires don't
         // ratchet the size down.
         const rect = container.getBoundingClientRect();
-        if (rect.width < 100 || rect.height < 50) return false;
+        if (rect.width < 100 || rect.height < 50) {
+          return false;
+        }
         const cs = window.getComputedStyle(container);
         const padX = (parseFloat(cs.paddingLeft) || 0)
                    + (parseFloat(cs.paddingRight) || 0);
@@ -10119,7 +10894,9 @@ function app() {
           // Control frame — JSON.
           let ctl = null;
           try { ctl = JSON.parse(ev.data); } catch (_) { return; }
-          if (!ctl || typeof ctl !== 'object') return;
+          if (!ctl || typeof ctl !== 'object') {
+            return;
+          }
           if (ctl.type === 'ready') {
             this.terminalState = 'connected';
             this.terminalResolved = ctl.resolved || null;
@@ -10188,11 +10965,15 @@ function app() {
       //       strings via onData; encode + send. ----
       const enc = new TextEncoder();
       term.onData((data) => {
-        if (!ws || ws.readyState !== 1) return;
+        if (!ws || ws.readyState !== 1) {
+          return;
+        }
         try { ws.send(enc.encode(data)); } catch (_) {}
       });
       term.onResize(({ cols, rows }) => {
-        if (!ws || ws.readyState !== 1) return;
+        if (!ws || ws.readyState !== 1) {
+          return;
+        }
         try { ws.send(JSON.stringify({ type: 'resize', cols, rows })); } catch (_) {}
       });
 
@@ -10264,7 +11045,9 @@ function app() {
     },
     reconnectHostTerminal() {
       const host = this.terminalHost;
-      if (!host) return;
+      if (!host) {
+        return;
+      }
       // Re-spawn against the same host. _teardownTerminalSession in
       // openHostTerminal handles the cleanup of the previous session.
       this.openHostTerminal(host);
@@ -10294,7 +11077,9 @@ function app() {
       }
     },
     async saveSettings() {
-      if (this.settingsSaving) return;  // guard against double-click
+      if (this.settingsSaving) {
+        return;
+      }  // guard against double-click
       this.settingsSaving = true;
       try {
         // Per-event notification toggles are stored on
@@ -10305,12 +11090,16 @@ function app() {
         // BOTH the Apprise URL/tag AND the event grid in this tab.
         const payload = { ...this.settings };
         for (const k of (this.notifyEventKeys || [])) {
-          if (k in payload) payload[k] = payload[k] ? 'true' : 'false';
+          if (k in payload) {
+            payload[k] = payload[k] ? 'true' : 'false';
+          }
         }
         // Per-medium master switches share the same string-on-the-wire
         // contract (true/false/clear) as the per-event toggles above.
         for (const k of (this.notifyMediumKeys || [])) {
-          if (k in payload) payload[k] = payload[k] ? 'true' : 'false';
+          if (k in payload) {
+            payload[k] = payload[k] ? 'true' : 'false';
+          }
         }
         // Boolean fields whose SettingsIn declarations are `Optional[str]`
         // (the canonical string-on-the-wire contract every other boolean
@@ -10341,7 +11130,9 @@ function app() {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify(payload),
         });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         // Re-capture per-tab baselines under the unified dirty-tracking
         // pattern — the Notifications tab (Apprise + Open-Meteo) is the
         // most common caller of saveSettings and lands the whole
@@ -10366,7 +11157,9 @@ function app() {
           if (rm.ok) {
             const fresh = await rm.json();
             if (fresh && fresh.authenticated) {
-              for (const k of Object.keys(fresh)) this.me[k] = fresh[k];
+              for (const k of Object.keys(fresh)) {
+                this.me[k] = fresh[k];
+              }
             }
           }
         } catch (_) { /* non-fatal — the next page load will catch up */ }
@@ -10488,7 +11281,9 @@ function app() {
       // the per-row template (which the project's reactive-array
       // rule explicitly prohibits). Cache once; the static input
       // never changes so the cache never needs invalidation.
-      if (this._notifyCategoriesCache) return this._notifyCategoriesCache;
+      if (this._notifyCategoriesCache) {
+        return this._notifyCategoriesCache;
+      }
       // Operations rows come from the existing notifyEventGroups
       // (paired success/failure); Health from notifyHealthEvents +
       // notifySamplerEvents (single-toggle health-style events);
@@ -10559,7 +11354,9 @@ function app() {
     notifyCategoryFilteredRows(cat) {
       const rows = (cat && cat.rows) || [];
       const q = (this.notifySearchQuery || '').trim().toLowerCase();
-      if (!q) return rows;
+      if (!q) {
+        return rows;
+      }
       const out = [];
       for (const r of rows) {
         const label = (this.t('admin.notifications.events.' + r.label) || '').toLowerCase();
@@ -10581,7 +11378,9 @@ function app() {
     notifyCategoryFilteredGroups(cat) {
       const groups = (cat && cat.groups) || [];
       const q = (this.notifySearchQuery || '').trim().toLowerCase();
-      if (!q) return groups;
+      if (!q) {
+        return groups;
+      }
       const out = [];
       const successKind = (this.t('admin.notifications.events.success') || '').toLowerCase();
       const failureKind = (this.t('admin.notifications.events.failure') || '').toLowerCase();
@@ -10606,13 +11405,25 @@ function app() {
       const rows = (cat && cat.rows) || [];
       let on = 0, off = 0;
       for (const r of rows) {
-        if (this.userNotifyEventDisabledByAdmin(r.key)) continue;
-        if (this.userNotifyEventValue(r.key, medium)) on += 1;
-        else off += 1;
+        if (this.userNotifyEventDisabledByAdmin(r.key)) {
+          continue;
+        }
+        if (this.userNotifyEventValue(r.key, medium)) {
+          on += 1;
+        }
+        else {
+          off += 1;
+        }
       }
-      if (on === 0 && off === 0) return 'none';
-      if (off === 0) return 'all';
-      if (on === 0) return 'none';
+      if (on === 0 && off === 0) {
+        return 'none';
+      }
+      if (off === 0) {
+        return 'all';
+      }
+      if (on === 0) {
+        return 'none';
+      }
       return 'partial';
     },
     // Per-(category, medium) dirty marker — true when AT LEAST ONE
@@ -10627,14 +11438,18 @@ function app() {
     // would lie about the persisted state.
     notifyCategoryDirtyForMedium(cat, medium) {
       const rows = (cat && cat.rows) || [];
-      if (rows.length === 0) return false;
+      if (rows.length === 0) {
+        return false;
+      }
       let baseEvents = null;
       try {
         baseEvents = (JSON.parse(this._profileBaseline || '{}').notify_events) || {};
       } catch { return false; }
       const _currentEvents = (this.profileForm && this.profileForm.notify_events) || {};
       for (const r of rows) {
-        if (this.userNotifyEventDisabledByAdmin(r.key)) continue;
+        if (this.userNotifyEventDisabledByAdmin(r.key)) {
+          continue;
+        }
         // Resolve current value via the same helper the chip's state
         // uses so admin-default fallbacks compose identically.
         const cur = !!this.userNotifyEventValue(r.key, medium);
@@ -10656,7 +11471,9 @@ function app() {
         } else {
           base = false;
         }
-        if (cur !== base) return true;
+        if (cur !== base) {
+          return true;
+        }
       }
       return false;
     },
@@ -10665,7 +11482,9 @@ function app() {
       let total = 0, on = 0;
       const mediums = this.notifyMediumNames();
       for (const r of rows) {
-        if (this.userNotifyEventDisabledByAdmin(r.key)) continue;
+        if (this.userNotifyEventDisabledByAdmin(r.key)) {
+          continue;
+        }
         total += 1;
         // "Enabled" for the count = at least one medium routes the event.
         for (const m of mediums) {
@@ -10679,7 +11498,9 @@ function app() {
     // category header.
     toggleNotifyCategoryMedium(catId, medium, nextValue) {
       const cat = (this.notifyCategories() || []).find(c => c.id === catId);
-      if (!cat) return;
+      if (!cat) {
+        return;
+      }
       // Short-circuit if the medium is admin-disabled globally.
       // The chip's CSS already shows strikethrough + cursor:
       // not-allowed, but the click handler still fires unless we
@@ -10689,7 +11510,9 @@ function app() {
       // routing landing without the operator noticing. Both
       // helpers (Medium toggle + the All toggle) gate on the
       // same predicate.
-      if (!this.notifyMediumIsGloballyEnabled(medium)) return;
+      if (!this.notifyMediumIsGloballyEnabled(medium)) {
+        return;
+      }
       // Resolve the next value: if not supplied, flip based on
       // current state (all → none, partial/none → all).
       let v = nextValue;
@@ -10698,16 +11521,22 @@ function app() {
         v = (state !== 'all');
       }
       const f = this.profileForm || {};
-      if (!f.notify_events) f.notify_events = {};
+      if (!f.notify_events) {
+        f.notify_events = {};
+      }
       const mediums = this.notifyMediumNames();
       for (const r of cat.rows) {
-        if (this.userNotifyEventDisabledByAdmin(r.key)) continue;
+        if (this.userNotifyEventDisabledByAdmin(r.key)) {
+          continue;
+        }
         const bare = this._bareEventName(r.key);
         let slot = f.notify_events[bare];
         if (!slot || typeof slot !== 'object') {
           const prev = !!slot;
           slot = {};
-          for (const mm of mediums) slot[mm] = prev;
+          for (const mm of mediums) {
+            slot[mm] = prev;
+          }
           f.notify_events[bare] = slot;
         }
         slot[medium] = !!v;
@@ -10717,7 +11546,9 @@ function app() {
     // "All" master chip per category.
     toggleNotifyCategoryAll(catId, nextValue) {
       const cat = (this.notifyCategories() || []).find(c => c.id === catId);
-      if (!cat) return;
+      if (!cat) {
+        return;
+      }
       let v = nextValue;
       if (v === undefined) {
         // Flip based on whether ANY medium is "all" — defaults to
@@ -10727,7 +11558,9 @@ function app() {
         v = !allOn;
       }
       const f = this.profileForm || {};
-      if (!f.notify_events) f.notify_events = {};
+      if (!f.notify_events) {
+        f.notify_events = {};
+      }
       const mediums = this.notifyMediumNames();
       // Filter the medium list to only globally-enabled channels —
       // skip flipping prefs for an admin-disabled medium since that
@@ -10736,7 +11569,9 @@ function app() {
       // profile. Same gate as toggleNotifyCategoryMedium.
       const liveMediums = mediums.filter(m => this.notifyMediumIsGloballyEnabled(m));
       for (const r of cat.rows) {
-        if (this.userNotifyEventDisabledByAdmin(r.key)) continue;
+        if (this.userNotifyEventDisabledByAdmin(r.key)) {
+          continue;
+        }
         const bare = this._bareEventName(r.key);
         // Preserve any pre-existing per-medium values for
         // admin-disabled channels — only mutate the live ones. This
@@ -10745,15 +11580,21 @@ function app() {
         const existing = (f.notify_events[bare] && typeof f.notify_events[bare] === 'object')
           ? f.notify_events[bare] : {};
         const slot = { ...existing };
-        for (const m of liveMediums) slot[m] = !!v;
+        for (const m of liveMediums) {
+          slot[m] = !!v;
+        }
         f.notify_events[bare] = slot;
       }
     },
     notifyCategoryAllState(cat) {
       const mediums = this.notifyMediumNames();
       const states = mediums.map(m => this.notifyCategoryStateForMedium(cat, m));
-      if (states.every(s => s === 'all'))  return 'all';
-      if (states.every(s => s === 'none')) return 'none';
+      if (states.every(s => s === 'all'))  {
+        return 'all';
+      }
+      if (states.every(s => s === 'none')) {
+        return 'none';
+      }
       return 'partial';
     },
     isNotifyCategoryExpanded(catId) {
@@ -10775,15 +11616,21 @@ function app() {
     expandAllNotifyCategories(value) {
       const v = (value !== false);
       const next = {};
-      for (const c of this.notifyCategories()) next[c.id] = v;
+      for (const c of this.notifyCategories()) {
+        next[c.id] = v;
+      }
       this.notifyCategoryExpanded = next;
     },
     _appriseSnapshot() {
       const s = this.settings || {};
       const events = {};
-      for (const k of this.notifyEventKeys) events[k] = !!s[k];
+      for (const k of this.notifyEventKeys) {
+        events[k] = !!s[k];
+      }
       const mediums = {};
-      for (const k of (this.notifyMediumKeys || [])) mediums[k] = !!s[k];
+      for (const k of (this.notifyMediumKeys || [])) {
+        mediums[k] = !!s[k];
+      }
       // Notifications-panel-scoped tunables. Pre-fix these were edited
       // through their own auto-rendered Admin → Config form which had
       // its own Save flow; the operator wants them flush against the
@@ -10845,7 +11692,9 @@ function app() {
     // Apprise Save button (saveSettings).
     setAllNotifyEvents(value) {
       const v = !!value;
-      for (const k of this.notifyEventKeys) this.settings[k] = v;
+      for (const k of this.notifyEventKeys) {
+        this.settings[k] = v;
+      }
     },
     setNotifyEventsErrorsOnly() {
       // Errors-only = failure true, success false for every group.
@@ -10888,7 +11737,9 @@ function app() {
     notifyMediumIsGloballyEnabled(name) {
       const list = (this.me && Array.isArray(this.me.notify_mediums))
         ? this.me.notify_mediums : null;
-      if (!list) return true;  // optimistic — wait for /api/me
+      if (!list) {
+        return true;
+      }  // optimistic — wait for /api/me
       const row = list.find(m => m.name === name);
       return row ? !!row.enabled : true;
     },
@@ -10908,13 +11759,17 @@ function app() {
     setUserNotifyEventValue(eventKey, medium, value) {
       const bare = this._bareEventName(eventKey);
       const f = this.profileForm || {};
-      if (!f.notify_events) f.notify_events = {};
+      if (!f.notify_events) {
+        f.notify_events = {};
+      }
       if (!f.notify_events[bare] || typeof f.notify_events[bare] !== 'object') {
         // Coerce legacy bare-bool slot into the per-medium dict shape so
         // the rest of the form sees a uniform structure.
         const prev = !!f.notify_events[bare];
         const slot = {};
-        for (const m of this.notifyMediumNames()) slot[m] = prev;
+        for (const m of this.notifyMediumNames()) {
+          slot[m] = prev;
+        }
         f.notify_events[bare] = slot;
       }
       f.notify_events[bare][medium] = !!value;
@@ -10922,12 +11777,18 @@ function app() {
     // Toggle every medium for a given event in one click — clicking
     // the event label itself acts as a row-level master switch.
     toggleUserNotifyEventRow(eventKey, value) {
-      if (this.userNotifyEventDisabledByAdmin(eventKey)) return;
+      if (this.userNotifyEventDisabledByAdmin(eventKey)) {
+        return;
+      }
       const bare = this._bareEventName(eventKey);
       const f = this.profileForm || {};
-      if (!f.notify_events) f.notify_events = {};
+      if (!f.notify_events) {
+        f.notify_events = {};
+      }
       const slot = {};
-      for (const m of this.notifyMediumNames()) slot[m] = !!value;
+      for (const m of this.notifyMediumNames()) {
+        slot[m] = !!value;
+      }
       f.notify_events[bare] = slot;
     },
     // Toggle every event for a given medium in one click — clicking
@@ -10935,14 +11796,20 @@ function app() {
     // Skips admin-disabled events.
     toggleUserNotifyMediumColumn(medium, value) {
       const f = this.profileForm || {};
-      if (!f.notify_events) f.notify_events = {};
+      if (!f.notify_events) {
+        f.notify_events = {};
+      }
       for (const k of this.notifyEventKeys) {
-        if (this.userNotifyEventDisabledByAdmin(k)) continue;
+        if (this.userNotifyEventDisabledByAdmin(k)) {
+          continue;
+        }
         const bare = this._bareEventName(k);
         if (!f.notify_events[bare] || typeof f.notify_events[bare] !== 'object') {
           const prev = !!f.notify_events[bare];
           const slot = {};
-          for (const m of this.notifyMediumNames()) slot[m] = prev;
+          for (const m of this.notifyMediumNames()) {
+            slot[m] = prev;
+          }
           f.notify_events[bare] = slot;
         }
         f.notify_events[bare][medium] = !!value;
@@ -10954,41 +11821,57 @@ function app() {
       const bare = this._bareEventName(eventKey);
       const slot = (this.profileForm && this.profileForm.notify_events)
         ? this.profileForm.notify_events[bare] : null;
-      if (!slot || typeof slot !== 'object') return false;
+      if (!slot || typeof slot !== 'object') {
+        return false;
+      }
       const mediums = this.notifyMediumNames();
       for (const m of mediums) {
-        if (slot[m] === false) return false;
+        if (slot[m] === false) {
+          return false;
+        }
       }
       return true;
     },
     setAllUserNotifyEvents(value) {
       const v = !!value;
       const f = this.profileForm || {};
-      if (!f.notify_events) f.notify_events = {};
+      if (!f.notify_events) {
+        f.notify_events = {};
+      }
       const mediums = this.notifyMediumNames();
       for (const k of this.notifyEventKeys) {
-        if (this.userNotifyEventDisabledByAdmin(k)) continue;
+        if (this.userNotifyEventDisabledByAdmin(k)) {
+          continue;
+        }
         const bare = this._bareEventName(k);
         const slot = {};
-        for (const m of mediums) slot[m] = v;
+        for (const m of mediums) {
+          slot[m] = v;
+        }
         f.notify_events[bare] = slot;
       }
     },
     setUserNotifyEventsErrorsOnly() {
       const f = this.profileForm || {};
-      if (!f.notify_events) f.notify_events = {};
+      if (!f.notify_events) {
+        f.notify_events = {};
+      }
       const mediums = this.notifyMediumNames();
       for (const g of this.notifyEventGroups) {
         if (!this.userNotifyEventDisabledByAdmin(g.success)) {
           const bareS = this._bareEventName(g.success);
           const slot = {};
-          for (const m of mediums) slot[m] = false;
+          for (const m of mediums) {
+            slot[m] = false;
+          }
           f.notify_events[bareS] = slot;
         }
         if (!this.userNotifyEventDisabledByAdmin(g.failure)) {
           const bareF = this._bareEventName(g.failure);
           const slot = {};
-          for (const m of mediums) slot[m] = true;
+          for (const m of mediums) {
+            slot[m] = true;
+          }
           f.notify_events[bareF] = slot;
         }
       }
@@ -11042,17 +11925,27 @@ function app() {
     _resolveNotifyTemplateEvent(bareEventName) {
       const fullKey = 'notify_event_' + bareEventName;
       for (const g of (this.notifyEventGroups || [])) {
-        if (g.success === fullKey) return { label: g.label, kind: 'success', key: fullKey };
-        if (g.failure === fullKey) return { label: g.label, kind: 'failure', key: fullKey };
+        if (g.success === fullKey) {
+          return {label: g.label, kind: 'success', key: fullKey};
+        }
+        if (g.failure === fullKey) {
+          return {label: g.label, kind: 'failure', key: fullKey};
+        }
       }
       for (const e of (this.notifyHealthEvents || [])) {
-        if (e.key === fullKey) return { label: e.label, kind: null, key: fullKey };
+        if (e.key === fullKey) {
+          return {label: e.label, kind: null, key: fullKey};
+        }
       }
       for (const e of (this.notifySecurityEvents || [])) {
-        if (e.key === fullKey) return { label: e.label, kind: null, key: fullKey };
+        if (e.key === fullKey) {
+          return {label: e.label, kind: null, key: fullKey};
+        }
       }
       for (const e of (this.notifySamplerEvents || [])) {
-        if (e.key === fullKey) return { label: e.label, kind: null, key: fullKey };
+        if (e.key === fullKey) {
+          return {label: e.label, kind: null, key: fullKey};
+        }
       }
       // Fallback: render the bare event name verbatim if our static
       // arrays don't know about it (audit gate already logs a WARN
@@ -11092,7 +11985,9 @@ function app() {
         const events = (d && d.events) || [];
         const ev = events.find(e => e.event === bareEventName);
         if (!ev) {
-          if (window.Swal) Swal.fire({ icon: 'error', text: this.t('admin.notify_templates.unknown_event_error', { event: bareEventName }) });
+          if (window.Swal) {
+            Swal.fire({icon: 'error', text: this.t('admin.notify_templates.unknown_event_error', {event: bareEventName})});
+          }
           return;
         }
         this.notifyTemplateEvent = this._resolveNotifyTemplateEvent(bareEventName);
@@ -11118,7 +12013,9 @@ function app() {
         // placeholder analysis the operator will see during edits.
         this.refreshNotifyTemplatePreview();
       } catch (e) {
-        if (window.Swal) Swal.fire({ icon: 'error', text: this.t('admin.notify_templates.load_failed', { error: String(e.message || e) }) });
+        if (window.Swal) {
+          Swal.fire({icon: 'error', text: this.t('admin.notify_templates.load_failed', {error: String(e.message || e)})});
+        }
       }
     },
     // Defence-in-depth fallback when the admin-only list endpoint
@@ -11198,7 +12095,9 @@ function app() {
     },
     async refreshNotifyTemplatePreview() {
       const e = this.notifyTemplateEditor;
-      if (!e || !e.event) return;
+      if (!e || !e.event) {
+        return;
+      }
       // Send the IN-PROGRESS strings (or empty → server falls back to
       // default at render time). Server is the single source of truth
       // for placeholder validation (curated whitelist lives in
@@ -11248,7 +12147,9 @@ function app() {
     },
     async saveNotifyTemplate() {
       const e = this.notifyTemplateEditor;
-      if (!e || !e.event || e.readOnly) return;
+      if (!e || !e.event || e.readOnly) {
+        return;
+      }
       e.saving = true;
       try {
         const r = await fetch(
@@ -11259,7 +12160,9 @@ function app() {
             body: JSON.stringify({ title: e.title || '', body: e.body || '' }),
           },
         );
-        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (!r.ok) {
+          throw new Error('HTTP ' + r.status);
+        }
         const d = await r.json();
         // Refresh the editor's baseline + defaults from the server
         // response so the dirty flag clears AND the placeholder hints
@@ -11281,14 +12184,18 @@ function app() {
           });
         }
       } catch (err) {
-        if (window.Swal) Swal.fire({ icon: 'error', text: this.t('admin.notify_templates.save_failed', { error: String(err.message || err) }) });
+        if (window.Swal) {
+          Swal.fire({icon: 'error', text: this.t('admin.notify_templates.save_failed', {error: String(err.message || err)})});
+        }
       } finally {
         this.notifyTemplateEditor.saving = false;
       }
     },
     async testNotifyTemplate() {
       const e = this.notifyTemplateEditor;
-      if (!e || !e.event || e.readOnly) return;
+      if (!e || !e.event || e.readOnly) {
+        return;
+      }
       e.testing = true;
       try {
         const r = await fetch(
@@ -11320,7 +12227,9 @@ function app() {
         this.notifyTemplateEditor.title_baseline = this.notifyTemplateEditor.title || '';
         this.notifyTemplateEditor.body_baseline  = this.notifyTemplateEditor.body  || '';
       } catch (err) {
-        if (window.Swal) Swal.fire({ icon: 'error', text: this.t('admin.notify_templates.test_failed', { error: String(err.message || err) }) });
+        if (window.Swal) {
+          Swal.fire({icon: 'error', text: this.t('admin.notify_templates.test_failed', {error: String(err.message || err)})});
+        }
       } finally {
         this.notifyTemplateEditor.testing = false;
       }
@@ -11335,18 +12244,28 @@ function app() {
     // 400 such an opt-in anyway; see api_me_notify_prefs).
     setUserNotifyEventsByMediumPattern(successMedium, failureMedium) {
       const f = this.profileForm || {};
-      if (!f.notify_events) f.notify_events = {};
+      if (!f.notify_events) {
+        f.notify_events = {};
+      }
       const mediums = this.notifyMediumNames();
       const apply = (eventKey, chosen) => {
-        if (this.userNotifyEventDisabledByAdmin(eventKey)) return;
+        if (this.userNotifyEventDisabledByAdmin(eventKey)) {
+          return;
+        }
         const bare = this._bareEventName(eventKey);
         const slot = {};
-        for (const m of mediums) slot[m] = (m === chosen);
+        for (const m of mediums) {
+          slot[m] = (m === chosen);
+        }
         f.notify_events[bare] = slot;
       };
       for (const g of this.notifyEventGroups) {
-        if (successMedium) apply(g.success, successMedium);
-        if (failureMedium) apply(g.failure, failureMedium);
+        if (successMedium) {
+          apply(g.success, successMedium);
+        }
+        if (failureMedium) {
+          apply(g.failure, failureMedium);
+        }
       }
     },
     _debugSnapshot() {
@@ -11409,7 +12328,9 @@ function app() {
       });
     },
     portainerDirty() {
-      if (this._portainerBaseline !== this._portainerSnapshot()) return true;
+      if (this._portainerBaseline !== this._portainerSnapshot()) {
+        return true;
+      }
       // Portainer-scoped tunables wired into THIS section's Save so
       // editing them flips the same amber ring as the rest of the
       // Portainer form. Mirror of the asset_inventory + AI / NE
@@ -11432,7 +12353,9 @@ function app() {
       for (const k of tunableKeys) {
         const cur = (tf[k] == null ? '' : String(tf[k]).trim());
         const base = (baseline[k] == null ? '' : String(baseline[k]).trim());
-        if (cur !== base) return true;
+        if (cur !== base) {
+          return true;
+        }
       }
       return false;
     },
@@ -11460,7 +12383,9 @@ function app() {
       });
     },
     oidcDirty() {
-      if (this._oidcBaseline !== this._oidcSnapshot()) return true;
+      if (this._oidcBaseline !== this._oidcSnapshot()) {
+        return true;
+      }
       // OIDC-scoped tunables wired into THIS section's Save so editing
       // them flips the same amber ring as the rest of the OIDC form.
       // Mirror of the Portainer / asset-inventory / AI / NE patterns.
@@ -11476,7 +12401,9 @@ function app() {
       for (const k of tunableKeys) {
         const cur = (tf[k] == null ? '' : String(tf[k]).trim());
         const base = (baseline[k] == null ? '' : String(baseline[k]).trim());
-        if (cur !== base) return true;
+        if (cur !== base) {
+          return true;
+        }
       }
       return false;
     },
@@ -11528,7 +12455,9 @@ function app() {
     // re-locks Save by mutating `_assetSnapshot()` away from
     // `_assetLastPassedTest`.
     canSaveAsset() {
-      if (!(this.settings || {}).asset_inventory_enabled) return true;
+      if (!(this.settings || {}).asset_inventory_enabled) {
+        return true;
+      }
       return this._assetLastPassedTest === this._assetSnapshot()
              && !!this._assetLastPassedTest;
     },
@@ -11618,7 +12547,9 @@ function app() {
     async loadTuning() {
       try {
         const r = await fetch('/api/admin/tuning');
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         const d = await r.json();
         this.tuningEffective = d || {};
         const form = {};
@@ -11637,8 +12568,14 @@ function app() {
           const isBoolBound = (Number(row.min) === 0 && Number(row.max) === 1);
           if (isBoolBound && v !== '' && !/^[01]$/.test(v)) {
             const lo = v.toLowerCase();
-            if (TRUTHY.has(lo))      v = '1';
-            else if (FALSY.has(lo))  v = '0';
+            if (TRUTHY.has(lo))      {
+              v = '1';
+            }
+            else {
+              if (FALSY.has(lo)) {
+                v = '0';
+              }
+            }
           }
           form[k] = v;
         }
@@ -11652,7 +12589,9 @@ function app() {
     _tuningSnapshot() {
       const f = this.tuningForm || {};
       const out = {};
-      for (const k of this._allTuningKeys()) out[k] = (f[k] == null ? '' : String(f[k]).trim());
+      for (const k of this._allTuningKeys()) {
+        out[k] = (f[k] == null ? '' : String(f[k]).trim());
+      }
       return JSON.stringify(out);
     },
     tuningDirty() { return this._tuningBaseline !== this._tuningSnapshot(); },
@@ -11685,7 +12624,9 @@ function app() {
       return this.t('admin.config.placeholder_default', { default: def });
     },
     async saveTuning() {
-      if (this.tuningSaving) return;
+      if (this.tuningSaving) {
+        return;
+      }
       // saveTuning is the Admin → Config "Save all" path — commits
       // every tunable across every section. Per-section saves
       // (saveAiSettings / saveSshSettings / saveRetention / ...)
@@ -11700,7 +12641,9 @@ function app() {
       // until they fix it (no silent clamp).
       for (const k of this._allTuningKeys()) {
         const raw = (this.tuningForm || {})[k];
-        if (raw === '' || raw == null) continue;  // blank = clear override
+        if (raw === '' || raw == null) {
+          continue;
+        }  // blank = clear override
         const n = Number(raw);
         if (!Number.isFinite(n) || !Number.isInteger(n)) {
           this.showToast(this.t('admin.config.errors.must_be_int', {
@@ -11736,7 +12679,9 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         await this.loadTuning();
         // Refresh `me.client_config` from /api/me so any SPA bindings
         // that read tuning values via the client_config channel
@@ -11779,7 +12724,9 @@ function app() {
     // dirty in the form. Toast confirms with the resulting state.
     async saveServiceEnabled(name) {
       const allowed = ['apprise', 'open_meteo', 'portainer', 'ssh'];
-      if (!allowed.includes(name)) return;
+      if (!allowed.includes(name)) {
+        return;
+      }
       const key = name + '_enabled';
       const value = !!this.settings[key];
       try {
@@ -11788,7 +12735,9 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ [key]: value }),
         });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         const stateKey = value
           ? 'admin_integrations.toggle_enabled_toast'
           : 'admin_integrations.toggle_disabled_toast';
@@ -11876,12 +12825,16 @@ function app() {
     canSaveApprise() {
       // Save is gated only when Apprise is enabled. Disabled apprise
       // saves freely (the form values aren't going anywhere).
-      if (!(this.settings || {}).apprise_enabled) return true;
+      if (!(this.settings || {}).apprise_enabled) {
+        return true;
+      }
       return this._appriseLastPassedTest === this._appriseTestSnapshot()
              && !!this._appriseLastPassedTest;
     },
     canSaveTelegram() {
-      if (!(this.settings || {}).notify_medium_telegram) return true;
+      if (!(this.settings || {}).notify_medium_telegram) {
+        return true;
+      }
       return this._telegramLastPassedTest === this._telegramTestSnapshot()
              && !!this._telegramLastPassedTest;
     },
@@ -11960,8 +12913,12 @@ function app() {
     async saveProviders() {
       // Providers-only POST — Apprise + Telegram + medium toggles +
       // in-app tunables. Test-before-Save gate applies.
-      if (this.settingsSaving) return;
-      if (!this.canSaveNotifications()) return;
+      if (this.settingsSaving) {
+        return;
+      }
+      if (!this.canSaveNotifications()) {
+        return;
+      }
       this.settingsSaving = true;
       this.providersSaveResult = null;
       try {
@@ -11970,19 +12927,29 @@ function app() {
         const payload = {};
         // Apprise core
         payload.apprise_enabled = !!s.apprise_enabled;
-        if (s.apprise_url != null)  payload.apprise_url = s.apprise_url;
-        if (s.apprise_tag != null)  payload.apprise_tag = s.apprise_tag;
+        if (s.apprise_url != null)  {
+          payload.apprise_url = s.apprise_url;
+        }
+        if (s.apprise_tag != null)  {
+          payload.apprise_tag = s.apprise_tag;
+        }
         // Telegram core
         if ((s.telegram_bot_token || '').trim()) {
           payload.telegram_bot_token = s.telegram_bot_token;
         }
-        if (s.telegram_chat_id   != null) payload.telegram_chat_id   = s.telegram_chat_id;
-        if (s.telegram_thread_id != null) payload.telegram_thread_id = s.telegram_thread_id;
+        if (s.telegram_chat_id   != null) {
+          payload.telegram_chat_id = s.telegram_chat_id;
+        }
+        if (s.telegram_thread_id != null) {
+          payload.telegram_thread_id = s.telegram_thread_id;
+        }
         payload.telegram_verify_tls = s.telegram_verify_tls ? 'true' : 'false';
         // Operator-tunable Bot API base URL — blank string is the
         // legitimate "clear override / fall back to upstream default"
         // signal, so always send it.
-        if (s.telegram_api_base != null) payload.telegram_api_base = (s.telegram_api_base || '').toString();
+        if (s.telegram_api_base != null) {
+          payload.telegram_api_base = (s.telegram_api_base || '').toString();
+        }
         // Telegram Phase 2 listener config
         payload.telegram_listener_enabled  = s.telegram_listener_enabled ? 'true' : 'false';
         payload.telegram_allow_destructive = s.telegram_allow_destructive ? 'true' : 'false';
@@ -11991,7 +12958,9 @@ function app() {
         }
         // Per-medium fan-out toggles
         for (const k of (this.notifyMediumKeys || [])) {
-          if (k in s) payload[k] = s[k] ? 'true' : 'false';
+          if (k in s) {
+            payload[k] = s[k] ? 'true' : 'false';
+          }
         }
         // In-app tunables
         for (const k of [
@@ -12006,7 +12975,9 @@ function app() {
           'tuning_telegram_http_timeout_seconds',
           'tuning_telegram_ai_calls_per_minute',
         ]) {
-          if (tf[k] != null && String(tf[k]).trim() !== '') payload[k] = String(tf[k]).trim();
+          if (tf[k] != null && String(tf[k]).trim() !== '') {
+            payload[k] = String(tf[k]).trim();
+          }
         }
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -12043,13 +13014,17 @@ function app() {
     async savePerEvent() {
       // Per-event-only POST — strictly the notify_event_* keys. No
       // Test-before-Save gate (per-event toggles don't round-trip).
-      if (this.settingsSaving) return;
+      if (this.settingsSaving) {
+        return;
+      }
       this.settingsSaving = true;
       this.perEventSaveResult = null;
       try {
         const payload = {};
         for (const k of (this.notifyEventKeys || [])) {
-          if (k in this.settings) payload[k] = this.settings[k] ? 'true' : 'false';
+          if (k in this.settings) {
+            payload[k] = this.settings[k] ? 'true' : 'false';
+          }
         }
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -12083,7 +13058,9 @@ function app() {
       } catch (e) { console.error(e); }
     },
     async addIgnore() {
-      if (!this.newIgnore.pattern.trim()) return;
+      if (!this.newIgnore.pattern.trim()) {
+        return;
+      }
       await fetch('/api/ignores', {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify(this.newIgnore),
@@ -12103,7 +13080,9 @@ function app() {
           (ig.kind === 'image' && (item.image || '').includes(ig.pattern)) ||
           (ig.kind === 'stack' && ig.pattern === item.stack)
         );
-        if (match) await this.delIgnore(match.pattern);
+        if (match) {
+          await this.delIgnore(match.pattern);
+        }
       } else {
         this.newIgnore = { kind: 'image', pattern: item.image };
         await this.addIgnore();
@@ -12119,12 +13098,24 @@ function app() {
       // filtered result, not just one page.
       const f = this.historyFilters;
       const p = new URLSearchParams();
-      if (f.q)        p.set('q', f.q);
-      if (f.stack)    p.set('stack', f.stack);
-      if (f.op_type)  p.set('op_type', f.op_type);
-      if (f.status)   p.set('status', f.status);
-      if (f.actor)    p.set('actor', f.actor);
-      if (f.fromDate) p.set('since', String(new Date(f.fromDate).getTime() / 1000));
+      if (f.q)        {
+        p.set('q', f.q);
+      }
+      if (f.stack)    {
+        p.set('stack', f.stack);
+      }
+      if (f.op_type)  {
+        p.set('op_type', f.op_type);
+      }
+      if (f.status)   {
+        p.set('status', f.status);
+      }
+      if (f.actor)    {
+        p.set('actor', f.actor);
+      }
+      if (f.fromDate) {
+        p.set('since', String(new Date(f.fromDate).getTime() / 1000));
+      }
       if (f.toDate) {
         // Date input is midnight-of-day; treat as inclusive END-of-day.
         const end = new Date(f.toDate); end.setHours(23, 59, 59, 999);
@@ -12165,7 +13156,9 @@ function app() {
     },
     historyGoToPage(n) {
       const page = Math.max(1, Math.min(parseInt(n, 10) || 1, this.historyTotalPages()));
-      if (page === this.historyPage) return;
+      if (page === this.historyPage) {
+        return;
+      }
       this.historyPage = page;
       this._persistHistoryPaging();
       this.loadHistory();
@@ -12174,7 +13167,9 @@ function app() {
     historyNextPage() { this.historyGoToPage(this.historyPage + 1); },
     historySetPerPage(n) {
       const per = Math.max(10, Math.min(500, parseInt(n, 10) || 50));
-      if (per === this.historyPerPage) return;
+      if (per === this.historyPerPage) {
+        return;
+      }
       this.historyPerPage = per;
       this.historyPage = 1;
       this._persistHistoryPaging();
@@ -12184,7 +13179,9 @@ function app() {
     // result set when the new filtered set has 2 pages would land the
     // operator on a blank page.
     historyApplyFilter(fn) {
-      if (typeof fn === 'function') fn();
+      if (typeof fn === 'function') {
+        fn();
+      }
       this.historyPage = 1;
       this._persistHistoryPaging();
       this.loadHistory();
@@ -12236,7 +13233,9 @@ function app() {
           this.historyPage = max;
           this._persistHistoryPaging();
           // Don't recurse forever — only one re-fetch on clamp.
-          if (this.historyTotal > 0) this.loadHistory();
+          if (this.historyTotal > 0) {
+            this.loadHistory();
+          }
         }
       } catch (e) { console.error(e); }
     },
@@ -12300,9 +13299,13 @@ function app() {
         background: this._cssVar('--surface'),
         color: this._cssVar('--text'),
         didOpen: () => {
-          if (!showDiagnose) return;
+          if (!showDiagnose) {
+            return;
+          }
           const btn = document.getElementById('og-history-diagnose-btn');
-          if (!btn) return;
+          if (!btn) {
+            return;
+          }
           btn.addEventListener('click', () => {
             try { Swal.close(); } catch (_) {}
             self._diagnoseHistoryRowWithAi(h);
@@ -12317,17 +13320,29 @@ function app() {
     // Falls back to the AI palette when the sidebar surface is not
     // available (unlikely — both gates check the same toggles).
     _diagnoseHistoryRowWithAi(h) {
-      if (!h) return;
+      if (!h) {
+        return;
+      }
       const parts = [];
       parts.push(`Diagnose this history row and suggest the most likely root cause + one specific remediation step.`);
       parts.push(`Op: ${h.op_type || 'unknown'}`);
-      if (h.target_name) parts.push(`Target: ${h.target_name}`);
-      if (h.target_stack) parts.push(`Stack: ${h.target_stack}`);
+      if (h.target_name) {
+        parts.push(`Target: ${h.target_name}`);
+      }
+      if (h.target_stack) {
+        parts.push(`Stack: ${h.target_stack}`);
+      }
       parts.push(`Status: ${h.status || 'unknown'}`);
       parts.push(`When: ${this.formatTime(h.ts) || '—'}`);
-      if (h.duration) parts.push(`Duration: ${(h.duration || 0).toFixed(2)}s`);
-      if (h.actor) parts.push(`Actor: ${h.actor}`);
-      if (h.error) parts.push(`Error: ${h.error}`);
+      if (h.duration) {
+        parts.push(`Duration: ${(h.duration || 0).toFixed(2)}s`);
+      }
+      if (h.actor) {
+        parts.push(`Actor: ${h.actor}`);
+      }
+      if (h.error) {
+        parts.push(`Error: ${h.error}`);
+      }
       const events = this.parseEvents(h.events) || [];
       if (events.length) {
         const tail = events.slice(-8).map(ev =>
@@ -12337,7 +13352,9 @@ function app() {
       }
       const prompt = parts.join('\n');
       try {
-        if (typeof this.openAiSidebar === 'function') this.openAiSidebar();
+        if (typeof this.openAiSidebar === 'function') {
+          this.openAiSidebar();
+        }
         // Stash the prompt into the sidebar's query state and fire its
         // existing send pipeline. The pipeline records turns + persists
         // to ui_prefs.ai_conversation, so we route through it rather
@@ -12356,8 +13373,12 @@ function app() {
             this.sendAiSidebarMessage();
           }
         };
-        if (this.$nextTick) this.$nextTick(fire);
-        else setTimeout(fire, 0);
+        if (this.$nextTick) {
+          this.$nextTick(fire);
+        }
+        else {
+          setTimeout(fire, 0);
+        }
       } catch (e) {
         console.warn('[history] diagnose-with-ai failed', e);
       }
@@ -12414,7 +13435,9 @@ function app() {
       try {
         const r = await fetch('/api/history/port-scan/' + encodeURIComponent(scanId) + '/ports');
         const target_el = document.getElementById(containerId);
-        if (!target_el) return;
+        if (!target_el) {
+          return;
+        }
         if (!r.ok) {
           target_el.innerHTML = '<div class="swal-err">' + esc(this.t('history.port_scan.load_failed') || 'Could not load open ports for this scan.') + '</div>';
           return;
@@ -12438,7 +13461,9 @@ function app() {
         target_el.innerHTML = '<div class="swal-events">' + rows + '</div>';
       } catch (e) {
         const el = document.getElementById(containerId);
-        if (el) el.innerHTML = '<div class="swal-err">' + esc(String(e)) + '</div>';
+        if (el) {
+          el.innerHTML = '<div class="swal-err">' + esc(String(e)) + '</div>';
+        }
       }
     },
     _openAiPaletteHistoryDetail(h) {
@@ -12536,7 +13561,9 @@ function app() {
         confirmColor: this._cssVar('--danger'),
         focusConfirm: true,
       });
-      if (!ok) return;
+      if (!ok) {
+        return;
+      }
       await fetch('/api/history', { method: 'DELETE' });
       await this.loadHistory();
       this.showToast(this.t('toasts.history_cleared'));
@@ -12546,7 +13573,9 @@ function app() {
       const params = new URLSearchParams();
       params.set('limit', String(this.notificationsLimit || 25));
       params.set('offset', String(this.notificationsOffset || 0));
-      if (this.notificationsFilterUnread) params.set('unread_only', 'true');
+      if (this.notificationsFilterUnread) {
+        params.set('unread_only', 'true');
+      }
       if (this.notificationsFilterSeverity && this.notificationsFilterSeverity !== 'all') {
         params.set('severity', this.notificationsFilterSeverity);
       }
@@ -12612,12 +13641,16 @@ function app() {
     notificationsHasNext()   { return this.notificationsPage() < this.notificationsPageCount(); },
     notificationsHasPrev()   { return (this.notificationsOffset || 0) > 0; },
     async notificationsNextPage() {
-      if (this.notificationsLoading || !this.notificationsHasNext()) return;
+      if (this.notificationsLoading || !this.notificationsHasNext()) {
+        return;
+      }
       this.notificationsOffset = (this.notificationsOffset || 0) + (this.notificationsLimit || 25);
       await this._reloadNotificationsPage();
     },
     async notificationsPrevPage() {
-      if (this.notificationsLoading || !this.notificationsHasPrev()) return;
+      if (this.notificationsLoading || !this.notificationsHasPrev()) {
+        return;
+      }
       const prev = (this.notificationsOffset || 0) - (this.notificationsLimit || 25);
       this.notificationsOffset = Math.max(0, prev);
       await this._reloadNotificationsPage();
@@ -12633,8 +13666,12 @@ function app() {
         const d = await r.json();
         // Page-replace, not append — keeps DOM cost constant.
         this.notifications = Array.isArray(d.items) ? d.items : [];
-        if (Number.isFinite(d.total)) this.notificationsTotal = d.total;
-        if (Number.isFinite(d.unread_count)) this.notificationsUnread = d.unread_count;
+        if (Number.isFinite(d.total)) {
+          this.notificationsTotal = d.total;
+        }
+        if (Number.isFinite(d.unread_count)) {
+          this.notificationsUnread = d.unread_count;
+        }
       } catch (e) {
         console.warn('[notifications] page change failed', e);
       }
@@ -12660,7 +13697,9 @@ function app() {
     // — the template branches on count to render either path cleanly.
     notificationClusters() {
       const list = Array.isArray(this.notifications) ? this.notifications : [];
-      if (!list.length) return [];
+      if (!list.length) {
+        return [];
+      }
       const rank = { error: 4, warning: 3, info: 2, success: 1 };
       const out = [];
       const byKey = new Map();
@@ -12682,15 +13721,21 @@ function app() {
         }
         cluster.items.push(n);
         cluster.count += 1;
-        if (n.ts < cluster.earliest_ts) cluster.earliest_ts = n.ts;
+        if (n.ts < cluster.earliest_ts) {
+          cluster.earliest_ts = n.ts;
+        }
         if (n.ts > cluster.latest_ts) {
           cluster.latest_ts = n.ts;
           cluster.latest = n;
         }
-        if (n.read_at == null) cluster.unread += 1;
+        if (n.read_at == null) {
+          cluster.unread += 1;
+        }
         const lr = rank[n.severity] || 0;
         const cr = rank[cluster.severity] || 0;
-        if (lr > cr) cluster.severity = n.severity;
+        if (lr > cr) {
+          cluster.severity = n.severity;
+        }
       }
       return out;
     },
@@ -12698,10 +13743,16 @@ function app() {
       return !!(this._notificationsClusterExpanded || {})[key];
     },
     toggleNotificationCluster(key) {
-      if (!key) return;
+      if (!key) {
+        return;
+      }
       const set = this._notificationsClusterExpanded || {};
-      if (set[key]) delete set[key];
-      else set[key] = true;
+      if (set[key]) {
+        delete set[key];
+      }
+      else {
+        set[key] = true;
+      }
       this._notificationsClusterExpanded = { ...set };
     },
     // Mark every unread notification in one cluster read. Bulk version
@@ -12709,7 +13760,9 @@ function app() {
     // existing handler so the SSE notification:read event publishes per
     // notification (other tabs reconcile each row independently).
     async markClusterRead(cluster) {
-      if (!cluster || !cluster.items) return;
+      if (!cluster || !cluster.items) {
+        return;
+      }
       const unread = cluster.items.filter(n => n && n.read_at == null);
       for (const n of unread) {
         try { await this.markNotificationRead(n.id); } catch (_) {}
@@ -12740,7 +13793,9 @@ function app() {
     async loadNotificationsUnread() {
       try {
         const r = await fetch('/api/notifications?limit=1&unread_only=true');
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         const d = await r.json();
         this.notificationsUnread = Number.isFinite(d.unread_count) ? d.unread_count : 0;
       } catch (_) {}
@@ -12749,7 +13804,9 @@ function app() {
     // every successful INSERT. Prepends in place; the list array isn't
     // reassigned so Alpine's row template doesn't tear DOM down.
     _handleNotificationCreated(payload) {
-      if (!payload || !payload.id) return;
+      if (!payload || !payload.id) {
+        return;
+      }
       // Bump global unread count (server stamps the canonical count
       // into the payload; trust it over local counter math).
       if (Number.isFinite(payload.unread_count)) {
@@ -12790,31 +13847,45 @@ function app() {
       }
     },
     _handleNotificationRead(payload) {
-      if (!payload) return;
+      if (!payload) {
+        return;
+      }
       if (Number.isFinite(payload.unread_count)) {
         this.notificationsUnread = payload.unread_count;
       }
       const ts = Number.isFinite(payload.read_at) ? payload.read_at : Math.floor(Date.now() / 1000);
       if (payload.bulk) {
         for (const n of (this.notifications || [])) {
-          if (n.read_at == null) n.read_at = ts;
+          if (n.read_at == null) {
+            n.read_at = ts;
+          }
         }
       } else if (payload.id) {
         const row = (this.notifications || []).find(n => n.id === payload.id);
-        if (row && row.read_at == null) row.read_at = ts;
+        if (row && row.read_at == null) {
+          row.read_at = ts;
+        }
       }
     },
     _handleNotificationDeleted(payload) {
-      if (!payload || !payload.id) return;
+      if (!payload || !payload.id) {
+        return;
+      }
       const i = (this.notifications || []).findIndex(n => n.id === payload.id);
-      if (i >= 0) this.notifications.splice(i, 1);
+      if (i >= 0) {
+        this.notifications.splice(i, 1);
+      }
       if (Number.isFinite(payload.unread_count)) {
         this.notificationsUnread = payload.unread_count;
       }
     },
     _notificationPassesFilters(n) {
-      if (!n) return false;
-      if (this.notificationsFilterUnread && n.read_at != null) return false;
+      if (!n) {
+        return false;
+      }
+      if (this.notificationsFilterUnread && n.read_at != null) {
+        return false;
+      }
       if (this.notificationsFilterSeverity && this.notificationsFilterSeverity !== 'all'
           && n.severity !== this.notificationsFilterSeverity) {
         return false;
@@ -12844,31 +13915,47 @@ function app() {
       const prev = row ? row.read_at : null;
       if (row && row.read_at == null) {
         row.read_at = Math.floor(Date.now() / 1000);
-        if (this.notificationsUnread > 0) this.notificationsUnread -= 1;
+        if (this.notificationsUnread > 0) {
+          this.notificationsUnread -= 1;
+        }
       }
       try {
         const r = await fetch('/api/notifications/' + encodeURIComponent(id) + '/read', {
           method: 'POST',
         });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         const d = await r.json();
-        if (row && Number.isFinite(d.read_at)) row.read_at = d.read_at;
-        if (Number.isFinite(d.unread_count)) this.notificationsUnread = d.unread_count;
+        if (row && Number.isFinite(d.read_at)) {
+          row.read_at = d.read_at;
+        }
+        if (Number.isFinite(d.unread_count)) {
+          this.notificationsUnread = d.unread_count;
+        }
       } catch (e) {
         // Roll back on failure so the operator sees the actual state.
-        if (row) row.read_at = prev;
-        if (prev == null) this.notificationsUnread = (this.notificationsUnread || 0) + 1;
+        if (row) {
+          row.read_at = prev;
+        }
+        if (prev == null) {
+          this.notificationsUnread = (this.notificationsUnread || 0) + 1;
+        }
         this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error');
       }
     },
     async markAllNotificationsRead() {
       try {
         const r = await fetch('/api/notifications/read-all', { method: 'POST' });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         const d = await r.json();
         const ts = Math.floor(Date.now() / 1000);
         for (const n of (this.notifications || [])) {
-          if (n.read_at == null) n.read_at = ts;
+          if (n.read_at == null) {
+            n.read_at = ts;
+          }
         }
         this.notificationsUnread = 0;
         this.showToast(this.t('notifications.marked_all_read', { count: d.count || 0 })
@@ -12887,9 +13974,15 @@ function app() {
       return 'notification-dot notification-dot--info';
     },
     pollOps() {
-      if (this._opsTimer) clearTimeout(this._opsTimer);
-      if (!this._opLingerUntil) this._opLingerUntil = {};
-      if (!this._opsSeen) this._opsSeen = null;  // null sentinel = first poll
+      if (this._opsTimer) {
+        clearTimeout(this._opsTimer);
+      }
+      if (!this._opLingerUntil) {
+        this._opLingerUntil = {};
+      }
+      if (!this._opsSeen) {
+        this._opsSeen = null;
+      }  // null sentinel = first poll
       // Linger window — keep finished ops visible in the floating panel
       // for this many seconds after they complete. Two qualifying paths:
       // 1. op was running in the previous poll and is now done;
@@ -12909,7 +14002,9 @@ function app() {
             .map(o => o.id);
           const nowTs = Date.now();
           const firstPoll = this._opsSeen === null;
-          if (firstPoll) this._opsSeen = new Set();
+          if (firstPoll) {
+            this._opsSeen = new Set();
+          }
           // Two paths qualify as "just done" for both the linger
           // panel AND the downstream refresh/toast trigger:
           // (1) observed running → done
@@ -12923,8 +14018,12 @@ function app() {
           for (const o of all) {
             const wasUnknown = !this._opsSeen.has(o.id);
             this._opsSeen.add(o.id);
-            if (o.status === 'running') continue;
-            if (this._opLingerUntil[o.id]) continue;
+            if (o.status === 'running') {
+              continue;
+            }
+            if (this._opLingerUntil[o.id]) {
+              continue;
+            }
             // Path 1: observed running → done.
             if (prevRunning.includes(o.id)) {
               this._opLingerUntil[o.id] = nowTs + LINGER_MS;
@@ -13008,7 +14107,7 @@ function app() {
     pollOpsNow() { this.pollOps(); },
 
     // ===================================================================
-    // Real-time event stream 
+    // Real-time event stream
     // ===================================================================
     // EventSource connects to /api/events on cookie-authed browsers and
     // dispatches one handler per server-side event type. Every existing
@@ -13067,7 +14166,9 @@ function app() {
         if (this._sseReconnects > 1) {
           console.log('[live] SSE reconnect: kicking one-shot REST refresh to catch up missed deltas');
           try { this.refresh(true); } catch (_) {}
-          try { if (this.view === 'hosts') this.loadHosts(true); } catch (_) {}
+          try { if (this.view === 'hosts') {
+            this.loadHosts(true);
+          } } catch (_) {}
           try { this.loadHistory && this.loadHistory(); } catch (_) {}
         }
       });
@@ -13113,12 +14214,20 @@ function app() {
       // we'll actually act on. Pre-fix the log fired even on self-
       // originated events that _handleOpEvent then filtered out — log
       // spam on every op the originating tab triggered.
-      es.addEventListener('op:created',   (e) => { onAny(); if (this._isSelfEvent(e)) return; this._handleOpEvent(e, 'created'); });
-      es.addEventListener('op:updated',   (e) => { onAny(); if (this._isSelfEvent(e)) return; this._handleOpEvent(e, 'updated'); });
-      es.addEventListener('op:completed', (e) => { onAny(); if (this._isSelfEvent(e)) return; this._handleOpEvent(e, 'completed'); });
+      es.addEventListener('op:created',   (e) => { onAny(); if (this._isSelfEvent(e)) {
+        return;
+      } this._handleOpEvent(e, 'created'); });
+      es.addEventListener('op:updated',   (e) => { onAny(); if (this._isSelfEvent(e)) {
+        return;
+      } this._handleOpEvent(e, 'updated'); });
+      es.addEventListener('op:completed', (e) => { onAny(); if (this._isSelfEvent(e)) {
+        return;
+      } this._handleOpEvent(e, 'completed'); });
       es.addEventListener('cache:invalidated', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         // Items dataset is large enough that delta-broadcasting it
         // isn't worth it for V1 — kick a forced refresh instead, and
         // let the existing in-place reconcile in `refresh()` do its
@@ -13127,7 +14236,9 @@ function app() {
       });
       es.addEventListener('stats:refreshed', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         // Hint event — the stats payload itself isn't broadcast
         // (cheap to fetch via /api/stats and the existing TTL gate
         // prevents back-to-back pulls). Trigger loadStats UNLESS the
@@ -13143,17 +14254,23 @@ function app() {
         // stuck on seeded-stale snapshot data and the topbar refresh
         // spinner spinning on the never-cleared `stats_refreshing`
         // flag from the initial response.
-        if (this.refreshInterval === 0) return;
+        if (this.refreshInterval === 0) {
+          return;
+        }
         try { this.loadStats && this.loadStats(); } catch (_) {}
       });
       es.addEventListener('host:row_updated', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         try {
           const data = JSON.parse(e.data || '{}');
           const id = (data.payload && data.payload.id) || '';
           console.log('[live] event=host:row_updated id=' + id);
-          if (!id) return;
+          if (!id) {
+            return;
+          }
           // Route through the SHARED queue + worker pool so a burst
           // of N events (sampler tick affecting many hosts) coalesces
           // through the existing 200ms debounce + shares the cap.
@@ -13186,7 +14303,9 @@ function app() {
           const data = JSON.parse(e.data || '{}');
           const payload = data.payload || {};
           const hostId = payload.host_id || '';
-          if (!hostId) return;
+          if (!hostId) {
+            return;
+          }
           console.log('[live] event=port_scan:completed id=' + hostId
             + ' ports_open=' + (payload.ports_open || 0)
             + ' udp_open=' + (payload.udp_open || 0)
@@ -13196,7 +14315,9 @@ function app() {
           // tab. Two tabs both watching opnsense both see the
           // button re-enable when the scan finishes.
           const row = (this.hosts || []).find(h => h && h.id === hostId);
-          if (row) row._port_scan_running = false;
+          if (row) {
+            row._port_scan_running = false;
+          }
           if (this.drawerHost && this.drawerHost.id === hostId) {
             this.drawerHost._port_scan_running = false;
           }
@@ -13271,13 +14392,17 @@ function app() {
       });
       es.addEventListener('host:failure_state_changed', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         try {
           const data = JSON.parse(e.data || '{}');
           const payload = data.payload || {};
           const id = payload.host_id || '';
           console.log('[live] event=host:failure_state_changed id=' + id);
-          if (!id) return;
+          if (!id) {
+            return;
+          }
           this._hostObserverPending = this._hostObserverPending || new Set();
           this._hostObserverPending.add(id);
           if (typeof this._scheduleHostObserverFlush === 'function') {
@@ -13310,17 +14435,23 @@ function app() {
       // sub-block, vendors list) re-syncs across tabs.
       es.addEventListener('host:bulk_action_applied', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         try {
           const data = JSON.parse(e.data || '{}');
           const payload = data.payload || {};
           const action = payload.action || '';
           const ids = Array.isArray(payload.host_ids) ? payload.host_ids : [];
           console.log('[live] event=host:bulk_action_applied action=' + action + ' ids=' + ids.length);
-          if (ids.length === 0) return;
+          if (ids.length === 0) {
+            return;
+          }
           // Per-row refresh — same path as the per-host handler.
           this._hostObserverPending = this._hostObserverPending || new Set();
-          for (const id of ids) this._hostObserverPending.add(id);
+          for (const id of ids) {
+            this._hostObserverPending.add(id);
+          }
           if (typeof this._scheduleHostObserverFlush === 'function') {
             this._scheduleHostObserverFlush();
           } else if (typeof this._runHostRefreshQueue === 'function') {
@@ -13355,11 +14486,19 @@ function app() {
       // `done` event lands, identical to before.
       const _PROV_POLL_MIN_VISIBLE_MS = 500;
       const _setProvPolling = (host_id, provider, polling) => {
-        if (!host_id || !provider) return;
+        if (!host_id || !provider) {
+          return;
+        }
         const row = (this.hosts || []).find(r => r && r.id === host_id);
-        if (!row) return;
-        if (!row._polling || typeof row._polling !== 'object') row._polling = {};
-        if (!row._pollingStart || typeof row._pollingStart !== 'object') row._pollingStart = {};
+        if (!row) {
+          return;
+        }
+        if (!row._polling || typeof row._polling !== 'object') {
+          row._polling = {};
+        }
+        if (!row._pollingStart || typeof row._pollingStart !== 'object') {
+          row._pollingStart = {};
+        }
         if (polling) {
           row._polling[provider] = true;
           row._pollingStart[provider] = Date.now();
@@ -13383,7 +14522,9 @@ function app() {
       };
       es.addEventListener('host:provider_probing', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         try {
           const data = JSON.parse(e.data || '{}');
           const p = data.payload || {};
@@ -13392,7 +14533,9 @@ function app() {
       });
       es.addEventListener('host:provider_done', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         try {
           const data = JSON.parse(e.data || '{}');
           const p = data.payload || {};
@@ -13409,16 +14552,24 @@ function app() {
       // both cases.
       es.addEventListener('host:history_appended', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
-        if (!this.drawerHost) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
+        if (!this.drawerHost) {
+          return;
+        }
         try {
           const data = JSON.parse(e.data || '{}');
           const id = (data.payload && data.payload.host_id) || '';
-          if (!id || id !== this.drawerHost.id) return;
+          if (!id || id !== this.drawerHost.id) {
+            return;
+          }
           // Only NE-source drawers get the push refresh; Beszel
           // drawers' history isn't sample-keyed off our DB so this
           // event is irrelevant to them.
-          if (!this.drawerHost.ne_url) return;
+          if (!this.drawerHost.ne_url) {
+            return;
+          }
           // Debounce 200 ms — backend may fire bursts of
           // history_appended events for the open host within a single
           // sampler tick (e.g. SNMP + NE both writing). Collapse them
@@ -13429,7 +14580,9 @@ function app() {
           }
           this._historyAppendedDebounceTimer = setTimeout(() => {
             this._historyAppendedDebounceTimer = null;
-            if (!this.drawerHost || this.drawerHost.id !== id) return;
+            if (!this.drawerHost || this.drawerHost.id !== id) {
+              return;
+            }
             console.log('[live] event=host:history_appended id=' + id + ' → loadHostHistory (debounced)');
             this._pollWrap(this.loadHostHistory(
               this.drawerHost.beszel_id || '',
@@ -13447,11 +14600,15 @@ function app() {
       // events. Direct refreshHostRow would bypass that cap.
       es.addEventListener('host:ping_sampled', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         try {
           const data = JSON.parse(e.data || '{}');
           const id = (data.payload && data.payload.host_id) || '';
-          if (!id) return;
+          if (!id) {
+            return;
+          }
           this._hostObserverPending = this._hostObserverPending || new Set();
           this._hostObserverPending.add(id);
           if (typeof this._scheduleHostObserverFlush === 'function') {
@@ -13471,7 +14628,9 @@ function app() {
       });
       es.addEventListener('schedule:fired', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         // Schedule rows + queue rebuild via the same helpers the
         // Schedules tab uses. They reconcile in place's
         // _reconcileById path so re-firing them mid-tab doesn't
@@ -13481,7 +14640,9 @@ function app() {
       });
       es.addEventListener('history:appended', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         // Reload via the same paginated endpoint — the in-place
         // reconcile keeps each row's <details> open/closed
         // state intact.
@@ -13531,7 +14692,9 @@ function app() {
       // re-paint over its own optimistic update.
       es.addEventListener('notification:read', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         try {
           const data = JSON.parse(e.data || '{}');
           const p = data.payload || {};
@@ -13542,7 +14705,9 @@ function app() {
       });
       es.addEventListener('notification:deleted', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         try {
           const data = JSON.parse(e.data || '{}');
           const p = data.payload || {};
@@ -13559,7 +14724,9 @@ function app() {
       // everywhere within one SSE round-trip.
       es.addEventListener('settings:updated', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         console.log('[live] event=settings:updated → loadSettings (cross-tab)', e.data ? e.data.slice(0, 200) : '');
         try { this.loadSettings && this.loadSettings(); } catch (_) {}
         // Also pull /api/me so any client_config-delivered tunable
@@ -13577,7 +14744,9 @@ function app() {
             .then(r => r.ok ? r.json() : null)
             .then(d => {
               if (d && d.authenticated && this.me) {
-                for (const k of Object.keys(d)) this.me[k] = d[k];
+                for (const k of Object.keys(d)) {
+                  this.me[k] = d[k];
+                }
               }
             })
             .catch(() => {});
@@ -13598,12 +14767,16 @@ function app() {
       // doesn't echo its own heartbeat back into its own list.
       es.addEventListener('tab:activity', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         try {
           const data = JSON.parse(e.data || '{}');
           const p = data.payload || {};
           const cid = p.client_id;
-          if (!cid) return;
+          if (!cid) {
+            return;
+          }
           // Field-by-field assign so Alpine sees a granular update
           // instead of a wholesale-replace (preserves popover focus
           // state when one sibling navigates while popover is open).
@@ -13613,11 +14786,15 @@ function app() {
       });
       es.addEventListener('tab:closed', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         try {
           const data = JSON.parse(e.data || '{}');
           const cid = (data.payload || {}).client_id;
-          if (!cid) return;
+          if (!cid) {
+            return;
+          }
           // Defensive — fall back to deleting via reactive proxy. Alpine
           // catches delete on a reactive object.
           if (this.tabActivity[cid]) {
@@ -13637,12 +14814,16 @@ function app() {
           const data = JSON.parse(e.data || '{}');
           const payloadUser = (data.payload && data.payload.username) || '';
           const myUser = (this.me && this.me.username) || '';
-          if (!payloadUser || payloadUser !== myUser) return;
+          if (!payloadUser || payloadUser !== myUser) {
+            return;
+          }
           console.log('[live] event=telegram:linked username=' + payloadUser);
           if (typeof fetch === 'function') {
             fetch('/api/me', { cache: 'no-store' })
               .then(r => r.ok ? r.json() : null)
-              .then(d => { if (d && d.authenticated) this.me = d; })
+              .then(d => { if (d && d.authenticated) {
+                this.me = d;
+              } })
               .catch(() => {});
           }
         } catch (_) {}
@@ -13653,19 +14834,25 @@ function app() {
           const data = JSON.parse(e.data || '{}');
           const payloadUser = (data.payload && data.payload.username) || '';
           const myUser = (this.me && this.me.username) || '';
-          if (!payloadUser || payloadUser !== myUser) return;
+          if (!payloadUser || payloadUser !== myUser) {
+            return;
+          }
           console.log('[live] event=telegram:unlinked username=' + payloadUser);
           if (typeof fetch === 'function') {
             fetch('/api/me', { cache: 'no-store' })
               .then(r => r.ok ? r.json() : null)
-              .then(d => { if (d && d.authenticated) this.me = d; })
+              .then(d => { if (d && d.authenticated) {
+                this.me = d;
+              } })
               .catch(() => {});
           }
         } catch (_) {}
       });
       es.addEventListener('session:renewed', (e) => {
         onAny();
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         try {
           const data = JSON.parse(e.data || '{}');
           const exp = (data.payload && data.payload.expires_at) || null;
@@ -13677,7 +14864,9 @@ function app() {
           if (this.me && typeof fetch === 'function') {
             fetch('/api/me', { cache: 'no-store' })
               .then(r => r.ok ? r.json() : null)
-              .then(d => { if (d && d.authenticated) this.me = d; })
+              .then(d => { if (d && d.authenticated) {
+                this.me = d;
+              } })
               .catch(() => {});
           }
         } catch (_) {}
@@ -13696,9 +14885,13 @@ function app() {
       // (organic OR heartbeat) arrives within the idle threshold. EOL
       // catches the case where the TCP connection silently dies and
       // EventSource doesn't fire `error` immediately.
-      if (this._sseFreshnessTimer) clearInterval(this._sseFreshnessTimer);
+      if (this._sseFreshnessTimer) {
+        clearInterval(this._sseFreshnessTimer);
+      }
       this._sseFreshnessTimer = setInterval(() => {
-        if (!this._sseLastEventTs) return;
+        if (!this._sseLastEventTs) {
+          return;
+        }
         const idle = Date.now() - this._sseLastEventTs;
         // operator-tunable via `tuning_sse_idle_threshold_seconds`,
         // delivered as `client_config.sse_idle_threshold_ms`. Defensive
@@ -13719,7 +14912,9 @@ function app() {
 
     _handleOpEvent(e, phase) {
       try {
-        if (this._isSelfEvent(e)) return;
+        if (this._isSelfEvent(e)) {
+          return;
+        }
         const data = JSON.parse(e.data || '{}');
         const p = data.payload || {};
         // Defer to pollOps's existing logic — it handles the linger
@@ -13743,13 +14938,19 @@ function app() {
     // don't pass client_id, so events from those paths never match
     // and the filter is a transparent no-op there.
     _isSelfEvent(e) {
-      if (!e || !e.data) return false;
+      if (!e || !e.data) {
+        return false;
+      }
       const myId = window.__ogClientId;
-      if (!myId) return false;
+      if (!myId) {
+        return false;
+      }
       try {
         const data = JSON.parse(e.data);
         const cid = data && data.payload && data.payload.client_id;
-        if (cid && cid === myId) return true;
+        if (cid && cid === myId) {
+          return true;
+        }
       } catch (_) {}
       return false;
     },
@@ -13779,10 +14980,22 @@ function app() {
         return (tmpl && tmpl !== 'topbar.tabs.path_separator') ? tmpl : (leg + ' → ' + target);
       };
       let title = v ? _navLabel(v) : '';
-      if (v === 'admin' && this.adminTab)               title = _join(_navLabel('admin'),    this.adminTab);
-      else if (v === 'settings' && this.settingsSection) title = _join(_navLabel('settings'), this.settingsSection);
-      else if (v === 'stats' && this.statsTab)          title = _join(_navLabel('stats'),    this.statsTab);
-      else if (v === 'hosts' && drawerHostId)           title = _join(_navLabel('hosts'),    drawerHostId);
+      if (v === 'admin' && this.adminTab)               {
+        title = _join(_navLabel('admin'), this.adminTab);
+      }
+      else {
+        if (v === 'settings' && this.settingsSection) {
+          title = _join(_navLabel('settings'), this.settingsSection);
+        } else {
+          if (v === 'stats' && this.statsTab) {
+            title = _join(_navLabel('stats'), this.statsTab);
+          } else {
+            if (v === 'hosts' && drawerHostId) {
+              title = _join(_navLabel('hosts'), drawerHostId);
+            }
+          }
+        }
+      }
 
       // Richer state — filter chip state + selected hosts + selected
       // items. Lets the popover show "Hosts → 12 selected, paused
@@ -13804,7 +15017,9 @@ function app() {
       // wire (heartbeat fires every 30s — keep the payload small).
       const filters = {};
       for (const k of Object.keys(_filters)) {
-        if (_filters[k]) filters[k] = _filters[k];
+        if (_filters[k]) {
+          filters[k] = _filters[k];
+        }
       }
       const selectionIds = Array.isArray(this.selected)
         ? this.selected.slice(0, 50)  // cap to bound the heartbeat size
@@ -13873,17 +15088,25 @@ function app() {
     // (see `_parse_tab_activity_device` in main.py); these helpers
     // map that descriptor into renderable text + an emoji prefix.
     _tabActivityDeviceEmoji(device) {
-      if (!device || typeof device !== 'object') return '';
+      if (!device || typeof device !== 'object') {
+        return '';
+      }
       const ff = String(device.form_factor || '').toLowerCase();
-      if (ff === 'mobile') return '📱';
-      if (ff === 'tablet') return '💻';
+      if (ff === 'mobile') {
+        return '📱';
+      }
+      if (ff === 'tablet') {
+        return '💻';
+      }
       // 'desktop' or anything else falls through to the desktop glyph
       // — better than rendering no emoji at all (operator can still
       // disambiguate via the platform / browser label).
       return '🖥️';
     },
     _tabActivityDeviceLabel(device) {
-      if (!device || typeof device !== 'object') return '';
+      if (!device || typeof device !== 'object') {
+        return '';
+      }
       // Platform + browser pair via the i18n bundle so non-en locales
       // get localised labels. Backend tags are stable English keys
       // (`iOS` / `Mac` / `Chrome` / etc.) — the i18n key encodes the
@@ -13901,7 +15124,9 @@ function app() {
       const b = (browserLabel && browserLabel !== 'topbar.tabs.device.browser.' + browserKey)
                 ? browserLabel
                 : String(device.browser || '');
-      if (p && b) return p + ' · ' + b;
+      if (p && b) {
+        return p + ' · ' + b;
+      }
       return p || b || '';
     },
 
@@ -13912,16 +15137,24 @@ function app() {
     // snapshot dict to this helper; we mutate the current tab's
     // state in place + persist where applicable.
     reproduceTabHere(snapshot) {
-      if (!snapshot || typeof snapshot !== 'object') return;
+      if (!snapshot || typeof snapshot !== 'object') {
+        return;
+      }
       // Top-level view + sub-tab navigation.
-      if (snapshot.view) this.view = snapshot.view;
+      if (snapshot.view) {
+        this.view = snapshot.view;
+      }
       if (snapshot.admin_tab && typeof this.openAdminTab === 'function') {
         this.openAdminTab(snapshot.admin_tab);
       } else if (snapshot.admin_tab) {
         this.adminTab = snapshot.admin_tab;
       }
-      if (snapshot.settings_section) this.settingsSection = snapshot.settings_section;
-      if (snapshot.stats_tab) this.statsTab = snapshot.stats_tab;
+      if (snapshot.settings_section) {
+        this.settingsSection = snapshot.settings_section;
+      }
+      if (snapshot.stats_tab) {
+        this.statsTab = snapshot.stats_tab;
+      }
       // Filter restore — each filter flag uses the SAME mutator
       // helpers the toolbar chips do so persistence + downstream
       // reactivity (sessionStorage / SSE chip refresh) stay coherent.
@@ -13951,11 +15184,15 @@ function app() {
       // open silently no-ops (the operator can refresh first).
       if (snapshot.drawer_host && Array.isArray(this.hosts)) {
         const target = this.hosts.find(h => h && h.id === snapshot.drawer_host);
-        if (target && typeof this.openHostDrawer === 'function') this.openHostDrawer(target);
+        if (target && typeof this.openHostDrawer === 'function') {
+          this.openHostDrawer(target);
+        }
       }
       if (snapshot.drawer_item && Array.isArray(this.items)) {
         const target = this.items.find(it => it && (it.id === snapshot.drawer_item || it.name === snapshot.drawer_item));
-        if (target) this.drawerItem = target;
+        if (target) {
+          this.drawerItem = target;
+        }
       }
       // Toast confirmation so the operator sees the mirror landed.
       if (typeof this.showToast === 'function') {
@@ -13966,12 +15203,16 @@ function app() {
     // Short-circuits when nothing changed AND the last post was < 25s ago
     // (idle-tab path; the backend's 90s TTL still keeps the entry alive).
     async _tabActivityHeartbeat() {
-      if (this._tabHeartbeatBusy) return;
+      if (this._tabHeartbeatBusy) {
+        return;
+      }
       const snap = this._tabActivitySnapshot();
       const sig = JSON.stringify(snap);
       const now = Date.now();
       const stale = (now - (this._tabHeartbeatLast.ts || 0)) > 25000;
-      if (sig === this._tabHeartbeatLast.signature && !stale) return;
+      if (sig === this._tabHeartbeatLast.signature && !stale) {
+        return;
+      }
       this._tabHeartbeatBusy = true;
       try {
         await fetch('/api/tabs/activity', {
@@ -13989,11 +15230,15 @@ function app() {
     async _tabActivityHydrate() {
       try {
         const r = await fetch('/api/tabs/activity', { cache: 'no-store' });
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         const d = await r.json();
         const fresh = {};
         for (const t of (d.tabs || [])) {
-          if (t && t.client_id) fresh[t.client_id] = t;
+          if (t && t.client_id) {
+            fresh[t.client_id] = t;
+          }
         }
         this.tabActivity = fresh;
       } catch (_) { /* best-effort */ }
@@ -14004,7 +15249,9 @@ function app() {
     // browser-discretionary, but works reliably when both tabs are in
     // the same browser process group.
     focusTabByClientId(cid) {
-      if (!cid || cid === window.__ogClientId) return;
+      if (!cid || cid === window.__ogClientId) {
+        return;
+      }
       try {
         if (!this._tabFocusChannel && typeof BroadcastChannel === 'function') {
           this._tabFocusChannel = new BroadcastChannel('omnigrid-tab-focus');
@@ -14019,7 +15266,9 @@ function app() {
     tabActivityList() {
       const out = [];
       const map = this.tabActivity || {};
-      for (const cid of Object.keys(map)) out.push(map[cid]);
+      for (const cid of Object.keys(map)) {
+        out.push(map[cid]);
+      }
       out.sort((a, b) => (Number(b.ts || 0) - Number(a.ts || 0)));
       return out;
     },
@@ -14036,12 +15285,16 @@ function app() {
     // const evt = this._unwrapEventOrNull(e); if (!evt) return;
     // const id = (evt.payload || {}).id;  // already parsed
     _unwrapEventOrNull(e) {
-      if (!e || !e.data) return null;
+      if (!e || !e.data) {
+        return null;
+      }
       try {
         const data = JSON.parse(e.data);
         const myId = window.__ogClientId;
         const cid = data && data.payload && data.payload.client_id;
-        if (myId && cid && cid === myId) return null;  // self-event, skip
+        if (myId && cid && cid === myId) {
+          return null;
+        }  // self-event, skip
         return data;
       } catch (_) {
         return null;  // malformed event, treat as skip
@@ -14051,9 +15304,13 @@ function app() {
     // Helper for the toolbar indicator — exposes a concise status string
     // for the i18n-bound title attribute.
     sseStatusKey() {
-      if (this._sseConnected) return 'events.connected_title';
+      if (this._sseConnected) {
+        return 'events.connected_title';
+      }
       // Distinguish "never connected" from "dropped + retrying".
-      if (this._sse && this._sseLastEventTs) return 'events.reconnecting_title';
+      if (this._sse && this._sseLastEventTs) {
+        return 'events.reconnecting_title';
+      }
       return 'events.disconnected_title';
     },
 
@@ -14066,14 +15323,20 @@ function app() {
     // poll, Live's green-on-event UX is already implicit in the SSE
     // pill colour.
     _pollStart() {
-      if (this.refreshInterval === -1 || this.refreshInterval === 0) return;
+      if (this.refreshInterval === -1 || this.refreshInterval === 0) {
+        return;
+      }
       this._pollFlashCount = (this._pollFlashCount || 0) + 1;
       this._pollFlashing = true;
     },
     _pollEnd() {
-      if (!this._pollFlashCount) return;
+      if (!this._pollFlashCount) {
+        return;
+      }
       this._pollFlashCount = Math.max(0, this._pollFlashCount - 1);
-      if (this._pollFlashCount === 0) this._pollFlashing = false;
+      if (this._pollFlashCount === 0) {
+        this._pollFlashing = false;
+      }
     },
     // Convenience wrapper — `await this._pollWrap(this.refresh(true))`
     // sets the flash on, awaits the promise, clears the flash in
@@ -14087,12 +15350,16 @@ function app() {
     setAutoRefresh(seconds) {
       this.autoRefresh = seconds;
       try { localStorage.setItem('autoRefresh', String(seconds)); } catch {}
-      if (this._autoTimer) clearInterval(this._autoTimer);
-      if (seconds > 0) this._autoTimer = setInterval(() => {
-        // Wrap in poll-flash brackets so the topbar pill stays green
-        // for the duration of the actual /api/items round-trip.
-        this._pollWrap(this.refresh(true));
-      }, seconds * 1000);
+      if (this._autoTimer) {
+        clearInterval(this._autoTimer);
+      }
+      if (seconds > 0) {
+        this._autoTimer = setInterval(() => {
+          // Wrap in poll-flash brackets so the topbar pill stays green
+          // for the duration of the actual /api/items round-trip.
+          this._pollWrap(this.refresh(true));
+        }, seconds * 1000);
+      }
     },
 
     // single canonical cadence-setter. Three modes mapped to
@@ -14130,7 +15397,9 @@ function app() {
       // Off / interval modes close it so the picker is the single
       // source of truth for "is this dashboard receiving updates?".
       if (seconds === -1) {
-        if (!this._sse) this._initSSE();
+        if (!this._sse) {
+          this._initSSE();
+        }
       } else {
         this._disconnectSSE();
       }
@@ -14159,7 +15428,9 @@ function app() {
         if (!pushOnly) {
           const ms = (liveMode ? 30 : seconds) * 1000;
           this._drawerHistoryTimer = setInterval(() => {
-            if (!this.drawerHost) return;
+            if (!this.drawerHost) {
+              return;
+            }
             this._pollWrap(this.loadHostHistory(
               this.drawerHost.beszel_id || '',
               this.drawerHost.id,
@@ -14178,7 +15449,9 @@ function app() {
       if (dh && dh.ping_enabled && seconds !== 0 && seconds !== -1) {
         const pingMs = seconds * 1000;
         this._drawerPingTimer = setInterval(() => {
-          if (!this.drawerHost || !this.drawerHost.ping_enabled) return;
+          if (!this.drawerHost || !this.drawerHost.ping_enabled) {
+            return;
+          }
           this._pollWrap(this.loadHostPingHistory(this.drawerHost.id));
         }, pingMs);
       }
@@ -14197,8 +15470,12 @@ function app() {
         const liveMode = seconds === -1;
         const snmpMs = (liveMode ? 30 : seconds) * 1000;
         this._drawerSnmpHistoryTimer = setInterval(() => {
-          if (!this.drawerHost) return;
-          if (!this._snmpHasProbeTarget(this.drawerHost)) return;
+          if (!this.drawerHost) {
+            return;
+          }
+          if (!this._snmpHasProbeTarget(this.drawerHost)) {
+            return;
+          }
           const hrs = this.hostHistoryRange || 1;
           if (typeof this.loadHostSnmpHistory === 'function') {
             this._pollWrap(this.loadHostSnmpHistory(this.drawerHost.id, hrs));
@@ -14236,16 +15513,41 @@ function app() {
       const c = { update:0, update_offline:0, uptodate:0, unknown:0, error:0, ignored:0, healthy:0, degraded:0, offline:0 };
       for (const i of this.items) {
         if (i.status==='update') {
-          if (i.health==='offline') c.update_offline++;
-          else c.update++;
+          if (i.health==='offline') {
+            c.update_offline++;
+          }
+          else {
+            c.update++;
+          }
         }
-        else if (i.status==='up-to-date') c.uptodate++;
-        else if (i.status==='unknown') c.unknown++;
-        else if (i.status==='error') c.error++;
-        else if (i.status==='ignored') c.ignored++;
-        if (i.health==='healthy') c.healthy++;
-        else if (i.health==='degraded') c.degraded++;
-        else if (i.health==='offline') c.offline++;
+        else if (i.status==='up-to-date') {
+          c.uptodate++;
+        }
+        else {
+          if (i.status === 'unknown') {
+            c.unknown++;
+          } else {
+            if (i.status === 'error') {
+              c.error++;
+            } else {
+              if (i.status === 'ignored') {
+                c.ignored++;
+              }
+            }
+          }
+        }
+        if (i.health==='healthy') {
+          c.healthy++;
+        }
+        else {
+          if (i.health === 'degraded') {
+            c.degraded++;
+          } else {
+            if (i.health === 'offline') {
+              c.offline++;
+            }
+          }
+        }
       }
       return c;
     },
@@ -14274,16 +15576,26 @@ function app() {
           // sort last regardless of direction.
           const ua = this.uptimeFor(a);
           const ub = this.uptimeFor(b);
-          if (ua == null && ub == null) return 0;
-          if (ua == null) return 1;
-          if (ub == null) return -1;
+          if (ua == null && ub == null) {
+            return 0;
+          }
+          if (ua == null) {
+            return 1;
+          }
+          if (ub == null) {
+            return -1;
+          }
           va = ua; vb = ub;
         } else {
           va = (a[f]||'').toString().toLowerCase();
           vb = (b[f]||'').toString().toLowerCase();
         }
-        if (va < vb) return -1 * dir;
-        if (va > vb) return 1 * dir;
+        if (va < vb) {
+          return -1 * dir;
+        }
+        if (va > vb) {
+          return 1 * dir;
+        }
         return 0;
       });
       return arr;
@@ -14291,10 +15603,16 @@ function app() {
     matches(item, q) {
       if (q) {
         const hay = [item.name, item.image, item.stack, item.tag].filter(Boolean).join(' ').toLowerCase();
-        if (!hay.includes(q)) return false;
+        if (!hay.includes(q)) {
+          return false;
+        }
       }
-      if (this.statusFilter && item.status !== this.statusFilter) return false;
-      if (this.healthFilter && item.health !== this.healthFilter) return false;
+      if (this.statusFilter && item.status !== this.statusFilter) {
+        return false;
+      }
+      if (this.healthFilter && item.health !== this.healthFilter) {
+        return false;
+      }
       return true;
     },
 
@@ -14321,7 +15639,9 @@ function app() {
     // pseudo-users (negative ids) since /api/me/ui-prefs returns 400
     // for them.
     async persistThemePref(value) {
-      if (!this.me || !this.me.id || this.me.id < 0) return;
+      if (!this.me || !this.me.id || this.me.id < 0) {
+        return;
+      }
       try {
         await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
@@ -14463,7 +15783,9 @@ function app() {
       const meId = this.me && this.me.id;
       const isValidUserId = (typeof meId === 'number' && meId >= 0)
         || (typeof meId === 'string' && meId && !meId.startsWith('-'));
-      if (!isValidUserId) return;
+      if (!isValidUserId) {
+        return;
+      }
       const turns = (this.aiConversation || []).slice(-50).map(t => ({
         role:             t.role || '',
         text:             t.text || '',
@@ -14512,9 +15834,13 @@ function app() {
       } catch (_) {}
     },
     async persistHostHistoryRange(value) {
-      if (!this.me || !this.me.id || this.me.id < 0) return;
+      if (!this.me || !this.me.id || this.me.id < 0) {
+        return;
+      }
       const n = Number(value);
-      if (!Number.isFinite(n) || n <= 0) return;
+      if (!Number.isFinite(n) || n <= 0) {
+        return;
+      }
       try {
         await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
@@ -14533,36 +15859,56 @@ function app() {
 
     _busyKey(kind, id) { return `${kind}:${id}`; },
     isStackBusy(stack) {
-      if (!stack || !stack.stack_id) return false;
-      if (this.busy[this._busyKey('stack', stack.stack_id)]) return true;
+      if (!stack || !stack.stack_id) {
+        return false;
+      }
+      if (this.busy[this._busyKey('stack', stack.stack_id)]) {
+        return true;
+      }
       return this.activeOps.some(o => o.op_type === 'update_stack' && String(o.target_id) === String(stack.stack_id));
     },
     isItemBusy(item) {
-      if (!item) return false;
-      if (this.busy[this._busyKey('ctn', item.raw_id)]) return true;
+      if (!item) {
+        return false;
+      }
+      if (this.busy[this._busyKey('ctn', item.raw_id)]) {
+        return true;
+      }
       if (item.type === 'orphan') {
         return this.activeOps.some(o => o.op_type === 'remove_container' && o.target_id === item.raw_id);
       }
-      if (item.stack_id) return this.isStackBusy({ stack_id: item.stack_id });
+      if (item.stack_id) {
+        return this.isStackBusy({stack_id: item.stack_id});
+      }
       if (item.type === 'container') {
         return this.activeOps.some(o => ['update_container','remove_container','restart_container'].includes(o.op_type) && o.target_id === item.raw_id);
       }
       return false;
     },
     isServiceBusy(item) {
-      if (!item) return false;
-      if (this.busy[this._busyKey('svc', item.raw_id)]) return true;
+      if (!item) {
+        return false;
+      }
+      if (this.busy[this._busyKey('svc', item.raw_id)]) {
+        return true;
+      }
       return this.activeOps.some(o => o.op_type === 'restart_service' && o.target_id === item.raw_id);
     },
     isRestartBusy(item) {
-      if (!item) return false;
-      if (item.type === 'service') return this.isServiceBusy(item);
+      if (!item) {
+        return false;
+      }
+      if (item.type === 'service') {
+        return this.isServiceBusy(item);
+      }
       return this.isItemBusy(item);
     },
     _busyTimers: {},
     _markBusy(key) {
       this.busy = { ...this.busy, [key]: true };
-      if (this._busyTimers[key]) clearTimeout(this._busyTimers[key]);
+      if (this._busyTimers[key]) {
+        clearTimeout(this._busyTimers[key]);
+      }
       this._busyTimers[key] = setTimeout(() => {
         delete this._busyTimers[key];
         if (this.busy[key]) { const n = {...this.busy}; delete n[key]; this.busy = n; }
@@ -14570,17 +15916,27 @@ function app() {
     },
     _holdBusy(key) {
       if (this._busyTimers[key]) { clearTimeout(this._busyTimers[key]); delete this._busyTimers[key]; }
-      if (!this.busy[key]) this.busy = { ...this.busy, [key]: true };
+      if (!this.busy[key]) {
+        this.busy = {...this.busy, [key]: true};
+      }
     },
     _clearBusy(key) {
       if (this._busyTimers[key]) { clearTimeout(this._busyTimers[key]); delete this._busyTimers[key]; }
       if (this.busy[key]) { const n = {...this.busy}; delete n[key]; this.busy = n; }
     },
     _opBusyKey(op) {
-      if (!op) return null;
-      if (op.op_type === 'update_stack') return this._busyKey('stack', op.target_id);
-      if (['update_container','remove_container','restart_container'].includes(op.op_type)) return this._busyKey('ctn', op.target_id);
-      if (op.op_type === 'restart_service') return this._busyKey('svc', op.target_id);
+      if (!op) {
+        return null;
+      }
+      if (op.op_type === 'update_stack') {
+        return this._busyKey('stack', op.target_id);
+      }
+      if (['update_container','remove_container','restart_container'].includes(op.op_type)) {
+        return this._busyKey('ctn', op.target_id);
+      }
+      if (op.op_type === 'restart_service') {
+        return this._busyKey('svc', op.target_id);
+      }
       return null;
     },
 
@@ -14621,7 +15977,9 @@ function app() {
     },
     networkIfacesShowDocker: {},  // {host_id: bool} — toggle map per host
     toggleNetworkIfacesDocker(h) {
-      if (!h || !h.id) return;
+      if (!h || !h.id) {
+        return;
+      }
       this.networkIfacesShowDocker[h.id] = !this.networkIfacesShowDocker[h.id];
     },
     // busy / idle split for switches that expose 30+ ports via
@@ -14656,7 +16014,9 @@ function app() {
     },
     networkIfacesShowIdle: {},  // per-host toggle for the idle group
     toggleNetworkIfacesIdle(h) {
-      if (!h || !h.id) return;
+      if (!h || !h.id) {
+        return;
+      }
       this.networkIfacesShowIdle[h.id] = !this.networkIfacesShowIdle[h.id];
     },
     // Cap the busy-iface list to the top 10 by traffic, with a
@@ -14666,12 +16026,16 @@ function app() {
     networkIfacesBusyCap: 10,
     networkIfacesShowAllBusy: {},  // per-host toggle for the busy-cap group
     toggleNetworkIfacesBusyAll(h) {
-      if (!h || !h.id) return;
+      if (!h || !h.id) {
+        return;
+      }
       this.networkIfacesShowAllBusy[h.id] = !this.networkIfacesShowAllBusy[h.id];
     },
     networkIfacesBusyVisible(h) {
       const busy = this.networkIfacesActivityPartition(h).busy;
-      if (this.networkIfacesShowAllBusy[h.id]) return busy;
+      if (this.networkIfacesShowAllBusy[h.id]) {
+        return busy;
+      }
       return busy.slice(0, this.networkIfacesBusyCap);
     },
     networkIfacesBusyHiddenCount(h) {
@@ -14685,7 +16049,9 @@ function app() {
     // gracefully no-op when the rows lack the SNMP fields so
     // non-SNMP hosts don't see empty traffic rows.
     hostIfaceHasTraffic(iface) {
-      if (!iface || typeof iface !== 'object') return false;
+      if (!iface || typeof iface !== 'object') {
+        return false;
+      }
       const rx = +iface.rx_bytes || 0;
       const tx = +iface.tx_bytes || 0;
       return rx > 0 || tx > 0;
@@ -14699,9 +16065,13 @@ function app() {
       const ifaces = this.networkIfacesPartition(h).real || [];
       let max = 0;
       for (const i of ifaces) {
-        if (!this.hostIfaceHasTraffic(i)) continue;
+        if (!this.hostIfaceHasTraffic(i)) {
+          continue;
+        }
         const t = (+i.rx_bytes || 0) + (+i.tx_bytes || 0);
-        if (t > max) max = t;
+        if (t > max) {
+          max = t;
+        }
       }
       return max;
     },
@@ -14710,7 +16080,9 @@ function app() {
     // empty string when no traffic data is available so the template
     // can short-circuit without rendering an empty bar.
     hostIfaceBarStyle(iface, maxTotal) {
-      if (!this.hostIfaceHasTraffic(iface) || !(maxTotal > 0)) return '';
+      if (!this.hostIfaceHasTraffic(iface) || !(maxTotal > 0)) {
+        return '';
+      }
       const total = (+iface.rx_bytes || 0) + (+iface.tx_bytes || 0);
       const totalPct = (total / maxTotal) * 100;
       const rxShare = total > 0 ? (+iface.rx_bytes || 0) / total : 0;
@@ -14733,10 +16105,16 @@ function app() {
     // the template.
     upsStatusPillClass(status) {
       const s = String(status || '').toLowerCase();
-      if (s === 'online') return 'pill-ok';
-      if (s === 'on-battery' || s === 'on-smart-boost' || s === 'on-smart-trim') return 'pill-update';
+      if (s === 'online') {
+        return 'pill-ok';
+      }
+      if (s === 'on-battery' || s === 'on-smart-boost' || s === 'on-smart-trim') {
+        return 'pill-update';
+      }
       if (s === 'off' || s === 'rebooting' || s.includes('bypass')
-          || s === 'hardware-failure-bypass' || s === 'sleeping-until') return 'pill-error';
+          || s === 'hardware-failure-bypass' || s === 'sleeping-until') {
+        return 'pill-error';
+      }
       return 'pill-unknown';
     },
     upsStatusLabel(status) {
@@ -14746,7 +16124,9 @@ function app() {
       // / null so the i18n loader doesn't see a missing-key probe
       // for `host_drawer.ups.status_` (no enum value).
       const s = String(status || '').toLowerCase();
-      if (!s) return '';
+      if (!s) {
+        return '';
+      }
       const key = `host_drawer.ups.status_${s.replace(/-/g, '_')}`;
       const translated = this.t(key);
       return (translated && translated !== key) ? translated : (status || '');
@@ -14755,9 +16135,15 @@ function app() {
       // Inverse of the .stat-bar warn/crit semantics — for batteries,
       // LOW is bad. <20% = crit (red), <50% = warn (amber), else ok.
       const n = +pct;
-      if (!Number.isFinite(n)) return '';
-      if (n < 20) return 'crit';
-      if (n < 50) return 'warn';
+      if (!Number.isFinite(n)) {
+        return '';
+      }
+      if (n < 20) {
+        return 'crit';
+      }
+      if (n < 50) {
+        return 'warn';
+      }
       return '';
     },
     // Battery status enum (from PowerNet-MIB upsBasicBatteryStatus).
@@ -14768,9 +16154,15 @@ function app() {
     // `upsStatusPillClass` for the output-status badge.
     upsBatteryStatusPillClass(status) {
       const s = String(status || '').toLowerCase();
-      if (s === 'battery-normal') return 'pill-ok';
-      if (s === 'battery-low') return 'pill-update';
-      if (s === 'battery-in-fault') return 'pill-error';
+      if (s === 'battery-normal') {
+        return 'pill-ok';
+      }
+      if (s === 'battery-low') {
+        return 'pill-update';
+      }
+      if (s === 'battery-in-fault') {
+        return 'pill-error';
+      }
       return 'pill-unknown';
     },
     upsBatteryStatusLabel(status) {
@@ -14793,9 +16185,15 @@ function app() {
     // the colour family matches every other status pill in the SPA.
     dellHealthPillClass(status) {
       const s = String(status || '').toLowerCase();
-      if (s === 'ok') return 'pill-ok';
-      if (s === 'non-critical') return 'pill-update';
-      if (s === 'critical' || s === 'non-recoverable') return 'pill-error';
+      if (s === 'ok') {
+        return 'pill-ok';
+      }
+      if (s === 'non-critical') {
+        return 'pill-update';
+      }
+      if (s === 'critical' || s === 'non-recoverable') {
+        return 'pill-error';
+      }
       return 'pill-unknown';
     },
     dellHealthLabel(status) {
@@ -14803,10 +16201,14 @@ function app() {
       // capitalise the raw string instead of crashing OR rendering the
       // raw lowercase wire form ("ok" / "critical").
       const s = String(status || '').toLowerCase();
-      if (!s) return '';
+      if (!s) {
+        return '';
+      }
       const key = `host_drawer.server_health.status_${s.replace(/-/g, '_')}`;
       const translated = this.t(key);
-      if (translated && translated !== key) return translated;
+      if (translated && translated !== key) {
+        return translated;
+      }
       return s.charAt(0).toUpperCase() + s.slice(1);
     },
     // Active-Ops chip / history label for the canonical op_type enum
@@ -14817,18 +16219,26 @@ function app() {
     // "Update In Place" instead of the brittle bare-replace shape.
     opTypeLabel(op_type) {
       const s = String(op_type || '').toLowerCase();
-      if (!s) return '';
+      if (!s) {
+        return '';
+      }
       const key = `op_types.${s}`;
       const translated = this.t(key);
-      if (translated && translated !== key) return translated;
+      if (translated && translated !== key) {
+        return translated;
+      }
       return s.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     },
     opStatusLabel(status) {
       const s = String(status || '').toLowerCase();
-      if (!s) return '';
+      if (!s) {
+        return '';
+      }
       const key = `op_status.${s}`;
       const translated = this.t(key);
-      if (translated && translated !== key) return translated;
+      if (translated && translated !== key) {
+        return translated;
+      }
       return s.charAt(0).toUpperCase() + s.slice(1);
     },
     // ---------------------------------------------------------------
@@ -14856,7 +16266,9 @@ function app() {
         deepseek: 'DeepSeek',
       };
       const k = String(name || '').toLowerCase();
-      if (known[k]) return known[k];
+      if (known[k]) {
+        return known[k];
+      }
       return k.charAt(0).toUpperCase() + k.slice(1);
     },
     aiProviderModelPlaceholder(name) {
@@ -14869,7 +16281,9 @@ function app() {
     aiProviderModelHint(name) {
       const key = `admin.ai.model_hint_${name}`;
       const translated = this.t(key);
-      if (translated && translated !== key) return translated;
+      if (translated && translated !== key) {
+        return translated;
+      }
       return this.t('admin.ai.model_hint_generic');
     },
     aiProviderBaseUrlPlaceholder(name) {
@@ -14877,9 +16291,15 @@ function app() {
     },
     aiFormatNumber(n) {
       const v = Number(n || 0);
-      if (!Number.isFinite(v)) return '0';
-      if (Math.abs(v) >= 1_000_000) return (v / 1_000_000).toFixed(2) + 'M';
-      if (Math.abs(v) >= 1_000)     return (v / 1_000).toFixed(1) + 'k';
+      if (!Number.isFinite(v)) {
+        return '0';
+      }
+      if (Math.abs(v) >= 1_000_000) {
+        return (v / 1_000_000).toFixed(2) + 'M';
+      }
+      if (Math.abs(v) >= 1_000)     {
+        return (v / 1_000).toFixed(1) + 'k';
+      }
       return String(Math.round(v));
     },
     aiFormatPct01(n) {
@@ -14889,9 +16309,13 @@ function app() {
       // null, but a single 0 would still render misleadingly. Once
       // accuracy validation lands and 0 becomes a real value, gate
       // the zero-as-dash branch on a `score_known` carrier.
-      if (n === null || n === undefined) return '—';
+      if (n === null || n === undefined) {
+        return '—';
+      }
       const v = Number(n);
-      if (!Number.isFinite(v) || v === 0) return '—';
+      if (!Number.isFinite(v) || v === 0) {
+        return '—';
+      }
       return Math.round(v * 100) + '%';
     },
     aiFormatCost(n) {
@@ -14905,13 +16329,19 @@ function app() {
       // cached response, etc.), this helper can be tightened to
       // distinguish via a `cost_known: bool` carrier from the
       // backend.
-      if (n === null || n === undefined) return '—';
+      if (n === null || n === undefined) {
+        return '—';
+      }
       const v = Number(n);
-      if (!Number.isFinite(v) || v === 0) return '—';
+      if (!Number.isFinite(v) || v === 0) {
+        return '—';
+      }
       return '$' + v.toFixed(4);
     },
     aiFormatTime(ts) {
-      if (!ts) return '—';
+      if (!ts) {
+        return '—';
+      }
       const d = new Date(ts * 1000);
       // Compact YYYY-MM-DD HH:mm format; locale string is unstable
       // across browsers / locales so we hand-format in UTC-equivalent
@@ -15014,9 +16444,13 @@ function app() {
       let n = 0;
       for (const name of this.aiProviderNames) {
         const p = this.aiForm.providers[name];
-        if (!p || !p.enabled || name === active) continue;
+        if (!p || !p.enabled || name === active) {
+          continue;
+        }
         // API key set OR newly-typed counts as "has key".
-        if (p.api_key_set || (p.api_key || '').trim()) n++;
+        if (p.api_key_set || (p.api_key || '').trim()) {
+          n++;
+        }
       }
       return n;
     },
@@ -15028,8 +16462,12 @@ function app() {
       const order = Array.isArray(this.settings.ai_fallback_order)
                       ? this.settings.ai_fallback_order.slice() : [];
       const i = order.indexOf(name);
-      if (i >= 0) order.splice(i, 1);
-      else order.push(name);
+      if (i >= 0) {
+        order.splice(i, 1);
+      }
+      else {
+        order.push(name);
+      }
       this.settings.ai_fallback_order = order;
       this.markAiFormDirty();
     },
@@ -15038,9 +16476,13 @@ function app() {
       const order = Array.isArray(this.settings.ai_fallback_order)
                       ? this.settings.ai_fallback_order.slice() : [];
       const i = order.indexOf(name);
-      if (i < 0) return;
+      if (i < 0) {
+        return;
+      }
       const j = i + delta;
-      if (j < 0 || j >= order.length) return;
+      if (j < 0 || j >= order.length) {
+        return;
+      }
       [order[i], order[j]] = [order[j], order[i]];
       this.settings.ai_fallback_order = order;
       this.markAiFormDirty();
@@ -15058,7 +16500,9 @@ function app() {
       // depth / retry knobs). Either dirty side enables the Save
       // button — the section's Save commits both in one POST.
       const ownDirty = this._aiBaselineSnapshot !== '' && this._aiSnapshot() !== this._aiBaselineSnapshot;
-      if (ownDirty) return true;
+      if (ownDirty) {
+        return true;
+      }
       // Tunable dirty — compare each AI-section tunable against the
       // tuning baseline. Falls back to the global tuningDirty path
       // when the helper isn't available, but the keys-list path is
@@ -15069,7 +16513,9 @@ function app() {
           const cur = (this.tuningForm || {})[k];
           const curStr = (cur == null ? '' : String(cur).trim());
           const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
-          if (curStr !== baseStr) return true;
+          if (curStr !== baseStr) {
+            return true;
+          }
         }
       } catch (_) {}
       return false;
@@ -15190,7 +16636,9 @@ function app() {
       ];
     },
     async saveAiSettings() {
-      if (this.aiSaving || this.isReadonly()) return;
+      if (this.aiSaving || this.isReadonly()) {
+        return;
+      }
       this.aiSaving = true;
       try {
         const body = {
@@ -15272,11 +16720,15 @@ function app() {
       this.loadAiDashboard(true);
     },
     async loadAiDashboard(_force) {
-      if (this.aiDashboardLoading) return;
+      if (this.aiDashboardLoading) {
+        return;
+      }
       this.aiDashboardLoading = true;
       try {
         const r = await fetch(`/api/admin/ai/dashboard?hours=${encodeURIComponent(this.aiRange || 24)}`);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
         this.aiDashboard = await r.json();
       } catch (e) {
         console.error('[ai] loadAiDashboard failed:', e);
@@ -15291,7 +16743,9 @@ function app() {
     async loadAiMemories() {
       try {
         const r = await fetch('/api/ai/memory');
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
         const j = await r.json();
         this.aiMemories = Array.isArray(j.memories) ? j.memories : [];
       } catch (e) {
@@ -15301,7 +16755,9 @@ function app() {
     },
     async addAiMemory() {
       const text = (this.aiMemoryAddText || '').trim();
-      if (!text || this.aiMemoryBusy) return;
+      if (!text || this.aiMemoryBusy) {
+        return;
+      }
       this.aiMemoryBusy = true;
       try {
         const r = await fetch('/api/ai/memory', {
@@ -15332,12 +16788,16 @@ function app() {
         confirmButtonText: this.t('actions.delete') || 'Delete',
         cancelButtonText:  this.t('actions.cancel') || 'Cancel',
       });
-      if (!ok) return;
+      if (!ok) {
+        return;
+      }
       try {
         const r = await fetch('/api/ai/memory/' + encodeURIComponent(memId), {
           method: 'DELETE',
         });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
         await this.loadAiMemories();
         if (typeof this.showToast === 'function') {
           this.showToast(this.t('ai_memory.toast_forgotten') || 'Memory forgotten', 'success');
@@ -15355,11 +16815,17 @@ function app() {
       const size = Math.max(1, Number(this.aiModalPageSize) || 20);
       params.set('limit',  String(size));
       params.set('offset', String((page - 1) * size));
-      if (this.aiJobsFilterProvider) params.set('provider', this.aiJobsFilterProvider);
-      if (this.aiJobsFilterStatus)   params.set('status',   this.aiJobsFilterStatus);
+      if (this.aiJobsFilterProvider) {
+        params.set('provider', this.aiJobsFilterProvider);
+      }
+      if (this.aiJobsFilterStatus)   {
+        params.set('status', this.aiJobsFilterStatus);
+      }
       try {
         const r = await fetch(`/api/admin/ai/jobs?${params.toString()}`);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
         this.aiJobs = await r.json();
       } catch (e) {
         console.error('[ai] loadAiJobs failed:', e);
@@ -15387,7 +16853,9 @@ function app() {
     // table re-fetches the first page; client-paged trend table just
     // re-slices on the next render.
     aiSortBy(col) {
-      if (!col) return;
+      if (!col) {
+        return;
+      }
       if (this.aiModalSortCol === col) {
         this.aiModalSortDir = (this.aiModalSortDir === 'asc') ? 'desc' : 'asc';
       } else {
@@ -15395,32 +16863,52 @@ function app() {
         this.aiModalSortDir = 'desc';
       }
       this.aiModalPage = 1;
-      if (this.aiModalKey === 'jobs') this.loadAiJobs();
+      if (this.aiModalKey === 'jobs') {
+        this.loadAiJobs();
+      }
     },
     // Stable comparator across mixed-type fields (number / string /
     // null). Nulls sink to the bottom regardless of direction so a
     // partial dataset doesn't disrupt sort ergonomics.
     _aiSortValue(row, col) {
-      if (!row) return null;
+      if (!row) {
+        return null;
+      }
       const v = row[col];
-      if (v == null || v === '') return null;
-      if (typeof v === 'number') return v;
+      if (v == null || v === '') {
+        return null;
+      }
+      if (typeof v === 'number') {
+        return v;
+      }
       const n = Number(v);
-      if (Number.isFinite(n) && (typeof v === 'string' && /^[\d.\-+eE]+$/.test(v))) return n;
+      if (Number.isFinite(n) && (typeof v === 'string' && /^[\d.\-+eE]+$/.test(v))) {
+        return n;
+      }
       return String(v);
     },
     _aiSortRows(rows) {
       const col = this.aiModalSortCol;
-      if (!col || !Array.isArray(rows) || rows.length < 2) return rows || [];
+      if (!col || !Array.isArray(rows) || rows.length < 2) {
+        return rows || [];
+      }
       const dir = (this.aiModalSortDir === 'asc') ? 1 : -1;
       const out = rows.slice();
       out.sort((a, b) => {
         const av = this._aiSortValue(a, col);
         const bv = this._aiSortValue(b, col);
-        if (av == null && bv == null) return 0;
-        if (av == null) return 1;   // nulls last regardless of dir
-        if (bv == null) return -1;
-        if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+        if (av == null && bv == null) {
+          return 0;
+        }
+        if (av == null) {
+          return 1;
+        }   // nulls last regardless of dir
+        if (bv == null) {
+          return -1;
+        }
+        if (typeof av === 'number' && typeof bv === 'number') {
+          return (av - bv) * dir;
+        }
         return String(av).localeCompare(String(bv)) * dir;
       });
       return out;
@@ -15466,16 +16954,22 @@ function app() {
     aiModalGoPage(n) {
       const last = this.aiModalTotalPages();
       const next = Math.max(1, Math.min(last, Number(n) || 1));
-      if (next === this.aiModalPage) return;
+      if (next === this.aiModalPage) {
+        return;
+      }
       this.aiModalPage = next;
-      if (this.aiModalKey === 'jobs') this.loadAiJobs();
+      if (this.aiModalKey === 'jobs') {
+        this.loadAiJobs();
+      }
     },
     // Header-render helper: returns ' ▲' / ' ▼' / '' for the active
     // sort column. Bound via x-text on a sibling span so the header
     // text stays in i18n while the indicator is purely visual. Use
     // the unicode chars (U+25B2 / U+25BC) so no extra SVG asset.
     aiSortIndicator(col) {
-      if (this.aiModalSortCol !== col) return '';
+      if (this.aiModalSortCol !== col) {
+        return '';
+      }
       return (this.aiModalSortDir === 'asc') ? ' ▲' : ' ▼';
     },
     closeAiModal() { this.aiModalKey = null; },
@@ -15485,7 +16979,9 @@ function app() {
     // hear something meaningful instead of "dialog" with no name OR a
     // raw key path like `admin.ai.modal.passrate_title`).
     aiModalTitle() {
-      if (!this.aiModalKey) return this.t('admin.ai.modal.title_fallback');
+      if (!this.aiModalKey) {
+        return this.t('admin.ai.modal.title_fallback');
+      }
       const key = 'admin.ai.modal.' + this.aiModalKey + '_title';
       const resolved = this.t(key);
       return (resolved && resolved !== key) ? resolved : this.t('admin.ai.modal.title_fallback');
@@ -15500,7 +16996,9 @@ function app() {
       if (!this.aiTestState[name]) {
         this.aiTestState[name] = { loading: false, result: null };
       }
-      if (this.aiTestState[name].loading) return;
+      if (this.aiTestState[name].loading) {
+        return;
+      }
       this.aiTestState[name].loading = true;
       this.aiTestState[name].result = null;
       try {
@@ -15511,7 +17009,9 @@ function app() {
         };
         // Only send api_key when the user typed something. Blank →
         // backend uses the saved key (if any).
-        if ((p.api_key || '').trim()) body.api_key = p.api_key.trim();
+        if ((p.api_key || '').trim()) {
+          body.api_key = p.api_key.trim();
+        }
         const r = await fetch(`/api/admin/ai/${encodeURIComponent(name)}/test`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -15559,16 +17059,24 @@ function app() {
     // which are sitting idle for hot-swap / hot-spare duty.
     dellPdStatePillClass(state) {
       const s = String(state || '').toLowerCase();
-      if (s === 'online') return 'pill-ok';
-      if (s === 'ready') return 'pill-info';
+      if (s === 'online') {
+        return 'pill-ok';
+      }
+      if (s === 'ready') {
+        return 'pill-info';
+      }
       if (s === 'failed' || s === 'offline' || s === 'degraded'
-          || s === 'removed' || s === 'fault') return 'pill-error';
+          || s === 'removed' || s === 'fault') {
+        return 'pill-error';
+      }
       if (s === 'rebuild' || s === 'rebuilding' || s === 'recovering'
           || s === 'replacing' || s === 'replaced'
           || s === 'foreign' || s === 'blocked' || s === 'clear'
           || s === 'non-raid' || s === 'ready-foreign'
           || s === 'read-only' || s === 'uncertified'
-          || s === 'smart-alert' || s === 'predictive-failure') return 'pill-update';
+          || s === 'smart-alert' || s === 'predictive-failure') {
+        return 'pill-update';
+      }
       return 'pill-unknown';
     },
     // Virtual-disk state pill — same online/ready split as physical
@@ -15576,16 +17084,24 @@ function app() {
     // but idle / standby.
     dellVdStatePillClass(state) {
       const s = String(state || '').toLowerCase();
-      if (s === 'online') return 'pill-ok';
-      if (s === 'ready') return 'pill-info';
+      if (s === 'online') {
+        return 'pill-ok';
+      }
+      if (s === 'ready') {
+        return 'pill-info';
+      }
       if (s === 'failed' || s === 'offline'
           || s === 'failed-redundancy'
-          || s === 'permanently-degraded') return 'pill-error';
+          || s === 'permanently-degraded') {
+        return 'pill-error';
+      }
       if (s === 'degraded' || s === 'verifying' || s === 'resynching'
           || s === 'regenerating' || s === 'rebuilding'
           || s === 'formatting' || s === 'reconstructing'
           || s === 'initializing' || s === 'background-init'
-          || s === 'degraded-redundancy') return 'pill-update';
+          || s === 'degraded-redundancy') {
+        return 'pill-update';
+      }
       return 'pill-unknown';
     },
     // Disk-state pill label resolver — try i18n first, fall back to a
@@ -15598,10 +17114,14 @@ function app() {
     // fallback for novel enum values that don't have a key yet.
     dellStateLabel(state) {
       const s = String(state || '').toLowerCase();
-      if (!s) return '';
+      if (!s) {
+        return '';
+      }
       const key = 'host_drawer.server_health.status_' + s.replace(/-/g, '_');
       const tr = this.t(key);
-      if (tr && tr !== key) return tr;
+      if (tr && tr !== key) {
+        return tr;
+      }
       return s.charAt(0).toUpperCase() + s.slice(1);
     },
     // Threshold at which Server health sub-sections (Physical disks /
@@ -15641,10 +17161,16 @@ function app() {
     // (`pd` / `volt`) so toggling Physical disks doesn't also expand
     // Voltages on the same host.
     serverHealthVisibleRows(hostId, section, rows) {
-      if (!Array.isArray(rows)) return [];
-      if (rows.length <= this.SERVER_HEALTH_COLLAPSE_THRESHOLD) return rows;
+      if (!Array.isArray(rows)) {
+        return [];
+      }
+      if (rows.length <= this.SERVER_HEALTH_COLLAPSE_THRESHOLD) {
+        return rows;
+      }
       const key = `${hostId}:${section}`;
-      if (this.serverHealthExpanded[key]) return rows;
+      if (this.serverHealthExpanded[key]) {
+        return rows;
+      }
       return rows.slice(0, this.effectiveCollapsedLimit());
     },
     // True when the section has more rows than fit in the collapsed
@@ -15662,8 +17188,12 @@ function app() {
     },
     fmtUpsRuntime(seconds) {
       const s = +seconds;
-      if (!Number.isFinite(s) || s <= 0) return '—';
-      if (s < 60) return s.toFixed(0) + 's';
+      if (!Number.isFinite(s) || s <= 0) {
+        return '—';
+      }
+      if (s < 60) {
+        return s.toFixed(0) + 's';
+      }
       const mins = Math.floor(s / 60);
       if (mins < 60) {
         const rem = Math.floor(s % 60);
@@ -15683,11 +17213,21 @@ function app() {
       // Each colour token comes from :root so light + dark themes stay
       // consistent. CMYK-style names get their named colours; "waste"
       // / "drum" / "fuser" / etc. fall to text-dim.
-      if (name.includes('cyan'))    return 'var(--info)';
-      if (name.includes('magenta')) return '#ec4899';
-      if (name.includes('yellow')) return 'var(--warning)';
-      if (name.includes('black'))   return 'var(--text)';
-      if (name.includes('waste'))   return 'var(--text-faint)';
+      if (name.includes('cyan'))    {
+        return 'var(--info)';
+      }
+      if (name.includes('magenta')) {
+        return '#ec4899';
+      }
+      if (name.includes('yellow')) {
+        return 'var(--warning)';
+      }
+      if (name.includes('black'))   {
+        return 'var(--text)';
+      }
+      if (name.includes('waste'))   {
+        return 'var(--text-faint)';
+      }
       return 'var(--text-dim)';
     },
     printerSupplyLevel(supply) {
@@ -15695,9 +17235,15 @@ function app() {
       // "running out" signal, not a "running high" one.
       const pct = supply && supply.percent;
       const n = +pct;
-      if (!Number.isFinite(n)) return '';
-      if (n < 10) return 'crit';
-      if (n < 25) return 'warn';
+      if (!Number.isFinite(n)) {
+        return '';
+      }
+      if (n < 10) {
+        return 'crit';
+      }
+      if (n < 25) {
+        return 'warn';
+      }
       return '';
     },
     // Set of providers that returned data for AT LEAST ONE host on
@@ -15711,7 +17257,9 @@ function app() {
     providersWorkingGlobally() {
       const seen = new Set();
       for (const h of (this.hosts || [])) {
-        for (const p of (h.providers || [])) seen.add(p);
+        for (const p of (h.providers || [])) {
+          seen.add(p);
+        }
       }
       return seen;
     },
@@ -15761,7 +17309,9 @@ function app() {
       };
       // Live admin-form value first (reactive on every keystroke / save).
       const live = ((this.settings || {})['provider_color_' + name] || '').trim();
-      if (live) return live;
+      if (live) {
+        return live;
+      }
       // Server-stamped snapshot for non-admin viewers.
       const map = (this.me && this.me.client_config && this.me.client_config.provider_colors) || {};
       const v = (map[name] || '').trim();
@@ -15798,11 +17348,17 @@ function app() {
     // stay synced regardless of which one was edited last.
     normalizeHexColor(raw) {
       const v = (raw || '').trim();
-      if (!v) return '';
+      if (!v) {
+        return '';
+      }
       const bareHex = /^[0-9a-fA-F]{6}$/;
       const fullHex = /^#[0-9a-fA-F]{6}$/;
-      if (bareHex.test(v)) return '#' + v.toLowerCase();
-      if (fullHex.test(v)) return v.toLowerCase();
+      if (bareHex.test(v)) {
+        return '#' + v.toLowerCase();
+      }
+      if (fullHex.test(v)) {
+        return v.toLowerCase();
+      }
       return v;  // invalid — let the input's `pattern` flag it
     },
     // Provider name → /img/icons/<slug>.svg filename. Mostly
@@ -15811,7 +17367,9 @@ function app() {
     // filenames). Returns the bare slug; the consumer wraps it in
     // `url(/img/icons/<slug>.svg)` for the mask-image binding.
     providerIconSlug(name) {
-      if (name === 'node_exporter') return 'node-exporter';
+      if (name === 'node_exporter') {
+        return 'node-exporter';
+      }
       return name;
     },
     // Inline style for `.provider-icon` — paints a mono SVG
@@ -15830,7 +17388,9 @@ function app() {
       );
     },
     providerStates(h) {
-      if (!h) return [];
+      if (!h) {
+        return [];
+      }
       const active = this.hostsActiveSources || [];
       const globalOk = this.providersWorkingGlobally();
       const got = new Set(h.providers || []);
@@ -15857,8 +17417,12 @@ function app() {
       // per-provider polling flag is set.
       const polling = (h._polling && typeof h._polling === 'object') ? h._polling : {};
       const add = (name, mapped, selfStatus) => {
-        if (!mapped) return;
-        if (!active.includes(name)) return;
+        if (!mapped) {
+          return;
+        }
+        if (!active.includes(name)) {
+          return;
+        }
         // Per-(provider, host) auto-pause wins over every
         // other state — operator has explicitly marked this provider
         // off for this host until they manually resume it. Render the
@@ -15879,7 +17443,9 @@ function app() {
         // operators see the failure once in Settings (not N times in
         // the Hosts grid). Exception: if THIS host got data from it,
         // the provider IS working — render the ok chip.
-        if (!globalOk.has(name) && !got.has(name)) return;
+        if (!globalOk.has(name) && !got.has(name)) {
+          return;
+        }
         let state;
         if (!got.has(name)) {
           // Probe hasn't returned a hit for this provider yet. If the
@@ -15948,13 +17514,19 @@ function app() {
     // "provider went down" case visually explicit instead of letting
     // last-known-good values silently masquerade as live.
     isStale(obj) {
-      if (!obj) return false;
-      if (obj._stale === true) return true;
+      if (!obj) {
+        return false;
+      }
+      if (obj._stale === true) {
+        return true;
+      }
       const sf = obj._stale_fields;
       return Array.isArray(sf) && sf.length > 0;
     },
     isStaleField(obj, field) {
-      if (!obj || !field) return false;
+      if (!obj || !field) {
+        return false;
+      }
       const sf = obj._stale_fields;
       return Array.isArray(sf) && sf.indexOf(field) !== -1;
     },
@@ -15968,14 +17540,20 @@ function app() {
     // operators get a "data will be discarded in X" countdown
     // BEFORE the silent drop.
     staleGraceRemainingSeconds(obj) {
-      if (!obj) return null;
+      if (!obj) {
+        return null;
+      }
       const m = obj._meta_stale_grace_remaining_s;
-      if (!m || typeof m !== 'object') return null;
+      if (!m || typeof m !== 'object') {
+        return null;
+      }
       let smallest = null;
       for (const k in m) {
         const v = +m[k];
         if (Number.isFinite(v) && v >= 0) {
-          if (smallest === null || v < smallest) smallest = v;
+          if (smallest === null || v < smallest) {
+            smallest = v;
+          }
         }
       }
       return smallest;
@@ -15985,10 +17563,18 @@ function app() {
     // (banner suppresses cleanly).
     staleGraceRemainingLabel(obj) {
       const s = this.staleGraceRemainingSeconds(obj);
-      if (s === null || s === undefined) return '';
-      if (s < 60) return Math.round(s) + 's';
-      if (s < 3600) return Math.round(s / 60) + 'm';
-      if (s < 86400) return (s / 3600).toFixed(1) + 'h';
+      if (s === null || s === undefined) {
+        return '';
+      }
+      if (s < 60) {
+        return Math.round(s) + 's';
+      }
+      if (s < 3600) {
+        return Math.round(s / 60) + 'm';
+      }
+      if (s < 86400) {
+        return (s / 3600).toFixed(1) + 'h';
+      }
       return (s / 86400).toFixed(1) + 'd';
     },
     // True when the bulk of this host's snapshot-eligible fields are
@@ -16004,9 +17590,13 @@ function app() {
     // is six). Fewer than that = partial / transient — keep the
     // per-field triangles for actionable detail.
     isAllStale(obj) {
-      if (!obj) return false;
+      if (!obj) {
+        return false;
+      }
       const sf = obj._stale_fields;
-      if (!Array.isArray(sf)) return false;
+      if (!Array.isArray(sf)) {
+        return false;
+      }
       return sf.length >= 6;
     },
     // Provider-level stale enumeration. A provider is "stale" when
@@ -16018,13 +17608,19 @@ function app() {
     // mirrors the merge order documented in CLAUDE.md (Pulse → SNMP →
     // Beszel → NE → Webmin → Ping).
     staleProviders(h) {
-      if (!h) return [];
+      if (!h) {
+        return [];
+      }
       const got = new Set(h.providers || []);
       const out = [];
       const trim = v => String(v || '').trim();
       const push = (name, mapped) => {
-        if (!mapped) return;
-        if (got.has(name)) return;
+        if (!mapped) {
+          return;
+        }
+        if (got.has(name)) {
+          return;
+        }
         out.push(name);
       };
       push('pulse',         !!trim(h.pulse_name));
@@ -16042,7 +17638,9 @@ function app() {
     // Display label for a provider id — "node_exporter" → "exporter"
     // matches the existing chip rendering convention.
     providerDisplayName(name) {
-      if (name === 'node_exporter') return 'exporter';
+      if (name === 'node_exporter') {
+        return 'exporter';
+      }
       return name;
     },
     staleAge(obj) {
@@ -16056,7 +17654,9 @@ function app() {
       // drawer banner whose copy already wraps the time in its own
       // sentence), use `staleAgeShort(obj)` instead — passing
       // staleAge(h) into a {age} placeholder double-wraps the time.
-      if (!obj) return '';
+      if (!obj) {
+        return '';
+      }
       const tsRaw = obj._stale_ts;
       const ts = Number(tsRaw);
       if (!Number.isFinite(ts) || ts <= 0) {
@@ -16079,9 +17679,13 @@ function app() {
     // when `_stale_ts` is missing / 0 / non-numeric so the outer
     // template still renders cleanly.
     staleAgeShort(obj) {
-      if (!obj) return '';
+      if (!obj) {
+        return '';
+      }
       const ts = Number(obj._stale_ts);
-      if (!Number.isFinite(ts) || ts <= 0) return '';
+      if (!Number.isFinite(ts) || ts <= 0) {
+        return '';
+      }
       return this.fmtAgo(ts * 1000);
     },
     // Theme-aware icon swap. Wraps every icon-URL emit point so
@@ -16092,7 +17696,9 @@ function app() {
     // Idempotent — already-`-dark` URLs short-circuit, external / non-
     // /img/icons/ URLs pass through untouched.
     _themeIcon(url) {
-      if (!url) return url;
+      if (!url) {
+        return url;
+      }
       // Read themePref so Alpine tracks this as a dependency. The
       // resolution mirrors `applyTheme()` exactly (auto → matchMedia,
       // explicit → that value).
@@ -16154,7 +17760,9 @@ function app() {
     // Theme-aware swap: every return point routes through
       // `_themeIcon(url)` so brands with a `-dark.svg` variant
       // auto-resolve to the dark URL when in dark theme.
-      if (!name) return '';
+      if (!name) {
+        return '';
+      }
       // Exact / whole-name overrides (checked first).
       const overrides = {
         // 'seerr' is its own brand (https://github.com/Fallenbagel/seerr)
@@ -16232,17 +17840,25 @@ function app() {
         const url = mapped.startsWith('/') || /^https?:/i.test(mapped) ? mapped : '/' + mapped;
         return this._themeIcon(url);
       }
-      if (mapped) return this._themeIcon(`/img/icons/${mapped}.svg`);
-      for (const [prefix, slug] of prefixes) {
-        if (natural.startsWith(prefix)) return this._themeIcon(`/img/icons/${slug}.svg`);
+      if (mapped) {
+        return this._themeIcon(`/img/icons/${mapped}.svg`);
       }
-      if (!natural) return '';
+      for (const [prefix, slug] of prefixes) {
+        if (natural.startsWith(prefix)) {
+          return this._themeIcon(`/img/icons/${slug}.svg`);
+        }
+      }
+      if (!natural) {
+        return '';
+      }
       // Only return a URL when the slug actually exists on disk —
       // otherwise the browser fires a 404 for every stack/host name
       // that doesn't happen to match a brand. Operator complaint:
       // "this is a stack without an image, why system looking for
       // image" → fixed by gating on KNOWN_ICONS.
-      if (KNOWN_ICONS.has(natural)) return this._themeIcon(`/img/icons/${natural}.svg`);
+      if (KNOWN_ICONS.has(natural)) {
+        return this._themeIcon(`/img/icons/${natural}.svg`);
+      }
       return '';
     },
     stackIconUrl(stack) {
@@ -16251,7 +17867,9 @@ function app() {
     itemIconUrl(item) {
       // Use the parent stack's name for items inside a stack; otherwise the
       // item's own name (for standalone containers / services without stack).
-      if (!item) return '';
+      if (!item) {
+        return '';
+      }
       return this.iconUrlFor(item.stack || item.name);
     },
     // -----------------------------------------------------------------
@@ -16321,9 +17939,18 @@ function app() {
       );
       const hostStatsEnabled = sourceSet.size > 0;
       let exporterStatus = 'disabled';
-      if (info.exporter_error) exporterStatus = 'error';
-      else if (hostStatsEnabled && (hostMemTotal > 0 || Number.isFinite(info.host_boot_ts) || (info.mounts && info.mounts.length))) exporterStatus = 'ok';
-      else if (hostStatsEnabled) exporterStatus = 'error';  // enabled but no data came back
+      if (info.exporter_error) {
+        exporterStatus = 'error';
+      }
+      else {
+        if (hostStatsEnabled && (hostMemTotal > 0 || Number.isFinite(info.host_boot_ts) || (info.mounts && info.mounts.length))) {
+          exporterStatus = 'ok';
+        } else {
+          if (hostStatsEnabled) {
+            exporterStatus = 'error';
+          }
+        }
+      }  // enabled but no data came back
       // Per-node provider hits — backend records which providers
       // actually contributed data for THIS node into ``_providers`` per
       // gather. Falls back to the global active set on hosts that
@@ -16347,7 +17974,7 @@ function app() {
         exporterError: info.exporter_error || null,
         hostStatsSource: source,             // CSV string, legacy callers
         hostStatsSources: [...sourceSet],     // array form for new callers (GLOBAL)
-        nodeProvidersHit: providersHit, // per-node list 
+        nodeProvidersHit: providersHit, // per-node list
       };
     },
     // Label for the green/red chip on a node row — reflects the
@@ -16359,8 +17986,12 @@ function app() {
       const arr = (st.nodeProvidersHit && st.nodeProvidersHit.length)
         ? st.nodeProvidersHit
         : (st.hostStatsSources || []);
-      if (arr.length === 0) return 'host';
-      if (arr.length === 1) return arr[0] === 'node_exporter' ? 'exporter' : arr[0];
+      if (arr.length === 0) {
+        return 'host';
+      }
+      if (arr.length === 1) {
+        return arr[0] === 'node_exporter' ? 'exporter' : arr[0];
+      }
       return `${arr.length} sources`;
     },
     // Hover tooltip for the chip — lists the providers that contributed
@@ -16379,12 +18010,16 @@ function app() {
     // showing a misleading proportional-to-busiest-node number.
     hostDiskPercent(host) {
       const { hostDiskTotal, hostDiskUsed } = this.nodeStats(host);
-      if (!hostDiskTotal) return 0;
+      if (!hostDiskTotal) {
+        return 0;
+      }
       return Math.min(100, (hostDiskUsed / hostDiskTotal) * 100);
     },
     hostMemPercent(host) {
       const { hostMemTotal, hostMemUsed } = this.nodeStats(host);
-      if (!hostMemTotal) return 0;
+      if (!hostMemTotal) {
+        return 0;
+      }
       return Math.min(100, (hostMemUsed / hostMemTotal) * 100);
     },
 
@@ -16398,14 +18033,20 @@ function app() {
       // cores*100 due to sub-second bursts, and a bar that pokes past
       // 100% looks broken.
       const { cpuRaw, hostCpuRaw, hasHostCpu, cores } = this.nodeStats(host);
-      if (hasHostCpu) return Math.min(100, hostCpuRaw);
-      if (!cores) return 0;
+      if (hasHostCpu) {
+        return Math.min(100, hostCpuRaw);
+      }
+      if (!cores) {
+        return 0;
+      }
       return Math.min(100, cpuRaw / cores);
     },
 
     nodeMemPercent(host) {
       const { memUsage, memLimit } = this.nodeStats(host);
-      if (!memLimit) return 0;
+      if (!memLimit) {
+        return 0;
+      }
       return Math.min(100, (memUsage / memLimit) * 100);
     },
 
@@ -16414,14 +18055,20 @@ function app() {
       // a proportional bar against the fleet's busiest Docker daemon
       // so operators see which node is carrying the most Docker disk.
       const { dockerDisk } = this.nodeStats(host);
-      if (!dockerDisk) return 0;
+      if (!dockerDisk) {
+        return 0;
+      }
       let max = 0;
       const infos = this.nodesInfo || {};
       for (const k in infos) {
         const v = Number(infos[k] && infos[k].docker_disk_bytes) || 0;
-        if (v > max) max = v;
+        if (v > max) {
+          max = v;
+        }
       }
-      if (!max) return 0;
+      if (!max) {
+        return 0;
+      }
       return Math.min(100, (dockerDisk / max) * 100);
     },
 
@@ -16433,7 +18080,9 @@ function app() {
       const info = this.nodeInfoFor(host);
       const bootTs = info.host_boot_ts;
       const ts = (Number.isFinite(bootTs) && bootTs > 0) ? bootTs : info.oldest_running_ts;
-      if (!ts) return null;
+      if (!ts) {
+        return null;
+      }
       return Math.max(0, Math.floor(Date.now() / 1000) - Math.floor(ts));
     },
     nodeUptimeKind(host) {
@@ -16448,12 +18097,16 @@ function app() {
     // near-identical-but-not-exact timestamps still stack correctly.
     nodeSparkPoints(host, key) {
       const items = this.itemsForNode(host);
-      if (!items.length) return '';
+      if (!items.length) {
+        return '';
+      }
       const BIN = 300; // seconds — matches STATS_SAMPLE_INTERVAL default
       const byBin = new Map();
       for (const it of items) {
         const rows = this.sparks[it.id];
-        if (!rows) continue;
+        if (!rows) {
+          continue;
+        }
         for (const r of rows) {
           const bin = Math.round((r.ts || 0) / BIN) * BIN;
           const agg = byBin.get(bin) || { ts: bin, cpu: 0, mem_used: 0, mem_limit: 0, size_root: 0 };
@@ -16465,11 +18118,17 @@ function app() {
         }
       }
       const sorted = Array.from(byBin.values()).sort((a, b) => a.ts - b.ts);
-      if (sorted.length < 2) return '';
+      if (sorted.length < 2) {
+        return '';
+      }
       const W = 60, H = 10;
       const vals = sorted.map(r => {
-        if (key === 'cpu') return r.cpu;
-        if (key === 'mem') return r.mem_limit ? (r.mem_used / r.mem_limit) * 100 : 0;
+        if (key === 'cpu') {
+          return r.cpu;
+        }
+        if (key === 'mem') {
+          return r.mem_limit ? (r.mem_used / r.mem_limit) * 100 : 0;
+        }
         // 'disk' → summed image-disk footprint across every item on this
         // node. Auto-rescaled to the window's lo/hi via the shared min-
         // max normalisation below — captures fleet-wide image-bytes
@@ -16477,7 +18136,9 @@ function app() {
         // table gained a `size_root` column; pre-migration deploys return
         // 0 for every row so the auto-rescale flat-zero gate hides the
         // sparkline cleanly.
-        if (key === 'disk') return r.size_root || 0;
+        if (key === 'disk') {
+          return r.size_root || 0;
+        }
         return 0;
       });
       // 'disk'-specific early-bail: when no row carries a real
@@ -16486,9 +18147,15 @@ function app() {
       // 0. Without this gate, the flat-line treatment below would
       // render a misleading flat line at H/2. Returning '' hides
       // the SVG via x-show, keeping the cell clean.
-      if (key === 'disk' && vals.every(v => !v)) return '';
+      if (key === 'disk' && vals.every(v => !v)) {
+        return '';
+      }
       let lo = Infinity, hi = -Infinity;
-      for (const v of vals) { if (v < lo) lo = v; if (v > hi) hi = v; }
+      for (const v of vals) { if (v < lo) {
+        lo = v;
+      } if (v > hi) {
+        hi = v;
+      } }
       // Flat / idle series — center the line in the box rather than
       // pinning it to the bottom edge. Earlier code did
       // `lo = max(0, lo-0.5); hi = lo+1` which mapped `v=0` to `y=H`
@@ -16518,28 +18185,40 @@ function app() {
 
     nodeSparkClass(host, key) {
       const st = this.nodeStats(host);
-      if (!st.hasStats) return 'muted';
+      if (!st.hasStats) {
+        return 'muted';
+      }
       let v;
-      if (key === 'cpu') v = this.nodeCpuPercent(host);
-      else if (key === 'disk') {
-        // Prefer host disk percent (node-exporter) when available;
-        // fall back to the docker-daemon disk percent otherwise.
-        v = (typeof this.hostDiskPercent === 'function' && st.hasHostStats)
-          ? this.hostDiskPercent(host)
-          : (typeof this.nodeDiskPercent === 'function' ? this.nodeDiskPercent(host) : 0);
-      } else {
-        v = this.nodeMemPercent(host);
+      if (key === 'cpu') {
+        v = this.nodeCpuPercent(host);
+      }
+      else {
+        if (key === 'disk') {
+          // Prefer host disk percent (node-exporter) when available;
+          // fall back to the docker-daemon disk percent otherwise.
+          v = (typeof this.hostDiskPercent === 'function' && st.hasHostStats)
+            ? this.hostDiskPercent(host)
+            : (typeof this.nodeDiskPercent === 'function' ? this.nodeDiskPercent(host) : 0);
+        } else {
+          v = this.nodeMemPercent(host);
+        }
       }
       return this.barLevel(v);
     },
 
     fmtDuration(seconds) {
-      if (!seconds || seconds <= 0) return '—';
+      if (!seconds || seconds <= 0) {
+        return '—';
+      }
       const d = Math.floor(seconds / 86400);
       const h = Math.floor((seconds % 86400) / 3600);
       const m = Math.floor((seconds % 3600) / 60);
-      if (d > 0) return d + 'd ' + h + 'h';
-      if (h > 0) return h + 'h ' + m + 'm';
+      if (d > 0) {
+        return d + 'd ' + h + 'h';
+      }
+      if (h > 0) {
+        return h + 'h ' + m + 'm';
+      }
       return m + 'm';
     },
 
@@ -16571,18 +18250,28 @@ function app() {
     // — operator request 2026-05-01 for printer supply labels like
     // "Cyan Ink Hp 3ja27a" → "Cyan Ink HP 3JA27A".
     titleCase(s) {
-      if (!s || typeof s !== 'string') return s || '';
+      if (!s || typeof s !== 'string') {
+        return s || '';
+      }
       const brands = new Set(['hp','hpe','ibm','amd','arm','lg','rgb','rfid','usb','pci','io','smb','ftp','http','https','tls','ssl','nfc','vpn','dns','dhcp','ip','tcp','udp','rj45','poe','sfp','sas','sata','nvme','ssd','hdd','iot','ai','ml','gpu','cpu','ram','rom','vrm','bmc','ipmi','sff']);
       return s.replace(/\w\S*/g, w => {
         const lo = w.toLowerCase();
-        if (brands.has(lo)) return w.toUpperCase();
-        if (/[a-z]/i.test(w) && /[0-9]/.test(w)) return w.toUpperCase();
+        if (brands.has(lo)) {
+          return w.toUpperCase();
+        }
+        if (/[a-z]/i.test(w) && /[0-9]/.test(w)) {
+          return w.toUpperCase();
+        }
         return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
       });
     },
     fmtBytes(n) {
-      if (n == null) return '—';
-      if (n <= 0) return '0 B';
+      if (n == null) {
+        return '—';
+      }
+      if (n <= 0) {
+        return '0 B';
+      }
       const u = ['B','KB','MB','GB','TB'];
       let i = 0;
       while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
@@ -16606,23 +18295,31 @@ function app() {
       return u[i];
     },
     fmtBytesAt(n, refMax) {
-      if (n == null) return '—';
+      if (n == null) {
+        return '—';
+      }
       const u = ['B','KB','MB','GB','TB'];
       let i = 0;
       let m = Math.max(0, +refMax || 0);
       while (m >= 1024 && i < u.length - 1) { m /= 1024; i++; }
       const v = (+n || 0) / Math.pow(1024, i);
-      if (v <= 0 && (+n || 0) === 0) return '0 ' + u[i];
+      if (v <= 0 && (+n || 0) === 0) {
+        return '0 ' + u[i];
+      }
       return (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + ' ' + u[i];
     },
     memPercent(item) {
       const s = this.statsFor(item);
-      if (!s.mem_limit) return 0;
+      if (!s.mem_limit) {
+        return 0;
+      }
       return Math.min(100, (s.mem_usage / s.mem_limit) * 100);
     },
     diskPercent(item) {
       const s = this.statsFor(item);
-      if (!this._maxSize) return 0;
+      if (!this._maxSize) {
+        return 0;
+      }
       return Math.min(100, (s.size_root / this._maxSize) * 100);
     },
     // LOW-VISUAL — stat-bar thresholds are operator-tunable.
@@ -16683,26 +18380,40 @@ function app() {
     // that flag and wouldn't accept the click). Marks each touched row
     // dirty so the existing Save flow picks them up.
     bulkApplySnmpVendor(vendor, add) {
-      if (!vendor || this.isReadonly()) return;
+      if (!vendor || this.isReadonly()) {
+        return;
+      }
       const validSet = new Set(this.snmpVendorKeys());
-      if (!validSet.has(vendor)) return;
+      if (!validSet.has(vendor)) {
+        return;
+      }
       let touched = 0;
       const rows = this.filteredHostsConfig();
       for (const entry of rows) {
         const idx = (entry && typeof entry.idx === 'number') ? entry.idx : -1;
-        if (idx < 0) continue;
+        if (idx < 0) {
+          continue;
+        }
         const cur = this.hostsConfig[idx];
-        if (!cur) continue;
+        if (!cur) {
+          continue;
+        }
         const snmpIn = cur.snmp || {};
-        if (snmpIn.enabled !== true) continue;
+        if (snmpIn.enabled !== true) {
+          continue;
+        }
         const list = Array.isArray(snmpIn.vendors) ? snmpIn.vendors.slice() : [];
         const set = new Set(list);
         const had = set.has(vendor);
         if (add) {
-          if (had) continue;
+          if (had) {
+            continue;
+          }
           set.add(vendor);
         } else {
-          if (!had) continue;
+          if (!had) {
+            continue;
+          }
           set.delete(vendor);
         }
         const next = Object.assign({}, snmpIn, { vendors: Array.from(set).sort() });
@@ -16729,7 +18440,9 @@ function app() {
     // SNMP see what auto-detect picked before deciding whether to set
     // an explicit override.
     snmpAutoDetectedVendors(row) {
-      if (!row || !row.id) return [];
+      if (!row || !row.id) {
+        return [];
+      }
       const list = Array.isArray(this.hosts) ? this.hosts : [];
       const live = list.find(h => h && h.id === row.id);
       const av = live && live.host_snmp_active_vendors;
@@ -16766,7 +18479,9 @@ function app() {
         'printer':  'Printer',
         'ucd':      'UCD/net-snmp',
       };
-      if (k in map) return map[k];
+      if (k in map) {
+        return map[k];
+      }
       return k ? k[0].toUpperCase() + k.slice(1) : '';
     },
     toggleSnmpVendor(idx, vendor, checked) {
@@ -16774,8 +18489,12 @@ function app() {
       const snmp = Object.assign({}, cur.snmp || {});
       const list = Array.isArray(snmp.vendors) ? snmp.vendors.slice() : [];
       const set = new Set(list);
-      if (checked) set.add(vendor);
-      else set.delete(vendor);
+      if (checked) {
+        set.add(vendor);
+      }
+      else {
+        set.delete(vendor);
+      }
       snmp.vendors = Array.from(set).sort();
       this.hostsConfig[idx].snmp = snmp;
       this.markHostRowDirty(idx);
@@ -16787,15 +18506,23 @@ function app() {
     },
     barColor(pct) {
       // Kept for backward compat; prefer barLevel() which returns a CSS class.
-      if (pct > this._statBarCritPct()) return 'var(--danger)';
-      if (pct > this._statBarWarnPct()) return 'var(--warning)';
+      if (pct > this._statBarCritPct()) {
+        return 'var(--danger)';
+      }
+      if (pct > this._statBarWarnPct()) {
+        return 'var(--warning)';
+      }
       return 'var(--success)';
     },
     barLevel(pct) {
       // Maps a percentage to the `.warn` / `.crit` class on `.stat-bar`, which
       // drives the fill colour from the stylesheet. Empty string = default green.
-      if (pct > this._statBarCritPct()) return 'crit';
-      if (pct > this._statBarWarnPct()) return 'warn';
+      if (pct > this._statBarCritPct()) {
+        return 'crit';
+      }
+      if (pct > this._statBarWarnPct()) {
+        return 'warn';
+      }
       return '';
     },
     // Inline trend sparkline overlaid on each Hosts-row stat-bar.
@@ -16811,7 +18538,9 @@ function app() {
     // so it stretches to fill whatever width its parent element has —
     // overlaying the .stat-bar (~70-120px) without per-host width math.
     hostInlineSparkline(h, metric) {
-      if (!h) return '';
+      if (!h) {
+        return '';
+      }
       const W = 100, H = 16;
       const PAD_T = 1, PAD_B = 1;
       const usableH = H - PAD_T - PAD_B;
@@ -16866,7 +18595,9 @@ function app() {
         }
       }
 
-      if (!series || !pickValue) return '';
+      if (!series || !pickValue) {
+        return '';
+      }
       const n = series.length;
       const out = [];
       let lastNull = true;
@@ -16874,7 +18605,9 @@ function app() {
       for (let i = 0; i < n; i++) {
         const v = pickValue(series[i]);
         if (!Number.isFinite(v)) { lastNull = true; continue; }
-        if (v > 0) sawNonZero = true;
+        if (v > 0) {
+          sawNonZero = true;
+        }
         const clamped = Math.max(0, Math.min(100, v));
         const x = (i / (n - 1)) * W;
         const y = PAD_T + usableH - (clamped / 100) * usableH;
@@ -16891,7 +18624,9 @@ function app() {
       // hide the SVG cleanly so the operator sees "no spark"
       // unambiguously instead of a misleading hairline. Same rule
       // for any all-zero series across providers.
-      if (!sawNonZero) return '';
+      if (!sawNonZero) {
+        return '';
+      }
       return out.join(' ');
     },
     // Area-fill companion for `hostInlineSparkline`. Returns the same
@@ -16902,7 +18637,9 @@ function app() {
     // across the gap. Same viewBox geometry as `hostInlineSparkline`
     // (W=100, H=16, top/bottom padding=1 each).
     hostInlineSparklineArea(h, metric) {
-      if (!h) return '';
+      if (!h) {
+        return '';
+      }
       const W = 100, H = 16;
       const PAD_T = 1, PAD_B = 1;
       const usableH = H - PAD_T - PAD_B;
@@ -16942,7 +18679,9 @@ function app() {
           }
         }
       }
-      if (!series || !pickValue) return '';
+      if (!series || !pickValue) {
+        return '';
+      }
       const n = series.length;
       // Build run-segments: each gap-free run becomes its own closed
       // sub-path. Empty segments are skipped — gappy series end up as
@@ -16967,15 +18706,21 @@ function app() {
       for (let i = 0; i < n; i++) {
         const v = pickValue(series[i]);
         if (!Number.isFinite(v)) { flush(); continue; }
-        if (v > 0) sawNonZero = true;
+        if (v > 0) {
+          sawNonZero = true;
+        }
         const clamped = Math.max(0, Math.min(100, v));
         const x = (i / (n - 1)) * W;
         const y = PAD_T + usableH - (clamped / 100) * usableH;
-        if (!current) current = { firstX: x, points: [] };
+        if (!current) {
+          current = {firstX: x, points: []};
+        }
         current.points.push([x, y]);
       }
       flush();
-      if (!sawNonZero) return '';
+      if (!sawNonZero) {
+        return '';
+      }
       return subpaths.join(' ');
     },
     // True when the host has at least 2 data points for `metric` so the
@@ -16991,12 +18736,24 @@ function app() {
     // missing so the line still renders (visible but neutral) instead
     // of inheriting the previous row's colour by mistake.
     hostSparkClass(h, metric) {
-      if (!h) return 'muted';
+      if (!h) {
+        return 'muted';
+      }
       let v;
-      if (metric === 'cpu') v = h.cpu_percent;
-      else if (metric === 'memory') v = h.mem_percent || this.memPercentOf(h);
-      else if (metric === 'disk') v = h.disk_percent || this.diskPercentOf(h);
-      else v = 0;
+      if (metric === 'cpu') {
+        v = h.cpu_percent;
+      }
+      else {
+        if (metric === 'memory') {
+          v = h.mem_percent || this.memPercentOf(h);
+        } else {
+          if (metric === 'disk') {
+            v = h.disk_percent || this.diskPercentOf(h);
+          } else {
+            v = 0;
+          }
+        }
+      }
       return this.barLevel(v);
     },
     // Single source of truth for stat-bar a11y attrs. Returns a plain
@@ -17026,10 +18783,14 @@ function app() {
       return pct >= 10 ? pct.toFixed(0) + '%' : pct.toFixed(1) + '%';
     },
     imageRepo(item) {
-      if (!item || !item.image) return '';
+      if (!item || !item.image) {
+        return '';
+      }
       const img = item.image;
       const tag = item.tag || '';
-      if (tag && img.endsWith(':' + tag)) return img.slice(0, -(tag.length + 1));
+      if (tag && img.endsWith(':' + tag)) {
+        return img.slice(0, -(tag.length + 1));
+      }
       return img;
     },
     nodeSummary(item) {
@@ -17057,8 +18818,12 @@ function app() {
     // `isAdmin()`, but defence-in-depth here keeps a future caller
     // honest).
     taskErrorAutoFixActions(item) {
-      if (!item || !item.task_error) return [];
-      if (!this.isAdmin || typeof this.isAdmin !== 'function' || !this.isAdmin()) return [];
+      if (!item || !item.task_error) {
+        return [];
+      }
+      if (!this.isAdmin || typeof this.isAdmin !== 'function' || !this.isAdmin()) {
+        return [];
+      }
       const err = String(item.task_error);
       const out = [];
       // VXLAN sandbox-join — three-tier fix progression:
@@ -17148,13 +18913,21 @@ function app() {
     // host match, prefix match (so `host01` matches
     // `host01.example.com`). Returns null when nothing matches.
     _findHostByNodeName(nodeName) {
-      if (!nodeName || !Array.isArray(this.hosts)) return null;
+      if (!nodeName || !Array.isArray(this.hosts)) {
+        return null;
+      }
       const needle = String(nodeName).trim().toLowerCase();
-      if (!needle) return null;
+      if (!needle) {
+        return null;
+      }
       const exactId = this.hosts.find(h => h && (h.id || '').toLowerCase() === needle);
-      if (exactId) return exactId;
+      if (exactId) {
+        return exactId;
+      }
       const exactHost = this.hosts.find(h => h && (h.host || '').toLowerCase() === needle);
-      if (exactHost) return exactHost;
+      if (exactHost) {
+        return exactHost;
+      }
       // Prefix match — the node hostname's first label often equals
       // the curated id's first label. Both sides split on '.' and
       // compared so `host01` ↔ `host01.example.com`.
@@ -17172,8 +18945,12 @@ function app() {
     // toast. `_auto_fix_running` flag on the item drives the
     // button's spinner / disabled state so the user can't double-click.
     async runTaskErrorAutoFix(item, action) {
-      if (!item || !action || !action.kind) return;
-      if (item._auto_fix_running) return;
+      if (!item || !action || !action.kind) {
+        return;
+      }
+      if (item._auto_fix_running) {
+        return;
+      }
       // Destructive actions confirm via SweetAlert before firing.
       if (action.danger) {
         const ok = await this.confirmDialog({
@@ -17183,7 +18960,9 @@ function app() {
           cancelText:  this.t('actions.cancel')   || 'Cancel',
           icon:        'warning',
         });
-        if (!ok) return;
+        if (!ok) {
+          return;
+        }
       }
       item._auto_fix_running = true;
       try {
@@ -17206,7 +18985,9 @@ function app() {
             || 'Force-restart queued. Watch the row for the new task to come up; the error should clear automatically when it does.', 'success');
           // Refresh items so the operation banner appears + the
           // task_error / task_history fields reflect the new attempt.
-          if (typeof this.refresh === 'function') this.refresh();
+          if (typeof this.refresh === 'function') {
+            this.refresh();
+          }
         } else if (action.kind === 'ssh_fix_node') {
           const host = this._findHostByNodeName(action.node || '');
           if (!host) {
@@ -17242,7 +19023,9 @@ function app() {
           }
           this.showToast(this.t('drawer.task_error_cleanup_overlay_done', { network: j.network_name || '' })
             || ('Removed overlay ' + (j.network_name || '') + ' and force-updated the service. Watch for the new task to come up.'), 'success');
-          if (typeof this.refresh === 'function') this.refresh();
+          if (typeof this.refresh === 'function') {
+            this.refresh();
+          }
         }
       } catch (e) {
         const msg = (e && e.message) ? e.message : String(e);
@@ -17261,7 +19044,9 @@ function app() {
     // to the matcher table; the body text lives in the i18n bundle
     // so it can be translated and edited without touching JS.
     taskErrorKnownIssue(errText) {
-      if (!errText || typeof errText !== 'string') return '';
+      if (!errText || typeof errText !== 'string') {
+        return '';
+      }
       // Patterns ordered most-specific first. Each entry's i18n key
       // points at a body string under `drawer.task_error_known_issue_*`
       // in en.json. The body is rendered via `x-html` so simple
@@ -17295,7 +19080,9 @@ function app() {
           // i18n returns the key itself when missing — treat that
           // as no-blurb so the panel collapses cleanly rather than
           // showing the raw key string.
-          if (body && body !== 'drawer.' + key) return body;
+          if (body && body !== 'drawer.' + key) {
+            return body;
+          }
         }
       }
       return '';
@@ -17303,17 +19090,27 @@ function app() {
     uptimeFor(item) {
       // Services: Swarm reports ISO-8601 `updated` — last spec change, a good
       // proxy for "running since". Containers: Unix seconds `created`.
-      if (!item) return null;
+      if (!item) {
+        return null;
+      }
       const raw = item.type === 'service' ? item.updated : item.created;
-      if (raw == null || raw === '') return null;
+      if (raw == null || raw === '') {
+        return null;
+      }
       const ms = typeof raw === 'number' ? raw * 1000 : Date.parse(raw);
       return isNaN(ms) ? null : ms;
     },
     fmtAgo(ms) {
-      if (ms == null) return '—';
+      if (ms == null) {
+        return '—';
+      }
       const sec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
-      if (sec < 60) return sec + 's';
-      if (sec < 3600) return Math.floor(sec / 60) + 'm';
+      if (sec < 60) {
+        return sec + 's';
+      }
+      if (sec < 3600) {
+        return Math.floor(sec / 60) + 'm';
+      }
       if (sec < 86400) {
         const h = Math.floor(sec / 3600);
         const m = Math.floor((sec % 3600) / 60);
@@ -17329,38 +19126,70 @@ function app() {
     // actual setting instead of a hardcoded "15s".
     fmtIntervalShort(seconds) {
       const s = Number(seconds) || 0;
-      if (s <= 0) return '';
-      if (s < 60) return s + 's';
-      if (s % 60 === 0) return (s / 60) + 'm';
+      if (s <= 0) {
+        return '';
+      }
+      if (s < 60) {
+        return s + 's';
+      }
+      if (s % 60 === 0) {
+        return (s / 60) + 'm';
+      }
       return s + 's';
     },
     itemSubline(item) {
       // Node hostname is rendered by the topology chip strip below,
       // not here — avoids duplicating the information in two places.
       const bits = [];
-      if (item.type) bits.push(item.type);
-      if (item.stack) bits.push(item.stack);
-      if (item.state && item.state !== 'running') bits.push(item.state);
+      if (item.type) {
+        bits.push(item.type);
+      }
+      if (item.stack) {
+        bits.push(item.stack);
+      }
+      if (item.state && item.state !== 'running') {
+        bits.push(item.state);
+      }
       return bits.join(' · ');
     },
     canUpdate(item) {
-      if (!item) return false;
-      if (item.type === 'orphan') return false;
-      if (item.stack_id) return true;
-      if (item.type === 'container') return true;
+      if (!item) {
+        return false;
+      }
+      if (item.type === 'orphan') {
+        return false;
+      }
+      if (item.stack_id) {
+        return true;
+      }
+      if (item.type === 'container') {
+        return true;
+      }
       return false;
     },
     actionLabel(item) {
-      if (item.status !== 'update') return '—';
-      if (item.stack_id) return this.t('actions.update_stack');
-      if (item.type === 'container') return this.t('actions.recreate');
+      if (item.status !== 'update') {
+        return '—';
+      }
+      if (item.stack_id) {
+        return this.t('actions.update_stack');
+      }
+      if (item.type === 'container') {
+        return this.t('actions.recreate');
+      }
       return this.t('actions.no_stack');
     },
     isSelectable(item) {
       // Selectable if updatable, restartable (service/container), or removable.
-      if (item.status === 'update' && this.canUpdate(item)) return true;
-      if (item.removable) return true;
-      if (item.type === 'service' || item.type === 'container') return true;
+      if (item.status === 'update' && this.canUpdate(item)) {
+        return true;
+      }
+      if (item.removable) {
+        return true;
+      }
+      if (item.type === 'service' || item.type === 'container') {
+        return true;
+      }
       return false;
     },
     isRestartable(item) {
@@ -17368,7 +19197,9 @@ function app() {
     },
     portainerDeepLink(x) {
       const base = (this.settings.portainer_public_url || '').replace(/\/$/,'');
-      if (!base) return '#';
+      if (!base) {
+        return '#';
+      }
       if (x.stack_id) {
         const stackName = x.stack || x.name;
         return `${base}/#!/${this.endpointId}/docker/stacks/${stackName}?id=${x.stack_id}&type=1&external=false`;
@@ -17376,11 +19207,15 @@ function app() {
       return `${base}/#!/${this.endpointId}/docker/dashboard`;
     },
     sortBy(field) {
-      if (this.sortField === field) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+      if (this.sortField === field) {
+        this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+      }
       else { this.sortField = field; this.sortDir = 'asc'; }
     },
     sortIndicator(field) {
-      if (this.sortField !== field) return '';
+      if (this.sortField !== field) {
+        return '';
+      }
       return this.sortDir === 'asc' ? '▲' : '▼';
     },
     // WAI-ARIA `aria-sort` value resolver. Returns 'ascending' /
@@ -17390,12 +19225,18 @@ function app() {
     // (currentField, currentDir) pair so AI / Stats / fleet sortable
     // tables can all reuse it without duplicating the ternary.
     _sortAria(field, currentField, currentDir) {
-      if (currentField !== field) return 'none';
+      if (currentField !== field) {
+        return 'none';
+      }
       return currentDir === 'asc' ? 'ascending' : 'descending';
     },
     toggleStack(name) {
-      if (this.expanded.includes(name)) this.expanded = this.expanded.filter(n => n !== name);
-      else this.expanded = [...this.expanded, name];
+      if (this.expanded.includes(name)) {
+        this.expanded = this.expanded.filter(n => n !== name);
+      }
+      else {
+        this.expanded = [...this.expanded, name];
+      }
     },
     expandAllStacks() {
       this.expanded = this.filteredStacks.map(s => s.name);
@@ -17405,8 +19246,12 @@ function app() {
     },
     toggleSelectAll() {
       const selectable = this.filteredItems.filter(i => this.isSelectable(i));
-      if (this.selected.length === selectable.length) this.selected = [];
-      else this.selected = selectable.map(i => i.id);
+      if (this.selected.length === selectable.length) {
+        this.selected = [];
+      }
+      else {
+        this.selected = selectable.map(i => i.id);
+      }
     },
     selectAllVisible() {
       this.selected = this.filteredItems.filter(i => this.isSelectable(i)).map(i => i.id);
@@ -17424,12 +19269,18 @@ function app() {
       // node ("local" / "?") are dropped — the strip would just show
       // noise for single-node setups where no real hostname was
       // resolved. Empty result => caller hides the strip.
-      if (!item || !Array.isArray(item.placements) || !item.placements.length) return [];
+      if (!item || !Array.isArray(item.placements) || !item.placements.length) {
+        return [];
+      }
       const by = new Map();
       for (const p of item.placements) {
         const node = p.node || '?';
-        if (node === 'local' || node === '?') continue;
-        if (!by.has(node)) by.set(node, []);
+        if (node === 'local' || node === '?') {
+          continue;
+        }
+        if (!by.has(node)) {
+          by.set(node, []);
+        }
         by.get(node).push(p);
       }
       return Array.from(by.entries()).map(([node, chips]) => ({ node, chips }));
@@ -17463,7 +19314,9 @@ function app() {
       // string is present, append it inline.
       const stateKey = `topology.state_${state.replace(/-/g, '_')}`;
       let stateLabel = this.t(stateKey);
-      if (stateLabel === stateKey) stateLabel = state;
+      if (stateLabel === stateKey) {
+        stateLabel = state;
+      }
       return err
         ? this.t('topology.chip_tooltip_with_error', { state: stateLabel, err })
         : stateLabel;
@@ -17625,7 +19478,9 @@ function app() {
         if (this.search || this.statusFilter || this.healthFilter) {
           this.clearFilters(); e.preventDefault(); return;
         }
-        if (el && typeof el.blur === 'function') el.blur();
+        if (el && typeof el.blur === 'function') {
+          el.blur();
+        }
         return;
       }
 
@@ -17653,7 +19508,9 @@ function app() {
         // run on the same event bails out cleanly. The sentinel
         // strategy mirrors `_cmdpal_handled` for Cmd-K which had
         // the identical double-fire problem.
-        if (e._drawer_nav_handled) return;
+        if (e._drawer_nav_handled) {
+          return;
+        }
         e._drawer_nav_handled = true;
         // Skip if focus is in a real text input — the operator is
         // editing text inside the drawer (e.g. the SSH command
@@ -17696,14 +19553,22 @@ function app() {
                   const parentName = bucket.group ? bucket.group.name : '';
                   const parentCollapsed = this.isGroupCollapsed
                     ? this.isGroupCollapsed(parentName) : false;
-                  if (parentCollapsed) continue;
-                  for (const h of (bucket.hosts || [])) list.push(h);
+                  if (parentCollapsed) {
+                    continue;
+                  }
+                  for (const h of (bucket.hosts || [])) {
+                    list.push(h);
+                  }
                   for (const child of (bucket.children || [])) {
                     const childName = child.group ? child.group.name : '';
                     const childCollapsed = this.isGroupCollapsed
                       ? this.isGroupCollapsed(childName) : false;
-                    if (childCollapsed) continue;
-                    for (const h of (child.hosts || [])) list.push(h);
+                    if (childCollapsed) {
+                      continue;
+                    }
+                    for (const h of (child.hosts || [])) {
+                      list.push(h);
+                    }
                   }
                 }
               } catch (_) { /* fall through to filtered list */ }
@@ -17727,7 +19592,9 @@ function app() {
               const dedupedH = [];
               for (const h of list) {
                 const k = h && h.id;
-                if (!k || seenH.has(k)) continue;
+                if (!k || seenH.has(k)) {
+                  continue;
+                }
                 seenH.add(k);
                 dedupedH.push(h);
               }
@@ -17780,9 +19647,15 @@ function app() {
             if (this.view === 'stacks' && Array.isArray(this.filteredStacks)) {
               try {
                 for (const stack of this.filteredStacks) {
-                  if (!stack) continue;
-                  if (!(this.expanded || []).includes(stack.name)) continue;
-                  for (const it of (stack.items || [])) list.push(it);
+                  if (!stack) {
+                    continue;
+                  }
+                  if (!(this.expanded || []).includes(stack.name)) {
+                    continue;
+                  }
+                  for (const it of (stack.items || [])) {
+                    list.push(it);
+                  }
                 }
               } catch (_) { /* fall through */ }
             }
@@ -17803,7 +19676,9 @@ function app() {
               const deduped = [];
               for (const it of list) {
                 const k = it && it.id;
-                if (!k || seen.has(k)) continue;
+                if (!k || seen.has(k)) {
+                  continue;
+                }
                 seen.add(k);
                 deduped.push(it);
               }
@@ -17845,10 +19720,14 @@ function app() {
       // unreachable; the bare-key matching that followed was the
       // legacy path. The Cmd-K palette already uses the capture-phase
       // listener (`_cmdpal_handled`) and lands here as a no-op.
-      if (e.altKey) return;
+      if (e.altKey) {
+        return;
+      }
       // Key repeat (holding a key) or IME composition — user is
       // typing, never a hotkey.
-      if (e.repeat || e.isComposing) return;
+      if (e.repeat || e.isComposing) {
+        return;
+      }
 
       // Cmd/Ctrl shortcuts fire from ANYWHERE — including inside
       // inputs and textareas — because the modifier means the
@@ -17874,9 +19753,15 @@ function app() {
       // we don't have a code mapping for (caller falls back to
       // `e.key.toLowerCase()`).
       const _hotkeyCharToCode = (ch) => {
-        if (!ch) return null;
-        if (/^[a-zA-Z]$/.test(ch)) return 'Key' + ch.toUpperCase();
-        if (/^[0-9]$/.test(ch)) return 'Digit' + ch;
+        if (!ch) {
+          return null;
+        }
+        if (/^[a-zA-Z]$/.test(ch)) {
+          return 'Key' + ch.toUpperCase();
+        }
+        if (/^[0-9]$/.test(ch)) {
+          return 'Digit' + ch;
+        }
         const map = {
           '/': 'Slash', '.': 'Period', ',': 'Comma',
           ';': 'Semicolon', "'": 'Quote', '\\': 'Backslash',
@@ -17889,10 +19774,16 @@ function app() {
       // Walk the catalog once, match on (modifiers + physical key).
       for (const group of this.hotkeyGroups()) {
         for (const entry of group.items) {
-          if (!entry.run) continue;
-          if (!Array.isArray(entry.keys) || entry.keys.length === 0) continue;
+          if (!entry.run) {
+            continue;
+          }
+          if (!Array.isArray(entry.keys) || entry.keys.length === 0) {
+            continue;
+          }
           const last = entry.keys[entry.keys.length - 1];
-          if (last === 'Esc') continue;
+          if (last === 'Esc') {
+            continue;
+          }
           // Modifiers: every key in `entry.keys` except the last is
           // a modifier name. `Cmd/Ctrl` matches `e.ctrlKey ||
           // e.metaKey`; `Shift` matches `e.shiftKey`. Strict match —
@@ -17902,8 +19793,12 @@ function app() {
           const mods = entry.keys.slice(0, -1);
           const wantsCtrl  = mods.includes('Cmd/Ctrl');
           const wantsShift = mods.includes('Shift');
-          if (wantsCtrl !== (e.ctrlKey || e.metaKey)) continue;
-          if (wantsShift !== e.shiftKey) continue;
+          if (wantsCtrl !== (e.ctrlKey || e.metaKey)) {
+            continue;
+          }
+          if (wantsShift !== e.shiftKey) {
+            continue;
+          }
           // Prefer e.code (physical key, Shift-independent). Fall
           // back to e.key.toLowerCase() when no code mapping exists
           // (rare — only obscure punctuation).
@@ -17953,7 +19848,9 @@ function app() {
         tick(() => {
           try {
             const input = document.getElementById('cmdpal-input');
-            if (input) input.focus();
+            if (input) {
+              input.focus();
+            }
           } catch (_) {}
         });
       } catch (_) {}
@@ -18002,9 +19899,13 @@ function app() {
     // matches everything at score 1 (so all groups render in default
     // alphabetical order until the operator types).
     _commandScoreLabel(label, q) {
-      if (!q) return 1;
+      if (!q) {
+        return 1;
+      }
       const lc = String(label || '').toLowerCase();
-      if (!lc) return 0;
+      if (!lc) {
+        return 0;
+      }
       // Multi-word query: every token must match the label
       // somewhere; the result is the MIN of per-token scores so a
       // strong match on one token doesn't drown a weak / missing
@@ -18022,8 +19923,12 @@ function app() {
         let minScore = Infinity;
         for (const t of qTokens) {
           const s = this._scoreSingleToken(lc, t);
-          if (s === 0) return 0;
-          if (s < minScore) minScore = s;
+          if (s === 0) {
+            return 0;
+          }
+          if (s < minScore) {
+            minScore = s;
+          }
         }
         return minScore === Infinity ? 0 : minScore;
       }
@@ -18034,14 +19939,24 @@ function app() {
     // multi-word tokenization. Exact match 100, prefix 80, word-
     // prefix 60, substring 40, miss 0.
     _scoreSingleToken(lc, q) {
-      if (lc === q) return 100;
-      if (lc.startsWith(q)) return 80;
+      if (lc === q) {
+        return 100;
+      }
+      if (lc.startsWith(q)) {
+        return 80;
+      }
       const tokens = lc.split(/[\s_\-./:]+/);
       for (const t of tokens) {
-        if (t === q) return 90;
-        if (t.startsWith(q)) return 60;
+        if (t === q) {
+          return 90;
+        }
+        if (t.startsWith(q)) {
+          return 60;
+        }
       }
-      if (lc.includes(q)) return 40;
+      if (lc.includes(q)) {
+        return 40;
+      }
       return 0;
     },
     // Multi-field scorer — picks the BEST score across N candidate
@@ -18051,7 +19966,9 @@ function app() {
       let best = 0;
       for (const f of fields) {
         const s = this._commandScoreLabel(f, q);
-        if (s > best) best = s;
+        if (s > best) {
+          best = s;
+        }
       }
       return best;
     },
@@ -18436,7 +20353,9 @@ function app() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ text, source: 'operator' }),
             }).then(r => {
-              if (!r.ok) throw new Error('HTTP ' + r.status);
+              if (!r.ok) {
+                throw new Error('HTTP ' + r.status);
+              }
               this.showToast(this.t('toasts_extra.ai_memory_added') || 'Memory added', 'success');
             }).catch(e => this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error'));
           },
@@ -18462,7 +20381,9 @@ function app() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ text }),
             }).then(r => {
-              if (!r.ok) throw new Error('HTTP ' + r.status);
+              if (!r.ok) {
+                throw new Error('HTTP ' + r.status);
+              }
               this.showToast(this.t('toasts_extra.ai_memory_forgotten') || 'Memory forgotten', 'success');
             }).catch(e => this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error'));
           },
@@ -18544,13 +20465,19 @@ function app() {
     _BULK_VERBS: ['pause', 'resume'],
     _commandPaletteParseBulk(rawQuery) {
       const q = (rawQuery || '').trim();
-      if (!q) return null;
+      if (!q) {
+        return null;
+      }
       // Match `<verb>:` (case-insensitive) at the very start, with
       // optional whitespace after. Anything else is a regular query.
       const m = q.match(/^([a-z_-]+)\s*:\s*(.*)$/i);
-      if (!m) return null;
+      if (!m) {
+        return null;
+      }
       const verb = m[1].toLowerCase();
-      if (!this._BULK_VERBS.includes(verb)) return null;
+      if (!this._BULK_VERBS.includes(verb)) {
+        return null;
+      }
       const tail = (m[2] || '').trim();
       // Empty tail = no selector yet — still in bulk mode but
       // matches everything (gives the operator immediate visual
@@ -18560,13 +20487,19 @@ function app() {
         ? tail.split(/\s+/).filter(Boolean).map(tok => {
             const lc = tok.toLowerCase();
             // `provider:<name>` / `status:<value>` / `paused`
-            if (lc === 'paused') return { kind: 'paused' };
+            if (lc === 'paused') {
+              return {kind: 'paused'};
+            }
             const colon = tok.indexOf(':');
             if (colon > 0) {
               const k = tok.slice(0, colon).toLowerCase();
               const v = tok.slice(colon + 1).toLowerCase();
-              if (k === 'provider') return { kind: 'provider', value: v };
-              if (k === 'status')   return { kind: 'status',   value: v };
+              if (k === 'provider') {
+                return {kind: 'provider', value: v};
+              }
+              if (k === 'status')   {
+                return {kind: 'status', value: v};
+              }
               // Unknown key:value — treat as a wildcard literal so
               // the user isn't punished for typos; downstream `match`
               // does the substring search.
@@ -18578,8 +20511,12 @@ function app() {
       return { verb, tokens, tail };
     },
     _commandPaletteBulkMatchHost(host, tokens) {
-      if (!host) return false;
-      if (!tokens.length) return true;
+      if (!host) {
+        return false;
+      }
+      if (!tokens.length) {
+        return true;
+      }
       const id    = (host.id || host.host || '').toString().toLowerCase();
       const label = (host.label || '').toString().toLowerCase();
       const status   = (host.status || '').toString().toLowerCase();
@@ -18587,14 +20524,24 @@ function app() {
       const provs    = Array.isArray(host.providers) ? host.providers.map(p => String(p).toLowerCase()) : [];
       for (const tok of tokens) {
         if (tok.kind === 'wildcard') {
-          if (!tok.value) continue;
-          if (!id.includes(tok.value) && !label.includes(tok.value)) return false;
+          if (!tok.value) {
+            continue;
+          }
+          if (!id.includes(tok.value) && !label.includes(tok.value)) {
+            return false;
+          }
         } else if (tok.kind === 'provider') {
-          if (!provs.includes(tok.value)) return false;
+          if (!provs.includes(tok.value)) {
+            return false;
+          }
         } else if (tok.kind === 'status') {
-          if (status !== tok.value) return false;
+          if (status !== tok.value) {
+            return false;
+          }
         } else if (tok.kind === 'paused') {
-          if (!paused) return false;
+          if (!paused) {
+            return false;
+          }
         }
       }
       return true;
@@ -18605,7 +20552,9 @@ function app() {
       // the run-row label, and the activate path. Returns null when
       // bulk mode is NOT active so callers can short-circuit cheaply.
       const parsed = this._commandPaletteParseBulk(this.commandPaletteQuery);
-      if (!parsed) return null;
+      if (!parsed) {
+        return null;
+      }
       const all = this.hosts || [];
       const matched = all.filter(h => this._commandPaletteBulkMatchHost(h, parsed.tokens));
       const excluded = this.commandPaletteBulkExcluded || new Set();
@@ -18635,9 +20584,13 @@ function app() {
     },
     async runCommandPaletteBulk() {
       const state = this.commandPaletteBulkState();
-      if (!state) return;
+      if (!state) {
+        return;
+      }
       const ids = state.selected.map(h => h.id || h.host).filter(Boolean);
-      if (!ids.length) return;
+      if (!ids.length) {
+        return;
+      }
       const verb = state.verb;
       // SweetAlert confirm — same shape as `bulkPauseHosts` so the
       // operator gets a consistent two-stage gate (chip-strip preview
@@ -18671,18 +20624,24 @@ function app() {
           confirmButtonText: this.t(okKey) || fallbackOk,
           cancelButtonText:  this.t('actions.cancel') || 'Cancel',
         });
-        if (!res.isConfirmed) return;
+        if (!res.isConfirmed) {
+          return;
+        }
       } catch { return; }
       // Pause requires step-up reauth (matches the per-host bulk
       // pause contract); resume does not.
       let reauthToken = null;
       if (verb === 'pause') {
         reauthToken = await this._mintReauthToken();
-        if (reauthToken === null) return;
+        if (reauthToken === null) {
+          return;
+        }
       }
       try {
         const headers = { 'Content-Type': 'application/json' };
-        if (reauthToken) headers['X-Reauth-Token'] = reauthToken;
+        if (reauthToken) {
+          headers['X-Reauth-Token'] = reauthToken;
+        }
         const r = await fetch('/api/hosts/bulk/' + verb, {
           method:  'POST',
           headers,
@@ -18702,7 +20661,9 @@ function app() {
         // Clear the palette so a back-to-back bulk doesn't carry the
         // exclusion set across runs.
         this.closeCommandPalette && this.closeCommandPalette();
-        if (typeof this.loadHosts === 'function') this.loadHosts(true);
+        if (typeof this.loadHosts === 'function') {
+          this.loadHosts(true);
+        }
       } catch (e) {
         this.showToast(String(e && e.message || e), 'error');
       }
@@ -18716,7 +20677,9 @@ function app() {
       // button instead of phantom host rows. Skipped when an
       // override is passed (the AI sidebar slash picker doesn't
       // surface bulk mode — that's modal-palette-only).
-      if (qOverride === undefined && this.isCommandPaletteBulkMode()) return [];
+      if (qOverride === undefined && this.isCommandPaletteBulkMode()) {
+        return [];
+      }
       const q = (qOverride !== undefined
                   ? String(qOverride || '').trim().toLowerCase()
                   : (this.commandPaletteQuery || '').trim().toLowerCase());
@@ -18735,12 +20698,16 @@ function app() {
         // Operator-flagged: "quick actions is not showing in actions
         // using /" — the previous filter `score > 0` killed every row
         // because `_commandScoreLabel('', '')` returns 0.
-        if (!q) return { score: 1, action: a };
+        if (!q) {
+          return {score: 1, action: a};
+        }
         const labelScore = this._commandScoreLabel(a.label, q);
         let verbBoost = 0;
         if (Array.isArray(a.verbs)) {
           for (const v of a.verbs) {
-            if (!v) continue;
+            if (!v) {
+              continue;
+            }
             const lv = String(v).toLowerCase();
             if (lv === q) { verbBoost = Math.max(verbBoost, 100); break; }
             if (lv.startsWith(q) || q.startsWith(lv + ' ')) {
@@ -18923,10 +20890,16 @@ function app() {
     },
     commandPaletteMove(delta) {
       const r = this.commandPaletteResults();
-      if (!r.length) return;
+      if (!r.length) {
+        return;
+      }
       let i = this.commandPaletteSelectedIdx + delta;
-      if (i < 0) i = r.length - 1;
-      if (i >= r.length) i = 0;
+      if (i < 0) {
+        i = r.length - 1;
+      }
+      if (i >= r.length) {
+        i = 0;
+      }
       this.commandPaletteSelectedIdx = i;
       // Scroll the selected row into view inside the result list.
       this.$nextTick(() => {
@@ -18949,7 +20922,9 @@ function app() {
       }
       const r = this.commandPaletteResults();
       const sel = r[this.commandPaletteSelectedIdx];
-      if (!sel) return;
+      if (!sel) {
+        return;
+      }
       this.closeCommandPalette();
       switch (sel.kind) {
         case 'host':
@@ -18973,8 +20948,12 @@ function app() {
           }
           break;
         case 'view':
-          if (typeof this.setView === 'function') this.setView(sel.payload);
-          else this.view = sel.payload;
+          if (typeof this.setView === 'function') {
+            this.setView(sel.payload);
+          }
+          else {
+            this.view = sel.payload;
+          }
           break;
         case 'hotkey':
           // Info-only — no activation. Could open the hotkeys cheat
@@ -19009,7 +20988,9 @@ function app() {
       }
     },
     async _runCommandPaletteAiBulk(payload) {
-      if (!payload || !payload.query) return;
+      if (!payload || !payload.query) {
+        return;
+      }
       const original = payload.query;
       // Cheap visible signal — swap the input placeholder while the
       // call is in flight. Don't overwrite the query text since the
@@ -19042,7 +21023,9 @@ function app() {
       }
     },
     async _runCommandPaletteAction(action, opts) {
-      if (!action || typeof action.run !== 'function') return;
+      if (!action || typeof action.run !== 'function') {
+        return;
+      }
       const fromSidebar = !!(opts && opts.surface === 'sidebar');
       let skipConfirm = !!(opts && opts.skipConfirm);
       // Per-action params forwarded to the descriptor's `run(opts)`.
@@ -19107,7 +21090,9 @@ function app() {
               confirmText: action.confirmButton || (this.t('actions.confirm') || 'Confirm'),
               focusConfirm: true,
             });
-            if (!ok) return;
+            if (!ok) {
+              return;
+            }
           }
         }
       }
@@ -19142,7 +21127,9 @@ function app() {
     // clicks one of the two buttons in the bubble.
     async confirmInlineAction(turnIdx) {
       const turn = this.aiConversation[turnIdx];
-      if (!turn || !turn.pending_confirm || !turn.pending_action) return;
+      if (!turn || !turn.pending_confirm || !turn.pending_action) {
+        return;
+      }
       const action = turn.pending_action;
       turn.pending_confirm = false;
       turn.pending_action  = null;
@@ -19172,7 +21159,9 @@ function app() {
     },
     cancelInlineAction(turnIdx) {
       const turn = this.aiConversation[turnIdx];
-      if (!turn) return;
+      if (!turn) {
+        return;
+      }
       turn.pending_confirm = false;
       turn.pending_action  = null;
       turn.cancelled       = true;
@@ -19197,13 +21186,21 @@ function app() {
         const sEnabled  = this.settings && this.settings.ai_enabled;
         const sProvider = (this.settings && this.settings.ai_active_provider) || '';
         if (sEnabled !== undefined && sEnabled !== null) {
-          if (!sEnabled) return false;
+          if (!sEnabled) {
+            return false;
+          }
           return !!sProvider;
         }
         const aiCfg = this.me && this.me.client_config && this.me.client_config.ai;
-        if (!aiCfg) return false;
-        if (!aiCfg.enabled) return false;
-        if (!aiCfg.active_provider) return false;
+        if (!aiCfg) {
+          return false;
+        }
+        if (!aiCfg.enabled) {
+          return false;
+        }
+        if (!aiCfg.active_provider) {
+          return false;
+        }
         return true;
       } catch (_) {
         return false;
@@ -19232,7 +21229,9 @@ function app() {
       // scrollHeight is only finalized after the layout settles.
       this.$nextTick(() => {
         const el = document.getElementById('og-ai-sidebar-input');
-        if (el && typeof el.focus === 'function') el.focus();
+        if (el && typeof el.focus === 'function') {
+          el.focus();
+        }
         // FORCE the scroll-to-bottom on open. The non-force path
         // honours the user's manual scroll position (chat-app
         // convention — paired with the jump-to-latest pill below), but on a
@@ -19270,7 +21269,9 @@ function app() {
     // terminal modal, hotkeys modal, schedule edit modal) can adopt it
     // by adding the same `@keydown` binding to their root elements.
     _focusTrapKeydown(e, root) {
-      if (!root || !e || e.key !== 'Tab') return;
+      if (!root || !e || e.key !== 'Tab') {
+        return;
+      }
       // Build the focusable-within-dialog set on every keydown rather
       // than caching — Alpine renders / removes nodes on state changes
       // (slash-picker, inline-confirm chip, feedback chips), so a
@@ -19283,11 +21284,17 @@ function app() {
       );
       const focusables = [];
       for (const node of candidates) {
-        if (node.offsetParent === null) continue; // hidden via display:none
-        if (node.getAttribute('aria-hidden') === 'true') continue;
+        if (node.offsetParent === null) {
+          continue;
+        } // hidden via display:none
+        if (node.getAttribute('aria-hidden') === 'true') {
+          continue;
+        }
         focusables.push(node);
       }
-      if (!focusables.length) return;
+      if (!focusables.length) {
+        return;
+      }
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
       const active = document.activeElement;
@@ -19304,8 +21311,12 @@ function app() {
       }
     },
     toggleAiSidebar() {
-      if (this.aiSidebarOpen) this.closeAiSidebar();
-      else this.openAiSidebar();
+      if (this.aiSidebarOpen) {
+        this.closeAiSidebar();
+      }
+      else {
+        this.openAiSidebar();
+      }
     },
     // Proactive incident chip — surface a one-click investigate
     // affordance when an SSE host-failure or warning-level
@@ -19318,12 +21329,16 @@ function app() {
       // operator hasn't asked for AI engagement and the chip would
       // sit invisible until next open. The notifications popup
       // already covers the closed-sidebar case.
-      if (!this.aiSidebarOpen) return;
+      if (!this.aiSidebarOpen) {
+        return;
+      }
       // Don't repeat the same incident chip if it's already showing
       // (de-dupe on host_id + kind so a rapid-fire SSE storm doesn't
       // visually flicker).
       const cur = this.aiSidebarIncidentChip;
-      if (cur && cur.host_id === chip.host_id && cur.kind === chip.kind) return;
+      if (cur && cur.host_id === chip.host_id && cur.kind === chip.kind) {
+        return;
+      }
       this.aiSidebarIncidentChip = Object.assign({}, chip, { ts: Date.now() });
     },
     dismissAiIncidentChip() {
@@ -19331,7 +21346,9 @@ function app() {
     },
     runAiIncidentChip() {
       const chip = this.aiSidebarIncidentChip;
-      if (!chip || !chip.query) return;
+      if (!chip || !chip.query) {
+        return;
+      }
       this.aiSidebarIncidentChip = null;
       this._setAiSidebarQuery(chip.query);
       // Focus the input so the operator sees the populated query
@@ -19374,7 +21391,9 @@ function app() {
       }
       const me = this.me || {};
       const fmtTs = (ms) => {
-        if (!ms || !Number.isFinite(Number(ms))) return '';
+        if (!ms || !Number.isFinite(Number(ms))) {
+          return '';
+        }
         try {
           const d = new Date(Number(ms));
           const pad = (n) => String(n).padStart(2, '0');
@@ -19433,30 +21452,52 @@ function app() {
           const lines = [];
           lines.push('# OmniGrid AI conversation export');
           lines.push('# Exported: ' + new Date().toISOString());
-          if (me.username) lines.push('# By: ' + me.username);
-          if (window.OG_VERSION) lines.push('# App version: ' + window.OG_VERSION);
+          if (me.username) {
+            lines.push('# By: ' + me.username);
+          }
+          if (window.OG_VERSION) {
+            lines.push('# App version: ' + window.OG_VERSION);
+          }
           lines.push('# Turns: ' + turns.length);
           lines.push('');
           for (const t of turns) {
             const role = (t.role === 'user') ? 'User' : (t.role === 'assistant' ? 'Assistant' : (t.role || 'turn'));
             const meta = [];
-            if (t.provider) meta.push(t.provider);
-            if (t.model)    meta.push(t.model);
-            if (Number(t.tokens))           meta.push(Number(t.tokens) + ' tokens');
-            if (Number(t.response_time_ms)) meta.push(Number(t.response_time_ms) + 'ms');
+            if (t.provider) {
+              meta.push(t.provider);
+            }
+            if (t.model)    {
+              meta.push(t.model);
+            }
+            if (Number(t.tokens))           {
+              meta.push(Number(t.tokens) + ' tokens');
+            }
+            if (Number(t.response_time_ms)) {
+              meta.push(Number(t.response_time_ms) + 'ms');
+            }
             const ts = fmtTs(t.ts);
             const head = '## ' + role
               + (ts ? ' · ' + ts : '')
               + (meta.length ? ' · ' + meta.join(' · ') : '');
             lines.push(head);
-            if (t.text)         lines.push(String(t.text));
-            if (t.error)        lines.push('[Error: ' + t.error + ']');
-            if (t.action_label) lines.push('[' + (t.action_ran ? 'Ran' : 'Proposed') + ': ' + t.action_label + ']');
-            if (t.cancelled)    lines.push('[Cancelled]');
+            if (t.text)         {
+              lines.push(String(t.text));
+            }
+            if (t.error)        {
+              lines.push('[Error: ' + t.error + ']');
+            }
+            if (t.action_label) {
+              lines.push('[' + (t.action_ran ? 'Ran' : 'Proposed') + ': ' + t.action_label + ']');
+            }
+            if (t.cancelled)    {
+              lines.push('[Cancelled]');
+            }
             if (Array.isArray(t.host_ids) && t.host_ids.length) {
               lines.push('[Hosts: ' + t.host_ids.join(', ') + ']');
             }
-            if (t.feedback)     lines.push('[Feedback: ' + t.feedback + ']');
+            if (t.feedback)     {
+              lines.push('[Feedback: ' + t.feedback + ']');
+            }
             lines.push('');
           }
           blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
@@ -19537,7 +21578,9 @@ function app() {
     },
     async sendAiSidebarMessage() {
       const q = (this.aiSidebarQuery || '').trim();
-      if (!q || this.aiSidebarBusy) return;
+      if (!q || this.aiSidebarBusy) {
+        return;
+      }
       if (!this.aiSidebarSurfaceEnabled()) {
         if (typeof this.showToast === 'function') {
           this.showToast(this.t('command_palette.ai.disabled')
@@ -19661,12 +21704,18 @@ function app() {
         if (wantsBackupCtx) {
           const tasks = [];
           if (!Array.isArray(this.backups) || this.backups.length === 0) {
-            if (typeof this.loadBackups === 'function') tasks.push(this.loadBackups().catch(() => null));
+            if (typeof this.loadBackups === 'function') {
+              tasks.push(this.loadBackups().catch(() => null));
+            }
           }
           if (!Array.isArray(this.configBackupSaved) || this.configBackupSaved.length === 0) {
-            if (typeof this.loadConfigBackupSaved === 'function') tasks.push(this.loadConfigBackupSaved().catch(() => null));
+            if (typeof this.loadConfigBackupSaved === 'function') {
+              tasks.push(this.loadConfigBackupSaved().catch(() => null));
+            }
           }
-          if (tasks.length) await Promise.allSettled(tasks);
+          if (tasks.length) {
+            await Promise.allSettled(tasks);
+          }
         }
       } catch (_) { /* never block the question on prefetch */ }
       const ctx = this._buildAiPaletteContext();
@@ -19751,7 +21800,9 @@ function app() {
                 confirmButtonText: this.t('actions.delete') || 'Delete',
                 cancelButtonText:  this.t('actions.cancel') || 'Cancel',
               });
-              if (!ok) continue;
+              if (!ok) {
+                continue;
+              }
               try {
                 await fetch('/api/ai/memory/forget', {
                   method: 'POST',
@@ -19861,7 +21912,9 @@ function app() {
       const force = !!(opts && opts.force);
       this.$nextTick(() => {
         const el = document.getElementById('og-ai-sidebar-log');
-        if (!el) return;
+        if (!el) {
+          return;
+        }
         if (!force) {
           // Only auto-scroll when the operator is near the bottom
           // already — typical chat-app convention. 60px gives a
@@ -19889,7 +21942,9 @@ function app() {
     _onAiSidebarLogScroll(ev) {
       try {
         const el = ev && ev.target;
-        if (!el) return;
+        if (!el) {
+          return;
+        }
         const distFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
         if (distFromBottom <= 60 && this.aiSidebarUnseenCount > 0) {
           this.aiSidebarUnseenCount = 0;
@@ -19913,23 +21968,31 @@ function app() {
       for (let i = 0; i < this.aiConversation.length; i++) {
         const t = this.aiConversation[i];
         const text = String((t && t.text) || '').toLowerCase();
-        if (text.includes(q)) matches.push(i);
+        if (text.includes(q)) {
+          matches.push(i);
+        }
       }
       this.aiConversationSearchMatches = matches;
       // Reset cursor to the LAST match (closest to current scroll
       // position — operators search "what did I just say" more often
       // than "what did I say first") and scroll to it.
       this.aiConversationSearchMatchIdx = Math.max(0, matches.length - 1);
-      if (matches.length) this._scrollToAiTurn(matches[this.aiConversationSearchMatchIdx]);
+      if (matches.length) {
+        this._scrollToAiTurn(matches[this.aiConversationSearchMatchIdx]);
+      }
     },
     // Cycle through matches in either direction (wraps at edges).
     // direction = +1 next, -1 previous.
     cycleAiConversationMatch(direction) {
       const total = this.aiConversationSearchMatches.length;
-      if (!total) return;
+      if (!total) {
+        return;
+      }
       const step = (direction || 1) > 0 ? 1 : -1;
       let idx = (this.aiConversationSearchMatchIdx + step) % total;
-      if (idx < 0) idx += total;
+      if (idx < 0) {
+        idx += total;
+      }
       this.aiConversationSearchMatchIdx = idx;
       this._scrollToAiTurn(this.aiConversationSearchMatches[idx]);
     },
@@ -19938,7 +22001,9 @@ function app() {
     _scrollToAiTurn(turnIdx) {
       try {
         const log = document.getElementById('og-ai-sidebar-log');
-        if (!log) return;
+        if (!log) {
+          return;
+        }
         const target = log.querySelector('[data-ai-turn-idx="' + turnIdx + '"]');
         if (target && target.scrollIntoView) {
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -19953,9 +22018,15 @@ function app() {
     },
     async submitAiFeedback(turnIdx, rating) {
       const turn = this.aiConversation[turnIdx];
-      if (!turn || turn.role !== 'assistant') return;
-      if (turn.feedback === rating) return;  // already set
-      if (this.aiSidebarFeedbackBusy[turnIdx]) return;
+      if (!turn || turn.role !== 'assistant') {
+        return;
+      }
+      if (turn.feedback === rating) {
+        return;
+      }  // already set
+      if (this.aiSidebarFeedbackBusy[turnIdx]) {
+        return;
+      }
       // Optimistic UI — flip immediately, revert on failure.
       const prev = turn.feedback || '';
       turn.feedback = rating;
@@ -20007,7 +22078,9 @@ function app() {
         if (e.key === 'ArrowDown') {
           e.preventDefault();
           const max = this.aiSidebarSlashResults().length - 1;
-          if (max < 0) return;
+          if (max < 0) {
+            return;
+          }
           this.aiSidebarSlashIdx = Math.min(max, (this.aiSidebarSlashIdx || 0) + 1);
           this._scrollAiSidebarSlashRowIntoView();
           return;
@@ -20028,7 +22101,9 @@ function app() {
           }
           const list = this.aiSidebarSlashResults();
           const sel = list[this.aiSidebarSlashIdx || 0];
-          if (sel) this.runAiSidebarSlashAction(sel);
+          if (sel) {
+            this.runAiSidebarSlashAction(sel);
+          }
           return;
         }
         if (e.key === 'Escape') {
@@ -20098,7 +22173,9 @@ function app() {
       this.aiSidebarQuery = v;
       try {
         const el = document.getElementById('og-ai-sidebar-input');
-        if (el && el.value !== v) el.value = v;
+        if (el && el.value !== v) {
+          el.value = v;
+        }
       } catch (_) {}
     },
     aiSidebarSlashOpen() {
@@ -20107,7 +22184,9 @@ function app() {
     },
     aiSidebarSlashResults() {
       const q = (this.aiSidebarQuery || '').trimStart();
-      if (!q.startsWith('/')) return [];
+      if (!q.startsWith('/')) {
+        return [];
+      }
       const needle = q.slice(1).trim();
       // Reuse the modal palette's full result set — actions, hosts,
       // items, admin tabs, top-level views, hotkeys, AI fallback row.
@@ -20136,7 +22215,9 @@ function app() {
         const recentRows = [];
         for (const id of this.aiRecentSlashActions) {
           const a = byId.get(id);
-          if (!a) continue;  // action no longer exists / disabled
+          if (!a) {
+            continue;
+          }  // action no longer exists / disabled
           recentRows.push({
             kind: 'action',
             label: a.label,
@@ -20165,7 +22246,9 @@ function app() {
     // localStorage doubles as the fast-path read since it's already
     // in `this.aiRecentSlashActions`.
     async _persistRecentSlashActions() {
-      if (!this.me || !this.me.id || this.me.id < 0) return;
+      if (!this.me || !this.me.id || this.me.id < 0) {
+        return;
+      }
       try {
         await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
@@ -20186,9 +22269,13 @@ function app() {
     // `persistThemePref` / `persistAiConversation`.
     async setAiSidebarMode(mode) {
       const next = (mode === 'autonomous') ? 'autonomous' : 'approval';
-      if (next === this.aiSidebarMode) return;
+      if (next === this.aiSidebarMode) {
+        return;
+      }
       this.aiSidebarMode = next;
-      if (!this.me || !this.me.id || this.me.id < 0) return;
+      if (!this.me || !this.me.id || this.me.id < 0) {
+        return;
+      }
       try {
         await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
@@ -20213,8 +22300,12 @@ function app() {
     async togglePinAiSidebar() {
       const next = !this.aiSidebarPinned;
       this.aiSidebarPinned = next;
-      if (next) this.aiSidebarOpen = true;  // implicit open when pinning
-      if (!this.me || !this.me.id || this.me.id < 0) return;
+      if (next) {
+        this.aiSidebarOpen = true;
+      }  // implicit open when pinning
+      if (!this.me || !this.me.id || this.me.id < 0) {
+        return;
+      }
       try {
         await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
@@ -20235,7 +22326,9 @@ function app() {
     // operator across browsers / machines.
     async setAiSidebarLauncherHidden(hidden) {
       const next = !!hidden;
-      if (next === this.aiSidebarLauncherHidden) return;
+      if (next === this.aiSidebarLauncherHidden) {
+        return;
+      }
       this.aiSidebarLauncherHidden = next;
       // Keep the draft in sync so the dirty-tracker (compared via
       // `_headerPrefsSnapshot`) doesn't keep reporting dirty after
@@ -20243,7 +22336,9 @@ function app() {
       // helper is invoked from outside the form (e.g. a future
       // keyboard shortcut or admin-tool action).
       this.aiSidebarLauncherHiddenDraft = next;
-      if (!this.me || !this.me.id || this.me.id < 0) return;
+      if (!this.me || !this.me.id || this.me.id < 0) {
+        return;
+      }
       try {
         await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
@@ -20261,9 +22356,13 @@ function app() {
     // the id if already present, then unshifts to the head, then caps
     // at 5. Persists asynchronously.
     _recordSlashRecent(actionId) {
-      if (!actionId || typeof actionId !== 'string') return;
+      if (!actionId || typeof actionId !== 'string') {
+        return;
+      }
       const existing = this.aiRecentSlashActions.indexOf(actionId);
-      if (existing >= 0) this.aiRecentSlashActions.splice(existing, 1);
+      if (existing >= 0) {
+        this.aiRecentSlashActions.splice(existing, 1);
+      }
       this.aiRecentSlashActions.unshift(actionId);
       if (this.aiRecentSlashActions.length > 5) {
         this.aiRecentSlashActions.length = 5;
@@ -20278,7 +22377,9 @@ function app() {
       // query into the existing chat. Synthetic conversation turn
       // logs WHAT the operator picked so the chat history is honest
       // ("Ran: Switch to dark theme" / "Opened host: web01.example").
-      if (!result) return;
+      if (!result) {
+        return;
+      }
       this._setAiSidebarQuery('');
       this.aiSidebarSlashIdx = 0;
       const kind = result.kind;
@@ -20343,8 +22444,12 @@ function app() {
           this.persistAiConversation();
           closeAndNavigate(() => {
             this.view = 'admin';
-            if (typeof this.setAdminTab === 'function') this.setAdminTab(result.payload);
-            else this.adminTab = result.payload;
+            if (typeof this.setAdminTab === 'function') {
+              this.setAdminTab(result.payload);
+            }
+            else {
+              this.adminTab = result.payload;
+            }
           });
           break;
         case 'view':
@@ -20356,8 +22461,12 @@ function app() {
           this._scrollAiSidebarToBottom();
           this.persistAiConversation();
           closeAndNavigate(() => {
-            if (typeof this.setView === 'function') this.setView(result.payload);
-            else this.view = result.payload;
+            if (typeof this.setView === 'function') {
+              this.setView(result.payload);
+            }
+            else {
+              this.view = result.payload;
+            }
           });
           break;
         case 'hotkey':
@@ -20397,13 +22506,23 @@ function app() {
       this.persistAiConversation();
     },
     aiTurnSubline(turn) {
-      if (!turn) return '';
+      if (!turn) {
+        return '';
+      }
       const fmtNum = (n) => Number.isFinite(+n) ? (+n).toLocaleString() : String(n || 0);
       const parts = [];
-      if (turn.provider) parts.push(turn.provider);
-      if (turn.model) parts.push(turn.model);
-      if (turn.response_time_ms) parts.push(fmtNum(turn.response_time_ms) + 'ms');
-      if (turn.tokens) parts.push(fmtNum(turn.tokens) + ' tokens');
+      if (turn.provider) {
+        parts.push(turn.provider);
+      }
+      if (turn.model) {
+        parts.push(turn.model);
+      }
+      if (turn.response_time_ms) {
+        parts.push(fmtNum(turn.response_time_ms) + 'ms');
+      }
+      if (turn.tokens) {
+        parts.push(fmtNum(turn.tokens) + ' tokens');
+      }
       return parts.join(' · ');
     },
     // Build the rich `{view, hosts, items}` context object the AI
@@ -20425,10 +22544,14 @@ function app() {
     // a slow/failing fetch never blocks the AI call.
     async _ensurePublicIp() {
       const now = Date.now();
-      if (this.publicIp && (now - this._publicIpFetchedAt) < 10 * 60 * 1000) return;
+      if (this.publicIp && (now - this._publicIpFetchedAt) < 10 * 60 * 1000) {
+        return;
+      }
       try {
         const r = await fetch('/api/public-ip');
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         this.publicIp = await r.json();
         this._publicIpFetchedAt = now;
       } catch (_) { /* silent — AI prompt just omits the block */ }
@@ -20452,29 +22575,51 @@ function app() {
         // to match BACK to the curated host. Populated by node-
         // exporter, SNMP, and Webmin providers; empty when none of
         // those run for this host.
-        if (h.host_hostname) out.host_hostname = String(h.host_hostname);
+        if (h.host_hostname) {
+          out.host_hostname = String(h.host_hostname);
+        }
         // Per-provider name aliases the user typed in Admin → Hosts.
         // Surfaces alongside `host_hostname` so the AI can match
         // against ANY of the names the operator might have used in
         // a question or pasted shell output. Each is optional — only
         // included when actually set.
-        if (h.beszel_name)  out.beszel_name  = String(h.beszel_name);
-        if (h.pulse_name)   out.pulse_name   = String(h.pulse_name);
-        if (h.webmin_name)  out.webmin_name  = String(h.webmin_name);
-        if (h.snmp_name)    out.snmp_name    = String(h.snmp_name);
+        if (h.beszel_name)  {
+          out.beszel_name = String(h.beszel_name);
+        }
+        if (h.pulse_name)   {
+          out.pulse_name = String(h.pulse_name);
+        }
+        if (h.webmin_name)  {
+          out.webmin_name = String(h.webmin_name);
+        }
+        if (h.snmp_name)    {
+          out.snmp_name = String(h.snmp_name);
+        }
         // Hardware identity from DMI (system_vendor / product_name)
         // — operator-recognisable strings like "Raspberry Pi 4
         // Model B Rev 1.4" or "Dell PowerEdge R730xd". Useful when
         // the user pastes `dmidecode` / `cat /sys/firmware/...`
         // output and the AI needs to match by hardware.
-        if (h.host_vendor)  out.vendor  = String(h.host_vendor);
-        if (h.host_model)   out.model   = String(h.host_model);
-        if (h.host_serial)  out.serial  = String(h.host_serial);
+        if (h.host_vendor)  {
+          out.vendor = String(h.host_vendor);
+        }
+        if (h.host_model)   {
+          out.model = String(h.host_model);
+        }
+        if (h.host_serial)  {
+          out.serial = String(h.host_serial);
+        }
         // Platform / kernel — short strings the AI can correlate
         // against `uname -a` output (`Linux raspberry4tm02 5.15...`).
-        if (h.host_platform) out.platform = String(h.host_platform);
-        if (h.host_kernel)   out.kernel   = String(h.host_kernel);
-        if (h.host_arch)     out.arch     = String(h.host_arch);
+        if (h.host_platform) {
+          out.platform = String(h.host_platform);
+        }
+        if (h.host_kernel)   {
+          out.kernel = String(h.host_kernel);
+        }
+        if (h.host_arch)     {
+          out.arch = String(h.host_arch);
+        }
         // Uniform 1-decimal precision across cpu_pct / mem_pct / disk_pct
         // so the AI never reports "memory at 67%" while a chart shows
         // 67.4% (mixed-precision context confused operators on charts
@@ -20514,8 +22659,12 @@ function app() {
           out.disk_free_gb = Math.round((total - used) / (1024 ** 3));
           out.disk_total_gb = Math.round(total / (1024 ** 3));
         }
-        if (h.uptime) out.uptime_s = Number(h.uptime);
-        if (h.sampling_paused) out.paused = true;
+        if (h.uptime) {
+          out.uptime_s = Number(h.uptime);
+        }
+        if (h.sampling_paused) {
+          out.paused = true;
+        }
         if (Array.isArray(h.providers) && h.providers.length) {
           out.providers = h.providers.slice(0, 6);
         }
@@ -20545,14 +22694,24 @@ function app() {
             const paused = [];
             const failing = [];
             for (const [name, state] of Object.entries(pps)) {
-              if (!state || typeof state !== 'object') continue;
-              if (state.paused) paused.push(name);
-              else if (state.consecutive_failures && +state.consecutive_failures > 0) {
-                failing.push(name + '(' + state.consecutive_failures + ')');
+              if (!state || typeof state !== 'object') {
+                continue;
+              }
+              if (state.paused) {
+                paused.push(name);
+              }
+              else {
+                if (state.consecutive_failures && +state.consecutive_failures > 0) {
+                  failing.push(name + '(' + state.consecutive_failures + ')');
+                }
               }
             }
-            if (paused.length)  out.provider_paused  = paused;
-            if (failing.length) out.provider_failing = failing;
+            if (paused.length)  {
+              out.provider_paused = paused;
+            }
+            if (failing.length) {
+              out.provider_failing = failing;
+            }
           }
           // Per-host debug surface — pulled from the
           // /api/hosts/debug counters block when cached in
@@ -20581,8 +22740,12 @@ function app() {
             if (win && typeof win === 'object') {
               const sh = { hours: +(win.hours || 1) };
               for (const [k, blob] of Object.entries(win)) {
-                if (!blob || typeof blob !== 'object' || k === 'hours' || k === 'since_ts') continue;
-                if (!('count' in blob)) continue;
+                if (!blob || typeof blob !== 'object' || k === 'hours' || k === 'since_ts') {
+                  continue;
+                }
+                if (!('count' in blob)) {
+                  continue;
+                }
                 sh[k] = {
                   count: +blob.count || 0,
                   newest_age_s: blob.newest_age_s == null ? null : +blob.newest_age_s,
@@ -20676,19 +22839,33 @@ function app() {
             ? this.assetForHost(h) : null;
           if (asset && typeof asset === 'object') {
             const a = {};
-            if (asset.name)          a.name          = String(asset.name);
-            if (asset.type_short)    a.type          = String(asset.type_short);
-            if (asset.vendor)        a.vendor        = String(asset.vendor);
-            if (asset.model)         a.model         = String(asset.model);
-            if (asset.serial)        a.serial        = String(asset.serial);
-            if (asset.location)      a.location      = String(asset.location);
+            if (asset.name)          {
+              a.name = String(asset.name);
+            }
+            if (asset.type_short)    {
+              a.type = String(asset.type_short);
+            }
+            if (asset.vendor)        {
+              a.vendor = String(asset.vendor);
+            }
+            if (asset.model)         {
+              a.model = String(asset.model);
+            }
+            if (asset.serial)        {
+              a.serial = String(asset.serial);
+            }
+            if (asset.location)      {
+              a.location = String(asset.location);
+            }
             if (asset.custom_number != null && asset.custom_number !== '') {
               a.custom_number = asset.custom_number;
             }
             // Only attach when at least one field is populated —
             // empty asset records aren't useful and just bloat the
             // prompt.
-            if (Object.keys(a).length) out.asset = a;
+            if (Object.keys(a).length) {
+              out.asset = a;
+            }
           }
         } catch (_) { /* asset lookup is best-effort context */ }
         // Stale-data hints — when the host's `_stale_fields` carries
@@ -20720,18 +22897,32 @@ function app() {
         // the container's bare name doesn't carry the stack prefix.
         // Pre-fix the field was dropped during context shaping so
         // stack-vs-container disambiguation relied solely on `type`.
-        if (i.stack)   out.stack = i.stack;
-        if (i.status)  out.status = i.status;
-        if (i.health)  out.health = i.health;
-        if (i.type)    out.type = i.type;
-        if (i.replicas !== undefined) out.replicas = i.replicas;
-        if (i.desired  !== undefined) out.desired = i.desired;
+        if (i.stack)   {
+          out.stack = i.stack;
+        }
+        if (i.status)  {
+          out.status = i.status;
+        }
+        if (i.health)  {
+          out.health = i.health;
+        }
+        if (i.type)    {
+          out.type = i.type;
+        }
+        if (i.replicas !== undefined) {
+          out.replicas = i.replicas;
+        }
+        if (i.desired  !== undefined) {
+          out.desired = i.desired;
+        }
         // Canonical "needs update" signal is `status === 'update'` —
         // gather.py sets that from the remote-digest comparison. There
         // is no separate `update_available` field, but we re-emit one
         // on the AI context so the prompt's "every item with
         // update_available=true" copy stays accurate.
-        if ((i.status || '') === 'update') out.update_available = true;
+        if ((i.status || '') === 'update') {
+          out.update_available = true;
+        }
         return out;
       };
       const allHosts = Array.isArray(this.hosts) ? this.hosts : [];
@@ -20818,7 +23009,9 @@ function app() {
                               unconfigured: 0, unknown: 0, loading: 0 };
       for (const h of (this.hosts || [])) {
         const st = String((h && h.status) || 'unknown').toLowerCase();
-        if (_statusCounts[st] !== undefined) _statusCounts[st]++;
+        if (_statusCounts[st] !== undefined) {
+          _statusCounts[st]++;
+        }
       }
       const ctx = {
         view:  this.view || '',
@@ -20844,7 +23037,9 @@ function app() {
         items_total: (Array.isArray(this.items) ? this.items.length : 0),
         items_sample_cap: 60,
       };
-      if (weatherCtx) ctx.weather = weatherCtx;
+      if (weatherCtx) {
+        ctx.weather = weatherCtx;
+      }
       // Public IP + ISP / ASN — operator-opt-in via the
       // `tuning_public_ip_enabled` tunable. The SPA caches the last
       // /api/public-ip response on `this.publicIp` so repeated AI
@@ -20892,8 +23087,12 @@ function app() {
             .formatToParts(nowUtc).find(p => p.type === 'timeZoneName');
           if (off && off.value) {
             offset = off.value.replace(/^GMT/, '').replace(/^UTC/, '') || '+00:00';
-            if (!/^[+-]/.test(offset)) offset = '+' + offset;
-            if (/^[+-]\d{1,2}$/.test(offset)) offset += ':00';
+            if (!/^[+-]/.test(offset)) {
+              offset = '+' + offset;
+            }
+            if (/^[+-]\d{1,2}$/.test(offset)) {
+              offset += ':00';
+            }
           }
         } catch (_) {}
         const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: tzName }).format(nowUtc);
@@ -21027,7 +23226,9 @@ function app() {
           top_expensive:   (a.top_expensive || []).slice(0, 5),
         };
       }
-      if (Object.keys(stats).length) ctx.stats = stats;
+      if (Object.keys(stats).length) {
+        ctx.stats = stats;
+      }
       // Tunables — always-present compact map of {key: effective_value}
       // so the AI can answer "what's the Pulse sample interval?" /
       // "show me the Webmin probe budget" without the operator having
@@ -21053,7 +23254,9 @@ function app() {
             tunables[k] = Number.isFinite(n) ? n : formMap[k];
           }
         }
-        if (Object.keys(tunables).length) ctx.tunables = tunables;
+        if (Object.keys(tunables).length) {
+          ctx.tunables = tunables;
+        }
       } catch (_) { /* defensive — never block context build */ }
       // Settings — non-secret subset of the live `this.settings` so
       // the AI can answer "is Beszel enabled?" / "what's the Apprise
@@ -21069,24 +23272,32 @@ function app() {
         const settingsPicked = {};
         const secretSuffixes = /(_token|_password|_secret|_api_key|_private_key|_passphrase)$/;
         for (const k of Object.keys(s)) {
-          if (secretSuffixes.test(k)) continue;
+          if (secretSuffixes.test(k)) {
+            continue;
+          }
           const v = s[k];
           // Skip empty strings + nulls — they're "not set" rather than
           // operator-meaningful state; the AI shouldn't need to know
           // every blank field. Also skip objects / arrays past a small
           // size cap to avoid bloating the prompt with JSON blobs.
-          if (v === '' || v === null || v === undefined) continue;
+          if (v === '' || v === null || v === undefined) {
+            continue;
+          }
           if (typeof v === 'object') {
             try {
               const j = JSON.stringify(v);
-              if (j.length > 400) continue;
+              if (j.length > 400) {
+                continue;
+              }
               settingsPicked[k] = v;
             } catch (_) { /* skip */ }
             continue;
           }
           settingsPicked[k] = v;
         }
-        if (Object.keys(settingsPicked).length) ctx.settings = settingsPicked;
+        if (Object.keys(settingsPicked).length) {
+          ctx.settings = settingsPicked;
+        }
       } catch (_) { /* defensive */ }
       return ctx;
     },
@@ -21096,7 +23307,9 @@ function app() {
     // `mark-all-notifications-read`). Returns null when no match.
     _actionDescriptorById(snakeId) {
       const id = (snakeId || '').toString().trim();
-      if (!id) return null;
+      if (!id) {
+        return null;
+      }
       const kebab = id.replace(/_/g, '-');
       // Backend's snake_case set maps to kebab-case ids in
       // `_commandActions()`. A few synonyms — `logout` / `sign_out` /
@@ -21233,7 +23446,9 @@ function app() {
     // SweetAlert body, then async-fan-out fetches and inject the SVG
     // chart once each `/api/hosts/{id}/disk-projection` resolves.
     _renderAiHostChartShells(hostIds) {
-      if (!Array.isArray(hostIds) || hostIds.length === 0) return '';
+      if (!Array.isArray(hostIds) || hostIds.length === 0) {
+        return '';
+      }
       const shells = hostIds.map(hid => {
         const safeAttr = String(hid).replace(/[^A-Za-z0-9_.-]/g, '_');
         return ('<div class="ai-resp-chart" data-disk-host="' + safeAttr + '">'
@@ -21269,7 +23484,9 @@ function app() {
         waited += 200;
         outer = document.querySelector(outerSel);
       }
-      if (!outer) return;
+      if (!outer) {
+        return;
+      }
       const slot = outer.querySelector('[data-chart-slot]') || outer;
       const kind = chartKind || 'disk_projection';
       // Dispatch on chart_kind. Memory + CPU history charts share the
@@ -21294,7 +23511,9 @@ function app() {
             host_id: hostId,
             hours: '24',
           });
-          if (_beszelId) _qs.set('system_id', _beszelId);
+          if (_beszelId) {
+            _qs.set('system_id', _beszelId);
+          }
           const r = await fetch('/api/hosts/history?' + _qs.toString());
           if (!r.ok) {
             slot.innerHTML = this._renderHostHistoryInner(hostId, kind, null,
@@ -21422,8 +23641,12 @@ function app() {
       // 24h max + min for the operator's "spike vs flat" eye.
       let vMax = -Infinity, vMin = Infinity;
       for (const p of series) {
-        if (p.v > vMax) vMax = p.v;
-        if (p.v < vMin) vMin = p.v;
+        if (p.v > vMax) {
+          vMax = p.v;
+        }
+        if (p.v < vMin) {
+          vMin = p.v;
+        }
       }
       const rangeStr = (Math.round(vMin * 10) / 10).toFixed(1) + '%–'
                      + (Math.round(vMax * 10) / 10).toFixed(1) + '%';
@@ -21476,9 +23699,13 @@ function app() {
       }
       const fmtRel = (ts) => {
         const ago = Math.max(0, ts1 - ts);
-        if (ago < 60) return 'now';
+        if (ago < 60) {
+          return 'now';
+        }
         const hours = ago / 3600;
-        if (hours < 1) return '-' + Math.round(ago / 60) + 'm';
+        if (hours < 1) {
+          return '-' + Math.round(ago / 60) + 'm';
+        }
         return '-' + (Math.round(hours * 10) / 10).toFixed(hours < 10 ? 1 : 0) + 'h';
       };
       for (const tick of xTicks) {
@@ -21528,7 +23755,9 @@ function app() {
     // shells but tagged with `data-turn-ts` so the populator can
     // disambiguate multi-turn charts referencing the same host.
     _renderAiSidebarHostChartShells(hostIds, turnTs) {
-      if (!Array.isArray(hostIds) || hostIds.length === 0) return '';
+      if (!Array.isArray(hostIds) || hostIds.length === 0) {
+        return '';
+      }
       const shells = hostIds.map(hid => {
         const safeAttr = String(hid).replace(/[^A-Za-z0-9_.-]/g, '_');
         return ('<div class="ai-resp-chart" data-disk-host="' + safeAttr + '" data-turn-ts="' + turnTs + '">'
@@ -21548,7 +23777,9 @@ function app() {
     async _populateAiHostChart(hostId) {
       const safeAttr = String(hostId).replace(/[^A-Za-z0-9_.-]/g, '_');
       const shell = document.querySelector('[data-disk-host="' + safeAttr + '"]');
-      if (!shell) return;
+      if (!shell) {
+        return;
+      }
       try {
         const r = await fetch(
           '/api/hosts/' + encodeURIComponent(hostId) + '/disk-projection?hours=720'
@@ -21591,7 +23822,9 @@ function app() {
     // SQL query; bucket size adapts per the unified rule (1h/24h →
     // hour, 7d/30d → day, 90d → week).
     _renderAiCostTrendChart(points, range) {
-      if (!Array.isArray(points) || points.length === 0) return '';
+      if (!Array.isArray(points) || points.length === 0) {
+        return '';
+      }
       const W = 720, H = 220;
       const PAD_L = 56, PAD_R = 12, PAD_T = 12, PAD_B = 28;
       const plotW = W - PAD_L - PAD_R;
@@ -21600,7 +23833,9 @@ function app() {
       const barW = plotW / n;
       const yMaxRaw = Math.max(1, ...points.map(p => p.avg_ms || 0));
       const niceMax = (v) => {
-        if (v <= 0) return 1;
+        if (v <= 0) {
+          return 1;
+        }
         const exp = Math.pow(10, Math.floor(Math.log10(v)));
         const r = v / exp;
         const stepMul = (r <= 1) ? 1 : (r <= 2) ? 2 : (r <= 5) ? 5 : 10;
@@ -21628,7 +23863,9 @@ function app() {
       // date prefix when every shown tick is the same date), day +
       // week buckets get MM-DD.
       const fmtXLabel = (ts) => {
-        if (!ts) return '';
+        if (!ts) {
+          return '';
+        }
         if (r === '1h' || r === '24h') {
           return this.fmtDateTimeShort(ts).replace(/^\S+\s+/, '');
         }
@@ -21657,7 +23894,9 @@ function app() {
       }
       for (const i of dedup) {
         const p = points[i];
-        if (!p) continue;
+        if (!p) {
+          continue;
+        }
         const cx = (X(i) + barW / 2).toFixed(1);
         svg += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">'
           + esc(fmtXLabel(p.bucket_ts)) + '</text>';
@@ -21666,7 +23905,9 @@ function app() {
       return svg;
     },
     _renderSamplesBucketChart(points, range) {
-      if (!Array.isArray(points) || points.length === 0) return '';
+      if (!Array.isArray(points) || points.length === 0) {
+        return '';
+      }
       const W = 720, H = 220;
       const PAD_L = 56, PAD_R = 12, PAD_T = 12, PAD_B = 28;
       const plotW = W - PAD_L - PAD_R;
@@ -21677,7 +23918,9 @@ function app() {
       // Round yMax up to a nice number (1, 2, 5 × 10^k) so y-tick
       // labels are clean integers.
       const niceMax = (v) => {
-        if (v <= 0) return 1;
+        if (v <= 0) {
+          return 1;
+        }
         const exp = Math.pow(10, Math.floor(Math.log10(v)));
         const r = v / exp;
         const stepMul = (r <= 1) ? 1 : (r <= 2) ? 2 : (r <= 5) ? 5 : 10;
@@ -21698,12 +23941,30 @@ function app() {
       // label EVERY bucket; 30d shows ~10 evenly-spaced; 24h shows
       // every 4th hour; 1h is single-bucket.
       let tickCount;
-      if (r === '1h')        tickCount = 1;
-      else if (r === '24h')  tickCount = Math.min(n, 6);
-      else if (r === '7d')   tickCount = n;       // all 7 days
-      else if (r === '30d')  tickCount = Math.min(n, 10);
-      else if (r === '90d')  tickCount = n;       // all ~14 weeks
-      else                    tickCount = Math.min(6, n);
+      if (r === '1h')        {
+        tickCount = 1;
+      }
+      else {
+        if (r === '24h') {
+          tickCount = Math.min(n, 6);
+        } else {
+          if (r === '7d') {
+            tickCount = n;
+          }       // all 7 days
+          else {
+            if (r === '30d') {
+              tickCount = Math.min(n, 10);
+            } else {
+              if (r === '90d') {
+                tickCount = n;
+              }       // all ~14 weeks
+              else {
+                tickCount = Math.min(6, n);
+              }
+            }
+          }
+        }
+      }
       const xIdxs = [];
       if (tickCount === 1) {
         xIdxs.push(0);
@@ -21722,7 +23983,9 @@ function app() {
       //              720px chart without overlap.
       const _MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const fmtXLabel = (key) => {
-        if (!key) return '';
+        if (!key) {
+          return '';
+        }
         if (r === '1h' || r === '24h') {
           // `YYYY-MM-DDTHH:MM` or `YYYY-MM-DDTHH:00`
           const t = key.indexOf('T');
@@ -21755,7 +24018,9 @@ function app() {
         return mm + '-' + dd;
       };
       const fmtTooltipDate = (key) => {
-        if (!key) return '';
+        if (!key) {
+          return '';
+        }
         if (r === '90d' && key.length === 10) {
           try {
             return key.slice(5) + '–' + _addDays(key, 6);
@@ -21789,7 +24054,9 @@ function app() {
       // X-axis tick labels.
       for (const i of dedup) {
         const p = points[i];
-        if (!p) continue;
+        if (!p) {
+          continue;
+        }
         const cx = (X(i) + barW / 2).toFixed(1);
         svg += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">'
           + esc(fmtXLabel(p.date)) + '</text>';
@@ -21798,7 +24065,9 @@ function app() {
       return svg;
     },
     _renderDbProjectionChart(points) {
-      if (!Array.isArray(points) || points.length < 2) return '';
+      if (!Array.isArray(points) || points.length < 2) {
+        return '';
+      }
       const W = 720, H = 220;
       const PAD_L = 64, PAD_R = 16, PAD_T = 12, PAD_B = 24;
       const plotW = W - PAD_L - PAD_R;
@@ -21809,7 +24078,9 @@ function app() {
       let yMax = 0;
       for (const p of points) {
         const hi = Number(p.high || p.bytes || 0);
-        if (hi > yMax) yMax = hi;
+        if (hi > yMax) {
+          yMax = hi;
+        }
       }
       // Pick a Y-axis with EVERY tick a multiple of 100 in whatever
       // unit (B / KB / MB / GB / TB) fits the range. Algorithm:
@@ -22085,11 +24356,19 @@ function app() {
       const cur = (data && data.current) || {};
       const currentPct = (cur.used_pct !== undefined && cur.used_pct !== null) ? Math.round(cur.used_pct) : null;
       const fmtBytes = (n) => {
-        if (!Number.isFinite(+n) || +n <= 0) return '';
+        if (!Number.isFinite(+n) || +n <= 0) {
+          return '';
+        }
         const v = +n;
-        if (v >= 1024**4) return (v / 1024**4).toFixed(1) + ' TB';
-        if (v >= 1024**3) return (v / 1024**3).toFixed(1) + ' GB';
-        if (v >= 1024**2) return (v / 1024**2).toFixed(1) + ' MB';
+        if (v >= 1024**4) {
+          return (v / 1024 ** 4).toFixed(1) + ' TB';
+        }
+        if (v >= 1024**3) {
+          return (v / 1024 ** 3).toFixed(1) + ' GB';
+        }
+        if (v >= 1024**2) {
+          return (v / 1024 ** 2).toFixed(1) + ' MB';
+        }
         return v + ' B';
       };
       const slope = data && data.slope_pct_per_day;
@@ -22225,7 +24504,9 @@ function app() {
     },
     async _runCommandPaletteAi(payload) {
       const query = (payload && payload.query) || '';
-      if (!query) return;
+      if (!query) {
+        return;
+      }
       // Defence-in-depth — re-check the gate at activation time. The
       // result-build gate is already strict, but a stale cached row
       // could survive a master-toggle-off if the operator opens the
@@ -22461,9 +24742,15 @@ function app() {
       const rst = this.selectionRestartable().length;
       const rem = this.selectionRemovable().length;
       const parts = [];
-      if (upd) parts.push(this.t('bulk.summary_updatable', { count: upd }));
-      if (rst) parts.push(this.t('bulk.summary_restartable', { count: rst }));
-      if (rem) parts.push(this.t('bulk.summary_removable', { count: rem }));
+      if (upd) {
+        parts.push(this.t('bulk.summary_updatable', {count: upd}));
+      }
+      if (rst) {
+        parts.push(this.t('bulk.summary_restartable', {count: rst}));
+      }
+      if (rem) {
+        parts.push(this.t('bulk.summary_removable', {count: rem}));
+      }
       return parts.length ? parts.join(' · ') : '';
     },
     openDrawer(item) { this.drawerItem = item; },
@@ -22520,10 +24807,14 @@ function app() {
       const key = ev.key;
       if (key !== 'ArrowLeft' && key !== 'ArrowRight'
           && key !== 'ArrowUp' && key !== 'ArrowDown'
-          && key !== 'Home' && key !== 'End') return;
+          && key !== 'Home' && key !== 'End') {
+        return;
+      }
       const group = ev.currentTarget;
       const radios = Array.from(group.querySelectorAll('[role="radio"]')).filter(r => !r.disabled);
-      if (!radios.length) return;
+      if (!radios.length) {
+        return;
+      }
       ev.preventDefault();
       let isRtl = false;
       try { isRtl = group.matches(':dir(rtl)'); }
@@ -22531,15 +24822,26 @@ function app() {
         isRtl = (document.documentElement.dir === 'rtl' || document.body.dir === 'rtl');
       }
       let idx = radios.indexOf(document.activeElement);
-      if (idx < 0) idx = radios.findIndex(r => r.getAttribute('aria-checked') === 'true');
-      if (idx < 0) idx = 0;
+      if (idx < 0) {
+        idx = radios.findIndex(r => r.getAttribute('aria-checked') === 'true');
+      }
+      if (idx < 0) {
+        idx = 0;
+      }
       let next = idx;
-      if (key === 'Home') next = 0;
-      else if (key === 'End') next = radios.length - 1;
+      if (key === 'Home') {
+        next = 0;
+      }
       else {
-        let dir = (key === 'ArrowRight' || key === 'ArrowDown') ? 1 : -1;
-        if (isRtl && (key === 'ArrowLeft' || key === 'ArrowRight')) dir = -dir;
-        next = (idx + dir + radios.length) % radios.length;
+        if (key === 'End') {
+          next = radios.length - 1;
+        } else {
+          let dir = (key === 'ArrowRight' || key === 'ArrowDown') ? 1 : -1;
+          if (isRtl && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+            dir = -dir;
+          }
+          next = (idx + dir + radios.length) % radios.length;
+        }
       }
       const target = radios[next];
       target.focus();
@@ -22557,21 +24859,34 @@ function app() {
     _sidebarTablistArrowKey(ev) {
       const key = ev.key;
       if (key !== 'ArrowUp' && key !== 'ArrowDown'
-          && key !== 'Home' && key !== 'End') return;
+          && key !== 'Home' && key !== 'End') {
+        return;
+      }
       const group = ev.currentTarget;
       const tabs = Array.from(group.querySelectorAll('[role="tab"]'))
         .filter(t => !t.disabled);
-      if (!tabs.length) return;
+      if (!tabs.length) {
+        return;
+      }
       ev.preventDefault();
       let idx = tabs.indexOf(document.activeElement);
-      if (idx < 0) idx = tabs.findIndex(t => t.getAttribute('aria-selected') === 'true');
-      if (idx < 0) idx = 0;
+      if (idx < 0) {
+        idx = tabs.findIndex(t => t.getAttribute('aria-selected') === 'true');
+      }
+      if (idx < 0) {
+        idx = 0;
+      }
       let next = idx;
-      if (key === 'Home') next = 0;
-      else if (key === 'End') next = tabs.length - 1;
+      if (key === 'Home') {
+        next = 0;
+      }
       else {
-        const dir = (key === 'ArrowDown') ? 1 : -1;
-        next = (idx + dir + tabs.length) % tabs.length;
+        if (key === 'End') {
+          next = tabs.length - 1;
+        } else {
+          const dir = (key === 'ArrowDown') ? 1 : -1;
+          next = (idx + dir + tabs.length) % tabs.length;
+        }
       }
       const target = tabs[next];
       target.focus();
@@ -22592,10 +24907,14 @@ function app() {
       const key = ev.key;
       if (key !== 'ArrowLeft' && key !== 'ArrowRight'
           && key !== 'ArrowUp' && key !== 'ArrowDown'
-          && key !== 'Home' && key !== 'End') return;
+          && key !== 'Home' && key !== 'End') {
+        return;
+      }
       const group = ev.currentTarget;
       const btns = Array.from(group.querySelectorAll('button')).filter(b => !b.disabled);
-      if (!btns.length) return;
+      if (!btns.length) {
+        return;
+      }
       ev.preventDefault();
       let isRtl = false;
       try { isRtl = group.matches(':dir(rtl)'); }
@@ -22603,15 +24922,26 @@ function app() {
         isRtl = (document.documentElement.dir === 'rtl' || document.body.dir === 'rtl');
       }
       let idx = btns.indexOf(document.activeElement);
-      if (idx < 0) idx = btns.findIndex(b => b.getAttribute('aria-pressed') === 'true');
-      if (idx < 0) idx = 0;
+      if (idx < 0) {
+        idx = btns.findIndex(b => b.getAttribute('aria-pressed') === 'true');
+      }
+      if (idx < 0) {
+        idx = 0;
+      }
       let next = idx;
-      if (key === 'Home') next = 0;
-      else if (key === 'End') next = btns.length - 1;
+      if (key === 'Home') {
+        next = 0;
+      }
       else {
-        let dir = (key === 'ArrowRight' || key === 'ArrowDown') ? 1 : -1;
-        if (isRtl && (key === 'ArrowLeft' || key === 'ArrowRight')) dir = -dir;
-        next = (idx + dir + btns.length) % btns.length;
+        if (key === 'End') {
+          next = btns.length - 1;
+        } else {
+          let dir = (key === 'ArrowRight' || key === 'ArrowDown') ? 1 : -1;
+          if (isRtl && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+            dir = -dir;
+          }
+          next = (idx + dir + btns.length) % btns.length;
+        }
       }
       const target = btns[next];
       target.focus();
@@ -22633,7 +24963,9 @@ function app() {
           confirmText: this.t('admin_hosts.unsaved_confirm_button'),
           confirmColor: this._cssVar('--danger'),
         });
-        if (!ok) return;
+        if (!ok) {
+          return;
+        }
       }
       this.hostsConfigLoading = true;
       // Watchdog cap — mirrors `_runWithBusy`. If `fetch` hangs (server
@@ -22641,7 +24973,9 @@ function app() {
       // never runs; the Admin → Hosts reload button would stay stuck
       // disabled across the session. Watchdog clears `hostsConfigLoading`
       // after `_LOAD_BUSY_MAX_MS` so the UI recovers on its own.
-      const _wd = setTimeout(() => { if (this.hostsConfigLoading) this.hostsConfigLoading = false; },
+      const _wd = setTimeout(() => { if (this.hostsConfigLoading) {
+          this.hostsConfigLoading = false;
+        } },
                              this._LOAD_BUSY_MAX_MS || 30000);
       try {
         const r = await fetch('/api/hosts/config');
@@ -22669,25 +25003,35 @@ function app() {
           // Ensure every row has an ssh sub-object so Alpine's x-model
           // doesn't reactively create it piecemeal (which would break
           // the dirty tracker).
-          if (!row.ssh || typeof row.ssh !== 'object') row.ssh = {};
+          if (!row.ssh || typeof row.ssh !== 'object') {
+            row.ssh = {};
+          }
           // same defensive default for the per-host ping
           // sub-object so Alpine bindings can read row.ping.enabled
           // without an undefined-chain on first render.
-          if (!row.ping || typeof row.ping !== 'object') row.ping = {};
+          if (!row.ping || typeof row.ping !== 'object') {
+            row.ping = {};
+          }
           // same defensive default for the per-host SNMP
           // override sub-object. Bare `snmp_name` (string) is separate
           // and lives on the row directly; the `snmp` dict is only used
           // when the operator wants to override the global community /
           // version / port / v3 keys for THIS host.
-          if (!row.snmp || typeof row.snmp !== 'object') row.snmp = {};
-          if (typeof row.snmp_name !== 'string') row.snmp_name = '';
+          if (!row.snmp || typeof row.snmp !== 'object') {
+            row.snmp = {};
+          }
+          if (typeof row.snmp_name !== 'string') {
+            row.snmp_name = '';
+          }
           // Dedicated probe target — defaults to "" so Alpine's
           // x-model has something concrete to bind to on first render
           // (avoids the "row.address is undefined" reactive flicker
           // when the operator types into the field before the API
           // response shape settles). Same defensive idiom used for
           // every other free-text field on the row.
-          if (typeof row.address !== 'string') row.address = '';
+          if (typeof row.address !== 'string') {
+            row.address = '';
+          }
           // Hydrate the per-host mount-exclusion textarea from the
           // persisted `snmp.exclude_mounts` array. The editor binds
           // a virtual `exclude_mounts_text` field (one path per
@@ -22713,7 +25057,9 @@ function app() {
           // crypto-strength source silences the CodeQL
           // `js/insecure-randomness` flag and removes any chance of
           // collision in fleets with thousands of rows.
-          if (!row._uid) row._uid = this._mintRowUid();
+          if (!row._uid) {
+            row._uid = this._mintRowUid();
+          }
         }
         this.hostsConfigDirty = false;
         this.rebuildHostsConfigOrder();
@@ -22765,9 +25111,15 @@ function app() {
           );
         } else {
           const parts = [];
-          if (bTotal)  parts.push(`${bTotal} Beszel`);
-          if (pTotal)  parts.push(`${pTotal} Pulse`);
-          if (wTotal)  parts.push(`${wTotal} Webmin`);
+          if (bTotal)  {
+            parts.push(`${bTotal} Beszel`);
+          }
+          if (pTotal)  {
+            parts.push(`${pTotal} Pulse`);
+          }
+          if (wTotal)  {
+            parts.push(`${wTotal} Webmin`);
+          }
           this.showToast(
             parts.length
               ? this.t('admin_hosts.discover.found', { detail: parts.join(', ') })
@@ -22799,7 +25151,9 @@ function app() {
       const cfg = this.hostsConfig || [];
       const cacheKey = q + '|' + cfg.length + '|' + order.length;
       const cached = this._filteredHostsConfigCache;
-      if (cached.key === cacheKey && cached.value) return cached.value;
+      if (cached.key === cacheKey && cached.value) {
+        return cached.value;
+      }
       // Display order is a SNAPSHOT rebuilt only by
       // `rebuildHostsConfigOrder()` (called on load / add / remove /
       // blur of custom_number). Sorting reactively on every keystroke
@@ -22811,7 +25165,9 @@ function app() {
       // row re-sorts when they tab away.
       const all = [];
       if (order.length === cfg.length && order.every(i => i < cfg.length)) {
-        for (const idx of order) all.push({ row: cfg[idx], idx });
+        for (const idx of order) {
+          all.push({row: cfg[idx], idx});
+        }
       } else {
         // Fallback: snapshot is stale (hostsConfig grew/shrank since
         // last rebuild). Show in original order so nothing is lost —
@@ -22869,7 +25225,9 @@ function app() {
       const total = this.filteredHostsConfig().length;
       const totalPages = Math.max(1, Math.ceil(total / per));
       const safe = Math.min(Math.max(1, this.hostsConfigPage), totalPages);
-      if (safe !== this.hostsConfigPage) this.hostsConfigPage = safe;
+      if (safe !== this.hostsConfigPage) {
+        this.hostsConfigPage = safe;
+      }
     },
 
     // Total page count given the current filter + per-page.
@@ -22896,10 +25254,14 @@ function app() {
     // on the row they wanted to edit (page-skipping + chevron-
     // expanding handled in one call). No-op if the id isn't found.
     focusHostsConfigRow(id) {
-      if (!id) return;
+      if (!id) {
+        return;
+      }
       const cfg = this.hostsConfig || [];
       const cfgIdx = cfg.findIndex(r => r && r.id === id);
-      if (cfgIdx < 0) return;
+      if (cfgIdx < 0) {
+        return;
+      }
       const row = cfg[cfgIdx];
       // Expand the row so the URL input is visible.
       if (row && row._uid) {
@@ -22924,7 +25286,9 @@ function app() {
     },
     hostsConfigSetPerPage(n) {
       const v = parseInt(n, 10);
-      if (!Number.isFinite(v) || v < 1) return;
+      if (!Number.isFinite(v) || v < 1) {
+        return;
+      }
       this.hostsConfigPerPage = v;
       try { localStorage.setItem('hostsConfigPerPage', String(v)); } catch {}
       // Clamp page to the new layout so a 100→25 switch from page 2
@@ -22945,7 +25309,9 @@ function app() {
         const cb = parseInt(cfg[b].custom_number, 10);
         const sa = Number.isFinite(ca) ? ca : Number.MAX_SAFE_INTEGER;
         const sb = Number.isFinite(cb) ? cb : Number.MAX_SAFE_INTEGER;
-        if (sa !== sb) return sa - sb;
+        if (sa !== sb) {
+          return sa - sb;
+        }
         return String(cfg[a].id || '').localeCompare(String(cfg[b].id || ''));
       });
       this.hostsConfigSortedOrder = idxs;
@@ -22965,9 +25331,13 @@ function app() {
     onHostCardFocusOut(idx, event, cardEl) {
       const newFocus = event && event.relatedTarget;
       // Focus moved within the same card → still editing → no-op.
-      if (newFocus && cardEl && cardEl.contains(newFocus)) return;
+      if (newFocus && cardEl && cardEl.contains(newFocus)) {
+        return;
+      }
       const row = (this.hostsConfig || [])[idx];
-      if (!row || !row._cnDirty) return;
+      if (!row || !row._cnDirty) {
+        return;
+      }
       row._cnDirty = false;
       const uid = row._uid;
       this.rebuildHostsConfigOrder();
@@ -22997,13 +25367,19 @@ function app() {
       ));
       let n = 0;
       for (const name of (this.hostsDiscovery.beszel || [])) {
-        if (!seen.has(name.toLowerCase())) n++;
+        if (!seen.has(name.toLowerCase())) {
+          n++;
+        }
       }
       for (const name of (this.hostsDiscovery.pulse || [])) {
-        if (!seen.has(name.toLowerCase())) n++;
+        if (!seen.has(name.toLowerCase())) {
+          n++;
+        }
       }
       for (const name of (this.hostsDiscovery.webmin || [])) {
-        if (!seen.has(name.toLowerCase())) n++;
+        if (!seen.has(name.toLowerCase())) {
+          n++;
+        }
       }
       return n;
     },
@@ -23022,7 +25398,9 @@ function app() {
       const added = {};
       const addOrMerge = (name, field) => {
         const key = name.toLowerCase();
-        if (existing.has(key)) return;
+        if (existing.has(key)) {
+          return;
+        }
         if (!added[key]) {
           added[key] = {
             id:          name,
@@ -23038,10 +25416,18 @@ function app() {
         }
         added[key][field] = name;
       };
-      for (const n of (this.hostsDiscovery.beszel || [])) addOrMerge(n, 'beszel_name');
-      for (const n of (this.hostsDiscovery.pulse  || [])) addOrMerge(n, 'pulse_name');
-      for (const n of (this.hostsDiscovery.webmin || [])) addOrMerge(n, 'webmin_name');
-      for (const n of (this.hostsDiscovery.snmp   || [])) addOrMerge(n, 'snmp_name');
+      for (const n of (this.hostsDiscovery.beszel || [])) {
+        addOrMerge(n, 'beszel_name');
+      }
+      for (const n of (this.hostsDiscovery.pulse  || [])) {
+        addOrMerge(n, 'pulse_name');
+      }
+      for (const n of (this.hostsDiscovery.webmin || [])) {
+        addOrMerge(n, 'webmin_name');
+      }
+      for (const n of (this.hostsDiscovery.snmp   || [])) {
+        addOrMerge(n, 'snmp_name');
+      }
       const rows = Object.values(added);
       if (!rows.length) {
         this.showToast(this.t('admin_hosts.import.nothing_new'), 'success');
@@ -23094,7 +25480,9 @@ function app() {
     // also works.
     async importHostsConfig(evt) {
       const file = evt && evt.target && evt.target.files && evt.target.files[0];
-      if (!file) return;
+      if (!file) {
+        return;
+      }
       evt.target.value = '';  // reset so the same file can re-trigger
       let payload;
       try {
@@ -23141,8 +25529,12 @@ function app() {
         this.hostsConfig = cleanIncoming;
       } else {
         const byId = {};
-        for (const row of existing) byId[row.id] = row;
-        for (const row of cleanIncoming) byId[row.id] = row;  // overwrite on id collision
+        for (const row of existing) {
+          byId[row.id] = row;
+        }
+        for (const row of cleanIncoming) {
+          byId[row.id] = row;
+        }  // overwrite on id collision
         this.hostsConfig = Object.values(byId);
       }
       // Invalidate filtered-list cache — array identity swap
@@ -23184,7 +25576,9 @@ function app() {
       // aggregate "Tested N rows" toast with no per-row detail.
       const next = { ...(this.hostsConfigExpanded || {}) };
       for (const { row } of rows) {
-        if (row && row._uid) next[row._uid] = true;
+        if (row && row._uid) {
+          next[row._uid] = true;
+        }
       }
       this.hostsConfigExpanded = next;
       try {
@@ -23203,7 +25597,9 @@ function app() {
     // so the operator had no way to test those providers from the
     // Admin → Hosts editor.
     rowHasProviderMapping(row) {
-      if (!row) return false;
+      if (!row) {
+        return false;
+      }
       // SNMP gating mirrors ping's explicit opt-in: probe only when
       // `snmp.enabled === true`. The probe target falls through the
       // canonical resolver chain (aliases → snmp_name → address →
@@ -23228,7 +25624,9 @@ function app() {
     },
     async testHostRow(idx) {
       const row = this.hostsConfig[idx];
-      if (!row) return;
+      if (!row) {
+        return;
+      }
       this.hostsTestResults = {
         ...this.hostsTestResults,
         [idx]: { pending: true },
@@ -23313,14 +25711,20 @@ function app() {
       // bare id (legacy paths). When given a string, fall back to
       // looking it up via id then resolve to _uid.
       if (typeof row === 'string') {
-        if (!row) return true;
+        if (!row) {
+          return true;
+        }
         const found = (this.hostsConfig || []).find(r => r && r.id === row);
         return found ? !!this.hostsConfigExpanded[found._uid] : false;
       }
-      if (!row) return false;
+      if (!row) {
+        return false;
+      }
       // Empty-id rows (fresh adds) always expand so the operator
       // sees the form fields without hunting for a chevron.
-      if (!row.id) return true;
+      if (!row.id) {
+        return true;
+      }
       return !!this.hostsConfigExpanded[row._uid];
     },
     toggleHostConfigRow(row) {
@@ -23328,15 +25732,23 @@ function app() {
         const found = (this.hostsConfig || []).find(r => r && r.id === row);
         row = found;
       }
-      if (!row || !row._uid) return;
+      if (!row || !row._uid) {
+        return;
+      }
       const next = { ...this.hostsConfigExpanded };
-      if (next[row._uid]) delete next[row._uid]; else next[row._uid] = true;
+      if (next[row._uid]) {
+        delete next[row._uid];
+      } else {
+        next[row._uid] = true;
+      }
       this.hostsConfigExpanded = next;
     },
     expandAllHostConfigRows() {
       const next = {};
       for (const h of (this.hostsConfig || [])) {
-        if (h && h._uid) next[h._uid] = true;
+        if (h && h._uid) {
+          next[h._uid] = true;
+        }
       }
       this.hostsConfigExpanded = next;
     },
@@ -23363,12 +25775,18 @@ function app() {
     // on, every mount is returned.
     visibleMounts(h) {
       const all = (h && h.mounts) || [];
-      if (!all.length) return [];
-      if (this.hostDisksShowEmpty[h.host]) return all;
+      if (!all.length) {
+        return [];
+      }
+      if (this.hostDisksShowEmpty[h.host]) {
+        return all;
+      }
       const active = all.filter(m => (+m.dp || 0) >= 0.5);
       // Always keep AT LEAST the root ("/" or "C:\\") so operators
       // see something even when every partition is near-empty.
-      if (active.length === 0 && all[0]) return [all[0]];
+      if (active.length === 0 && all[0]) {
+        return [all[0]];
+      }
       return active;
     },
     emptyMountCount(h) {
@@ -23385,8 +25803,12 @@ function app() {
     // settings haven't loaded yet so we don't strip fields prematurely.
     hostStatsSourceEnabled(name) {
       const raw = (this.settings && this.settings.host_stats_source) || '';
-      if (!raw) return true;  // settings not loaded yet → show everything
-      if (raw === 'none') return false;
+      if (!raw) {
+        return true;
+      }  // settings not loaded yet → show everything
+      if (raw === 'none') {
+        return false;
+      }
       const parts = String(raw).split(',').map(s => s.trim()).filter(Boolean);
       return parts.includes(name);
     },
@@ -23403,7 +25825,9 @@ function app() {
     // Returns an array of field names that were filled, for the UI.
     autofillHostRowFromAsset(idx) {
       const row = (this.hostsConfig || [])[idx];
-      if (!row) return [];
+      if (!row) {
+        return [];
+      }
       const asset = this.assetForHost({ custom_number: row.custom_number });
       if (!asset) {
         this.showToast(this.t('admin_hosts.autofill.no_match', { n: row.custom_number }), 'warning');
@@ -23418,13 +25842,21 @@ function app() {
       // hostnames-without-dots are returned unchanged.
       const _stripDomain = (raw) => {
         const v = String(raw || '').trim();
-        if (!v) return '';
+        if (!v) {
+          return '';
+        }
         // Bare hostname (no dot) — nothing to strip.
-        if (v.indexOf('.') === -1) return v;
+        if (v.indexOf('.') === -1) {
+          return v;
+        }
         // IPv4 — leave intact.
-        if (/^\d+\.\d+\.\d+\.\d+$/.test(v)) return v;
+        if (/^\d+\.\d+\.\d+\.\d+$/.test(v)) {
+          return v;
+        }
         // IPv6 — leave intact (contains `:`, no other shape collides).
-        if (v.indexOf(':') !== -1) return v;
+        if (v.indexOf(':') !== -1) {
+          return v;
+        }
         // FQDN — keep the leading label only.
         return v.split('.')[0];
       };
@@ -23493,7 +25925,9 @@ function app() {
     // autofill button is shown vs hidden. Cheap lookup via the shared
     // `assetForHost` helper.
     hostRowHasAssetMatch(row) {
-      if (!row || row.custom_number == null || row.custom_number === '') return false;
+      if (!row || row.custom_number == null || row.custom_number === '') {
+        return false;
+      }
       return !!this.assetForHost({ custom_number: row.custom_number });
     },
 
@@ -23559,7 +25993,9 @@ function app() {
             last.scrollIntoView({ behavior: 'smooth', block: 'center' });
             // Focus the ID input for immediate typing.
             const idInput = last.querySelector('input[placeholder*="host01"], input[placeholder*="example"]');
-            if (idInput && typeof idInput.focus === 'function') idInput.focus();
+            if (idInput && typeof idInput.focus === 'function') {
+              idInput.focus();
+            }
           }
         }, 50);
       });
@@ -23591,7 +26027,9 @@ function app() {
           const buf = new Uint8Array(8);
           crypto.getRandomValues(buf);
           let hex = '';
-          for (let i = 0; i < buf.length; i++) hex += buf[i].toString(16).padStart(2, '0');
+          for (let i = 0; i < buf.length; i++) {
+            hex += buf[i].toString(16).padStart(2, '0');
+          }
           return 'r' + hex;
         }
       } catch (_) { /* unreachable on any spec-compliant browser */ }
@@ -23614,7 +26052,9 @@ function app() {
     onHostRowEdit(idx, field, _value) {
       this.markHostRowDirty(idx);
       const row = this.hostsConfig[idx];
-      if (!row) return;
+      if (!row) {
+        return;
+      }
       if (field === 'id') {
         // Operator-flagged: do NOT auto-fill `row.label` from the
         // typed id. Pre-fix the editor mirrored the id into the label
@@ -23651,7 +26091,9 @@ function app() {
     //    Lets labels like "[VM] Debian OS 13 (WebServer 01) (Apache)"
     //    auto-match without the operator setting an icon manually.
     hostIconUrl(h) {
-      if (!h) return '';
+      if (!h) {
+        return '';
+      }
       // Sentinel "no icon" values — operator sets one of these when the
       // auto keyword-scan picks the WRONG brand icon and they want to
       // render no icon at all rather than the wrong one (e.g. a host
@@ -23669,7 +26111,9 @@ function app() {
         // Slug aliases cover the common "wrong name" cases where the
         // icon file is stored under a different slug than the brand's
         // common name (e.g. "adguard" → adguard-home.svg).
-        if (/^https?:/i.test(h.icon) || h.icon.startsWith('/')) return h.icon;
+        if (/^https?:/i.test(h.icon) || h.icon.startsWith('/')) {
+          return h.icon;
+        }
         const aliases = {
           'adguard':         'adguard-home',
           'ad-guard':        'adguard-home',
@@ -23839,7 +26283,9 @@ function app() {
       ].filter(Boolean);
       for (const c of candidates) {
         const url = this.iconUrlFor(c);
-        if (url) return url;
+        if (url) {
+          return url;
+        }
       }
       // Step 3 — keyword scan. Lowercase hay from label + id, then
       // test each known token. Order matters: longer / more specific
@@ -24344,7 +26790,9 @@ function app() {
         ['wd-tv',                 'wd'],
       ];
       for (const [needle, slug] of tokens) {
-        if (hay.includes(needle)) return this._themeIcon('/img/icons/' + slug + '.svg');
+        if (hay.includes(needle)) {
+          return this._themeIcon('/img/icons/' + slug + '.svg');
+        }
       }
       return '';
     },
@@ -24363,7 +26811,9 @@ function app() {
     // test result since the row's idx just moved.
     moveHostRow(idx, delta) {
       const dest = idx + delta;
-      if (dest < 0 || dest >= this.hostsConfig.length) return;
+      if (dest < 0 || dest >= this.hostsConfig.length) {
+        return;
+      }
       const [row] = this.hostsConfig.splice(idx, 1);
       this.hostsConfig.splice(dest, 0, row);
       this.hostsTestResults = {};
@@ -24377,7 +26827,9 @@ function app() {
     // the visual relationship is obvious.
     duplicateHostRow(idx) {
       const src = this.hostsConfig[idx];
-      if (!src) return;
+      if (!src) {
+        return;
+      }
       const copy = {
         ...src,
         id:    (src.id ? 'copy-of-' + src.id : ''),
@@ -24400,7 +26852,9 @@ function app() {
         // field is visible. Looks up the row by id to find its
         // stable `_uid` (the actual key in hostsConfigExpanded
         // since the typing-collapse fix).
-        if (!id) return;
+        if (!id) {
+          return;
+        }
         const row = (this.hostsConfig || []).find(r => r && r.id === id);
         const uid = row && row._uid;
         if (uid && !this.hostsConfigExpanded[uid]) {
@@ -24426,7 +26880,9 @@ function app() {
       // Empty id + other data — surface on the id input itself.
       for (let i = 0; i < (this.hostsConfig || []).length; i++) {
         const h = this.hostsConfig[i] || {};
-        if ((h.id || '').trim() !== '') continue;
+        if ((h.id || '').trim() !== '') {
+          continue;
+        }
         const hasOtherData = (
           (h.label || '').trim() ||
           (h.ne_url || '').trim() ||
@@ -24448,12 +26904,18 @@ function app() {
       const byCn = new Map();
       (this.hostsConfig || []).forEach((h, i) => {
         const cn = parseInt(h.custom_number, 10);
-        if (!Number.isFinite(cn)) return;
-        if (!byCn.has(cn)) byCn.set(cn, []);
+        if (!Number.isFinite(cn)) {
+          return;
+        }
+        if (!byCn.has(cn)) {
+          byCn.set(cn, []);
+        }
         byCn.get(cn).push(i);
       });
       for (const [cn, idxs] of byCn.entries()) {
-        if (idxs.length < 2) continue;
+        if (idxs.length < 2) {
+          continue;
+        }
         for (const i of idxs) {
           this.setFieldError('host_' + i + '_cn',
             this.t('toasts_extra.custom_number_duplicate_inline', { cn }));
@@ -24479,7 +26941,9 @@ function app() {
         let num = null;
         if (rawNum !== '' && rawNum !== null && rawNum !== undefined) {
           const parsed = parseInt(rawNum, 10);
-          if (Number.isFinite(parsed)) num = parsed;
+          if (Number.isFinite(parsed)) {
+            num = parsed;
+          }
         }
         // Per-host SSH — strip falsy / blank keys so the DB doesn't
         // persist empty strings that would shadow the global default.
@@ -24488,12 +26952,20 @@ function app() {
         // reads `fqdn` first, then `host`).
         const sshIn = h.ssh || {};
         const sshOut = {};
-        if ((sshIn.user || '').trim()) sshOut.user = sshIn.user.trim();
-        if ((sshIn.fqdn || '').trim()) sshOut.fqdn = sshIn.fqdn.trim();
-        if ((sshIn.host || '').trim()) sshOut.host = sshIn.host.trim();
+        if ((sshIn.user || '').trim()) {
+          sshOut.user = sshIn.user.trim();
+        }
+        if ((sshIn.fqdn || '').trim()) {
+          sshOut.fqdn = sshIn.fqdn.trim();
+        }
+        if ((sshIn.host || '').trim()) {
+          sshOut.host = sshIn.host.trim();
+        }
         if (sshIn.port) {
           const p = parseInt(sshIn.port, 10);
-          if (Number.isFinite(p) && p >= 1 && p <= 65535) sshOut.port = p;
+          if (Number.isFinite(p) && p >= 1 && p <= 65535) {
+            sshOut.port = p;
+          }
         }
         // Passwords are write-only — any non-empty string overwrites.
         // Empty = "no override" (fall back to global default password).
@@ -24514,18 +26986,26 @@ function app() {
         // legacy `disabled` → `enabled` ONCE on first boot post-fix;
         // re-applying that conversion per-save corrupts subsequent
         // operator edits.
-        if (sshIn.enabled === true) sshOut.enabled = true;
+        if (sshIn.enabled === true) {
+          sshOut.enabled = true;
+        }
         // Per-host ping. Same shape contract as ssh — strip
         // falsy / blank keys so empty strings don't poison the merge.
         const pingIn = h.ping || {};
         const pingOut = {};
-        if (pingIn.enabled) pingOut.enabled = true;
+        if (pingIn.enabled) {
+          pingOut.enabled = true;
+        }
         if (pingIn.port) {
           const pp = parseInt(pingIn.port, 10);
-          if (Number.isFinite(pp) && pp >= 1 && pp <= 65535) pingOut.port = pp;
+          if (Number.isFinite(pp) && pp >= 1 && pp <= 65535) {
+            pingOut.port = pp;
+          }
         }
         const pt = String(pingIn.transport || '').trim().toLowerCase();
-        if (pt === 'tcp' || pt === 'icmp') pingOut.transport = pt;
+        if (pt === 'tcp' || pt === 'icmp') {
+          pingOut.transport = pt;
+        }
         // Per-host SNMP override. Same strip-blanks pattern as
         // ssh / ping — every key falls back to the global default when
         // empty, so we only persist explicit overrides.
@@ -24537,18 +27017,28 @@ function app() {
         // mirrors this contract (only persists when raw value is
         // explicitly truthy) and _merge_one_host gates the probe on
         // `enabled is True` (no default-true fallback).
-        if (snmpIn.enabled === true) snmpOut.enabled = true;
+        if (snmpIn.enabled === true) {
+          snmpOut.enabled = true;
+        }
         const sc = String(snmpIn.community || '').trim();
-        if (sc) snmpOut.community = sc;
+        if (sc) {
+          snmpOut.community = sc;
+        }
         const sv = String(snmpIn.version || '').trim().toLowerCase();
-        if (sv === 'v2c' || sv === 'v3') snmpOut.version = sv;
+        if (sv === 'v2c' || sv === 'v3') {
+          snmpOut.version = sv;
+        }
         if (snmpIn.port) {
           const sp = parseInt(snmpIn.port, 10);
-          if (Number.isFinite(sp) && sp >= 1 && sp <= 65535) snmpOut.port = sp;
+          if (Number.isFinite(sp) && sp >= 1 && sp <= 65535) {
+            snmpOut.port = sp;
+          }
         }
         for (const k of ['v3_user', 'v3_auth_key', 'v3_priv_key']) {
           const sval = String(snmpIn[k] || '').trim();
-          if (sval) snmpOut[k] = sval;
+          if (sval) {
+            snmpOut[k] = sval;
+          }
         }
         // Per-host SNMP walk_concurrency override. Server-class BMCs
         // (Dell iDRAC, Cisco IMC, Supermicro IPMI) handle parallel
@@ -24588,7 +27078,9 @@ function app() {
               .map(v => String(v || '').trim().toLowerCase())
               .filter(v => validSet.has(v))
           )).sort();
-          if (cleanVendors.length) snmpOut.vendors = cleanVendors;
+          if (cleanVendors.length) {
+            snmpOut.vendors = cleanVendors;
+          }
         }
         // Per-host mount-exclusion list. Operator-supplied paths to
         // drop from the SNMP storage extractor output — covers
@@ -24603,14 +27095,18 @@ function app() {
             .map(s => s.trim())
             .filter(s => s.length > 0);
           const cleanExcl = Array.from(new Set(lines)).slice(0, 32);
-          if (cleanExcl.length) snmpOut.exclude_mounts = cleanExcl;
+          if (cleanExcl.length) {
+            snmpOut.exclude_mounts = cleanExcl;
+          }
         } else if (Array.isArray(snmpIn.exclude_mounts)) {
           const cleanExcl = Array.from(new Set(
             snmpIn.exclude_mounts
               .map(s => String(s || '').trim())
               .filter(s => s.length > 0)
           )).slice(0, 32);
-          if (cleanExcl.length) snmpOut.exclude_mounts = cleanExcl;
+          if (cleanExcl.length) {
+            snmpOut.exclude_mounts = cleanExcl;
+          }
         }
         // host-level enable gates every per-provider enable.
         // A disabled host cannot have any provider enabled. Strip
@@ -24661,7 +27157,9 @@ function app() {
       for (const h of (this.hostsConfig || [])) {
         const id = (h.id || '').trim();
         const url = (h.webmin_url || '').trim().replace(/\/$/, '');
-        if (id && url) webminAliases[id] = url;
+        if (id && url) {
+          webminAliases[id] = url;
+        }
       }
       this.hostsConfigSaving = true;
       try {
@@ -24687,7 +27185,9 @@ function app() {
         // the operator hits Save.
         const oldUidById = {};
         for (const r of (this.hostsConfig || [])) {
-          if (r && r.id && r._uid) oldUidById[r.id] = r._uid;
+          if (r && r.id && r._uid) {
+            oldUidById[r.id] = r._uid;
+          }
         }
         this.hostsConfig = d.hosts || [];
         // Invalidate the filtered-list cache: the
@@ -24709,7 +27209,9 @@ function app() {
         // the previous one when the id matches; mint fresh otherwise).
         for (const row of this.hostsConfig) {
           row.webmin_url = webminAliases[row.id] || '';
-          if (!row.ssh || typeof row.ssh !== 'object') row.ssh = {};
+          if (!row.ssh || typeof row.ssh !== 'object') {
+            row.ssh = {};
+          }
           row._uid = oldUidById[row.id] || this._mintRowUid();
         }
         this.rebuildHostsConfigOrder();
@@ -24720,7 +27222,9 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ webmin_aliases: webminAliases }),
         }).catch(() => {});
-        if (this.settings) this.settings.webmin_aliases = webminAliases;
+        if (this.settings) {
+          this.settings.webmin_aliases = webminAliases;
+        }
         this.hostsConfigDirty = false;
         this.showToast(this.t('admin_hosts.saved_n', { count: d.count }), 'success');
         // Refresh the Hosts tab data unconditionally — was previously
@@ -24757,10 +27261,14 @@ function app() {
     // first sub-group window.
     addHostSubGroup(parentName) {
       const name = (parentName || '').trim();
-      if (!name) return;
+      if (!name) {
+        return;
+      }
       const groups = this.hostGroups || [];
       const parent = groups.find(g => !(g && g.parent_name) && (g.name || '').trim() === name);
-      if (!parent) return;
+      if (!parent) {
+        return;
+      }
       const childEnds = groups
         .filter(g => g && (g.parent_name || '').trim() === name)
         .map(g => parseInt(g.range_end, 10))
@@ -24775,7 +27283,9 @@ function app() {
       // an immediate inline error after click).
       const parentEnd = parseInt(parent.range_end, 10);
       let endAt = startAt + SPAN - 1;
-      if (Number.isFinite(parentEnd)) endAt = Math.min(endAt, parentEnd);
+      if (Number.isFinite(parentEnd)) {
+        endAt = Math.min(endAt, parentEnd);
+      }
       const next = {
         name: '',
         range_start: startAt,
@@ -24828,7 +27338,9 @@ function app() {
       // reactivity flush triggers the select-binding effect.
       this.$nextTick(() => {
         const list = this.hostGroups || [];
-        if (list[newIdx]) list[newIdx].parent_name = name;
+        if (list[newIdx]) {
+          list[newIdx].parent_name = name;
+        }
         // Then page-jump to the new sub-group's row so it scrolls
         // into view alongside its parent. Same calculation as
         // addHostGroup — done after the parent_name set so the
@@ -24848,7 +27360,9 @@ function app() {
           if (card && typeof card.scrollIntoView === 'function') {
             card.scrollIntoView({ behavior: 'smooth', block: 'center' });
             const nameInput = card.querySelector('input[type="text"]');
-            if (nameInput && typeof nameInput.focus === 'function') nameInput.focus();
+            if (nameInput && typeof nameInput.focus === 'function') {
+              nameInput.focus();
+            }
           }
         }, 50);
       });
@@ -24902,7 +27416,9 @@ function app() {
     // operator's optional `number` prefix when set so groups read as
     // "32 Smart & IOT Routers" rather than just "Smart & IOT Routers".
     hostGroupHeading(g) {
-      if (!g) return '';
+      if (!g) {
+        return '';
+      }
       const name = String(g.name || '');
       const num = (g.number != null && +g.number > 0) ? +g.number : null;
       // Format: "<number>. <name>" — dot separator for visual
@@ -24988,9 +27504,13 @@ function app() {
       // Pass 2: group sub-rows by their parent_name.
       const subs = new Map();
       for (const e of arr) {
-        if (!e.g.parent_name) continue;
+        if (!e.g.parent_name) {
+          continue;
+        }
         const key = e.g.parent_name;
-        if (!subs.has(key)) subs.set(key, []);
+        if (!subs.has(key)) {
+          subs.set(key, []);
+        }
         subs.get(key).push(e);
       }
       // Weave: each top-level row followed by its children — but
@@ -25010,9 +27530,15 @@ function app() {
         out.push(t);
         seen.add(t.origIdx);
         const kids = subs.get(t.g.name);
-        if (!kids) continue;
-        for (const k of kids) seen.add(k.origIdx);
-        if (!collapsed.has(t.g.name)) out.push(...kids);
+        if (!kids) {
+          continue;
+        }
+        for (const k of kids) {
+          seen.add(k.origIdx);
+        }
+        if (!collapsed.has(t.g.name)) {
+          out.push(...kids);
+        }
       }
       // True orphaned sub-groups (parent_name set but no matching
       // top-level group) still sink to the bottom so they stay
@@ -25020,7 +27546,9 @@ function app() {
       // `saveHostGroups` rejects them with inline errors, but the
       // operator has to SEE them first.
       for (const e of arr) {
-        if (!seen.has(e.origIdx)) out.push(e);
+        if (!seen.has(e.origIdx)) {
+          out.push(e);
+        }
       }
       return out;
     },
@@ -25062,7 +27590,9 @@ function app() {
     hostGroupsNextPage() { this.hostGroupsGoToPage(this.hostGroupsPage + 1); },
     hostGroupsSetPerPage(n) {
       const v = parseInt(n, 10);
-      if (!Number.isFinite(v) || v < 1) return;
+      if (!Number.isFinite(v) || v < 1) {
+        return;
+      }
       this.hostGroupsPerPage = v;
       try { localStorage.setItem('hostGroupsPerPage', String(v)); } catch {}
       this.hostGroupsPage = Math.min(this.hostGroupsPage, this.hostGroupsTotalPages());
@@ -25084,7 +27614,9 @@ function app() {
     // "(N children)" before deciding whether to expand.
     hostGroupChildCount(parentName) {
       const name = (parentName || '').trim();
-      if (!name) return 0;
+      if (!name) {
+        return 0;
+      }
       return (this.hostGroups || [])
         .filter(g => (g.parent_name || '').trim() === name)
         .length;
@@ -25141,7 +27673,9 @@ function app() {
       // first, let Alpine render with the empty placeholder, then in
       // a double-nextTick reassign the real value so x-model rebinds
       // after the <option> x-for has finished inserting its children.
-      if (wereCollapsed.size === 0) return;
+      if (wereCollapsed.size === 0) {
+        return;
+      }
       const groups = this.hostGroups || [];
       const restore = [];
       for (let i = 0; i < groups.length; i++) {
@@ -25152,12 +27686,16 @@ function app() {
           g.parent_name = '';
         }
       }
-      if (restore.length === 0) return;
+      if (restore.length === 0) {
+        return;
+      }
       this.$nextTick(() => {
         this.$nextTick(() => {
           const list = this.hostGroups || [];
           for (const { idx, value } of restore) {
-            if (list[idx]) list[idx].parent_name = value;
+            if (list[idx]) {
+              list[idx].parent_name = value;
+            }
           }
         });
       });
@@ -25210,9 +27748,15 @@ function app() {
     // editing nested rows further down the page.
     toggleHostGroupParentCollapsed(parentName) {
       const name = (parentName || '').trim();
-      if (!name) return;
+      if (!name) {
+        return;
+      }
       const set = new Set(this.hostGroupsEditorParentCollapsed || []);
-      if (set.has(name)) set.delete(name); else set.add(name);
+      if (set.has(name)) {
+        set.delete(name);
+      } else {
+        set.add(name);
+      }
       this.hostGroupsEditorParentCollapsed = [...set];
       try {
         if (typeof localStorage !== 'undefined') {
@@ -25228,7 +27772,9 @@ function app() {
     // and range tail are both optional; missing parts collapse cleanly
     // (e.g. just "<name>" if number + range are blank).
     hostGroupCollapsedSummary(g) {
-      if (!g) return '';
+      if (!g) {
+        return '';
+      }
       const parts = [];
       const num = g.number;
       const name = (g.name || '').trim();
@@ -25250,10 +27796,16 @@ function app() {
     },
     toggleHostGroupChildrenCollapsed(parentName) {
       const name = (parentName || '').trim();
-      if (!name) return;
+      if (!name) {
+        return;
+      }
       const set = new Set(this.hostGroupsEditorChildrenCollapsed || []);
       const wasCollapsed = set.has(name);
-      if (wasCollapsed) set.delete(name); else set.add(name);
+      if (wasCollapsed) {
+        set.delete(name);
+      } else {
+        set.add(name);
+      }
       this.hostGroupsEditorChildrenCollapsed = [...set];
       try {
         if (typeof localStorage !== 'undefined') {
@@ -25277,7 +27829,9 @@ function app() {
       // x-model effect fire on a TRUE value change and rebind the
       // select. Self-assignment doesn't work because Alpine elides
       // identical-value writes.
-      if (!wasCollapsed) return;  // we just collapsed — no children visible to fix
+      if (!wasCollapsed) {
+        return;
+      }  // we just collapsed — no children visible to fix
       const groups = this.hostGroups || [];
       const restore = [];
       for (let i = 0; i < groups.length; i++) {
@@ -25288,7 +27842,9 @@ function app() {
           g.parent_name = '';
         }
       }
-      if (restore.length === 0) return;
+      if (restore.length === 0) {
+        return;
+      }
       // First $nextTick: Alpine has rendered each sub-group's row
       // with parent_name='' so the <select> mounts uncontroversially
       // on the empty option. Second $nextTick: the inner <option>
@@ -25298,7 +27854,9 @@ function app() {
         this.$nextTick(() => {
           const list = this.hostGroups || [];
           for (const { idx, value } of restore) {
-            if (list[idx]) list[idx].parent_name = value;
+            if (list[idx]) {
+              list[idx].parent_name = value;
+            }
           }
         });
       });
@@ -25312,7 +27870,9 @@ function app() {
     moveHostGroupByListIdx(listIdx, dir) {
       const sorted = this.sortedGroupsForEditor();
       const j = listIdx + dir;
-      if (j < 0 || j >= sorted.length) return;
+      if (j < 0 || j >= sorted.length) {
+        return;
+      }
       const src = sorted[listIdx];
       const dst = sorted[j];
       // Refuse cross-bucket moves: a top-level row can't swap with a
@@ -25320,7 +27880,9 @@ function app() {
       // undo it. Silent no-op keeps the button harmless.
       const srcParent = src.g.parent_name || src.g.name;
       const dstParent = dst.g.parent_name || dst.g.name;
-      if (srcParent !== dstParent) return;
+      if (srcParent !== dstParent) {
+        return;
+      }
       const arr = [...this.hostGroups];
       [arr[src.origIdx], arr[dst.origIdx]] = [arr[dst.origIdx], arr[src.origIdx]];
       arr.forEach((g, i) => { g.order = i; });
@@ -25334,7 +27896,9 @@ function app() {
     moveHostGroup(idx, dir) {
       const arr = [...(this.hostGroups || [])];
       const j = idx + dir;
-      if (j < 0 || j >= arr.length) return;
+      if (j < 0 || j >= arr.length) {
+        return;
+      }
       [arr[idx], arr[j]] = [arr[j], arr[idx]];
       // Renumber `order` to match new array positions so the server
       // round-trips the change on next load.
@@ -25364,7 +27928,9 @@ function app() {
     clearFieldErrorsByPrefix(prefix) {
       const next = {};
       for (const k of Object.keys(this.fieldErrors || {})) {
-        if (!k.startsWith(prefix)) next[k] = this.fieldErrors[k];
+        if (!k.startsWith(prefix)) {
+          next[k] = this.fieldErrors[k];
+        }
       }
       this.fieldErrors = next;
     },
@@ -25375,7 +27941,9 @@ function app() {
     // operator's cursor lands on the first failing field.
     focusFirstFieldError() {
       const first = Object.keys(this.fieldErrors || {})[0];
-      if (!first) return;
+      if (!first) {
+        return;
+      }
       // If the first error is keyed against a hostsConfig row that
       // lives on a different page,
       // navigate to that page BEFORE the DOM query — otherwise the
@@ -25472,15 +28040,23 @@ function app() {
         const sshIn = (g && g.ssh && typeof g.ssh === 'object') ? g.ssh : {};
         const ssh = {};
         const sUser = String(sshIn.user || '').trim();
-        if (sUser) ssh.user = sUser;
+        if (sUser) {
+          ssh.user = sUser;
+        }
         const sPort = sshIn.port;
         if (sPort != null && sPort !== '') {
           const pi = parseInt(sPort, 10);
-          if (Number.isFinite(pi) && pi >= 1 && pi <= 65535) ssh.port = pi;
+          if (Number.isFinite(pi) && pi >= 1 && pi <= 65535) {
+            ssh.port = pi;
+          }
         }
         const sPw = String(sshIn.password || '').trim();
-        if (sPw) ssh.password = sPw;
-        if (sshIn.clear_password) ssh.clear_password = true;
+        if (sPw) {
+          ssh.password = sPw;
+        }
+        if (sshIn.clear_password) {
+          ssh.clear_password = true;
+        }
         // Optional display-prefix number. Validated as a positive
         // integer when set; uniqueness check fires later (after every
         // row is parsed so we can name the conflicting group).
@@ -25522,7 +28098,9 @@ function app() {
       const seenNumbers = new Map();
       for (let j = 0; j < clean.length; j++) {
         const g = clean[j];
-        if (g.number == null) continue;
+        if (g.number == null) {
+          continue;
+        }
         const prior = seenNumbers.get(g.number);
         if (prior !== undefined) {
           const gi = indexMap[j];
@@ -25543,7 +28121,9 @@ function app() {
       for (let j = 0; j < clean.length; j++) {
         const g = clean[j];
         const gi = indexMap[j];
-        if (!g.parent_name) continue;
+        if (!g.parent_name) {
+          continue;
+        }
         if (g.parent_name === g.name) {
           this.setFieldError('group_' + gi + '_parent',
             this.t('admin_hosts.groups.err_self_parent'));
@@ -25580,7 +28160,9 @@ function app() {
         for (let j = i + 1; j < clean.length; j++) {
           const a = clean[i], b = clean[j];
           const pc = (a.parent_name === b.name) || (b.parent_name === a.name);
-          if (pc) continue;
+          if (pc) {
+            continue;
+          }
           if (a.range_start <= b.range_end && b.range_start <= a.range_end) {
             const firstIdx = indexMap[i];
             this.setFieldError('group_' + firstIdx + '_range',
@@ -25625,7 +28207,11 @@ function app() {
     },
     toggleGroup(name) {
       const set = new Set(this.hostGroupsCollapsed || []);
-      if (set.has(name)) set.delete(name); else set.add(name);
+      if (set.has(name)) {
+        set.delete(name);
+      } else {
+        set.add(name);
+      }
       this.hostGroupsCollapsed = Array.from(set);
       try {
         localStorage.setItem(
@@ -25689,7 +28275,9 @@ function app() {
       const cacheKey = hosts.length + '|' + groups.length + '|' + (this.hostGroupsRevision || 0)
         + '|' + (this.hostsFilter || '') + '|' + (this.hideUnconfiguredHosts ? '1' : '0');
       const cached = this._groupedHostsCache;
-      if (cached.key === cacheKey && cached.value) return cached.value;
+      if (cached.key === cacheKey && cached.value) {
+        return cached.value;
+      }
 
       const all = groups.slice().sort(
         (a, b) => (a.order || 0) - (b.order || 0) || a.name.localeCompare(b.name),
@@ -25697,8 +28285,12 @@ function app() {
       const topLevel = all.filter(g => !g.parent_name);
       const subByParent = new Map();
       for (const g of all) {
-        if (!g.parent_name) continue;
-        if (!subByParent.has(g.parent_name)) subByParent.set(g.parent_name, []);
+        if (!g.parent_name) {
+          continue;
+        }
+        if (!subByParent.has(g.parent_name)) {
+          subByParent.set(g.parent_name, []);
+        }
         subByParent.get(g.parent_name).push(g);
       }
       const buckets = topLevel.map(g => ({
@@ -25729,12 +28321,18 @@ function app() {
         let lo = 0, hi = ranges.length;
         while (lo < hi) {
           const mid = (lo + hi) >>> 1;
-          if (ranges[mid][0] <= ci) lo = mid + 1; else hi = mid;
+          if (ranges[mid][0] <= ci) {
+            lo = mid + 1;
+          } else {
+            hi = mid;
+          }
         }
         // After the loop `lo` is the count of ranges with start ≤ ci.
         // Walk back through them looking for one whose end ≥ ci.
         for (let i = lo - 1; i >= 0; i--) {
-          if (ranges[i][1] >= ci) return ranges[i][2];
+          if (ranges[i][1] >= ci) {
+            return ranges[i][2];
+          }
         }
         return -1;
       };
@@ -25762,11 +28360,15 @@ function app() {
                 break;
               }
             }
-            if (!placedInChild) b.hosts.push(h);
+            if (!placedInChild) {
+              b.hosts.push(h);
+            }
             placed = true;
           }
         }
-        if (!placed) ungrouped.hosts.push(h);
+        if (!placed) {
+          ungrouped.hosts.push(h);
+        }
       }
       // Bucket filter — keep parents that have direct hosts OR a sub-group
       // with hosts. Empty parents (zero direct + zero contributing children)
@@ -25779,7 +28381,9 @@ function app() {
         b.hosts.length > 0
         || b.children.some(c => c.hosts.length > 0),
       );
-      if (ungrouped.hosts.length > 0) out.push(ungrouped);
+      if (ungrouped.hosts.length > 0) {
+        out.push(ungrouped);
+      }
       cached.key = cacheKey;
       cached.value = out;
       return out;
@@ -25881,13 +28485,17 @@ function app() {
           confirmButtonText: this.t('actions.confirm'),
           cancelButtonText:  this.t('actions.cancel'),
         }).then(r => !!r.isConfirmed) : confirm(this.t('toasts_extra.asset_clear_secret_prompt')));
-        if (!ok) return;
+        if (!ok) {
+          return;
+        }
         const r = await fetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ clear_asset_inventory_client_secret: true }),
         });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
         await this.loadSettings();
         this.showToast(this.t('admin_assets.secret_cleared'), 'success');
       } catch (e) {
@@ -25904,13 +28512,17 @@ function app() {
           confirmButtonText: this.t('actions.confirm'),
           cancelButtonText:  this.t('actions.cancel'),
         }).then(r => !!r.isConfirmed) : confirm(this.t('toasts_extra.asset_clear_token_prompt')));
-        if (!ok) return;
+        if (!ok) {
+          return;
+        }
         const r = await fetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ clear_asset_inventory_lifetime_token: true }),
         });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
         await this.loadSettings();
         this.showToast(this.t('admin_assets.lifetime_token_cleared'), 'success');
       } catch (e) {
@@ -25937,7 +28549,9 @@ function app() {
           confirmButtonText: this.t('actions.confirm'),
           cancelButtonText:  this.t('actions.cancel'),
         }).then(r => !!r.isConfirmed) : confirm(this.t(textKey)));
-        if (!ok) return;
+        if (!ok) {
+          return;
+        }
         const body = {};
         body[flag] = true;
         const r = await fetch('/api/settings', {
@@ -25945,7 +28559,9 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
         await this.loadSettings();
         this.showToast(this.t(toastKey), 'success');
       } catch (e) {
@@ -26062,7 +28678,9 @@ function app() {
     // (`vendor`/`manufacturer`/`model`/`serial`/`location`/`custom_number`)
     // so a generic non-MDI upstream still works without a schema map.
     assetForHost(h) {
-      if (!h) return null;
+      if (!h) {
+        return null;
+      }
       // Backend-provided shape (`/api/hosts*` injects `asset` keyed
       // by custom_number, see `_resolve_asset_for_host` in main.py).
       // When present we use it directly — works even before the
@@ -26074,30 +28692,46 @@ function app() {
       if (h.asset && typeof h.asset === 'object') {
         return Object.assign({ _raw: null }, h.asset);
       }
-      if (h.custom_number == null || h.custom_number === '') return null;
+      if (h.custom_number == null || h.custom_number === '') {
+        return null;
+      }
       const assets = (this.assetCache && Array.isArray(this.assetCache.assets))
         ? this.assetCache.assets : null;
-      if (!assets || !assets.length) return null;
+      if (!assets || !assets.length) {
+        return null;
+      }
       const n = parseInt(h.custom_number, 10);
-      if (!Number.isFinite(n)) return null;
+      if (!Number.isFinite(n)) {
+        return null;
+      }
       // Walk-helper: accepts a string OR a {Name}/{CalculatedName}
       // dict and returns the best display string. Catches both flat
       // and nested upstream shapes in one call.
       const pick = (...candidates) => {
         for (const v of candidates) {
-          if (v == null) continue;
-          if (typeof v === 'string' && v.trim()) return v.trim();
+          if (v == null) {
+            continue;
+          }
+          if (typeof v === 'string' && v.trim()) {
+            return v.trim();
+          }
           if (typeof v === 'object') {
             const s = v.CalculatedName || v.Name || v.name || '';
-            if (typeof s === 'string' && s.trim()) return s.trim();
+            if (typeof s === 'string' && s.trim()) {
+              return s.trim();
+            }
           }
         }
         return '';
       };
       for (const a of assets) {
-        if (!a) continue;
+        if (!a) {
+          continue;
+        }
         const candidate = a.CustomNumber ?? a.custom_number ?? a.number ?? a.id;
-        if (parseInt(candidate, 10) !== n) continue;
+        if (parseInt(candidate, 10) !== n) {
+          continue;
+        }
         // Hostname CSV → array of FQDNs.
         const hostnameStr = String(a.Hostname || a.hostname || '').trim();
         const hostnames = hostnameStr ? hostnameStr.split(',').map(s => s.trim()).filter(Boolean) : [];
@@ -26108,7 +28742,9 @@ function app() {
         const ifaces = ifacesRaw.slice().sort((x, y) => {
           const xn = (x && x.Number != null) ? x.Number : Infinity;
           const yn = (y && y.Number != null) ? y.Number : Infinity;
-          if (xn !== yn) return xn - yn;
+          if (xn !== yn) {
+            return xn - yn;
+          }
           return String((x && x.Name) || '').localeCompare(String((y && y.Name) || ''));
         }).map(i => ({
           name:    String((i && (i.Name || i.name)) || '').trim(),
@@ -26125,9 +28761,13 @@ function app() {
         if (ifaces.length) {
           const enabled = ifaces.find(i => i.enabled && i.ip);
           const any = enabled || ifaces.find(i => i.ip);
-          if (any) primaryIp = any.ip;
+          if (any) {
+            primaryIp = any.ip;
+          }
         }
-        if (!primaryIp) primaryIp = String(a.ip || '').trim();
+        if (!primaryIp) {
+          primaryIp = String(a.ip || '').trim();
+        }
         // Ports — flatten the {Port: {...}} nesting MDI uses so the
         // template can read port.name / port.number / port.service_name
         // directly. ServiceName in MDI doubles as a clickable URL
@@ -26180,7 +28820,9 @@ function app() {
             const obj = (a.Type && typeof a.Type === 'object') ? a.Type
                       : (a.type && typeof a.type === 'object') ? a.type
                       : null;
-            if (!obj) return '';
+            if (!obj) {
+              return '';
+            }
             // Cast a wide net — match every casing variant + every
             // synonym for "short form" we've seen on this kind of
             // payload. First non-blank wins.
@@ -26198,9 +28840,13 @@ function app() {
               obj.alias, obj.Alias,
             ];
             for (const v of candidates) {
-              if (v == null) continue;
+              if (v == null) {
+                continue;
+              }
               const s = String(v).trim();
-              if (s) return s;
+              if (s) {
+                return s;
+              }
             }
             return '';
           })(),
@@ -26249,12 +28895,18 @@ function app() {
     // Anywhere the UI used `h.label || h.host` it should call this
     // helper instead so the asset-fallback applies consistently.
     hostDisplayName(h) {
-      if (!h) return '';
+      if (!h) {
+        return '';
+      }
       const op = (h.label || '').toString().trim();
-      if (op) return op;
+      if (op) {
+        return op;
+      }
       const asset = (typeof this.assetForHost === 'function') ? this.assetForHost(h) : null;
       const an = (asset && asset.name) ? String(asset.name).trim() : '';
-      if (an) return an;
+      if (an) {
+        return an;
+      }
       return String(h.host || h.id || '').trim();
     },
     // no `type_short`, log the available keys ONCE so the operator can
@@ -26262,17 +28914,21 @@ function app() {
     // so we don't flood the console — first asset that misses logs.
     hostTypePrefix(h) {
       const a = this.assetForHost(h);
-      if (!a) return '';
+      if (!a) {
+        return '';
+      }
       // Diagnostic — fires once per asset id when type_short is empty
       // but type IS present, suggesting the upstream Type object uses
       // a field name we don't recognise yet.
       if (!a.type_short && a.type && a._raw && a._raw.Type
           && typeof a._raw.Type === 'object') {
-        if (!this._loggedMissingTypeShort) this._loggedMissingTypeShort = new Set();
+        if (!this._loggedMissingTypeShort) {
+          this._loggedMissingTypeShort = new Set();
+        }
         const aid = String(a.id || a.type || '');
         if (!this._loggedMissingTypeShort.has(aid)) {
           this._loggedMissingTypeShort.add(aid);
-           
+
           console.info(
             '[asset] type has no recognised short-name field; available keys:',
             Object.keys(a._raw.Type || {}),
@@ -26294,16 +28950,26 @@ function app() {
     // The shaped resolver (`assetForHost`) drops fields the drawer
     // doesn't render; this returns the unfiltered upstream object.
     rawAssetForHost(h) {
-      if (!h || h.custom_number == null || h.custom_number === '') return null;
+      if (!h || h.custom_number == null || h.custom_number === '') {
+        return null;
+      }
       const assets = (this.assetCache && Array.isArray(this.assetCache.assets))
         ? this.assetCache.assets : null;
-      if (!assets || !assets.length) return null;
+      if (!assets || !assets.length) {
+        return null;
+      }
       const n = parseInt(h.custom_number, 10);
-      if (!Number.isFinite(n)) return null;
+      if (!Number.isFinite(n)) {
+        return null;
+      }
       for (const a of assets) {
-        if (!a) continue;
+        if (!a) {
+          continue;
+        }
         const cn = a.CustomNumber ?? a.custom_number ?? a.number ?? a.id;
-        if (parseInt(cn, 10) === n) return a;
+        if (parseInt(cn, 10) === n) {
+          return a;
+        }
       }
       return null;
     },
@@ -26319,7 +28985,9 @@ function app() {
     //    that may not work for every deployment.
     // 3. Empty string when no upstream / template is known.
     assetEditUrl(asset) {
-      if (!asset || asset.id == null) return '';
+      if (!asset || asset.id == null) {
+        return '';
+      }
       const tpl = ((this.assetStatus && this.assetStatus.edit_url_template) || '').trim();
       if (tpl) {
         if (tpl.includes('{id}') || tpl.includes('{custom_number}') || tpl.includes('{base}')) {
@@ -26333,7 +29001,9 @@ function app() {
         return tpl + String(asset.id);
       }
       const upstream = (this.assetCache && this.assetCache.upstream) || '';
-      if (!upstream) return '';
+      if (!upstream) {
+        return '';
+      }
       const adminBase = upstream.replace(/\/api\/?$/, '');
       return `${adminBase}?asset=${asset.id}`;
     },
@@ -26348,7 +29018,9 @@ function app() {
     // 3. Anything else — empty string (renders as a plain chip).
     assetPortServiceUrl(port, h) {
       const s = String((port && port.service_name) || '').trim();
-      if (/^https?:\/\//i.test(s)) return s;
+      if (/^https?:\/\//i.test(s)) {
+        return s;
+      }
       // Substring match on name + protocol — catches obvious HTTP
       // ports ("HTTP", "HTTPS") AND looser labels like "HTTP Admin"
       // / "NetData" (Protocol="HTTP") / "NGINX Admin" without a
@@ -26364,7 +29036,9 @@ function app() {
       // metric scrapers where DNS isn't reliable. Defaults to http
       // scheme since that's the typical raw-IP use case.
       const isIpProto = !isHttp && !isHttps && proto === 'IP';
-      if (!isHttp && !isHttps && !isIpProto) return '';
+      if (!isHttp && !isHttps && !isIpProto) {
+        return '';
+      }
 
       const asset = (h && this.assetForHost) ? this.assetForHost(h) : null;
       // Pick host (FQDN) and ip from the asset row + curated host.
@@ -26376,20 +29050,26 @@ function app() {
       if (asset && Array.isArray(asset.hostnames) && asset.hostnames.length) {
         fqdn = asset.hostnames[asset.hostnames.length - 1];
       }
-      if (!fqdn && h) fqdn = String(h.host || h.id || h.label || '').trim();
+      if (!fqdn && h) {
+        fqdn = String(h.host || h.id || h.label || '').trim();
+      }
       const ip = (asset && asset.primary_ip) || (h && h.ip) || '';
 
       // IP-protocol path uses raw IP and falls back to FQDN if no
       // IP is known (better something clickable than nothing).
       if (isIpProto) {
         const target = ip || fqdn;
-        if (!target) return '';
+        if (!target) {
+          return '';
+        }
         const num = (port && port.number != null) ? port.number : null;
         const portSuffix = (num != null) ? (':' + num) : '';
         return `http://${target}${portSuffix}`;
       }
 
-      if (!fqdn) return '';
+      if (!fqdn) {
+        return '';
+      }
       const scheme = isHttps ? 'https' : 'http';
       const defaultPort = isHttps ? 443 : 80;
       const num = (port && port.number != null) ? port.number : null;
@@ -26434,8 +29114,12 @@ function app() {
     // scroll into view start fetching slightly early — operators
     // don't see a "loading" flash mid-scroll.
     _ensureHostRowObserver() {
-      if (this._hostRowObserver) return this._hostRowObserver;
-      if (typeof IntersectionObserver === 'undefined') return null;
+      if (this._hostRowObserver) {
+        return this._hostRowObserver;
+      }
+      if (typeof IntersectionObserver === 'undefined') {
+        return null;
+      }
       // observer hits collect into a pending Set + debounce
       // by 200 ms before flushing. Rapid scroll past a long list
       // (e.g. 200-host fleet) coalesces into one queue load instead
@@ -26451,13 +29135,19 @@ function app() {
       // shared worker pool. Pre-fix the flush was a closure-local
       // helper that the SSE path couldn't reach.
       this._scheduleHostObserverFlush = () => {
-        if (this._hostObserverFlushTimer) clearTimeout(this._hostObserverFlushTimer);
+        if (this._hostObserverFlushTimer) {
+          clearTimeout(this._hostObserverFlushTimer);
+        }
         this._hostObserverFlushTimer = setTimeout(() => {
           this._hostObserverFlushTimer = null;
           const ids = [...(this._hostObserverPending || new Set())];
           this._hostObserverPending = new Set();
-          if (!ids.length) return;
-          for (const id of ids) this._hostSeenIds.add(id);
+          if (!ids.length) {
+            return;
+          }
+          for (const id of ids) {
+            this._hostSeenIds.add(id);
+          }
           this._runHostRefreshQueue(ids).catch(() => {});
           // Warm host history for visible rows so the inline 1h-trend
           // sparkline overlaid on each CPU / Mem / Disk stat-bar has
@@ -26476,7 +29166,9 @@ function app() {
           // exporter is configured.
           for (const id of ids) {
             const h = (this.hosts || []).find(x => x && x.id === id);
-            if (!h) continue;
+            if (!h) {
+              continue;
+            }
             // Beszel / NE / Pulse / Webmin prefetch. Gate accepts
             // either the post-probe `beszel_id` OR the curated
             // `beszel_name` (operator alias) — pre-fix the gate
@@ -26517,10 +29209,16 @@ function app() {
       };
       const handle = (entries) => {
         for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
+          if (!entry.isIntersecting) {
+            continue;
+          }
           const id = entry.target && entry.target.getAttribute('data-host-id');
-          if (!id) continue;
-          if (this._hostSeenIds.has(id)) continue;
+          if (!id) {
+            continue;
+          }
+          if (this._hostSeenIds.has(id)) {
+            continue;
+          }
           this._hostObserverPending.add(id);
         }
         this._scheduleHostObserverFlush();
@@ -26532,7 +29230,9 @@ function app() {
       return this._hostRowObserver;
     },
     observeHostRow(el, id) {
-      if (!el || !id) return;
+      if (!el || !id) {
+        return;
+      }
       const obs = this._ensureHostRowObserver();
       if (!obs) {
         // Browser without IntersectionObserver — fall back to eager
@@ -26561,7 +29261,11 @@ function app() {
       // from SSE event handlers — those should also push here via
       // `_hostObserverPending.add(id) + scheduleFlush()` so every
       // path shares one cap.
-      for (const id of (ids || [])) if (id) this._enqueueHostRefresh(id);
+      for (const id of (ids || [])) {
+        if (id) {
+          this._enqueueHostRefresh(id);
+        }
+      }
       await this._ensureHostRefreshWorkers();
     },
     // Shared queue + worker count used by ALL host-refresh call sites
@@ -26582,16 +29286,22 @@ function app() {
       const PARALLEL = (this.me && this.me.client_config
                         && this.me.client_config.hosts_parallel_fetch) || 6;
       const need = Math.max(0, PARALLEL - this._hostRefreshWorkerCount);
-      if (!need) return;
+      if (!need) {
+        return;
+      }
       const queue = this._hostRefreshQueue || [];
       const slots = Math.min(need, queue.length);
-      if (!slots) return;
+      if (!slots) {
+        return;
+      }
       const worker = async () => {
         this._hostRefreshWorkerCount += 1;
         try {
           while (this._hostRefreshQueue && this._hostRefreshQueue.length) {
             const id = this._hostRefreshQueue.shift();
-            if (!id) break;
+            if (!id) {
+              break;
+            }
             try { await this.refreshHostRow(id); }
             catch (_) { /* per-row failure stays isolated */ }
           }
@@ -26600,7 +29310,9 @@ function app() {
         }
       };
       const workers = [];
-      for (let i = 0; i < slots; i++) workers.push(worker());
+      for (let i = 0; i < slots; i++) {
+        workers.push(worker());
+      }
       await Promise.all(workers);
     },
 
@@ -26613,7 +29325,9 @@ function app() {
       // after `_LOAD_BUSY_MAX_MS` so the UI recovers on its own; the
       // hung fetch keeps running in the background and a later poll
       // recovers state once the network resumes.
-      const _wd = setTimeout(() => { if (this.hostsLoading) this.hostsLoading = false; },
+      const _wd = setTimeout(() => { if (this.hostsLoading) {
+          this.hostsLoading = false;
+        } },
                              this._LOAD_BUSY_MAX_MS || 30000);
       try {
         // `force=true` bypasses the backend's 10s `_host_provider_cache`
@@ -26704,7 +29418,9 @@ function app() {
             // dot on every 15s poll cycle (most visible on paused /
             // down hosts whose red dot was the visual anchor).
             for (const k of CURATED_FIELDS) {
-              if (k in h) existing[k] = h[k];
+              if (k in h) {
+                existing[k] = h[k];
+              }
             }
             existing._seq = i;
             if (skipProbe) {
@@ -26712,7 +29428,9 @@ function app() {
               // Unconfigured rows skip the per-host probe entirely, so
               // make sure they aren't stuck on a stale spinner from a
               // previous configured-then-unmapped state.
-              if (existing._loading) existing._loading = false;
+              if (existing._loading) {
+                existing._loading = false;
+              }
             }
           } else {
             // Brand-new row — push the full skeleton so it renders.
@@ -26762,8 +29480,12 @@ function app() {
           let trimmed = 0;
           const next = new Set();
           for (const id of this.selectedHosts) {
-            if (incomingIds.has(id)) next.add(id);
-            else trimmed += 1;
+            if (incomingIds.has(id)) {
+              next.add(id);
+            }
+            else {
+              trimmed += 1;
+            }
           }
           if (trimmed > 0) {
             this.selectedHosts = next;
@@ -26822,7 +29544,9 @@ function app() {
       const queueIds = this.hosts
         .filter(h => h.status !== 'unconfigured' && this._hostSeenIds.has(h.id))
         .map(h => h.id);
-      for (const id of queueIds) this._enqueueHostRefresh(id);
+      for (const id of queueIds) {
+        this._enqueueHostRefresh(id);
+      }
       // Fire-and-forget — page paints as workers complete; history
       // pre-fetch (below) runs in parallel with the per-host stat
       // fetches.
@@ -26833,7 +29557,9 @@ function app() {
       // stat fetches.
       for (const name of this.hostsExpanded || []) {
         const host = this.hosts.find(h => h.host === name);
-        if (!host) continue;
+        if (!host) {
+          continue;
+        }
         const key = this.hostHistoryKey(host);
         // Fire on Beszel-mapped hosts OR NE-only hosts (ne_url set).
         // Skipping NE-only hosts here was the bug that left the new
@@ -26855,7 +29581,9 @@ function app() {
       // history is fresh. Same SNMP retry layered alongside.
       for (const id of (this._hostSeenIds || [])) {
         const host = this.hosts.find(h => h.id === id);
-        if (!host) continue;
+        if (!host) {
+          continue;
+        }
         if (host.beszel_id || host.ne_url || host.pulse_name || host.webmin_name) {
           const key = this.hostHistoryKey(host);
           const cached = key && this.hostHistory && this.hostHistory[key];
@@ -26948,9 +29676,13 @@ function app() {
         // tick polls normally.
         delete this._hostRow504Until[id];
         const { host } = await r.json();
-        if (!host) return;
+        if (!host) {
+          return;
+        }
         const row = this.hosts.find(h => h.id === id);
-        if (!row) return;
+        if (!row) {
+          return;
+        }
         // In-place update: copy every field from the new host dict
         // into the existing row. Alpine's proxy picks up each
         // assignment individually, so the host's :key hasn't
@@ -27179,8 +29911,12 @@ function app() {
                 console.warn('[port_scan] hard-timeout clearing in-flight marker for ' + host.id);
                 delete this._inFlightPortScans[host.id];
                 const row = (this.hosts || []).find(h => h && h.id === host.id);
-                if (row) row._port_scan_running = false;
-                if (host) host._port_scan_running = false;
+                if (row) {
+                  row._port_scan_running = false;
+                }
+                if (host) {
+                  host._port_scan_running = false;
+                }
               }
             } catch (_) {}
           }, 600000);
@@ -27216,7 +29952,9 @@ function app() {
         // queue the same host repeatedly.
         if (!queued) {
           host._port_scan_running = false;
-          if (this._inFlightPortScans) delete this._inFlightPortScans[host.id];
+          if (this._inFlightPortScans) {
+            delete this._inFlightPortScans[host.id];
+          }
         }
       }
     },
@@ -27269,7 +30007,9 @@ function app() {
         } catch (_) { /* not JSON — fall through */ }
       }
       // 4. Short plain text — pass through.
-      if (trimmed && trimmed.length <= 200) return trimmed;
+      if (trimmed && trimmed.length <= 200) {
+        return trimmed;
+      }
       // 5. Fallback.
       return this.t('common.errors.http_status', { status: sCode })
         || ('HTTP ' + sCode);
@@ -27281,7 +30021,9 @@ function app() {
     // could have disabled the service; surfacing as info-grey is the
     // honest signal).
     curatedOnlyServices(host) {
-      if (!host) return [];
+      if (!host) {
+        return [];
+      }
       const detected = new Set((host.detected_ports || []).map(p => Number(p.port)));
       const curated = Array.isArray(host.services) ? host.services : [];
       return curated.filter(s => {
@@ -27305,16 +30047,28 @@ function app() {
     // tcp/udp dual-stack on the same port as a mismatch would
     // false-positive routinely.
     portScanShouldFlag(host, port) {
-      if (!host || !port) return false;
+      if (!host || !port) {
+        return false;
+      }
       const enabled = !this.settings || this.settings.asset_inventory_enabled !== false;
-      if (!enabled) return false;
-      if (typeof this.assetForHost !== 'function') return false;
+      if (!enabled) {
+        return false;
+      }
+      if (typeof this.assetForHost !== 'function') {
+        return false;
+      }
       const asset = this.assetForHost(host);
-      if (!asset || !Array.isArray(asset.ports) || asset.ports.length === 0) return false;
+      if (!asset || !Array.isArray(asset.ports) || asset.ports.length === 0) {
+        return false;
+      }
       const portNum = Number(port.port);
-      if (!Number.isFinite(portNum) || portNum <= 0) return false;
+      if (!Number.isFinite(portNum) || portNum <= 0) {
+        return false;
+      }
       for (const ap of asset.ports) {
-        if (Number(ap && ap.number) === portNum) return false;
+        if (Number(ap && ap.number) === portNum) {
+          return false;
+        }
       }
       return true;
     },
@@ -27329,11 +30083,15 @@ function app() {
     // deterministically across renders.
     sortedDetectedPorts(host) {
       const arr = (host && Array.isArray(host.detected_ports)) ? host.detected_ports : [];
-      if (arr.length < 2) return arr;
+      if (arr.length < 2) {
+        return arr;
+      }
       return [...arr].sort((a, b) => {
         const pa = Number(a && a.port) || 0;
         const pb = Number(b && b.port) || 0;
-        if (pa !== pb) return pa - pb;
+        if (pa !== pb) {
+          return pa - pb;
+        }
         const ta = (a && a.protocol) === 'udp' ? 1 : 0;
         const tb = (b && b.protocol) === 'udp' ? 1 : 0;
         return ta - tb;
@@ -27357,9 +30115,13 @@ function app() {
     // Curated services don't carry a protocol field today, so a
     // `port: 22` curated row matches BOTH families.
     portScanChipClass(host, port) {
-      if (!host || !port) return 'pill-muted';
+      if (!host || !port) {
+        return 'pill-muted';
+      }
       const isUdp = ((port.protocol || 'tcp').toLowerCase() === 'udp');
-      if (isUdp) return 'pill-info';
+      if (isUdp) {
+        return 'pill-info';
+      }
       const curated = Array.isArray(host.services) ? host.services : [];
       const match = curated.find(s => Number(s && s.port) === Number(port.port));
       return match ? 'pill-ok' : 'pill-warning';
@@ -27371,7 +30133,9 @@ function app() {
     // — operator gets the curated/unknown context AND the asset-
     // mismatch context in one hover.
     portScanChipTitle(host, port) {
-      if (!host || !port) return '';
+      if (!host || !port) {
+        return '';
+      }
       const curated = Array.isArray(host.services) ? host.services : [];
       const match = curated.find(s => Number(s && s.port) === Number(port.port));
       const proto = (port.protocol || 'tcp').toLowerCase();
@@ -27397,14 +30161,24 @@ function app() {
     // to hosts without ANY provider mapped (curated rows that exist
     // for inventory but have no live data source).
     toggleHostsProviderFilter(name) {
-      if (!name) return;
+      if (!name) {
+        return;
+      }
       const set = new Set(this.hostsProviderFilter || []);
-      if (set.has(name)) set.delete(name); else set.add(name);
+      if (set.has(name)) {
+        set.delete(name);
+      } else {
+        set.add(name);
+      }
       this.hostsProviderFilter = set;
       try {
         if (typeof sessionStorage !== 'undefined') {
-          if (set.size) sessionStorage.setItem('hostsProviderFilter', [...set].join(','));
-          else sessionStorage.removeItem('hostsProviderFilter');
+          if (set.size) {
+            sessionStorage.setItem('hostsProviderFilter', [...set].join(','));
+          }
+          else {
+            sessionStorage.removeItem('hostsProviderFilter');
+          }
         }
       } catch (_) { /* private mode / quota — ignore */ }
     },
@@ -27429,7 +30203,9 @@ function app() {
     // outages).
     _PROBLEM_HOST_STATUSES: new Set(['down', 'paused', 'unknown']),
     isProblemHost(h) {
-      if (!h) return false;
+      if (!h) {
+        return false;
+      }
       const st = String(h.status || '').toLowerCase();
       return this._PROBLEM_HOST_STATUSES.has(st);
     },
@@ -27438,7 +30214,11 @@ function app() {
     problemHostCount() {
       const list = this.hosts || [];
       let n = 0;
-      for (const h of list) if (this.isProblemHost(h)) n++;
+      for (const h of list) {
+        if (this.isProblemHost(h)) {
+          n++;
+        }
+      }
       return n;
     },
     toggleProblemHostsFilter() {
@@ -27513,17 +30293,23 @@ function app() {
     // defined in Admin → Hosts but never hit don't appear
     // interactive (same visual feedback as a dead row).
     isHostExpandable(h) {
-      if (!h) return false;
+      if (!h) {
+        return false;
+      }
       // Admins can always expand — the drawer's debug panel is the
       // canonical tool for diagnosing "host not reporting any data"
       // and must be reachable even when the host is down or unmatched.
-      if (this.me && this.me.role === 'admin') return true;
+      if (this.me && this.me.role === 'admin') {
+        return true;
+      }
       // Asset-inventory match → expandable even without live data.
       // The drawer surfaces vendor / model / serial / interfaces /
       // ports from the cached <asset-api-host> row, so a host with NO live
       // providers (FTTH routers / 5G modems / etc. that nothing
       // scrapes) still has something worth opening.
-      if (this.assetForHost(h)) return true;
+      if (this.assetForHost(h)) {
+        return true;
+      }
       // Otherwise: any "up" host is expandable. The previous gate
       // ALSO required `h.providers.length > 0`, which rejected
       // node-exporter-only hosts where the providers field arrived
@@ -27537,7 +30323,9 @@ function app() {
     // the panel open triggers the fetch on first use; later opens reuse
     // the cached snapshot (explicit Refresh clears it).
     async toggleHostDebug(hostId) {
-      if (!hostId) return;
+      if (!hostId) {
+        return;
+      }
       const open = !this.hostsDebugOpen[hostId];
       this.hostsDebugOpen = { ...this.hostsDebugOpen, [hostId]: open };
       if (open) {
@@ -27556,7 +30344,9 @@ function app() {
     // verbatim for visual consistency.
     subjectDebugKey(kind, id) { return `${kind}:${id || ''}`; },
     async toggleSubjectDebug(kind, id) {
-      if (!kind || !id) return;
+      if (!kind || !id) {
+        return;
+      }
       const key = this.subjectDebugKey(kind, id);
       const open = !this.subjectsDebugOpen[key];
       this.subjectsDebugOpen = { ...this.subjectsDebugOpen, [key]: open };
@@ -27565,7 +30355,9 @@ function app() {
       }
     },
     async loadSubjectDebug(kind, id) {
-      if (!kind || !id) return;
+      if (!kind || !id) {
+        return;
+      }
       const key = this.subjectDebugKey(kind, id);
       this.subjectsDebugLoading = { ...this.subjectsDebugLoading, [key]: true };
       try {
@@ -27603,7 +30395,9 @@ function app() {
     // open panel is a no-op except for the re-scroll, which is what
     // you want when the operator clicks the link a second time.
     async jumpToHostDebug(hostId) {
-      if (!hostId) return;
+      if (!hostId) {
+        return;
+      }
       if (!this.hostsDebugOpen[hostId]) {
         this.hostsDebugOpen = { ...this.hostsDebugOpen, [hostId]: true };
         if (!this.hostsDebug[hostId] && !this.hostsDebugLoading[hostId]) {
@@ -27626,7 +30420,9 @@ function app() {
       this.$nextTick(() => {
         requestAnimationFrame(() => requestAnimationFrame(() => {
           const el = document.querySelector(sel);
-          if (!el) return;
+          if (!el) {
+            return;
+          }
           // Walk up to the nearest scrollable ancestor — the
           // host-drawer panel itself in practice.
           let scroller = el.parentElement;
@@ -27654,7 +30450,9 @@ function app() {
       });
     },
     async loadHostDebug(hostId) {
-      if (!hostId) return;
+      if (!hostId) {
+        return;
+      }
       this.hostsDebugLoading = { ...this.hostsDebugLoading, [hostId]: true };
       try {
         // Pass `since_hours` so the backend's `samples_in_window`
@@ -27693,7 +30491,9 @@ function app() {
     // palette pre-fetch (when the question contains service-related
     // keywords) and by the host-drawer per-service pane.
     async loadHostBeszelServices(hostId) {
-      if (!hostId) return;
+      if (!hostId) {
+        return;
+      }
       this.hostsBeszelServicesLoading = {
         ...this.hostsBeszelServicesLoading, [hostId]: true,
       };
@@ -27734,7 +30534,9 @@ function app() {
     // when the operator explicitly re-fetches (rare; the data
     // moves slowly compared to chart cadence).
     async toggleHostBeszelServices(hostId) {
-      if (!hostId) return;
+      if (!hostId) {
+        return;
+      }
       const open = !this.hostBeszelServicesOpen[hostId];
       this.hostBeszelServicesOpen = { ...this.hostBeszelServicesOpen, [hostId]: open };
       if (open) {
@@ -27756,7 +30558,9 @@ function app() {
       if (slug) {
         const key = 'host_drawer.beszel_services.state_' + slug;
         const tr = this.t(key);
-        if (tr && tr !== key) return tr;
+        if (tr && tr !== key) {
+          return tr;
+        }
         return slug.charAt(0).toUpperCase() + slug.slice(1);
       }
       return state == null ? '—' : String(state);
@@ -27767,8 +30571,12 @@ function app() {
     // in the drawer.
     beszelServicePillClass(state) {
       const s = +state;
-      if (s === 3) return 'pill-error';   // failed
-      if (s === 0) return 'pill-ok';      // active
+      if (s === 3) {
+        return 'pill-error';
+      }   // failed
+      if (s === 0) {
+        return 'pill-ok';
+      }      // active
       return 'pill-muted';                // everything else (inactive, transitional)
     },
     // Relative-age formatter for "last_change_ts" — same shape as
@@ -27776,9 +30584,15 @@ function app() {
     // (number). Outputs: "30s" / "5m" / "2.3h" / "1.2d".
     relativeAge(seconds) {
       const n = Math.max(0, Math.round(+seconds || 0));
-      if (n < 60)    return n + 's';
-      if (n < 3600)  return Math.round(n / 60) + 'm';
-      if (n < 86400) return (n / 3600).toFixed(1) + 'h';
+      if (n < 60)    {
+        return n + 's';
+      }
+      if (n < 3600)  {
+        return Math.round(n / 60) + 'm';
+      }
+      if (n < 86400) {
+        return (n / 3600).toFixed(1) + 'h';
+      }
       return (n / 86400).toFixed(1) + 'd';
     },
     // Pretty-print JSON for the Debug panel's <pre> blocks. Empty
@@ -27786,7 +30600,9 @@ function app() {
     // so the block doesn't render at all instead of showing a stub
     // "(not collected)" string that clutters the grid.
     fmtDebugJson(v) {
-      if (v === null || v === undefined) return '';
+      if (v === null || v === undefined) {
+        return '';
+      }
       try { return JSON.stringify(v, null, 2); }
       catch { return String(v); }
     },
@@ -27800,7 +30616,9 @@ function app() {
     // are still emitted (count=0) so the operator can SEE the
     // missing-data signal — this is the diagnostic.
     samplesWindowRows(win) {
-      if (!win || typeof win !== 'object') return [];
+      if (!win || typeof win !== 'object') {
+        return [];
+      }
       // Friendly labels — the raw table names (`host_snmp_samples`
       // etc.) are correct but not great. The label resolves through
       // i18n so non-en locales translate; falls back to a short form.
@@ -27824,17 +30642,29 @@ function app() {
       // with the rest of the SPA's renders.
       const fmtTs = (ts) => this.fmtDate(ts);
       const fmtAge = (s) => {
-        if (s == null) return '—';
+        if (s == null) {
+          return '—';
+        }
         const n = Math.max(0, Math.round(+s || 0));
-        if (n < 60)   return n + 's';
-        if (n < 3600) return Math.round(n / 60) + 'm';
-        if (n < 86400) return (n / 3600).toFixed(1) + 'h';
+        if (n < 60)   {
+          return n + 's';
+        }
+        if (n < 3600) {
+          return Math.round(n / 60) + 'm';
+        }
+        if (n < 86400) {
+          return (n / 3600).toFixed(1) + 'h';
+        }
         return (n / 86400).toFixed(1) + 'd';
       };
       const fmtGap = (s) => {
-        if (s == null) return '—';
+        if (s == null) {
+          return '—';
+        }
         const n = Math.max(0, Math.round(+s || 0));
-        if (n < 60)  return n + 's';
+        if (n < 60)  {
+          return n + 's';
+        }
         return Math.round(n / 60) + 'm ' + (n % 60) + 's';
       };
       const winHours = +(win.hours || 1);
@@ -27846,7 +30676,9 @@ function app() {
       const out = [];
       for (const [key, labelKey] of tables) {
         const blob = win[key];
-        if (!blob || typeof blob !== 'object') continue;
+        if (!blob || typeof blob !== 'object') {
+          continue;
+        }
         if (blob._error) {
           out.push({
             table: key,
@@ -27879,7 +30711,9 @@ function app() {
     // each box in the grid. null / undefined → false (hide); empty
     // object / empty array → false; anything else → true.
     hasDebugData(v) {
-      if (v === null || v === undefined) return false;
+      if (v === null || v === undefined) {
+        return false;
+      }
       if (typeof v === 'object') {
         return Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0;
       }
@@ -27961,11 +30795,15 @@ function app() {
     // (b) `copyAllDebug` so the bundled paste-into-issue payload
     //     includes every signal a chart-related bug needs.
     chartDataBundle(host) {
-      if (!host) return {};
+      if (!host) {
+        return {};
+      }
       const out = {};
       const nowS = Math.floor(Date.now() / 1000);
       const summarise = (label, entry, pointsKey) => {
-        if (!entry) return;
+        if (!entry) {
+          return;
+        }
         const points = entry[pointsKey] || entry.series || entry.points || [];
         const arr = Array.isArray(points) ? points : [];
         const tField = (arr[0] && (arr[0].t || arr[0].ts)) ? (arr[0].t ? 't' : 'ts') : 't';
@@ -28134,14 +30972,22 @@ function app() {
         ['Chart data', charts],
       ];
       for (const [label, value] of blocks) {
-        if (value === undefined || value === null) continue;
+        if (value === undefined || value === null) {
+          continue;
+        }
         // Skip empty objects/arrays — keeps the payload tight.
         if (typeof value === 'object'
             && !Array.isArray(value)
-            && Object.keys(value).length === 0) continue;
-        if (Array.isArray(value) && value.length === 0) continue;
+            && Object.keys(value).length === 0) {
+          continue;
+        }
+        if (Array.isArray(value) && value.length === 0) {
+          continue;
+        }
         const body = this.fmtDebugJson(value);
-        if (!body) continue;
+        if (!body) {
+          continue;
+        }
         sections.push(`## ${label}\n\`\`\`json\n${body}\n\`\`\``);
       }
       const payload = sections.join('\n\n');
@@ -28166,7 +31012,9 @@ function app() {
     // `filteredHosts()` for the hide-unconfigured filter and by the
     // toolbar count badge.
     hostHasAgent(h) {
-      if (!h) return false;
+      if (!h) {
+        return false;
+      }
       // SNMP gates on `snmp_enabled === true` per opt-in contract.
       // Counts as having an agent when EITHER `snmp_name` (provider-
       // specific override) is set OR the curated `address` field is
@@ -28227,21 +31075,29 @@ function app() {
     // / cpmCPUTotal*); shows bars for idle-at-0 hosts (Cisco SG300
     // switches at 0% CPU) which is the truthful representation.
     _hostHasFiniteSnmpHistory(h, metric) {
-      if (!h) return false;
+      if (!h) {
+        return false;
+      }
       const entry = this.hostSnmpHistory && this.hostSnmpHistory[h.id];
       const points = entry && Array.isArray(entry.points) ? entry.points : null;
-      if (!points || points.length < 2) return false;
+      if (!points || points.length < 2) {
+        return false;
+      }
       if (metric === 'cpu') {
         for (const p of points) {
           const v = p && p.cpu_used_pct;
-          if (v !== null && v !== undefined && Number.isFinite(Number(v))) return true;
+          if (v !== null && v !== undefined && Number.isFinite(Number(v))) {
+            return true;
+          }
         }
         return false;
       }
       if (metric === 'memory') {
         for (const p of points) {
           const tot = Number(p && p.mem_total);
-          if (Number.isFinite(tot) && tot > 0) return true;
+          if (Number.isFinite(tot) && tot > 0) {
+            return true;
+          }
         }
         return false;
       }
@@ -28250,8 +31106,12 @@ function app() {
       return false;
     },
     hostHasCpuMetric(h) {
-      if (!h) return false;
-      if (this._hostUnixAgent(h)) return true;
+      if (!h) {
+        return false;
+      }
+      if (this._hostUnixAgent(h)) {
+        return true;
+      }
       // DATA-FIRST gate — if the live merged row has a non-zero CPU%
       // value, the bar should render regardless of which provider
       // configuration produced it. Pre-fix the gate required
@@ -28268,7 +31128,9 @@ function app() {
       // those would render a permanent stale bar that never updates.
       // When stale, fall through to the SNMP-history capability check.
       const cpuStale = this.isStaleField(h, 'host_cpu_percent');
-      if (!cpuStale && Number(h.cpu_percent) > 0) return true;
+      if (!cpuStale && Number(h.cpu_percent) > 0) {
+        return true;
+      }
       // Capability fallback for SNMP-tracked hosts at 0% (genuine
       // idle vs. agent-doesn't-expose). Defers to SNMP history,
       // which writes NULL when the agent didn't expose host_cpu_percent
@@ -28281,8 +31143,12 @@ function app() {
       return false;
     },
     hostHasMemMetric(h) {
-      if (!h) return false;
-      if (this._hostUnixAgent(h)) return true;
+      if (!h) {
+        return false;
+      }
+      if (this._hostUnixAgent(h)) {
+        return true;
+      }
       // Data-first: any host with a non-zero mem_total has capability,
       // regardless of provider config. Same stale exception as the
       // CPU gate above. SNMP fallback uses the same strict
@@ -28290,25 +31156,35 @@ function app() {
       // resolvable target via snmp_name OR address) for consistency
       // with the chip / chart-mount surfaces.
       const memStale = this.isStaleField(h, 'host_mem_total') || this.isStaleField(h, 'host_mem_used');
-      if (!memStale && (+h.mem_total || 0) > 0) return true;
+      if (!memStale && (+h.mem_total || 0) > 0) {
+        return true;
+      }
       if (this._snmpHasProbeTarget(h)) {
         return this._hostHasFiniteSnmpHistory(h, 'memory');
       }
       return false;
     },
     hostHasDiskMetric(h) {
-      if (!h) return false;
-      if (this._hostUnixAgent(h)) return true;
+      if (!h) {
+        return false;
+      }
+      if (this._hostUnixAgent(h)) {
+        return true;
+      }
       // Data-first: any disk_total or disk_percent > 0 = capability.
       // Same stale exception as the CPU / memory gates above. Disk
       // history isn't currently surfaced by SNMP samples so there's
       // no SNMP-history fallback — when stale and no other signal,
       // the bar hides cleanly until a live provider populates it.
       const diskStale = this.isStaleField(h, 'host_disk_total') || this.isStaleField(h, 'host_disk_used');
-      if (diskStale) return false;
+      if (diskStale) {
+        return false;
+      }
       const diskTot = +h.disk_total || 0;
       const diskPct = +h.disk_percent || 0;
-      if (diskTot > 0 || diskPct > 0) return true;
+      if (diskTot > 0 || diskPct > 0) {
+        return true;
+      }
       return false;
     },
     // Outer container gate: ANY of the three axes has data. Used
@@ -28316,7 +31192,9 @@ function app() {
     // each individual bar inside ALSO gates on its own axis so
     // a CPU-only host doesn't render empty Mem + Disk bars.
     hostHasTelemetry(h) {
-      if (!h) return false;
+      if (!h) {
+        return false;
+      }
       return this.hostHasCpuMetric(h) || this.hostHasMemMetric(h) || this.hostHasDiskMetric(h);
     },
     // Display list of agents enabled on a host — used by the drawer's
@@ -28331,7 +31209,9 @@ function app() {
     // operator's POV it's a distinct opt-in agent — even though it
     // doesn't contribute CPU / Mem / Disk gauges.
     hostEnabledAgents(h) {
-      if (!h) return [];
+      if (!h) {
+        return [];
+      }
       // Each chip is `pill-custom` so it picks up the configured
       // per-provider colour via providerChipStyle. The
       // hand-mapped pill class names left over from the original
@@ -28349,13 +31229,25 @@ function app() {
       // Resume was disabled (busy-flag stuck) and the rollup-Resume
       // was enabled. Filtering at the chip-render gate makes the
       // contradictory state impossible by construction.
-      if (!h) return [];
+      if (!h) {
+        return [];
+      }
       const out = [];
-      if (h.beszel_name && this.hasHostStatsSource('beszel'))               out.push({ name: 'beszel',        label: 'Beszel' });
-      if (h.pulse_name && this.hasHostStatsSource('pulse'))                 out.push({ name: 'pulse',         label: 'Pulse' });
-      if (h.ne_url && this.hasHostStatsSource('node_exporter'))             out.push({ name: 'node_exporter', label: 'node-exporter' });
-      if (h.webmin_name && this.hasHostStatsSource('webmin'))               out.push({ name: 'webmin',        label: 'Webmin' });
-      if (h.ping_enabled && this.hasHostStatsSource('ping'))                out.push({ name: 'ping',          label: 'Ping' });
+      if (h.beszel_name && this.hasHostStatsSource('beszel'))               {
+        out.push({name: 'beszel', label: 'Beszel'});
+      }
+      if (h.pulse_name && this.hasHostStatsSource('pulse'))                 {
+        out.push({name: 'pulse', label: 'Pulse'});
+      }
+      if (h.ne_url && this.hasHostStatsSource('node_exporter'))             {
+        out.push({name: 'node_exporter', label: 'node-exporter'});
+      }
+      if (h.webmin_name && this.hasHostStatsSource('webmin'))               {
+        out.push({name: 'webmin', label: 'Webmin'});
+      }
+      if (h.ping_enabled && this.hasHostStatsSource('ping'))                {
+        out.push({name: 'ping', label: 'Ping'});
+      }
       // SNMP chip — the gate must MIRROR the SNMP sampler's actual
       // probe-target resolver chain: `aliases[id] → snmp_name →
       // address → SKIP`. Use the existing `_snmpHasProbeTarget`
@@ -28394,17 +31286,25 @@ function app() {
     // that only has Ping enabled because old SNMP / Webmin failure
     // rows still match the host_id suffix.
     pausedProvidersFor(h) {
-      if (!h) return [];
+      if (!h) {
+        return [];
+      }
       const map = h.provider_pause_state;
-      if (!map || typeof map !== 'object') return [];
+      if (!map || typeof map !== 'object') {
+        return [];
+      }
       const enabledNames = new Set(
         (this.hostEnabledAgents(h) || []).map((a) => a && a.name).filter(Boolean),
       );
       const out = [];
       for (const name of Object.keys(map)) {
-        if (!enabledNames.has(name)) continue;
+        if (!enabledNames.has(name)) {
+          continue;
+        }
         const row = map[name];
-        if (row && row.paused) out.push(name);
+        if (row && row.paused) {
+          out.push(name);
+        }
       }
       return out;
     },
@@ -28435,31 +31335,55 @@ function app() {
     //                        neither host-busy NOR any per-provider
     //                        busy on this host is set.
     canResume(h, name) {
-      if (!h || !name || !this.isAdmin()) return false;
-      if (!this.agentPauseInfo(h, name)) return false;
-      if (this.providerResumeBusy[h.id + ':' + name]) return false;
-      if (h._resumeBusy) return false;
+      if (!h || !name || !this.isAdmin()) {
+        return false;
+      }
+      if (!this.agentPauseInfo(h, name)) {
+        return false;
+      }
+      if (this.providerResumeBusy[h.id + ':' + name]) {
+        return false;
+      }
+      if (h._resumeBusy) {
+        return false;
+      }
       return true;
     },
     canResumeAny(h) {
-      if (!h || !this.isAdmin()) return false;
+      if (!h || !this.isAdmin()) {
+        return false;
+      }
       const paused = this.pausedProvidersFor(h);
-      if (!paused.length) return false;
-      if (h._resumeBusy) return false;
+      if (!paused.length) {
+        return false;
+      }
+      if (h._resumeBusy) {
+        return false;
+      }
       const hostId = h.id;
       for (const name of paused) {
-        if (this.providerResumeBusy[hostId + ':' + name]) return false;
+        if (this.providerResumeBusy[hostId + ':' + name]) {
+          return false;
+        }
       }
       return true;
     },
     canResumeHost(h) {
-      if (!h || !this.isAdmin()) return false;
-      if (!h.sampling_paused) return false;
-      if (h._resumeBusy) return false;
+      if (!h || !this.isAdmin()) {
+        return false;
+      }
+      if (!h.sampling_paused) {
+        return false;
+      }
+      if (h._resumeBusy) {
+        return false;
+      }
       const hostId = h.id;
       const paused = this.pausedProvidersFor(h);
       for (const name of paused) {
-        if (this.providerResumeBusy[hostId + ':' + name]) return false;
+        if (this.providerResumeBusy[hostId + ':' + name]) {
+          return false;
+        }
       }
       return true;
     },
@@ -28472,9 +31396,13 @@ function app() {
     // ("Resumed 4 of 6 providers; 2 failed"). Admin-only — the button
     // hides when the operator isn't admin.
     async resumeAllProviders(host) {
-      if (!host || !host.id) return;
+      if (!host || !host.id) {
+        return;
+      }
       const paused = this.pausedProvidersFor(host);
-      if (!paused.length) return;
+      if (!paused.length) {
+        return;
+      }
       const total = paused.length;
       const results = await Promise.allSettled(
         paused.map((name) => this.resumeProvider(host, name)),
@@ -28506,7 +31434,9 @@ function app() {
     // (red), paused → pill-warning (orange), otherwise pill-custom
     // (operator-customised brand colour via providerChipStyle).
     _agentStateFor(h, name) {
-      if (!h || !name) return 'ok';
+      if (!h || !name) {
+        return 'ok';
+      }
       // Try the providerStates list first — same data the outer chip
       // strip consumes. Falls back to agentPauseInfo for older code
       // paths that don't populate providerStates.
@@ -28520,18 +31450,26 @@ function app() {
           }
         }
       } catch (_) { /* fall through to pause-info fallback */ }
-      if (this.agentPauseInfo(h, name)) return 'paused';
+      if (this.agentPauseInfo(h, name)) {
+        return 'paused';
+      }
       return 'ok';
     },
     agentStateClass(h, name) {
       const s = this._agentStateFor(h, name);
-      if (s === 'failing') return 'pill-error';
-      if (s === 'paused')  return 'pill-warning';
+      if (s === 'failing') {
+        return 'pill-error';
+      }
+      if (s === 'paused')  {
+        return 'pill-warning';
+      }
       return 'pill-custom';
     },
     agentStateStyle(h, name) {
       const s = this._agentStateFor(h, name);
-      if (s === 'failing' || s === 'paused') return '';
+      if (s === 'failing' || s === 'paused') {
+        return '';
+      }
       return this.providerChipStyle(name);
     },
     agentStateTitle(h, name) {
@@ -28550,11 +31488,17 @@ function app() {
       return '';
     },
     agentPauseInfo(h, name) {
-      if (!h || !name) return null;
+      if (!h || !name) {
+        return null;
+      }
       const map = h.provider_pause_state;
-      if (!map || typeof map !== 'object') return null;
+      if (!map || typeof map !== 'object') {
+        return null;
+      }
       const row = map[name];
-      if (!row || !row.paused) return null;
+      if (!row || !row.paused) {
+        return null;
+      }
       // Match `pausedProvidersFor` — only surface paused state for
       // providers that are CURRENTLY enabled on this host. Stale
       // failure-state rows from a previously-enabled provider that
@@ -28565,7 +31509,9 @@ function app() {
       const enabledNames = new Set(
         (this.hostEnabledAgents(h) || []).map((a) => a && a.name).filter(Boolean),
       );
-      if (!enabledNames.has(name)) return null;
+      if (!enabledNames.has(name)) {
+        return null;
+      }
       return row;
     },
     // Last-OK timestamp for a (host, provider) pair. Returns 0 when
@@ -28574,11 +31520,17 @@ function app() {
     // shipped, or this is the first probe ever). The chip subtitle
     // hides on 0.
     providerLastOkSeconds(h, name) {
-      if (!h || !name) return 0;
+      if (!h || !name) {
+        return 0;
+      }
       const map = h.provider_pause_state;
-      if (!map || typeof map !== 'object') return 0;
+      if (!map || typeof map !== 'object') {
+        return 0;
+      }
       const row = map[name];
-      if (!row) return 0;
+      if (!row) {
+        return 0;
+      }
       return Number(row.last_ok_ts || 0);
     },
     // Human-friendly "Xm ago" / "Xh ago" age string for the chip
@@ -28587,7 +31539,9 @@ function app() {
     // defensive).
     providerLastOkAge(h, name) {
       const ts = this.providerLastOkSeconds(h, name);
-      if (!ts) return '';
+      if (!ts) {
+        return '';
+      }
       return this.fmtAgo(ts * 1000);
     },
     // Per-(provider, host) row count from the provider's local samples
@@ -28597,9 +31551,13 @@ function app() {
     // hides until the drawer triggers /api/hosts/one/{id}). 0 when the
     // probe hasn't run yet OR the provider's sample table is empty.
     providerSampleCount(h, name) {
-      if (!h || !name) return 0;
+      if (!h || !name) {
+        return 0;
+      }
       const map = h.provider_sample_counts;
-      if (!map || typeof map !== 'object') return 0;
+      if (!map || typeof map !== 'object') {
+        return 0;
+      }
       const v = map[name];
       return Number.isFinite(+v) ? +v : 0;
     },
@@ -28610,9 +31568,13 @@ function app() {
     // 0 when the per-host probe hasn't run yet (cold-load skeleton);
     // chip subtitle hides on 0.
     providerSampleInterval(h, name) {
-      if (!h || !name) return 0;
+      if (!h || !name) {
+        return 0;
+      }
       const map = h.provider_sample_intervals;
-      if (!map || typeof map !== 'object') return 0;
+      if (!map || typeof map !== 'object') {
+        return 0;
+      }
       const v = map[name];
       return Number.isFinite(+v) ? +v : 0;
     },
@@ -28623,11 +31585,17 @@ function app() {
     // caller's x-show gate hides cleanly.
     providerSampleIntervalLabel(h, name) {
       const s = this.providerSampleInterval(h, name);
-      if (!s) return '';
-      if (s < 60) return s + 's';
+      if (!s) {
+        return '';
+      }
+      if (s < 60) {
+        return s + 's';
+      }
       const m = Math.floor(s / 60);
       const rem = s - m * 60;
-      if (rem === 0) return m + 'm';
+      if (rem === 0) {
+        return m + 'm';
+      }
       return m + 'm ' + rem + 's';
     },
     // Resume-button busy-state map. Keyed `<host_id>:<provider>` so
@@ -28640,9 +31608,13 @@ function app() {
     // chip flips back without waiting for the next poll, then refresh
     // the row via the shared queue to confirm.
     async resumeProvider(host, name) {
-      if (!host || !host.id || !name) return;
+      if (!host || !host.id || !name) {
+        return;
+      }
       const key = host.id + ':' + name;
-      if (this.providerResumeBusy[key]) return;
+      if (this.providerResumeBusy[key]) {
+        return;
+      }
       this.providerResumeBusy[key] = true;
       // Safety timer — even if `await fetch` hangs forever (browser
       // network freeze, broken proxy holding the connection, etc.),
@@ -28722,13 +31694,19 @@ function app() {
         const filt = this.hostsProviderFilter;
         const wantNone = filt.has('none');
         list = list.filter(h => {
-          if (wantNone && !this.hostHasAgent(h)) return true;
+          if (wantNone && !this.hostHasAgent(h)) {
+            return true;
+          }
           // hostEnabledAgents() returns ALL configured provider fields
           // on the row — bare alias presence (beszel_name / pulse_name /
           // ...) counts even when the live probe hasn't returned yet,
           // so the filter survives transient probe failures.
           const agents = (this.hostEnabledAgents(h) || []).map(a => a.name);
-          for (const a of agents) if (filt.has(a)) return true;
+          for (const a of agents) {
+            if (filt.has(a)) {
+              return true;
+            }
+          }
           return false;
         });
       }
@@ -28757,7 +31735,9 @@ function app() {
           if (asset && typeof asset === 'object') {
             for (const k in asset) {
               const v = asset[k];
-              if (v == null) continue;
+              if (v == null) {
+                continue;
+              }
               if (typeof v === 'string' || typeof v === 'number') {
                 assetFields.push(String(v));
               }
@@ -28794,7 +31774,9 @@ function app() {
       // deterministic regardless of the array's incoming order.
       const tieBreak = (a, b) => {
         const sw = statusWeight(a.status) - statusWeight(b.status);
-        if (sw !== 0) return sw;
+        if (sw !== 0) {
+          return sw;
+        }
         return nameOf(a).localeCompare(nameOf(b));
       };
 
@@ -28806,7 +31788,9 @@ function app() {
           // (older server response without the stamp).
           cmp = (a, b) => {
             const d = num(a._seq) - num(b._seq);
-            if (d !== 0) return d;
+            if (d !== 0) {
+              return d;
+            }
             return nameOf(a).localeCompare(nameOf(b));
           };
           break;
@@ -28817,7 +31801,9 @@ function app() {
           cmp = (a, b) => {
             const ax = (a.custom_number == null || a.custom_number === '') ? Number.POSITIVE_INFINITY : num(a.custom_number);
             const bx = (b.custom_number == null || b.custom_number === '') ? Number.POSITIVE_INFINITY : num(b.custom_number);
-            if (ax !== bx) return ax - bx;
+            if (ax !== bx) {
+              return ax - bx;
+            }
             return nameOf(a).localeCompare(nameOf(b));
           };
           break;
@@ -28827,7 +31813,9 @@ function app() {
         case 'type':
           cmp = (a, b) => {
             const d = typeOf(a).localeCompare(typeOf(b));
-            if (d !== 0) return d;
+            if (d !== 0) {
+              return d;
+            }
             return tieBreak(a, b);
           };
           break;
@@ -28887,12 +31875,16 @@ function app() {
     // populating the cache, leaving an "operationally empty but
     // timestamp-fresh" entry the stale check skipped.
     _kickPerHostChartFetches(host) {
-      if (!host) return;
+      if (!host) {
+        return;
+      }
       try {
         const _stale = (entry) => !entry || !entry.loadedAt
           || (Date.now() - entry.loadedAt) > 30_000;
         const _seriesLen = (entry, field) => {
-          if (!entry) return 0;
+          if (!entry) {
+            return 0;
+          }
           const arr = entry[field];
           return Array.isArray(arr) ? arr.length : 0;
         };
@@ -28929,7 +31921,9 @@ function app() {
           let ihMax = 0;
           for (const k of Object.keys(ifaces)) {
             const a = Array.isArray(ifaces[k]) ? ifaces[k] : [];
-            if (a.length > ihMax) ihMax = a.length;
+            if (a.length > ihMax) {
+              ihMax = a.length;
+            }
           }
           if (ihMax < 2 || _stale(ih)) {
             if (typeof this.loadHostSnmpIfaceHistory === 'function') {
@@ -28941,7 +31935,9 @@ function app() {
           let thMax = 0;
           for (const k of Object.keys(probes)) {
             const a = Array.isArray(probes[k]) ? probes[k] : [];
-            if (a.length > thMax) thMax = a.length;
+            if (a.length > thMax) {
+              thMax = a.length;
+            }
           }
           if (thMax < 2 || _stale(th)) {
             if (typeof this.loadHostSnmpTempHistory === 'function') {
@@ -28958,7 +31954,9 @@ function app() {
     // list so orphaned sample rows don't navigate to nowhere.
     openHostDrawerById(hostId) {
       const id = (hostId || '').toString().trim();
-      if (!id) return;
+      if (!id) {
+        return;
+      }
       const list = Array.isArray(this.hosts) ? this.hosts : [];
       const host = list.find(h => h && (h.id === id || h.host === id));
       if (!host) {
@@ -28969,11 +31967,15 @@ function app() {
         );
         return;
       }
-      if (this.view !== 'hosts') this.view = 'hosts';
+      if (this.view !== 'hosts') {
+        this.view = 'hosts';
+      }
       this.openHostDrawer(host);
     },
     openHostDrawer(host) {
-      if (!host) return;
+      if (!host) {
+        return;
+      }
       this.drawerHost = host;
       // Defensive clear of any `providerResumeBusy` flags for this
       // host — covers the edge case where a previous click on the
@@ -28987,7 +31989,9 @@ function app() {
       try {
         const prefix = host.id + ':';
         for (const k of Object.keys(this.providerResumeBusy || {})) {
-          if (k.startsWith(prefix)) this.providerResumeBusy[k] = false;
+          if (k.startsWith(prefix)) {
+            this.providerResumeBusy[k] = false;
+          }
         }
       } catch (_) { /* ignore */ }
       // — defensive clear of the whole-host Resume sampling busy
@@ -28998,7 +32002,9 @@ function app() {
       // button on the whole-host pause banner rendered disabled
       // forever. The 30s safety timer in resumeHostSampling closes
       // the same window from the other end.
-      if (host._resumeBusy) host._resumeBusy = false;
+      if (host._resumeBusy) {
+        host._resumeBusy = false;
+      }
       // Per-host chart fetches — main hostHistory + ping + SNMP host
       // / iface / temp. Single shared helper used by both the initial
       // drawer mount (here) AND the arrow-key host nav handler at
@@ -29040,7 +32046,9 @@ function app() {
       if (hasHistory && !off && !pushOnly) {
         const ms = (live ? 30 : this.refreshInterval) * 1000;
         this._drawerHistoryTimer = setInterval(() => {
-          if (!this.drawerHost) return;
+          if (!this.drawerHost) {
+            return;
+          }
           this._pollWrap(this.loadHostHistory(
             this.drawerHost.beszel_id || '',
             this.drawerHost.id,
@@ -29062,8 +32070,12 @@ function app() {
       if (!off && this._snmpHasProbeTarget(host)) {
         const snmpMs = (live ? 30 : this.refreshInterval) * 1000;
         this._drawerSnmpHistoryTimer = setInterval(() => {
-          if (!this.drawerHost) return;
-          if (!this._snmpHasProbeTarget(this.drawerHost)) return;
+          if (!this.drawerHost) {
+            return;
+          }
+          if (!this._snmpHasProbeTarget(this.drawerHost)) {
+            return;
+          }
           const hrs = this.hostHistoryRange || 1;
           if (typeof this.loadHostSnmpHistory === 'function') {
             this._pollWrap(this.loadHostSnmpHistory(this.drawerHost.id, hrs));
@@ -29087,7 +32099,9 @@ function app() {
       if (host.ping_enabled && !off && !live) {
         const pingMs = this.refreshInterval * 1000;
         this._drawerPingTimer = setInterval(() => {
-          if (!this.drawerHost || !this.drawerHost.ping_enabled) return;
+          if (!this.drawerHost || !this.drawerHost.ping_enabled) {
+            return;
+          }
           this._pollWrap(this.loadHostPingHistory(this.drawerHost.id));
         }, pingMs);
       }
@@ -29123,7 +32137,9 @@ function app() {
     // range-picker clicks.
     hostSnmpHistory: {},
     async loadHostSnmpHistory(hostId, hours) {
-      if (!hostId) return;
+      if (!hostId) {
+        return;
+      }
       const h = +hours || 1;
       const prev = this.hostSnmpHistory[hostId] || {};
       this.hostSnmpHistory[hostId] = {
@@ -29168,7 +32184,9 @@ function app() {
     // probe_idx. `probes: { idx: { name, points: [{ts, c}, …] } }`.
     hostSnmpTempHistory: {},
     async loadHostSnmpTempHistory(hostId, hours) {
-      if (!hostId) return;
+      if (!hostId) {
+        return;
+      }
       const h = +hours || 1;
       const prev = this.hostSnmpTempHistory[hostId] || {};
       this.hostSnmpTempHistory[hostId] = {
@@ -29214,13 +32232,17 @@ function app() {
     // IntersectionObserver lazy-fetch, and per-row probe-arrival
     // kicker — single source of truth so the gate stays consistent.
     _snmpHasProbeTarget(host) {
-      if (!host) return false;
+      if (!host) {
+        return false;
+      }
       // STRICT opt-in: `snmp_enabled === true` is the master gate —
       // a host that hasn't been explicitly opted-in to SNMP via the
       // per-host checkbox is hidden regardless of which target
       // fields are populated. Same opt-in rigour as
       // `hosts_config[].ssh.enabled` and `hosts_config[].ping.enabled`.
-      if (host.snmp_enabled !== true) return false;
+      if (host.snmp_enabled !== true) {
+        return false;
+      }
       // Once opted in, the gate ALSO requires a resolvable target —
       // either the explicit per-provider `snmp_name` OR the canonical
       // per-host `address` field that the SNMP sampler's resolver
@@ -29244,7 +32266,9 @@ function app() {
     // `hostSnmpHistory` so chart cards don't flicker.
     hostSnmpIfaceHistory: {},
     async loadHostSnmpIfaceHistory(hostId, hours) {
-      if (!hostId) return;
+      if (!hostId) {
+        return;
+      }
       const h = +hours || 1;
       const prev = this.hostSnmpIfaceHistory[hostId] || {};
       this.hostSnmpIfaceHistory[hostId] = {
@@ -29304,7 +32328,9 @@ function app() {
       const entry = this.hostSnmpIfaceHistory[hostId] || {};
       const ifaces = entry.ifaces || {};
       const series = ifaces[ifname] || [];
-      if (series.length < 2) return { in: [], out: [], times: [] };
+      if (series.length < 2) {
+        return {in: [], out: [], times: []};
+      }
       // Bucket-aware dt cap — pre-fix the hardcoded 3600s cap zeroed
       // every delta on 7d windows once the backend started bucketing
       // iface_history (5040s buckets at 7d × 120 target points).
@@ -29332,17 +32358,23 @@ function app() {
       for (let i = 1; i < series.length; i++) {
         const a = series[i - 1], b = series[i];
         const dt = (b.ts || 0) - (a.ts || 0);
-        if (dt < 1 || dt > dtCap) continue;
+        if (dt < 1 || dt > dtCap) {
+          continue;
+        }
         const byteCap = Math.max(_STATIC_BYTE_FLOOR, dt * _BYTE_RATE_CEILING);
         const ai = a.in_bytes, bi = b.in_bytes;
         if (ai != null && bi != null) {
           const di = bi - ai;
-          if (di >= 0 && di <= byteCap) inBps[i] = di / dt;
+          if (di >= 0 && di <= byteCap) {
+            inBps[i] = di / dt;
+          }
         }
         const ao = a.out_bytes, bo = b.out_bytes;
         if (ao != null && bo != null) {
           const dout = bo - ao;
-          if (dout >= 0 && dout <= byteCap) outBps[i] = dout / dt;
+          if (dout >= 0 && dout <= byteCap) {
+            outBps[i] = dout / dt;
+          }
         }
       }
       return { in: inBps, out: outBps, times };
@@ -29364,7 +32396,9 @@ function app() {
           if (s.out[i] > 0) { lastOut = s.out[i]; break; }
         }
         const total = lastIn + lastOut;
-        if (total > 0) out.push({ name, lastIn, lastOut, total });
+        if (total > 0) {
+          out.push({name, lastIn, lastOut, total});
+        }
       }
       out.sort((a, b) => b.total - a.total);
       return out.slice(0, n || 5);
@@ -29372,7 +32406,9 @@ function app() {
     snmpHasIfaceHistory(hostId) {
       const ifaces = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
       for (const name of Object.keys(ifaces)) {
-        if ((ifaces[name] || []).length >= 2) return true;
+        if ((ifaces[name] || []).length >= 2) {
+          return true;
+        }
       }
       return false;
     },
@@ -29405,7 +32441,9 @@ function app() {
       const names = this.snmpAllIfacesSorted(hostId, h);
       for (const n of names) {
         const s = this.snmpIfaceBpsSeries(hostId, n);
-        if (s.in.length >= 2 || s.out.length >= 2) return true;
+        if (s.in.length >= 2 || s.out.length >= 2) {
+          return true;
+        }
       }
       return false;
     },
@@ -29425,7 +32463,9 @@ function app() {
       const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname, h)
                   || this._DEFAULT_IFACE_LINK_MBPS;
       const linkBps = link * 1_000_000 / 8;
-      if (linkBps <= 0) return [];
+      if (linkBps <= 0) {
+        return [];
+      }
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
       // null-aware. When the underlying bps series has a
       // counter-wrap / gap slot (null), propagate the null so
@@ -29433,7 +32473,9 @@ function app() {
       const out = new Array(s.in.length).fill(null);
       for (let i = 0; i < s.in.length; i++) {
         const inV = s.in[i], outV = s.out[i];
-        if (inV == null && outV == null) continue;
+        if (inV == null && outV == null) {
+          continue;
+        }
         const peak = Math.max(inV || 0, outV || 0);
         out[i] = Math.min(100, (peak / linkBps) * 100);
       }
@@ -29441,7 +32483,9 @@ function app() {
     },
     snmpIfaceUtilizationLine(hostId, ifname, h) {
       const vals = this.snmpIfaceUtilizationSeries(hostId, ifname, h);
-      if (!vals.length) return '';
+      if (!vals.length) {
+        return '';
+      }
       // — pull timestamps from the underlying iface series so the
       // utilization polyline renders against the drawer-shared time
       // domain. snmpIfaceUtilizationSeries derives from snmpIfaceBpsSeries
@@ -29462,21 +32506,39 @@ function app() {
     // High-traffic switches still render 0..100% as before.
     snmpIfaceUtilizationYMax(hostId, h) {
       const top = this.snmpTopIfacesByThroughput(hostId, 5);
-      if (!top || !top.length) return 100;
+      if (!top || !top.length) {
+        return 100;
+      }
       let peak = 0;
       for (const t of top) {
         const vals = this.snmpIfaceUtilizationSeries(hostId, t.name, h);
         for (const v of vals) {
-          if (v != null && v > peak) peak = v;
+          if (v != null && v > peak) {
+            peak = v;
+          }
         }
       }
-      if (peak <= 0)     return 100;            // truly idle → keep traditional scale
-      if (peak >= 50)    return 100;            // typical busy switch / router
-      if (peak >= 10)    return 50;
-      if (peak >= 1)     return 10;
-      if (peak >= 0.1)   return 1;
-      if (peak >= 0.01)  return 0.1;
-      if (peak >= 0.001) return 0.01;
+      if (peak <= 0)     {
+        return 100;
+      }            // truly idle → keep traditional scale
+      if (peak >= 50)    {
+        return 100;
+      }            // typical busy switch / router
+      if (peak >= 10)    {
+        return 50;
+      }
+      if (peak >= 1)     {
+        return 10;
+      }
+      if (peak >= 0.1)   {
+        return 1;
+      }
+      if (peak >= 0.01)  {
+        return 0.1;
+      }
+      if (peak >= 0.001) {
+        return 0.01;
+      }
       return 0.001;
     },
     // Y-axis tick labels for the auto-rescaled util chart. Three
@@ -29488,8 +32550,12 @@ function app() {
     snmpIfaceUtilizationYAxisLabels(hostId, h) {
       const yMax = this.snmpIfaceUtilizationYMax(hostId, h);
       const fmt = (v) => {
-        if (v >= 1) return Math.round(v) + '%';
-        if (v >= 0.1) return v.toFixed(2) + '%';
+        if (v >= 1) {
+          return Math.round(v) + '%';
+        }
+        if (v >= 0.1) {
+          return v.toFixed(2) + '%';
+        }
         return v.toFixed(3) + '%';
       };
       return [fmt(yMax), fmt(yMax / 2), '0%'];
@@ -29502,7 +32568,9 @@ function app() {
     // fill the chart vertically.
     snmpIfaceUtilizationLineScaled(hostId, ifname, h) {
       const vals = this.snmpIfaceUtilizationSeries(hostId, ifname, h);
-      if (!vals.length) return '';
+      if (!vals.length) {
+        return '';
+      }
       const yMax = this.snmpIfaceUtilizationYMax(hostId, h);
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
       return this._snmpPathGapped(vals, yMax, { times: s.times });
@@ -29513,9 +32581,15 @@ function app() {
     // < 0.1 → three decimals.
     snmpIfaceUtilizationPctLabel(hostId, ifname, h) {
       const pct = this.snmpIfaceUtilizationPct(hostId, ifname, h);
-      if (pct == null) return '';
-      if (pct >= 1)   return Math.round(pct) + '%';
-      if (pct >= 0.1) return pct.toFixed(2) + '%';
+      if (pct == null) {
+        return '';
+      }
+      if (pct >= 1)   {
+        return Math.round(pct) + '%';
+      }
+      if (pct >= 0.1) {
+        return pct.toFixed(2) + '%';
+      }
       return pct.toFixed(3) + '%';
     },
     // Gap-aware path string for one iface's bps series scaled to refMax.
@@ -29524,7 +32598,9 @@ function app() {
     snmpIfaceLine(hostId, ifname, dir, refMax) {
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
       const vals = (dir === 'in' ? s.in : s.out);
-      if (!vals.length) return '';
+      if (!vals.length) {
+        return '';
+      }
       return this._snmpPathGapped(vals, refMax || 1, { times: s.times });
     },
     snmpIfaceMaxBps(hostId) {
@@ -29532,8 +32608,16 @@ function app() {
       let m = 0;
       for (const name of Object.keys(ifaces)) {
         const s = this.snmpIfaceBpsSeries(hostId, name);
-        for (const v of s.in)  if (v > m) m = v;
-        for (const v of s.out) if (v > m) m = v;
+        for (const v of s.in)  {
+          if (v > m) {
+            m = v;
+          }
+        }
+        for (const v of s.out) {
+          if (v > m) {
+            m = v;
+          }
+        }
       }
       return m;
     },
@@ -29545,12 +32629,16 @@ function app() {
       const series = ((this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {})[ifname] || [];
       for (let i = series.length - 1; i >= 0; i--) {
         const s = series[i].link_speed_mbps;
-        if (s != null && s > 0) return s;
+        if (s != null && s > 0) {
+          return s;
+        }
       }
       const host = h || (this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null);
       if (host && Array.isArray(host.network_ifaces)) {
         const live = host.network_ifaces.find(i => i && i.name === ifname);
-        if (live && live.link_speed_mbps && live.link_speed_mbps > 0) return live.link_speed_mbps;
+        if (live && live.link_speed_mbps && live.link_speed_mbps > 0) {
+          return live.link_speed_mbps;
+        }
       }
       return null;
     },
@@ -29572,7 +32660,9 @@ function app() {
     snmpIfaceUtilizationPct(hostId, ifname, h) {
       const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname, h)
                   || this._DEFAULT_IFACE_LINK_MBPS;
-      if (!link) return null;
+      if (!link) {
+        return null;
+      }
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
       let lastIn = 0, lastOut = 0;
       for (let i = s.in.length - 1; i >= 0; i--) {
@@ -29583,7 +32673,9 @@ function app() {
       }
       const peakBps = Math.max(lastIn, lastOut);
       const linkBps = link * 1_000_000 / 8;       // Mbps → bytes/sec capacity
-      if (linkBps <= 0) return null;
+      if (linkBps <= 0) {
+        return null;
+      }
       return Math.min(100, (peakBps / linkBps) * 100);
     },
     // Full iface list for the heatmap. Tries history first, falls
@@ -29621,17 +32713,27 @@ function app() {
     // CSS color literal — heatmap uses inline style because there's
     // no pre-existing token for the per-cell shade.
     snmpIfaceHeatmapColor(pct) {
-      if (pct == null) return 'var(--surface-3)';      // unknown speed
-      if (pct >= 85) return 'var(--danger)';
-      if (pct >= 50) return 'var(--warning)';
-      if (pct > 0)  return 'var(--success)';
+      if (pct == null) {
+        return 'var(--surface-3)';
+      }      // unknown speed
+      if (pct >= 85) {
+        return 'var(--danger)';
+      }
+      if (pct >= 50) {
+        return 'var(--warning)';
+      }
+      if (pct > 0)  {
+        return 'var(--success)';
+      }
       return 'var(--surface-3)';                       // 0% / idle
     },
     // True when this host has SNMP data worth charting (per-core CPU
     // OR load avg OR buffers/cached). Drives the gate on the new
     // chart cards so non-SNMP hosts don't see them.
     hostHasSnmpCharts(h) {
-      if (!h) return false;
+      if (!h) {
+        return false;
+      }
       // SNMP CPU / Load / Memory charts are SUPPRESSED when
       // the host also has Beszel or node-exporter enabled. Both
       // providers carry the same data with a smoother time-series
@@ -29643,7 +32745,9 @@ function app() {
       // are coarser than Beszel/NE's per-tick deltas). Keep the
       // SNMP cards EXCLUSIVE to SNMP-only hosts (managed switches,
       // UPSes, NVRs, embedded routers without an OmniGrid agent).
-      if (h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) return false;
+      if (h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) {
+        return false;
+      }
       // also return true when historical SNMP samples exist
       // for this host even before the LIVE probe has populated
       // `host_*` fields. Lets the chart cards render the
@@ -29651,7 +32755,9 @@ function app() {
       // of staying blank, with a freshness label so the operator
       // can see how stale the displayed data is.
       const hist = this.hostSnmpHistory[h.id];
-      if (hist && Array.isArray(hist.points) && hist.points.length > 0) return true;
+      if (hist && Array.isArray(hist.points) && hist.points.length > 0) {
+        return true;
+      }
       // / also return true when the host reports printer
       // page-count OR IF-MIB net counters (printers / switches /
       // routers without CPU / memory MIBs). Page-count gate requires
@@ -29663,8 +32769,12 @@ function app() {
       const looksLikePrinter = (Array.isArray(supplies) && supplies.length > 0)
         || !!(h.printer_console_msg && String(h.printer_console_msg).trim())
         || ((+h.printer_page_count || 0) > 0);
-      if (looksLikePrinter && h.printer_page_count != null) return true;
-      if (h.host_net_rx_total_bytes != null || h.host_net_tx_total_bytes != null) return true;
+      if (looksLikePrinter && h.printer_page_count != null) {
+        return true;
+      }
+      if (h.host_net_rx_total_bytes != null || h.host_net_tx_total_bytes != null) {
+        return true;
+      }
       // — APC UPS hosts (Smart-UPS, Back-UPS, etc.) often expose
       // PowerNet-MIB load / battery / temperature OIDs but neither
       // hrStorage NOR IF-MIB. Without this branch the SNMP chart grid
@@ -29675,16 +32785,24 @@ function app() {
       if (typeof h.host_load_percent === 'number'
           || typeof h.host_battery_percent === 'number'
           || typeof h.host_battery_temp_c === 'number'
-          || (h.host_ups_status && String(h.host_ups_status).trim())) return true;
+          || (h.host_ups_status && String(h.host_ups_status).trim())) {
+        return true;
+      }
       // phase 3 — Dell server hosts whose only SNMP surface is
       // the temperatureProbeTable (no CPU / mem / IF-MIB; the iDRAC's
       // standard MIB-II is locked down). Live host_dell_temps OR
       // historical temp samples is enough to mount the grid wrapper.
-      if (Array.isArray(h.host_dell_temps) && h.host_dell_temps.length) return true;
-      if (this.dellHasTempHistory && this.dellHasTempHistory(h.id)) return true;
+      if (Array.isArray(h.host_dell_temps) && h.host_dell_temps.length) {
+        return true;
+      }
+      if (this.dellHasTempHistory && this.dellHasTempHistory(h.id)) {
+        return true;
+      }
       if ((h.host_cpu_per_core || []).length > 0
           || h.host_load_1m || h.host_load_5m || h.host_load_15m
-          || h.host_mem_buffers || h.host_mem_cached) return true;
+          || h.host_mem_buffers || h.host_mem_cached) {
+        return true;
+      }
       // Final fallback: any SNMP-targeted host opens the grid so the
       // chart cards mount immediately on drawer-open. Each card's own
       // x-show still gates on data presence — empty cards just render
@@ -29692,7 +32810,9 @@ function app() {
       // Loose gate (`_snmpHasProbeTarget`) so hosts whose sampler is
       // running via `snmp_name` / `address` but whose per-host UI
       // checkbox isn't ticked still mount the grid.
-      if (this._snmpHasProbeTarget(h)) return true;
+      if (this._snmpHasProbeTarget(h)) {
+        return true;
+      }
       return false;
     },
     // Detect a reboot in the SNMP uptime history. Walks the
@@ -29706,15 +32826,21 @@ function app() {
     // the badge actionable for fresh anomalies; full uptime is always
     // shown via the live `host_uptime_s` field).
     snmpRebootInfo(h) {
-      if (!h) return null;
+      if (!h) {
+        return null;
+      }
       const hist = this.hostSnmpHistory[h.id];
       const points = (hist && hist.points) || [];
-      if (points.length < 2) return null;
+      if (points.length < 2) {
+        return null;
+      }
       let detected = null;
       for (let i = 1; i < points.length; i++) {
         const prev = points[i - 1];
         const curr = points[i];
-        if (prev.uptime_s == null || curr.uptime_s == null) continue;
+        if (prev.uptime_s == null || curr.uptime_s == null) {
+          continue;
+        }
         // Reboot fingerprint: uptime went BACKWARDS between samples.
         // Allow a small slack (60s) to absorb counter-precision noise
         // when sampler ticks are tightly spaced.
@@ -29728,7 +32854,9 @@ function app() {
       }
       // Only surface reboots within the last 24h — older reboots are
       // archaeology, not actionable.
-      if (detected && detected.age_s > 86400) return null;
+      if (detected && detected.age_s > 86400) {
+        return null;
+      }
       return detected;
     },
     // Memory chart Y-axis upper bound. Prefer the LIVE
@@ -29738,21 +32866,31 @@ function app() {
     // observed mem_used + mem_buffers + mem_cached + mem_free across
     // history (if mem_total field was never populated).
     snmpMemMax(h) {
-      if (!h) return 0;
+      if (!h) {
+        return 0;
+      }
       const live = +h.host_mem_total || 0;
-      if (live > 0) return live;
+      if (live > 0) {
+        return live;
+      }
       const hist = this.hostSnmpHistory[h.id];
       const points = (hist && hist.points) || [];
       let max = 0;
       for (const p of points) {
-        if (p.mem_total && +p.mem_total > max) max = +p.mem_total;
+        if (p.mem_total && +p.mem_total > max) {
+          max = +p.mem_total;
+        }
       }
-      if (max > 0) return max;
+      if (max > 0) {
+        return max;
+      }
       // Synthesise from the layer sum as a last resort.
       for (const p of points) {
         const sum = (+p.mem_used || 0) + (+p.mem_buffers || 0)
                   + (+p.mem_cached || 0) + (+p.mem_free || 0);
-        if (sum > max) max = sum;
+        if (sum > max) {
+          max = sum;
+        }
       }
       return max;
     },
@@ -29779,7 +32917,9 @@ function app() {
     // honest-UI fix that always reflects the operator's freshest
     // signal.
     snmpHistoryFreshness(h) {
-      if (!h) return null;
+      if (!h) {
+        return null;
+      }
       const hist = this.hostSnmpHistory[h.id];
       const samplerTs = (hist && Array.isArray(hist.points) && hist.points.length)
         ? Number((hist.points[hist.points.length - 1] || {}).ts
@@ -29787,12 +32927,21 @@ function app() {
         : 0;
       const snapshotTs = Number(h._stale_ts || 0);
       const ts = Math.max(samplerTs, snapshotTs);
-      if (!ts || !Number.isFinite(ts) || ts <= 0) return null;
+      if (!ts || !Number.isFinite(ts) || ts <= 0) {
+        return null;
+      }
       const ageS = Math.max(0, Math.round(Date.now() / 1000 - ts));
       let label;
-      if (ageS < 60) label = ageS + 's';
-      else if (ageS < 3600) label = Math.round(ageS / 60) + 'm';
-      else label = Math.round(ageS / 3600) + 'h';
+      if (ageS < 60) {
+        label = ageS + 's';
+      }
+      else {
+        if (ageS < 3600) {
+          label = Math.round(ageS / 60) + 'm';
+        } else {
+          label = Math.round(ageS / 3600) + 'h';
+        }
+      }
       // `source` lets the template render a tooltip explaining which
       // writer the timestamp came from — operators tracing
       // freshness disagreements can see at a glance whether the
@@ -29837,19 +32986,27 @@ function app() {
     // (configurable), or SNMP (5min default), because the threshold is
     // derived from the data itself rather than hard-coded per source.
     _detectGapThresholdSec(times) {
-      if (!times || times.length < 3) return null;
+      if (!times || times.length < 3) {
+        return null;
+      }
       const deltas = [];
       let prev = 0;
       for (const t of times) {
         const ts = Number(t) || 0;
-        if (!ts) continue;
+        if (!ts) {
+          continue;
+        }
         if (prev > 0) {
           const dt = ts - prev;
-          if (dt > 0) deltas.push(dt);
+          if (dt > 0) {
+            deltas.push(dt);
+          }
         }
         prev = ts;
       }
-      if (deltas.length < 2) return null;
+      if (deltas.length < 2) {
+        return null;
+      }
       deltas.sort((a, b) => a - b);
       const median = deltas[Math.floor(deltas.length / 2)];
       return Math.max(60, median * 2.5);
@@ -29875,7 +33032,9 @@ function app() {
       // coordinates match every other chart in the open drawer. When
       // `times` is absent, falls back to the legacy index-based
       // scaling for un-migrated callers.
-      if (!values || !values.length) return '';
+      if (!values || !values.length) {
+        return '';
+      }
       const m = max !== undefined ? max : Math.max(0.0001, ...values.filter(v => v != null));
       const n = values.length;
       const times = opts && opts.times;
@@ -29886,13 +33045,19 @@ function app() {
       const out = [];
       for (let i = 0; i < n; i++) {
         const v = values[i];
-        if (v == null) continue;
+        if (v == null) {
+          continue;
+        }
         let x;
         if (dom) {
           const ts = Number(times[i]) || 0;
-          if (!ts) continue;
+          if (!ts) {
+            continue;
+          }
           x = ((ts - dom.tMinSec) / span) * w;
-          if (x < 0 || x > w) continue;
+          if (x < 0 || x > w) {
+            continue;
+          }
         } else {
           x = (i / Math.max(1, n - 1)) * w;
         }
@@ -29913,7 +33078,9 @@ function app() {
   // unified time-domain — same `opts.times` contract as
     // `_snmpPolyPoints`.
     _snmpPathGapped(values, max, opts) {
-      if (!values || !values.length) return '';
+      if (!values || !values.length) {
+        return '';
+      }
       const m = max !== undefined ? max : Math.max(0.0001, ...values.filter(v => v != null));
       const n = values.length;
       const times = opts && opts.times;
@@ -29966,7 +33133,9 @@ function app() {
     // template binding reads the same.
     snmpStats(hostId, key, idx) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-      if (!series.length) return null;
+      if (!series.length) {
+        return null;
+      }
       let pick;
       if (key === 'cpu_per_core' && typeof idx === 'number') {
         pick = (p) => (p.cpu_per_core || [])[idx];
@@ -29974,11 +33143,17 @@ function app() {
         pick = (p) => p[key];
       }
       const vals = series.map(pick).filter(v => v !== null && v !== undefined);
-      if (!vals.length) return null;
+      if (!vals.length) {
+        return null;
+      }
       let min = Infinity, max = -Infinity;
       for (const v of vals) {
-        if (v < min) min = v;
-        if (v > max) max = v;
+        if (v < min) {
+          min = v;
+        }
+        if (v > max) {
+          max = v;
+        }
       }
       // Operator-reported on a Ubiquiti USW Enterprise switch:
       // drawer "Used X%" legend showed 100% while the row CPU bar
@@ -30019,7 +33194,9 @@ function app() {
     snmpXAxis(hostId, n) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       n = n || 5;
-      if (series.length < 2) return Array(n).fill('');
+      if (series.length < 2) {
+        return Array(n).fill('');
+      }
       const dom = this._drawerTimeDomain();
       const span = Math.max(1, dom.tMaxSec - dom.tMinSec);
       const out = [];
@@ -30040,7 +33217,9 @@ function app() {
     // CPU per-core lines — one polyline string per core index.
     snmpCpuPerCoreLines(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-      if (!series.length) return [];
+      if (!series.length) {
+        return [];
+      }
       // Determine core count from the FIRST point that has a non-empty
       // cpu_per_core. Older samples may have fewer cores (e.g. host
       // reboot changed core count); render only the consistent prefix.
@@ -30085,12 +33264,16 @@ function app() {
       const h = this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null;
       if (h) {
         const c = (h.host_cpu_per_core || []).length || h.cpu_cores || h.cores;
-        if (c && c > 0) return c;
+        if (c && c > 0) {
+          return c;
+        }
       }
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       for (const p of series) {
         const c = (p.cpu_per_core || []).length;
-        if (c > 0) return c;
+        if (c > 0) {
+          return c;
+        }
       }
       return 1;
     },
@@ -30117,12 +33300,18 @@ function app() {
       // For the memory chart — render each layer as a polyline, scaled
       // against mem_total. `key` ∈ {used, buffers, cached, free}.
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-      if (!series.length) return '';
+      if (!series.length) {
+        return '';
+      }
       // Normalise against the largest mem_total seen (handles probes
       // pre/post a memory hot-add cleanly).
       let maxTotal = 0;
-      for (const p of series) maxTotal = Math.max(maxTotal, p.mem_total || 0);
-      if (!maxTotal) return '';
+      for (const p of series) {
+        maxTotal = Math.max(maxTotal, p.mem_total || 0);
+      }
+      if (!maxTotal) {
+        return '';
+      }
       const fieldKey = 'mem_' + key;
       const vals = series.map(p => p[fieldKey] || 0);
       const times = series.map(p => p.ts);
@@ -30139,7 +33328,9 @@ function app() {
     snmpThroughputBpsSeries(hostId, dir) {
       const entry = this.hostSnmpHistory[hostId] || {};
       const series = entry.points || [];
-      if (series.length < 2) return [];
+      if (series.length < 2) {
+        return [];
+      }
       const fieldKey = 'net_' + dir + '_total_bytes';
       // Dt cap scales with the server-side bucket cadence. Pre-fix a
       // hardcoded 3600s cap rejected every delta on 7d windows where
@@ -30176,11 +33367,17 @@ function app() {
         const a = series[i - 1], b = series[i];
         const dt = (b.ts || 0) - (a.ts || 0);
         const av = a[fieldKey], bv = b[fieldKey];
-        if (av == null || bv == null) continue;
-        if (dt < 1 || dt > dtCap) continue;       // gap or doubled tick
+        if (av == null || bv == null) {
+          continue;
+        }
+        if (dt < 1 || dt > dtCap) {
+          continue;
+        }       // gap or doubled tick
         const db = bv - av;
         const byteCap = Math.max(_STATIC_BYTE_FLOOR, dt * _BYTE_RATE_CEILING);
-        if (db < 0 || db > byteCap) continue;     // wrap / reboot / scaled cap
+        if (db < 0 || db > byteCap) {
+          continue;
+        }     // wrap / reboot / scaled cap
         out[i] = db / dt;
       }
       return out;
@@ -30194,7 +33391,9 @@ function app() {
     // UPS doesn't auto-rescale.
     snmpUpsLoadLine(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-      if (!series.length) return '';
+      if (!series.length) {
+        return '';
+      }
       const vals = series.map(p => (p.load_percent != null ? +p.load_percent : null));
       const times = series.map(p => p.ts);
       return this._snmpPathGapped(vals, 100, { times });
@@ -30208,7 +33407,9 @@ function app() {
       for (const p of series) {
         if (p.load_percent != null) {
           n++;
-          if (n >= 2) return true;
+          if (n >= 2) {
+            return true;
+          }
         }
       }
       return false;
@@ -30221,10 +33422,14 @@ function app() {
     // enough for operators to assume nothing was being recorded.
     snmpHasUpsLoad(hostId) {
       const drawer = this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null;
-      if (drawer && typeof drawer.host_load_percent === 'number') return true;
+      if (drawer && typeof drawer.host_load_percent === 'number') {
+        return true;
+      }
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       for (const p of series) {
-        if (p.load_percent != null) return true;
+        if (p.load_percent != null) {
+          return true;
+        }
       }
       return false;
     },
@@ -30233,7 +33438,9 @@ function app() {
     // the UPS is on battery + the recharge curve afterwards.
     snmpUpsBatteryLine(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-      if (!series.length) return '';
+      if (!series.length) {
+        return '';
+      }
       const vals = series.map(p => (p.battery_percent != null ? +p.battery_percent : null));
       const times = series.map(p => p.ts);
       return this._snmpPathGapped(vals, 100, { times });
@@ -30244,17 +33451,23 @@ function app() {
       for (const p of series) {
         if (p.battery_percent != null) {
           n++;
-          if (n >= 2) return true;
+          if (n >= 2) {
+            return true;
+          }
         }
       }
       return false;
     },
     snmpHasUpsBattery(hostId) {
       const drawer = this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null;
-      if (drawer && typeof drawer.host_battery_percent === 'number') return true;
+      if (drawer && typeof drawer.host_battery_percent === 'number') {
+        return true;
+      }
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       for (const p of series) {
-        if (p.battery_percent != null) return true;
+        if (p.battery_percent != null) {
+          return true;
+        }
       }
       return false;
     },
@@ -30264,11 +33477,17 @@ function app() {
     // host renders ~36 / 40 / 50 ticks instead of all-0..100.
     snmpUpsBatteryTempLine(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-      if (!series.length) return '';
+      if (!series.length) {
+        return '';
+      }
       const vals = series.map(p => (p.battery_temp_c != null ? +p.battery_temp_c : null));
       const times = series.map(p => p.ts);
       let m = 0;
-      for (const v of vals) if (v != null && v > m) m = v;
+      for (const v of vals) {
+        if (v != null && v > m) {
+          m = v;
+        }
+      }
       return this._snmpPathGapped(vals, Math.max(50, m), { times });
     },
     snmpUpsBatteryTempMax(hostId) {
@@ -30276,7 +33495,9 @@ function app() {
       let m = 0;
       for (const p of series) {
         const v = p.battery_temp_c;
-        if (v != null && v > m) m = v;
+        if (v != null && v > m) {
+          m = v;
+        }
       }
       return Math.max(50, m);
     },
@@ -30286,17 +33507,23 @@ function app() {
       for (const p of series) {
         if (p.battery_temp_c != null) {
           n++;
-          if (n >= 2) return true;
+          if (n >= 2) {
+            return true;
+          }
         }
       }
       return false;
     },
     snmpHasUpsBatteryTemp(hostId) {
       const drawer = this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null;
-      if (drawer && typeof drawer.host_battery_temp_c === 'number') return true;
+      if (drawer && typeof drawer.host_battery_temp_c === 'number') {
+        return true;
+      }
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       for (const p of series) {
-        if (p.battery_temp_c != null) return true;
+        if (p.battery_temp_c != null) {
+          return true;
+        }
       }
       return false;
     },
@@ -30340,7 +33567,9 @@ function app() {
       const nowTs = Math.floor(Date.now() / 1000);
       for (const t of liveTemps) {
         const idx = String(t.idx || '');
-        if (!idx) continue;
+        if (!idx) {
+          continue;
+        }
         if (!merged[idx]) {
           merged[idx] = { idx, name: t.name || `temp-${idx}`, points: [] };
         }
@@ -30356,7 +33585,9 @@ function app() {
         const nb = b.split('.').map(n => +n || 0);
         for (let k = 0; k < Math.max(na.length, nb.length); k++) {
           const da = na[k] || 0, db = nb[k] || 0;
-          if (da !== db) return da - db;
+          if (da !== db) {
+            return da - db;
+          }
         }
         return 0;
       });
@@ -30387,7 +33618,9 @@ function app() {
       for (const idx of Object.keys(probes)) {
         const pts = (probes[idx] || {}).points || [];
         for (const pt of pts) {
-          if (pt.c != null && pt.c > m) m = pt.c;
+          if (pt.c != null && pt.c > m) {
+            m = pt.c;
+          }
         }
       }
       // Also consider live drawer readings so the y-axis max stays
@@ -30398,7 +33631,9 @@ function app() {
                      ? this.drawerHost : null;
       if (drawer && Array.isArray(drawer.host_dell_temps)) {
         for (const t of drawer.host_dell_temps) {
-          if (t && t.celsius != null && +t.celsius > m) m = +t.celsius;
+          if (t && t.celsius != null && +t.celsius > m) {
+            m = +t.celsius;
+          }
         }
       }
       // Domain floor — 60°C is a sensible upper bound for an
@@ -30421,7 +33656,9 @@ function app() {
       // exactly one valid point, render a full-width horizontal line
       // at the current temperature so the user sees an actual reading.
       // The full polyline replaces this once a second sample lands.
-      if (!Array.isArray(points) || !points.length) return '';
+      if (!Array.isArray(points) || !points.length) {
+        return '';
+      }
       const validPts = points.filter(p => p && p.c != null);
       const max = this.dellTempMaxC(hostId);
       if (validPts.length === 1) {
@@ -30446,13 +33683,17 @@ function app() {
       const entry = this.hostSnmpTempHistory[hostId] || {};
       const probes = entry.probes || {};
       for (const idx of Object.keys(probes)) {
-        if (((probes[idx] || {}).points || []).length >= 1) return true;
+        if (((probes[idx] || {}).points || []).length >= 1) {
+          return true;
+        }
       }
       const drawer = (this.drawerHost && this.drawerHost.id === hostId)
                      ? this.drawerHost : null;
       if (drawer && Array.isArray(drawer.host_dell_temps)) {
         for (const t of drawer.host_dell_temps) {
-          if (t && t.celsius != null) return true;
+          if (t && t.celsius != null) {
+            return true;
+          }
         }
       }
       return false;
@@ -30463,14 +33704,18 @@ function app() {
       // UPS gate's "live OR history" predicate so the card stays
       // mounted when the live probe is briefly empty.
       const drawer = this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null;
-      if (drawer && Array.isArray(drawer.host_dell_temps) && drawer.host_dell_temps.length) return true;
+      if (drawer && Array.isArray(drawer.host_dell_temps) && drawer.host_dell_temps.length) {
+        return true;
+      }
       const entry = this.hostSnmpTempHistory[hostId] || {};
       const probes = entry.probes || {};
       return Object.keys(probes).length > 0;
     },
     snmpThroughputLine(hostId, dir) {
       const vals = this.snmpThroughputBpsSeries(hostId, dir);
-      if (!vals.length) return '';
+      if (!vals.length) {
+        return '';
+      }
       const m = this.snmpThroughputMaxBps(hostId);
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       const times = series.map(p => p.ts);
@@ -30483,22 +33728,36 @@ function app() {
       const rx = this.snmpThroughputBpsSeries(hostId, 'rx');
       const tx = this.snmpThroughputBpsSeries(hostId, 'tx');
       let m = 0;
-      for (const v of rx) if (v > m) m = v;
-      for (const v of tx) if (v > m) m = v;
+      for (const v of rx) {
+        if (v > m) {
+          m = v;
+        }
+      }
+      for (const v of tx) {
+        if (v > m) {
+          m = v;
+        }
+      }
       return m;
     },
     snmpThroughputLast(hostId, dir) {
       const vals = this.snmpThroughputBpsSeries(hostId, dir);
       for (let i = vals.length - 1; i >= 0; i--) {
-        if (vals[i] > 0) return vals[i];
+        if (vals[i] > 0) {
+          return vals[i];
+        }
       }
       return 0;
     },
     snmpHasThroughput(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-      if (series.length < 2) return false;
+      if (series.length < 2) {
+        return false;
+      }
       for (const p of series) {
-        if (p.net_rx_total_bytes != null || p.net_tx_total_bytes != null) return true;
+        if (p.net_rx_total_bytes != null || p.net_tx_total_bytes != null) {
+          return true;
+        }
       }
       return false;
     },
@@ -30511,7 +33770,9 @@ function app() {
     snmpPagesPerDaySeries(hostId) {
       const entry = this.hostSnmpHistory[hostId] || {};
       const series = entry.points || [];
-      if (series.length < 2) return [];
+      if (series.length < 2) {
+        return [];
+      }
       // Same bucket-aware dt cap as snmpThroughputBpsSeries — 7d windows
       // bucket to 5040s, blowing past a static 3600s cap and zeroing
       // the entire series.
@@ -30522,17 +33783,25 @@ function app() {
         const a = series[i - 1], b = series[i];
         const dt = (b.ts || 0) - (a.ts || 0);
         const av = a.printer_page_count, bv = b.printer_page_count;
-        if (av == null || bv == null) continue;
-        if (dt < 1 || dt > dtCap) continue;
+        if (av == null || bv == null) {
+          continue;
+        }
+        if (dt < 1 || dt > dtCap) {
+          continue;
+        }
         const dp = bv - av;
-        if (dp < 0 || dp > 10000) continue;
+        if (dp < 0 || dp > 10000) {
+          continue;
+        }
         out[i] = (dp / dt) * 86400;     // pages per day
       }
       return out;
     },
     snmpPagesPerDayLine(hostId) {
       const vals = this.snmpPagesPerDaySeries(hostId);
-      if (!vals.length) return '';
+      if (!vals.length) {
+        return '';
+      }
       const m = Math.max(0.0001, ...vals);
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       const times = series.map(p => p.ts);
@@ -30541,13 +33810,19 @@ function app() {
     snmpPagesPerDayMax(hostId) {
       const vals = this.snmpPagesPerDaySeries(hostId);
       let m = 0;
-      for (const v of vals) if (v > m) m = v;
+      for (const v of vals) {
+        if (v > m) {
+          m = v;
+        }
+      }
       return m;
     },
     snmpPagesPerDayLast(hostId) {
       const vals = this.snmpPagesPerDaySeries(hostId);
       for (let i = vals.length - 1; i >= 0; i--) {
-        if (vals[i] > 0) return vals[i];
+        if (vals[i] > 0) {
+          return vals[i];
+        }
       }
       return 0;
     },
@@ -30582,9 +33857,13 @@ function app() {
     // window so the legend matches what the eye sees on the chart.
     snmpLoadLegendValue(hostId, key, liveValue) {
       const live = +liveValue;
-      if (Number.isFinite(live) && live > 0) return live.toFixed(2);
+      if (Number.isFinite(live) && live > 0) {
+        return live.toFixed(2);
+      }
       const stats = this.snmpStats(hostId, key);
-      if (stats && stats.max > 0) return stats.max.toFixed(2);
+      if (stats && stats.max > 0) {
+        return stats.max.toFixed(2);
+      }
       return (live || 0).toFixed(2);
     },
     // List of providers actually wired ON THIS HOST — drives the
@@ -30594,17 +33873,37 @@ function app() {
     // claimed Webmin/SNMP were checked even on hosts that had no
     // Webmin/SNMP target name set — confusing.
     enabledProvidersList(h) {
-      if (!h) return this.t('hosts_extra.no_data.no_providers') || 'any provider';
+      if (!h) {
+        return this.t('hosts_extra.no_data.no_providers') || 'any provider';
+      }
       const out = [];
-      if ((h.beszel_id || h.beszel_name || '').trim()) out.push('Beszel');
-      if ((h.pulse_name || '').trim()) out.push('Pulse');
-      if ((h.ne_url || '').trim()) out.push('node-exporter');
-      if ((h.webmin_name || h.webmin_url || '').trim()) out.push('Webmin');
-      if (h.snmp_enabled === true && (h.snmp_name || '').trim()) out.push('SNMP');
-      if (h.ping_enabled === true) out.push('Ping');
-      if (!out.length) return this.t('hosts_extra.no_data.no_providers') || 'any provider';
-      if (out.length === 1) return out[0];
-      if (out.length === 2) return out[0] + ' or ' + out[1];
+      if ((h.beszel_id || h.beszel_name || '').trim()) {
+        out.push('Beszel');
+      }
+      if ((h.pulse_name || '').trim()) {
+        out.push('Pulse');
+      }
+      if ((h.ne_url || '').trim()) {
+        out.push('node-exporter');
+      }
+      if ((h.webmin_name || h.webmin_url || '').trim()) {
+        out.push('Webmin');
+      }
+      if (h.snmp_enabled === true && (h.snmp_name || '').trim()) {
+        out.push('SNMP');
+      }
+      if (h.ping_enabled === true) {
+        out.push('Ping');
+      }
+      if (!out.length) {
+        return this.t('hosts_extra.no_data.no_providers') || 'any provider';
+      }
+      if (out.length === 1) {
+        return out[0];
+      }
+      if (out.length === 2) {
+        return out[0] + ' or ' + out[1];
+      }
       return out.slice(0, -1).join(', ') + ', or ' + out[out.length - 1];
     },
     snmpHasPageCount(hostId, h) {
@@ -30617,14 +33916,20 @@ function app() {
       // EITHER the live row OR history (DB-backed fast-path so the
       // card appears immediately on drawer open instead of waiting
       // for the 10-30s live SNMP probe to land).
-      if (!h) return false;
+      if (!h) {
+        return false;
+      }
       const supplies = h.printer_supplies || [];
       const hasSupplies = Array.isArray(supplies) && supplies.length > 0;
       const hasConsole = !!(h.printer_console_msg && String(h.printer_console_msg).trim());
       const hasNonZeroLive = (+h.printer_page_count || 0) > 0;
       const hasNonZeroHist = this.snmpLatestPageCount(hostId) > 0;
-      if (!hasSupplies && !hasConsole && !hasNonZeroLive && !hasNonZeroHist) return false;
-      if (h.printer_page_count != null) return true;
+      if (!hasSupplies && !hasConsole && !hasNonZeroLive && !hasNonZeroHist) {
+        return false;
+      }
+      if (h.printer_page_count != null) {
+        return true;
+      }
       return hasNonZeroHist;
     },
     // read the most-recent non-null `printer_page_count` from
@@ -30636,7 +33941,9 @@ function app() {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       for (let i = series.length - 1; i >= 0; i--) {
         const v = series[i].printer_page_count;
-        if (v != null && v > 0) return v;
+        if (v != null && v > 0) {
+          return v;
+        }
       }
       return 0;
     },
@@ -30654,7 +33961,9 @@ function app() {
         hostId = host ? host.id : '';
       }
       const cacheKey = systemId || hostId;
-      if (!cacheKey) return;
+      if (!cacheKey) {
+        return;
+      }
       const prev = this.hostHistory[cacheKey] || {};
       this.hostHistory[cacheKey] = {
         loading: true,
@@ -30668,7 +33977,9 @@ function app() {
           system_id: systemId || '',
           hours: String(this.hostHistoryRange),
         };
-        if (hostId) qs.host_id = hostId;
+        if (hostId) {
+          qs.host_id = hostId;
+        }
         const params = new URLSearchParams(qs);
         const r = await fetch('/api/hosts/history?' + params.toString());
         if (!r.ok) {
@@ -30714,7 +34025,9 @@ function app() {
               const vals = Object.values(liveTemps).map(v => Number(v)).filter(Number.isFinite);
               const maxTemp = vals.length ? Math.max(...vals) : 0;
               for (const row of next) {
-                if (!row) continue;
+                if (!row) {
+                  continue;
+                }
                 row.temps = liveTemps;
                 row.temp_max = maxTemp;
               }
@@ -30722,11 +34035,21 @@ function app() {
             if (!seriesHasGpu && liveGpus.length) {
               let pwrSum = 0, usageSum = 0, vUsedSum = 0, vTotSum = 0, n = 0;
               for (const g of liveGpus) {
-                if (!g || typeof g !== 'object') continue;
-                const w = Number(g.power_watts);   if (Number.isFinite(w)) pwrSum += w;
-                const u = Number(g.usage_percent); if (Number.isFinite(u)) usageSum += u;
-                const vu = Number(g.vram_used_bytes);  if (Number.isFinite(vu)) vUsedSum += vu;
-                const vt = Number(g.vram_total_bytes); if (Number.isFinite(vt)) vTotSum += vt;
+                if (!g || typeof g !== 'object') {
+                  continue;
+                }
+                const w = Number(g.power_watts);   if (Number.isFinite(w)) {
+                  pwrSum += w;
+                }
+                const u = Number(g.usage_percent); if (Number.isFinite(u)) {
+                  usageSum += u;
+                }
+                const vu = Number(g.vram_used_bytes);  if (Number.isFinite(vu)) {
+                  vUsedSum += vu;
+                }
+                const vt = Number(g.vram_total_bytes); if (Number.isFinite(vt)) {
+                  vTotSum += vt;
+                }
                 n += 1;
               }
               if (n) {
@@ -30778,10 +34101,14 @@ function app() {
     // (caller hides the line). Reads `hostHistoryNow` (ticked every
     // 30s) so the label stays current without re-fetching the data.
     hostHistoryFreshness(h) {
-      if (!h) return '';
+      if (!h) {
+        return '';
+      }
       const key = this.hostHistoryKey(h);
       const entry = this.hostHistory[key];
-      if (!entry || !entry.loadedAt) return '';
+      if (!entry || !entry.loadedAt) {
+        return '';
+      }
       // Don't render "Updated Xs ago" on a permanently-flat series.
       // A SNMP-only host with no Beszel/NE wired keeps `loadedAt`
       // updated by the polling loop even though the series is
@@ -30790,16 +34117,22 @@ function app() {
       // freshness label when fewer than 2 history points exist OR
       // when every point is zero across the canonical metric keys.
       const series = entry.series || [];
-      if (series.length < 2) return '';
+      if (series.length < 2) {
+        return '';
+      }
       const sentinel = ['cpu','mp','dp','net','dr','dw','la1_pct','temp_max','gpu_pwr','gpu_usage','gpu_vram_pct'];
       let hasData = false;
       for (const r of series) {
         for (const k of sentinel) {
           if ((+r[k] || 0) > 0) { hasData = true; break; }
         }
-        if (hasData) break;
+        if (hasData) {
+          break;
+        }
       }
-      if (!hasData) return '';
+      if (!hasData) {
+        return '';
+      }
       // `hostHistoryNow` is bumped on a 30s timer; touching it inside
       // the getter means Alpine re-evaluates whenever it ticks.
       const now = this.hostHistoryNow || Date.now();
@@ -30836,48 +34169,79 @@ function app() {
     // Returns null when no chart cache has any data (chart's own
     // "Collecting data" placeholder handles that signal).
     chartFreshness(h) {
-      if (!h) return null;
+      if (!h) {
+        return null;
+      }
       let maxTs = 0;
       const collectFromSeries = (entry, field) => {
-        if (!entry) return;
+        if (!entry) {
+          return;
+        }
         const arr = (entry && Array.isArray(entry[field])) ? entry[field] : [];
-        if (!arr.length) return;
+        if (!arr.length) {
+          return;
+        }
         const last = arr[arr.length - 1];
         const ts = Number((last && (last.t || last.ts)) || 0);
-        if (ts > maxTs) maxTs = ts;
+        if (ts > maxTs) {
+          maxTs = ts;
+        }
       };
       try {
         const mainKey = this.hostHistoryKey ? this.hostHistoryKey(h) : '';
-        if (mainKey && this.hostHistory) collectFromSeries(this.hostHistory[mainKey], 'series');
+        if (mainKey && this.hostHistory) {
+          collectFromSeries(this.hostHistory[mainKey], 'series');
+        }
         const pingKey = this.hostPingHistoryKey ? this.hostPingHistoryKey(h) : '';
-        if (pingKey && this.hostHistory) collectFromSeries(this.hostHistory[pingKey], 'series');
-        if (this.hostSnmpHistory) collectFromSeries(this.hostSnmpHistory[h.id], 'points');
+        if (pingKey && this.hostHistory) {
+          collectFromSeries(this.hostHistory[pingKey], 'series');
+        }
+        if (this.hostSnmpHistory) {
+          collectFromSeries(this.hostSnmpHistory[h.id], 'points');
+        }
         const ih = this.hostSnmpIfaceHistory && this.hostSnmpIfaceHistory[h.id];
         if (ih && ih.ifaces && typeof ih.ifaces === 'object') {
           for (const k of Object.keys(ih.ifaces)) {
             const arr = Array.isArray(ih.ifaces[k]) ? ih.ifaces[k] : [];
-            if (!arr.length) continue;
+            if (!arr.length) {
+              continue;
+            }
             const ts = Number((arr[arr.length - 1] || {}).ts || (arr[arr.length - 1] || {}).t || 0);
-            if (ts > maxTs) maxTs = ts;
+            if (ts > maxTs) {
+              maxTs = ts;
+            }
           }
         }
         const th = this.hostSnmpTempHistory && this.hostSnmpTempHistory[h.id];
         if (th && th.probes && typeof th.probes === 'object') {
           for (const k of Object.keys(th.probes)) {
             const arr = Array.isArray(th.probes[k]) ? th.probes[k] : [];
-            if (!arr.length) continue;
+            if (!arr.length) {
+              continue;
+            }
             const ts = Number((arr[arr.length - 1] || {}).ts || (arr[arr.length - 1] || {}).t || 0);
-            if (ts > maxTs) maxTs = ts;
+            if (ts > maxTs) {
+              maxTs = ts;
+            }
           }
         }
       } catch (_) { /* defensive */ }
-      if (!maxTs) return null;
+      if (!maxTs) {
+        return null;
+      }
       const nowS = (this.hostHistoryNow || Date.now()) / 1000;
       const ageS = Math.max(0, Math.round(nowS - maxTs));
       let label;
-      if (ageS < 60) label = ageS + 's';
-      else if (ageS < 3600) label = Math.round(ageS / 60) + 'm';
-      else label = Math.round(ageS / 3600) + 'h';
+      if (ageS < 60) {
+        label = ageS + 's';
+      }
+      else {
+        if (ageS < 3600) {
+          label = Math.round(ageS / 60) + 'm';
+        } else {
+          label = Math.round(ageS / 3600) + 'h';
+        }
+      }
       return { age_s: ageS, label, stale: ageS > 600 };
     },
     // Decide whether to show the "Cached" pill on the chart strip.
@@ -30902,15 +34266,23 @@ function app() {
     // "Collecting data" placeholder handles that signal; the pill
     // would be redundant noise on a host that hasn't loaded data yet.
     isHostChartStale(h) {
-      if (!h) return false;
+      if (!h) {
+        return false;
+      }
       const key = this.hostHistoryKey ? this.hostHistoryKey(h) : '';
-      if (!key) return false;
+      if (!key) {
+        return false;
+      }
       const entry = this.hostHistory && this.hostHistory[key];
       const series = (entry && Array.isArray(entry.series)) ? entry.series : [];
-      if (series.length < 2) return false;
+      if (series.length < 2) {
+        return false;
+      }
       const last = series[series.length - 1];
       const newestSec = Number((last && (last.t || last.ts)) || 0);
-      if (!newestSec) return false;
+      if (!newestSec) {
+        return false;
+      }
       // `hostHistoryNow` is the same 30s-ticked timer the freshness
       // label reads — touching it here makes Alpine re-evaluate the
       // gate on every tick so the pill flips on/off without operator
@@ -30925,10 +34297,14 @@ function app() {
     // anchor — the relative label drifts every second, the ISO string
     // doesn't.
     hostHistoryFreshnessAbsolute(h) {
-      if (!h) return '';
+      if (!h) {
+        return '';
+      }
       const key = this.hostHistoryKey(h);
       const entry = this.hostHistory[key];
-      if (!entry || !entry.loadedAt) return '';
+      if (!entry || !entry.loadedAt) {
+        return '';
+      }
       try {
         return new Date(entry.loadedAt).toISOString().replace(/\.\d{3}Z$/, 'Z');
       } catch (_) {
@@ -30943,10 +34319,14 @@ function app() {
     // landed yet. Drives the Disk I/O / Network "enable the collector"
     // empty-state branches in the host drawer.
     hostCollectorMissing(h, name) {
-      if (!h || !h.ne_url) return false;
+      if (!h || !h.ne_url) {
+        return false;
+      }
       const key = this.hostHistoryKey(h);
       const c = this.hostHistory[key] && this.hostHistory[key].collectors;
-      if (!c) return false;
+      if (!c) {
+        return false;
+      }
       return c[name] === false;
     },
     // Resolve the right hostHistory[] key for one host. Beszel-mapped
@@ -30955,7 +34335,9 @@ function app() {
     // host_metrics_sampler keys its rows on). Returns '' when neither
     // path is available — chart helpers short-circuit on falsy keys.
     hostHistoryKey(h) {
-      if (!h) return '';
+      if (!h) {
+        return '';
+      }
       return h.beszel_id || h.id || '';
     },
 
@@ -30968,7 +34350,9 @@ function app() {
     // cpu/mp/dp/nr/ns from Beszel/NE on different timestamps), so the
     // ping series gets its own `ping:<id>` namespace.
     hostPingHistoryKey(h) {
-      if (!h || !h.id) return '';
+      if (!h || !h.id) {
+        return '';
+      }
       return 'ping:' + h.id;
     },
 
@@ -30979,7 +34363,9 @@ function app() {
     // freshness label, leave the previous series in place on a
     // network blip (no wholesale array reassignment).
     async loadHostPingHistory(hostId) {
-      if (!hostId) return;
+      if (!hostId) {
+        return;
+      }
       const key = 'ping:' + hostId;
       // Honour the shared host-history range picker.
       // Was hardcoded to ?hours=24; now reads `hostHistoryRange` so
@@ -30988,7 +34374,9 @@ function app() {
       const hours = Math.max(1, Math.min(168, Number(this.hostHistoryRange) || 24));
       try {
         const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/ping/history?hours=' + hours);
-        if (!r.ok) return;
+        if (!r.ok) {
+          return;
+        }
         const d = await r.json();
         // Field name `t` matches the convention `loadHostHistory` uses
         // (and what `xAxisFromSeries` reads at s[idx].t). Also keep
@@ -31009,7 +34397,9 @@ function app() {
           alive:    !!p.alive,
           loss_pct: Number(p.loss_pct) || 0,
         }));
-        if (!this.hostHistory[key]) this.hostHistory[key] = {};
+        if (!this.hostHistory[key]) {
+          this.hostHistory[key] = {};
+        }
         this.hostHistory[key].series = points;
         this.hostHistory[key].loadedAt = Date.now();
       } catch (e) {
@@ -31023,7 +34413,9 @@ function app() {
     // (`tuning_host_permanent_fail_window_seconds`). Frontend renders an
     // icon in the table + a banner in the drawer with a Resume button.
     hostFailureMinutes(h) {
-      if (!h || !h.failure_window_started_at) return 0;
+      if (!h || !h.failure_window_started_at) {
+        return 0;
+      }
       const elapsed = (Date.now() / 1000) - h.failure_window_started_at;
       return Math.max(0, Math.floor(elapsed / 60));
     },
@@ -31035,7 +34427,9 @@ function app() {
     // failure-state row (host has never failed) so the banner copy
     // is omitted entirely.
     hostLastFailureAge(h) {
-      if (!h || !h.last_failure_ts) return null;
+      if (!h || !h.last_failure_ts) {
+        return null;
+      }
       const elapsed = Math.max(0, Math.floor((Date.now() / 1000) - h.last_failure_ts));
       if (elapsed < 60) {
         return this.t('hosts_extra.permanent_fail.last_error_age_seconds', { seconds: elapsed });
@@ -31046,7 +34440,9 @@ function app() {
       return this.t('hosts_extra.permanent_fail.last_error_age_hours', { hours: Math.floor(elapsed / 3600) });
     },
     async resumeHostSampling(h) {
-      if (!h || !h.id || h._resumeBusy) return;
+      if (!h || !h.id || h._resumeBusy) {
+        return;
+      }
       h._resumeBusy = true;
       // Safety timer — mirrors per-provider safety. Even if
       // `await fetch` hangs forever (browser network freeze, broken
@@ -31129,7 +34525,9 @@ function app() {
         // default end-anchored placement, then re-apply if needed.
         el.classList.remove('metric-source-tooltip--align-start');
         el.classList.remove('metric-source-tooltip--align-center');
-        if (getComputedStyle(el).display === 'none') continue;
+        if (getComputedStyle(el).display === 'none') {
+          continue;
+        }
         // Use the host drawer as the clipping reference when present;
         // fall back to the viewport. 8px breathing room on each side.
         const drawer = el.closest('.host-drawer');
@@ -31160,7 +34558,9 @@ function app() {
     // sampler) — surface that explicitly.
     metricSource(h, key) {
       const fallback = this.t('hosts_extra.metrics.source_' + key);
-      if (!h) return fallback;
+      if (!h) {
+        return fallback;
+      }
       const beszel = (h.beszel_name || '').trim();
       const beszelId = (h.beszel_id || '').trim();
       const pulse = (h.pulse_name || '').trim();
@@ -31274,7 +34674,9 @@ function app() {
       //     DOES have and explain why this chart will be empty.
       if (active.length === 0) {
         const mapped = Object.values(providers).filter(p => p);
-        if (mapped.length === 0) return fallback;
+        if (mapped.length === 0) {
+          return fallback;
+        }
         const summary = mapped.join(', ');
         return `This host is mapped to ${summary}, but ${key} is not surfaced by any of those providers — chart will stay empty until you add a provider that tracks it.`;
       }
@@ -31302,7 +34704,9 @@ function app() {
       // Ignore re-clicks while a previous picker click is still
       // resolving — the buttons are also disabled in the markup but
       // belt-and-braces against keyboard / programmatic invocations.
-      if (this.hostHistoryRangeBusy) return;
+      if (this.hostHistoryRangeBusy) {
+        return;
+      }
       this.hostHistoryRange = hours;
       const hrs = Math.max(1, Math.min(168, Number(hours) || 1));
       this.hostHistoryRangeBusy = true;
@@ -31368,7 +34772,9 @@ function app() {
         // `allSettled` so one failing loader doesn't leave the picker
         // stuck disabled — a 5xx on Pulse history shouldn't prevent
         // the operator from swapping back to 1h.
-        if (tasks.length) await Promise.allSettled(tasks);
+        if (tasks.length) {
+          await Promise.allSettled(tasks);
+        }
       } finally {
         clearTimeout(safetyTimer);
         this.hostHistoryRangeBusy = false;
@@ -31377,7 +34783,9 @@ function app() {
     // --- Axis-label helpers used by the metric-card template ---
     _fmtAxisPct(v) { return Math.round(v) + '%'; },
     _fmtAxisBytes(v) {
-      if (v <= 0) return '0 B/s';
+      if (v <= 0) {
+        return '0 B/s';
+      }
       const units = ['B', 'KB', 'MB', 'GB', 'TB'];
       let u = 0; let n = v;
       while (n >= 1024 && u < units.length - 1) { n /= 1024; u++; }
@@ -31396,7 +34804,9 @@ function app() {
       return (v) => (v <= 0 ? '0 B/s' : fmtAt(v, refMax) + '/s');
     },
     _fmtAxisTime(ts) {
-      if (!ts) return '';
+      if (!ts) {
+        return '';
+      }
       const d = new Date(ts * 1000);
       // 7d (168h) range — every chart's X-axis labels in DAYS not
       // hours, unified across the drawer. User-flagged: "when the
@@ -31436,7 +34846,9 @@ function app() {
     // zero at bottom, two interpolated ticks between).
     yAxisAuto(max, formatter) {
       const fmt = formatter || this._fmtAxisBytes;
-      if (!max || max <= 0) return [fmt(0), '', '', fmt(0)];
+      if (!max || max <= 0) {
+        return [fmt(0), '', '', fmt(0)];
+      }
       return [fmt(max), fmt(max * 0.66), fmt(max * 0.33), fmt(0)];
     },
     // Pick up to 5 evenly-spaced timestamps from the series and format
@@ -31465,15 +34877,25 @@ function app() {
     // default) falls back to the passed value.
     _hostChartTickCount(rangeHours) {
       const r = Number(rangeHours || this.hostHistoryRange) || 1;
-      if (r === 1)   return 6;
-      if (r === 6)   return 6;
-      if (r === 24)  return 6;
-      if (r === 168) return 7;
+      if (r === 1)   {
+        return 6;
+      }
+      if (r === 6)   {
+        return 6;
+      }
+      if (r === 24)  {
+        return 6;
+      }
+      if (r === 168) {
+        return 7;
+      }
       return 5;
     },
     xAxisFromSeries(systemId, slots) {
       const entry = this.hostHistory[systemId];
-      if (!entry || !entry.series || entry.series.length < 2) return [];
+      if (!entry || !entry.series || entry.series.length < 2) {
+        return [];
+      }
       // Range-aware default — caller may still pin a specific count
       // by passing a non-default integer. The legacy `slots=5` call
       // sites (every drawer-chart consumer pre-fix) intentionally
@@ -31498,7 +34920,9 @@ function app() {
     // template can render a richer chart than just a single polyline.
     hostChart(systemId, key, opts = {}) {
       const entry = this.hostHistory[systemId];
-      if (!entry || !entry.series || entry.series.length < 2) return null;
+      if (!entry || !entry.series || entry.series.length < 2) {
+        return null;
+      }
       const W = opts.width || 420;
       const H = opts.height || 100;
       const PAD_X = 4;
@@ -31508,14 +34932,22 @@ function app() {
       let lo = Infinity, hi = -Infinity;
       for (const v of pts) {
         const n = Number(v) || 0;
-        if (n < lo) lo = n;
-        if (n > hi) hi = n;
+        if (n < lo) {
+          lo = n;
+        }
+        if (n > hi) {
+          hi = n;
+        }
       }
       if (!isFinite(lo)) { lo = 0; hi = 1; }
       if (hi - lo < 0.5) { lo = Math.max(0, lo - 0.5); hi = lo + 1; }
       // Optional forced range — e.g. CPU/Mem/Disk charts clamp to 0..100.
-      if (opts.min !== undefined) lo = opts.min;
-      if (opts.max !== undefined) hi = opts.max;
+      if (opts.min !== undefined) {
+        lo = opts.min;
+      }
+      if (opts.max !== undefined) {
+        hi = opts.max;
+      }
       // — Unified drawer time-domain. When every point has a `t`
       // timestamp (epoch seconds — set by the loader on every Beszel/NE/
       // Ping fetch), the leftmost pixel of every host-drawer chart now
@@ -31583,7 +35015,9 @@ function app() {
       const areaSegs = [];
       let runStartIdx = -1;
       const closeRun = (endIdx) => {
-        if (runStartIdx < 0 || endIdx < runStartIdx) return;
+        if (runStartIdx < 0 || endIdx < runStartIdx) {
+          return;
+        }
         let seg = `M${xy[runStartIdx].x.toFixed(1)},${baseY}`;
         for (let j = runStartIdx; j <= endIdx; j++) {
           seg += ` L${xy[j].x.toFixed(1)},${xy[j].y.toFixed(1)}`;
@@ -31659,12 +35093,16 @@ function app() {
     // Returns 0 when no data so the caller can short-circuit the chart.
     hostChartMax(systemId, keys) {
       const entry = this.hostHistory[systemId];
-      if (!entry || !entry.series) return 0;
+      if (!entry || !entry.series) {
+        return 0;
+      }
       let m = 0;
       for (const k of keys) {
         for (const r of entry.series) {
           const n = Number(r[k]) || 0;
-          if (n > m) m = n;
+          if (n > m) {
+            m = n;
+          }
         }
       }
       return m;
@@ -31681,10 +35119,14 @@ function app() {
     // (< minPoints) get the benefit of the doubt — chart still shows.
     hostChartIsPermanentlyFlat(systemId, keys, minPoints) {
       const entry = this.hostHistory[systemId];
-      if (!entry || !entry.series) return false;
+      if (!entry || !entry.series) {
+        return false;
+      }
       const points = entry.series.length;
       const need = +minPoints || 12;
-      if (points < need) return false;     // still warming up
+      if (points < need) {
+        return false;
+      }     // still warming up
       // hostChartMax === 0 means every point in every key is 0/missing.
       return this.hostChartMax(systemId, keys) === 0;
     },
@@ -31739,7 +35181,9 @@ function app() {
     // Returns null when there's not enough data to draw two points.
     hostTempChart(systemId, opts = {}) {
       const entry = this.hostHistory[systemId];
-      if (!entry || !entry.series || entry.series.length < 2) return null;
+      if (!entry || !entry.series || entry.series.length < 2) {
+        return null;
+      }
       const W = opts.width || 420;
       const H = opts.height || 120;
       const PAD_X = 4;
@@ -31751,23 +35195,35 @@ function app() {
       let lo = Infinity, hi = -Infinity;
       for (const r of entry.series) {
         const t = r && r.temps;
-        if (!t || typeof t !== 'object') continue;
+        if (!t || typeof t !== 'object') {
+          continue;
+        }
         for (const [name, c] of Object.entries(t)) {
           const n = Number(c);
-          if (!Number.isFinite(n)) continue;
+          if (!Number.isFinite(n)) {
+            continue;
+          }
           sensorNames.add(name);
-          if (n < lo) lo = n;
-          if (n > hi) hi = n;
+          if (n < lo) {
+            lo = n;
+          }
+          if (n > hi) {
+            hi = n;
+          }
         }
       }
-      if (!isFinite(lo) || sensorNames.size === 0) return null;
+      if (!isFinite(lo) || sensorNames.size === 0) {
+        return null;
+      }
       // ±5°C breathing room so flat-ish series don't render as a
       // single horizontal pixel. Min anchored at >=0 so a freezer
       // host with subzero readings doesn't leave a Y-axis label
       // showing negative-zero.
       lo = Math.max(0, Math.floor(lo - 5));
       hi = Math.ceil(hi + 5);
-      if (hi - lo < 10) hi = lo + 10;
+      if (hi - lo < 10) {
+        hi = lo + 10;
+      }
       const sortedNames = Array.from(sensorNames).sort();
       const usableW = W - PAD_X * 2;
       const usableH = H - PAD_T - PAD_B;
@@ -31826,14 +35282,20 @@ function app() {
           cur += (cur ? ' L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
           prevTs = curTs;
         }
-        if (cur) segs.push(cur);
+        if (cur) {
+          segs.push(cur);
+        }
         const d = segs.join(' ');
-        if (!d) return;
+        if (!d) {
+          return;
+        }
         const slug = slugs[idx % slugs.length];
         dByColor[slug] = dByColor[slug] ? dByColor[slug] + ' ' + d : d;
         lines.push({ name, d, color: 'var(--' + slug + ')' });
       });
-      if (lines.length === 0) return null;
+      if (lines.length === 0) {
+        return null;
+      }
       // Y-axis ticks: 3 labels (top / mid / bottom) so the .metric-y-axis
       // flex `justify-content: space-between` lands them at the same
       // visual rhythm as `yAxisPercent()` (`100% / 50% / 0%`). Earlier
@@ -31859,25 +35321,39 @@ function app() {
     // (chip hides via the `> 0` gate).
     hostPingWindowLoss(systemId) {
       const entry = this.hostHistory[systemId];
-      if (!entry || !entry.series || !entry.series.length) return null;
+      if (!entry || !entry.series || !entry.series.length) {
+        return null;
+      }
       let total = 0, down = 0;
       for (const r of entry.series) {
         total++;
-        if (r && r.alive === false) down++;
+        if (r && r.alive === false) {
+          down++;
+        }
       }
-      if (!total) return null;
+      if (!total) {
+        return null;
+      }
       return Math.round(100 * down / total);
     },
     hostMetricStats(systemId, key, asPct = true) {
       const entry = this.hostHistory[systemId];
-      if (!entry || !entry.series || entry.series.length === 0) return null;
+      if (!entry || !entry.series || entry.series.length === 0) {
+        return null;
+      }
       let lo = Infinity, hi = -Infinity;
       for (const r of entry.series) {
         const n = Number(r[key]) || 0;
-        if (n < lo) lo = n;
-        if (n > hi) hi = n;
+        if (n < lo) {
+          lo = n;
+        }
+        if (n > hi) {
+          hi = n;
+        }
       }
-      if (!isFinite(lo)) return null;
+      if (!isFinite(lo)) {
+        return null;
+      }
       if (asPct) {
         return {
           min: lo.toFixed(1) + '%',
@@ -31898,27 +35374,45 @@ function app() {
     },
     // Seconds → "6d 3h" / "5h 12m" / "34m 12s" — matches img_10's format.
     fmtUptimeShort(s) {
-      if (!s || s <= 0) return '—';
+      if (!s || s <= 0) {
+        return '—';
+      }
       const d = Math.floor(s / 86400);
       const h = Math.floor((s % 86400) / 3600);
       const m = Math.floor((s % 3600) / 60);
-      if (d > 0) return `${d}d ${h}h`;
-      if (h > 0) return `${h}h ${m}m`;
+      if (d > 0) {
+        return `${d}d ${h}h`;
+      }
+      if (h > 0) {
+        return `${h}h ${m}m`;
+      }
       return `${m}m`;
     },
     // ISO string → "Updated 2s ago" / "2d ago"
     fmtUpdatedAgo(iso) {
-      if (!iso) return '';
+      if (!iso) {
+        return '';
+      }
       const t = Date.parse(iso);
-      if (isNaN(t)) return '';
+      if (isNaN(t)) {
+        return '';
+      }
       const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
-      if (s < 60) return `Updated ${s}s ago`;
-      if (s < 3600) return `Updated ${Math.floor(s / 60)}m ago`;
-      if (s < 86400) return `Updated ${Math.floor(s / 3600)}h ago`;
+      if (s < 60) {
+        return `Updated ${s}s ago`;
+      }
+      if (s < 3600) {
+        return `Updated ${Math.floor(s / 60)}m ago`;
+      }
+      if (s < 86400) {
+        return `Updated ${Math.floor(s / 3600)}h ago`;
+      }
       return `Updated ${Math.floor(s / 86400)}d ago`;
     },
     memPercentOf(h) {
-      if (!h) return 0;
+      if (!h) {
+        return 0;
+      }
       // Same unification rule as `diskPercentOf` — prefer the
       // backend's recomputed `host_mem_percent` (derived from merged
       // used/total in `_merge_one_host`) so the drawer chart, drawer
@@ -31932,11 +35426,15 @@ function app() {
           && Number.isFinite(Number(h.mem_percent))) {
         return Number(h.mem_percent);
       }
-      if (!h.mem_total) return 0;
+      if (!h.mem_total) {
+        return 0;
+      }
       return Math.round((h.mem_used / h.mem_total) * 1000) / 10;
     },
     diskPercentOf(h) {
-      if (!h) return 0;
+      if (!h) {
+        return 0;
+      }
       // Prefer the backend's recomputed `host_disk_percent` (derived
       // from merged used/total in `_merge_one_host`) so the drawer
       // chart, drawer Total-usage label, and the outside host card
@@ -31949,7 +35447,9 @@ function app() {
           && Number.isFinite(Number(h.disk_percent))) {
         return Number(h.disk_percent);
       }
-      if (!h.disk_total) return 0;
+      if (!h.disk_total) {
+        return 0;
+      }
       return Math.round((h.disk_used / h.disk_total) * 1000) / 10;
     },
     // Percent label that distinguishes "genuinely zero" from "small
@@ -31970,8 +35470,12 @@ function app() {
       // "<1%" sentinel for genuinely-tiny values so a 0.016% mount
       // doesn't read as "0.0%".
       const n = +v;
-      if (!Number.isFinite(n) || n <= 0) return '0%';
-      if (n < 1) return '<1%';
+      if (!Number.isFinite(n) || n <= 0) {
+        return '0%';
+      }
+      if (n < 1) {
+        return '<1%';
+      }
       return n.toFixed(1) + '%';
     },
     // -------------------- Drift-from-baseline indicator --------------------
@@ -31995,15 +35499,23 @@ function app() {
     // before `/api/me` lands.
     hostBaselineMetrics() {
       const fromApi = ((this.me && this.me.client_config) || {}).baseline_metrics;
-      if (Array.isArray(fromApi) && fromApi.length) return fromApi;
+      if (Array.isArray(fromApi) && fromApi.length) {
+        return fromApi;
+      }
       return ['cpu_pct', 'mem_pct', 'disk_pct', 'ping_rtt_ms'];
     },
     hostDriftIndicator(h, metric) {
-      if (!h || !metric) return null;
+      if (!h || !metric) {
+        return null;
+      }
       const d = h.drift;
-      if (!d || typeof d !== 'object') return null;
+      if (!d || typeof d !== 'object') {
+        return null;
+      }
       const m = d[metric];
-      if (!m || !m.indicator) return null;
+      if (!m || !m.indicator) {
+        return null;
+      }
       const ind = String(m.indicator);
       const tone = ind === '▲' ? 'drift-above'
                  : ind === '▼' ? 'drift-below'
@@ -32013,8 +35525,12 @@ function app() {
       // computed from 3 stray samples. `t()` resolves the
       // i18n key with the metric name + numeric fills.
       const formatVal = (v) => {
-        if (v === null || v === undefined || !Number.isFinite(+v)) return '—';
-        if (metric === 'ping_rtt_ms') return (+v).toFixed(1) + ' ms';
+        if (v === null || v === undefined || !Number.isFinite(+v)) {
+          return '—';
+        }
+        if (metric === 'ping_rtt_ms') {
+          return (+v).toFixed(1) + ' ms';
+        }
         return (+v).toFixed(1) + '%';
       };
       const liveLabel = formatVal(m.value);
@@ -32032,7 +35548,9 @@ function app() {
           live: liveLabel, median: medLabel, iqr: iqrLabel,
           count: m.sample_count || 0,
         });
-        if (tr && tr !== titleKey) title = tr;
+        if (tr && tr !== titleKey) {
+          title = tr;
+        }
       }
       return { indicator: ind, tone, title };
     },
@@ -32054,10 +35572,14 @@ function app() {
     // with score=0 — synthesising CPU% on a dead host is meaningless
     // and "100 / 100 / 0" averages would lie about reachability.
     healthAxes(h) {
-      if (!h) return [];
+      if (!h) {
+        return [];
+      }
       // Unconfigured / loading rows have nothing to grade — return []
       // so the chip hides cleanly via `healthScore() == null`.
-      if (h.status === 'unconfigured' || h.status === 'loading') return [];
+      if (h.status === 'unconfigured' || h.status === 'loading') {
+        return [];
+      }
       // Down / paused → status axis dominates. Operator's reaction
       // to a 0 with reason "Sampling paused" is "click in", which
       // matches what they should be doing for a paused host anyway.
@@ -32077,9 +35599,15 @@ function app() {
       // Mirrors the existing barLevel() colour cue thresholds so
       // the chip's amber turn-over lines up with the stat-bar's.
       const pctScore = (v) => {
-        if (v == null || !Number.isFinite(v)) return null;
-        if (v >= crit) return 0;
-        if (v <= warn) return 100;
+        if (v == null || !Number.isFinite(v)) {
+          return null;
+        }
+        if (v >= crit) {
+          return 0;
+        }
+        if (v <= warn) {
+          return 100;
+        }
         return Math.round(100 - ((v - warn) / (crit - warn)) * 100);
       };
       const axes = [];
@@ -32205,10 +35733,14 @@ function app() {
     // axes, or null if no axis is computable for this host.
     healthScore(h) {
       const axes = this.healthAxes(h);
-      if (!axes.length) return null;
+      if (!axes.length) {
+        return null;
+      }
       let worst = 100;
       for (const a of axes) {
-        if (a.score != null && a.score < worst) worst = a.score;
+        if (a.score != null && a.score < worst) {
+          worst = a.score;
+        }
       }
       return worst;
     },
@@ -32216,11 +35748,17 @@ function app() {
     // tooltip + the breakdown popover's "Worst axis" callout.
     healthWorstAxis(h) {
       const axes = this.healthAxes(h);
-      if (!axes.length) return null;
+      if (!axes.length) {
+        return null;
+      }
       let worst = null;
       for (const a of axes) {
-        if (a.score == null) continue;
-        if (worst == null || a.score < worst.score) worst = a;
+        if (a.score == null) {
+          continue;
+        }
+        if (worst == null || a.score < worst.score) {
+          worst = a;
+        }
       }
       return worst;
     },
@@ -32229,9 +35767,15 @@ function app() {
     // gets attention" mental model — anything green is healthy,
     // amber is "look later", red is "look now".
     healthChipClass(score) {
-      if (score == null) return '';
-      if (score < 50) return 'health-chip-bad';
-      if (score < 80) return 'health-chip-warn';
+      if (score == null) {
+        return '';
+      }
+      if (score < 50) {
+        return 'health-chip-bad';
+      }
+      if (score < 80) {
+        return 'health-chip-warn';
+      }
       return 'health-chip-ok';
     },
     // Toggle the breakdown popover open at host-drawer scope. Click
@@ -32250,7 +35794,9 @@ function app() {
     // `this.hostTimeline[hid]` and `this.hostTimelineRange[hid]`.
     toggleHostTimeline(hostId) {
       const id = (hostId || '').toString();
-      if (!id) return;
+      if (!id) {
+        return;
+      }
       const wasOpen = !!this.timelineExpanded[id];
       this.timelineExpanded[id] = !wasOpen;
       // First open → kick off the fetch. Subsequent opens use the
@@ -32278,7 +35824,9 @@ function app() {
     },
     async loadHostTriage(hostId) {
       const id = (hostId || '').toString();
-      if (!id) return;
+      if (!id) {
+        return;
+      }
       const hours = this.hostTimelineRange[id] || 168;
       const existing = this.hostTriage[id] || {};
       this.hostTriage[id] = { ...existing, loading: true, error: null };
@@ -32313,15 +35861,21 @@ function app() {
     },
     toggleTriageGroup(hostId, groupIdx) {
       const id = (hostId || '').toString();
-      if (!id) return;
-      if (!this.triageExpanded[id]) this.triageExpanded[id] = {};
+      if (!id) {
+        return;
+      }
+      if (!this.triageExpanded[id]) {
+        this.triageExpanded[id] = {};
+      }
       this.triageExpanded[id][groupIdx] = !this.triageExpanded[id][groupIdx];
     },
     triagePatternLabel(pattern) {
       const p = (pattern || 'other').toString();
       const key = 'host_drawer.triage.pattern.' + p.replace(/-/g, '_');
       const tr = this.t(key);
-      if (tr && tr !== key) return tr;
+      if (tr && tr !== key) {
+        return tr;
+      }
       // Forward-compat: humanise the enum so a future pattern shows
       // up readable until the i18n key catches up.
       return p.replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase());
@@ -32343,16 +35897,26 @@ function app() {
     },
     triageAvgRecoveryLabel(seconds) {
       const n = Number(seconds);
-      if (!Number.isFinite(n) || n <= 0) return '—';
-      if (n < 60)    return Math.round(n) + 's';
-      if (n < 3600)  return Math.round(n / 60) + 'm';
-      if (n < 86400) return Math.round(n / 3600) + 'h';
+      if (!Number.isFinite(n) || n <= 0) {
+        return '—';
+      }
+      if (n < 60)    {
+        return Math.round(n) + 's';
+      }
+      if (n < 3600)  {
+        return Math.round(n / 60) + 'm';
+      }
+      if (n < 86400) {
+        return Math.round(n / 3600) + 'h';
+      }
       return Math.round(n / 86400) + 'd';
     },
     setHostTimelineRange(hostId, hours) {
       const id = (hostId || '').toString();
       const h = Math.max(1, Math.min(720, parseInt(hours, 10) || 168));
-      if (!id) return;
+      if (!id) {
+        return;
+      }
       this.hostTimelineRange[id] = h;
       // Clear cache so the new range is honoured immediately.
       delete this.hostTimeline[id];
@@ -32362,7 +35926,9 @@ function app() {
     },
     async loadHostTimeline(hostId, _force) {
       const id = (hostId || '').toString();
-      if (!id) return;
+      if (!id) {
+        return;
+      }
       const hours = this.hostTimelineRange[id] || 168;
       // Mark loading flag without clearing the existing event list so
       // the operator sees stale-then-fresh rather than a flash of
@@ -32405,7 +35971,9 @@ function app() {
       const k = (kind || '').toString();
       const key = 'host_drawer.timeline.kind_' + k;
       const tr = this.t(key);
-      if (tr && tr !== key) return tr;
+      if (tr && tr !== key) {
+        return tr;
+      }
       // Fallback when i18n key is missing — humanise the enum.
       return k.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
     },
@@ -32425,19 +35993,35 @@ function app() {
       // hovering for the title.
       const sev = (severity || 'info').toString();
       const k = (kind || '').toString();
-      if (k === 'op')                  return 'icon-history';
-      if (k === 'notification')        return 'icon-bell';
-      if (k === 'provider_paused')     return 'icon-pause';
-      if (k === 'provider_recovered')  return 'icon-check';
-      if (k === 'port_scan')           return 'icon-search';
+      if (k === 'op')                  {
+        return 'icon-history';
+      }
+      if (k === 'notification')        {
+        return 'icon-bell';
+      }
+      if (k === 'provider_paused')     {
+        return 'icon-pause';
+      }
+      if (k === 'provider_recovered')  {
+        return 'icon-check';
+      }
+      if (k === 'port_scan')           {
+        return 'icon-search';
+      }
       // Unknown kind — fall back on severity for forward-compat.
-      if (sev === 'success')           return 'icon-activity';
-      if (sev === 'error')             return 'icon-bug';
+      if (sev === 'success')           {
+        return 'icon-activity';
+      }
+      if (sev === 'error')             {
+        return 'icon-bug';
+      }
       return 'icon-info';
     },
     hostTimelineTimeLabel(ts) {
       const n = Number(ts);
-      if (!Number.isFinite(n) || n <= 0) return '';
+      if (!Number.isFinite(n) || n <= 0) {
+        return '';
+      }
       // Routes through fmtDate so the timeline picks up the user's
       // Formats preference (Settings → Profile → Formats). Default
       // remains the previous dd/MM/yyyy, HH:mm:ss when no override.
@@ -32452,7 +36036,9 @@ function app() {
     },
     toggleHostSelection(hostId) {
       const id = (hostId || '').toString();
-      if (!id) return;
+      if (!id) {
+        return;
+      }
       if (this.selectedHosts.has(id)) {
         this.selectedHosts.delete(id);
       } else {
@@ -32505,9 +36091,13 @@ function app() {
           confirmButtonText: this.t('reauth.confirm') || 'Confirm',
           cancelButtonText:  this.t('actions.cancel') || 'Cancel',
         });
-        if (!result.isConfirmed) return null;
+        if (!result.isConfirmed) {
+          return null;
+        }
         const pw = (result.value || '').trim();
-        if (!pw) return null;
+        if (!pw) {
+          return null;
+        }
         const r = await fetch('/api/admin/reauth', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -32531,7 +36121,9 @@ function app() {
     },
     async _hostsBulkPost(path, payload, successMsgKey, opts = {}) {
       const ids = this.selectedHostsArray();
-      if (ids.length === 0) return;
+      if (ids.length === 0) {
+        return;
+      }
       const body = { host_ids: ids, ...(payload || {}) };
       const headers = { 'Content-Type': 'application/json' };
       // Caller may have minted a reauth token via `_mintReauthToken`
@@ -32601,7 +36193,9 @@ function app() {
         this._bulkAppliedTimer = setTimeout(() => {
           if (Array.isArray(this.hosts)) {
             for (const row of this.hosts) {
-              if (row && row._bulkApplied) row._bulkApplied = false;
+              if (row && row._bulkApplied) {
+                row._bulkApplied = false;
+              }
             }
           }
           this.bulkAppliedSummary = null;
@@ -32621,7 +36215,9 @@ function app() {
       }
     },
     async bulkPauseHosts(opts) {
-      if (this.selectedHostCount() === 0) return;
+      if (this.selectedHostCount() === 0) {
+        return;
+      }
       const skipConfirm = !!(opts && opts.skipConfirm);
       // SweetAlert confirm — destructive (sampler will skip these
       // hosts until manually resumed). Body shows the actual host
@@ -32651,7 +36247,9 @@ function app() {
             confirmButtonText: this.t('hosts_extra.bulk.pause_confirm_ok') || 'Pause',
             cancelButtonText:  this.t('actions.cancel') || 'Cancel',
           });
-          if (!result.isConfirmed) return;
+          if (!result.isConfirmed) {
+            return;
+          }
         } catch { return; }
       }
       // Step-up reauth — bulk pause is the most destructive bulk
@@ -32661,7 +36259,9 @@ function app() {
       // Cancel / wrong password / network error = abort silently
       // (the SweetAlert toast already explained the failure).
       const reauthToken = await this._mintReauthToken();
-      if (reauthToken === null) return;
+      if (reauthToken === null) {
+        return;
+      }
       await this._hostsBulkPost(
         'pause', null, 'hosts_extra.bulk.pause_success',
         { reauthToken },
@@ -32672,11 +36272,15 @@ function app() {
       // inner SwAl to bypass — but accept opts.skipConfirm for API
       // symmetry with bulkPauseHosts. Currently a no-op.
       void opts;
-      if (this.selectedHostCount() === 0) return;
+      if (this.selectedHostCount() === 0) {
+        return;
+      }
       await this._hostsBulkPost('resume', null, 'hosts_extra.bulk.resume_success');
     },
     openBulkSnmpVendorsModal() {
-      if (this.selectedHostCount() === 0) return;
+      if (this.selectedHostCount() === 0) {
+        return;
+      }
       this.bulkSnmpVendorsModal = { open: true, vendors: [], mode: 'set' };
     },
     closeBulkSnmpVendorsModal() {
@@ -32702,7 +36306,9 @@ function app() {
       this.closeBulkSnmpVendorsModal();
     },
     openBulkSnmpTunablesModal() {
-      if (this.selectedHostCount() === 0) return;
+      if (this.selectedHostCount() === 0) {
+        return;
+      }
       this.bulkSnmpTunablesModal = {
         open: true,
         walk_concurrency: '',
@@ -32723,9 +36329,13 @@ function app() {
       const payload = { clear: !!m.clear };
       if (!m.clear) {
         const wc = parseInt(m.walk_concurrency, 10);
-        if (Number.isFinite(wc)) payload.walk_concurrency = wc;
+        if (Number.isFinite(wc)) {
+          payload.walk_concurrency = wc;
+        }
         const wcb = parseInt(m.wall_clock_budget, 10);
-        if (Number.isFinite(wcb)) payload.wall_clock_budget = wcb;
+        if (Number.isFinite(wcb)) {
+          payload.wall_clock_budget = wcb;
+        }
         if (payload.walk_concurrency == null && payload.wall_clock_budget == null) {
           this.showToast(
             this.t('hosts_extra.bulk.snmp_tunables_empty')
@@ -32765,7 +36375,9 @@ function app() {
     // (dd-wrt's 100%-full squashfs `/` is invisible in the
     // aggregate but shows up here as "WORST: / at 100%").
     hostDiskBarTitle(h) {
-      if (!h) return '';
+      if (!h) {
+        return '';
+      }
       const aggPct = h.disk_percent || this.diskPercentOf(h);
       const parts = [
         this.t('columns.disk') + ': ' + this.fmtPercentLabel(aggPct),
@@ -32778,7 +36390,9 @@ function app() {
         let worst = null;
         for (const m of mounts) {
           const fp = this.mountFillPercent(m);
-          if (worst == null || fp > this.mountFillPercent(worst)) worst = m;
+          if (worst == null || fp > this.mountFillPercent(worst)) {
+            worst = m;
+          }
         }
         if (worst && this.mountFillPercent(worst) > this._statBarWarnPct()) {
           parts.push('— Worst: ' + (worst.n || worst.mountpoint || '?')
@@ -32801,29 +36415,49 @@ function app() {
     // as healthy at rest.
     mountFillLevel(m) {
       const pct = this.mountFillPercent(m);
-      if (pct > this._statBarCritPct()) return 'crit';
-      if (pct > this._statBarWarnPct()) return 'warn';
+      if (pct > this._statBarCritPct()) {
+        return 'crit';
+      }
+      if (pct > this._statBarWarnPct()) {
+        return 'warn';
+      }
       return 'ok';
     },
     mountFillPercent(m) {
-      if (!m) return 0;
+      if (!m) {
+        return 0;
+      }
       const dp = Number(m.dp);
-      if (Number.isFinite(dp) && dp > 0) return Math.min(100, Math.max(0, dp));
+      if (Number.isFinite(dp) && dp > 0) {
+        return Math.min(100, Math.max(0, dp));
+      }
       const size = Number(m.d) || 0;
       const used = Number(m.du) || 0;
-      if (size <= 0) return 0;
+      if (size <= 0) {
+        return 0;
+      }
       return Math.min(100, Math.max(0, (used / size) * 100));
     },
     // Green → amber → red by threshold, matching how nodeStats renders.
     pctColor(pct) {
-      if (pct >= 85) return 'var(--danger)';
-      if (pct >= 60) return 'var(--warning)';
+      if (pct >= 85) {
+        return 'var(--danger)';
+      }
+      if (pct >= 60) {
+        return 'var(--warning)';
+      }
       return 'var(--success)';
     },
     statusDotColor(status) {
-      if (status === 'up') return 'var(--success)';
-      if (status === 'down' || status === 'unreachable') return 'var(--danger)';
-      if (status === 'paused') return 'var(--warning)';
+      if (status === 'up') {
+        return 'var(--success)';
+      }
+      if (status === 'down' || status === 'unreachable') {
+        return 'var(--danger)';
+      }
+      if (status === 'paused') {
+        return 'var(--warning)';
+      }
       // Grey dots — no signal (yet) worth alerting on:
       // 'loading'      — skeleton state, probe hasn't returned
       // 'unconfigured' — curated row has NO provider fields set,
@@ -32833,7 +36467,9 @@ function app() {
       }
       // 'unknown' — providers ARE mapped but none returned data.
       // Red because this IS a real failure to reach the host.
-      if (status === 'unknown') return 'var(--danger)';
+      if (status === 'unknown') {
+        return 'var(--danger)';
+      }
       return 'var(--text-faint)';
     },
 
@@ -32848,25 +36484,47 @@ function app() {
     // requested. Once stats are in, the dot reflects the rolled-up
     // state of the stack's items.
     stackStatusDotClass(stack) {
-      if (!stack) return 'is-unknown';
-      if ((stack.offline || 0) > 0) return 'is-down';
-      if ((stack.errors  || 0) > 0) return 'is-down';
-      if ((stack.degraded || 0) > 0 || (stack.updates || 0) > 0) return 'is-degraded';
-      if ((stack.unknowns || 0) > 0) return 'is-unknown';
-      if ((stack.uptodate || 0) > 0 || (stack.total || 0) > 0) return 'is-up';
+      if (!stack) {
+        return 'is-unknown';
+      }
+      if ((stack.offline || 0) > 0) {
+        return 'is-down';
+      }
+      if ((stack.errors  || 0) > 0) {
+        return 'is-down';
+      }
+      if ((stack.degraded || 0) > 0 || (stack.updates || 0) > 0) {
+        return 'is-degraded';
+      }
+      if ((stack.unknowns || 0) > 0) {
+        return 'is-unknown';
+      }
+      if ((stack.uptodate || 0) > 0 || (stack.total || 0) > 0) {
+        return 'is-up';
+      }
       return 'is-unknown';
     },
     // Per-item dot — used by the Services view's leading column.
     // Mirrors the stack helper's tiers off item.status / item.health
     // so the same colour family lights up across both views.
     itemStatusDotClass(item) {
-      if (!item) return 'is-unknown';
+      if (!item) {
+        return 'is-unknown';
+      }
       const status = String(item.status || '').toLowerCase();
       const health = String(item.health || '').toLowerCase();
-      if (status === 'error' || health === 'offline')   return 'is-down';
-      if (status === 'update' || health === 'degraded') return 'is-degraded';
-      if (status === 'up-to-date' && health === 'healthy') return 'is-up';
-      if (status === 'unknown' || !status) return 'is-unknown';
+      if (status === 'error' || health === 'offline')   {
+        return 'is-down';
+      }
+      if (status === 'update' || health === 'degraded') {
+        return 'is-degraded';
+      }
+      if (status === 'up-to-date' && health === 'healthy') {
+        return 'is-up';
+      }
+      if (status === 'unknown' || !status) {
+        return 'is-unknown';
+      }
       return 'is-unknown';
     },
 
@@ -32876,7 +36534,9 @@ function app() {
     // `_probe_elapsed_ms` on every `/api/hosts/one/{id}` response;
     // missing on the legacy `/api/hosts` path (returns empty string).
     hostProbeTitle(h) {
-      if (!h || typeof h._probe_elapsed_ms !== 'number') return '';
+      if (!h || typeof h._probe_elapsed_ms !== 'number') {
+        return '';
+      }
       const ms = h._probe_elapsed_ms;
       const status = h.status || '';
       const human = ms < 1000
@@ -32895,13 +36555,19 @@ function app() {
       this.drawerNode = { name: node.name, aliasInput: current };
     },
     async saveNodeBeszelMapping() {
-      if (!this.drawerNode) return;
+      if (!this.drawerNode) {
+        return;
+      }
       const name = this.drawerNode.name;
       const val = (this.drawerNode.aliasInput || '').trim();
       // Merge into the existing map: blank = delete entry, otherwise set.
       const map = { ...(this.settings.beszel_aliases || {}) };
-      if (val) map[name] = val;
-      else delete map[name];
+      if (val) {
+        map[name] = val;
+      }
+      else {
+        delete map[name];
+      }
       this.drawerNodeSaving = true;
       try {
         const r = await fetch('/api/settings', {
@@ -32937,9 +36603,13 @@ function app() {
     // fmt* helpers so every date in the UI renders in dd/mm/yyyy format.
     formatTime(ts) { return this.fmtDate(ts); },
     formatTimeShort(ts) {
-      if (!ts) return '—';
+      if (!ts) {
+        return '—';
+      }
       const d = new Date(ts * 1000);
-      if (isNaN(d.getTime())) return '—';
+      if (isNaN(d.getTime())) {
+        return '—';
+      }
       const pad = n => String(n).padStart(2, '0');
       return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
     },
@@ -32982,7 +36652,9 @@ function app() {
       return s || this.DEFAULT_DATETIME_FORMAT;
     },
     _applyDateTimeFormat(d, fmt) {
-      if (!d || isNaN(d.getTime())) return '—';
+      if (!d || isNaN(d.getTime())) {
+        return '—';
+      }
       const pad = (n, w) => String(n).padStart(w, '0');
       const monthsLong = ['January','February','March','April','May','June','July','August','September','October','November','December'];
       const monthsShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -33059,7 +36731,9 @@ function app() {
     // everywhere a full timestamp is shown (history, sessions, asset
     // cache, drawer timeline, etc). Default is `dd/MM/yyyy, HH:mm:ss`.
     fmtDate(ts) {
-      if (!ts) return '—';
+      if (!ts) {
+        return '—';
+      }
       const d = new Date(ts * 1000);
       return this._applyDateTimeFormat(d, this._userDateTimeFormat());
     },
@@ -33067,7 +36741,9 @@ function app() {
     // every time-related token (`H`/`h`/`m`/`s`/`a`) and any leading
     // / trailing whitespace, commas, dashes the strip leaves behind.
     fmtDateOnly(ts) {
-      if (!ts) return '—';
+      if (!ts) {
+        return '—';
+      }
       const d = new Date(ts * 1000);
       return this._applyDateTimeFormat(d, this._userDateOnlyFormat());
     },
@@ -33098,7 +36774,9 @@ function app() {
     // supported: yyyy / yy / MMMM / MMM / MM / M / dd / d.
     _parseUserDate(text) {
       const raw = (text || '').toString().trim();
-      if (!raw) return '';
+      if (!raw) {
+        return '';
+      }
       const fmt = this._userDateOnlyFormat();
       const monthsLong = ['January','February','March','April','May','June','July','August','September','October','November','December'];
       const monthsShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -33138,7 +36816,9 @@ function app() {
       let m;
       try { m = new RegExp('^' + pattern + '$').exec(raw); }
       catch (_) { return null; }
-      if (!m) return null;
+      if (!m) {
+        return null;
+      }
       const g = m.groups || {};
       let y = parseInt(g.y || '', 10);
       let mo = parseInt(g.m || '', 10);
@@ -33149,20 +36829,32 @@ function app() {
         const si = monthsShort.findIndex(x => x.toLowerCase() === lower);
         mo = (li >= 0 ? li + 1 : (si >= 0 ? si + 1 : NaN));
       }
-      if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(day)) return null;
-      if (y < 100) y += 2000;  // yy → 20yy
-      if (mo < 1 || mo > 12 || day < 1 || day > 31) return null;
+      if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(day)) {
+        return null;
+      }
+      if (y < 100) {
+        y += 2000;
+      }  // yy → 20yy
+      if (mo < 1 || mo > 12 || day < 1 || day > 31) {
+        return null;
+      }
       return `${y.toString().padStart(4,'0')}-${mo.toString().padStart(2,'0')}-${day.toString().padStart(2,'0')}`;
     },
     // Render an ISO `YYYY-MM-DD` string back through the user's date-only
     // format. Empty / invalid input returns empty string for use as input
     // value. Mirror of `_parseUserDate`.
     _formatIsoDate(iso) {
-      if (!iso || typeof iso !== 'string') return '';
+      if (!iso || typeof iso !== 'string') {
+        return '';
+      }
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-      if (!m) return '';
+      if (!m) {
+        return '';
+      }
       const d = new Date(parseInt(m[1],10), parseInt(m[2],10) - 1, parseInt(m[3],10));
-      if (isNaN(d.getTime())) return '';
+      if (isNaN(d.getTime())) {
+        return '';
+      }
       return this._applyDateTimeFormat(d, this._userDateOnlyFormat());
     },
     // History-filter `@change` glue. Parses the operator-typed text via
@@ -33178,7 +36870,9 @@ function app() {
         // re-display the existing parsed value so the input snaps back.
         return;
       }
-      if (!this.historyFilters) return;
+      if (!this.historyFilters) {
+        return;
+      }
       const key = (which === 'from') ? 'fromDate' : 'toDate';
       this.historyFilters[key] = parsed;
       this.historyApplyFilter && this.historyApplyFilter();
@@ -33187,7 +36881,9 @@ function app() {
     // user's format (token `ss` → ''; token `:ss` cleans up the
     // dangling colon).
     fmtDateTimeShort(ts) {
-      if (!ts) return '—';
+      if (!ts) {
+        return '—';
+      }
       const d = new Date(ts * 1000);
       const full = this._userDateTimeFormat();
       const noSec = full
@@ -33266,7 +36962,9 @@ function app() {
     // operator's mouse leaves / focus moves away, the timer
     // resumes from where it left off rather than restarting.
     _holdToast() {
-      if (!this.toast) return;
+      if (!this.toast) {
+        return;
+      }
       this._toastHold = true;
       // Capture how much time was left when the hold began so
       // resumeToast can re-arm with the same budget.
@@ -33276,8 +36974,12 @@ function app() {
       this._tt = null;
     },
     _resumeToast() {
-      if (!this.toast) return;
-      if (!this._toastHold) return;
+      if (!this.toast) {
+        return;
+      }
+      if (!this._toastHold) {
+        return;
+      }
       this._toastHold = false;
       const left = Math.max(1500, this._toastRemaining || this._toastDuration || 6000);
       this._toastDeadline = Date.now() + left;
@@ -33290,7 +36992,9 @@ function app() {
     // available (file:// origins, older WebViews).
     async copyToastText() {
       const text = String(this.toast || '');
-      if (!text) return;
+      if (!text) {
+        return;
+      }
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(text);
@@ -33308,7 +37012,9 @@ function app() {
         this.toast = (this.t('toasts.copied') || 'Copied to clipboard.') + ' ' + original;
         clearTimeout(this._tt);
         this._tt = setTimeout(() => {
-          if (this.toast.endsWith(original)) this.toast = original;
+          if (this.toast.endsWith(original)) {
+            this.toast = original;
+          }
           this._tt = setTimeout(() => this._dismissToast(),
             Math.max(2500, this._toastRemaining || 4000));
         }, 1200);
@@ -33332,7 +37038,9 @@ function app() {
         if (resp.error && resp.error !== localized && !key.startsWith('errors.undefined')) {
           return resp.error;
         }
-        if (localized && localized !== key) return localized;
+        if (localized && localized !== key) {
+          return localized;
+        }
       }
       return (resp && resp.error) || fallback || '';
     },
@@ -33343,11 +37051,15 @@ function app() {
     // the fetch — "what's new for stack X" with N images doesn't have
     // a single answer and the popup would mislead.
     _stackSingleUpdateImage(stack) {
-      if (!stack) return '';
+      if (!stack) {
+        return '';
+      }
       const items = (this.items || []).filter(it =>
         it && it.stack_id === stack.stack_id && it.status === 'update' && it.image
       );
-      if (items.length !== 1) return '';
+      if (items.length !== 1) {
+        return '';
+      }
       return items[0].image || '';
     },
     // ID anchor for the async release-notes block. The popup HTML
@@ -33374,7 +37086,9 @@ function app() {
     // Learn](https://...)`) survived as `[text](url)` literals in the
     // rendered `<pre>` block.
     _scrubReleaseNotesBody(body) {
-      if (!body) return '';
+      if (!body) {
+        return '';
+      }
       let out = String(body);
       // Empty HTML heading anchors GitHub adds for permalinks: `<a id="x"></a>`
       out = out.replace(/<a\s+id=["'][^"']*["']\s*><\/a>/gi, '');
@@ -33431,18 +37145,24 @@ function app() {
     // rule, every chrome rule lives in `.blast-radius-block` family
     // declared in `static/css/style.css` — not inlined here.
     _renderStackBlastRadius(stack) {
-      if (!stack) return '';
+      if (!stack) {
+        return '';
+      }
       // The stack object itself doesn't carry an `items` array — the
       // SPA's top-level `this.items` is the source of truth (same
       // shape `_stackSingleUpdateImage` uses). Filter by `stack_id`
       // to get every item that belongs to this stack.
       const items = (this.items || []).filter(it => it && it.stack_id === stack.stack_id);
-      if (!items.length) return '';
+      if (!items.length) {
+        return '';
+      }
       const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
       let services = 0, replicas = 0, containers = 0, orphans = 0;
       const lines = [];
       for (const it of items) {
-        if (!it) continue;
+        if (!it) {
+          continue;
+        }
         const type = it.type || '';
         if (type === 'service') {
           services += 1;
@@ -33489,7 +37209,9 @@ function app() {
       const lbl = esc(this.t('dialogs.release_notes_label') || "What's new");
       if (d && d.ok && d.body) {
         const scrubbed = this._scrubReleaseNotesBody(d.body);
-        if (!scrubbed.trim()) return '';
+        if (!scrubbed.trim()) {
+          return '';
+        }
         const linkOut = d.html_url
           ? `<a href="${esc(d.html_url)}" target="_blank" rel="noopener" class="release-notes-link">${esc(this.t('dialogs.release_notes_view_on_source') || 'View on source')}</a>`
           : '';
@@ -33526,20 +37248,26 @@ function app() {
     // server returns no body AND no source URL, the placeholder is
     // removed entirely so the popup doesn't carry a dangling spinner.
     async _replaceReleaseNotesAsync(image) {
-      if (!image) return;
+      if (!image) {
+        return;
+      }
       try {
         const r = await fetch(`/api/registry/release-notes?image=${encodeURIComponent(image)}`);
         if (!r.ok) {
           // HTTP failure — remove the placeholder so the popup doesn't
           // hang on the spinner indefinitely.
           const el = document.getElementById(this._RELEASE_NOTES_ASYNC_ID);
-          if (el) el.remove();
+          if (el) {
+            el.remove();
+          }
           return;
         }
         const d = await r.json();
         const html = this._buildReleaseNotesHtml(d);
         const el = document.getElementById(this._RELEASE_NOTES_ASYNC_ID);
-        if (!el) return;   // popup closed before fetch resolved
+        if (!el) {
+          return;
+        }   // popup closed before fetch resolved
         if (!html) {
           el.remove();
           return;
@@ -33549,11 +37277,15 @@ function app() {
         // Silent — placeholder removed so popup doesn't carry a
         // stuck spinner. Operator still gets the actual update path.
         const el = document.getElementById(this._RELEASE_NOTES_ASYNC_ID);
-        if (el) el.remove();
+        if (el) {
+          el.remove();
+        }
       }
     },
     async itemAction(item, opts) {
-      if (this.isItemBusy(item)) return;
+      if (this.isItemBusy(item)) {
+        return;
+      }
       const skipConfirm = !!(opts && opts.skipConfirm);
       if (!skipConfirm) {
         // Async release-notes hint — popup opens INSTANTLY with a
@@ -33570,7 +37302,9 @@ function app() {
         // Fire-and-forget — the await on `confirmDialog` below opens
         // the popup synchronously; the async filler races against the
         // operator's click + the popup's DOM lifecycle.
-        if (item.image) this._replaceReleaseNotesAsync(item.image);
+        if (item.image) {
+          this._replaceReleaseNotesAsync(item.image);
+        }
         const ok = item.stack_id
           ? await this.confirmDialog({
               title: this.t('dialogs.update_stack_title'),
@@ -33584,9 +37318,13 @@ function app() {
               icon: 'warning', confirmText: this.t('actions.recreate'),
               focusConfirm: true,
             });
-        if (!ok) return;
+        if (!ok) {
+          return;
+        }
       }
-      if (this.isItemBusy(item)) return;
+      if (this.isItemBusy(item)) {
+        return;
+      }
       const key = item.stack_id
         ? this._busyKey('stack', item.stack_id)
         : this._busyKey('ctn', item.raw_id);
@@ -33596,7 +37334,9 @@ function app() {
       this._markBusy(key);
       try {
         const r = await fetch(url, { method: 'POST' });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         this.showToast(this.t('toasts.queued', { name: item.stack || item.name }));
         this.drawerItem = null;
         this.pollOpsNow();
@@ -33606,7 +37346,9 @@ function app() {
       }
     },
     async updateStack(stack, opts) {
-      if (this.isStackBusy(stack)) return;
+      if (this.isStackBusy(stack)) {
+        return;
+      }
       const skipConfirm = !!(opts && opts.skipConfirm);
       if (!skipConfirm) {
         // Release notes only fire when the stack has EXACTLY ONE
@@ -33625,21 +37367,29 @@ function app() {
         const html = this.t('dialogs.update_stack_html', { name: stack.name })
                    + blastHtml
                    + (stackImage ? this._releaseNotesPlaceholderHtml() : '');
-        if (stackImage) this._replaceReleaseNotesAsync(stackImage);
+        if (stackImage) {
+          this._replaceReleaseNotesAsync(stackImage);
+        }
         const ok = await this.confirmDialog({
           title: this.t('dialogs.update_stack_title'),
           html: html,
           icon: 'warning', confirmText: this.t('actions.update_stack'),
           focusConfirm: true,
         });
-        if (!ok) return;
+        if (!ok) {
+          return;
+        }
       }
-      if (this.isStackBusy(stack)) return;
+      if (this.isStackBusy(stack)) {
+        return;
+      }
       const key = this._busyKey('stack', stack.stack_id);
       this._markBusy(key);
       try {
         const r = await fetch(`/api/update/stack/${stack.stack_id}`, { method: 'POST' });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         this.showToast(this.t('toasts.queued', { name: stack.name }));
         this.pollOpsNow();
       } catch (e) {
@@ -33663,9 +37413,15 @@ function app() {
     // Digest-only images (no :tag) are still eligible — the operator
     // can pin a tag where none was set before.
     canRetagToLatest(item) {
-      if (!item || !item.image) return false;
-      if (!item.stack_id && !item.raw_id) return false;
-      if (item.type === 'service' || item.type === 'orphan') return false;
+      if (!item || !item.image) {
+        return false;
+      }
+      if (!item.stack_id && !item.raw_id) {
+        return false;
+      }
+      if (item.type === 'service' || item.type === 'orphan') {
+        return false;
+      }
       return true;
     },
     // Inline-popover state for the drawer's "Switch to tag…" affordance.
@@ -33691,11 +37447,15 @@ function app() {
     _retagPopoverPos: null,
     _retagScrollOff: null,
     isRetagPopoverOpen(item) {
-      if (!item || !this._retagPopoverItemId) return false;
+      if (!item || !this._retagPopoverItemId) {
+        return false;
+      }
       return this._retagPopoverItemId === (item.raw_id || item.id);
     },
     openRetagPopover(item, ev) {
-      if (!item) return;
+      if (!item) {
+        return;
+      }
       const id = item.raw_id || item.id;
       // Toggle: clicking the same item's button closes the popover.
       if (this._retagPopoverItemId === id) {
@@ -33782,7 +37542,9 @@ function app() {
     // string when there's no position (popover closed).
     _retagPopoverStyle() {
       const p = this._retagPopoverPos;
-      if (!p) return '';
+      if (!p) {
+        return '';
+      }
       return 'left:' + p.left + 'px; top:' + p.top + 'px; min-width:' + p.width + 'px;';
     },
     // Submit the popover's draft tag. Hits the same backend retag
@@ -33828,7 +37590,9 @@ function app() {
           (i.stack && i.stack.toLowerCase() === needle)
         )) || null;
       }
-      if (!item) item = this.drawerItem;
+      if (!item) {
+        item = this.drawerItem;
+      }
       if (!item) {
         this.showToast(
           this.t('toasts_extra.ai_action_no_target')
@@ -33848,8 +37612,12 @@ function app() {
           } else if (typeof this.updateStack === 'function') {
             const stacks = Array.isArray(this.stacks) ? this.stacks : [];
             const stack = stacks.find(s => s && s.name === (item.stack || item.name));
-            if (stack) await this.updateStack(stack, dispatchOpts);
-            else await this.itemAction(item, dispatchOpts);
+            if (stack) {
+              await this.updateStack(stack, dispatchOpts);
+            }
+            else {
+              await this.itemAction(item, dispatchOpts);
+            }
           }
         } else if (verb === 'update_container') {
           await this.itemAction(item, dispatchOpts);
@@ -33904,9 +37672,13 @@ function app() {
       // For update + delete: resolve id from data.id, else data.name
       // → look up against this.schedules. Empty data → toast.
       const resolveId = () => {
-        if (data.id != null) return Number(data.id);
+        if (data.id != null) {
+          return Number(data.id);
+        }
         const nm = (data.name || '').toString().trim();
-        if (!nm) return null;
+        if (!nm) {
+          return null;
+        }
         const list = Array.isArray(this.schedules) ? this.schedules : [];
         const match = list.find(s => s && s.name === nm);
         return match ? Number(match.id) : null;
@@ -33937,7 +37709,9 @@ function app() {
           const patch = Object.assign({}, data);
           delete patch.id;
           // name CAN be in the patch (rename) — only strip when it was used as the lookup key.
-          if (data.id == null && patch.name === data.name) delete patch.name;
+          if (data.id == null && patch.name === data.name) {
+            delete patch.name;
+          }
           const r = await fetch('/api/schedules/' + encodeURIComponent(id), {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -34068,7 +37842,9 @@ function app() {
             || items.find(i => i && (i.name || '').toLowerCase() === tok)
             || null;
       }
-      if (!item) item = this.drawerItem || null;
+      if (!item) {
+        item = this.drawerItem || null;
+      }
       if (!item) {
         this.showToast(this.t('toasts.retag_no_target') || 'Open the item drawer first OR name the container/stack in your query.', 'warning');
         return;
@@ -34094,7 +37870,9 @@ function app() {
       }
     },
     async submitRetagPopover(item) {
-      if (!item || this._retagBusy) return;
+      if (!item || this._retagBusy) {
+        return;
+      }
       const target = (this._retagDraft || '').trim();
       // Client-side validation mirrors the backend's _validate_retag_tag.
       // Empty is allowed (server defaults to "latest"); otherwise must
@@ -34112,7 +37890,9 @@ function app() {
       const lastColon = imageRepo.lastIndexOf(':');
       const lastSlash = imageRepo.lastIndexOf('/');
       const currentTag = (lastColon > lastSlash) ? imageRepo.slice(lastColon + 1) : '';
-      if (lastColon > lastSlash) imageRepo = imageRepo.slice(0, lastColon);
+      if (lastColon > lastSlash) {
+        imageRepo = imageRepo.slice(0, lastColon);
+      }
       if (currentTag === newTag && !currentImage.includes('@')) {
         this.showToast(this.t('toasts.retag_already_target', { name: item.name, tag: newTag }), 'info');
         this.closeRetagPopover();
@@ -34136,7 +37916,9 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         this.showToast(this.t('toasts.retag_queued', { name: item.name, tag: newTag }));
         this.closeRetagPopover();
         this.pollOpsNow();
@@ -34149,8 +37931,12 @@ function app() {
     },
     async restartService(item, opts) { return this.restartItem(item, opts); },
     async restartItem(item, opts) {
-      if (!this.isRestartable(item)) return;
-      if (this.isRestartBusy(item)) return;
+      if (!this.isRestartable(item)) {
+        return;
+      }
+      if (this.isRestartBusy(item)) {
+        return;
+      }
       const skipConfirm = !!(opts && opts.skipConfirm);
       const isService = item.type === 'service';
       if (!skipConfirm) {
@@ -34163,9 +37949,13 @@ function app() {
           icon: 'question', confirmText: this.t('actions.restart'), confirmColor: this._cssVar('--primary'),
           focusConfirm: true,
         });
-        if (!ok) return;
+        if (!ok) {
+          return;
+        }
       }
-      if (this.isRestartBusy(item)) return;
+      if (this.isRestartBusy(item)) {
+        return;
+      }
       const key = isService ? this._busyKey('svc', item.raw_id) : this._busyKey('ctn', item.raw_id);
       const url = isService
         ? `/api/restart/service/${item.raw_id}`
@@ -34173,7 +37963,9 @@ function app() {
       this._markBusy(key);
       try {
         const r = await fetch(url, { method: 'POST' });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         this.showToast(this.t('toasts.restart_queued', { name: item.name }));
         this.drawerItem = null;
         this.pollOpsNow();
@@ -34195,12 +37987,18 @@ function app() {
         confirmColor: this._cssVar('--warning'),
         focusConfirm: true,
       });
-      if (!ok) return;
-      if (this.swarmAgentRestartBusy) return;
+      if (!ok) {
+        return;
+      }
+      if (this.swarmAgentRestartBusy) {
+        return;
+      }
       this.swarmAgentRestartBusy = true;
       try {
         const r = await fetch('/api/swarm/restart-agent', { method: 'POST' });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         this.showToast(this.t('swarm_agent_banner.restart_queued'));
         this.pollOpsNow();
       } catch (e) {
@@ -34226,17 +38024,23 @@ function app() {
         icon: 'question', confirmText: this.t('actions.restart'), confirmColor: this._cssVar('--primary'),
         focusConfirm: true,
       });
-      if (!ok) return;
+      if (!ok) {
+        return;
+      }
       let okCount = 0, fail = 0;
       for (const i of picked) {
         const isService = i.type === 'service';
         const key = isService ? this._busyKey('svc', i.raw_id) : this._busyKey('ctn', i.raw_id);
-        if (this.busy[key]) continue;
+        if (this.busy[key]) {
+          continue;
+        }
         this._markBusy(key);
         try {
           const url = isService ? `/api/restart/service/${i.raw_id}` : `/api/restart/container/${i.raw_id}`;
           const r = await fetch(url, { method: 'POST' });
-          if (r.ok) okCount++;
+          if (r.ok) {
+            okCount++;
+          }
           else { fail++; this._clearBusy(key); }
         } catch (_) { fail++; this._clearBusy(key); }
       }
@@ -34245,7 +38049,9 @@ function app() {
       this.showToast(this.t('toasts.restart_result', { ok: okCount, fail }), fail ? 'error' : 'success');
     },
     async removeContainer(item, opts) {
-      if (this.isItemBusy(item)) return;
+      if (this.isItemBusy(item)) {
+        return;
+      }
       const skipConfirm = !!(opts && opts.skipConfirm);
       if (!skipConfirm) {
         const ok = await this.confirmDialog({
@@ -34254,14 +38060,20 @@ function app() {
           icon: 'warning', confirmText: this.t('actions.remove'), confirmColor: this._cssVar('--danger'),
           focusConfirm: true,
         });
-        if (!ok) return;
+        if (!ok) {
+          return;
+        }
       }
-      if (this.isItemBusy(item)) return;
+      if (this.isItemBusy(item)) {
+        return;
+      }
       const key = this._busyKey('ctn', item.raw_id);
       this._markBusy(key);
       try {
         const r = await fetch(`/api/remove/container/${item.raw_id}`, { method: 'POST' });
-        if (!r.ok) throw new Error(await r.text());
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
         this.showToast(this.t('toasts.remove_queued', { name: item.name }));
         this.drawerItem = null;
         this.pollOpsNow();
@@ -34312,21 +38124,29 @@ function app() {
           icon: 'warning', confirmText: this.t('actions.update'),
           focusConfirm: true,
         });
-        if (!ok) return;
+        if (!ok) {
+          return;
+        }
       }
       let okCount = 0, fail = 0;
       for (const i of runnable) {
         const key = i.stack_id ? this._busyKey('stack', i.stack_id) : this._busyKey('ctn', i.raw_id);
-        if (this.busy[key]) continue;
+        if (this.busy[key]) {
+          continue;
+        }
         this._markBusy(key);
         try {
           const url = i.stack_id ? `/api/update/stack/${i.stack_id}` : `/api/update/container/${i.raw_id}`;
           const r = await fetch(url, { method: 'POST' });
-          if (r.ok) okCount++;
+          if (r.ok) {
+            okCount++;
+          }
           else { fail++; this._clearBusy(key); }
         } catch (_) { fail++; this._clearBusy(key); }
       }
-      if (clearSelection) this.selected = [];
+      if (clearSelection) {
+        this.selected = [];
+      }
       this.pollOpsNow();
       this.showToast(this.t('toasts.bulk_result', { ok: okCount, fail }), fail ? 'error' : 'success');
     },
@@ -34364,20 +38184,28 @@ function app() {
           icon: 'warning', confirmText: this.t('actions.remove'), confirmColor: this._cssVar('--danger'),
           focusConfirm: true,
         });
-        if (!ok) return;
+        if (!ok) {
+          return;
+        }
       }
       let okCount = 0, fail = 0;
       for (const i of picked) {
         const key = this._busyKey('ctn', i.raw_id);
-        if (this.busy[key]) continue;
+        if (this.busy[key]) {
+          continue;
+        }
         this._markBusy(key);
         try {
           const r = await fetch(`/api/remove/container/${i.raw_id}`, { method: 'POST' });
-          if (r.ok) okCount++;
+          if (r.ok) {
+            okCount++;
+          }
           else { fail++; this._clearBusy(key); }
         } catch (_) { fail++; this._clearBusy(key); }
       }
-      if (clearSelection) this.selected = [];
+      if (clearSelection) {
+        this.selected = [];
+      }
       this.pollOpsNow();
       this.showToast(this.t('toasts.remove_result', { ok: okCount, fail }), fail ? 'error' : 'success');
     },

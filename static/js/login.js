@@ -1,3 +1,4 @@
+// noinspection ALL
 // Login-page controller. Kept separate from /js/app.js because this page
 // has no Alpine — it's a vanilla form submission, plus a data-i18n DOM
 // sweep, plus an SSO-button toggle that polls /api/auth/providers.
@@ -48,7 +49,10 @@ function applyI18nDom() {
   // Wait for the i18n helper's boot promise so the DOM sweep runs after
   // the user's preferred language is loaded. Silent on failure — English
   // markup stays in place as a fallback.
-  try { await window.__i18nReady; } catch (_) {}
+  try {
+    await window.__i18nReady;
+  } catch (_) {
+  }
   applyI18nDom();
 })();
 
@@ -58,12 +62,12 @@ function applyI18nDom() {
   // listener; rebind these so showErr / button mutations still target
   // the visible card.
   const refs = {
-    form:    document.getElementById('login'),
-    btn:     document.getElementById('btn'),
-    err:     document.getElementById('err'),
-    ver:     document.getElementById('ver'),
+    form: document.getElementById('login'),
+    btn: document.getElementById('btn'),
+    err: document.getElementById('err'),
+    ver: document.getElementById('ver'),
     ssoWrap: document.getElementById('ssoWrap'),
-    ssoBtn:  document.getElementById('ssoBtn'),
+    ssoBtn: document.getElementById('ssoBtn'),
   };
 
   // Multi-step state. Holds the payload from the password step
@@ -79,6 +83,7 @@ function applyI18nDom() {
     refs.err.textContent = msg;
     refs.err.classList.add('show');
   }
+
   function clearErr() {
     if (!refs.err) return;
     refs.err.classList.remove('show');
@@ -122,7 +127,8 @@ function applyI18nDom() {
   // Show version so operators can sanity-check which build is live.
   fetch('/api/version').then(r => r.ok ? r.json() : null).then(v => {
     if (v && v.version && refs.ver) refs.ver.textContent = 'v' + v.version;
-  }).catch(() => {});
+  }).catch(() => {
+  });
 
   // Advertise SSO once we know it's configured.
   fetch('/api/auth/providers').then(r => r.ok ? r.json() : null).then(p => {
@@ -130,7 +136,8 @@ function applyI18nDom() {
       refs.ssoBtn.href = '/api/oidc/login?next=' + encodeURIComponent(nextPath());
       refs.ssoWrap.hidden = false;
     }
-  }).catch(() => {});
+  }).catch(() => {
+  });
 
   // Bind the password-step submit. Replaced wholesale on totp/setup
   // step via swapForm().
@@ -154,7 +161,10 @@ function applyI18nDom() {
         });
         if (r.ok) {
           let j = null;
-          try { j = await r.json(); } catch (_) {}
+          try {
+            j = await r.json();
+          } catch (_) {
+          }
           if (j && j.step === 'totp_required') {
             totpState = {
               kind: 'totp_required',
@@ -198,7 +208,7 @@ function applyI18nDom() {
         } else if (r.status === 401) {
           showErr(tx('login.invalid_credentials', 'Invalid username or password.'));
         } else {
-          showErr(tx('login.sign_in_failed', 'Sign-in failed (' + r.status + '). Try again.', { status: r.status }));
+          showErr(tx('login.sign_in_failed', 'Sign-in failed (' + r.status + '). Try again.', {status: r.status}));
         }
         // — clear password field on ANY non-success response.
         // Operator request: don't leave the failing password sitting
@@ -209,15 +219,23 @@ function applyI18nDom() {
         // re-focused for the next attempt.
         try {
           const pw = document.getElementById('p');
-          if (pw) { pw.value = ''; pw.focus(); }
-        } catch (_) {}
+          if (pw) {
+            pw.value = '';
+            pw.focus();
+          }
+        } catch (_) {
+        }
       } catch (_) {
         showErr(tx('login.network_error', 'Network error. Try again.'));
         // Same clear-on-error UX for network failures.
         try {
           const pw = document.getElementById('p');
-          if (pw) { pw.value = ''; pw.focus(); }
-        } catch (_) {}
+          if (pw) {
+            pw.value = '';
+            pw.focus();
+          }
+        } catch (_) {
+        }
       } finally {
         refs.btn.disabled = false;
         refs.btn.textContent = tx('login.sign_in', 'Sign in');
@@ -244,8 +262,13 @@ function applyI18nDom() {
     });
   }
 
-  function hideEl(el) { if (el) el.style.display = 'none'; }
-  function _showEl(el) { if (el) el.style.display = ''; }
+  function hideEl(el) {
+    if (el) el.style.display = 'none';
+  }
+
+  function _showEl(el) {
+    if (el) el.style.display = '';
+  }
 
   // ----------------------------------------------------------------
   // WebAuthn / passkey helpers. The wire shape uses base64url
@@ -273,6 +296,7 @@ function applyI18nDom() {
       throw new Error('WebAuthn: cannot encode buffer (non-Latin1 bytes)');
     }
   }
+
   function b64uDecode(s) {
     // validate the input before handing it to atob so a
     // malformed `allowCredentials[i].id` from the server surfaces as a
@@ -299,9 +323,11 @@ function applyI18nDom() {
     for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
     return out.buffer;
   }
+
   function webauthnSupported() {
     return !!(window.PublicKeyCredential && navigator.credentials);
   }
+
   function buildPublicKeyOptions(opts) {
     // Convert the JSON options we got from the server (base64url strings)
     // into the ArrayBuffer fields navigator.credentials.get expects.
@@ -316,6 +342,7 @@ function applyI18nDom() {
     }
     return out;
   }
+
   function buildAssertionResponse(cred) {
     return {
       id: cred.id,
@@ -326,8 +353,8 @@ function applyI18nDom() {
         ? cred.getClientExtensionResults() : {},
       response: {
         authenticatorData: b64uEncode(cred.response.authenticatorData),
-        clientDataJSON:    b64uEncode(cred.response.clientDataJSON),
-        signature:         b64uEncode(cred.response.signature),
+        clientDataJSON: b64uEncode(cred.response.clientDataJSON),
+        signature: b64uEncode(cred.response.signature),
         userHandle: cred.response.userHandle
           ? b64uEncode(cred.response.userHandle) : null,
       },
@@ -348,8 +375,8 @@ function applyI18nDom() {
     try {
       const startResp = await fetch('/api/local-auth/webauthn-start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ challenge_id: totpState.challenge_id }),
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({challenge_id: totpState.challenge_id}),
         credentials: 'same-origin',
       });
       if (!startResp.ok) {
@@ -375,14 +402,14 @@ function applyI18nDom() {
         showErr(tx(
           'login.passkey_rp_id_mismatch',
           'Your passkeys were registered under a different domain and can\'t be used here. Sign in another way (TOTP / password recovery), then re-enrol them from Profile → Security on the new domain ({current}). Orphaned: {orphans}.',
-          { current: cur, orphans: orphans || '—' },
+          {current: cur, orphans: orphans || '—'},
         ));
         return;
       }
       const publicKey = buildPublicKeyOptions(startJ.options);
       let cred;
       try {
-        cred = await navigator.credentials.get({ publicKey });
+        cred = await navigator.credentials.get({publicKey});
       } catch (_) {
         showErr(tx('login.passkey_failed', 'Passkey sign-in failed.'));
         return;
@@ -393,7 +420,7 @@ function applyI18nDom() {
       }
       const finishResp = await fetch('/api/local-auth/webauthn-finish', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           challenge_id: startJ.login_id,
           credential: buildAssertionResponse(cred),
@@ -412,7 +439,7 @@ function applyI18nDom() {
       // instead of collapsing them into the generic "Network error"
       // toast. Anything else stays generic.
       const msg = (e && typeof e.message === 'string' && e.message.startsWith('WebAuthn:'))
-        ? tx('login.passkey_data_error', 'Passkey data error: {error}', { error: e.message })
+        ? tx('login.passkey_data_error', 'Passkey data error: {error}', {error: e.message})
         : tx('login.network_error', 'Network error.');
       showErr(msg);
     } finally {
@@ -458,7 +485,7 @@ function applyI18nDom() {
           showErr(tx('login.totp_expired', 'Verification expired. Sign in again.'));
           setTimeout(() => location.reload(), 2000);
         } else {
-          showErr(tx('login.sign_in_failed', 'Sign-in failed (' + r.status + ').', { status: r.status }));
+          showErr(tx('login.sign_in_failed', 'Sign-in failed (' + r.status + ').', {status: r.status}));
         }
       } catch (_) {
         showErr(tx('login.network_error', 'Network error.'));
@@ -597,7 +624,7 @@ function applyI18nDom() {
           showErr(tx('login.totp_expired', 'Setup expired. Sign in again.'));
           setTimeout(() => location.reload(), 2000);
         } else {
-          showErr(tx('login.sign_in_failed', 'Sign-in failed (' + r.status + ').', { status: r.status }));
+          showErr(tx('login.sign_in_failed', 'Sign-in failed (' + r.status + ').', {status: r.status}));
         }
       } catch (_) {
         showErr(tx('login.network_error', 'Network error.'));
@@ -619,8 +646,8 @@ function applyI18nDom() {
       '<p class="sub" id="totp-setup-hint"></p>' +
       '<div id="totp-qr" class="totp-qr"></div>' +
       '<div class="totp-secret-row">' +
-        '<span id="totp-secret-label"></span>' +
-        '<code id="totp-secret-value" class="mono"></code>' +
+      '<span id="totp-secret-label"></span>' +
+      '<code id="totp-secret-value" class="mono"></code>' +
       '</div>' +
       '<label for="totp-code" id="totp-code-label"></label>' +
       '<input id="totp-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" autofocus required />';
@@ -662,7 +689,7 @@ function applyI18nDom() {
     dlBtn.className = 'btn-link';
     dlBtn.textContent = tx('login.totp_backup_download', 'Download as .txt');
     dlBtn.addEventListener('click', () => {
-      const blob = new Blob([codes.join('\n') + '\n'], { type: 'text/plain' });
+      const blob = new Blob([codes.join('\n') + '\n'], {type: 'text/plain'});
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -703,7 +730,7 @@ function applyI18nDom() {
       // red-flag pattern for content-from-data flows. Falls through
       // to the textContent fallback when DOMParser surfaces a
       // <parsererror>.
-      const svgText = qr.createSvgTag({ cellSize: 6, margin: 4, scalable: true });
+      const svgText = qr.createSvgTag({cellSize: 6, margin: 4, scalable: true});
       const parsed = new DOMParser().parseFromString(svgText, 'image/svg+xml');
       const root = parsed.documentElement;
       if (!root || root.tagName.toLowerCase() === 'parsererror') {
