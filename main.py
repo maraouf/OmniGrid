@@ -10705,9 +10705,25 @@ def _shape_host_api_row(
     ping_hit = "ping" in providers_hit
     ping_alive = s.get("host_ping_alive")
     ping_enabled = bool((h.get("ping") or {}).get("enabled", False))
+    # SNMP mapping gate — matches the per-host probe path
+    # (`_merge_one_host`) and the debug panel's `host_active`
+    # computation: SNMP is mapped iff (a) the per-host opt-in flag
+    # `snmp.enabled === True` AND (b) at least one resolvable target
+    # (`snmp_name` OR shared `address`). Without the `enabled` gate
+    # any stale override left in the `snmp` sub-dict (`{community,
+    # version, port}` typed once, then the operator unchecked the
+    # enable box) makes a row read as "snmp mapped" and the status
+    # flips from `unconfigured` (grey, no problem) to `unknown` (red,
+    # real outage signal) — false-positive that the operator can only
+    # cure by wiping the whole sub-dict in Admin → Hosts.
+    snmp_block = h.get("snmp")
     snmp_mapped = bool(
-        (h.get("snmp_name") or "").strip()
-        or (isinstance(h.get("snmp"), dict) and h.get("snmp"))
+        isinstance(snmp_block, dict)
+        and snmp_block.get("enabled") is True
+        and (
+            (h.get("snmp_name") or "").strip()
+            or (h.get("address") or "").strip()
+        )
     )
     if non_beszel_hit:
         host_status = "up"
