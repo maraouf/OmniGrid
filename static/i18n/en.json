@@ -2561,7 +2561,9 @@
       "ai_memory_delete": "Forget memory",
       "ai_memory_delete_sub": "Remove an AI memory by exact text",
       "schedule_run_now": "Run schedule now",
-      "schedule_run_now_sub": "Fire a named schedule immediately, bypassing its interval"
+      "schedule_run_now_sub": "Fire a named schedule immediately, bypassing its interval",
+      "send_notification": "Send notification",
+      "send_notification_sub": "Send a custom message to one notification channel"
     },
     "bulk": {
       "matched_label": "{matched} match · {selected} selected",
@@ -4037,6 +4039,10 @@
     "schedule_missing_fields": "Schedule needs at least name + kind + interval_seconds.",
     "schedule_no_target": "Couldn't resolve schedule by id or name.",
     "schedule_action_failed": "Schedule action failed: {error}",
+    "send_notification_bad_medium": "Pick a valid channel: telegram, apprise, or app.",
+    "send_notification_no_body": "Notification body is required.",
+    "send_notification_ok": "Notification sent to {medium}.",
+    "send_notification_failed": "Send failed: {error}",
     "save_failed_generic": "Save failed",
     "network_error_generic": "Network error",
     "language_load_failed": "Language load failed",

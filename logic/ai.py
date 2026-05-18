@@ -956,6 +956,17 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     # (creates a new zip; retention prune fires under the existing
     # `tuning_backup_retention_count` knob).
     "backup_create",
+    # Operator-typed custom notification routed to ONE medium. Pairs
+    # with `ACTION_DATA: {"medium": "telegram"|"apprise"|"app", "body":
+    # "<text>", "title": "<optional>"}`. Distinct from the per-medium
+    # Test endpoints (fixed payload) — this carries the operator's exact
+    # text. Destructive in the sense that the message goes out to real
+    # subscribers, so the SPA gates it behind the inline-confirm chip
+    # the way `cleanup_stopped` / `update_all_updatable` do. Operator
+    # phrase examples: "send to telegram Backup finished", "tell apprise
+    # 'restart complete'", "notify the team via telegram that
+    # opnsense is fine now".
+    "send_notification",
     # AI memory write actions — already exposed via the MEMORY: /
     # MEMORY-FORGET: directives in AI replies, but adding the explicit
     # snake_case action IDs makes the cmd-K route consistent so
@@ -1373,6 +1384,7 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - schedule_create — create a new recurring schedule. ALWAYS pair with `ACTION_DATA: {<json>}` carrying `{name, kind, interval_seconds, enabled?, params?, run_at_hhmm?, cadence_mode?, days_of_week?, day_of_month?}`. `kind` MUST be one of the registered schedule kinds (see Admin → Schedules → Kind dropdown for the canonical list). Example reply: 'Creating a daily 01:00 backup schedule.\\nACTION: schedule_create\\nACTION_DATA: {\"name\":\"nightly-backup\",\"kind\":\"backup\",\"interval_seconds\":86400,\"cadence_mode\":\"daily\",\"run_at_hhmm\":\"01:00\"}'. Non-destructive — fires immediately without an inline confirm.\n"
     " - schedule_update — update an existing schedule's fields. ALWAYS pair with `ACTION_DATA: {<json>}` carrying `{id?: int, name?: str, ...changed fields}`. Either `id` OR `name` identifies the schedule; the rest are the fields to overwrite. Example reply: 'Bumping the gather refresh to every 10 minutes.\\nACTION: schedule_update\\nACTION_DATA: {\"name\":\"gather-refresh\",\"interval_seconds\":600}'. Non-destructive — fires immediately without an inline confirm.\n"
     " - schedule_delete — delete an existing schedule. ALWAYS pair with `ACTION_DATA: {<json>}` carrying `{id?: int, name?: str}` to identify the schedule to remove. Example reply: 'Deleting the experimental schedule.\\nACTION: schedule_delete\\nACTION_DATA: {\"name\":\"experimental-prune\"}'. (DESTRUCTIVE — the operator confirms via the inline-confirm chip in the AI sidebar before the delete fires.)\n"
+    " - send_notification — send a CUSTOM (operator-typed) message to ONE specific notification channel. Distinct from `test_apprise` (which fires a fixed test payload to every enabled medium). ALWAYS pair with `ACTION_DATA: {<json>}` carrying `{\"medium\": \"telegram\"|\"apprise\"|\"app\", \"body\": \"<text>\", \"title\": \"<optional>\"}`. Operator phrases: 'send to telegram <text>', 'tell apprise <text>', 'notify <channel> that <text>', 'message <channel>: <text>'. When the operator names the channel in the query, extract it as `medium`; when they just say 'send this' / 'notify the team' without naming a channel, ASK which channel rather than guessing. Title defaults to '🔔 OmniGrid' when omitted. Example reply for 'send to telegram Hi': 'I'll send \"Hi\" to your Telegram channel.\\nACTION: send_notification\\nACTION_DATA: {\"medium\":\"telegram\",\"body\":\"Hi\"}'. (DESTRUCTIVE — the message goes to real subscribers; operator confirms via the inline-confirm chip in the AI sidebar before it fires.)\n"
     "Example single-action reply: 'I'll mark every notification as read for you.\\n"
     "ACTION: mark_all_notifications_read'\n"
     "Example multi-action reply (\"refresh and cleanup\"): 'Refreshing the dashboard, then opening the cleanup confirm.\\n"

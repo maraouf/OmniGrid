@@ -212,6 +212,10 @@ OP_TYPES: frozenset[str] = frozenset({
     "admin_reauth_failed",
     # Notification side-channels.
     "notify_test",
+    # Operator-typed custom notification routed to ONE medium (POST
+    # /api/notify/send + AI palette `send_notification` action). Distinct
+    # from `notify_test` (fixed payload, fan-out to ALL enabled mediums).
+    "notify_send",
     # Audit-trail destruction — DELETE /api/history wipes every row.
     # The trailing audit row is written AFTER the bulk delete so it
     # survives; the row's actor surfaces who-cleared-when.
@@ -1531,6 +1535,64 @@ async def notify(
             # Verb avoids the ERROR-severity classifier regex per
             # CLAUDE.md — `dropped` reads as an outcome, not a failure.
             print(f"[notify] medium '{medium_name}' dropped: {result}")
+
+
+async def notify_one_medium(
+    medium: str,
+    title: str,
+    body: str,
+    *,
+    status: str = "info",
+    actor_username: Optional[str] = None,
+    metadata: Optional[dict] = None,
+) -> dict:
+    """Send a notification through ONE specific medium — bypasses the
+    fan-out logic in :func:`notify`.
+
+    Used by the AI palette's ``send_notification`` action so the operator
+    can ask "send to telegram Hi" and have the message routed ONLY to
+    Telegram even when both Apprise and Telegram are enabled. The
+    per-medium master switch (``notify_medium_<medium>``) is STILL
+    honoured — if the operator disabled the medium in Admin →
+    Notifications, the send short-circuits with ``{ok: False,
+    detail: "medium '<x>' is disabled"}``. Per-event / per-user gates
+    DO NOT apply (this isn't an event-driven notification — it's an
+    operator-typed message).
+
+    Returns the medium sender's result dict
+    (``{ok: bool, detail?: str, ...}``) so the caller can surface
+    per-medium failure detail.
+    """
+    severity = _coerce_severity(status)
+    sender = NOTIFY_MEDIUMS.get(medium)
+    if sender is None:
+        return {
+            "ok": False,
+            "detail": f"unknown medium '{medium}' — valid: "
+                      f"{', '.join(sorted(NOTIFY_MEDIUMS.keys()))}",
+        }
+    if not _is_medium_enabled(medium):
+        return {
+            "ok": False,
+            "detail": (f"medium '{medium}' is disabled — enable it in "
+                       f"Admin → Notifications first"),
+        }
+    try:
+        result = await sender(
+            title=title, body=body, severity=severity,
+            event=None,
+            actor_username=actor_username,
+            target_kind=None, target_id=None,
+            metadata=metadata or {},
+        )
+    except Exception as e:  # noqa: BLE001
+        # Same verb discipline as `notify` — "dropped" reads as outcome
+        # not failure for the persistent-log severity classifier.
+        print(f"[notify] one-medium '{medium}' dropped: {e}")
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+    if isinstance(result, dict):
+        return result
+    return {"ok": True, "detail": ""}
 
 
 async def notify_with_retry(

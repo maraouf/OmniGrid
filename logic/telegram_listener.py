@@ -1633,7 +1633,13 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             out.append(f"💿 <b>Disk:</b>   {du} / {dt}" + (f"  ({disk_p})" if disk_p else ""))
         elif disk_p:
             out.append(f"💿 <b>Disk:</b>   {disk_p}")
-    uptime_str = _fmt_uptime(data.get("host_uptime_seconds"))
+    # Canonical key is `host_uptime_s` (set by every provider's extractor).
+    # `host_uptime_seconds` was a typo in the original implementation —
+    # check both so legacy snapshots that happen to carry the older name
+    # don't render as "no uptime".
+    uptime_str = _fmt_uptime(
+        data.get("host_uptime_s") or data.get("host_uptime_seconds")
+    )
     if uptime_str:
         out.append(f"⏱ <b>Uptime:</b> {uptime_str}")
     # Ping reachability — RTT in ms when alive, loss% when not.
@@ -3510,42 +3516,50 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     #       AI answers "how many hosts are up" from those counts and
     #       never extrapolates from the truncated `hosts[]` array.
     try:
-        import json as _json
-        from logic.db import db_conn
         hosts_cfg = _load_hosts_config()
         paused_set = _load_host_paused_set()
-        # Read last-known host_snapshots in one round-trip so we can
-        # surface stale-data fields when a provider is currently down.
-        snap_map: dict[str, dict] = {}
+        # Read last-known host_snapshots via the canonical helper. The
+        # raw SQL form here used to query `SELECT host_id, snapshot` —
+        # WRONG column names (the real schema is `(host, ts, data)`) so
+        # every row failed to parse and every host fell through to
+        # status="unknown" regardless of whether snapshots existed.
+        # Going through `load_host_snapshots()` also gives us the
+        # short-TTL cache + JSON-parse-error tolerance for free.
         try:
-            with db_conn() as c:
-                for row in c.execute(
-                    "SELECT host_id, snapshot FROM host_snapshots"
-                ):
-                    try:
-                        snap_map[row[0]] = _json.loads(row[1])
-                    except (ValueError, TypeError):
-                        pass
-        except (sqlite3.DatabaseError, sqlite3.OperationalError):
-            # Snapshot table may not exist on a fresh DB; just continue.
-            pass
+            from logic.gather import load_host_snapshots
+            raw_snap_map = load_host_snapshots()
+        # noinspection PyBroadException
+        except Exception as e:  # noqa: BLE001
+            print(f"[telegram_listener] context snapshot load failed: {e}")
+            raw_snap_map = {}
+        # ``load_host_snapshots`` returns ``{host: {"ts": float,
+        # "data": {...}}}``; unwrap to the inner data dict per host so
+        # downstream `.get("host_cpu_percent")` etc. land on the real
+        # fields.
+        snap_map: dict[str, dict] = {
+            hid: (entry.get("data") if isinstance(entry, dict) else {}) or {}
+            for hid, entry in raw_snap_map.items()
+        }
 
         # Pass 1 — compute the full classified set across every
         # enabled host (no sample cap). Each entry carries its full
         # record dict so the sample step below can emit them directly.
+        # "up" gate: a host counts as reporting live data when the
+        # snapshot dict carries at least one meaningful field — we
+        # check both percent-style telemetry AND the absolute totals,
+        # since SNMP / NE / Webmin all populate different subsets.
+        # An empty dict from a placeholder save shouldn't read as alive.
+        _LIVE_FIELDS = (
+            "host_cpu_percent", "host_mem_percent", "host_disk_percent",
+            "host_uptime_s", "host_uptime_seconds",
+            "host_mem_total", "host_disk_total",
+            "host_hostname", "host_platform", "host_kernel",
+        )
+
         def _classify(h: dict) -> tuple[str, dict]:
             hid = h.get("id") or ""
             snap = snap_map.get(hid) or {}
-            # Snapshot row counts as "up" only if it carries at least
-            # one meaningful telemetry field — an empty / placeholder
-            # dict from a failed merge shouldn't read as alive.
-            has_live = bool(snap) and any(
-                snap.get(k) for k in (
-                    "host_cpu_percent", "host_mem_percent",
-                    "host_disk_percent", "host_uptime_seconds",
-                    "host_hostname", "host_platform",
-                )
-            )
+            has_live = bool(snap) and any(snap.get(k) for k in _LIVE_FIELDS)
             if hid in paused_set:
                 status = "paused"
             elif has_live:
@@ -3561,7 +3575,11 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                 "cpu_pct": snap.get("host_cpu_percent"),
                 "mem_pct": snap.get("host_mem_percent"),
                 "disk_pct": snap.get("host_disk_percent"),
-                "uptime_s": snap.get("host_uptime_seconds"),
+                # Canonical key is `host_uptime_s` (every provider
+                # writes that). `host_uptime_seconds` is kept only for
+                # legacy callers; check both for forward-compat.
+                "uptime_s": snap.get("host_uptime_s")
+                            or snap.get("host_uptime_seconds"),
                 "host_hostname": snap.get("host_hostname"),
                 "platform": snap.get("host_platform"),
                 "kernel": snap.get("host_kernel"),
@@ -3588,16 +3606,16 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         # the AI sees real telemetry in the sample rather than a wall
         # of "unknown". Within each status the order is the curated
         # config order (operator-stable).
-        SAMPLE_CAP = 60  # was 30; doubled now that the sample is
+        sample_cap = 60  # was 30; doubled now that the sample is
         # status-balanced + counts are authoritative
         order = {"up": 0, "paused": 1, "unknown": 2}
         classified.sort(key=lambda t: order.get(t[0], 9))
-        host_records = [rec for _st, rec in classified[:SAMPLE_CAP]]
+        host_records = [rec for _st, rec in classified[:sample_cap]]
 
         ctx["hosts"] = host_records
         ctx["hosts_total"] = len(hosts_cfg)
         ctx["hosts_enabled"] = len(enabled_hosts)
-        ctx["hosts_sample_cap"] = SAMPLE_CAP
+        ctx["hosts_sample_cap"] = sample_cap
         # Fleet-wide status counts — AUTHORITATIVE for "how many hosts
         # are X" questions. The palette user-prompt builder consumes
         # this block via grounding directives.
@@ -3607,7 +3625,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             "up": status_counts.get("up", 0),
             "paused": status_counts.get("paused", 0),
             "unknown": status_counts.get("unknown", 0),
-            "sample_cap": SAMPLE_CAP,
+            "sample_cap": sample_cap,
             "sample_size": len(host_records),
         }
     # noinspection PyBroadException

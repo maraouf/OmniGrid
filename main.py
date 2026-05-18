@@ -17535,6 +17535,86 @@ async def api_apprise_test(_admin: AdminUser):
     })
 
 
+class _NotifySendIn(BaseModel):
+    """Body for ``POST /api/notify/send`` — operator-driven custom
+    message routed to ONE specific medium. Distinct from the per-medium
+    Test endpoints (which fire a fixed payload). Backs the AI palette's
+    ``send_notification`` action so the operator can say "send to
+    telegram <text>" and have the AI dispatch it under their auth.
+    """
+    medium: str  # "app" | "apprise" | "telegram"
+    body: str
+    title: Optional[str] = None
+
+
+@app.post("/api/notify/send")
+async def api_notify_send(
+    body_in: _NotifySendIn,
+    request: Request,
+    _admin: AdminUser,
+):
+    """Send a custom (operator-typed) notification through ONE specific
+    medium. Admin-only. The medium MUST be enabled in Admin →
+    Notifications — disabled mediums short-circuit with a clear
+    ``ok=False, detail=<reason>`` instead of silently dropping the
+    message. Title defaults to ``"🔔 OmniGrid"`` when omitted so the
+    AI palette's natural-language input doesn't have to invent one.
+
+    Body length capped at 4096 chars (matches Telegram's per-message
+    limit so the wire never rejects on size).
+
+    Audit row written under ``op_type='notify_send'`` so the History
+    tab surfaces every operator-driven send alongside the per-medium
+    test fires.
+    """
+    medium = (body_in.medium or "").strip().lower()
+    msg = (body_in.body or "").strip()
+    title = (body_in.title or "").strip() or "🔔 OmniGrid"
+    if not medium:
+        raise HTTPException(400, "medium is required")
+    if not msg:
+        raise HTTPException(400, "body is required")
+    if len(msg) > 4096:
+        raise HTTPException(400, "body exceeds 4096 chars")
+    if medium not in _ops_mod.NOTIFY_MEDIUMS:
+        raise HTTPException(
+            400,
+            f"unknown medium '{medium}' — valid: "
+            f"{', '.join(sorted(_ops_mod.NOTIFY_MEDIUMS.keys()))}",
+        )
+    actor = (_admin.username or "operator")
+    result = await _ops_mod.notify_one_medium(
+        medium=medium,
+        title=title,
+        body=msg,
+        status="info",
+        actor_username=actor,
+        metadata={"source": "api_notify_send"},
+    )
+    # Audit row — same contract as the per-medium Test endpoints. Keeps
+    # the History tab honest about who fired what, even when the message
+    # is operator-typed rather than event-driven.
+    try:
+        _ops_mod.assert_op_type("notify_send")
+        with db_conn() as c:
+            _ops_mod.write_admin_audit(
+                c, "notify_send",
+                target_kind="notify", target_name=medium,
+                actor=actor,
+                message=(
+                    f"custom notification fired by {actor} via {medium}: "
+                    f"{msg[:140]}{'…' if len(msg) > 140 else ''}"
+                ),
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify] notify_send audit-row write failed: {e}")
+    return {
+        "ok": bool(result.get("ok")),
+        "medium": medium,
+        "detail": result.get("detail") or result.get("error") or "",
+    }
+
+
 # ============================================================================
 # In-app notifications store. Sibling of the Apprise medium —
 # `logic.ops:notify` writes a row through the `app` medium on every
