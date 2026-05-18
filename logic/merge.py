@@ -13,7 +13,7 @@ provider-merge-order rule (Pulse → Beszel → node-exporter → Webmin)
 relies on `_meaningful` matching exactly between the two sites; one
 implementation removes that risk.
 """
-from typing import Any
+from typing import Any, Callable, Optional
 
 
 def is_meaningful(v: Any) -> bool:
@@ -91,6 +91,51 @@ def normalize_arch(arch: str) -> str:
         "i686": "x86",
     }
     return aliases.get(a, a)
+
+
+def lookup_host_tolerant(host_map: dict, needle: str) -> Optional[dict]:
+    """Case / whitespace-tolerant key lookup over a provider's host map.
+
+    Every host-stats provider (Beszel / Pulse / Webmin / SNMP / Ping)
+    exposes a ``lookup(host_map, needle)`` helper with this exact
+    contract — fast exact match first, then a case-insensitive +
+    whitespace-trimmed walk. Implementing it once here lets each
+    provider's public ``lookup`` re-export instead of carrying a
+    parallel copy that drifts over time.
+    """
+    if not host_map or not needle:
+        return None
+    if needle in host_map:
+        return host_map[needle]
+    key = needle.strip().lower()
+    if not key:
+        return None
+    for k, v in host_map.items():
+        if k.strip().lower() == key:
+            return v
+    return None
+
+
+def parse_load_triple(
+    values: list,
+    parser: Callable[[Any], float] = float,
+) -> tuple[float, float, float]:
+    """Pull a ``(1m, 5m, 15m)`` tuple from an indexed sequence of load
+    averages, gracefully degrading to ``0.0`` for any missing slot.
+
+    Used by every provider that surfaces a load-average triple: Pulse
+    (host.loadAverage), Webmin (cpu_load string split by whitespace),
+    future SNMP path (UCD `laLoad`). ``parser`` lets each caller plug
+    in its own coercer (``float`` for already-numeric arrays, the
+    provider's ``_num`` helper for tolerant string parsing).
+    """
+    if not isinstance(values, list):
+        return 0.0, 0.0, 0.0
+    n = len(values)
+    one = parser(values[0]) if n > 0 else 0.0
+    five = parser(values[1]) if n > 1 else 0.0
+    fifteen = parser(values[2]) if n > 2 else 0.0
+    return one, five, fifteen
 
 
 def merge_best(dst: dict, src: dict) -> None:
