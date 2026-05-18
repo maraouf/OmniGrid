@@ -592,18 +592,18 @@
              popover doesn't close the tabs themselves. -->
         <div class="tabs-pill-popover" x-show="open" x-cloak>
           <div class="tabs-pill-header" x-text="t('topbar.tabs.popover_title')"></div>
-          <template x-for="t in tabActivityList()" :key="t.client_id">
+          <template x-for="tab in tabActivityList()" :key="tab.client_id">
             <button type="button"
-                    @click="focusTabByClientId(t.client_id); open = false"
+                    @click="focusTabByClientId(tab.client_id); open = false"
                     class="tabs-pill-row"
                     :title="t('topbar.tabs.row_focus_title')">
-              <div class="tabs-pill-row-title" x-text="t.title || t.view || '—'"></div>
+              <div class="tabs-pill-row-title" x-text="tab.title || tab.view || '—'"></div>
               <div class="tabs-pill-row-meta">
-                <span x-show="t.actor" x-text="t.actor"></span>
-                <span x-show="t.ts"
+                <span x-show="tab.actor" x-text="tab.actor"></span>
+                <span x-show="tab.ts"
                       class="tabs-pill-row-age"
                       x-text="(function(){
-                        const s = Math.max(0, Math.round((Date.now() - Number(t.ts || 0) * 1000) / 1000));
+                        const s = Math.max(0, Math.round((Date.now() - Number(tab.ts || 0) * 1000) / 1000));
                         if (s < 60) return s + 's';
                         if (s < 3600) return Math.round(s / 60) + 'm';
                         return Math.round(s / 3600) + 'h';
