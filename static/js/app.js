@@ -1209,6 +1209,11 @@ function app() {
       'tuning_stats_untargeted_timeout_seconds',
       'tuning_swarm_agent_unhealthy_threshold',
       'tuning_stats_history_days',
+      // host_failure_events (incidents) retention — independent
+      // window from `tuning_stats_history_days` because operators
+      // usually want a longer post-mortem audit trail than the raw
+      // sample tables. 0 disables pruning entirely.
+      'tuning_incidents_retention_days',
       'tuning_stats_sample_interval_seconds',
       'tuning_host_baseline_recompute_interval_seconds',
       'tuning_host_baseline_first_tick_delay_seconds',
