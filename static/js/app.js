@@ -18139,6 +18139,22 @@ function app() {
           run: () => { this.createBackup(); },
         }] : []),
 
+        // Send a custom (operator-typed) message to ONE notification
+        // medium. Pairs with `ACTION_DATA: {medium, body, title?}`
+        // parsed by the AI. Distinct from `test-apprise` (fixed
+        // payload, fan-out to ALL enabled mediums). Destructive in
+        // the sense that the message goes to real subscribers, so
+        // the inline-confirm chip in the AI sidebar gates it.
+        {
+          id: 'send-notification',
+          label: t('command_palette.action.send_notification', 'Send notification'),
+          sub:   t('command_palette.action.send_notification_sub', 'Send a custom message to one notification channel'),
+          verbs: ['send', 'notify', 'tell', 'message', 'telegram', 'apprise'],
+          destructive: true,
+          defer_confirm_to_run: true,
+          run: (opts) => { this._aiSendNotificationDispatch(opts || {}); },
+        },
+
         // AI memory CRUD via palette. Create + delete already exposed
         // via MEMORY: / MEMORY-FORGET: directives; snake_case ids
         // here make the cmd-K route consistent so operator phrasing
@@ -20901,6 +20917,18 @@ function app() {
         schedule_run_now:     'schedule-run-now',
         run_schedule_now:     'schedule-run-now',
         fire_schedule:        'schedule-run-now',
+        // send_notification — custom (operator-typed) message routed
+        // to ONE medium. Pairs with `ACTION_DATA: {medium, body, title?}`
+        // parsed by `parseAiActionData(...)`. Backend endpoint
+        // `POST /api/notify/send` is admin-only + audited under
+        // `op_type='notify_send'`. Operator phrasings: "send to
+        // telegram <text>", "tell apprise <text>", "notify <channel>
+        // that <text>".
+        send_notification:    'send-notification',
+        send_telegram:        'send-notification',
+        send_apprise:         'send-notification',
+        notify_channel:       'send-notification',
+        message_channel:      'send-notification',
       };
       const target = aliasMap[id] || kebab;
       const all = (typeof this._commandActions === 'function')
@@ -33523,6 +33551,68 @@ function app() {
         }
       } catch (e) {
         this.showToast(this.t('toasts_extra.schedule_action_failed', { error: (e && e.message) || '' }), 'error');
+      }
+    },
+
+    // AI-palette dispatch wrapper for the send_notification flow.
+    // Consumes `opts.data = {medium, body, title?}` (from the AI's
+    // ACTION_DATA directive parsed upstream). Validates the medium is
+    // one of the known set BEFORE the POST so the operator gets a
+    // clear toast instead of a 400. The endpoint enforces the
+    // operator-typed-text length cap + per-medium master-switch gate
+    // server-side so this dispatcher stays thin.
+    async _aiSendNotificationDispatch(opts) {
+      const params = opts || {};
+      const data = (params.data && typeof params.data === 'object') ? params.data : {};
+      const medium = (data.medium || '').toString().trim().toLowerCase();
+      const body = (data.body || '').toString().trim();
+      const title = (data.title || '').toString().trim();
+      const KNOWN_MEDIUMS = ['app', 'apprise', 'telegram'];
+      if (!medium || KNOWN_MEDIUMS.indexOf(medium) < 0) {
+        this.showToast(
+          this.t('toasts_extra.send_notification_bad_medium')
+            || ('Pass ACTION_DATA: {"medium":"telegram|apprise|app","body":"<text>"} — got: ' + (medium || '<empty>')),
+          'error',
+        );
+        return;
+      }
+      if (!body) {
+        this.showToast(
+          this.t('toasts_extra.send_notification_no_body')
+            || 'Pass ACTION_DATA: {"medium":"<x>","body":"<text>"} — body is required.',
+          'error',
+        );
+        return;
+      }
+      try {
+        const r = await fetch('/api/notify/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ medium, body, title: title || undefined }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          throw new Error(j.detail || ('HTTP ' + r.status));
+        }
+        if (j.ok) {
+          this.showToast(
+            this.t('toasts_extra.send_notification_ok', { medium })
+              || ('Sent to ' + medium + '.'),
+            'success',
+          );
+        } else {
+          this.showToast(
+            this.t('toasts_extra.send_notification_failed', { error: j.detail || '' })
+              || ('Send failed: ' + (j.detail || 'unknown error')),
+            'error',
+          );
+        }
+      } catch (e) {
+        this.showToast(
+          this.t('toasts_extra.send_notification_failed', { error: (e && e.message) || '' })
+            || ('Send failed: ' + ((e && e.message) || 'unknown error')),
+          'error',
+        );
       }
     },
 
