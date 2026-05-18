@@ -8687,6 +8687,18 @@ select.field-invalid {
   margin-top: var(--s-1);
 }
 
+/* Device chip — form-factor emoji + platform · browser line below the
+ * tab title. Renders only when the heartbeat carried a parseable User-
+ * Agent. Same dim-text typography as `.tabs-pill-row-rich` so the
+ * popover row reads as "title / device / rich state / meta" top-to-
+ * bottom without visual competition. */
+.tabs-pill-row-device {
+  margin-top: var(--s-1);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+
 .tabs-pill-row-reproduce {
   flex: 0 0 auto;
   padding: var(--s-1) var(--s-2);

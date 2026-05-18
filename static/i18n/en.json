@@ -222,6 +222,26 @@
         "health_filter": "health: {health}",
         "search": "search: {query}",
         "reproduced": "Mirrored other tab's state — filters, drawer, view"
+      },
+      "device": {
+        "platform": {
+          "ios": "iOS",
+          "android": "Android",
+          "windows": "Windows",
+          "mac": "Mac",
+          "linux": "Linux",
+          "bsd": "BSD",
+          "chromeos": "ChromeOS",
+          "other": "Other"
+        },
+        "browser": {
+          "chrome": "Chrome",
+          "firefox": "Firefox",
+          "safari": "Safari",
+          "edge": "Edge",
+          "opera": "Opera",
+          "other": "Other"
+        }
       }
     }
   },
