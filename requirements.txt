@@ -13,7 +13,7 @@ fastapi==0.136.1
 # `package-not-in-requirements` lint. Floor-pinned to 2.x so the v1-style
 # `.dict()` calls we already migrated stay valid; fastapi's own pin
 # bounds the upper edge.
-pydantic>=2.0.0
+pydantic>=2.13.4
 # ASGI server. The [standard] extras pull in `httptools` + `uvloop` for
 # the production-grade async performance path AND `websockets` for the
 # admin SSH terminal modal (logic/ssh.py drives an xterm-backed PTY
