@@ -133,6 +133,33 @@
               </div>
             </button>
 
+            <!-- Problem hosts — surfaces ONLY when problemHostCount > 0
+                 (operators on a healthy fleet don't see the tile).
+                 Click jumps to the Hosts view AND arms the problem-
+                 hosts filter chip so the list narrows to the
+                 actionable rows in one click. Same status set
+                 (down / paused / unknown) the Telegram AI context's
+                 `problem_hosts` block carries. Pill-error background
+                 + alert-triangle icon so the tile reads as a triage
+                 affordance at a glance. -->
+            <button type="button"
+               x-show="problemHostCount() > 0"
+               @click="view='hosts'; hostsProblemFilter = true; try { sessionStorage.setItem('hostsProblemFilter', '1'); } catch (_) {}"
+               class="stats-card"
+               style="border-color: var(--pill-error-br); background: var(--pill-error-bg);"
+               :aria-label="t('stats.cards.problem_hosts.label') + ': '
+                            + problemHostCount()
+                            + ' — ' + t('stats.cards.problem_hosts.sub')">
+              <div class="stats-card-icon" style="color: var(--pill-error-fg);">
+                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
+              </div>
+              <div class="stats-card-body">
+                <div class="stats-card-label" x-text="t('stats.cards.problem_hosts.label')"></div>
+                <div class="stats-card-value" x-text="problemHostCount()"></div>
+                <div class="stats-card-sub fs-3xs" x-text="t('stats.cards.problem_hosts.sub')"></div>
+              </div>
+            </button>
+
             <!-- Host groups -->
             <button type="button"
                @click="view='admin'; openAdminTab('host_groups')"

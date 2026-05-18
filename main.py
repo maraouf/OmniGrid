@@ -7090,6 +7090,91 @@ async def api_ai_palette(
         max_depth=fb_max_depth,
     )
 
+    # Multi-round tool dispatch — when the AI's first-round reply
+    # carries `TOOL: <name>` directives (diagnostic READS from the
+    # `history` / logs / failure-events tables etc.), dispatch the
+    # tools backend-side + re-invoke the AI with the results so it
+    # can compose a real diagnostic answer. Hard-capped to ONE
+    # round-trip to bound latency + token cost; the second-round
+    # reply is treated as final regardless of any further TOOL
+    # emissions. See `logic.ai.PALETTE_TOOL_CATALOGUE` for the
+    # available tool surface.
+    first_text = (out.get("text") or "") if isinstance(out, dict) else ""
+    tool_calls, first_cleaned = _ai.parse_palette_tool_calls(first_text)
+    if tool_calls and isinstance(out, dict):
+        # Dispatch every tool call inline. Results land under
+        # `ctx["tool_results"]` keyed by tool name; multiple calls to
+        # the same tool merge into a list under that key. Errors are
+        # captured per-call so a single bad tool doesn't blank the
+        # whole batch.
+        if not isinstance(ctx, dict):
+            ctx = {}
+        tool_results: dict = ctx.get("tool_results") or {}
+        # Stamp the operator's username on the ctx so audit-row writes
+        # AND ssh_diag's `actor_username` arg carry the right identity.
+        try:
+            ctx["actor"] = _admin.username or "ai_palette"
+        except Exception:
+            ctx["actor"] = "ai_palette"
+        # Pending-confirm collation — tools that require the SPA's
+        # inline-confirm chip (currently ssh_diag) short-circuit
+        # without firing. The dispatcher returns a marker envelope
+        # which the SPA reads to surface the chip; the backend will
+        # re-invoke this endpoint AFTER the operator confirms with
+        # `ctx["_tool_confirm_granted"] = True`.
+        pending_tool_confirms: list = []
+        for call in tool_calls:
+            name = call.get("name") or ""
+            result = await _ai.dispatch_palette_tool(call, ctx)
+            if isinstance(result, dict) and result.get("_pending_confirm"):
+                pending_tool_confirms.append(result)
+                continue
+            existing = tool_results.get(name)
+            if existing is None:
+                tool_results[name] = result
+            elif isinstance(existing, list):
+                existing.append(result)
+            else:
+                tool_results[name] = [existing, result]
+        ctx["tool_results"] = tool_results
+        # Surface any pending confirms back to the SPA — when present,
+        # the SPA renders the inline-confirm chip + skips the second-
+        # round AI call until the operator clicks Yes. The first-round
+        # AI reply text stays in `out["text"]` so the operator sees
+        # the conversational framing while the chip awaits approval.
+        if pending_tool_confirms and isinstance(out, dict):
+            out["pending_tool_confirms"] = pending_tool_confirms
+            out["text"] = first_cleaned or first_text
+            return out
+        # Pass the cleaned first-round prose into the conversation so
+        # the AI's second-round reply has the same context the
+        # operator's question had + the tool's "here's what I just
+        # fetched" annotation.
+        second_round_prompt = _ai.build_palette_user_prompt(
+            query, ctx, conversation=conversation,
+        )
+        out = await _ai.ask_provider_with_fallback(
+            active,
+            fallback_chain=fb_chain,
+            provider_creds=provider_creds,
+            prompt=second_round_prompt,
+            system_prompt=sys_prompt,
+            max_tokens=max_toks,
+            timeout=30.0,
+            fallback_enabled=fb_enabled,
+            max_depth=fb_max_depth,
+        )
+        # Surface the tool-results in the response so the SPA can
+        # render a small "diagnostic data fetched" affordance below
+        # the reply (operator can click to inspect the raw query
+        # results). Multi-tool replies get all results.
+        if isinstance(out, dict):
+            out["tool_calls"] = [
+                {"name": c.get("name") or "", "args": c.get("args") or {}}
+                for c in tool_calls
+            ]
+            out["tool_results"] = tool_results
+
     # Split the optional `ACTION: <id>` trailer(s) off the visible
     # text. Multi-action queries ("refresh and cleanup") emit one
     # line per action; the parser returns them all in order so the
@@ -17909,13 +17994,22 @@ def _tab_activity_prune() -> None:
 
 class _TabActivityIn(BaseModel):
     """Body for the heartbeat endpoint. Every field optional — the SPA
-    sends only what's relevant to the current location."""
+    sends only what's relevant to the current location. Rich-state
+    fields (`drawer_item`, `filters`, `selection`, `rich_label`)
+    power the "Reproduce here" handoff: a sibling tab's popover row
+    can mirror the source tab's filter / drawer / sub-tab state into
+    the current tab in one click. Empty / null = source tab was idle
+    so the popover renders a one-line label."""
     view: Optional[str] = None
     drawer_host: Optional[str] = None
+    drawer_item: Optional[str] = None
     admin_tab: Optional[str] = None
     settings_section: Optional[str] = None
     stats_tab: Optional[str] = None
     title: Optional[str] = None
+    filters: Optional[dict] = None
+    selection: Optional[list] = None
+    rich_label: Optional[str] = None
 
 
 @app.post("/api/tabs/activity")
@@ -17936,14 +18030,39 @@ async def api_tabs_activity_heartbeat(
     if not cid:
         return {"ok": False, "reason": "no client id"}
     actor = _actor_from(request)
+    # Sanitise the rich-state payload BEFORE storing — filters dict
+    # should only hold serialisable scalars (booleans, strings, short
+    # arrays of strings) so a malicious or buggy SPA payload can't
+    # blow the registry up. Selection cap at 50 ids matches the SPA-
+    # side cap so wire + storage agree.
+    filters_clean: Optional[dict] = None
+    if isinstance(body.filters, dict):
+        filters_clean = {}
+        for k, v in body.filters.items():
+            if not isinstance(k, str) or len(k) > 64:
+                continue
+            if isinstance(v, (bool, int, float)) or v is None:
+                filters_clean[k] = v
+            elif isinstance(v, str) and len(v) <= 256:
+                filters_clean[k] = v
+            elif isinstance(v, list) and len(v) <= 20:
+                # CSV-shaped list of short strings (provider names etc.)
+                filters_clean[k] = [str(x)[:64] for x in v if isinstance(x, (str, int, float))]
+    selection_clean: Optional[list] = None
+    if isinstance(body.selection, list):
+        selection_clean = [str(x)[:128] for x in body.selection[:50] if isinstance(x, (str, int))]
     entry = {
         "actor": actor,
         "view": (body.view or "").strip() or None,
         "drawer_host": (body.drawer_host or "").strip() or None,
+        "drawer_item": (body.drawer_item or "").strip() or None,
         "admin_tab": (body.admin_tab or "").strip() or None,
         "settings_section": (body.settings_section or "").strip() or None,
         "stats_tab": (body.stats_tab or "").strip() or None,
         "title": (body.title or "").strip() or None,
+        "filters": filters_clean if filters_clean else None,
+        "selection": selection_clean if selection_clean else None,
+        "rich_label": (body.rich_label or "").strip() or None,
         "ts": time.time(),
     }
     _tab_activity_registry[cid] = entry
@@ -21727,6 +21846,14 @@ def _expand_includes(body: str, path: str) -> tuple[str, tuple]:
     read collapses to an empty string in the output (visible visual
     regression but the page still renders) and contributes its
     attempted-mtime to the signature so the next disk change invalidates.
+
+    Multi-pass: an included partial can ITSELF carry INCLUDE markers
+    pointing at other partials (e.g. an admin sub-tab template
+    embedding the shared `_components/og-range-picker.html`). The
+    expander iterates until the body stabilises with no remaining
+    markers OR `_MAX_INCLUDE_DEPTH` is reached (safety net against a
+    pathological self-referential include loop — collapses any
+    still-unresolved markers to empty strings rather than spinning).
     """
     base = os.path.abspath(_PARTIALS_BASE)
     sig: list = []
@@ -21752,7 +21879,25 @@ def _expand_includes(body: str, path: str) -> tuple[str, tuple]:
         sig.append((rel, mt))
         return content
 
-    expanded = _INCLUDE_RE.sub(_replace, body)
+    _MAX_INCLUDE_DEPTH = 8
+    expanded = body
+    for _depth in range(_MAX_INCLUDE_DEPTH):
+        if not _INCLUDE_RE.search(expanded):
+            break
+        expanded = _INCLUDE_RE.sub(_replace, expanded)
+    else:
+        # Hit the depth cap with markers still unresolved — strip any
+        # remaining markers so they don't render as literal HTML comments
+        # in the operator's browser. Diagnostic print so a future
+        # contributor sees the loop in Admin → Logs instead of a silent
+        # truncation.
+        if _INCLUDE_RE.search(expanded):
+            print(
+                f"[_expand_includes] WARN: include depth {_MAX_INCLUDE_DEPTH} "
+                f"exceeded for {path!r} — remaining markers stripped; "
+                f"check for a self-referential INCLUDE loop."
+            )
+            expanded = _INCLUDE_RE.sub("", expanded)
     return expanded, tuple(sig)
 
 

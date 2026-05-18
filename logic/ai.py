@@ -1385,6 +1385,15 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - schedule_update — update an existing schedule's fields. ALWAYS pair with `ACTION_DATA: {<json>}` carrying `{id?: int, name?: str, ...changed fields}`. Either `id` OR `name` identifies the schedule; the rest are the fields to overwrite. Example reply: 'Bumping the gather refresh to every 10 minutes.\\nACTION: schedule_update\\nACTION_DATA: {\"name\":\"gather-refresh\",\"interval_seconds\":600}'. Non-destructive — fires immediately without an inline confirm.\n"
     " - schedule_delete — delete an existing schedule. ALWAYS pair with `ACTION_DATA: {<json>}` carrying `{id?: int, name?: str}` to identify the schedule to remove. Example reply: 'Deleting the experimental schedule.\\nACTION: schedule_delete\\nACTION_DATA: {\"name\":\"experimental-prune\"}'. (DESTRUCTIVE — the operator confirms via the inline-confirm chip in the AI sidebar before the delete fires.)\n"
     " - send_notification — send a CUSTOM (operator-typed) message to ONE specific notification channel. Distinct from `test_apprise` (which fires a fixed test payload to every enabled medium). ALWAYS pair with `ACTION_DATA: {<json>}` carrying `{\"medium\": \"telegram\"|\"apprise\"|\"app\", \"body\": \"<text>\", \"title\": \"<optional>\"}`. Operator phrases: 'send to telegram <text>', 'tell apprise <text>', 'notify <channel> that <text>', 'message <channel>: <text>'. When the operator names the channel in the query, extract it as `medium`; when they just say 'send this' / 'notify the team' without naming a channel, ASK which channel rather than guessing. Title defaults to '🔔 OmniGrid' when omitted. Example reply for 'send to telegram Hi': 'I'll send \"Hi\" to your Telegram channel.\\nACTION: send_notification\\nACTION_DATA: {\"medium\":\"telegram\",\"body\":\"Hi\"}'. (DESTRUCTIVE — the message goes to real subscribers; operator confirms via the inline-confirm chip in the AI sidebar before it fires.)\n"
+    "\n"
+    "DIAGNOSTIC TOOLS — when the operator asks a 'why is X failing' / 'how often does X happen' / 'what's in the logs' / 'show me the recent ops' question and the supplied context block doesn't already carry the answer, you can FETCH richer data by emitting `TOOL: <name>` + `TOOL_ARGS: {<json>}` directives. The backend runs the tool, re-invokes you with the result populated in `Tool results:` blocks below the `Current view` line, and your SECOND-ROUND reply composes a real diagnostic answer from the data. EMIT TOOLS ONLY WHEN THE BUILT-IN CONTEXT DOESN'T ALREADY ANSWER THE QUESTION. Available tools (use the EXACT names):\n"
+    " - get_recent_history(args: {target_kind?, target_id?, op_type?, hours=24, limit=50}) — recent rows from the `history` table. Filter by target_kind ('service' / 'container' / 'orphan' / 'host' / 'stack'), target_id (e.g. 'svc:abc123'), or op_type ('restart_service' / 'update_stack' / 'remove_container' / etc.). Returns chronological list with status + duration + actor. Use this when the operator asks 'how many times has X restarted' / 'what ops have fired against this stack today' / 'who restarted Y last hour'.\n"
+    " - get_recent_logs(args: {severity_min='WARN', tag_prefix?, hours=1, line_cap=100}) — recent persistent-log lines filtered by severity floor (DEBUG / INFO / WARN / ERROR) + optional log-tag prefix (e.g. 'snmp' / 'beszel' / 'gather' / 'portainer'). Use this when the operator asks 'any errors in the last hour' / 'what's in the snmp logs' / 'show me recent warnings'.\n"
+    " - get_failure_events(args: {host_id?, hours=24, limit=50}) — recent rows from the `host_failure_events` table — state transitions for provider availability per host (provider paused / resumed / recovered). Use this when the operator asks 'how often does X go offline' / 'which providers are flapping on this host' / 'show me the recent failure events'.\n"
+    " - get_host_metrics_recent(args: {host_id, metric='cpu_percent', hours=6, limit=200}) — recent rows from `host_metrics_samples` for ONE host + ONE metric (whitelisted: cpu_percent / mem_percent / disk_percent / load_1m / load_5m / load_15m / host_uptime_s / host_swap_percent). Use this when the operator asks 'show me the cpu spike at 02:00' / 'has memory been creeping up on this host all week' — chart-level questions where the raw samples matter more than the chart.\n"
+    " - get_container_events(args: {name_prefix?, hours=1}) — container state / health transitions from the live gather cache. Filters items by name prefix (e.g. 'omnigrid_' / 'auth' / etc.) and reports state / health / replicas / desired / error. Use this when the operator asks 'is X still restarting' / 'when did this container go unhealthy' — most-recent gather is authoritative.\n"
+    " - ssh_diag(args: {host_id, preset}) — run a WHITELISTED read-only diagnostic command on the target host via SSH. Presets: 'journalctl_docker_last_hour' (docker.service journal, last hour), 'journalctl_containerd_last_hour' (containerd.service journal), 'ps_failed' (`docker ps -a` filtered to exited / dead containers), 'df_h' (disk usage), 'dmesg_tail' (kernel ring buffer tail), 'uptime' (`uptime` output). DESTRUCTIVE-ADJACENT — touches the actual machine so this routes through the SPA's inline-confirm chip BEFORE the SSH session opens. Use sparingly + only when the DB-side tools can't answer the question. Example: 'is the docker daemon crashing?' → emit ssh_diag with `{host_id:'<host>', preset:'journalctl_docker_last_hour'}`. NEVER emit free-form `command` strings; only the whitelisted presets are accepted.\n"
+    "EXAMPLE diagnostic flow. Operator: 'why does opnsense keep failing to ping?'. Your FIRST-ROUND reply: 'Let me check the recent history + ping-related logs.\\nTOOL: get_recent_history\\nTOOL_ARGS: {\"target_kind\":\"host\",\"target_id\":\"opnsense\",\"hours\":24}\\nTOOL: get_recent_logs\\nTOOL_ARGS: {\"severity_min\":\"WARN\",\"tag_prefix\":\"ping\",\"hours\":1,\"line_cap\":50}'. Backend dispatches the tools + re-invokes you. SECOND-ROUND reply uses the tool results to answer: 'I see 8 ping-paused events on opnsense in the last 24h, all clustered around 02:00-04:00 UTC. The ping logs show \"icmp: no echo reply\" — looks like a nightly maintenance window on opnsense. Check its cron / scheduled-reboot config.' (Don't fabricate tool results — only cite values that came back in the `Tool results:` block.)\n"
     "Example single-action reply: 'I'll mark every notification as read for you.\\n"
     "ACTION: mark_all_notifications_read'\n"
     "Example multi-action reply (\"refresh and cleanup\"): 'Refreshing the dashboard, then opening the cleanup confirm.\\n"
@@ -1813,6 +1822,428 @@ def parse_palette_action_data(text: str) -> tuple[Optional[dict], str]:
     return data, cleaned_text
 
 
+def parse_palette_tool_calls(text: str) -> tuple[list[dict], str]:
+    """Parse `TOOL: <name>` + `TOOL_ARGS: {<json>}` directive pairs.
+
+    Mirrors the ACTION / ACTION_DATA shape but for diagnostic READ
+    tool calls (vs WRITE actions). Each pair lands as a dict
+    ``{"name": <str>, "args": <dict>}`` so the dispatcher can iterate
+    them in emission order. Strips the matched directive lines from
+    the conversational body so the SPA / Telegram renderer doesn't
+    surface them.
+
+    Pair-matching rule: a TOOL: line is paired with the IMMEDIATELY-
+    FOLLOWING TOOL_ARGS line (skipping blank lines). A TOOL: with no
+    matching TOOL_ARGS is paired with an empty ``args={}`` dict so the
+    dispatcher can fall back to default args.
+
+    Returns ``(tool_calls, cleaned_text)``. Returns an empty list when
+    no TOOL directives are present.
+    """
+    if not text:
+        return [], text or ""
+    import json as _json
+    # Pattern: TOOL: name optionally followed by TOOL_ARGS: {json}.
+    # Anchored multi-line so we match per-line and strip surgically.
+    tool_re = _re.compile(
+        r"(?:^|\n)[\s`*]*TOOL\s*:\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*"
+        r"(?:\n[\s`*]*TOOL_ARGS\s*:\s*(?P<args>\{.+?}))?",
+        _re.IGNORECASE | _re.DOTALL,
+    )
+    tool_calls: list[dict] = []
+    cleaned = text
+    # Walk + extract until no more matches.
+    while True:
+        m = tool_re.search(cleaned)
+        if not m:
+            break
+        name = (m.group("name") or "").strip()
+        args_raw = (m.group("args") or "").strip()
+        args: dict = {}
+        if args_raw:
+            try:
+                parsed = _json.loads(args_raw)
+                if isinstance(parsed, dict):
+                    args = parsed
+            except _json.JSONDecodeError:
+                pass
+        if name:
+            tool_calls.append({"name": name, "args": args})
+        cleaned = cleaned[: m.start()].rstrip() + "\n" + cleaned[m.end():].lstrip()
+        cleaned = cleaned.strip() + ("\n" if not cleaned.endswith("\n") else "")
+    return tool_calls, cleaned.strip()
+
+
+# Tool catalogue — read-only diagnostic queries the AI can dispatch
+# to get richer grounding for "why is X failing" questions without
+# making the operator paste shell output. Each tool is a callable
+# accepting `args: dict` and `ctx: dict` and returning a dict (the
+# `tool_results[<name>]` entry). Adding a tool means one entry here
+# + one paragraph in PALETTE_SYSTEM_PROMPT teaching the model when
+# to emit `TOOL: <name>`.
+def _tool_get_recent_history(args: dict, ctx: dict) -> dict:
+    """Return recent `history` rows filtered by target_kind / target_id
+    over the last N hours. Used when the AI needs to answer "how
+    many times has X restarted in the last day?" / "what ops have
+    fired against this stack?".
+    """
+    from logic.db import db_conn
+    hours = max(1, min(720, int(args.get("hours") or 24)))  # cap 30d
+    target_kind = (args.get("target_kind") or "").strip()
+    target_id = (args.get("target_id") or "").strip()
+    op_type = (args.get("op_type") or "").strip()
+    limit = max(1, min(200, int(args.get("limit") or 50)))
+    cutoff = int(time.time() - hours * 3600)
+    sql = "SELECT ts, op_type, target_kind, target_id, target_name, status, duration, actor FROM history WHERE ts >= ?"
+    params: list = [cutoff]
+    if target_kind:
+        sql += " AND target_kind = ?"
+        params.append(target_kind)
+    if target_id:
+        sql += " AND target_id = ?"
+        params.append(target_id)
+    if op_type:
+        sql += " AND op_type = ?"
+        params.append(op_type)
+    sql += " ORDER BY ts DESC LIMIT ?"
+    params.append(limit)
+    try:
+        with db_conn() as c:
+            rows = c.execute(sql, params).fetchall()
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"history query failed: {e}", "rows": []}
+    out = []
+    for r in rows:
+        out.append({
+            "ts": int(r[0] or 0),
+            "op_type": r[1] or "",
+            "target_kind": r[2] or "",
+            "target_id": r[3] or "",
+            "target_name": r[4] or "",
+            "status": r[5] or "",
+            "duration": int(r[6] or 0),
+            "actor": r[7] or "",
+        })
+    return {"rows": out, "count": len(out), "window_hours": hours,
+            "filters": {"target_kind": target_kind, "target_id": target_id, "op_type": op_type}}
+
+
+def _tool_get_recent_logs(args: dict, ctx: dict) -> dict:
+    """Return recent persistent-log entries filtered by severity floor
+    + tag prefix. Used when the AI needs to answer "any errors in the
+    last hour from <X>?" / "what's in the logs around the incident?".
+    """
+    from logic.logs import recent_lines
+    hours = max(1, min(168, int(args.get("hours") or 1)))
+    line_cap = max(1, min(500, int(args.get("line_cap") or 100)))
+    severity_min = (args.get("severity_min") or "WARN").upper()
+    tag_prefix = (args.get("tag_prefix") or "").strip()
+    severity_order = {"DEBUG": 0, "INFO": 1, "WARN": 2, "ERROR": 3}
+    sev_floor = severity_order.get(severity_min, 2)
+    try:
+        lines = recent_lines(hours=hours, limit=line_cap * 4)  # over-fetch then filter
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"logs read failed: {e}", "lines": []}
+    out = []
+    for ln in lines:
+        sev = (ln.get("severity") or "INFO").upper()
+        if severity_order.get(sev, 1) < sev_floor:
+            continue
+        if tag_prefix and not (ln.get("tag") or "").startswith(tag_prefix):
+            continue
+        out.append({
+            "ts": int(ln.get("ts") or 0),
+            "severity": sev,
+            "tag": ln.get("tag") or "",
+            "message": (ln.get("message") or "")[:500],
+        })
+        if len(out) >= line_cap:
+            break
+    return {"lines": out, "count": len(out), "window_hours": hours,
+            "filters": {"severity_min": severity_min, "tag_prefix": tag_prefix}}
+
+
+def _tool_get_failure_events(args: dict, ctx: dict) -> dict:
+    """Return rows from `host_failure_events` for a specific host (or
+    fleet-wide) over the last N hours. Each row is a state transition
+    — provider paused / resumed / recovered. Used when the AI needs
+    to answer 'how many times has X gone offline today?' / 'what
+    failure events does this host have?'.
+    """
+    from logic.db import db_conn
+    hours = max(1, min(720, int(args.get("hours") or 24)))
+    host_id = (args.get("host_id") or "").strip()
+    limit = max(1, min(200, int(args.get("limit") or 50)))
+    cutoff = int(time.time() - hours * 3600)
+    sql = ("SELECT ts, host_id, provider, kind, reason, severity "
+           "FROM host_failure_events WHERE ts >= ?")
+    params: list = [cutoff]
+    if host_id:
+        sql += " AND host_id = ?"
+        params.append(host_id)
+    sql += " ORDER BY ts DESC LIMIT ?"
+    params.append(limit)
+    try:
+        with db_conn() as c:
+            rows = c.execute(sql, params).fetchall()
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"failure_events query failed: {e}", "rows": []}
+    out = []
+    for r in rows:
+        out.append({
+            "ts": int(r[0] or 0),
+            "host_id": r[1] or "",
+            "provider": r[2] or "",
+            "kind": r[3] or "",
+            "reason": (r[4] or "")[:300],
+            "severity": r[5] or "",
+        })
+    return {"rows": out, "count": len(out), "window_hours": hours,
+            "filters": {"host_id": host_id}}
+
+
+def _tool_get_host_metrics_recent(args: dict, ctx: dict) -> dict:
+    """Return recent time-series points from `host_metrics_samples` for
+    a specific host + metric. Used for 'show me the cpu spike at
+    02:00' / 'has memory been creeping up on this host all week?'
+    type questions where a chart isn't sufficient and the AI needs
+    raw samples to reason from.
+    """
+    from logic.db import db_conn
+    hours = max(1, min(720, int(args.get("hours") or 6)))
+    host_id = (args.get("host_id") or "").strip()
+    metric = (args.get("metric") or "cpu_percent").strip()
+    limit = max(1, min(500, int(args.get("limit") or 200)))
+    if not host_id:
+        return {"error": "host_id is required", "samples": []}
+    # Whitelist the column name so a malicious metric arg can't
+    # smuggle SQL injection into the query.
+    allowed_metrics = {
+        "cpu_percent", "mem_percent", "disk_percent",
+        "load_1m", "load_5m", "load_15m",
+        "host_uptime_s", "host_swap_percent",
+    }
+    if metric not in allowed_metrics:
+        return {"error": f"metric '{metric}' not in whitelist — valid: "
+                + ", ".join(sorted(allowed_metrics)), "samples": []}
+    cutoff = int(time.time() - hours * 3600)
+    sql = (f"SELECT ts, {metric} FROM host_metrics_samples "
+           f"WHERE host_id = ? AND ts >= ? ORDER BY ts DESC LIMIT ?")
+    try:
+        with db_conn() as c:
+            rows = c.execute(sql, (host_id, cutoff, limit)).fetchall()
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"host_metrics query failed: {e}", "samples": []}
+    samples = [{"ts": int(r[0] or 0), "value": r[1]} for r in rows]
+    return {"samples": samples, "count": len(samples),
+            "host_id": host_id, "metric": metric, "window_hours": hours}
+
+
+def _tool_get_container_events(args: dict, ctx: dict) -> dict:
+    """Return container state / health transitions from the gather
+    cache for items whose name starts with `name_prefix`. Used for
+    'is X still restarting?' / 'when did this container go unhealthy'
+    questions where the most recent gather snapshot tells the story.
+    """
+    hours = max(1, min(168, int(args.get("hours") or 1)))
+    name_prefix = (args.get("name_prefix") or "").strip().lower()
+    try:
+        from logic import gather as _gather
+        # noinspection PyProtectedMember
+        cache = _gather._cache or {}
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"gather cache unavailable: {e}", "items": []}
+    items = cache.get("items") or []
+    cutoff = int(time.time() - hours * 3600)
+    out = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        name = (it.get("name") or "").lower()
+        if name_prefix and not name.startswith(name_prefix):
+            continue
+        # `last_state_change_ts` may not exist on every gather schema
+        # version; fall back to `last_started_at` or skip.
+        ts = it.get("last_state_change_ts") or it.get("last_started_at") or 0
+        if ts and int(ts) < cutoff:
+            continue
+        out.append({
+            "name": it.get("name") or "",
+            "type": it.get("type") or "",
+            "stack": it.get("stack") or "",
+            "status": it.get("status") or "",
+            "health": it.get("health") or "",
+            "state": it.get("state") or "",
+            "replicas": it.get("replicas"),
+            "desired": it.get("desired"),
+            "last_state_change_ts": int(ts) if ts else 0,
+            "error": (it.get("error") or "")[:200],
+        })
+    # Sort newest-state-change first so the AI sees the most recent
+    # transitions at the top of the list.
+    out.sort(key=lambda r: r.get("last_state_change_ts") or 0, reverse=True)
+    return {"items": out[:100], "count": min(len(out), 100),
+            "window_hours": hours, "filters": {"name_prefix": name_prefix}}
+
+
+# SSH-gated diagnostic preset whitelist. Operator-readable command
+# names map to actual one-liners; the AI MAY emit `TOOL: ssh_diag`
+# with `args.preset` only — never a free-form `command` string. This
+# keeps the attack surface bounded (a confused or malicious model
+# can't run arbitrary commands). Per the AI palette / SSH gate
+# convention, ssh_diag dispatch ALSO routes through the inline-confirm
+# chip in the SPA AI sidebar BEFORE the SSH session opens — so even a
+# whitelisted preset doesn't fire silently.
+SSH_DIAG_PRESETS: dict[str, str] = {
+    "journalctl_docker_last_hour": "journalctl -u docker.service --since '1 hour ago' --no-pager | tail -200",
+    "journalctl_containerd_last_hour": "journalctl -u containerd.service --since '1 hour ago' --no-pager | tail -200",
+    "ps_failed": "docker ps -a --filter 'status=exited' --filter 'status=dead' --format 'table {{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Command}}' | head -50",
+    "df_h": "df -h | head -30",
+    "dmesg_tail": "dmesg --time-format=iso 2>/dev/null | tail -100 || dmesg | tail -100",
+    "uptime": "uptime",
+}
+
+
+async def _tool_ssh_diag(args: dict, ctx: dict) -> dict:
+    """Run a WHITELISTED read-only diagnostic command via SSH on the
+    target host. Distinct from the read-only DB tools because it
+    touches the actual machine — per the SSH gate convention the
+    SPA-side dispatcher ALSO routes this through the inline-confirm
+    chip BEFORE the call lands. The backend re-checks the preset is
+    whitelisted (defence-in-depth) and reads SSH credentials via the
+    existing `logic.ssh.resolve_ssh_params` chain. Returns the
+    command's stdout (capped) + exit code; never raises.
+    """
+    from logic import ssh as _ssh
+    host_id = (args.get("host_id") or "").strip()
+    preset = (args.get("preset") or "").strip()
+    if not host_id:
+        return {"error": "host_id is required"}
+    cmd = SSH_DIAG_PRESETS.get(preset)
+    if cmd is None:
+        return {"error": f"preset '{preset}' not in whitelist — valid: "
+                + ", ".join(sorted(SSH_DIAG_PRESETS.keys()))}
+    try:
+        hosts_cfg_raw = []
+        from logic.db import get_setting
+        from logic.settings_keys import Settings as _S
+        import json as _json_ssh
+        try:
+            hosts_cfg_raw = _json_ssh.loads(get_setting(_S.HOSTS_CONFIG, "") or "[]")
+        except (TypeError, ValueError):
+            hosts_cfg_raw = []
+        result = await _ssh.run_command(
+            host_id=host_id,
+            command=cmd,
+            hosts_config=hosts_cfg_raw if isinstance(hosts_cfg_raw, list) else [],
+            dry_run=False,
+            actor_username=(ctx.get("actor") if isinstance(ctx, dict) else None) or "ai_palette",
+            timeout=20.0,
+        )
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"ssh_diag failed: {type(e).__name__}: {e}"}
+    if not isinstance(result, dict):
+        return {"error": "ssh_diag returned non-dict result"}
+    return {
+        "preset": preset,
+        "host_id": host_id,
+        "exit_code": result.get("exit_code"),
+        "stdout": (result.get("stdout") or "")[:4000],
+        "stderr": (result.get("stderr") or "")[:1000],
+        "error": result.get("error") or "",
+        "duration_ms": result.get("duration_ms"),
+    }
+
+
+PALETTE_TOOL_CATALOGUE: dict = {
+    "get_recent_history": _tool_get_recent_history,
+    "get_recent_logs": _tool_get_recent_logs,
+    "get_failure_events": _tool_get_failure_events,
+    "get_host_metrics_recent": _tool_get_host_metrics_recent,
+    "get_container_events": _tool_get_container_events,
+    "ssh_diag": _tool_ssh_diag,
+}
+
+# Tools whose dispatch is DESTRUCTIVE-adjacent — they touch the
+# target host (even for reads) and so should route through the
+# SPA's inline-confirm chip BEFORE the backend fires them. The
+# orchestrator skips these on the SPA fast-path; the SPA must
+# emit them via the same confirm flow used for ACTION-class
+# destructive ops.
+PALETTE_TOOLS_REQUIRING_CONFIRM: frozenset[str] = frozenset({"ssh_diag"})
+
+
+async def dispatch_palette_tool(call: dict, ctx: Optional[dict] = None) -> dict:
+    """Dispatch one tool call from `parse_palette_tool_calls`. Returns
+    the tool's result dict OR an error envelope if the tool name isn't
+    in the catalogue / the call raises. Never raises itself — every
+    failure path returns a dict so the orchestrator's batch can keep
+    other tool calls intact.
+
+    Tools may be sync or async — the dispatcher awaits if the handler
+    returns a coroutine. Confirm-required tools (currently `ssh_diag`)
+    short-circuit here with an envelope the SPA dispatcher reads to
+    surface the inline-confirm chip; backend never fires the tool
+    without that confirm round-trip.
+
+    Side-effect: writes a `history` audit row under
+    ``op_type='ai_tool_call'`` so the AI's diagnostic queries are
+    traceable in Admin → History. Best-effort — a history write
+    failure doesn't drop the tool result.
+    """
+    import asyncio as _asyncio
+    name = (call or {}).get("name") or ""
+    args = (call or {}).get("args") or {}
+    handler = PALETTE_TOOL_CATALOGUE.get(name)
+    if handler is None:
+        return {"error": f"unknown tool '{name}' — valid: " + ", ".join(sorted(PALETTE_TOOL_CATALOGUE.keys()))}
+    # Confirm-gate the tools that touch a host (SSH-class). Returns
+    # an envelope flag the SPA orchestrator reads to surface the
+    # inline-confirm chip without firing the backend tool. The
+    # second-round AI re-invocation runs AFTER the operator confirms.
+    if name in PALETTE_TOOLS_REQUIRING_CONFIRM and not (ctx or {}).get("_tool_confirm_granted"):
+        return {
+            "_pending_confirm": True,
+            "tool": name,
+            "args": args,
+            "reason": (f"{name} touches a target host (even for reads) "
+                       f"— operator must confirm via the inline chip "
+                       f"in the AI sidebar before this fires."),
+        }
+    try:
+        result = handler(args, ctx or {})
+        if _asyncio.iscoroutine(result):
+            result = await result
+        if not isinstance(result, dict):
+            result = {"value": result}
+    except Exception as e:  # noqa: BLE001
+        result = {"error": f"{type(e).__name__}: {e}"}
+    # Audit-row write. Forensic anchor for "the AI ran a query on
+    # the operator's behalf at <ts>". target_kind = tool name,
+    # target_id = primary scope arg (host_id / target_id / preset),
+    # status = ok / error based on whether the tool's result carries
+    # an `error` key. Best-effort — a history write failure doesn't
+    # drop the tool result.
+    try:
+        from logic.db import db_conn
+        from logic.ops import assert_op_type as _assert_op_type, write_admin_audit as _write_admin_audit
+        _assert_op_type("ai_tool_call")
+        target_id = (args.get("host_id") or args.get("target_id")
+                     or args.get("preset") or "")
+        status = "ok" if not (isinstance(result, dict) and result.get("error")) else "error"
+        actor = (ctx.get("actor") if isinstance(ctx, dict) else None) or "ai_palette"
+        with db_conn() as c:
+            _write_admin_audit(
+                c, "ai_tool_call",
+                target_kind=name, target_name=str(target_id)[:128],
+                actor=actor,
+                message=(f"AI dispatched {name}({str(args)[:200]}) → {status}"),
+            )
+    except Exception as _audit_err:  # noqa: BLE001
+        print(f"[ai] ai_tool_call audit-row write failed: {_audit_err}")
+    return result
+
+
 def parse_host_filter_response(text: str) -> tuple[str, str, str]:
     """Parse the host-filter model response. Returns
     ``(dsl, explanation, error)`` — empty `dsl` means the response
@@ -1945,6 +2376,29 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
         view = ctx.get("view")
         if view:
             parts.append(f"Current view: {view}")
+        # Tool results — populated on the SECOND ROUND of a tool-using
+        # conversation. The first-round reply emitted `TOOL: <name>`
+        # directives; the backend dispatched them + re-invoked the AI
+        # with this block populated. Each result is a dict (chronological
+        # rows / log lines / metric points etc.). The model is
+        # instructed in `PALETTE_SYSTEM_PROMPT` to compose a real
+        # diagnostic answer FROM these results, not fabricate values.
+        # JSON-encoded for compact serialisation; cap at 6000 chars
+        # per tool so a noisy log fetch doesn't blow the context
+        # window.
+        tool_results = ctx.get("tool_results")
+        if isinstance(tool_results, dict) and tool_results:
+            import json as _json_tr
+            tr_lines = ["Tool results (compose your answer from THESE — don't fabricate values):"]
+            for tname, tresult in tool_results.items():
+                try:
+                    encoded = _json_tr.dumps(tresult, default=str)
+                except (TypeError, ValueError):
+                    encoded = str(tresult)
+                if len(encoded) > 6000:
+                    encoded = encoded[:6000] + "…(truncated for token budget)"
+                tr_lines.append(f"  - {tname}: {encoded}")
+            parts.append("\n".join(tr_lines))
         # Current time block. Threaded by the Telegram listener (per
         # `_build_telegram_ai_context`) so the AI can answer
         # "what time is it" / "what's today's date" without falling

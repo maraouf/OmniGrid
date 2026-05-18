@@ -626,6 +626,16 @@ function app() {
         && (sessionStorage.getItem('hostsProviderFilter') || '').split(','))
         .filter(Boolean)
     ),
+    // Problem-hosts filter. When TRUE, the Hosts list shows ONLY rows
+    // whose status ∈ {down, paused, unknown} so operators triaging
+    // incidents see actionable rows without scrolling through 100+ up
+    // hosts. Same status taxonomy as the Telegram AI context's
+    // `problem_hosts` block (`logic/telegram_listener.py:_classify`)
+    // for symmetry. Persists to sessionStorage so a tab reload keeps
+    // the filter; a fresh tab starts clean. The toolbar chip + Stats
+    // dashboard "Problem hosts" tile both flip this flag.
+    hostsProblemFilter: (typeof sessionStorage !== 'undefined')
+      && sessionStorage.getItem('hostsProblemFilter') === '1',
     // Sort key for the Hosts view. Persisted to localStorage so the
     // operator's preferred order sticks across reloads. Supported keys:
     // 'status' (default — alive first, then paused, down, unknown)
@@ -13773,14 +13783,145 @@ function app() {
       else if (v === 'settings' && this.settingsSection) title = _join(_navLabel('settings'), this.settingsSection);
       else if (v === 'stats' && this.statsTab)          title = _join(_navLabel('stats'),    this.statsTab);
       else if (v === 'hosts' && drawerHostId)           title = _join(_navLabel('hosts'),    drawerHostId);
+
+      // Richer state — filter chip state + selected hosts + selected
+      // items. Lets the popover show "Hosts → 12 selected, paused
+      // filter on" instead of just "Hosts". Powers the "Reproduce
+      // here" handoff so the operator on the phone can copy the
+      // desktop tab's filter/drawer state into the current tab.
+      const _filters = {
+        search:        (this.search || '').toString() || null,
+        statusFilter:  (this.statusFilter || '').toString() || null,
+        healthFilter:  (this.healthFilter || '').toString() || null,
+        hostsProblemFilter:   !!this.hostsProblemFilter || null,
+        hostsHideUnconfigured: !!this.hostsHideUnconfigured || null,
+        hostsProviderFilter:  (this.hostsProviderFilter
+                               && this.hostsProviderFilter.size)
+                              ? Array.from(this.hostsProviderFilter)
+                              : null,
+      };
+      // Strip null/false entries so the snapshot stays compact on the
+      // wire (heartbeat fires every 30s — keep the payload small).
+      const filters = {};
+      for (const k of Object.keys(_filters)) {
+        if (_filters[k]) filters[k] = _filters[k];
+      }
+      const selectionIds = Array.isArray(this.selected)
+        ? this.selected.slice(0, 50)  // cap to bound the heartbeat size
+        : [];
+      const _hasRichState = Object.keys(filters).length > 0
+                            || selectionIds.length > 0;
+
       return {
         view:             v || null,
         drawer_host:      drawerHostId,
+        drawer_item:      (this.drawerItem && (this.drawerItem.id || this.drawerItem.name)) || null,
         admin_tab:        (this.adminTab || '').toString() || null,
         settings_section: (this.settingsSection || '').toString() || null,
         stats_tab:        (this.statsTab || '').toString() || null,
         title:            title || null,
+        // Compact richer state — only emitted when actually populated
+        // so idle tabs don't waste heartbeat bytes.
+        filters:          Object.keys(filters).length ? filters : null,
+        selection:        selectionIds.length ? selectionIds : null,
+        // Pre-formatted summary label the popover renders if the
+        // operator wants more than the bare title. e.g. "Hosts → 12
+        // selected · paused filter on".
+        rich_label:       _hasRichState ? this._tabActivityRichLabel(filters, selectionIds) : null,
       };
+    },
+
+    // Render a richer popover label for a snapshot — e.g.
+    // "Hosts → 12 selected · paused filter on". Powers the
+    // operator's "what's open on the other tab?" glance + the
+    // Reproduce-here handoff. All fragments go through `t()` so
+    // non-en locales see the localised count + filter names.
+    _tabActivityRichLabel(filters, selection) {
+      const fragments = [];
+      if (selection && selection.length) {
+        fragments.push(this.t('topbar.tabs.rich.selection', { count: selection.length }) || (selection.length + ' selected'));
+      }
+      if (filters.hostsProblemFilter) {
+        fragments.push(this.t('topbar.tabs.rich.problem_filter') || 'problem filter');
+      }
+      if (filters.hostsHideUnconfigured) {
+        fragments.push(this.t('topbar.tabs.rich.hide_unconfigured_filter') || 'hide unconfigured');
+      }
+      if (filters.hostsProviderFilter && filters.hostsProviderFilter.length) {
+        fragments.push(this.t('topbar.tabs.rich.provider_filter', { providers: filters.hostsProviderFilter.join(', ') })
+          || ('providers: ' + filters.hostsProviderFilter.join(', ')));
+      }
+      if (filters.statusFilter) {
+        fragments.push(this.t('topbar.tabs.rich.status_filter', { status: filters.statusFilter })
+          || ('status: ' + filters.statusFilter));
+      }
+      if (filters.healthFilter) {
+        fragments.push(this.t('topbar.tabs.rich.health_filter', { health: filters.healthFilter })
+          || ('health: ' + filters.healthFilter));
+      }
+      if (filters.search) {
+        fragments.push(this.t('topbar.tabs.rich.search', { query: filters.search })
+          || ('search: ' + filters.search));
+      }
+      return fragments.join(' · ');
+    },
+
+    // "Reproduce here" handoff — pull the other tab's filter + drawer
+    // state into the CURRENT tab. Operator clicks a row in the
+    // tab-activity popover when they want to mirror state from
+    // laptop → phone (or vice versa). The popover passes the row's
+    // snapshot dict to this helper; we mutate the current tab's
+    // state in place + persist where applicable.
+    reproduceTabHere(snapshot) {
+      if (!snapshot || typeof snapshot !== 'object') return;
+      // Top-level view + sub-tab navigation.
+      if (snapshot.view) this.view = snapshot.view;
+      if (snapshot.admin_tab && typeof this.openAdminTab === 'function') {
+        this.openAdminTab(snapshot.admin_tab);
+      } else if (snapshot.admin_tab) {
+        this.adminTab = snapshot.admin_tab;
+      }
+      if (snapshot.settings_section) this.settingsSection = snapshot.settings_section;
+      if (snapshot.stats_tab) this.statsTab = snapshot.stats_tab;
+      // Filter restore — each filter flag uses the SAME mutator
+      // helpers the toolbar chips do so persistence + downstream
+      // reactivity (sessionStorage / SSE chip refresh) stay coherent.
+      const f = snapshot.filters || {};
+      this.search = f.search || '';
+      this.statusFilter = f.statusFilter || '';
+      this.healthFilter = f.healthFilter || '';
+      if (this.hostsProblemFilter !== !!f.hostsProblemFilter) {
+        this.toggleProblemHostsFilter();
+      }
+      this.hostsHideUnconfigured = !!f.hostsHideUnconfigured;
+      // Provider filter — replace the whole set in one mutation so we
+      // don't bounce sessionStorage writes on every chip.
+      this.hostsProviderFilter = new Set(Array.isArray(f.hostsProviderFilter) ? f.hostsProviderFilter : []);
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          if (this.hostsProviderFilter.size) {
+            sessionStorage.setItem('hostsProviderFilter', [...this.hostsProviderFilter].join(','));
+          } else {
+            sessionStorage.removeItem('hostsProviderFilter');
+          }
+        }
+      } catch (_) { /* ignore */ }
+      // Drawer state — open the same host / item if the source tab
+      // had one open. Items / hosts must exist locally; if the source
+      // tab had a drawer for a host we don't know about yet, the
+      // open silently no-ops (the operator can refresh first).
+      if (snapshot.drawer_host && Array.isArray(this.hosts)) {
+        const target = this.hosts.find(h => h && h.id === snapshot.drawer_host);
+        if (target && typeof this.openHostDrawer === 'function') this.openHostDrawer(target);
+      }
+      if (snapshot.drawer_item && Array.isArray(this.items)) {
+        const target = this.items.find(it => it && (it.id === snapshot.drawer_item || it.name === snapshot.drawer_item));
+        if (target) this.drawerItem = target;
+      }
+      // Toast confirmation so the operator sees the mirror landed.
+      if (typeof this.showToast === 'function') {
+        this.showToast(this.t('topbar.tabs.rich.reproduced') || 'Mirrored other tab\'s state', 'success');
+      }
     },
     // Heartbeat publisher — POSTs the current snapshot to the backend.
     // Short-circuits when nothing changed AND the last post was < 25s ago
@@ -20617,12 +20758,49 @@ function app() {
           }));
         }
       }
+      // Problem-hosts block — full list of hosts whose status is in
+      // {down, paused, unknown}, capped at 200 to bound prompt size on
+      // a degraded fleet. Mirrors the Telegram AI context's
+      // `problem_hosts` shape so palette grounding answers
+      // "list the unknown hosts" / "what's down?" from the same data
+      // regardless of which surface the operator typed the question
+      // into. SPA path uses `this.hosts` (live array) so the list is
+      // current to the most recent /api/hosts/list + per-host probes.
+      const problemSet = new Set(['down', 'paused', 'unknown']);
+      const problemHostsCtx = (Array.isArray(this.hosts) ? this.hosts : [])
+        .filter(h => h && problemSet.has(String(h.status || '').toLowerCase()))
+        .map(fmtHost)
+        .slice(0, 200);
+      // Hosts summary — fleet-wide status counts. Same shape as the
+      // Telegram context so the prompt builder renders the same
+      // grounding block ("CRITICAL: unconfigured hosts are NOT a
+      // problem...") on both surfaces.
+      const _statusCounts = { up: 0, down: 0, paused: 0,
+                              unconfigured: 0, unknown: 0, loading: 0 };
+      for (const h of (this.hosts || [])) {
+        const st = String((h && h.status) || 'unknown').toLowerCase();
+        if (_statusCounts[st] !== undefined) _statusCounts[st]++;
+      }
       const ctx = {
         view:  this.view || '',
         hosts: hostsCtx,
         hosts_total: hostsTotal,
         hosts_enabled: hostsEnabled,
         hosts_sample_cap: 30,
+        problem_hosts: problemHostsCtx,
+        hosts_summary: {
+          total:        hostsTotal,
+          enabled:      hostsEnabled,
+          up:           _statusCounts.up,
+          down:         _statusCounts.down,
+          paused:       _statusCounts.paused,
+          unconfigured: _statusCounts.unconfigured,
+          unknown:      _statusCounts.unknown,
+          loading:      _statusCounts.loading,
+          sample_cap:   30,
+          sample_size:  hostsCtx.length,
+          problem_count: problemHostsCtx.length,
+        },
         items: itemsCtx,
         items_total: (Array.isArray(this.items) ? this.items.length : 0),
         items_sample_cap: 60,
@@ -27204,6 +27382,38 @@ function app() {
     isHostsProviderFilterActive(name) {
       return !!(this.hostsProviderFilter && this.hostsProviderFilter.has(name));
     },
+
+    // Status taxonomy considered "in trouble" — matches the Telegram
+    // AI context's `problem_hosts` block for symmetry. `unconfigured`
+    // hosts are intentionally NOT in this set per CLAUDE.md (curated
+    // rows with no provider mapped are inventory-only entries, not
+    // outages).
+    _PROBLEM_HOST_STATUSES: new Set(['down', 'paused', 'unknown']),
+    isProblemHost(h) {
+      if (!h) return false;
+      const st = String(h.status || '').toLowerCase();
+      return this._PROBLEM_HOST_STATUSES.has(st);
+    },
+    // Count of hosts currently in trouble — drives the chip badge AND
+    // the Stats dashboard "Problem hosts" tile.
+    problemHostCount() {
+      const list = this.hosts || [];
+      let n = 0;
+      for (const h of list) if (this.isProblemHost(h)) n++;
+      return n;
+    },
+    toggleProblemHostsFilter() {
+      this.hostsProblemFilter = !this.hostsProblemFilter;
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          if (this.hostsProblemFilter) {
+            sessionStorage.setItem('hostsProblemFilter', '1');
+          } else {
+            sessionStorage.removeItem('hostsProblemFilter');
+          }
+        }
+      } catch (_) { /* private mode / quota — ignore */ }
+    },
     // Count of curated rows that have NO provider field mapped.
     // Used by the synthetic 'none' chip to surface "how many
     // inventory-only hosts are sitting on the page right now?".
@@ -28482,6 +28692,15 @@ function app() {
           for (const a of agents) if (filt.has(a)) return true;
           return false;
         });
+      }
+      // Problem-hosts filter — toggled via the toolbar "Problem (N)"
+      // chip AND the Stats dashboard "Problem hosts" tile. Filters to
+      // the same status set the Telegram AI context's `problem_hosts`
+      // block carries (down / paused / unknown). `unconfigured` rows
+      // are intentionally NOT included — they're inventory-only by
+      // design, not outages.
+      if (this.hostsProblemFilter) {
+        list = list.filter(h => this.isProblemHost(h));
       }
       if (q) {
         list = list.filter(h => {

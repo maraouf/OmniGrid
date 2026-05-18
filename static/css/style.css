@@ -8669,6 +8669,42 @@ select.field-invalid {
   color: var(--text-faint);
 }
 
+/* Tab-activity popover row — adds a sibling "Reproduce here"
+ * button next to the focus-tab button. Layout: focus button takes
+ * the bulk of the width; reproduce button hangs on the trailing
+ * edge as a smaller secondary affordance. */
+.tabs-pill-row-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s-1);
+}
+
+.tabs-pill-row-wrap > .tabs-pill-row {
+  flex: 1 1 auto;
+}
+
+.tabs-pill-row-rich {
+  margin-top: var(--s-1);
+}
+
+.tabs-pill-row-reproduce {
+  flex: 0 0 auto;
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+
+.tabs-pill-row-reproduce:hover,
+.tabs-pill-row-reproduce:focus-visible {
+  background: var(--row-hover);
+  border-color: var(--border-bright);
+  color: var(--text);
+}
+
 .tabs-pill-empty {
   font-size: var(--fs-xs);
   color: var(--text-faint);
