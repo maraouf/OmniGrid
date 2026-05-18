@@ -10753,27 +10753,32 @@ def _shape_host_api_row(
         host_status = "up" if ping_alive else "down"
     elif providers_hit:
         host_status = "up"
-    elif s.get("_stale_fields") and (
-        s.get("host_cpu_percent")
-        or s.get("host_mem_total")
-        or s.get("host_disk_total")
-        or s.get("host_uptime_s")
-    ):
+    elif s.get("_stale_fields"):
         # Cold-load /api/hosts/list path: probes haven't run yet
         # (providers_hit is empty by design — that endpoint is the
         # fast skeleton, the per-host fan-out via /api/hosts/one
         # fills live status afterwards). The snapshot-fallback at
-        # apply_host_snapshot_fallback restored host_* runtime
-        # fields from the persisted snapshot AND stamped
-        # _stale_fields, which is evidence the previous gather
-        # successfully reached this host. Promote status='up'
-        # provisionally so the SPA's bar gates (which require
-        # h.status === 'up') render snapshot-derived bars +
-        # sparklines on cold-load instead of staying empty until
-        # the per-host probe lands. The _stale_fields marker stays
-        # set so the UI dims the values + tooltips them with "X
-        # minutes ago" via the existing stale-rendering pipeline.
-        # Live status overwrites this on the next /api/hosts/one
+        # apply_host_snapshot_fallback restored host_* fields from
+        # the persisted snapshot AND stamped _stale_fields, which
+        # is evidence the previous gather successfully reached this
+        # host. Promote status='up' provisionally so the SPA's bar
+        # gates (which require h.status === 'up') render snapshot-
+        # derived bars + sparklines on cold-load instead of staying
+        # empty until the per-host probe lands. The _stale_fields
+        # marker stays set so the UI dims the values + tooltips
+        # them with "X minutes ago" via the existing stale-rendering
+        # pipeline. Pre-fix the gate ALSO required one of four
+        # specific host_* fields (cpu / mem_total / disk_total /
+        # uptime_s) — a healthy host whose snapshot carried a
+        # different subset (identity-only `host_platform` / `host_
+        # kernel` / `host_arch`; SNMP-derived metrics under different
+        # keys; Webmin's coarser snapshots) fell through to the
+        # `else: "unknown"` branch and got flagged as a problem host.
+        # The fallback's `_is_meaningful` filter already prevents
+        # zero / empty values from polluting `_stale_fields`, so the
+        # mere existence of any entry there is sufficient evidence
+        # of past liveness. Live status overwrites this on the next
+        # /api/hosts/one
         # response.
         host_status = "up"
     elif (
