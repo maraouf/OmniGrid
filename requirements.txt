@@ -129,4 +129,4 @@ icmplib==3.0.4
 # legacy `pysnmp.hlapi.asyncio` path — the legacy branch is now
 # unreachable under this pin but kept as defence-in-depth in case
 # pysnmp 8.x reorganises the namespace again.
-pysnmp>=7.1.26
+pysnmp>=7.1.27
