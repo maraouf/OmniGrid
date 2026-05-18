@@ -2079,6 +2079,30 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 "disk_free_gb, disk_total_gb, uptime_s, paused, providers",
                 hosts[:hosts_sample_cap],
             ))
+        # Problem-hosts block — the FULL list of every host whose status
+        # is anything other than `up` (down / unknown / paused), capped
+        # at 200. Telegram context-builder emits this so the AI can
+        # NAME the affected hosts when asked "list the unknown hosts" /
+        # "which hosts are paused?" / "show me the down ones". Pre-fix
+        # the AI saw the count in `hosts_summary` but couldn't identify
+        # any of the hosts by ID because they sat past the
+        # sample_cap=60 on a fleet with many `up` rows ahead of them.
+        # With this block the AI has the IDs + labels + per-provider
+        # aliases for every problem host, regardless of sample bias.
+        problem_hosts = _typed_field(ctx, "problem_hosts", list)
+        if problem_hosts:
+            parts.append(_format_records_block(
+                "Problem hosts (FULL list — every host with status != "
+                "'up'; cap 200). USE THIS when the operator asks "
+                "'which hosts are down/unknown/paused?', 'list the "
+                "problem hosts', 'name the unknowns' — emit a short "
+                "bullet list of `id (status)` for the relevant subset. "
+                "DO NOT say 'there are N unknown hosts' without naming "
+                "them when this block is present.",
+                "id, label, status, address, paused, beszel_name, "
+                "pulse_name, webmin_name, snmp_name",
+                problem_hosts[:200],
+            ))
         # Items counts — mirror the hosts_total pattern so the model
         # can answer "how many stacks need updating" / "any updates?"
         # accurately even when the sample is truncated. Telegram
