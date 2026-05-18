@@ -1431,7 +1431,7 @@
       "telegram_api_base_hint": "Override only when running a self-hosted Bot API server (tdlight / local TDLib) or routing through a proxy. Blank = upstream default. Trailing slash is stripped automatically. Per-call read so an edit takes effect on the next send / poll without restart.",
       "telegram_test_button": "Send test message",
       "save_requires_test": "Run a successful Test (the Send-test button next to Save) before committing — same Test-before-Save gate every other provider uses.",
-      "providers_save_button": "Save channels",
+      "providers_save_button": "Save",
       "providers_save_success": "Channel configuration saved",
       "per_event_save_button": "Save per-event toggles",
       "per_event_save_success": "Per-event notification toggles saved",

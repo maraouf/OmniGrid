@@ -5616,13 +5616,13 @@ async def api_admin_stats_network(
                     " ORDER BY MAX(rx_bytes_per_s + tx_bytes_per_s) DESC",
                     (since,),
                 ).fetchall()
-                deduped: dict = {}
+                deduped: dict[str, dict] = {}
                 for r in rows:
                     hid = r["host_id"] if hasattr(r, "keys") else r[0]
                     rx = float(r["max_rx"] if hasattr(r, "keys") else r[1] or 0)
                     tx = float(r["max_tx"] if hasattr(r, "keys") else r[2] or 0)
                     key = _canonical(hid)
-                    cur = deduped.get(key)
+                    cur: dict | None = deduped.get(key)
                     if cur is None:
                         deduped[key] = {
                             "host_id": hid,
@@ -5635,6 +5635,7 @@ async def api_admin_stats_network(
                         # same exporter at different moments, so the
                         # higher peak captured by either is the real
                         # burst rate for the physical box.
+                        assert cur is not None  # narrowing for type-checker (else branch)
                         if rx + tx > cur["max_rx_bps"] + cur["max_tx_bps"]:
                             cur["aliases"].append(cur["host_id"])
                             cur["host_id"] = hid
@@ -5672,14 +5673,14 @@ async def api_admin_stats_network(
             # of the same exporter inflates the total artificially;
             # MAX picks the more accurate side (whichever sampler
             # caught more ticks during the window).
-            ded_chatty: dict = {}
+            ded_chatty: dict[str, dict] = {}
             for r in rows:
                 hid = r["host_id"] if hasattr(r, "keys") else r[0]
                 bx = int(r["bytes_rx"] if hasattr(r, "keys") else r[1] or 0)
                 bt = int(r["bytes_tx"] if hasattr(r, "keys") else r[2] or 0)
                 total = bx + bt
                 key = _canonical(hid)
-                cur = ded_chatty.get(key)
+                cur: dict | None = ded_chatty.get(key)
                 if cur is None:
                     ded_chatty[key] = {
                         "host_id": hid,
@@ -5689,6 +5690,7 @@ async def api_admin_stats_network(
                         "aliases": [],
                     }
                 else:
+                    assert cur is not None  # narrowing for type-checker (else branch)
                     if total > cur["bytes_total"]:
                         cur["aliases"].append(cur["host_id"])
                         cur["host_id"] = hid
