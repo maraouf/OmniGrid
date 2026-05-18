@@ -1,175 +1,190 @@
-      <div x-show="statsTab==='incidents'" class="space-y-4">
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
-                 :aria-busy="_loadBusy.stats_incidents === true ? 'true' : 'false'">
-          <div class="p-5 border-b border-[var(--border)] flex justify-between items-center flex-wrap gap-3">
-            <div>
-              <div class="flex items-center gap-2 mb-2">
-                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
-                <h3 class="font-semibold fs-md" x-text="t('stats.incidents.title')"></h3>
-              </div>
-              <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.incidents.hint')"></p>
-            </div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <!-- Window picker — 1h / 24h / 7d / 30d. Delegates to
-                   the shared `og-range-picker` component template
-                   under `_partials/_components/`. Single source of
-                   truth for the radiogroup ARIA + arrow-key contract
-                   across every chip-strip in the SPA. -->
-              <div x-data="{
+<!--suppress ALL -->
+<div x-show="statsTab==='incidents'" class="space-y-4">
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
+           :aria-busy="_loadBusy.stats_incidents === true ? 'true' : 'false'">
+    <div class="p-5 border-b border-[var(--border)] flex justify-between items-center flex-wrap gap-3">
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+          </svg>
+          <h3 class="font-semibold fs-md" x-text="t('stats.incidents.title')"></h3>
+        </div>
+        <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.incidents.hint')"></p>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <!-- Window picker — 1h / 24h / 7d / 30d / 90d. Delegates
+             to the shared `og-range-picker` component template
+             under `_partials/_components/`. Single source of
+             truth for the radiogroup ARIA + arrow-key contract
+             across every chip-strip in the SPA. `_runWithBusy`
+             wrap on `rpOnChange` ensures the Reload button's
+             spinner reflects the in-flight refetch on chip click
+             — same pattern as Network / AI Cost / Samples. -->
+        <div x-data="{
                      rpOptions: [
-                       { value: 1,   label: t('stats.range.range_1h') },
-                       { value: 24,  label: t('stats.range.range_24h') },
-                       { value: 168, label: t('stats.range.range_7d') },
-                       { value: 720, label: t('stats.range.range_30d') }
+                       { value: 1,    label: t('stats.range.range_1h') },
+                       { value: 24,   label: t('stats.range.range_24h') },
+                       { value: 168,  label: t('stats.range.range_7d') },
+                       { value: 720,  label: t('stats.range.range_30d') },
+                       { value: 2160, label: t('stats.range.range_90d') }
                      ],
                      get rpCurrent() { return statsIncidentsHours; },
-                     rpOnChange: (v) => loadStatsIncidents(v),
+                     rpOnChange: (v) => _runWithBusy('stats_incidents', () => loadStatsIncidents(v)),
                      rpAriaLabel: t('stats.range.aria_label')
                    }">
-                <!-- INCLUDE: _components/og-range-picker.html -->
-              </div>
-              <button type="button"
-                      @click="_runWithBusy('stats_incidents', () => loadStatsIncidents(statsIncidentsHours))"
-                      :disabled="_loadBusy.stats_incidents === true"
-                      :title="t('actions.reload')"
-                      :aria-label="t('actions.reload')"
-                      class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-                <svg width="13" height="13" :class="_loadBusy.stats_incidents === true ? 'spin-md' : ''" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-                </svg>
-                <span x-text="t('actions.reload')"></span>
-              </button>
-            </div>
+          <!-- INCLUDE: _components/og-range-picker.html -->
+        </div>
+        <button type="button"
+                @click="_runWithBusy('stats_incidents', () => loadStatsIncidents(statsIncidentsHours))"
+                :disabled="_loadBusy.stats_incidents === true"
+                :title="t('actions.reload')"
+                :aria-label="t('actions.reload')"
+                class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+          <svg width="13" height="13" :class="_loadBusy.stats_incidents === true ? 'spin-md' : ''" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+          </svg>
+          <span x-text="t('actions.reload')"></span>
+        </button>
+      </div>
+    </div>
+
+    <div x-show="!statsIncidentsLoaded" class="loading-state">
+      <span class="spin-lg" aria-hidden="true"></span>
+      <span x-text="t('loading.section')"></span>
+    </div>
+
+    <div x-show="statsIncidentsLoaded" class="p-5 space-y-5">
+
+      <!-- Headline cards row. Total failures / recoveries /
+           events / overall MTTR. -->
+      <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr))">
+        <div class="stats-card" style="cursor:default">
+          <div class="stats-card-icon">
+            <svg width="20" height="20" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+            </svg>
           </div>
-
-          <div x-show="!statsIncidentsLoaded" class="loading-state">
-            <span class="spin-lg" aria-hidden="true"></span>
-            <span x-text="t('loading.section')"></span>
+          <div class="stats-card-body">
+            <div class="stats-card-label" x-text="t('stats.incidents.cards.failures')"></div>
+            <div class="stats-card-value mono" x-text="Number(statsIncidents.total_failures || 0).toLocaleString()"></div>
+            <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.incidents.cards.failures_sub')"></div>
           </div>
+        </div>
+        <div class="stats-card" style="cursor:default">
+          <div class="stats-card-icon">
+            <svg width="20" height="20" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/>
+            </svg>
+          </div>
+          <div class="stats-card-body">
+            <div class="stats-card-label" x-text="t('stats.incidents.cards.recoveries')"></div>
+            <div class="stats-card-value mono" x-text="Number(statsIncidents.total_recoveries || 0).toLocaleString()"></div>
+            <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.incidents.cards.recoveries_sub')"></div>
+          </div>
+        </div>
+        <div class="stats-card" style="cursor:default">
+          <div class="stats-card-icon">
+            <svg width="20" height="20" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
+            </svg>
+          </div>
+          <div class="stats-card-body">
+            <div class="stats-card-label" x-text="t('stats.incidents.cards.mttr')"></div>
+            <div class="stats-card-value mono" x-text="fmtDurationShort(statsIncidents.mttr_overall_seconds)"></div>
+            <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.incidents.cards.mttr_sub')"></div>
+          </div>
+        </div>
+        <div class="stats-card" style="cursor:default">
+          <div class="stats-card-icon">
+            <svg width="20" height="20" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
+            </svg>
+          </div>
+          <div class="stats-card-body">
+            <div class="stats-card-label" x-text="t('stats.incidents.cards.events')"></div>
+            <div class="stats-card-value mono" x-text="Number(statsIncidents.total_events || 0).toLocaleString()"></div>
+            <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.incidents.cards.events_sub')"></div>
+          </div>
+        </div>
+      </div>
 
-          <div x-show="statsIncidentsLoaded" class="p-5 space-y-5">
+      <hr class="border-[var(--border)]">
 
-            <!-- Headline cards row. Total failures / recoveries /
-                 events / overall MTTR. -->
-            <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr))">
-              <div class="stats-card" style="cursor:default">
-                <div class="stats-card-icon">
-                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
-                </div>
-                <div class="stats-card-body">
-                  <div class="stats-card-label" x-text="t('stats.incidents.cards.failures')"></div>
-                  <div class="stats-card-value mono" x-text="Number(statsIncidents.total_failures || 0).toLocaleString()"></div>
-                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.incidents.cards.failures_sub')"></div>
-                </div>
-              </div>
-              <div class="stats-card" style="cursor:default">
-                <div class="stats-card-icon">
-                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/></svg>
-                </div>
-                <div class="stats-card-body">
-                  <div class="stats-card-label" x-text="t('stats.incidents.cards.recoveries')"></div>
-                  <div class="stats-card-value mono" x-text="Number(statsIncidents.total_recoveries || 0).toLocaleString()"></div>
-                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.incidents.cards.recoveries_sub')"></div>
-                </div>
-              </div>
-              <div class="stats-card" style="cursor:default">
-                <div class="stats-card-icon">
-                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/></svg>
-                </div>
-                <div class="stats-card-body">
-                  <div class="stats-card-label" x-text="t('stats.incidents.cards.mttr')"></div>
-                  <div class="stats-card-value mono" x-text="fmtDurationShort(statsIncidents.mttr_overall_seconds)"></div>
-                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.incidents.cards.mttr_sub')"></div>
-                </div>
-              </div>
-              <div class="stats-card" style="cursor:default">
-                <div class="stats-card-icon">
-                  <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/></svg>
-                </div>
-                <div class="stats-card-body">
-                  <div class="stats-card-label" x-text="t('stats.incidents.cards.events')"></div>
-                  <div class="stats-card-value mono" x-text="Number(statsIncidents.total_events || 0).toLocaleString()"></div>
-                  <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.incidents.cards.events_sub')"></div>
-                </div>
-              </div>
-            </div>
-
-            <hr class="border-[var(--border)]">
-
-            <!-- Per-provider breakdown -->
-            <div>
-              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.incidents.per_provider.title')"></h4>
-              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.incidents.per_provider.hint')"></p>
-              <div class="overflow-x-auto scrollbar">
-                <table class="w-full fs-sm">
-                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
-                    <tr>
-                      <th class="text-start px-4 py-2" x-text="t('stats.incidents.per_provider.col_provider')"></th>
-                      <th class="text-end px-4 py-2" x-text="t('stats.incidents.per_provider.col_failures')"></th>
-                      <th class="text-end px-4 py-2" x-text="t('stats.incidents.per_provider.col_recoveries')"></th>
-                      <th class="text-end px-4 py-2" x-text="t('stats.incidents.per_provider.col_mttr')"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="row in (statsIncidents.per_provider || [])" :key="row.provider">
-                      <tr class="border-t border-[var(--border)]">
-                        <td class="px-4 py-2 fs-xs">
+      <!-- Per-provider breakdown -->
+      <div>
+        <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.incidents.per_provider.title')"></h4>
+        <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.incidents.per_provider.hint')"></p>
+        <div class="overflow-x-auto scrollbar">
+          <table class="w-full fs-sm">
+            <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+            <tr>
+              <th class="text-start px-4 py-2" x-text="t('stats.incidents.per_provider.col_provider')"></th>
+              <th class="text-end px-4 py-2" x-text="t('stats.incidents.per_provider.col_failures')"></th>
+              <th class="text-end px-4 py-2" x-text="t('stats.incidents.per_provider.col_recoveries')"></th>
+              <th class="text-end px-4 py-2" x-text="t('stats.incidents.per_provider.col_mttr')"></th>
+            </tr>
+            </thead>
+            <tbody>
+            <template x-for="row in (statsIncidents.per_provider || [])" :key="row.provider">
+              <tr class="border-t border-[var(--border)]">
+                <td class="px-4 py-2 fs-xs">
                           <span class="chip pill-custom fs-3xs uppercase"
                                 :style="providerChipStyle(row.provider)"
                                 x-text="row.provider"></span>
-                        </td>
-                        <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.failures || 0).toLocaleString()"></td>
-                        <td class="px-4 py-2 mono text-end" x-text="Number(row.recoveries || 0).toLocaleString()"></td>
-                        <td class="px-4 py-2 mono text-end" x-text="fmtDurationShort(row.mttr_seconds)"></td>
-                      </tr>
-                    </template>
-                    <tr x-show="!(statsIncidents.per_provider || []).length">
-                      <td colspan="4" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.incidents.per_provider.empty')"></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                </td>
+                <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.failures || 0).toLocaleString()"></td>
+                <td class="px-4 py-2 mono text-end" x-text="Number(row.recoveries || 0).toLocaleString()"></td>
+                <td class="px-4 py-2 mono text-end" x-text="fmtDurationShort(row.mttr_seconds)"></td>
+              </tr>
+            </template>
+            <tr x-show="!(statsIncidents.per_provider || []).length">
+              <td colspan="4" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.incidents.per_provider.empty')"></td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-            <hr class="border-[var(--border)]">
+      <hr class="border-[var(--border)]">
 
-            <!-- Top 5 troubled hosts -->
-            <div>
-              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.incidents.top_hosts.title')"></h4>
-              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.incidents.top_hosts.hint')"></p>
-              <div class="overflow-x-auto scrollbar">
-                <table class="w-full fs-sm">
-                  <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
-                    <tr>
-                      <th class="text-start px-4 py-2" x-text="t('stats.incidents.top_hosts.col_host')"></th>
-                      <th class="text-end px-4 py-2" x-text="t('stats.incidents.top_hosts.col_transitions')"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="row in (statsIncidents.top_hosts || [])" :key="row.host_id">
-                      <tr class="border-t border-[var(--border)]">
-                        <td class="px-4 py-2 mono" x-text="row.host_id"></td>
-                        <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.transitions || 0).toLocaleString()"></td>
-                      </tr>
-                    </template>
-                    <tr x-show="!(statsIncidents.top_hosts || []).length">
-                      <td colspan="2" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.incidents.top_hosts.empty')"></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+      <!-- Top 5 troubled hosts -->
+      <div>
+        <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.incidents.top_hosts.title')"></h4>
+        <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.incidents.top_hosts.hint')"></p>
+        <div class="overflow-x-auto scrollbar">
+          <table class="w-full fs-sm">
+            <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+            <tr>
+              <th class="text-start px-4 py-2" x-text="t('stats.incidents.top_hosts.col_host')"></th>
+              <th class="text-end px-4 py-2" x-text="t('stats.incidents.top_hosts.col_transitions')"></th>
+            </tr>
+            </thead>
+            <tbody>
+            <template x-for="row in (statsIncidents.top_hosts || [])" :key="row.host_id">
+              <tr class="border-t border-[var(--border)]">
+                <td class="px-4 py-2 mono" x-text="row.host_id"></td>
+                <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.transitions || 0).toLocaleString()"></td>
+              </tr>
+            </template>
+            <tr x-show="!(statsIncidents.top_hosts || []).length">
+              <td colspan="2" class="text-center py-6 text-[var(--text-faint)]" x-text="t('stats.incidents.top_hosts.empty')"></td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-            <hr class="border-[var(--border)]">
+      <hr class="border-[var(--border)]">
 
-            <!-- 24h × 7d heatmap. Each row = day-of-week (Mon..Sun);
-                 each column = hour-of-day (00..23). Cell intensity
-                 scales linearly with the failure count vs the max
-                 across the matrix. -->
-            <div>
-              <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.incidents.heatmap.title')"></h4>
-              <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.incidents.heatmap.hint')"></p>
-              <div class="incidents-heatmap" x-data="{
+      <!-- 24h × 7d heatmap. Each row = day-of-week (Mon..Sun);
+           each column = hour-of-day (00..23). Cell intensity
+           scales linearly with the failure count vs the max
+           across the matrix. -->
+      <div>
+        <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.incidents.heatmap.title')"></h4>
+        <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.incidents.heatmap.hint')"></p>
+        <div class="incidents-heatmap" x-data="{
                   get _max() {
                     let m = 0;
                     const rows = (statsIncidents.heatmap || []);
@@ -177,38 +192,38 @@
                     return m;
                   }
                 }">
-                <table class="incidents-heatmap-table">
-                  <thead>
-                    <tr>
-                      <th></th>
-                      <template x-for="h in 24" :key="'col' + h">
-                        <th class="incidents-heatmap-hour fs-3xs text-[var(--text-faint)] mono"
-                            x-text="String(h - 1).padStart(2, '0')"></th>
-                      </template>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="(dayName, dow) in [t('stats.incidents.heatmap.dow_mon'), t('stats.incidents.heatmap.dow_tue'), t('stats.incidents.heatmap.dow_wed'), t('stats.incidents.heatmap.dow_thu'), t('stats.incidents.heatmap.dow_fri'), t('stats.incidents.heatmap.dow_sat'), t('stats.incidents.heatmap.dow_sun')]" :key="dow">
-                      <tr>
-                        <th class="incidents-heatmap-dow fs-3xs text-[var(--text-faint)]" x-text="dayName"></th>
-                        <template x-for="hour in 24" :key="'cell' + dow + '_' + hour">
-                          <td class="incidents-heatmap-cell"
-                              :style="(() => {
+          <table class="incidents-heatmap-table">
+            <thead>
+            <tr>
+              <th></th>
+              <template x-for="h in 24" :key="'col' + h">
+                <th class="incidents-heatmap-hour fs-3xs text-[var(--text-faint)] mono"
+                    x-text="String(h - 1).padStart(2, '0')"></th>
+              </template>
+            </tr>
+            </thead>
+            <tbody>
+            <template x-for="(dayName, dow) in [t('stats.incidents.heatmap.dow_mon'), t('stats.incidents.heatmap.dow_tue'), t('stats.incidents.heatmap.dow_wed'), t('stats.incidents.heatmap.dow_thu'), t('stats.incidents.heatmap.dow_fri'), t('stats.incidents.heatmap.dow_sat'), t('stats.incidents.heatmap.dow_sun')]" :key="dow">
+              <tr>
+                <th class="incidents-heatmap-dow fs-3xs text-[var(--text-faint)]" x-text="dayName"></th>
+                <template x-for="hour in 24" :key="'cell' + dow + '_' + hour">
+                  <td class="incidents-heatmap-cell"
+                      :style="(() => {
                                 const v = ((statsIncidents.heatmap || [])[dow] || [])[hour - 1] || 0;
                                 if (v === 0) return 'background: var(--surface-2)';
                                 const max = _max || 1;
                                 const pct = Math.min(1, v / max);
                                 return 'background: color-mix(in srgb, var(--danger) ' + Math.round(15 + pct * 70) + '%, transparent)';
                               })()"
-                              :title="t('stats.incidents.heatmap.cell_title', { count: (((statsIncidents.heatmap || [])[dow] || [])[hour - 1] || 0) })"></td>
-                        </template>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-          </div>
-        </section>
+                      :title="t('stats.incidents.heatmap.cell_title', { count: (((statsIncidents.heatmap || [])[dow] || [])[hour - 1] || 0) })"></td>
+                </template>
+              </tr>
+            </template>
+            </tbody>
+          </table>
+        </div>
       </div>
+
+    </div>
+  </section>
+</div>

@@ -5811,7 +5811,7 @@ async def api_admin_stats_incidents(
     """Admin-only: incident-centric view of ``host_failure_events``.
 
     Returns:
-      window_hours    — clamped operator-selected window (1..720).
+      window_hours    — clamped operator-selected window (1..2160).
       total_events    — count across every kind in the window.
       total_failures  — count of `paused` events.
       total_recoveries — count of `recovered` events.
@@ -5828,7 +5828,7 @@ async def api_admin_stats_incidents(
     import time as _time
     from datetime import datetime as _dt
     try:
-        hours = max(1, min(720, int(hours or 168)))
+        hours = max(1, min(2160, int(hours or 168)))
     except (TypeError, ValueError):
         hours = 168
     cutoff = int(_time.time()) - hours * 3600
