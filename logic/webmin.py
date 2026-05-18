@@ -82,7 +82,11 @@ except ImportError:
 # call (see logic/cooldown.py) so the operator's Save in Admin →
 # Config takes effect on the next probe without a restart.
 from logic.cooldown import Cooldown as _Cooldown
-from logic.merge import normalize_arch as _normalize_arch
+from logic.merge import (
+    lookup_host_tolerant as _lookup_host_tolerant,
+    normalize_arch as _normalize_arch,
+    parse_load_triple as _parse_load_triple,
+)
 from logic import tuning as _tuning
 from logic.tuning import Tunable as _Tunable
 
@@ -920,9 +924,7 @@ def extract_system_status(root: ET.Element) -> dict:
     uptime_s = _parse_uptime_s(uptime_raw)
     load_raw = pick("cpu_load", "load", "loadavg")
     load_parts = [p for p in re.split(r"[\s,]+", load_raw) if p]
-    load_1m = _num(load_parts[0]) if len(load_parts) > 0 else 0.0
-    load_5m = _num(load_parts[1]) if len(load_parts) > 1 else 0.0
-    load_15 = _num(load_parts[2]) if len(load_parts) > 2 else 0.0
+    load_1m, load_5m, load_15 = _parse_load_triple(load_parts, _num)
 
     mem_total_bytes = _bytes_or_kib(real_mem, real_mem_key)
     mem_used_bytes = 0
@@ -1386,15 +1388,7 @@ async def probe_webmin(
 def lookup(webmin_hosts: dict, needle: str) -> Optional[dict]:
     """Case / whitespace-tolerant key lookup. Same signature as the
     Beszel / Pulse helpers so the merge-site code can swap providers
-    without branch-specific matchers."""
-    if not webmin_hosts or not needle:
-        return None
-    if needle in webmin_hosts:
-        return webmin_hosts[needle]
-    key = needle.strip().lower()
-    if not key:
-        return None
-    for k, v in webmin_hosts.items():
-        if k.strip().lower() == key:
-            return v
-    return None
+    without branch-specific matchers. Delegates to the shared
+    :func:`logic.merge.lookup_host_tolerant` so the four parallel
+    implementations stay byte-identical."""
+    return _lookup_host_tolerant(webmin_hosts, needle)

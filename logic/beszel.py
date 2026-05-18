@@ -36,7 +36,10 @@ from typing import Any, Optional, TypedDict
 
 import httpx
 
-from logic.merge import normalize_arch as _normalize_arch
+from logic.merge import (
+    lookup_host_tolerant as _lookup_host_tolerant,
+    normalize_arch as _normalize_arch,
+)
 
 
 class _TokenEntry(TypedDict):
@@ -1431,28 +1434,17 @@ async def probe_hub(
     return {"systems": out, "error": None}
 
 
-# noinspection DuplicatedCode
 def lookup(systems_map: dict[str, dict], needle: str) -> Optional[dict]:
     """Find a Beszel system record by name, tolerating case + whitespace.
 
     Mirrors :func:`logic.pulse.lookup` so per-host samplers using the
     Beszel hub map can resolve operator-typed aliases like
     ``Docker`` / ``docker`` / ``  docker  `` against the agent-reported
-    ``host`` field that ``probe_hub`` keys on. Falls through to a
-    stripped+lowercased scan when an exact-key hit misses; returns
-    ``None`` on no match. Consumers: :mod:`logic.host_beszel_sampler`
+    ``host`` field that ``probe_hub`` keys on. Delegates to the shared
+    :func:`logic.merge.lookup_host_tolerant` so every provider's
+    tolerant-lookup stays byte-identical. Consumers: :mod:`logic.host_beszel_sampler`
     (per-tick lookup of curated ``beszel_name`` against the hub map);
     test endpoints that probe the hub without going through
     ``_merge_one_host``'s direct ``state["beszel_map"].get(...)``.
     """
-    if not systems_map or not needle:
-        return None
-    if needle in systems_map:
-        return systems_map[needle]
-    key = needle.strip().lower()
-    if not key:
-        return None
-    for k, v in systems_map.items():
-        if k.strip().lower() == key:
-            return v
-    return None
+    return _lookup_host_tolerant(systems_map, needle)
