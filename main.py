@@ -7183,6 +7183,63 @@ async def api_ai_palette(
         out["action_data"] = action_data
     text = cleaned_text
 
+    # Synthesise `action_data` for `send_notification` when the AI
+    # emitted `ACTION: send_notification` but skipped the structured
+    # ACTION_DATA payload (operator-flagged: AI replied "I'll send 'hi'
+    # to your Telegram channel" without the JSON directive, so the SPA
+    # got `data=null` and toasted "Pick a valid channel..."). Parse the
+    # operator's ORIGINAL query for a "send to <medium> ..." / "tell
+    # <medium> <text>" / "notify <medium> that <text>" shape and
+    # synthesise `{medium, body}`. Stays a fallback so the AI's
+    # native structured emission still wins when present.
+    if (
+        "send_notification" in (out.get("actions") or [])
+        and out.get("action_data") is None
+        and query
+    ):
+        import re as _re_synth
+        _q = query.strip()
+        # Match the channel name explicitly. Word-boundary so "telegrams"
+        # doesn't false-match.
+        _channel_match = _re_synth.search(
+            r"\b(?P<channel>telegram|apprise|app)\b", _q, _re_synth.IGNORECASE,
+        )
+        _channel = _channel_match.group("channel").lower() if _channel_match else ""
+        # Body extraction — look for the pattern "saying <text>" /
+        # ": <text>" / "that <text>" / "send <text> to <channel>" or
+        # fall back to "use everything that's not part of the
+        # imperative or channel name". Greedy non-greedy: prefer the
+        # explicit cue words.
+        _body = ""
+        for _pat in (
+                r"\bsaying\s+(?P<body>.+?)(?:\s+to\s+\w+)?$",
+                r"\bsay\s+(?P<body>.+?)(?:\s+to\s+\w+)?$",
+                r"\bthat\s+(?P<body>.+?)$",
+                r":\s*(?P<body>.+?)$",
+                r"\bsend\s+(?:to\s+\w+\s+)?(?P<body>.+?)(?:\s+to\s+\w+)?$",
+                r"\bnotify\s+\w+\s+(?P<body>.+?)$",
+                r"\btell\s+\w+\s+(?P<body>.+?)$",
+                r"\bmessage\s+\w+(?:\s*:)?\s+(?P<body>.+?)$",
+        ):
+            _bm = _re_synth.search(_pat, _q, _re_synth.IGNORECASE)
+            if _bm:
+                _body = _bm.group("body").strip().strip('"\'')
+                # Strip the channel name + trailing "to" if present.
+                _body = _re_synth.sub(
+                    r"\s*(?:to\s+)?(?:telegram|apprise|app)\s*$",
+                    "", _body, flags=_re_synth.IGNORECASE,
+                ).strip()
+                if _body:
+                    break
+        if _channel and _body:
+            synth = {"medium": _channel, "body": _body}
+            out["action_data"] = synth
+            print(
+                f"[ai] send_notification synth: channel={_channel!r} "
+                f"body_len={len(_body)} (operator query parsed because "
+                f"AI omitted ACTION_DATA)"
+            )
+
     # Parse trailing MEMORY: / MEMORY-FORGET: directives. Each MEMORY:
     # line gets persisted into ai_memory immediately (the SPA toasts
     # the operator afterward); each MEMORY-FORGET: line is returned
