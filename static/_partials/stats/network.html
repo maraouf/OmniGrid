@@ -15,19 +15,22 @@
                    refetches triggered by chip click. Range pickers
                    across Stats charts MUST show a loading indicator on
                    click per operator preference. -->
-              <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
-                   role="group"
-                   :aria-label="t('stats.range.aria_label')"
-                   @keydown="_buttonGroupArrowKey($event)">
-                <template x-for="opt in [[1,'range_1h'],[24,'range_24h'],[168,'range_7d'],[720,'range_30d'],[2160,'range_90d']]" :key="opt[0]">
-                  <button type="button"
-                          @click="_runWithBusy('stats_network', () => loadStatsNetwork(opt[0]))"
-                          :disabled="_loadBusy.stats_network === true"
-                          :aria-pressed="statsNetworkHours === opt[0] ? 'true' : 'false'"
-                          :class="statsNetworkHours === opt[0] ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-                          class="px-2 py-0.5 rounded fs-xs font-medium transition"
-                          x-text="t('stats.range.' + opt[1])"></button>
-                </template>
+              <!-- Delegates to the shared `og-range-picker` component.
+                   _runWithBusy wrap stays inside `rpOnChange` so the
+                   spinner / disabled state still fires on click. -->
+              <div x-data="{
+                     rpOptions: [
+                       { value: 1,    label: t('stats.range.range_1h') },
+                       { value: 24,   label: t('stats.range.range_24h') },
+                       { value: 168,  label: t('stats.range.range_7d') },
+                       { value: 720,  label: t('stats.range.range_30d') },
+                       { value: 2160, label: t('stats.range.range_90d') }
+                     ],
+                     get rpCurrent() { return statsNetworkHours; },
+                     rpOnChange: (v) => _runWithBusy('stats_network', () => loadStatsNetwork(v)),
+                     rpAriaLabel: t('stats.range.aria_label')
+                   }">
+                <!-- INCLUDE: _components/og-range-picker.html -->
               </div>
               <button type="button"
                       @click="_runWithBusy('stats_network', () => loadStatsNetwork(statsNetworkHours))"

@@ -1,0 +1,60 @@
+<!--
+  Shared range-picker chip strip — used by every chip-strip pattern in
+  the SPA that needs mutually-exclusive choices (4 stats range pickers
+  + topbar refresh-interval picker). Single source of truth for the
+  ARIA contract (`role="radiogroup"` + `aria-pressed` + arrow-key nav
+  via `_buttonGroupArrowKey`) + active-state token colours.
+
+  Surrounding Alpine scope MUST define:
+    - rpOptions   : array of option objects (see shape below)
+    - rpCurrent   : current selected value (compared via `===`) — use a
+                    GETTER (`get rpCurrent() { return outerState; }`) so
+                    the binding stays reactive across changes
+    - rpOnChange  : function `(value) => void` fired on chip click
+    - rpAriaLabel : aria-label string for the radiogroup wrapper
+
+  Option object shape:
+    { value: <primitive>,           // identity for compare + key
+      label: <string>,              // visible chip text
+      title?: <string>,             // optional :title for tooltip
+      dotColor?: <CSS colour>,      // optional leading dot (Live/Off)
+      activeBg?: <Tailwind class>,  // override active bg (default: --primary)
+      activeText?: <Tailwind class> // paired active text token
+    }
+
+  The wrapper picks up any extra Tailwind classes via an optional
+  `rpExtraClass` string on the parent scope (e.g. responsive width
+  utilities for the topbar picker).
+-->
+<div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
+     :class="(typeof rpExtraClass !== 'undefined' && rpExtraClass) ? rpExtraClass : ''"
+     role="radiogroup"
+     :aria-label="rpAriaLabel"
+     :title="(typeof rpTitle !== 'undefined' && rpTitle) ? rpTitle : ''"
+     @keydown="_buttonGroupArrowKey($event)">
+  <!-- Optional leading decorative label (topbar refresh picker uses
+       this for the "REFRESH" prefix text). Sits inside the styled
+       chrome but outside the role="radiogroup" semantic via
+       aria-hidden — screen-readers hear only the radio options. -->
+  <span x-show="typeof rpLeadingLabel !== 'undefined' && rpLeadingLabel"
+        aria-hidden="true"
+        class="px-1.5 fs-3xs text-faint uppercase tracking-wider"
+        x-text="rpLeadingLabel"></span>
+  <template x-for="opt in rpOptions" :key="opt.value">
+    <button type="button"
+            :aria-pressed="rpCurrent === opt.value ? 'true' : 'false'"
+            :title="opt.title || ''"
+            :class="rpCurrent === opt.value
+              ? (opt.activeBg
+                  ? (opt.activeBg + ' ' + (opt.activeText || 'text-[var(--text-on-primary)]'))
+                  : 'bg-[var(--primary)] text-[var(--text-on-primary)]')
+              : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+            class="px-2 py-0.5 rounded fs-xs font-medium transition flex items-center gap-1"
+            @click="rpOnChange(opt.value)">
+      <span x-show="opt.dotColor"
+            class="inline-block w-1.5 h-1.5 rounded-full"
+            :style="opt.dotColor ? ('background: ' + (rpCurrent === opt.value ? 'currentColor' : opt.dotColor)) : ''"></span>
+      <span x-text="opt.label"></span>
+    </button>
+  </template>
+</div>
