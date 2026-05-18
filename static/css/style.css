@@ -290,6 +290,17 @@
   --fs-md: 13px;
   --fs-lg: 14px;
   --fs-xl: 15px;
+  /* Em-relative tier — for nested-inline glyphs / inline-code whose
+     size should scale with the parent's font-size (vs absolute px).
+     Two consumers today: `.ai-resp-answer code` (slightly smaller
+     than surrounding prose) and `.stale:not(.stat-bar)::before` ⚠
+     glyph (visibly smaller than the dimmed value it annotates).
+     Add new em-relative sizes here rather than inlining `0.85em` /
+     `0.92em` literals at the consumer — the token family makes the
+     "this is em-relative on purpose, NOT a stray literal" intent
+     readable at the call site. */
+  --fs-em-sm: 0.85em;
+  --fs-em-md: 0.92em;
   /* Display tier — outside the body-text scale, used on headlines /
      * avatar initials / login titles where dimensions are picked for
      * impact rather than reading hierarchy. Add new sizes here when a
@@ -2237,7 +2248,7 @@ details summary::-webkit-details-marker {
   color: var(--text);
   padding: 1px var(--s-1);
   border-radius: var(--r-sm);
-  font-size: 0.92em;
+  font-size: var(--fs-em-md);
 }
 
 .ai-resp-answer strong {
@@ -2875,7 +2886,7 @@ details summary::-webkit-details-marker {
 .stale:not(.stat-bar)::before {
   content: '⚠';
   color: var(--warning);
-  font-size: 0.85em;
+  font-size: var(--fs-em-sm);
   margin-inline-end: 4px;
   opacity: 0.85;
   text-decoration: none;
@@ -4615,7 +4626,12 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  padding: 0 7px;
+  /* Horizontal padding tokenised — `0 7px` was within rounding distance
+     of `0 var(--s-2)` (8px) and the 1px difference doesn't change the
+     visual hit-area at this scale. Height / line-height stay literal
+     because the component's chip-row layout depends on the exact 20px
+     row height (matches the sibling `.ai-feedback-btn` family). */
+  padding: 0 var(--s-2);
   height: 20px;
   line-height: 18px;
   cursor: pointer;
@@ -4653,7 +4669,10 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  padding: 0 4px;
+  /* Horizontal padding tokenised to `var(--s-1)` (4px exactly). Height
+     / line-height stay literal — same rationale as `.ai-confirm-btn`
+     (component-specific 18px row height). */
+  padding: 0 var(--s-1);
   height: 18px;
   line-height: 16px;
   cursor: pointer;
@@ -6310,7 +6329,8 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   transition: background-color 0.12s, border-color 0.12s, transform 0.12s;
 }
 
-.stats-card:hover {
+.stats-card:hover,
+.stats-card:focus-visible {
   background: var(--row-hover);
   border-color: var(--border-bright);
   transform: translateY(-1px);
