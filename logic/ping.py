@@ -47,7 +47,6 @@ import socket
 import time
 from typing import Optional
 
-
 # Per-(host, port) cool-down on consecutive timeouts. Same shared
 # `tuning_auth_failure_cooldown_seconds` knob the Webmin / SSH consumers
 # use — operator can tune all three at once. The Cooldown's seconds
@@ -56,6 +55,7 @@ from typing import Optional
 from logic.cooldown import Cooldown as _Cooldown
 from logic import tuning as _tuning
 from logic.tuning import Tunable as _Tunable
+
 _unreachable_cooldown = _Cooldown(
     seconds_fn=lambda: _tuning.tuning_int(_Tunable.PING_COOLDOWN_SECONDS)
 )
@@ -72,6 +72,7 @@ _consecutive_failures: dict[tuple[str, int], int] = {}
 # it as optional keeps the boot path clean.
 try:
     import icmplib  # type: ignore  # noqa: F401
+
     _HAS_ICMP = True
 except ImportError:
     _HAS_ICMP = False
@@ -153,19 +154,22 @@ async def _probe_icmp(host: str, count: int, timeout_seconds: float) -> dict:
     # uses raw sockets which the event loop can't await. Wrap in a
     # thread-pool so we don't stall every other probe in the sampler
     # tick. Threadpool fan-out cost is trivial vs the wire latency.
-    import functools
     from logic.tuning import Tunable, tuning_int as _tuning_int
-    loop = asyncio.get_running_loop()
     # ICMP inter-packet spacing — operator-tunable so commercial-firewall
     # anti-flood rules don't reject the burst. Tunable holds milliseconds;
     # icmplib expects seconds (float).
     _interval_s = _tuning_int(Tunable.PING_PACKET_INTERVAL_MS) / 1000.0
-    func = functools.partial(
+
+    # `asyncio.to_thread` (Python 3.9+) accepts ``(func, *args, **kwargs)``
+    # cleanly and doesn't trip PyCharm's *_Ts forwarding check the way
+    # `loop.run_in_executor(executor, func)` does (its typeshed signature
+    # uses a typevar-tuple for the args parameter that the inspector
+    # can't satisfy without an explicit positional).
+    h = await asyncio.to_thread(
         icmplib.ping, host,
         count=count, interval=_interval_s, timeout=timeout_seconds,
         privileged=False,  # unprivileged uses ICMP_FILTER socket type
     )
-    h = await loop.run_in_executor(None, func)
     rtts = [r for r in (h.rtts or []) if r is not None]  # ms already
     sent = h.packets_sent or count
     rcv = h.packets_received or 0
@@ -306,15 +310,16 @@ def to_host_stats(result: dict) -> dict:
     if result.get("alive"):
         out["host_ping_alive"] = True
         rtt = result.get("rtt_ms")
-        if rtt is not None:
+        if isinstance(rtt, (int, float)):
             out["host_ping_rtt_ms"] = float(rtt)
         loss = result.get("loss_pct")
-        if loss is not None:
+        if isinstance(loss, (int, float)):
             out["host_ping_loss_pct"] = float(loss)
     else:
         # Even when down, surface the alive=False bool + loss=100 so
         # the SPA can render a "down" chip for opted-in hosts. RTT
         # stays absent because there's no measurement to report.
         out["host_ping_alive"] = False
-        out["host_ping_loss_pct"] = float(result.get("loss_pct") or 100.0)
+        _loss = result.get("loss_pct")
+        out["host_ping_loss_pct"] = float(_loss) if isinstance(_loss, (int, float)) else 100.0
     return out

@@ -61,7 +61,6 @@ from logic.settings_keys import Settings
 
 import httpx
 
-
 # Telegram API base default. Tokens are appended as ``/bot<token>/<method>``.
 # Operators can override via the ``telegram_api_base`` setting (Admin →
 # Notifications → Telegram) for self-hosted Bot API gateways or proxy
@@ -113,13 +112,15 @@ def _format_message(title: str, body: str, severity: str) -> str:
     emoji = _severity_emoji(severity)
     title_clean = (title or "").strip()
     body_clean = (body or "").strip()
+
     # Telegram's HTML mode requires &, <, > escapes. Body stays
     # plain-text (no markdown rendering) so operator-authored
     # messages don't accidentally break parse_mode.
     def _esc(s: str) -> str:
         return (s.replace("&", "&amp;")
-                 .replace("<", "&lt;")
-                 .replace(">", "&gt;"))
+                .replace("<", "&lt;")
+                .replace(">", "&gt;"))
+
     # Detect an existing leading emoji. Cheap heuristic: any non-ASCII
     # first character (codepoint > 0x7F) is treated as "title already
     # has its own marker — don't prepend ours". Catches every emoji /

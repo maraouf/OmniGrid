@@ -77,10 +77,10 @@ def bootstrap_portainer_settings(conn: sqlite3.Connection) -> None:
     release" in docs/guidelines/env_example.md.
     """
     env_map = {
-        "portainer_url":         os.getenv("PORTAINER_URL", "").rstrip("/"),
-        "portainer_api_key":     os.getenv("PORTAINER_API_KEY", ""),
+        "portainer_url": os.getenv("PORTAINER_URL", "").rstrip("/"),
+        "portainer_api_key": os.getenv("PORTAINER_API_KEY", ""),
         "portainer_endpoint_id": os.getenv("PORTAINER_ENDPOINT_ID", "1"),
-        "portainer_verify_tls":  os.getenv("VERIFY_TLS", "true").lower() == "true",
+        "portainer_verify_tls": os.getenv("VERIFY_TLS", "true").lower() == "true",
     }
     for key in _PORTAINER_SETTING_KEYS:
         existing = conn.execute(
@@ -127,10 +127,15 @@ def _refresh_portainer_cache(conn: sqlite3.Connection) -> None:
         else:
             fresh[key] = raw
     # Normalise: URL has no trailing slash, endpoint_id is an int.
-    url = str(fresh.get("portainer_url") or "")
+    _url_raw = fresh.get("portainer_url")
+    url = _url_raw if isinstance(_url_raw, str) else ""
     fresh["portainer_url"] = url.rstrip("/")
+    _eid_raw = fresh.get("portainer_endpoint_id")
     try:
-        fresh["portainer_endpoint_id"] = int(fresh.get("portainer_endpoint_id") or 1)
+        if isinstance(_eid_raw, (int, str)) and _eid_raw:
+            fresh["portainer_endpoint_id"] = int(_eid_raw)
+        else:
+            fresh["portainer_endpoint_id"] = 1
     except (ValueError, TypeError):
         fresh["portainer_endpoint_id"] = 1
     _portainer_cache = fresh

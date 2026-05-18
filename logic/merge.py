@@ -87,8 +87,8 @@ def normalize_arch(arch: str) -> str:
     # in practice today. Add more entries here as new arches arrive.
     aliases = {
         "amd64": "x86_64",
-        "i386":  "x86",
-        "i686":  "x86",
+        "i386": "x86",
+        "i686": "x86",
     }
     return aliases.get(a, a)
 

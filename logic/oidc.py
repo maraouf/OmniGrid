@@ -32,22 +32,20 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import re
 import secrets
 import time
 from typing import Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 
 import httpx
 import jwt
 from fastapi import HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 
 from logic import auth
 from logic import errors as _err
 from logic.db import db_conn
-
 
 # ----------------------------------------------------------------------------
 # Flow cookie (PKCE verifier + state + nonce). The post-login
@@ -64,8 +62,8 @@ from logic.db import db_conn
 # ----------------------------------------------------------------------------
 FLOW_COOKIE = "og_oidc_flow"
 FLOW_COOKIE_TTL = 300  # 5 minutes — enough for the user to click Approve on
-                      # Authentik's consent screen, short enough to limit the
-                      # blast radius of a stolen in-flight cookie.
+# Authentik's consent screen, short enough to limit the
+# blast radius of a stolen in-flight cookie.
 
 # state token → validated next-path. Populated at login start (after
 # ``_safe_next`` has whitelisted the path); consumed at callback via
@@ -106,21 +104,22 @@ def _flow_paths_consume(state: str) -> str:
         return "/"
     return _safe_next(path)
 
+
 # Discovery + JWKS caches. Keyed by issuer URL so a config change to a new
 # issuer invalidates naturally. Swap in LRU if we ever serve multiple IdPs.
 _discovery_cache: dict[str, tuple[dict, float]] = {}  # issuer -> (doc, expires_at)
-_jwks_cache: dict[str, tuple[dict, float]] = {}       # issuer -> (jwks, expires_at)
+_jwks_cache: dict[str, tuple[dict, float]] = {}  # issuer -> (jwks, expires_at)
 
 DISCOVERY_TTL = 3600  # 1 hour — long enough to avoid hammering the IdP, short
-                    # enough that an endpoint URL change propagates the same
-                    # day. Admins who need instant refresh should click the
-                    # "Test connection" button which calls invalidate_cache().
-JWKS_TTL = 3600     # Same rationale. Unknown `kid` on a token forces a refresh
-                    # mid-flow, so key rotation takes effect immediately
-                    # without waiting out the TTL.
+# enough that an endpoint URL change propagates the same
+# day. Admins who need instant refresh should click the
+# "Test connection" button which calls invalidate_cache().
+JWKS_TTL = 3600  # Same rationale. Unknown `kid` on a token forces a refresh
+# mid-flow, so key rotation takes effect immediately
+# without waiting out the TTL.
 
 # Asymmetric signing algorithms allowed for id_token verification
-#. Listed in the OIDC core spec as the set providers may use
+# . Listed in the OIDC core spec as the set providers may use
 # for id_tokens. Symmetric algorithms (HS256/HS384/HS512) are NOT in
 # this set: they'd require the operator to share the client_secret as
 # the verification key, and the spec prefers asymmetric so the JWKS
@@ -486,7 +485,7 @@ async def callback(request: Request):
     # success path does.
     _flow_clear_headers = {
         "Set-Cookie": f"{FLOW_COOKIE}=; Path=/api/oidc/; Max-Age=0; HttpOnly; SameSite=Lax"
-        + ("; Secure" if _is_https(request) else "")
+                      + ("; Secure" if _is_https(request) else "")
     }
 
     flow_cookie = request.cookies.get(FLOW_COOKIE)
@@ -528,14 +527,16 @@ async def callback(request: Request):
     admin_group = s.get("oidc_admin_group") or ""
 
     doc = await _fetch_discovery(issuer)
-    token_ep = doc.get("token_endpoint")
-    jwks_uri = doc.get("jwks_uri")
-    if not token_ep or not jwks_uri:
+    _token_ep_raw = doc.get("token_endpoint")
+    _jwks_uri_raw = doc.get("jwks_uri")
+    if not isinstance(_token_ep_raw, str) or not isinstance(_jwks_uri_raw, str):
         raise HTTPException(
             status_code=502,
             detail="OIDC discovery missing token_endpoint / jwks_uri",
             headers=_flow_clear_headers,
         )
+    token_ep: str = _token_ep_raw
+    jwks_uri: str = _jwks_uri_raw
 
     # Token exchange. Authentik accepts client credentials in either the
     # Authorization header or the body; we use the body for clarity.
@@ -574,7 +575,8 @@ async def callback(request: Request):
     # included. Do NOT strip anything from it; whatever the IdP publishes
     # in `openid-configuration.issuer` is what the id_token will carry.
     # Fall back to the admin-typed URL only if the doc is non-compliant.
-    expected_iss = doc.get("issuer") or issuer
+    _iss_raw = doc.get("issuer")
+    expected_iss: str = _iss_raw if isinstance(_iss_raw, str) and _iss_raw else issuer
     try:
         claims = await _validate_id_token(
             id_token, issuer=issuer, jwks_uri=jwks_uri,

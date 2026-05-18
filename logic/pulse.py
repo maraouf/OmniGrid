@@ -85,10 +85,9 @@ def _value_is_gib(value: float, base_url: str = "") -> bool:
     base_url. Version-driven when known; magnitude heuristic otherwise.
     """
     pref = _pulse_uses_bytes(base_url)
-    if pref is True:
-        return False
-    if pref is False:
-        return True
+    if pref is not None:
+        # pref True → bytes → not GiB; pref False → GiB.
+        return not pref
     return 0 < value < 10_000_000
 
 
@@ -170,13 +169,13 @@ def _pulse_mounts(guest: dict, gib: float) -> list[dict]:
             # Pulse `/api/version` couldn't be reached.
             if _value_is_gib(total, _current_probe_base_url):
                 total_gib = total
-                used_gib  = used
+                used_gib = used
             else:
                 total_gib = total / gib if total else 0
-                used_gib  = used  / gib if used  else 0
+                used_gib = used / gib if used else 0
             out.append({
-                "n":  name,
-                "d":  total_gib,
+                "n": name,
+                "d": total_gib,
                 "du": used_gib,
                 "dp": (used_gib / total_gib * 100) if total_gib > 0 else 0,
                 "dr": 0, "dw": 0,
@@ -231,8 +230,8 @@ def _pulse_net_ifaces(guest: dict) -> list[dict]:
                         if ip:
                             addrs.append(f"{ip}/{prefix}" if prefix else str(ip))
             out.append({
-                "name":  name,
-                "mac":   mac,
+                "name": name,
+                "mac": mac,
                 "addrs": [a for a in addrs if a],
             })
 
@@ -256,8 +255,8 @@ def _pulse_net_ifaces(guest: dict) -> list[dict]:
         ips = guest.get("ips")
         if isinstance(ips, list) and ips:
             out.append({
-                "name":  "",
-                "mac":   "",
+                "name": "",
+                "mac": "",
                 "addrs": [str(a) for a in ips if a],
             })
     return out
@@ -305,6 +304,36 @@ async def _fetch_state(
     raise RuntimeError(f"pulse: no compatible endpoint responded — {last_err or '?'}")
 
 
+def _extract_common_resource_fields(obj):
+    """Shared mem / disk / uptime / cpu extraction used by BOTH
+    ``extract_guest_stats`` and ``extract_node_stats``. Pulse's guest
+    and node payloads carry the same top-level keys for these fields,
+    so the unit-detection (bytes vs GiB) + magnitude-coercion math
+    deserves one implementation.
+
+    Returns ``(mem, mem_max, disk, disk_max, uptime, host_boot_ts,
+    cpu_pct)`` with numeric values in BYTES (mem / disk),
+    SECONDS (uptime), epoch SECONDS (host_boot_ts or None),
+    PERCENT 0..100 (cpu_pct).
+    """
+    if not isinstance(obj, dict):
+        obj = {}
+    gib = 1024 ** 3
+    mem = _num(obj.get("mem"))
+    mem_max = _num(obj.get("maxmem"))
+    disk = _num(obj.get("disk"))
+    disk_max = _num(obj.get("maxdisk"))
+    # version-driven; magnitude fallback.
+    if _value_is_gib(mem_max, _current_probe_base_url):
+        mem, mem_max = mem * gib, mem_max * gib
+    if _value_is_gib(disk_max, _current_probe_base_url):
+        disk, disk_max = disk * gib, disk_max * gib
+    uptime = int(_num(obj.get("uptime")))
+    host_boot_ts = (time.time() - uptime) if uptime > 0 else None
+    cpu_pct = _num(obj.get("cpu")) * 100
+    return mem, mem_max, disk, disk_max, uptime, host_boot_ts, cpu_pct
+
+
 def extract_guest_stats(guest: dict) -> dict:
     """Shape one Pulse guest (VM / LXC) record into ``host_*`` fields.
 
@@ -324,18 +353,9 @@ def extract_guest_stats(guest: dict) -> dict:
     if not isinstance(guest, dict):
         guest = {}
     gib = 1024 ** 3
-    mem = _num(guest.get("mem"))
-    mem_max = _num(guest.get("maxmem"))
-    disk = _num(guest.get("disk"))
-    disk_max = _num(guest.get("maxdisk"))
-    # version-driven; magnitude fallback.
-    if _value_is_gib(mem_max, _current_probe_base_url):
-        mem, mem_max = mem * gib, mem_max * gib
-    if _value_is_gib(disk_max, _current_probe_base_url):
-        disk, disk_max = disk * gib, disk_max * gib
-    uptime = int(_num(guest.get("uptime")))
-    host_boot_ts = (time.time() - uptime) if uptime > 0 else None
-    cpu_pct = _num(guest.get("cpu")) * 100
+    mem, mem_max, disk, disk_max, uptime, host_boot_ts, cpu_pct = (
+        _extract_common_resource_fields(guest)
+    )
     # Try every key Pulse versions use for "is this a VM or LXC" —
     # ``type`` (common), ``kind``, ``vmtype`` (newer). Empty means
     # unknown and the UI hides the Proxmox row rather than rendering
@@ -343,6 +363,7 @@ def extract_guest_stats(guest: dict) -> dict:
     kind = str(
         guest.get("type") or guest.get("kind") or guest.get("vmtype") or ""
     ).lower()
+
     # OS-family hints from Pulse, used as a FALLBACK layer — merged
     # BEFORE Beszel so the cleaner short forms override these when
     # Beszel matches too. Pulse's exact field layout varies between
@@ -384,12 +405,12 @@ def extract_guest_stats(guest: dict) -> dict:
     # avoid generic ones like ``os`` / ``distro`` / ``machine`` /
     # ``k`` that could be overloaded by PVE config. The _looks_uuid
     # guard above catches the remaining misfires.
-    os_hint       = _g("osName", "pretty_name", "prettyName", "osVersion",
-                       "os_version")
-    kernel_hint   = _g("kernel", "kernelVersion", "kernel_version",
-                       "kernel-release")
-    arch_hint     = _g("arch", "architecture", "cpuArch",
-                       "cpu_arch", "platform_arch")
+    os_hint = _g("osName", "pretty_name", "prettyName", "osVersion",
+                 "os_version")
+    kernel_hint = _g("kernel", "kernelVersion", "kernel_version",
+                     "kernel-release")
+    arch_hint = _g("arch", "architecture", "cpuArch",
+                   "cpu_arch", "platform_arch")
     # Platform field candidates — purposefully conservative. Pulse's
     # guest records include an ``id`` field that is often the PVE
     # VM UUID (e.g. ``"431e7b83-..."``), which is NOT a distro name.
@@ -417,7 +438,7 @@ def extract_guest_stats(guest: dict) -> dict:
     # like "Debian GNU/Linux 13 (trixie)". Prefer the shorter form
     # when both platform-ish and os-ish values are available.
     if platform_hint and os_hint and os_hint.lower().startswith(
-            platform_hint.lower()):
+        platform_hint.lower()):
         # The UI hides the duplicate row via startsWith comparison.
         pass
     # Network interfaces — Pulse emits ``networkInterfaces`` (qemu
@@ -435,52 +456,52 @@ def extract_guest_stats(guest: dict) -> dict:
     synth_mounts: list = _pulse_mounts(guest, gib)
     if not synth_mounts and disk_max > 0:
         synth_mounts.append({
-            "n":  "/",
-            "d":  disk_max / gib,     # extract_stats-shape: GiB float
+            "n": "/",
+            "d": disk_max / gib,  # extract_stats-shape: GiB float
             "du": disk / gib,
             "dp": (disk / disk_max * 100) if disk_max > 0 else 0,
             "dr": 0, "dw": 0,
         })
     return {
-        "host_mem_total":    int(mem_max),
-        "host_mem_used":     int(mem),
-        "host_mem_avail":    max(0, int(mem_max - mem)),
-        "host_disk_total":   int(disk_max),
-        "host_disk_used":    int(disk),
-        "host_disk_free":    max(0, int(disk_max - disk)),
-        "host_uptime_s":     uptime,
-        "host_boot_ts":      host_boot_ts,
-        "host_cpu_percent":  cpu_pct,
-        "host_mem_percent":  (mem / mem_max * 100) if mem_max > 0 else 0,
+        "host_mem_total": int(mem_max),
+        "host_mem_used": int(mem),
+        "host_mem_avail": max(0, int(mem_max - mem)),
+        "host_disk_total": int(disk_max),
+        "host_disk_used": int(disk),
+        "host_disk_free": max(0, int(disk_max - disk)),
+        "host_uptime_s": uptime,
+        "host_boot_ts": host_boot_ts,
+        "host_cpu_percent": cpu_pct,
+        "host_mem_percent": (mem / mem_max * 100) if mem_max > 0 else 0,
         "host_disk_percent": (disk / disk_max * 100) if disk_max > 0 else 0,
-        "host_cores":        int(_num(guest.get("maxcpu"))),
+        "host_cores": int(_num(guest.get("maxcpu"))),
         # Fallback layer — Beszel / node-exporter override these
         # when they match the same host. Empty on pre-schema Pulse
         # guests (host_platform derived from osName first word).
-        "host_platform":     platform_hint,
-        "host_agent":        "",
-        "host_kernel":       kernel_hint,
-        "host_arch":         _normalize_arch(arch_hint) if arch_hint else "",
+        "host_platform": platform_hint,
+        "host_agent": "",
+        "host_kernel": kernel_hint,
+        "host_arch": _normalize_arch(arch_hint) if arch_hint else "",
         # host_os: only the Pulse guest's osName (when present) as a
         # best-effort hint for Beszel-less hosts; Beszel's real value
         # still wins via _merge_best when both providers match.
-        "host_os":           os_hint,
+        "host_os": os_hint,
         # Single synthesised "/" entry from Pulse's aggregate disk —
         # superseded by Beszel's real per-mount list when both
         # providers match the same host.
-        "mounts":            synth_mounts,
+        "mounts": synth_mounts,
         # Network interfaces extracted from Pulse guest config — same
         # shape as Beszel's network_ifaces so the frontend doesn't
         # care which provider filled the array.
-        "network_ifaces":    net_ifaces,
-        "exporter_error":    None,
-        "pulse_status":      str(guest.get("status") or "unknown"),
+        "network_ifaces": net_ifaces,
+        "exporter_error": None,
+        "pulse_status": str(guest.get("status") or "unknown"),
         # Empty when we can't determine kind — template's ``x-if``
         # hides the Proxmox row in that case so we never show a
         # placeholder like "GUEST" next to "Proxmox".
-        "pulse_kind":        kind,
-        "pulse_vmid":        int(_num(guest.get("vmid"))),
-        "pulse_node":        str(guest.get("node") or ""),
+        "pulse_kind": kind,
+        "pulse_vmid": int(_num(guest.get("vmid"))),
+        "pulse_node": str(guest.get("node") or ""),
     }
 
 
@@ -501,19 +522,10 @@ def extract_node_stats(node: dict) -> dict:
     """
     if not isinstance(node, dict):
         node = {}
-    gib = 1024 ** 3
-    mem = _num(node.get("mem"))
-    mem_max = _num(node.get("maxmem"))
-    disk = _num(node.get("disk"))
-    disk_max = _num(node.get("maxdisk"))
-    # version-driven; magnitude fallback.
-    if _value_is_gib(mem_max, _current_probe_base_url):
-        mem, mem_max = mem * gib, mem_max * gib
-    if _value_is_gib(disk_max, _current_probe_base_url):
-        disk, disk_max = disk * gib, disk_max * gib
-    uptime = int(_num(node.get("uptime")))
-    host_boot_ts = (time.time() - uptime) if uptime > 0 else None
-    cpu_pct = _num(node.get("cpu")) * 100  # Pulse emits 0..1
+    mem, mem_max, disk, disk_max, uptime, host_boot_ts, cpu_pct = (
+        _extract_common_resource_fields(node)
+    )
+    # Pulse emits CPU as 0..1; the helper already scales × 100.
     kernel = str(node.get("kernel") or "")
     # Pulse's node payload doesn't carry arch, so the extractor
     # used to return empty. Infer `x86_64` when the kernel ends with
@@ -524,27 +536,61 @@ def extract_node_stats(node: dict) -> dict:
     if kernel.lower().rstrip().endswith("-pve"):
         inferred_arch = _normalize_arch("x86_64")
     return {
-        "host_mem_total":   int(mem_max),
-        "host_mem_used":    int(mem),
-        "host_mem_avail":   max(0, int(mem_max - mem)),
-        "host_disk_total":  int(disk_max),
-        "host_disk_used":   int(disk),
-        "host_disk_free":   max(0, int(disk_max - disk)),
-        "host_uptime_s":    uptime,
-        "host_boot_ts":     host_boot_ts,
+        "host_mem_total": int(mem_max),
+        "host_mem_used": int(mem),
+        "host_mem_avail": max(0, int(mem_max - mem)),
+        "host_disk_total": int(disk_max),
+        "host_disk_used": int(disk),
+        "host_disk_free": max(0, int(disk_max - disk)),
+        "host_uptime_s": uptime,
+        "host_boot_ts": host_boot_ts,
         "host_cpu_percent": cpu_pct,
         "host_mem_percent": (mem / mem_max * 100) if mem_max > 0 else 0,
         "host_disk_percent": (disk / disk_max * 100) if disk_max > 0 else 0,
-        "host_cores":       int(_num(node.get("maxcpu"))),
-        "host_kernel":      kernel,
-        "host_platform":    str(node.get("pveversion") or "Proxmox VE"),
-        "host_os":          str(node.get("os") or ""),
-        "host_arch":        inferred_arch,
-        "host_agent":       str(node.get("pveversion") or ""),
-        "mounts":           [],
-        "exporter_error":   None,
-        "pulse_status":     str(node.get("status") or "unknown"),
+        "host_cores": int(_num(node.get("maxcpu"))),
+        "host_kernel": kernel,
+        "host_platform": str(node.get("pveversion") or "Proxmox VE"),
+        "host_os": str(node.get("os") or ""),
+        "host_arch": inferred_arch,
+        "host_agent": str(node.get("pveversion") or ""),
+        "mounts": [],
+        "exporter_error": None,
+        "pulse_status": str(node.get("status") or "unknown"),
     }
+
+
+def _register_pulse_host_keys(
+    record: dict,
+    stats: dict,
+    add: "callable",
+    *,
+    name_keys: tuple[str, ...],
+    id_keys: tuple[str, ...],
+) -> list[str]:
+    """Index a Pulse host record under every name + id key the operator
+    might use to look it up. Shared between the ``hosts`` and
+    ``dockerHosts`` array walkers — they only differ in which name /
+    id keys their schema uses. Sets ``stats["pulse_name"]`` to the
+    first key registered, mirroring the original inline behaviour.
+    """
+    keys_added: list[str] = []
+    for alt in name_keys:
+        v = (record.get(alt) or "").strip() if isinstance(record.get(alt), str) else ""
+        if v and v not in keys_added:
+            add(v, stats)
+            keys_added.append(v)
+    host_id_raw = None
+    for k in id_keys:
+        host_id_raw = record.get(k)
+        if host_id_raw:
+            break
+    if isinstance(host_id_raw, str) and host_id_raw.strip():
+        hid = host_id_raw.strip()
+        if hid not in keys_added:
+            add(hid, stats)
+            keys_added.append(hid)
+    stats["pulse_name"] = keys_added[0] if keys_added else ""
+    return keys_added
 
 
 async def probe_pulse(
@@ -754,8 +800,8 @@ async def probe_pulse(
     # and we fall back to the synthesised single "/" entry.
     if guests:
         g0 = guests[0] or {}
-        mp_keys = [k for k in ("disks", "filesystems", "mountpoints",
-                               "storage") if k in g0]
+        mp_keys: list[str] = [k for k in ("disks", "filesystems", "mountpoints",
+                                          "storage") if k in g0]
         if isinstance(g0.get("config"), dict) and "mountpoints" in g0["config"]:
             mp_keys.append("config.mountpoints")
         parsed = _pulse_mounts(g0, 1024 ** 3)
@@ -806,20 +852,11 @@ async def probe_pulse(
             # (operator's curated `pulse_name` typically matches
             # this), then `hostname`, then `name`. Each non-empty
             # alias gets registered so lookup is forgiving.
-            keys_added = []
-            for alt in ("host", "hostname", "name"):
-                v = (ph.get(alt) or "").strip() if isinstance(ph.get(alt), str) else ""
-                if v and v not in keys_added:
-                    _add(v, stats)
-                    keys_added.append(v)
-            # Also register under the host's id (often a UUID-ish
-            # string) so curated mappings using the id resolve.
-            host_id = ph.get("id")
-            if host_id and isinstance(host_id, str) and host_id.strip():
-                if host_id.strip() not in keys_added:
-                    _add(host_id.strip(), stats)
-                    keys_added.append(host_id.strip())
-            stats["pulse_name"] = keys_added[0] if keys_added else ""
+            keys_added = _register_pulse_host_keys(
+                ph, stats, _add,
+                name_keys=("host", "hostname", "name"),
+                id_keys=("id",),
+            )
             if keys_added:
                 pulse_hosts_added += 1
     print(f"[pulse] probe: pulse_hosts_array_added={pulse_hosts_added} "
@@ -839,18 +876,11 @@ async def probe_pulse(
                 continue
             stats = extract_pulse_host_stats(dh)
             stats["pulse_kind"] = "docker_host"  # distinguishable from plain "host"
-            keys_added = []
-            for alt in ("hostname", "displayName", "name"):
-                v = (dh.get(alt) or "").strip() if isinstance(dh.get(alt), str) else ""
-                if v and v not in keys_added:
-                    _add(v, stats)
-                    keys_added.append(v)
-            host_id = dh.get("id") or dh.get("agentId") or dh.get("machineId")
-            if host_id and isinstance(host_id, str) and host_id.strip():
-                if host_id.strip() not in keys_added:
-                    _add(host_id.strip(), stats)
-                    keys_added.append(host_id.strip())
-            stats["pulse_name"] = keys_added[0] if keys_added else ""
+            keys_added = _register_pulse_host_keys(
+                dh, stats, _add,
+                name_keys=("hostname", "displayName", "name"),
+                id_keys=("id", "agentId", "machineId"),
+            )
             if keys_added:
                 pulse_docker_hosts_added += 1
     print(f"[pulse] probe: pulse_docker_hosts_added={pulse_docker_hosts_added} "
@@ -945,7 +975,7 @@ def extract_pulse_host_stats(host: dict) -> dict:
     # Free is sometimes the only path provided; derive used from total-free.
     if mem_used == 0 and mem_max > 0:
         mem_free = _first_non_zero(["memory", "free"])
-        if mem_free > 0 and mem_free < mem_max:
+        if 0 < mem_free < mem_max:
             mem_used = mem_max - mem_free
 
     # Disk — Pulse v4's `disks[]` is an array; first entry is the
@@ -996,9 +1026,9 @@ def extract_pulse_host_stats(host: dict) -> dict:
             # Skip loopback / docker bridges to align with the
             # node-exporter convention used by host_net_sampler.
             if (name.startswith("lo") or name.startswith("docker")
-                    or name.startswith("br-") or name.startswith("veth")
-                    or name.startswith("cni") or name.startswith("flannel")
-                    or name.startswith("vmnet") or name.startswith("vEthernet")):
+                or name.startswith("br-") or name.startswith("veth")
+                or name.startswith("cni") or name.startswith("flannel")
+                or name.startswith("vmnet") or name.startswith("vEthernet")):
                 continue
             rx_total += int(_num(ni.get("rxBytes")))
             tx_total += int(_num(ni.get("txBytes")))
@@ -1010,36 +1040,36 @@ def extract_pulse_host_stats(host: dict) -> dict:
     load_15m = float(la[2]) if isinstance(la, list) and len(la) > 2 else 0.0
 
     return {
-        "host_mem_total":    int(mem_max),
-        "host_mem_used":     int(mem_used),
-        "host_mem_avail":    max(0, int(mem_max - mem_used)),
-        "host_disk_total":   int(disk_max),
-        "host_disk_used":    int(disk_used),
-        "host_disk_free":    max(0, int(disk_max - disk_used)),
-        "host_uptime_s":     uptime,
-        "host_boot_ts":      host_boot_ts,
-        "host_cpu_percent":  cpu_pct,
-        "host_mem_percent":  mem_pct,
+        "host_mem_total": int(mem_max),
+        "host_mem_used": int(mem_used),
+        "host_mem_avail": max(0, int(mem_max - mem_used)),
+        "host_disk_total": int(disk_max),
+        "host_disk_used": int(disk_used),
+        "host_disk_free": max(0, int(disk_max - disk_used)),
+        "host_uptime_s": uptime,
+        "host_boot_ts": host_boot_ts,
+        "host_cpu_percent": cpu_pct,
+        "host_mem_percent": mem_pct,
         "host_disk_percent": disk_pct,
-        "host_cores":        cores,
-        "host_platform":     platform,
-        "host_agent":        agent,
-        "host_kernel":       kernel,
-        "host_arch":         _normalize_arch(arch) if arch else "",
-        "host_os":           osname,
-        "host_load_1m":      load_1m,
-        "host_load_5m":      load_5m,
-        "host_load_15m":     load_15m,
+        "host_cores": cores,
+        "host_platform": platform,
+        "host_agent": agent,
+        "host_kernel": kernel,
+        "host_arch": _normalize_arch(arch) if arch else "",
+        "host_os": osname,
+        "host_load_1m": load_1m,
+        "host_load_5m": load_5m,
+        "host_load_15m": load_15m,
         "host_net_rx_total_bytes": rx_total if rx_total > 0 else None,
         "host_net_tx_total_bytes": tx_total if tx_total > 0 else None,
-        "mounts":            [],
-        "network_ifaces":    [],
-        "exporter_error":    None,
-        "pulse_status":      _first_str(["status"]) or "unknown",
-        "pulse_kind":        "host",
-        "pulse_vmid":        0,
-        "pulse_node":        "",
-        "pulse_hostname":    hostname,
+        "mounts": [],
+        "network_ifaces": [],
+        "exporter_error": None,
+        "pulse_status": _first_str(["status"]) or "unknown",
+        "pulse_kind": "host",
+        "pulse_vmid": 0,
+        "pulse_node": "",
+        "pulse_hostname": hostname,
     }
 
 

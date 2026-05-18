@@ -22,7 +22,6 @@ from prometheus_client import (
 )
 from prometheus_client.core import GaugeMetricFamily
 
-
 # Exported so main.py can do `Response(content=generate_latest(metrics.REGISTRY), ...)`.
 __all__ = [
     "REGISTRY",
@@ -33,7 +32,6 @@ __all__ = [
     "populate_from_cache",
     "generate_latest", "CONTENT_TYPE_LATEST",
 ]
-
 
 REGISTRY = CollectorRegistry()
 
@@ -94,6 +92,8 @@ HOST_PROVIDER_LOCK_WAIT = Histogram(
     registry=REGISTRY,
     buckets=(0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30),
 )
+
+
 # SSE event-bus health. Subscriber count + dropped
 # count are both surfaced via a single custom collector — same pattern
 # as `_CacheAgeCollector` — so the values reflect the bus's NOW-state
@@ -173,7 +173,7 @@ def populate_from_cache(cache: dict) -> None:
     (not zero) when all items are healthy, and Grafana stat panels
     render that as "No data" instead of 0.
     """
-    from collections import Counter as _C
+    from collections import Counter
 
     ITEMS_TOTAL.clear()
     STACK_OUTDATED.clear()
@@ -190,7 +190,7 @@ def populate_from_cache(cache: dict) -> None:
         for typ in ITEM_TYPES:
             ITEMS_TOTAL.labels(status=status, type=typ).set(0)
 
-    counts = _C(
+    counts = Counter(
         (i.get("status", "unknown"), i.get("type", "unknown"))
         for i in cache.get("items", [])
     )

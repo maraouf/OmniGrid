@@ -37,7 +37,6 @@ own independent probe. Merging them would muddy both APIs.
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from typing import Optional
 
@@ -46,8 +45,7 @@ import httpx
 from logic import node_exporter as _ne
 from logic import tuning
 from logic.tuning import Tunable
-from logic.db import db_conn, get_setting
-
+from logic.db import db_conn
 
 # Sanity bounds for accepting a counter delta as a valid rate.
 # - ``delta_seconds`` between 60s and 900s catches clock skew (negative or
@@ -60,14 +58,13 @@ from logic.db import db_conn, get_setting
 # above that is almost certainly a rollover, not real traffic.
 _MIN_DELTA_SECONDS = 60
 _MAX_DELTA_SECONDS = 900
-_MIN_DELTA_BYTES   = 0
-_MAX_DELTA_BYTES   = 10 * 1024 * 1024 * 1024  # 10 GB
-
+_MIN_DELTA_BYTES = 0
+_MAX_DELTA_BYTES = 10 * 1024 * 1024 * 1024  # 10 GB
 
 # Active-providers parser + curated-hosts walker live in logic/db.py —
 # single source of truth shared with main.py / gather.py / both
 # samplers .
-from logic.db import (
+from logic.db import (  # noqa: E402
     active_host_stats_providers as _active_providers,
     curated_ne_hosts as _load_curated_hosts,
 )

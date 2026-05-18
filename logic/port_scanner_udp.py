@@ -48,27 +48,25 @@ yields ``open_filtered`` so we mark them as such.
 from __future__ import annotations
 
 import asyncio
-import os
 import random
 import socket
 import struct
 import time
 from typing import Iterable, Optional
 
-
 # Default UDP port list — most-common services; covers ~95% of
 # what an operator would care about on a typical homelab fleet.
 DEFAULT_UDP_PORTS: tuple[int, ...] = (
-    53,    # DNS
-    67,    # DHCP server
-    69,    # TFTP
-    123,   # NTP
-    137,   # NetBIOS Name Service
-    161,   # SNMP
-    500,   # IPsec IKE (no probe — open_filtered only)
-    514,   # Syslog (no response — open_filtered only)
-    520,   # RIP routing
-    623,   # IPMI-RMCP
+    53,  # DNS
+    67,  # DHCP server
+    69,  # TFTP
+    123,  # NTP
+    137,  # NetBIOS Name Service
+    161,  # SNMP
+    500,  # IPsec IKE (no probe — open_filtered only)
+    514,  # Syslog (no response — open_filtered only)
+    520,  # RIP routing
+    623,  # IPMI-RMCP
     1194,  # OpenVPN (no probe — open_filtered only)
     1701,  # L2TP
     1812,  # RADIUS auth
@@ -77,32 +75,31 @@ DEFAULT_UDP_PORTS: tuple[int, ...] = (
     4500,  # IPsec NAT-T
     5060,  # SIP
     5353,  # mDNS
-    51820, # WireGuard
+    51820,  # WireGuard
 )
 
-
 _UDP_SERVICE_HINTS: dict[int, str] = {
-    53:    "DNS",
-    67:    "DHCP",
-    68:    "DHCP-client",
-    69:    "TFTP",
-    123:   "NTP",
-    137:   "NetBIOS-NS",
-    138:   "NetBIOS-DGM",
-    161:   "SNMP",
-    162:   "SNMP-trap",
-    500:   "IPsec-IKE",
-    514:   "Syslog",
-    520:   "RIP",
-    623:   "IPMI-RMCP",
-    1194:  "OpenVPN",
-    1701:  "L2TP",
-    1812:  "RADIUS",
-    1813:  "RADIUS-acct",
-    1900:  "SSDP",
-    4500:  "IPsec-NAT-T",
-    5060:  "SIP",
-    5353:  "mDNS",
+    53: "DNS",
+    67: "DHCP",
+    68: "DHCP-client",
+    69: "TFTP",
+    123: "NTP",
+    137: "NetBIOS-NS",
+    138: "NetBIOS-DGM",
+    161: "SNMP",
+    162: "SNMP-trap",
+    500: "IPsec-IKE",
+    514: "Syslog",
+    520: "RIP",
+    623: "IPMI-RMCP",
+    1194: "OpenVPN",
+    1701: "L2TP",
+    1812: "RADIUS",
+    1813: "RADIUS-acct",
+    1900: "SSDP",
+    4500: "IPsec-NAT-T",
+    5060: "SIP",
+    5353: "mDNS",
     51820: "WireGuard",
 }
 
@@ -156,25 +153,25 @@ def _dhcp_probe() -> bytes:
     against a server that has the helper port open even without the
     broadcast dance). Returns a minimal valid BOOTP+DHCP packet.
     """
-    op = 1            # BOOTREQUEST
-    htype = 1         # Ethernet
+    op = 1  # BOOTREQUEST
+    htype = 1  # Ethernet
     hlen = 6
     hops = 0
     xid = random.randint(0, 0xFFFFFFFF)
     secs = 0
-    flags = 0x8000    # broadcast bit
+    flags = 0x8000  # broadcast bit
     ciaddr = b"\x00" * 4
     yiaddr = b"\x00" * 4
     siaddr = b"\x00" * 4
     giaddr = b"\x00" * 4
     chaddr = bytes(random.randint(0, 255) for _ in range(6)) + b"\x00" * 10
-    sname  = b"\x00" * 64
-    file_  = b"\x00" * 128
-    magic  = b"\x63\x82\x53\x63"  # DHCP magic cookie
+    sname = b"\x00" * 64
+    file_ = b"\x00" * 128
+    magic = b"\x63\x82\x53\x63"  # DHCP magic cookie
     # Options: type=DISCOVER (53,1,1), end (255)
     options = b"\x35\x01\x01" + b"\xff"
     # Pad to BOOTP minimum payload
-    options = options + b"\x00" * (60 - len(options))
+    options += b"\x00" * (60 - len(options))
     return (
         struct.pack("!BBBBIHH", op, htype, hlen, hops, xid, secs, flags)
         + ciaddr + yiaddr + siaddr + giaddr + chaddr + sname + file_
@@ -199,8 +196,8 @@ def _snmp_probe(community: str = "public") -> bytes:
     rid_bytes = request_id.to_bytes(4, "big")
     pdu_body = (
         b"\x02\x04" + rid_bytes
-        + b"\x02\x01\x00"   # error-status = 0
-        + b"\x02\x01\x00"   # error-index = 0
+        + b"\x02\x01\x00"  # error-status = 0
+        + b"\x02\x01\x00"  # error-index = 0
         + varbind_list
     )
     pdu = bytes([0xA0, len(pdu_body)]) + pdu_body
@@ -308,6 +305,7 @@ class _UdpProtocol(asyncio.DatagramProtocol):
     """Single-shot DatagramProtocol — completes a Future when the
     first response (or ICMP error) lands.
     """
+
     def __init__(self, future: asyncio.Future):
         self._future = future
         self.transport: Optional[asyncio.DatagramTransport] = None
@@ -431,15 +429,10 @@ async def udp_scan_host(
             return await _probe_one_udp(target, p, timeout_s,
                                         snmp_community=snmp_community)
 
-    t0 = time.monotonic()
-    try:
-        results = await asyncio.gather(*[_bounded(p) for p in port_list])
-        err = None
-    except Exception as e:  # noqa: BLE001
-        results = []
-        err = f"udp scan failed: {type(e).__name__}: {e}"
-    duration_ms = int((time.monotonic() - t0) * 1000.0)
-    results.sort(key=lambda r: r.get("port", 0))
+    from logic.port_scanner import gather_port_probes as _gather_port_probes
+    results, err, duration_ms = await _gather_port_probes(
+        [_bounded(p) for p in port_list], "udp scan failed",
+    )
     open_count = sum(1 for r in results if r.get("open"))
     state_counts: dict[str, int] = {}
     for r in results:
@@ -454,11 +447,11 @@ async def udp_scan_host(
     for r in results:
         r.pop("_closed_reason", None)
     return {
-        "host":        target,
-        "scanned_at":  int(time.time()),
-        "ports":       results,
+        "host": target,
+        "scanned_at": int(time.time()),
+        "ports": results,
         "duration_ms": duration_ms,
-        "error":       err,
+        "error": err,
     }
 
 
@@ -474,9 +467,9 @@ def open_udp_ports_only(scan_result: dict) -> list[dict]:
             continue
         port = int(p.get("port") or 0)
         out.append({
-            "port":           port,
-            "protocol":       "udp",
-            "service_hint":   _UDP_SERVICE_HINTS.get(port, ""),
+            "port": port,
+            "protocol": "udp",
+            "service_hint": _UDP_SERVICE_HINTS.get(port, ""),
             "banner_excerpt": p.get("banner_excerpt") or "",
         })
     return out

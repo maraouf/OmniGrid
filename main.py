@@ -15,7 +15,7 @@ Endpoints:
   GET  /api/healthz
   GET  /metrics                       - Prometheus scrape endpoint
 """
-# noinspection PyBroadException,PyProtectedMember,PyShadowingNames,PyArgumentEqualDefault,PyMissingOrEmptyDocstring,PyShadowingBuiltins,PyTypeChecker,PyUnusedLocal,PyRedundantParentheses,PyChainedComparisons,PyAugmentAssignment,PyDictCreation,PyPep8,PyPep8Naming,PySimplifyBooleanCheck
+# noinspection PyBroadException,PyProtectedMember,PyShadowingNames,PyArgumentEqualDefault,PyMissingOrEmptyDocstring,PyShadowingBuiltins,PyTypeChecker,PyUnusedLocal,PyRedundantParentheses,PyChainedComparisons,PyAugmentAssignment,PyDictCreation,PyPep8,PyPep8Naming,PySimplifyBooleanCheck,PyUnresolvedReferences
 # Module-wide suppression for the recurring project-pattern lint noise that
 # the operator validates and accepts: defensive broad-except guards (project
 # convention is to catch + log + continue at API-boundary sites so a single
@@ -43,7 +43,7 @@ import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Annotated, Any, Optional, Set
+from typing import Annotated, Any, Optional, Set, cast
 
 # Load .env BEFORE any os.getenv() calls (including those done at import time
 # in auth.py). The file lives in the /app bind-mount and travels with the
@@ -191,7 +191,7 @@ def _invalidate_totp_policy_cache() -> None:
     _totp_policy_cache["ts"] = 0.0
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 def _resolve_totp_policy() -> dict:
     """Return the resolved TOTP policy as a dict with concrete types.
 
@@ -399,9 +399,11 @@ async def _lifespan(app: FastAPI):
         # — does NOT fire any runner (would legitimately spawn ops).
         try:
             sched_audit = schedules.audit_schedule_kinds()
-            if (sched_audit.get("missing_async")
+            if (
+                sched_audit.get("missing_async")
                 or sched_audit.get("name_mismatches")
-                or sched_audit.get("missing_docstrings")):
+                or sched_audit.get("missing_docstrings")
+            ):
                 print(
                     f"[boot] schedule kinds audit: "
                     f"missing_async={sched_audit.get('missing_async') or []} "
@@ -1723,8 +1725,9 @@ def _actor_from(request: Request) -> str:
     Future: the scheduler will pass actor="system" explicitly.
     """
     user = getattr(request.state, "user", None)
-    if user and getattr(user, "username", None):
-        return user.username
+    name = getattr(user, "username", None) if user is not None else None
+    if isinstance(name, str) and name:
+        return name
     return (request.headers.get("x-forwarded-user") or "ui").strip() or "ui"
 
 
@@ -3977,7 +3980,7 @@ async def api_set_settings(
     return result
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 async def _api_set_settings_inner(s, request, _portainer):
     # Per-service master switches. Persisted as "true" / "false"
     # strings to match every other boolean toggle in the settings table.
@@ -4122,11 +4125,14 @@ async def _api_set_settings_inner(s, request, _portainer):
     # Invalidate the policy cache so a Save in
     # Admin -> Config takes effect on the next call instead of waiting
     # out the TTL window. Cheap — just resets the dict.
-    if (s.totp_allowed is not None or s.totp_required_for_admins is not None
+    if (
+        s.totp_allowed is not None
+        or s.totp_required_for_admins is not None
         or s.totp_required_for_users is not None
         or s.totp_lockout_max_failures is not None
         or s.totp_lockout_minutes is not None
-        or s.passkeys_allowed is not None):
+        or s.passkeys_allowed is not None
+    ):
         _invalidate_totp_policy_cache()
     # Open-Meteo upstream — strips trailing slashes so `<base>/v1/...`
     # composition in api_weather stays stable whether the operator
@@ -4372,7 +4378,7 @@ async def _api_set_settings_inner(s, request, _portainer):
         _val = getattr(s, _field, None)
         if _val is None:
             continue
-        _trim = _val.strip()
+        _trim = str(_val).strip()
         if _trim == "":
             set_setting(_field, "")
             continue
@@ -4421,8 +4427,10 @@ async def _api_set_settings_inner(s, request, _portainer):
                 detail=f"ssh_default_private_key failed to parse: {type(e).__name__}: {e}",
             )
         set_setting(Settings.SSH_DEFAULT_PRIVATE_KEY, s.ssh_default_private_key)
-    if s.ssh_default_private_key_passphrase is not None \
-        and s.ssh_default_private_key_passphrase.strip() != "":
+    if (
+        s.ssh_default_private_key_passphrase is not None
+        and s.ssh_default_private_key_passphrase.strip() != ""
+    ):
         set_setting(
             Settings.SSH_DEFAULT_PRIVATE_KEY_PASSPHRASE,
             s.ssh_default_private_key_passphrase,
@@ -4430,8 +4438,10 @@ async def _api_set_settings_inner(s, request, _portainer):
     # SSH password auth. Blank = keep-current (matches the _set flag
     # convention). Non-empty replaces. No validation needed at save
     # time — asyncssh raises on connect if the password is wrong.
-    if s.ssh_default_password is not None \
-        and s.ssh_default_password.strip() != "":
+    if (
+        s.ssh_default_password is not None
+        and s.ssh_default_password.strip() != ""
+    ):
         set_setting(Settings.SSH_DEFAULT_PASSWORD, s.ssh_default_password)
     if s.ssh_fqdn_suffix is not None:
         # Normalise — operator might paste with or without leading dot.
@@ -4561,7 +4571,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 number_val = None
             else:
                 try:
-                    number_val = int(number_raw)
+                    number_val = int(cast(Any, number_raw))
                     if number_val <= 0:
                         number_val = None
                 except (TypeError, ValueError):
@@ -4726,8 +4736,10 @@ async def _api_set_settings_inner(s, request, _portainer):
                 if _is_parent_child(a, b):
                     continue
                 # Standard interval-overlap test.
-                if a["range_start"] <= b["range_end"] \
-                    and b["range_start"] <= a["range_end"]:
+                if (
+                    a["range_start"] <= b["range_end"]
+                    and b["range_start"] <= a["range_end"]
+                ):
                     raise HTTPException(
                         400,
                         f"host_groups: '{a['name']}' "
@@ -4794,8 +4806,10 @@ async def _api_set_settings_inner(s, request, _portainer):
     if s.asset_inventory_verify_tls is not None:
         set_setting(Settings.ASSET_INVENTORY_VERIFY_TLS,
                     "true" if s.asset_inventory_verify_tls else "false")
-    if s.asset_inventory_client_secret is not None \
-        and s.asset_inventory_client_secret.strip() != "":
+    if (
+        s.asset_inventory_client_secret is not None
+        and s.asset_inventory_client_secret.strip() != ""
+    ):
         set_setting(Settings.ASSET_INVENTORY_CLIENT_SECRET,
                     s.asset_inventory_client_secret)
     if s.clear_asset_inventory_client_secret:
@@ -4805,8 +4819,10 @@ async def _api_set_settings_inner(s, request, _portainer):
         if mode not in ("oauth2", "lifetime_token"):
             mode = "oauth2"
         set_setting(Settings.ASSET_INVENTORY_AUTH_MODE, mode)
-    if s.asset_inventory_lifetime_token is not None \
-        and s.asset_inventory_lifetime_token.strip() != "":
+    if (
+        s.asset_inventory_lifetime_token is not None
+        and s.asset_inventory_lifetime_token.strip() != ""
+    ):
         set_setting(Settings.ASSET_INVENTORY_LIFETIME_TOKEN,
                     s.asset_inventory_lifetime_token.strip())
     if s.clear_asset_inventory_lifetime_token:
@@ -4894,8 +4910,8 @@ async def _api_set_settings_inner(s, request, _portainer):
                         (_v or "").strip().rstrip("/"))
         # api_key — keep-current-if-blank
         _v = getattr(s, f"ai_provider_{_ai_name}_api_key", None)
-        if _v is not None and (_v or "").strip():
-            set_setting(ai_provider_api_key_key(_ai_name), _v.strip())
+        if _v is not None and str(_v).strip():
+            set_setting(ai_provider_api_key_key(_ai_name), str(_v).strip())
 
     _cache["ts"] = 0  # force the next gather to re-read alias settings
 
@@ -4967,7 +4983,7 @@ async def _api_set_settings_inner(s, request, _portainer):
         _val = getattr(s, _k, None)
         if _val is None:
             continue
-        _raw = _val.strip()
+        _raw = str(_val).strip()
         if _raw == "":
             set_setting(_k, "")
             continue
@@ -5502,7 +5518,7 @@ async def api_admin_stats_database(
     return out
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/admin/stats/network")
 async def api_admin_stats_network(
     hours: int = 168,
@@ -5780,7 +5796,7 @@ async def api_admin_stats_network(
     return out
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/admin/stats/incidents")
 async def api_admin_stats_incidents(
     hours: int = 168,
@@ -5857,7 +5873,7 @@ async def api_admin_stats_incidents(
             out["total_failures"] += 1
         elif kind == "recovered":
             out["total_recoveries"] += 1
-        p = per_provider.setdefault(provider, {
+        p: dict = per_provider.setdefault(provider, {
             "provider": provider,
             "failures": 0,
             "recoveries": 0,
@@ -6572,7 +6588,7 @@ async def api_admin_stats_samples_prune_orphan(
     return {"ok": True, "deleted": deleted, "table": table, "host_id": host_id}
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/admin/ai/dashboard")
 async def api_admin_ai_dashboard(
     hours: int = 24,
@@ -6702,8 +6718,8 @@ async def api_admin_ai_dashboard(
                     })
 
             # Summary-wide pass rate + averages.
-            non_running = summary["success"] + summary["error"]
-            summary["pass_rate"] = (summary["success"] / non_running) if non_running else 0.0
+            non_running = int(summary["success"] or 0) + int(summary["error"] or 0)
+            summary["pass_rate"] = (int(summary["success"] or 0) / non_running) if non_running else 0.0
             agg = c.execute(
                 "SELECT AVG(response_time_ms) AS avg_rt, "
                 "       AVG(accuracy_score)   AS avg_acc "
@@ -6883,10 +6899,14 @@ async def api_admin_ai_test(
     api_key = (body.get("api_key") or "").strip()
     if not api_key:
         api_key = (get_setting(ai_provider_api_key_key(p)) or "").strip()
-    model = (body.get("model") or "").strip() \
-            or (get_setting(ai_provider_model_key(p)) or "").strip()
-    base_url = (body.get("base_url") or "").strip() \
-               or (get_setting(ai_provider_base_url_key(p)) or "").strip()
+    model = (
+        (body.get("model") or "").strip()
+        or (get_setting(ai_provider_model_key(p)) or "").strip()
+    )
+    base_url = (
+        (body.get("base_url") or "").strip()
+        or (get_setting(ai_provider_base_url_key(p)) or "").strip()
+    )
     return await _ai.test_provider(
         p,
         api_key=api_key,
@@ -7418,7 +7438,7 @@ async def api_ai_memory_forget(
     return {"ok": True, "deleted": deleted}
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/ai/host-filter")
 async def api_ai_host_filter(
     body: AiPaletteIn,
@@ -8147,7 +8167,7 @@ async def api_beszel_test(
     ))
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/telegram/links")
 async def api_telegram_links_list(
     _admin: AdminUser,
@@ -8235,7 +8255,7 @@ async def api_telegram_test(
     return _stamp_test_success("telegram", result)
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/snmp/test")
 async def api_snmp_test(
     request: Request,
@@ -8465,15 +8485,21 @@ async def api_asset_inventory_test(
     else:
         verify_tls = bool(body_verify_tls)
     if auth_mode == "lifetime_token":
-        base_url = (body.get("base_url") or "").strip().rstrip("/") \
-                   or (get_setting(Settings.ASSET_INVENTORY_BASE_URL) or "").strip().rstrip("/")
+        base_url = (
+            (body.get("base_url") or "").strip().rstrip("/")
+            or (get_setting(Settings.ASSET_INVENTORY_BASE_URL) or "").strip().rstrip("/")
+        )
         lifetime_token = body.get("lifetime_token") or ""
         if not lifetime_token:
             lifetime_token = get_setting(Settings.ASSET_INVENTORY_LIFETIME_TOKEN) or ""
-        service = (body.get("service") or "").strip() \
-                  or (get_setting(Settings.ASSET_INVENTORY_SERVICE) or "").strip()
-        action = (body.get("action") or "").strip() \
-                 or (get_setting(Settings.ASSET_INVENTORY_ACTION) or "").strip()
+        service = (
+            (body.get("service") or "").strip()
+            or (get_setting(Settings.ASSET_INVENTORY_SERVICE) or "").strip()
+        )
+        action = (
+            (body.get("action") or "").strip()
+            or (get_setting(Settings.ASSET_INVENTORY_ACTION) or "").strip()
+        )
 
         def _bound(from_body, setting_key):
             raw = from_body
@@ -8510,10 +8536,14 @@ async def api_asset_inventory_test(
             out["error_params"] = result.get("error_params", {})
         return out
     # Default: OAuth2 client_credentials.
-    token_url = (body.get("token_url") or "").strip() \
-                or (get_setting(Settings.ASSET_INVENTORY_TOKEN_URL) or "")
-    client_id = (body.get("client_id") or "").strip() \
-                or (get_setting(Settings.ASSET_INVENTORY_CLIENT_ID) or "")
+    token_url = (
+        (body.get("token_url") or "").strip()
+        or (get_setting(Settings.ASSET_INVENTORY_TOKEN_URL) or "")
+    )
+    client_id = (
+        (body.get("client_id") or "").strip()
+        or (get_setting(Settings.ASSET_INVENTORY_CLIENT_ID) or "")
+    )
     scope = (body.get("scope") or "").strip() \
             or (get_setting(Settings.ASSET_INVENTORY_SCOPE) or "")
     client_secret = body.get("client_secret") or ""
@@ -8768,7 +8798,7 @@ def _format_provider_test_summary(
     """
     err = probe_result.get("error")
     if err:
-        return {"ok": False, "detail": _humanise_probe_error(err, target_label)}
+        return {"ok": False, "detail": _humanise_probe_error(str(err), target_label)}
     hosts = probe_result.get("hosts") or {}
     names = sorted(hosts.keys())
     label = item_singular if len(hosts) == 1 else item_plural
@@ -8780,7 +8810,7 @@ def _format_provider_test_summary(
             count_key: len(hosts), items_key: names}
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/hosts")
 async def api_hosts(force: bool = False):
     """Hosts view — returns the CURATED host list merged with live
@@ -9211,7 +9241,7 @@ def _kick_background_stats_gather() -> bool:
         return False
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 async def _get_host_provider_state(force: bool = False) -> dict:
     """Fetch + cache the provider state needed to merge any host.
 
@@ -9229,8 +9259,10 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     cache_ttl = tuning.tuning_int(Tunable.HOST_PROVIDER_CACHE_TTL_SECONDS)
     cached = _host_provider_cache.get("state")
     cached_key = _host_provider_cache.get("key")
-    if (not force and cached and cached_key == cache_key
-        and (now - _host_provider_cache.get("ts", 0.0)) < cache_ttl):
+    if (
+        not force and cached and cached_key == cache_key
+        and (now - _host_provider_cache.get("ts", 0.0)) < cache_ttl
+    ):
         return cached
 
     # Single-flight — only ONE concurrent caller does the cold-
@@ -9265,8 +9297,10 @@ async def _get_host_provider_state(force: bool = False) -> dict:
         now2 = time.time()
         cached2 = _host_provider_cache.get("state")
         cached_key2 = _host_provider_cache.get("key")
-        if (cached2 and cached_key2 == cache_key
-            and (now2 - _host_provider_cache.get("ts", 0.0)) < cache_ttl):
+        if (
+            cached2 and cached_key2 == cache_key
+            and (now2 - _host_provider_cache.get("ts", 0.0)) < cache_ttl
+        ):
             return cached2
 
         return await _do_host_provider_probe(active, cache_key)
@@ -9514,7 +9548,7 @@ def _populate_detected_ports(host_id: str, merged: dict) -> bool:
         return False
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                           client_id: str | None = None) -> tuple[dict, list[str]]:
     """Merge one curated host with provider data. Runs NE + Webmin
@@ -9751,7 +9785,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                             client_id=client_id,
                             ok=bool(result.get("hosts") or {}),
                         )
-                    if (result.get("hosts") or {}):
+                    if result.get("hosts") or {}:
                         _snmp_host_cache[cache_key] = (now, result)
                         _snmp_host_fail_cache.pop(cache_key, None)
                         # Per-(snmp, host) success path. Routes through
@@ -9989,7 +10023,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                     # (5s TTL) so a hung Webmin doesn't re-burn 20s on
                     # every parallel call. Recovery is felt within 5s
                     # because the fail cache is short.
-                    if (result.get("hosts") or {}):
+                    if result.get("hosts") or {}:
                         _webmin_host_cache[h["id"]] = (now, result)
                         _webmin_host_fail_cache.pop(h["id"], None)
                         # Per-(webmin, host) success path. Routes through
@@ -10059,7 +10093,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                             except Exception as ex:
                                 print(f"[hosts] webmin failure-record "
                                       f"failed for {h.get('id')!r}: {ex}")
-            hosts_map = result.get("hosts") or {}
+            hosts_map: dict = result.get("hosts") or {} if isinstance(result, dict) else {}
             if hosts_map:
                 stats = next(iter(hosts_map.values()))
                 _merge_best(merged, stats)
@@ -10465,7 +10499,7 @@ def _resolve_ping_target(h: dict) -> Optional[str]:
     return candidate or (h.get("id") or "")
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 def _shape_host_api_row(
     h: dict,
     merged: dict,
@@ -10572,6 +10606,8 @@ def _shape_host_api_row(
         host_status = "unconfigured"
     else:
         host_status = "unknown"
+    _ping_port_raw = (h.get("ping") or {}).get("port")
+    _ping_port: Optional[int] = int(_ping_port_raw) if _ping_port_raw is not None else None
     return {
         "id": h["id"],
         "name": h["id"],
@@ -10668,8 +10704,7 @@ def _shape_host_api_row(
         # every ping-enabled host with no indication of which port /
         # transport was actually being probed. Empty / null = inherit
         # global default. Transport is one of `tcp` / `icmp` / null.
-        # noinspection PyUnboundLocalVariable,PyTypeChecker
-        "ping_port": (int(_pp) if (_pp := (h.get("ping") or {}).get("port")) is not None else None),
+        "ping_port": _ping_port,
         "ping_transport": ((h.get("ping") or {}).get("transport") or None),
         # Resolved ping TARGET — what `logic.ping_sampler._probe_one`
         # actually feeds to `probe_ping`. Resolution chain mirrors
@@ -10683,9 +10718,9 @@ def _shape_host_api_row(
         # parsed from the curated `url` field.
         "ping_target": _resolve_ping_target(h),
         "ping_alive": bool(s.get("host_ping_alive")) if s.get("host_ping_alive") is not None else None,
-        # noinspection PyUnboundLocalVariable,PyTypeChecker
+        # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
         "ping_rtt_ms": (float(_prtt) if (_prtt := s.get("host_ping_rtt_ms")) is not None else None),
-        # noinspection PyUnboundLocalVariable,PyTypeChecker
+        # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
         "ping_loss_pct": (float(_plp) if (_plp := s.get("host_ping_loss_pct")) is not None else None),
         # Load averages (node-exporter primary, Beszel agents emit
         # `la=[1m,5m,15m]` which `extract_stats` now also surfaces here
@@ -10743,7 +10778,7 @@ def _shape_host_api_row(
         "host_health": s.get("host_health") or "",
         "host_contact": s.get("host_contact") or "",
         "host_location": s.get("host_location") or "",
-        # noinspection PyUnboundLocalVariable,PyTypeChecker
+        # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
         "host_temp_c": (float(_htc) if (_htc := s.get("host_temp_c")) is not None else None),
         "host_upgrade_status": s.get("host_upgrade_status") or "",
         # per-core CPU + UCD memory breakdown for the new
@@ -10757,14 +10792,14 @@ def _shape_host_api_row(
         # APC PowerNet-MIB UPS. Present only when the
         # host responded to upsBasicIdentModel / upsBasicOutputStatus.
         "host_ups_status": s.get("host_ups_status") or "",
-        # noinspection PyUnboundLocalVariable,PyTypeChecker
+        # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
         "host_battery_percent": (float(_hbp) if (_hbp := s.get("host_battery_percent")) is not None else None),
-        # noinspection PyUnboundLocalVariable,PyTypeChecker
+        # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
         "host_battery_runtime_s": (int(_hbrs) if (_hbrs := s.get("host_battery_runtime_s")) is not None else None),
-        # noinspection PyUnboundLocalVariable,PyTypeChecker
+        # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
         "host_battery_temp_c": (float(_hbtc) if (_hbtc := s.get("host_battery_temp_c")) is not None else None),
         "host_battery_status": s.get("host_battery_status") or "",
-        # noinspection PyUnboundLocalVariable,PyTypeChecker
+        # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
         "host_load_percent": (float(_hlp) if (_hlp := s.get("host_load_percent")) is not None else None),
         # Printer-MIB. Empty list / 0 / "" → frontend cards hide.
         "printer_page_count": int(s.get("printer_page_count") or 0),
@@ -10788,7 +10823,7 @@ def _shape_host_api_row(
         "host_dell_amperages": list(s.get("host_dell_amperages") or []),
         "host_dell_phys_disks": list(s.get("host_dell_phys_disks") or []),
         "host_dell_virt_disks": list(s.get("host_dell_virt_disks") or []),
-        # noinspection PyUnboundLocalVariable,PyTypeChecker
+        # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
         "host_dell_power_watts": (float(_hdpw) if (_hdpw := s.get("host_dell_power_watts")) is not None else None),
         "host_bios_version": s.get("host_bios_version") or "",
         "host_bios_date": s.get("host_bios_date") or "",
@@ -10950,7 +10985,7 @@ _PROVIDER_STATE_CACHE_TTL = 5.0
 _provider_state_cache: dict = {"ts": 0.0, "by_host": {}}
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 def _build_provider_state_index() -> dict:
     """One-shot full-table scan; returns ``{host_id: {provider: stateDict}}``.
 
@@ -11105,6 +11140,7 @@ def _is_provider_paused(host_id: str, provider: str) -> bool:
     return bool(row and row[0])
 
 
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/hosts/list")
 async def api_hosts_list(force: bool = False):
     """Skeleton endpoint — curated host list + global state, NO
@@ -11460,7 +11496,7 @@ def _load_hosts_config() -> list[dict]:
     return clean
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 def _clean_host_port_scan(raw: Any) -> dict:
     """Normalise the per-host ``port_scan`` sub-dict.
 
@@ -11506,7 +11542,7 @@ def _clean_host_port_scan(raw: Any) -> dict:
     return out
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 def _clean_host_ssh(raw: Any) -> dict:
     """Normalise the per-host ``ssh`` sub-dict.
 
@@ -11570,12 +11606,14 @@ def _clean_host_ssh(raw: Any) -> dict:
     # every save, not just at import, and any "fall back to enabled
     # when not explicitly disabled" branch would re-enable rows the
     # operator just unchecked elsewhere in the same save.
+    # `is True` is intentional — see docstring above
+    # noinspection PySimplifyBooleanCheck,PyComparisonWithCallableTrueFalse
     if raw.get("enabled") is True:
         out["enabled"] = True
     return out
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 def _clean_host_ping(raw: Any) -> dict:
     """Normalise the per-host ``ping`` sub-dict.
 
@@ -11606,7 +11644,7 @@ def _clean_host_ping(raw: Any) -> dict:
     return out
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 def _clean_host_snmp(raw: Any) -> dict:
     """Normalise the per-host ``snmp`` override sub-dict.
 
@@ -12069,7 +12107,7 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
     return total
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/hosts/{host_id}/resume-sampling")
 async def api_hosts_resume_sampling(
     host_id: str,
@@ -12141,7 +12179,7 @@ async def api_hosts_resume_sampling(
         # so we walk and clear known (host_id, *) pairs. Implementation
         # detail: Cooldown stores keys as a tuple in `._timers`.
         timers = getattr(_ssh._auth_cooldown_timer, "_armed", None)
-        if timers:
+        if timers is not None:
             doomed = [k for k in list(timers.keys())
                       if isinstance(k, tuple) and k and k[0] == (host_id or "")]
             for k in doomed:
@@ -12172,7 +12210,7 @@ async def api_hosts_resume_sampling(
             except Exception:
                 pass
         timers = getattr(_webmin._auth_cooldown_timer, "_armed", None)
-        if timers and candidates:
+        if timers is not None and candidates:
             doomed = [k for k in list(timers.keys())
                       if isinstance(k, tuple) and k and k[0] in candidates]
             for k in doomed:
@@ -12203,7 +12241,7 @@ async def api_hosts_resume_sampling(
     }
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/hosts/{host_id}/provider/{provider}/resume")
 async def api_hosts_provider_resume(
     host_id: str, provider: str,
@@ -12263,7 +12301,7 @@ async def api_hosts_provider_resume(
         try:
             from logic import snmp as _snmp
             timers = getattr(_snmp._unreachable_cooldown, "_armed", None)
-            if timers:
+            if timers is not None:
                 # Resolve the SNMP target the same way `_merge_one_host`
                 # does: alias map > row's snmp_name. Whichever matches
                 # the cool-down key gets cleared.
@@ -12312,7 +12350,7 @@ async def api_hosts_provider_resume(
                 except Exception:
                     pass
             timers = getattr(_webmin._auth_cooldown_timer, "_armed", None)
-            if timers and candidates:
+            if timers is not None and candidates:
                 doomed = [k for k in list(timers.keys())
                           if isinstance(k, tuple) and k and k[0] in candidates]
                 for k in doomed:
@@ -12330,7 +12368,7 @@ async def api_hosts_provider_resume(
         try:
             from logic import ping as _ping
             timers = getattr(_ping._unreachable_cooldown, "_armed", None)
-            if timers:
+            if timers is not None:
                 # Resolve candidate targets — `host_id` matches what
                 # the sampler passes, but operators may also configure
                 # a different host-field target via `hosts_config[].ping`.
@@ -12394,7 +12432,7 @@ async def api_hosts_provider_resume(
     }
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/hosts/test")
 async def api_hosts_test(
     body: dict,
@@ -12524,8 +12562,10 @@ async def api_hosts_test(
                 disk = st.get("host_disk_total") or 0
                 out["beszel"] = {
                     "ok": True, "skipped": False,
-                    "detail": (f"matched · mem={mem // (1024 ** 3) if mem else '?'}"
-                               + f" GB · disk={disk // (1024 ** 3) if disk else '?'} GB"),
+                    "detail": (
+                        f"matched · mem={mem // (1024 ** 3) if mem else '?'} GB · "
+                        f"disk={disk // (1024 ** 3) if disk else '?'} GB"
+                    ),
                 }
             else:
                 names = sorted((r.get("systems") or {}).keys(), key=str.lower)
@@ -12547,15 +12587,14 @@ async def api_hosts_test(
             if r.get("error"):
                 out["pulse"] = {"ok": False, "skipped": False,
                                 "detail": f"pulse error: {r['error']}"}
-            # noinspection PyUnboundLocalVariable
-            elif (st := _pulse.lookup(r.get("hosts") or {}, pulse_name)):
-                # Walrus binds once + type-narrows to non-None inside
-                # the truthy branch — was previously calling `lookup`
-                # twice (once for the truthiness check, once to bind).
+                st = None
+            else:
+                st = _pulse.lookup(r.get("hosts") or {}, pulse_name)
+            if st is not None:
                 kind = st.get("pulse_kind") or "host"
                 out["pulse"] = {"ok": True, "skipped": False,
                                 "detail": f"matched ({kind})"}
-            else:
+            elif not r.get("error"):
                 names = sorted((r.get("hosts") or {}).keys(), key=str.lower)
                 hint = ", ".join(names[:3])
                 if len(names) > 3:
@@ -12844,7 +12883,7 @@ def _item_samples_in_window(item_id: str, since_hours: int) -> dict:
     return out
 
 
-# noinspection PyShadowingBuiltins,PyTypeChecker
+# noinspection PyShadowingBuiltins,PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/debug/subject")
 async def api_debug_subject(
     kind: str = "",
@@ -13131,7 +13170,7 @@ async def api_debug_subject(
     return out
 
 
-# noinspection PyShadowingBuiltins,PyTypeChecker
+# noinspection PyShadowingBuiltins,PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/hosts/debug")
 async def api_hosts_debug(
     id: str = "",
@@ -14009,7 +14048,7 @@ async def api_ssh_test(
     from logic import ssh as _ssh
     result = await _ssh.test_connection(host_id, _load_hosts_config())
     actor = getattr(request.state, "user", None)
-    actor_name = actor.username if actor else "unknown"
+    actor_name = getattr(actor, "username", None) or "unknown"
     _ssh_write_audit_row(
         op_id=uuid.uuid4().hex[:8],
         actor=actor_name,
@@ -14020,7 +14059,7 @@ async def api_ssh_test(
     return result
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/hosts/{host_id}/ssh/run")
 async def api_ssh_run(
     host_id: str,
@@ -14069,7 +14108,7 @@ async def api_ssh_run(
     )
     result["destructive"] = destructive_hits
     actor = getattr(request.state, "user", None)
-    actor_name = actor.username if actor else "unknown"
+    actor_name = getattr(actor, "username", None) or "unknown"
     _ssh_write_audit_row(
         op_id=uuid.uuid4().hex[:8],
         actor=actor_name,
@@ -14181,7 +14220,7 @@ def _ssh_terminal_audit_close(
 # Registered BEFORE the StaticFiles "/" catch-all per CLAUDE.md mount-order
 # rule — the catch-all responds to every path and would shadow the
 # WebSocket route otherwise.
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.websocket("/api/hosts/{host_id}/ssh/terminal")
 async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
     """Bridge a browser WebSocket to a live PTY-backed SSH shell.
@@ -14344,6 +14383,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
         # ---- 3) Pump bytes both ways + heartbeat ping. ----
         stop_event = asyncio.Event()
 
+        # noinspection PyUnresolvedReferences
         async def upstream_to_ws():
             """Read shell stdout, send as binary WS frames."""
             nonlocal bytes_out
@@ -14365,7 +14405,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
             finally:
                 stop_event.set()
 
-# noinspection PyTypeChecker
+        # noinspection PyTypeChecker,PyUnresolvedReferences
         async def ws_to_upstream():
             """Read WS frames, write to shell stdin or handle controls."""
             nonlocal bytes_in
@@ -14677,7 +14717,8 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
         b = buckets[bts]
         # Drop fully-empty buckets — every kind contributed zero data.
         # Allows the SPA's gap-detection to surface the gap honestly.
-        if (not any(n > 0 for n in b["scalar_n"].values())
+        if (
+            not any(n > 0 for n in b["scalar_n"].values())
             and not b["dict_sum"]
             and not b["list_sum"]
             and not b["other_last"]):
@@ -14865,7 +14906,7 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
     }
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/hosts/{host_id}/ping/history")
 async def api_hosts_ping_history(
     host_id: str, hours: int = 1,
@@ -15227,7 +15268,7 @@ async def api_hosts_disk_projection(
         def _rank(c_label_rows):
             label, rs = c_label_rows
             latest_total = int(rs[-1][2] or 0)
-            return (-latest_total, -len(rs), priority_order.get(label, 999))
+            return -latest_total, -len(rs), priority_order.get(label, 999)
 
         candidates.sort(key=_rank)
         source_used, rows = candidates[0]
@@ -15533,7 +15574,7 @@ async def api_hosts_snmp_temp_history(
         if not idx:
             continue
         name = r[2] or f"temp-{idx}"
-        probe_bucket = probes.setdefault(idx, {"name": name, "points": []})
+        probe_bucket: dict = probes.setdefault(idx, {"name": name, "points": []})
         # Pick the freshest probe_name we've seen — operator-renamed
         # probes (rare) propagate forward this way.
         probe_bucket["name"] = name
@@ -16346,7 +16387,7 @@ async def api_hosts_bulk_resume(
     }
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/hosts/bulk/snmp_vendors")
 async def api_hosts_bulk_snmp_vendors(
     body: HostsBulkSnmpVendorsIn,
@@ -16456,7 +16497,7 @@ async def api_hosts_bulk_snmp_vendors(
     }
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/hosts/bulk/snmp_tunables")
 async def api_hosts_bulk_snmp_tunables(
     body: HostsBulkSnmpTunablesIn,
@@ -16476,17 +16517,19 @@ async def api_hosts_bulk_snmp_tunables(
     wc: Optional[int] = None
     if body.walk_concurrency is not None and not body.clear:
         try:
-            wc = int(body.walk_concurrency)
-            if not (1 <= wc <= 16):
+            wc_val = int(body.walk_concurrency)
+            if not (1 <= wc_val <= 16):
                 raise HTTPException(400, "walk_concurrency must be in [1, 16]")
+            wc = wc_val
         except (TypeError, ValueError):
             raise HTTPException(400, "walk_concurrency must be an integer")
     wcb: Optional[int] = None
     if body.wall_clock_budget is not None and not body.clear:
         try:
-            wcb = int(body.wall_clock_budget)
-            if not (5 <= wcb <= 600):
+            wcb_val = int(body.wall_clock_budget)
+            if not (5 <= wcb_val <= 600):
                 raise HTTPException(400, "wall_clock_budget must be in [5, 600]")
+            wcb = wcb_val
         except (TypeError, ValueError):
             raise HTTPException(400, "wall_clock_budget must be an integer")
     if not body.clear and wc is None and wcb is None:
@@ -17503,7 +17546,7 @@ def _shape_notification_row(r) -> dict:
     md_obj: Optional[dict] = None
     if md_raw:
         try:
-            md_obj = json.loads(md_raw)
+            md_obj = json.loads(str(md_raw))
         except (TypeError, ValueError):
             md_obj = None
     return {
@@ -17709,8 +17752,15 @@ def _tab_activity_prune() -> None:
     """Drop entries whose last heartbeat is older than the TTL. Called on
     every read so the live registry stays clean without a sweeper task."""
     cutoff = time.time() - _TAB_ACTIVITY_TTL_SECONDS
-    stale = [cid for cid, ent in _tab_activity_registry.items()
-             if (ent.get("ts") or 0) < cutoff]
+    stale: list[str] = []
+    for cid, ent in _tab_activity_registry.items():
+        _ts_raw = ent.get("ts") if isinstance(ent, dict) else None
+        try:
+            _ts_val = float(_ts_raw) if isinstance(_ts_raw, (int, float, str)) else 0.0
+        except (TypeError, ValueError):
+            _ts_val = 0.0
+        if _ts_val < cutoff:
+            stale.append(cid)
     for cid in stale:
         _tab_activity_registry.pop(cid, None)
 
@@ -17933,7 +17983,7 @@ async def api_public_ip(_admin: AdminUser):
     return {"enabled": True, **data}
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/weather")
 async def api_weather(
     lat: Optional[float] = None,
@@ -18132,8 +18182,7 @@ async def api_admin_logs_file_download(
     """Stream one persistent log file. Name must be `<YYYY-MM-DD>.log` per
     `_logs.safe_log_path`'s validator; anything else 404s."""
     path = _logs.safe_log_path(name)
-    # noinspection PyUnresolvedReferences  # PyCharm mis-infers os.path as str → false `isfile` warning
-    if not path or not os.path.isfile(path):
+    if not path or not os.path.isfile(path):  # type: ignore[attr-defined]
         return JSONResponse(status_code=404, content={"detail": "log file not found"})
     return FileResponse(path, filename=name, media_type="text/plain; charset=utf-8")
 
@@ -18158,7 +18207,15 @@ _totp_challenges: dict[str, dict] = {}
 
 def _prune_totp_challenges() -> None:
     now = time.time()
-    stale = [k for k, v in _totp_challenges.items() if v.get("expires_at", 0) <= now]
+    stale: list[str] = []
+    for k, v in _totp_challenges.items():
+        _exp_raw = v.get("expires_at", 0) if isinstance(v, dict) else 0
+        try:
+            _exp_val = float(_exp_raw) if isinstance(_exp_raw, (int, float, str)) else 0.0
+        except (TypeError, ValueError):
+            _exp_val = 0.0
+        if _exp_val <= now:
+            stale.append(k)
     for k in stale:
         _totp_challenges.pop(k, None)
 
@@ -18206,14 +18263,14 @@ _webauthn_login_challenges: dict[str, dict] = {}
 _webauthn_register_challenges: dict[int, dict] = {}
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 def _prune_webauthn_challenges() -> None:
     now = time.time()
     for k in [k for k, v in _webauthn_login_challenges.items()
-              if v.get("expires_at", 0) <= now]:
+              if float(v.get("expires_at", 0)) <= now]:
         _webauthn_login_challenges.pop(k, None)
     for k in [k for k, v in _webauthn_register_challenges.items()
-              if v.get("expires_at", 0) <= now]:
+              if float(v.get("expires_at", 0)) <= now]:
         _webauthn_register_challenges.pop(k, None)
 
 
@@ -18272,7 +18329,7 @@ def _request_rp_id(request: Request) -> str:
     on `request.state.rp_id` so the second call is a dict lookup.
     """
     cached = getattr(request.state, "rp_id", None)
-    if cached is not None:
+    if isinstance(cached, str):
         return cached
     candidates = [
         request.headers.get("x-forwarded-host", ""),
@@ -18653,7 +18710,7 @@ async def api_local_login_totp(
     return resp
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/local-auth/totp-setup-confirm")
 async def api_local_login_totp_setup_confirm(
     request: Request,
@@ -18701,11 +18758,11 @@ async def api_local_login_totp_setup_confirm(
             c, "user_login",
             target_kind="user", target_id=u.username,
             actor=u.username,
-            events=[{
+            events_dict={
                 "method": "local_totp_setup",
                 "auth_source": u.auth_source,
                 "ip": ip,
-            }],
+            },
         )
     print(f"[totp] {u.username} enrolled (forced by policy)")
     csrf = auth.generate_csrf_token()
@@ -19086,7 +19143,7 @@ async def api_local_logout(request: Request):
     return resp
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/local-auth/bootstrap")
 async def api_local_bootstrap(
     request: Request,
@@ -19117,11 +19174,11 @@ async def api_local_bootstrap(
             c, "user_login",
             target_kind="user", target_id=u.username,
             actor=u.username,
-            events=[{
+            events_dict={
                 "method": "bootstrap",
                 "auth_source": "local",
                 "ip": ip,
-            }],
+            },
         )
     csrf = auth.generate_csrf_token()
     resp = JSONResponse(
@@ -19133,7 +19190,7 @@ async def api_local_bootstrap(
     return resp
 
 
-# noinspection PyTypeChecker,PyDictCreation
+# noinspection PyTypeChecker,PyDictCreation,PyUnresolvedReferences
 @app.get("/api/me")
 async def api_me(request: Request):
     """Return the current identity if any. Auth-optional — returns
@@ -19145,6 +19202,7 @@ async def api_me(request: Request):
     user = getattr(request.state, "user", None)
     if not user:
         return {"authenticated": False}
+    user = cast(auth.User, user)  # rebind with non-Optional type — PyCharm honors cast across the function body
     # API-token "users" have negative ids (see _resolve_user) — skip the
     # profile read for them, there's nothing in the users table.
     profile = None
@@ -19485,7 +19543,7 @@ class UiPrefsIn(BaseModel):
     prefs: dict
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.patch("/api/me/ui-prefs")
 async def api_me_ui_prefs(body: UiPrefsIn, request: Request):
     """Merge `body.prefs` into the calling user's `ui_prefs`.
@@ -19497,6 +19555,7 @@ async def api_me_ui_prefs(body: UiPrefsIn, request: Request):
     user = getattr(request.state, "user", None)
     if not user:
         raise HTTPException(401, "Authentication required")
+    user = cast(auth.User, user)  # rebind with non-Optional type — PyCharm honors cast across the function body
     if user.id < 0:
         raise HTTPException(400, "API tokens cannot store UI prefs")
     with db_conn() as c:
@@ -19504,7 +19563,7 @@ async def api_me_ui_prefs(body: UiPrefsIn, request: Request):
     return {"ui_prefs": merged}
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/me/telegram-link-code")
 async def api_me_telegram_link_code(request: Request):
     """Mint a one-time, 15-minute, single-use code the user pastes into
@@ -19523,6 +19582,7 @@ async def api_me_telegram_link_code(request: Request):
     user = getattr(request.state, "user", None)
     if not user:
         raise HTTPException(401, "Authentication required")
+    user = cast(auth.User, user)  # rebind with non-Optional type — PyCharm honors cast across the function body
     if user.id < 0:
         raise HTTPException(400, "API tokens cannot link Telegram accounts")
     # 6-digit numeric — easy to type on mobile, ~1M-entry space is
@@ -19541,7 +19601,7 @@ async def api_me_telegram_link_code(request: Request):
     }
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.delete("/api/me/telegram-link")
 async def api_me_telegram_unlink(request: Request):
     """Remove the calling user's Telegram mapping (operator-side
@@ -19554,6 +19614,7 @@ async def api_me_telegram_unlink(request: Request):
     user = getattr(request.state, "user", None)
     if not user:
         raise HTTPException(401, "Authentication required")
+    user = cast(auth.User, user)  # rebind with non-Optional type — PyCharm honors cast across the function body
     if user.id < 0:
         raise HTTPException(400, "API tokens cannot manage Telegram links")
     from logic import telegram_listener as _tg_listener
@@ -19569,7 +19630,7 @@ async def api_me_telegram_unlink(request: Request):
     return {"removed": removed}
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/me/ui-prefs/beacon")
 async def api_me_ui_prefs_beacon(body: UiPrefsIn, request: Request):
     """Beacon-friendly variant of PATCH /api/me/ui-prefs.
@@ -19587,6 +19648,7 @@ async def api_me_ui_prefs_beacon(body: UiPrefsIn, request: Request):
     user = getattr(request.state, "user", None)
     if not user:
         raise HTTPException(401, "Authentication required")
+    user = cast(auth.User, user)  # rebind with non-Optional type — PyCharm honors cast across the function body
     if user.id < 0:
         raise HTTPException(400, "API tokens cannot store UI prefs")
     with db_conn() as c:
@@ -20939,7 +21001,7 @@ async def api_create_backup(admin: AdminUser):
     pruned = backups.prune_backups(keep) if keep > 0 else []
     if pruned:
         result = {**result, "pruned": pruned}
-    backup_name = (result or {}).get("name", "") or ""
+    backup_name = str((result or {}).get("name", "") or "")
     with db_conn() as c:
         _ops_mod.write_admin_audit(
             c, "backup_create",
@@ -21552,7 +21614,7 @@ def _expand_includes(body: str, path: str) -> tuple[str, tuple]:
     return expanded, tuple(sig)
 
 
-# noinspection PyTypeChecker
+# noinspection PyTypeChecker,PyUnresolvedReferences
 def _render_shell(path: str) -> Response:
     """Serve an HTML shell with `__APP_VERSION__` → current version.
 
@@ -21708,18 +21770,16 @@ _NPM_ALLOWED: Set[str] = {
 }
 
 
-# FastAPI `{path:path}` route-converter accepts segments with slashes —
+# FastAPI `{subpath:path}` route-converter accepts segments with slashes —
 # required so a request like `/node_modules/@xterm/xterm/lib/xterm.js`
-# binds the whole tail to `path`. The `Path(...)` parameter declaration
-# below matches the converter name explicitly so FastAPI's resolver is
-# unambiguous. PyCharm's FastAPI inspector still raises a parameter-
-# mismatch warning on the `:path` literal — it's a known limitation of
-# the inspector (it reads `path:path` as a parameter name and can't see
-# the converter is a TYPE annotation, not a name); the inspector noqa
-# directive below silences it.
-# noinspection PyUnresolvedReferences,FastApiInspection,FastApi
-@app.get("/node_modules/{path:path}")  # type: ignore[arg-type]
-async def api_node_modules(path: str = FastApiPath(...)):
+# binds the whole tail to `subpath`. Registered via ``add_api_route``
+# instead of ``@app.get`` so PyCharm's FastAPI inspector doesn't try to
+# match the ``{subpath:path}`` converter literal against the function's
+# parameter list (it parses the whole literal as a parameter name and
+# raises a spurious mismatch warning). Programmatic registration is the
+# same FastAPI primitive the decorator builds on top of — no behavioural
+# difference, just no inspector confusion.
+async def api_node_modules(subpath: str = FastApiPath(...)):
     """Allowlist-gated static server for the 7 npm files the SPA actually
     uses. Everything else returns 404 — keeps the served surface tight.
     """
@@ -21727,7 +21787,7 @@ async def api_node_modules(path: str = FastApiPath(...)):
     # match an entry in the allowlist exactly. Belt-and-braces — FastAPI's
     # path converter wouldn't let `..` through in practice, but the
     # explicit check makes the security property obvious.
-    if ".." in path or path.startswith("/") or path not in _NPM_ALLOWED:
+    if ".." in subpath or subpath.startswith("/") or subpath not in _NPM_ALLOWED:
         raise HTTPException(404, "Not found")
     # Defence-in-depth: even though `_NPM_ALLOWED` is a closed set of
     # 8 known-safe relative paths, also normalise the joined result
@@ -21738,13 +21798,19 @@ async def api_node_modules(path: str = FastApiPath(...)):
     # findings that won't trust enum-allowlist validation alone.
     # Mirrors the `safe_log_path` pattern in `logic/logs.py`.
     root = os.path.realpath("node_modules")
-    file_path = os.path.realpath(os.path.join(root, path))
+    file_path = os.path.realpath(os.path.join(root, subpath))
     if file_path != root and not file_path.startswith(root + os.sep):
         raise HTTPException(404, "Not found")
     if not os.path.isfile(file_path):
         raise HTTPException(404, "Not found")
     return FileResponse(file_path)
 
+
+app.add_api_route(
+    "/node_modules/{subpath:path}",
+    api_node_modules,
+    methods=["GET"],
+)
 
 # Translation bundles. Mounted at /i18n/ (before the "/" catch-all, same
 # ordering rule as /metrics / /node_modules) so the SPA can fetch

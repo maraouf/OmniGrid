@@ -14,7 +14,7 @@ add import gymnastics without reducing real complexity.
 import asyncio
 import json
 import time
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -22,9 +22,8 @@ from logic import metrics, portainer, registry
 from logic.db import db_conn
 from logic.settings_keys import Settings
 
-
 # Canonical label-value sets for `omnigrid_items_total{status, type}`
-#. Single source of truth for the label cartesian product so
+# . Single source of truth for the label cartesian product so
 # `metrics.populate_from_cache` can pre-seed every known combination
 # at zero — Grafana queries against any specific combination always
 # match a series. Adding a new value (e.g. `swarm-task` for raw task
@@ -36,7 +35,6 @@ ITEM_STATUSES: tuple[str, ...] = (
 ITEM_TYPES: tuple[str, ...] = (
     "service", "container", "orphan",
 )
-
 
 # Module-level cache. Keys:
 # items             — list of item dicts (services + orphans + standalones)
@@ -228,7 +226,7 @@ def _is_snapshot_key(key) -> bool:
 # there's no drift to maintain.
 
 
-def _is_urlish(v) -> bool:
+def _is_urlish(v: Any) -> bool:
     """True when v looks like an http(s) URL string. Used to keep a
     stale iDRAC chassis URL from sticking in ``host_firmware`` across
     restarts — pre-fix the URL OID was mapped to host_firmware before
@@ -346,7 +344,7 @@ def load_host_snapshots() -> dict[str, dict]:
         ttl = 5.0
     cached_map = _snapshots_cache.get("map")
     cached_ts = _snapshots_cache.get("ts") or 0.0
-    if ttl > 0 and cached_map is not None and (now - cached_ts) < ttl:
+    if ttl > 0 and isinstance(cached_map, dict) and (now - cached_ts) < ttl:
         return cached_map
     out: dict[str, dict] = {}
     try:
@@ -579,7 +577,16 @@ def seed_nodes_info_from_snapshots() -> int:
         stale = [k for k in data.keys() if _is_snapshot_key(k)]
         if stale:
             data["_stale_fields"] = stale
-            data["_stale_ts"] = float(snap.get("ts") or 0.0)
+            _ts_raw = snap.get("ts") if isinstance(snap, dict) else None
+            if isinstance(_ts_raw, (int, float)):
+                data["_stale_ts"] = float(_ts_raw)
+            elif isinstance(_ts_raw, str):
+                try:
+                    data["_stale_ts"] = float(_ts_raw)
+                except ValueError:
+                    data["_stale_ts"] = 0.0
+            else:
+                data["_stale_ts"] = 0.0
         seeded[host] = data
     if seeded:
         _cache["nodes_info"] = seeded
@@ -657,21 +664,25 @@ def save_items_snapshot() -> bool:
         # stale flag the moment a fresh gather replaces them, so
         # serialising the whole cache as-is here is correct (we're
         # writing AFTER a fresh gather, so nothing is stale).
+        _items_l: list = list(_cache.get("items") or [])
+        _stacks_l: list = list(_cache.get("stacks") or [])
+        _nodes_d: dict = dict(_cache.get("nodes") or {})
+        # nodes_info carries host_* fields with their own
+        # _stale_fields markers from the host_snapshots pipeline —
+        # those are PER-FIELD freshness hints distinct from the
+        # cache-level _stale flag and we want to preserve them.
+        _nodes_info_d: dict = dict(_cache.get("nodes_info") or {})
         payload = {
             # Schema version — read path drops the snapshot entirely
             # when this doesn't match the current expected version, so
             # an upgrade that adds a required field never seeds a
             # partial cache that renders subtly wrong.
-            "v":          _ITEMS_SNAPSHOT_SCHEMA_VERSION,
-            "items":      list(_cache.get("items") or []),
-            "stacks":     list(_cache.get("stacks") or []),
-            "nodes":      dict(_cache.get("nodes") or {}),
-            # nodes_info carries host_* fields with their own
-            # _stale_fields markers from the host_snapshots pipeline —
-            # those are PER-FIELD freshness hints distinct from the
-            # cache-level _stale flag and we want to preserve them.
-            "nodes_info": dict(_cache.get("nodes_info") or {}),
-            "ts":         float(_cache.get("ts") or 0.0),
+            "v": _ITEMS_SNAPSHOT_SCHEMA_VERSION,
+            "items": _items_l,
+            "stacks": _stacks_l,
+            "nodes": _nodes_d,
+            "nodes_info": _nodes_info_d,
+            "ts": float(_cache.get("ts") or 0.0),
         }
         blob = json.dumps(payload, default=str)
         blob_bytes = len(blob.encode("utf-8"))
@@ -679,8 +690,8 @@ def save_items_snapshot() -> bool:
             print(
                 f"[gather] save_items_snapshot SKIPPED — payload size "
                 f"{blob_bytes // 1024} KiB exceeds the {_ITEMS_SNAPSHOT_MAX_BYTES // 1024} KiB cap. "
-                f"items={len(payload['items'])}, stacks={len(payload['stacks'])}, "
-                f"nodes={len(payload['nodes'])}, nodes_info={len(payload['nodes_info'])}. "
+                f"items={len(_items_l)}, stacks={len(_stacks_l)}, "
+                f"nodes={len(_nodes_d)}, nodes_info={len(_nodes_info_d)}. "
                 f"Prior snapshot stays canonical."
             )
             return False
@@ -743,9 +754,9 @@ def seed_items_cache_from_snapshot() -> int:
         )
         return 0
 
-    items  = list(payload.get("items") or [])
+    items = list(payload.get("items") or [])
     stacks = list(payload.get("stacks") or [])
-    nodes  = dict(payload.get("nodes") or {})
+    nodes = dict(payload.get("nodes") or {})
     nodes_info = dict(payload.get("nodes_info") or {})
     ts = float(payload.get("ts") or row["ts"] or 0.0)
 
@@ -965,7 +976,7 @@ async def _gather_impl() -> None:
             res = desc.get("Resources") or {}
             plat = desc.get("Platform") or {}
             host = desc.get("Hostname")
-            if not host:
+            if not host or not isinstance(host, str):
                 continue
             nanocpus = int(res.get("NanoCPUs") or 0)
             # Swarm's advertised IP for this node — stable in a homelab
@@ -976,20 +987,20 @@ async def _gather_impl() -> None:
                         or ((n.get("ManagerStatus") or {}).get("Addr") or ""))
             ip_only = str(raw_addr).split(":", 1)[0].strip()
             nodes_info[host] = {
-                "id":           n.get("ID"),
-                "role":         spec.get("Role"),
-                "state":        status.get("State"),
+                "id": n.get("ID"),
+                "role": spec.get("Role"),
+                "state": status.get("State"),
                 "availability": spec.get("Availability"),
                 # NanoCPUs is in billionths of a core. Round to the nearest
                 # whole core — these values are always clean multiples in
                 # practice (Docker reports them straight from the kernel).
-                "cpu_cores":    nanocpus // 1_000_000_000 if nanocpus else 0,
-                "nano_cpus":    nanocpus,
-                "mem_bytes":    int(res.get("MemoryBytes") or 0),
-                "os":           plat.get("OS"),
-                "arch":         plat.get("Architecture"),
-                "engine":       ((desc.get("Engine") or {}).get("EngineVersion")),
-                "ip":           ip_only or None,
+                "cpu_cores": nanocpus // 1_000_000_000 if nanocpus else 0,
+                "nano_cpus": nanocpus,
+                "mem_bytes": int(res.get("MemoryBytes") or 0),
+                "os": plat.get("OS"),
+                "arch": plat.get("Architecture"),
+                "engine": ((desc.get("Engine") or {}).get("EngineVersion")),
+                "ip": ip_only or None,
                 "oldest_running_ts": None,  # filled in by the tasks pass below
             }
 
@@ -1037,7 +1048,7 @@ async def _gather_impl() -> None:
         # host. Still Docker-only: reading the VM's /proc/mounts or df
         # for non-Docker mounts would require a node-agent.
         #
-      # Errors per-node are swallowed — a 500 on one daemon shouldn't
+        # Errors per-node are swallowed — a 500 on one daemon shouldn't
         # blank the whole Nodes view. Missing nodes keep docker_disk_bytes=0.
         async def _one_df(host: str):
             try:
@@ -1165,7 +1176,7 @@ async def _gather_impl() -> None:
                     if not beszel_name:
                         beszel_name = host
                     stats = systems.get(beszel_name)
-                    if stats is None:
+                    if not isinstance(stats, dict):
                         # No matching Beszel system — surface the miss
                         # with both names in the error so the operator
                         # knows whether to add an alias or rename in
@@ -1271,8 +1282,10 @@ async def _gather_impl() -> None:
                 # per-host opt-in gate. Skip when the row lacks
                 # `snmp.enabled === True` so disabled hosts (and the
                 # default) don't fan out probes.
-                row_snmp = (row.get("snmp") if row and isinstance(row.get("snmp"), dict)
-                            else {})
+                _row_snmp_raw = row.get("snmp") if isinstance(row, dict) else None
+                row_snmp: dict = _row_snmp_raw if isinstance(_row_snmp_raw, dict) else {}
+                # `is not True` is intentional — rejects truthy non-bool values
+                # noinspection PySimplifyBooleanCheck,PyComparisonWithCallableTrueFalse
                 if row_snmp.get("enabled") is not True:
                     return h, None
                 # HARD-GATE on alias OR snmp_name. Bare-`h` fallthrough
@@ -1280,7 +1293,7 @@ async def _gather_impl() -> None:
                 # out 200 SNMP probes, ~all-but-mapped of which timed out.
                 target_host = (
                     snmp_aliases_raw.get(h)
-                    or (row.get("snmp_name") if row else "")
+                    or (row.get("snmp_name") if isinstance(row, dict) else "")
                     or ""
                 )
                 target_host = (target_host or "").strip()
@@ -1300,11 +1313,13 @@ async def _gather_impl() -> None:
                 # > 1 to fit pysnmp v7's per-walk overhead inside the
                 # probe budget; safety-floor concurrency=1 stays the
                 # default for low-power embedded snmpd's).
-                row_walk_conc = row_snmp.get("walk_concurrency")
-                try:
-                    row_walk_conc = int(row_walk_conc) if row_walk_conc else None
-                except (TypeError, ValueError):
-                    row_walk_conc = None
+                _row_walk_conc_raw = row_snmp.get("walk_concurrency")
+                row_walk_conc: Optional[int] = None
+                if _row_walk_conc_raw:
+                    try:
+                        row_walk_conc = int(str(_row_walk_conc_raw))
+                    except (TypeError, ValueError):
+                        row_walk_conc = None
                 # Per-host vendor MIB selector. None = auto-detect from
                 # sysDescr at probe time.
                 row_vendors_raw = row_snmp.get("vendors")
@@ -1390,15 +1405,16 @@ async def _gather_impl() -> None:
                     # strings like "http://{host}.example.com:9100/metrics"
                     # still work when we fall through.
                     info = nodes_info.get(h) or {}
-                    ip = info.get("ip") or ""
+                    ip = str(info.get("ip") or "")
                     url = overrides.get(h) or ""
                     if not url:
                         row = _match_hosts_row(h, ne_hosts_cfg)
-                        if row and (row.get("ne_url") or "").strip():
+                        if isinstance(row, dict) and (row.get("ne_url") or "").strip():
                             url = row["ne_url"].strip()
                     if not url:
                         url = tpl.replace("{host}", h).replace("{ip}", ip)
                     return h, await _ne.probe_node(ne_client, url)
+
                 results = await asyncio.gather(
                     *(_ne_probe(h) for h in df_hosts),
                     return_exceptions=False,
@@ -1484,7 +1500,8 @@ async def _gather_impl() -> None:
                 row = _match_hosts_row(host, hosts_cfg)
                 if not row:
                     continue
-                pcfg = row.get("ping") if isinstance(row.get("ping"), dict) else {}
+                _pcfg_raw = row.get("ping")
+                pcfg: dict = _pcfg_raw if isinstance(_pcfg_raw, dict) else {}
                 if not pcfg.get("enabled"):
                     continue
                 hid = (row.get("id") or "").strip()
@@ -1515,7 +1532,7 @@ async def _gather_impl() -> None:
         # containers; anything deployed with `docker compose up` on a
         # worker has no task ID and shows up as "local" without this.
         #
-      # When the Portainer endpoint is in AGENT mode, targeting each node
+        # When the Portainer endpoint is in AGENT mode, targeting each node
         # returns only that node's containers — disjoint sets, so we can
         # build a definitive ID → node map. When the endpoint is NOT in
         # agent mode (plain standalone Docker), every per-node call is
@@ -1542,8 +1559,8 @@ async def _gather_impl() -> None:
             # so we leave it out of the map and let the stats fallback
             # (targeted-then-untargeted) do its job. Only containers
             # that appear in EXACTLY ONE per-node response get pinned.
-            from collections import Counter as _C
-            appearances = _C()
+            from collections import Counter as _Counter
+            appearances = _Counter()
             for s in id_sets:
                 appearances.update(s)
             pinned = 0
@@ -1592,6 +1609,7 @@ async def _gather_impl() -> None:
                 _orphan_probe_to = float(_tuning_int(_Tunable.GATHER_ORPHAN_PROBE_TIMEOUT_SECONDS))
             except Exception:
                 _orphan_probe_to = 3.0
+
             async def _probe_one(cid: str) -> tuple[str, Optional[str]]:
                 # Try each hostname in turn. Use a short timeout — a
                 # 404 should come back fast. First 200 wins.
@@ -1641,7 +1659,7 @@ async def _gather_impl() -> None:
                     ag = (pa.get("Agent") or {}) if isinstance(pa, dict) else {}
                     candidate = ag.get("Target") if isinstance(ag, dict) else None
                 if candidate:
-                    container_node_by_id[c["Id"]] = candidate
+                    container_node_by_id[str(c["Id"])] = str(candidate)
                 probed_keys.update(k for k in labels.keys() if "portainer" in k.lower())
             if probed_keys:
                 print(f"[gather] portainer-ish container labels seen: "
@@ -1655,7 +1673,7 @@ async def _gather_impl() -> None:
         for c in containers:
             sid = (c.get("Labels") or {}).get("com.docker.swarm.service.id")
             if sid:
-                containers_by_service.setdefault(sid, []).append(c)
+                containers_by_service.setdefault(str(sid), []).append(c)
 
         # Cache image-inspect results within this gather so services sharing an
         # image don't trigger N image-inspect calls.
@@ -1802,16 +1820,16 @@ async def _gather_impl() -> None:
                     continue
                 ts_raw = st.get("Timestamp") or t.get("CreatedAt") or ""
                 failed_tasks.append({
-                    "node":      node_map.get(t.get("NodeID"), "?"),
-                    "state":     st.get("State"),
-                    "err":       err,
-                    "ts":        ts_raw,
-                    "ts_epoch":  _parse_docker_ts(ts_raw) or 0,
+                    "node": node_map.get(t.get("NodeID"), "?"),
+                    "state": st.get("State"),
+                    "err": err,
+                    "ts": ts_raw,
+                    "ts_epoch": _parse_docker_ts(ts_raw) or 0,
                     # Mark shutdown-with-err records as benign so the
                     # SPA's headline "Latest task error" panel doesn't
                     # alarm on rolling-update shutdowns when the
                     # current task is running healthy.
-                    "benign":    state == "shutdown",
+                    "benign": state == "shutdown",
                 })
             failed_tasks.sort(key=lambda x: x.get("ts_epoch") or 0, reverse=True)
             task_history = failed_tasks[:10]
@@ -1845,10 +1863,10 @@ async def _gather_impl() -> None:
                 "tag": registry.tag_of(image_name_tag),
                 "current_digest": current_digest,
                 "stack": stack_name,
-                "stack_id": stack["Id"] if stack else None,
+                "stack_id": stack.get("Id") if isinstance(stack, dict) else None,
                 "replicas": {"desired": desired, "running": running},
                 "placements": placements,
-                "task_error":   task_error,
+                "task_error": task_error,
                 "task_history": task_history,
                 "health": health,
                 "state": "running" if running > 0 else "stopped",
@@ -1912,12 +1930,12 @@ async def _gather_impl() -> None:
             #   4. Fallback "local" — single-node / non-agent setups
             #      where we genuinely can't tell.
             node_id_label = labels.get("com.docker.swarm.node.id")
-            node_name = node_map.get(node_id_label) if node_id_label else None
+            node_name = node_map.get(str(node_id_label)) if node_id_label else None
             if not node_name:
                 swarm_task_id = labels.get("com.docker.swarm.task.id")
-                node_name = task_node_by_id.get(swarm_task_id) if swarm_task_id else None
+                node_name = task_node_by_id.get(str(swarm_task_id)) if swarm_task_id else None
             if not node_name:
-                node_name = container_node_by_id.get(cont["Id"])
+                node_name = container_node_by_id.get(str(cont["Id"]))
             if not node_name:
                 node_name = "local"
 
@@ -1967,7 +1985,7 @@ async def _gather_impl() -> None:
                 "tag": registry.tag_of(image_ref),
                 "current_digest": current_digest,
                 "stack": compose_project,
-                "stack_id": stack["Id"] if stack else None,
+                "stack_id": stack.get("Id") if isinstance(stack, dict) else None,
                 "replicas": {"desired": 1, "running": 1 if state == "running" else 0},
                 "placements": [{"node": node_name, "state": state}],
                 "node": node_name,
@@ -2001,18 +2019,23 @@ async def _gather_impl() -> None:
         items = list(await asyncio.gather(*(enrich(i) for i in items)))
 
         # Build stack-grouped view
-        groups: dict[str, dict] = {}
+        groups: dict[str, dict[str, Any]] = {}
         for it in items:
             key = it["stack"] or "__standalone__"
-            groups.setdefault(key, {
+            group_init: dict[str, Any] = {
                 "name": it["stack"] or "Standalone",
                 "stack_id": it["stack_id"],
                 "items": [],
                 "is_standalone": not it["stack"],
-            })["items"].append(it)
+            }
+            g_existing = groups.setdefault(key, group_init)
+            items_list = g_existing["items"]
+            if isinstance(items_list, list):
+                items_list.append(it)
 
         for g in groups.values():
-            its = g["items"]
+            its_raw = g.get("items")
+            its: list = its_raw if isinstance(its_raw, list) else []
             its.sort(key=lambda i: (i.get("name") or "").lower())
             g["total"] = len(its)
             # `updates` counts ONLY actionable live updates — running

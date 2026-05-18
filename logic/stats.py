@@ -13,7 +13,7 @@ Cache dict is exposed as ``_stats_cache`` for main.py's /api/stats route.
 """
 import asyncio
 import time
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -28,7 +28,6 @@ from logic.db import db_conn
 #                   has_stats, has_size}}
 # ts:    epoch seconds of last successful gather
 _stats_cache: dict = {"stats": {}, "ts": 0.0}
-
 
 # Per-Swarm-node "agent appears unreachable" tracker — populated at
 # the end of every successful `gather_stats` based on what fraction
@@ -46,7 +45,7 @@ _stats_cache: dict = {"stats": {}, "ts": 0.0}
 # - task_cids: how many task-derived cids were observed on the node
 #              during the most recent bad gather (operator-facing
 #              hint for "N containers worth of metrics are missing")
-_agent_health: dict[str, dict] = {}
+_agent_health: dict[str, dict[str, Any]] = {}
 
 
 def get_stats_cache() -> dict:
@@ -76,14 +75,18 @@ def seed_stats_cache_from_db() -> int:
             # bundled python on a recent OS has it. The window pulls the
             # latest row per item_id in one query rather than N+1.
             rows = c.execute("""
-                SELECT item_id, ts, cpu, mem_used, mem_limit FROM (
-                    SELECT item_id, ts, cpu, mem_used, mem_limit,
-                           ROW_NUMBER() OVER (
+                             SELECT item_id, ts, cpu, mem_used, mem_limit
+                             FROM (SELECT item_id,
+                                          ts,
+                                          cpu,
+                                          mem_used,
+                                          mem_limit,
+                                          ROW_NUMBER() OVER (
                                PARTITION BY item_id ORDER BY ts DESC
                            ) rn
-                    FROM stats_samples
-                ) WHERE rn = 1
-            """).fetchall()
+                                   FROM stats_samples)
+                             WHERE rn = 1
+                             """).fetchall()
     except Exception as e:
         print(f"[sampler] seed_stats_cache_from_db failed: {e}")
         return 0
@@ -93,17 +96,17 @@ def seed_stats_cache_from_db() -> int:
     for r in rows:
         seeded[r["item_id"]] = {
             "cpu_percent": float(r["cpu"] or 0.0),
-            "mem_usage":   int(r["mem_used"] or 0),
-            "mem_limit":   int(r["mem_limit"] or 0),
+            "mem_usage": int(r["mem_used"] or 0),
+            "mem_limit": int(r["mem_limit"] or 0),
             # size_root / size_rw aren't sampled into stats_samples (it's
             # a CPU/memory time-series table), so we report has_size=False
             # which lets the UI show "—" until the first live gather.
-            "size_root":   0,
-            "size_rw":     0,
-            "has_stats":   True,
-            "has_size":    False,
-            "_stale":      True,
-            "_stale_ts":   float(r["ts"] or 0.0),
+            "size_root": 0,
+            "size_rw": 0,
+            "has_stats": True,
+            "has_size": False,
+            "_stale": True,
+            "_stale_ts": float(r["ts"] or 0.0),
         }
     _stats_cache["stats"] = seeded
     # Force the next gather_stats() to refresh — we don't want the TTL
@@ -427,6 +430,7 @@ async def gather_stats() -> None:
                         print(f"[stats] gather_stats: per-node list for {h} FAILED: "
                               f"{type(e).__name__}: {e}")
                         return h, []
+
                 per_node = await asyncio.gather(*(_per_node(h) for h in hostnames))
                 seen: dict[str, dict] = {}
                 for h, lst in per_node:
@@ -580,7 +584,7 @@ async def gather_stats() -> None:
                 )
 
         results = await asyncio.gather(*(fetch(cid) for cid in running_cids))
-        stats_by_cid = {cid: s for cid, s in results if s}
+        stats_by_cid: dict[str, dict[str, Any]] = {cid: s for cid, s in results if s}
 
         # Per-Swarm-node agent-health bookkeeping. After every gather,
         # tally per-host stats success vs total TASK-DERIVED cids
@@ -712,7 +716,7 @@ async def gather_stats() -> None:
         _stats_cache["stats"] = out
         _stats_cache["ts"] = time.time()
         with_stats = sum(1 for v in out.values() if v.get("has_stats"))
-        with_size  = sum(1 for v in out.values() if v.get("has_size"))
+        with_size = sum(1 for v in out.values() if v.get("has_size"))
         print(f"[stats] gather_stats wrote: items={len(out)} has_stats_true={with_stats} has_size_true={with_size}")
         # SSE — hint-only event. Stats payload is small but the SPA
         # already has /api/stats wired with TTL-aware caching, so

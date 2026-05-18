@@ -26,10 +26,9 @@ Public surface:
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from logic.db import db_conn
-
 
 # Ordered keyword scan — first match wins. Keys are the pattern label
 # returned to the SPA; values are the case-insensitive substrings to
@@ -37,22 +36,22 @@ from logic.db import db_conn
 # patterns first so e.g. "TLS handshake timeout" classifies as `tls`
 # rather than `timeout`.
 _ERROR_PATTERNS = (
-    ("tls",          ("tls", "ssl handshake", "x509", "certificate", "self-signed", "unable to verify")),
-    ("auth",         ("401", "403", "unauthor", "forbidden", "auth failed",
-                       "permission denied", "invalid api key", "invalid credentials",
-                       "invalid token", "bad credentials")),
-    ("not-found",    ("404", "not found", "no such")),
+    ("tls", ("tls", "ssl handshake", "x509", "certificate", "self-signed", "unable to verify")),
+    ("auth", ("401", "403", "unauthor", "forbidden", "auth failed",
+              "permission denied", "invalid api key", "invalid credentials",
+              "invalid token", "bad credentials")),
+    ("not-found", ("404", "not found", "no such")),
     ("server-error", ("500", "502", "503", "504", "internal server", "bad gateway",
-                       "service unavailable", "gateway timeout")),
-    ("dns",          ("dns", "no such host", "name resolution",
-                       "could not resolve", "name or service not known")),
-    ("refused",      ("connection refused", "refused")),
-    ("network",      ("network unreachable", "no route to host",
-                       "host unreachable", "connection reset")),
-    ("timeout",      ("timeout", "timed out", "deadline exceeded")),
-    ("parse",        ("parse error", "decode error", "invalid response",
-                       "json", "malformed")),
-    ("rate-limit",   ("rate limit", "too many request", "429")),
+                      "service unavailable", "gateway timeout")),
+    ("dns", ("dns", "no such host", "name resolution",
+             "could not resolve", "name or service not known")),
+    ("refused", ("connection refused", "refused")),
+    ("network", ("network unreachable", "no route to host",
+                 "host unreachable", "connection reset")),
+    ("timeout", ("timeout", "timed out", "deadline exceeded")),
+    ("parse", ("parse error", "decode error", "invalid response",
+               "json", "malformed")),
+    ("rate-limit", ("rate limit", "too many request", "429")),
 )
 
 
@@ -105,21 +104,21 @@ def triage_host(host_id: str, hours: int = 720) -> dict:
     if not hid:
         return {"groups": [], "scope": {"hours": h, "host_id": ""}, "error": "host_id required"}
     since = time.time() - h * 3600
-    groups: dict[tuple[str, str], dict] = {}
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
 
     def _bucket(provider: str, pattern: str) -> dict:
         key = (provider or "", pattern or "other")
         b = groups.get(key)
         if b is None:
             b = {
-                "provider":       key[0],
-                "pattern":        key[1],
-                "count":          0,
-                "first_ts":       None,
-                "last_ts":        None,
-                "durations_s":    [],
-                "sample_errors":  [],
-                "occurrences":    [],
+                "provider": key[0],
+                "pattern": key[1],
+                "count": 0,
+                "first_ts": None,
+                "last_ts": None,
+                "durations_s": [],
+                "sample_errors": [],
+                "occurrences": [],
             }
             groups[key] = b
         return b
@@ -218,7 +217,7 @@ def triage_host(host_id: str, hours: int = 720) -> dict:
                 rows = []
             # Track open paused incidents per provider to compute
             # duration when the matching `recovered` row arrives.
-            open_paused: dict[str, dict] = {}
+            open_paused: dict[str, dict[str, Any]] = {}
             for r in rows:
                 kind = (r["kind"] or "").lower()
                 provider = (r["provider"] or "").strip().lower() or "host"
@@ -234,34 +233,37 @@ def triage_host(host_id: str, hours: int = 720) -> dict:
                         # Append the recovery duration to the matching
                         # paused-bucket so the avg-recovery stat
                         # populates.
-                        bucket = _bucket(provider, open_inc["pattern"])
-                        try:
-                            duration = max(0.0, float(r["ts"]) - float(open_inc["ts"]))
-                            bucket["durations_s"].append(duration)
-                        except (TypeError, ValueError):
-                            pass
+                        _pattern = open_inc.get("pattern")
+                        _open_ts = open_inc.get("ts")
+                        if isinstance(_pattern, str) and isinstance(_open_ts, (int, float, str)):
+                            bucket = _bucket(provider, _pattern)
+                            try:
+                                duration = max(0.0, float(r["ts"]) - float(_open_ts))
+                                bucket["durations_s"].append(duration)
+                            except (TypeError, ValueError):
+                                pass
     except Exception as e:
         return {
             "groups": [], "scope": {"hours": h, "host_id": hid},
-            "error":  f"triage query error: {type(e).__name__}: {e}",
+            "error": f"triage query error: {type(e).__name__}: {e}",
         }
 
     # Finalise — compute avg_duration_s, sort occurrences newest-first,
     # convert to a stable list.
     out_groups: list[dict] = []
     for (provider, pattern), b in groups.items():
-        avg = (sum(b["durations_s"]) / len(b["durations_s"])
-               if b["durations_s"] else None)
+        _durations: list[float] = list(b["durations_s"]) if b["durations_s"] else []
+        avg = (sum(_durations) / len(_durations)) if _durations else None
         b["occurrences"].sort(key=lambda x: x["ts"], reverse=True)
         out_groups.append({
-            "provider":       provider,
-            "pattern":        pattern,
-            "count":          b["count"],
-            "first_ts":       b["first_ts"],
-            "last_ts":        b["last_ts"],
+            "provider": provider,
+            "pattern": pattern,
+            "count": b["count"],
+            "first_ts": b["first_ts"],
+            "last_ts": b["last_ts"],
             "avg_duration_s": int(avg) if avg is not None else None,
-            "sample_errors":  b["sample_errors"],
-            "occurrences":    b["occurrences"],
+            "sample_errors": b["sample_errors"],
+            "occurrences": b["occurrences"],
         })
     # Sort by last_ts DESC (most recent group first), then count DESC
     # as tiebreaker so a noisier but stale group ranks below a fresh
@@ -269,6 +271,6 @@ def triage_host(host_id: str, hours: int = 720) -> dict:
     out_groups.sort(key=lambda g: (-(g["last_ts"] or 0), -g["count"]))
     return {
         "groups": out_groups,
-        "scope":  {"hours": h, "host_id": hid, "since_ts": int(since)},
-        "error":  None,
+        "scope": {"hours": h, "host_id": hid, "since_ts": int(since)},
+        "error": None,
     }
