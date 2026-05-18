@@ -7,13 +7,20 @@
 # occasionally tighten Pydantic v2 deprecations that surface in our
 # own request/response models without warning.
 fastapi==0.136.1
+# Pydantic is FastAPI's request/response validation engine — pulled in
+# transitively by fastapi but listed explicitly so import-time references
+# (`from pydantic import BaseModel`) don't trip the IDE's
+# `package-not-in-requirements` lint. Floor-pinned to 2.x so the v1-style
+# `.dict()` calls we already migrated stay valid; fastapi's own pin
+# bounds the upper edge.
+pydantic>=2.0.0
 # ASGI server. The [standard] extras pull in `httptools` + `uvloop` for
 # the production-grade async performance path AND `websockets` for the
 # admin SSH terminal modal (logic/ssh.py drives an xterm-backed PTY
 # over a FastAPI WebSocket). Local dev runs `uvicorn main:app --reload`;
 # prod runs the same single-replica process behind NPM's reverse proxy.
 
-uvicorn[standard]==0.46.0
+uvicorn[standard]==0.47.0
 # Async HTTP client used for EVERY outbound call: Portainer REST API
 # (services / containers / stacks / registries proxy), Beszel Hub
 # (Pocketbase auth + paginated fetches), Pulse, Webmin (with cookie
@@ -43,7 +50,7 @@ bcrypt==5.0.0
 # same parser path), and the bootstrap admin form. Pinned because
 # FastAPI's parameter validation occasionally couples to specific
 # python-multipart versions during major bumps.
-python-multipart==0.0.28
+python-multipart==0.0.29
 # .env loader — reads /app/.env (or `ENV_FILE_PATH` override) at
 # startup. main.py's first real line is `load_dotenv("/app/.env",
 # override=False)` so every os.environ.get() in main / logic resolves

@@ -98,6 +98,11 @@ import re as _re
 import sqlite3
 import time
 from collections import OrderedDict as _OrderedDict
+# `contextvars` is a Python 3.7+ stdlib module — no requirements.txt entry
+# needed; PyCharm's package-not-in-requirements lint mis-identifies it as
+# a third-party package, hence the inline suppression directive.
+# noinspection PyPackageRequirements
+from contextvars import ContextVar
 from typing import Any, Optional
 
 import httpx
@@ -211,7 +216,7 @@ def _outbound_chat_ids() -> list[str]:
 # cleanly through asyncio + avoids touching ~50 `_send_reply(client, text)`
 # call sites. Default empty string = "no inbound chat known" (e.g.
 # scheduler-fired outbound paths where we want the primary destination).
-from contextvars import ContextVar
+# `ContextVar` is imported at the top of the file (stdlib, no requirements.txt entry).
 _inbound_chat_id: ContextVar[str] = ContextVar("_inbound_chat_id", default="")
 
 
@@ -2297,8 +2302,18 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
     # Canonical "needs an update" signal is `status == "update"` —
     # gather.py:enrich() sets the status when the remote-digest
     # comparison shows drift. There's no separate `update_available`
-    # field on items; the Telegram filter must read `status`.
-    updatable = [i for i in items if (i.get("status") or "") == "update"]
+    # field on items; the Telegram filter must read `status`. Orphan-
+    # type containers (Swarm task containers left over from the
+    # PREVIOUS image — already replaced by Swarm via /cleanup target)
+    # are EXCLUDED — they're scheduled for removal, not for re-update,
+    # and the operator-reported regression was them appearing here.
+    updatable = [
+        i for i in items
+        if (
+            (i.get("status") or "") == "update"
+            and (i.get("type") or "") != "orphan"
+        )
+    ]
     if not items:
         await _send_reply(
             client,
@@ -2372,9 +2387,14 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
         if exact:
             targets = exact
         else:
-            partial = [i for i in items
-                       if (i.get("status") or "") == "update"
-                       and target in (i.get("name") or "").lower()]
+            partial = [
+                i for i in items
+                if (
+                    (i.get("status") or "") == "update"
+                    and (i.get("type") or "") != "orphan"
+                    and target in (i.get("name") or "").lower()
+                )
+            ]
             if not partial:
                 # Last-resort: tell the operator nothing matched.
                 await _send_reply(
@@ -3433,7 +3453,15 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         items = list(_gather._cache.get("items") or [])
 
         def _shape(i: dict) -> dict:
-            needs_update = (i.get("status") or "") == "update"
+            # `update_available` excludes orphans for the same reason
+            # the /update preview does — they're leftover Swarm task
+            # containers awaiting removal, not items the operator can
+            # re-update. AI count-style answers should reflect actionable
+            # items only.
+            needs_update = (
+                (i.get("status") or "") == "update"
+                and (i.get("type") or "") != "orphan"
+            )
             return {
                 "name": i.get("name"),
                 "status": i.get("status"),
@@ -3445,8 +3473,14 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                 "stack": i.get("stack"),
             }
 
-        updatable = [_shape(i) for i in items if (i.get("status") or "") == "update"]
-        other = [_shape(i) for i in items if (i.get("status") or "") != "update"]
+        def _is_updatable(i: dict) -> bool:
+            return (
+                (i.get("status") or "") == "update"
+                and (i.get("type") or "") != "orphan"
+            )
+
+        updatable = [_shape(i) for i in items if _is_updatable(i)]
+        other = [_shape(i) for i in items if not _is_updatable(i)]
         # Cap each list independently so a fleet with many updates
         # gets the FULL list even at the cost of "other_items" tail.
         ctx["updatable_items"] = updatable[:60]

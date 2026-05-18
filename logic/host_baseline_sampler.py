@@ -17,8 +17,7 @@ import asyncio
 import time
 
 from logic import host_baseline as _baseline
-from logic.db import db_conn, get_setting
-from logic.settings_keys import Settings
+from logic.db import iter_curated_hosts
 from logic.tuning import Tunable, tuning_int as _tuning_int
 
 
@@ -34,26 +33,17 @@ def _first_tick_delay() -> int:
 
 
 def _curated_host_ids() -> list[str]:
-    """Resolve every curated host's id from `hosts_config`. Mirrors
-    the pattern other samplers use for the per-host fan-out."""
-    raw = (get_setting(Settings.HOSTS_CONFIG, "") or "").strip()
-    if not raw:
-        return []
-    try:
-        import json as _json
-        cfg = _json.loads(raw)
-    except (ValueError, TypeError):
-        return []
-    if not isinstance(cfg, list):
-        return []
-    out = []
-    for h in cfg:
-        if not isinstance(h, dict):
-            continue
-        hid = (h.get("id") or "").strip()
-        if hid:
-            out.append(hid)
-    return out
+    """Resolve every curated host's id from `hosts_config`. Thin wrapper
+    around :func:`logic.db.iter_curated_hosts` (DUP-001 consolidation —
+    pre-fix this was 19 lines of duplicated JSON-parse + isinstance +
+    enabled-gate boilerplate). The baseline sampler walks ALL curated
+    hosts regardless of provider — every per-provider sample table
+    contributes to the unified baseline window."""
+    return [
+        (h.get("id") or "").strip()
+        for h in iter_curated_hosts()
+        if (h.get("id") or "").strip()
+    ]
 
 
 async def host_baseline_sampler_loop() -> None:

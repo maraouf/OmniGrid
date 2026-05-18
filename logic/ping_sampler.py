@@ -34,10 +34,11 @@ import time
 from logic import ping as _ping
 from logic import tuning
 from logic.tuning import Tunable as _Tunable
-from logic.db import db_conn, get_setting, get_setting_bool, active_host_stats_providers
+from logic.db import db_conn, get_setting_bool, active_host_stats_providers, iter_curated_hosts
 from logic.settings_keys import Settings
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 def _curated_ping_hosts() -> list[dict]:
     """Curated hosts opted-in for ping probing.
 
@@ -49,37 +50,29 @@ def _curated_ping_hosts() -> list[dict]:
 
     Lives here rather than ``logic/db.py`` because the row shape is
     sampler-specific (inlined defaults from the global settings) and
-    doesn't have other consumers.
+    doesn't have other consumers. The JSON-parse + enabled-gate prelude
+    is delegated to :func:`logic.db.iter_curated_hosts` (DUP-001).
     """
-    import json as _json
-
-    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
-    if not raw.strip():
-        return []
-    try:
-        parsed = _json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(parsed, list):
-        return []
-
     default_port = _resolve_default_port()
     use_icmp_global = get_setting_bool(Settings.PING_USE_ICMP, False)
     default_transport = "icmp" if (use_icmp_global and _ping.has_icmp_support()) else "tcp"
 
     out: list[dict] = []
-    for row in parsed:
-        if not isinstance(row, dict):
-            continue
-        if not row.get("enabled", True):
-            continue
-        ping_cfg = row.get("ping") if isinstance(row.get("ping"), dict) else {}
+    for row in iter_curated_hosts():
+        # Project-pattern `_raw` intermediate + explicit `: dict`
+        # annotation narrows the sub-dict for the type-checker —
+        # PyCharm can't carry the `isinstance(..., dict)` narrowing
+        # through a conditional-expression assignment so a bare
+        # `ping_cfg = ... if isinstance(...) else {}` leaves
+        # `ping_cfg` typed as `dict | None | Any` and every `.get()`
+        # call below triggers a `Member 'None' of ...` warning.
+        _ping_raw = row.get("ping")
+        ping_cfg: dict = _ping_raw if isinstance(_ping_raw, dict) else {}
         if not ping_cfg.get("enabled"):
             continue
-        hid = (row.get("id") or "").strip()
-        if not hid:
-            continue
-        ssh_cfg = row.get("ssh") if isinstance(row.get("ssh"), dict) else {}
+        hid = (row.get("id") or "").strip()  # iter_curated_hosts already guarantees non-empty
+        _ssh_raw = row.get("ssh")
+        ssh_cfg: dict = _ssh_raw if isinstance(_ssh_raw, dict) else {}
         # Target resolution chain — MUST mirror the canonical chain
         # documented in CLAUDE.md and used by `_resolve_ping_target`
         # in `main.py`, the on-demand port-scan resolver, the SNMP
@@ -132,6 +125,7 @@ def _resolve_default_port() -> int:
         return 443
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
     """Probe one host + write a row + publish SSE.
 
@@ -181,12 +175,12 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
             err = f"{type(e).__name__}: {str(e)[:120]}" if str(e) else type(e).__name__
             print(f"[ping_sampler] {host['id']!r} probe exception: {err}")
             result = {
-                "alive":      False,
-                "rtt_ms":     None,
+                "alive": False,
+                "rtt_ms": None,
                 "rtt_min_ms": None,
                 "rtt_max_ms": None,
-                "loss_pct":   100.0,
-                "error":      err,
+                "loss_pct": 100.0,
+                "error": err,
             }
             # Sampler-level error (DNS failure, ICMP perm-denied,
             # transport setup failure, etc.) — count toward auto-pause.
@@ -230,10 +224,10 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
         try:
             from logic import events as _events
             _events.publish("host:ping_sampled", {
-                "host_id":  host["id"],
-                "ts":       ts,
-                "alive":    bool(result.get("alive")),
-                "rtt_ms":   result.get("rtt_ms"),
+                "host_id": host["id"],
+                "ts": ts,
+                "alive": bool(result.get("alive")),
+                "rtt_ms": result.get("rtt_ms"),
                 "loss_pct": result.get("loss_pct"),
             })
         except Exception as e:
@@ -359,10 +353,10 @@ def last_samples(host_id: str, limit: int = 5) -> list[dict]:
 
 def _shape_row(r) -> dict:
     return {
-        "ts":         int(r["ts"]),
-        "alive":      bool(r["alive"]),
-        "rtt_ms":     (float(r["rtt_ms"]) if r["rtt_ms"] is not None else None),
+        "ts": int(r["ts"]),
+        "alive": bool(r["alive"]),
+        "rtt_ms": (float(r["rtt_ms"]) if r["rtt_ms"] is not None else None),
         "rtt_min_ms": (float(r["rtt_min_ms"]) if r["rtt_min_ms"] is not None else None),
         "rtt_max_ms": (float(r["rtt_max_ms"]) if r["rtt_max_ms"] is not None else None),
-        "loss_pct":   (float(r["loss_pct"]) if r["loss_pct"] is not None else 0.0),
+        "loss_pct": (float(r["loss_pct"]) if r["loss_pct"] is not None else 0.0),
     }
