@@ -1313,16 +1313,21 @@ def _prune_old_samples() -> int:
             # fleet of servers; same window as the rest.
             cur4 = c.execute("DELETE FROM host_snmp_temp_samples WHERE ts < ?", (cutoff,))
             removed += cur4.rowcount or 0
-            # host_failure_events is INTENTIONALLY NOT pruned — operator
-            # preference: keep every incident forever for post-mortem
-            # learning. Rows are sparse (a few per host per outage) so
-            # the table stays small even over years. The Stats →
-            # Incidents view + Timeline tab + any future
-            # learn-from-history surface read this table; truncating
-            # would silently drop historical signal we'd rather grow
-            # with. If retention ever needs revisiting, gate behind a
-            # dedicated `tuning_incidents_retention_days` tunable with
-            # 0 = forever as the default, NOT the shared stats window.
+            # host_failure_events — independently tunable retention via
+            # ``tuning_incidents_retention_days`` (default 90; 0 disables
+            # pruning entirely, restoring the previous "keep every
+            # incident forever" behaviour for deployments that want
+            # the full audit trail). Default landed at 90 days — a
+            # quarter's worth of post-mortem learning material without
+            # the table growing unbounded over years.
+            incidents_days = tuning.tuning_int(Tunable.INCIDENTS_RETENTION_DAYS)
+            if incidents_days > 0:
+                incidents_cutoff = int(time.time() - incidents_days * 86400)
+                cur5 = c.execute(
+                    "DELETE FROM host_failure_events WHERE ts < ?",
+                    (incidents_cutoff,),
+                )
+                removed += cur5.rowcount or 0
             return removed
     # noinspection PyBroadException
     except Exception as e:

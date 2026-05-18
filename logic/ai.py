@@ -1971,18 +1971,46 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
         hosts_total = ctx.get("hosts_total")
         hosts_enabled = ctx.get("hosts_enabled")
         hosts_sample_cap = ctx.get("hosts_sample_cap") or 30
+        hosts_summary = _typed_field(ctx, "hosts_summary", dict) or {}
+        # Status-breakdown grounding — Telegram-context-builder emits
+        # `hosts_summary.up / .paused / .unknown` so the AI can answer
+        # "how many hosts are up" / "any down hosts?" from authoritative
+        # counts instead of extrapolating from the truncated sample.
+        # Operator-flagged: pre-fix the AI replied "all 182 hosts are in
+        # an unknown state" because the 30-row sample happened to be
+        # entirely 'unknown' (snapshot table sparse) — even though the
+        # actual fleet had most hosts up. With this block the AI sees
+        # the real up/paused/unknown counts before reading the sample.
+        up_count = hosts_summary.get("up")
+        paused_count = hosts_summary.get("paused")
+        unknown_count = hosts_summary.get("unknown")
         if isinstance(hosts_total, int) and hosts_total > 0:
             enabled_seg = (f" ({hosts_enabled} enabled)"
                            if isinstance(hosts_enabled, int) else "")
+            status_seg = ""
+            if isinstance(up_count, int) and isinstance(paused_count, int) \
+                and isinstance(unknown_count, int):
+                status_seg = (
+                    f"\n  - hosts_up: {up_count} "
+                    f"(reporting live telemetry)"
+                    f"\n  - hosts_paused: {paused_count} "
+                    f"(sampling explicitly paused by operator / auto-pause)"
+                    f"\n  - hosts_unknown: {unknown_count} "
+                    f"(no recent snapshot — provider down OR not yet probed)"
+                )
             parts.append(
                 f"Fleet counts (AUTHORITATIVE — use these to answer 'how many "
-                f"hosts' / 'count' / 'total' questions, NOT the sample-records "
-                f"block below):\n"
-                f"  - hosts_total: {hosts_total}{enabled_seg}\n"
+                f"hosts' / 'count' / 'total' / 'up' / 'down' / 'unknown' / "
+                f"'paused' questions, NOT the sample-records block below):\n"
+                f"  - hosts_total: {hosts_total}{enabled_seg}"
+                f"{status_seg}\n"
                 f"  - hosts shown below: capped at top {hosts_sample_cap} for "
                 f"prompt-token budget; the rest exist but aren't enumerated. "
-                f"NEVER answer 'we have N hosts' where N is the visible-sample "
-                f"size — always cite hosts_total."
+                f"NEVER answer 'we have N hosts' / 'all N are unknown' where "
+                f"N is the visible-sample size — always cite the matching "
+                f"counter above. If hosts_up > 0 the fleet IS reporting "
+                f"telemetry; a sample dominated by 'unknown' rows is a "
+                f"sampling-order artefact, NOT 'every host is unknown'."
             )
         hosts = _typed_field(ctx, "hosts", list)
         if hosts:
@@ -1992,7 +2020,7 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 + " total)",
                 "id, label, status, cpu_pct, mem_pct, disk_pct, "
                 "disk_free_gb, disk_total_gb, uptime_s, paused, providers",
-                hosts[:30],
+                hosts[:hosts_sample_cap],
             ))
         # Items counts — mirror the hosts_total pattern so the model
         # can answer "how many stacks need updating" / "any updates?"
