@@ -194,19 +194,19 @@
               <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
                 <h4 class="font-semibold fs-sm" x-text="t('stats.ai_cost.rt_trend.title')"></h4>
                 <div class="flex items-center gap-2">
-                  <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
-                       role="group"
-                       :aria-label="t('stats.ai_cost.rt_trend.range_label')"
-                       @keydown="_buttonGroupArrowKey($event)">
-                    <template x-for="opt in ['1h', '24h', '7d', '30d', '90d']" :key="opt">
-                      <button type="button"
-                              @click="_runWithBusy('stats_ai_cost', () => loadStatsAiCost(opt))"
-                              :disabled="_loadBusy.stats_ai_cost === true"
-                              :aria-pressed="(statsAiCost.range || statsAiCostRange) === opt ? 'true' : 'false'"
-                              :class="(statsAiCost.range || statsAiCostRange) === opt ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-                              class="px-2 py-0.5 rounded fs-xs font-medium transition"
-                              x-text="t('stats.range.range_' + opt)"></button>
-                    </template>
+                  <!-- Delegates to the shared `og-range-picker`
+                       component. Same string-option shape as the
+                       Samples partial. -->
+                  <div x-data="{
+                         rpOptions: ['1h', '24h', '7d', '30d', '90d'].map(o => ({
+                           value: o,
+                           label: t('stats.range.range_' + o)
+                         })),
+                         get rpCurrent() { return statsAiCost.range || statsAiCostRange; },
+                         rpOnChange: (v) => _runWithBusy('stats_ai_cost', () => loadStatsAiCost(v)),
+                         rpAriaLabel: t('stats.ai_cost.rt_trend.range_label')
+                       }">
+                    <!-- INCLUDE: _components/og-range-picker.html -->
                   </div>
                   <svg x-show="_loadBusy.stats_ai_cost === true"
                        width="13" height="13" class="spin-md text-[var(--text-dim)]" aria-hidden="true">

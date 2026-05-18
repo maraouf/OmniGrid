@@ -178,24 +178,22 @@
                      bucket size; the Samples table sections above
                      don't refetch. -->
                 <div class="flex items-center gap-2">
-                  <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
-                       role="group"
-                       :aria-label="t('stats.samples.daily_chart.range_label')"
-                       @keydown="_buttonGroupArrowKey($event)">
-                    <template x-for="opt in ['1h', '24h', '7d', '30d', '90d']" :key="opt">
-                      <!-- Range click routes through `_runWithBusy` so
-                           the inline spinner below + the section's
-                           Reload button both reflect the in-flight
-                           refetch. Without the busy gate the chips
-                           feel inert when the network is slow. -->
-                      <button type="button"
-                              @click="_runWithBusy('stats_samples', () => loadStatsSamples(opt))"
-                              :disabled="_loadBusy.stats_samples === true"
-                              :aria-pressed="(statsSamples.range || statsSamplesRange) === opt ? 'true' : 'false'"
-                              :class="(statsSamples.range || statsSamplesRange) === opt ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-                              class="px-2 py-0.5 rounded fs-xs font-medium transition"
-                              x-text="t('stats.range.range_' + opt)"></button>
-                    </template>
+                  <!-- Delegates to the shared `og-range-picker` component.
+                       String options (`'1h'` / `'24h'` / ...) match the
+                       backend's range query param shape; the loader
+                       wraps in `_runWithBusy` so the inline spinner +
+                       section Reload button reflect the in-flight
+                       refetch. -->
+                  <div x-data="{
+                         rpOptions: ['1h', '24h', '7d', '30d', '90d'].map(o => ({
+                           value: o,
+                           label: t('stats.range.range_' + o)
+                         })),
+                         get rpCurrent() { return statsSamples.range || statsSamplesRange; },
+                         rpOnChange: (v) => _runWithBusy('stats_samples', () => loadStatsSamples(v)),
+                         rpAriaLabel: t('stats.samples.daily_chart.range_label')
+                       }">
+                    <!-- INCLUDE: _components/og-range-picker.html -->
                   </div>
                   <!-- Inline spinner — same `spin-md` glyph as the
                        Reload button at the section header so operators
