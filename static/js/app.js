@@ -8196,26 +8196,12 @@ function app() {
     tickHeaderClock() {
       const now = new Date();
       // Routes through the user's Formats preference (Settings →
-      // Profile → Formats). The topbar clock is time-only, so derive
-      // a time-only format by stripping date tokens (`y` / `M` / `d`
-      // and longer variants) from the user's full format. Trailing
-      // separators left over from the strip get tidied. Empty result
-      // (operator's format had no time component at all) falls back
-      // to `HH:mm` so the clock never goes blank.
-      const full = this._userDateTimeFormat();
-      let timePart = full
-        .replace(/yyyy/g, '').replace(/yy/g, '')
-        .replace(/MMMM/g, '').replace(/MMM/g, '').replace(/MM/g, '')
-        .replace(/(?<![A-Za-z])M(?![A-Za-z])/g, '')
-        .replace(/dd/g, '')
-        .replace(/(?<![A-Za-z])d(?![A-Za-z])/g, '');
-      timePart = timePart
-        .replace(/[,;:\s/-]+$/g, '')
-        .replace(/^[,;:\s/-]+/g, '')
-        .replace(/\s{2,}/g, ' ')
-        .replace(/[/-]\s*[/-]/g, '')
-        .trim();
-      this.currentClock = this._applyDateTimeFormat(now, timePart || 'HH:mm');
+      // Profile → Formats) via the shared `_userTimeOnlyFormat`
+      // stripper — single source of truth for "derive time-only from
+      // the user's full pref" across the topbar clock + Stats chart
+      // axes. Falls back to `HH:mm` when the user's pref had no time
+      // component at all so the clock never goes blank.
+      this.currentClock = this._applyDateTimeFormat(now, this._userTimeOnlyFormat());
     },
     startHeaderClock() {
       if (this._clockTimer) {
@@ -23859,17 +23845,22 @@ function app() {
       }
       const dedup = Array.from(new Set(xIdxs));
       const r = (range || '30d').toString();
-      // Per-bucket x-tick formatter — hour buckets get HH:MM (drop
-      // date prefix when every shown tick is the same date), day +
-      // week buckets get MM-DD.
+      // Per-bucket x-tick formatter — hour buckets render the
+      // user-pref time-only format, day + week buckets render the
+      // user-pref date-only format. Both routes through the shared
+      // `_user{Time,Date}OnlyFormat` strippers so the chart honours
+      // the operator's Formats preference (Settings → Profile).
+      const _timeOnlyFmt = this._userTimeOnlyFormat();
+      const _dateOnlyFmt = this._userDateOnlyFormat();
       const fmtXLabel = (ts) => {
         if (!ts) {
           return '';
         }
+        const dt = new Date(Number(ts) * 1000);
         if (r === '1h' || r === '24h') {
-          return this.fmtDateTimeShort(ts).replace(/^\S+\s+/, '');
+          return this._applyDateTimeFormat(dt, _timeOnlyFmt);
         }
-        return this.fmtDateOnly(ts);
+        return this._applyDateTimeFormat(dt, _dateOnlyFmt);
       };
       const esc = (s) => this._logEscape(String(s));
       let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block">';
@@ -23974,59 +23965,65 @@ function app() {
         }
       }
       const dedup = Array.from(new Set(xIdxs));
-      // Format the x-tick label per range. Operator-flagged 90d's
-      // prior "MM-DD–MM-DD" en-dash format as not clear. Switched to:
-      //   1h / 24h → HH:MM (drop date prefix)
-      //   7d / 30d → MM-DD (drop year)
-      //   90d      → "MMM DD" (short month + day-of-week-start, e.g.
-      //              "Feb 15") — readable + fits ~14 labels on a
-      //              720px chart without overlap.
-      const _MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const fmtXLabel = (key) => {
+      // Format the x-tick label per range. Routes through the user's
+      // Formats preference (Settings → Profile → Formats) so labels
+      // honour the same `dd/MM/yyyy, HH:mm:ss` / `MM/dd/yyyy` / etc.
+      // grammar that powers every other date render in the SPA. Per
+      // CLAUDE.md "User-pref token grammar with derived variants —
+      // single source of truth, strip-don't-store": hour buckets get a
+      // time-only format derived by stripping date tokens from the
+      // canonical pref; day + week buckets use `_userDateOnlyFormat()`.
+      // Backend bucket keys are ISO-shaped UTC anchors:
+      //   1h / 24h → `YYYY-MM-DDTHH:00` (hour bucket)
+      //   7d / 30d → `YYYY-MM-DD`        (day bucket)
+      //   90d      → `YYYY-MM-DD`        (start-of-week anchor)
+      const parseBucketKey = (key) => {
         if (!key) {
+          return null;
+        }
+        const t = key.indexOf('T');
+        if (t >= 0) {
+          const [y, mo, da] = key.slice(0, 10).split('-').map(s => parseInt(s, 10));
+          const [hh, mm] = key.slice(t + 1).split(':').map(s => parseInt(s, 10));
+          return new Date(Date.UTC(y, (mo || 1) - 1, da || 1, hh || 0, mm || 0));
+        }
+        const [y, mo, da] = key.split('-').map(s => parseInt(s, 10));
+        return new Date(Date.UTC(y, (mo || 1) - 1, da || 1));
+      };
+      // Date + time format helpers — route through the shared
+      // `_user{Date,Time}OnlyFormat` strippers (canonical "derive
+      // date-only / time-only from the user's full pref" pattern).
+      const dateOnlyFmt = this._userDateOnlyFormat();
+      const timeOnlyFmt = this._userTimeOnlyFormat();
+      const fmtXLabel = (key) => {
+        const d = parseBucketKey(key);
+        if (!d) {
           return '';
         }
         if (r === '1h' || r === '24h') {
-          // `YYYY-MM-DDTHH:MM` or `YYYY-MM-DDTHH:00`
-          const t = key.indexOf('T');
-          return t >= 0 ? key.slice(t + 1) : key;
+          return this._applyDateTimeFormat(d, timeOnlyFmt);
         }
-        if (r === '90d' && key.length === 10) {
-          // Weekly bucket — render the start-of-week as "MMM DD" so
-          // every label is short + readable + signals month boundary
-          // at a glance (the bar's `<title>` tooltip still carries
-          // the full date if the operator needs it).
-          try {
-            const mm = parseInt(key.slice(5, 7), 10);
-            const dd = key.slice(8, 10);
-            return _MONTHS_SHORT[mm - 1] + ' ' + dd;
-          } catch (_) {
-            return key.slice(5);
-          }
-        }
-        // Daily — drop year so labels are compact (MM-DD).
-        return key.length === 10 ? key.slice(5) : key;
+        return this._applyDateTimeFormat(d, dateOnlyFmt);
       };
       // Tooltip helper for week buckets — still shows the FULL week
       // range so operators can verify which 7 days a bar represents.
-      const _addDays = (yyyy_mm_dd, days) => {
-        const [y, m, d] = yyyy_mm_dd.split('-').map(n => parseInt(n, 10));
-        const dt = new Date(Date.UTC(y, m - 1, d));
-        dt.setUTCDate(dt.getUTCDate() + days);
-        const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
-        const dd = String(dt.getUTCDate()).padStart(2, '0');
-        return mm + '-' + dd;
-      };
+      // Both endpoints route through the user's date-only format.
       const fmtTooltipDate = (key) => {
-        if (!key) {
+        const d = parseBucketKey(key);
+        if (!d) {
           return '';
         }
-        if (r === '90d' && key.length === 10) {
-          try {
-            return key.slice(5) + '–' + _addDays(key, 6);
-          } catch (_) { return fmtXLabel(key); }
+        if (r === '1h' || r === '24h') {
+          return this.fmtDateTimeShort(Math.floor(d.getTime() / 1000));
         }
-        return fmtXLabel(key);
+        if (r === '90d') {
+          const end = new Date(d.getTime());
+          end.setUTCDate(end.getUTCDate() + 6);
+          return this._applyDateTimeFormat(d, dateOnlyFmt)
+            + ' – '
+            + this._applyDateTimeFormat(end, dateOnlyFmt);
+        }
+        return this._applyDateTimeFormat(d, dateOnlyFmt);
       };
       const esc = (s) => this._logEscape(String(s));
       let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block">';
@@ -36766,6 +36763,29 @@ function app() {
         .replace(/\s{2,}/g, ' ')
         .replace(/[,;:]\s*$/g, '');
       return datePart || 'dd/MM/yyyy';
+    },
+    // Time-only sibling of `_userDateOnlyFormat` — strips every
+    // date-related token (`y`/`M`/`d`) from the user's full datetime
+    // format and tidies the orphan separators the strip leaves
+    // behind. Falls back to `HH:mm` when the user's pref had no time
+    // component at all. Used by `tickHeaderClock` + the Stats chart
+    // x-axis label paths so hour buckets honour the user's chosen
+    // 24-h vs 12-h convention.
+    _userTimeOnlyFormat() {
+      const full = this._userDateTimeFormat();
+      let timePart = full
+        .replace(/yyyy/g, '').replace(/yy/g, '')
+        .replace(/MMMM/g, '').replace(/MMM/g, '').replace(/MM/g, '')
+        .replace(/(?<![A-Za-z])M(?![A-Za-z])/g, '')
+        .replace(/dd/g, '')
+        .replace(/(?<![A-Za-z])d(?![A-Za-z])/g, '');
+      timePart = timePart
+        .replace(/[,;:\s/-]+$/g, '')
+        .replace(/^[,;:\s/-]+/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/[/-]\s*[/-]/g, '')
+        .trim();
+      return timePart || 'HH:mm';
     },
     // Parse a user-format date string (matching `_userDateOnlyFormat`)
     // back to an ISO `YYYY-MM-DD` string for the history-filter state.
