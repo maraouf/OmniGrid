@@ -81,22 +81,19 @@ except Exception as _import_err:  # pragma: no cover - import-time guard
     base64url_to_bytes = None  # type: ignore[assignment]
     bytes_to_base64url = None  # type: ignore[assignment]
 
-
 # COSE algorithm preferences -- ES256 first (every passkey supports it),
 # RS256 second (some Windows Hello keys), EdDSA third (newer hardware).
 _COSE_ALGS = (
-    -7,    # ES256
+    -7,  # ES256
     -257,  # RS256
-    -8,    # EdDSA
+    -8,  # EdDSA
 )
-
 
 # Friendly-name hard caps. 1..64 chars, no control bytes. Operator can
 # rename later via PATCH; callers enforce these on every register-
 # finish + (future) rename endpoint.
 _FRIENDLY_NAME_MAX = 64
 _FRIENDLY_NAME_RE = re.compile(r"^[\x20-\x7E -￿]{1,64}$")
-
 
 # hoisted from per-loop scope. Both constants used to live
 # inside verify_registration / make_authentication_options and were
@@ -216,7 +213,7 @@ def make_registration_options(
     # (Touch ID / Windows Hello). Without this, some browsers funnel
     # straight to the OS-native picker and never give the password-
     # manager extension a chance to surface its "save passkey" sheet
-    #. The webauthn lib doesn't expose this in its dataclass yet,
+    # . The webauthn lib doesn't expose this in its dataclass yet,
     # so we splice it onto the dict after serialisation.
     options_dict["hints"] = ["client-device", "hybrid", "security-key"]
     return options_dict, bytes(options.challenge)
@@ -308,8 +305,9 @@ def make_authentication_options(
     allow = []
     for c in allowed_credentials:
         cid = c.get("credential_id")
-        if not cid:
+        if not isinstance(cid, (bytes, bytearray, memoryview)):
             continue
+        cid = bytes(cid)
         ts = c.get("transports") or []
         # / Safari/Chrome on macOS default to the hybrid
         # (QR) flow at assertion time when a credential's stored
@@ -345,10 +343,10 @@ def make_authentication_options(
         ts = [t for t in _TRANSPORT_ORDER if t in ts_set]
         try:
             transport_enums = [
-                AuthenticatorTransport(str(t).lower())
-                for t in ts
-                if t
-            ] or None
+                                  AuthenticatorTransport(str(t).lower())
+                                  for t in ts
+                                  if t
+                              ] or None
         except ValueError:
             # Unknown transport string from a future authenticator --
             # drop the field rather than raise. The browser still

@@ -85,7 +85,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from logic import tuning as _tuning
 from logic.tuning import Tunable as _Tunable
@@ -110,6 +110,7 @@ _unreachable_cooldown = _Cooldown(
 # don't close the engine explicitly — pysnmp's HLAPI doesn't expose a
 # clean shutdown path, and lifespan teardown drops the process anyway.
 import asyncio as _asyncio_for_engine_lock
+
 _engine_singleton = None
 _engine_lock = _asyncio_for_engine_lock.Lock()
 
@@ -126,23 +127,23 @@ async def _get_snmp_engine():
 
 # Standard OIDs we walk. Kept as constants so the extractor branches
 # are obvious and a future MIB extension is one line.
-_OID_SYS_DESCR     = "1.3.6.1.2.1.1.1.0"
-_OID_SYS_UPTIME    = "1.3.6.1.2.1.1.3.0"
-_OID_SYS_CONTACT   = "1.3.6.1.2.1.1.4.0"
-_OID_SYS_NAME      = "1.3.6.1.2.1.1.5.0"
-_OID_SYS_LOCATION  = "1.3.6.1.2.1.1.6.0"
+_OID_SYS_DESCR = "1.3.6.1.2.1.1.1.0"
+_OID_SYS_UPTIME = "1.3.6.1.2.1.1.3.0"
+_OID_SYS_CONTACT = "1.3.6.1.2.1.1.4.0"
+_OID_SYS_NAME = "1.3.6.1.2.1.1.5.0"
+_OID_SYS_LOCATION = "1.3.6.1.2.1.1.6.0"
 # ENTITY-MIB physical-component table. Vendor-agnostic surface
 # for model name / serial number / firmware version on enterprise gear
 # (Cisco / Dell iDRAC / HP / Juniper / etc.) that doesn't necessarily
 # implement Host Resources MIB. Walk by sub-tree so we get every
 # physical entry (chassis, slot, supply, fan, port). Most agents put
 # the chassis-level info at index 1.
-_OID_ENT_DESCR        = "1.3.6.1.2.1.47.1.1.1.1.2"
-_OID_ENT_NAME         = "1.3.6.1.2.1.47.1.1.1.1.7"
+_OID_ENT_DESCR = "1.3.6.1.2.1.47.1.1.1.1.2"
+_OID_ENT_NAME = "1.3.6.1.2.1.47.1.1.1.1.7"
 _OID_ENT_SOFTWARE_REV = "1.3.6.1.2.1.47.1.1.1.1.10"
-_OID_ENT_SERIAL_NUM   = "1.3.6.1.2.1.47.1.1.1.1.11"
-_OID_ENT_MODEL_NAME   = "1.3.6.1.2.1.47.1.1.1.1.13"
-_OID_ENT_PHYS_CLASS   = "1.3.6.1.2.1.47.1.1.1.1.5"
+_OID_ENT_SERIAL_NUM = "1.3.6.1.2.1.47.1.1.1.1.11"
+_OID_ENT_MODEL_NAME = "1.3.6.1.2.1.47.1.1.1.1.13"
+_OID_ENT_PHYS_CLASS = "1.3.6.1.2.1.47.1.1.1.1.5"
 
 # Vendor-private MIBs for hosts whose SNMP profile blocks the
 # standard MIB-II / Host Resources / ENTITY-MIB surfaces. iDRAC v6+ in
@@ -163,35 +164,35 @@ _OID_ENT_PHYS_CLASS   = "1.3.6.1.2.1.47.1.1.1.1.5"
 # the standard Dell Systems Management Server Health enum:
 # 1=other, 2=unknown, 3=ok, 4=non-critical, 5=critical, 6=non-recoverable
 _OID_DELL_CHASSIS_SERVICE_TAG = "1.3.6.1.4.1.674.10892.5.1.3.2.0"
-_OID_DELL_CHASSIS_MODEL       = "1.3.6.1.4.1.674.10892.5.1.3.3.0"
-_OID_DELL_RAC_FIRMWARE        = "1.3.6.1.4.1.674.10892.5.1.1.6.0"
-_OID_DELL_GLOBAL_SYS_STATUS   = "1.3.6.1.4.1.674.10892.5.4.200.10.1.4.1"
+_OID_DELL_CHASSIS_MODEL = "1.3.6.1.4.1.674.10892.5.1.3.3.0"
+_OID_DELL_RAC_FIRMWARE = "1.3.6.1.4.1.674.10892.5.1.1.6.0"
+_OID_DELL_GLOBAL_SYS_STATUS = "1.3.6.1.4.1.674.10892.5.4.200.10.1.4.1"
 # Dell host-system info (different sub-tree from chassis): system
 # service tag + product short name. Some iDRAC firmware revs only
 # answer the host-system OIDs, others only chassis — probe both.
-_OID_DELL_SYSTEM_SERVICE_TAG  = "1.3.6.1.4.1.674.10892.5.4.300.10.1.11.1"
-_OID_DELL_SYSTEM_MODEL_NAME   = "1.3.6.1.4.1.674.10892.5.4.300.10.1.9.1"
+_OID_DELL_SYSTEM_SERVICE_TAG = "1.3.6.1.4.1.674.10892.5.4.300.10.1.11.1"
+_OID_DELL_SYSTEM_MODEL_NAME = "1.3.6.1.4.1.674.10892.5.4.300.10.1.9.1"
 # Dell systemBIOSTable — BIOS version + release date per BIOS slot
 # (almost always one row per server). 5.4.300.50.1.x.
-_OID_DELL_BIOS_VERSION        = "1.3.6.1.4.1.674.10892.5.4.300.50.1.8"
-_OID_DELL_BIOS_RELEASE_DATE   = "1.3.6.1.4.1.674.10892.5.4.300.50.1.7"
+_OID_DELL_BIOS_VERSION = "1.3.6.1.4.1.674.10892.5.4.300.50.1.8"
+_OID_DELL_BIOS_RELEASE_DATE = "1.3.6.1.4.1.674.10892.5.4.300.50.1.7"
 # Dell coolingDeviceTable (fans). One row per fan; 5.4.700.12.1.x:
 # .5 = coolingDeviceStatus (enum)
 # .6 = coolingDeviceReading (RPM)
 # .7 = coolingDeviceType (enum: 3=fan, 4=blower, 10=cooled-air-fan, etc.)
 # .8 = coolingDeviceLocationName (string)
-_OID_DELL_FAN_STATUS    = "1.3.6.1.4.1.674.10892.5.4.700.12.1.5"
-_OID_DELL_FAN_READING   = "1.3.6.1.4.1.674.10892.5.4.700.12.1.6"
-_OID_DELL_FAN_TYPE      = "1.3.6.1.4.1.674.10892.5.4.700.12.1.7"
-_OID_DELL_FAN_LOCATION  = "1.3.6.1.4.1.674.10892.5.4.700.12.1.8"
+_OID_DELL_FAN_STATUS = "1.3.6.1.4.1.674.10892.5.4.700.12.1.5"
+_OID_DELL_FAN_READING = "1.3.6.1.4.1.674.10892.5.4.700.12.1.6"
+_OID_DELL_FAN_TYPE = "1.3.6.1.4.1.674.10892.5.4.700.12.1.7"
+_OID_DELL_FAN_LOCATION = "1.3.6.1.4.1.674.10892.5.4.700.12.1.8"
 # Dell temperatureProbeTable. 5.4.700.20.1.x:
 # .5 = temperatureProbeStatus (enum)
 # .6 = temperatureProbeReading (deci-degC; 232 = 23.2 °C)
 # .7 = temperatureProbeType (enum)
 # .8 = temperatureProbeLocationName (string — e.g. "CPU1 Temp", "Inlet Temp")
-_OID_DELL_TEMP_STATUS   = "1.3.6.1.4.1.674.10892.5.4.700.20.1.5"
-_OID_DELL_TEMP_READING  = "1.3.6.1.4.1.674.10892.5.4.700.20.1.6"
-_OID_DELL_TEMP_TYPE     = "1.3.6.1.4.1.674.10892.5.4.700.20.1.7"
+_OID_DELL_TEMP_STATUS = "1.3.6.1.4.1.674.10892.5.4.700.20.1.5"
+_OID_DELL_TEMP_READING = "1.3.6.1.4.1.674.10892.5.4.700.20.1.6"
+_OID_DELL_TEMP_TYPE = "1.3.6.1.4.1.674.10892.5.4.700.20.1.7"
 _OID_DELL_TEMP_LOCATION = "1.3.6.1.4.1.674.10892.5.4.700.20.1.8"
 # Dell powerSupplyTable. 5.4.600.12.1.x:
 # .5 = powerSupplyStatus (enum)
@@ -199,16 +200,16 @@ _OID_DELL_TEMP_LOCATION = "1.3.6.1.4.1.674.10892.5.4.700.20.1.8"
 # .7 = powerSupplyType (enum: AC / DC)
 # .8 = powerSupplyLocationName
 # .12 = powerSupplyConfigurationErrorType (mismatch / not-redundant / etc.)
-_OID_DELL_PSU_STATUS    = "1.3.6.1.4.1.674.10892.5.4.600.12.1.5"
-_OID_DELL_PSU_WATTS     = "1.3.6.1.4.1.674.10892.5.4.600.12.1.6"
-_OID_DELL_PSU_TYPE      = "1.3.6.1.4.1.674.10892.5.4.600.12.1.7"
-_OID_DELL_PSU_LOCATION  = "1.3.6.1.4.1.674.10892.5.4.600.12.1.8"
+_OID_DELL_PSU_STATUS = "1.3.6.1.4.1.674.10892.5.4.600.12.1.5"
+_OID_DELL_PSU_WATTS = "1.3.6.1.4.1.674.10892.5.4.600.12.1.6"
+_OID_DELL_PSU_TYPE = "1.3.6.1.4.1.674.10892.5.4.600.12.1.7"
+_OID_DELL_PSU_LOCATION = "1.3.6.1.4.1.674.10892.5.4.600.12.1.8"
 # Dell voltageProbeTable. 5.4.600.20.1.x:
 # .5 = voltageProbeStatus
 # .6 = voltageProbeReading (millivolts)
 # .8 = voltageProbeLocationName
-_OID_DELL_VOLT_STATUS   = "1.3.6.1.4.1.674.10892.5.4.600.20.1.5"
-_OID_DELL_VOLT_READING  = "1.3.6.1.4.1.674.10892.5.4.600.20.1.6"
+_OID_DELL_VOLT_STATUS = "1.3.6.1.4.1.674.10892.5.4.600.20.1.5"
+_OID_DELL_VOLT_READING = "1.3.6.1.4.1.674.10892.5.4.600.20.1.6"
 _OID_DELL_VOLT_LOCATION = "1.3.6.1.4.1.674.10892.5.4.600.20.1.8"
 # Dell amperageProbeTable — also carries PSU input watts on iDRAC9+.
 # 5.4.600.30.1.x:
@@ -217,10 +218,10 @@ _OID_DELL_VOLT_LOCATION = "1.3.6.1.4.1.674.10892.5.4.600.20.1.8"
 #       direct for type=23 system-power probes)
 # .7 = amperageProbeType (24=power-consumption, 23=watts, 1-3=current)
 # .8 = amperageProbeLocationName
-_OID_DELL_AMP_STATUS    = "1.3.6.1.4.1.674.10892.5.4.600.30.1.5"
-_OID_DELL_AMP_READING   = "1.3.6.1.4.1.674.10892.5.4.600.30.1.6"
-_OID_DELL_AMP_TYPE      = "1.3.6.1.4.1.674.10892.5.4.600.30.1.7"
-_OID_DELL_AMP_LOCATION  = "1.3.6.1.4.1.674.10892.5.4.600.30.1.8"
+_OID_DELL_AMP_STATUS = "1.3.6.1.4.1.674.10892.5.4.600.30.1.5"
+_OID_DELL_AMP_READING = "1.3.6.1.4.1.674.10892.5.4.600.30.1.6"
+_OID_DELL_AMP_TYPE = "1.3.6.1.4.1.674.10892.5.4.600.30.1.7"
+_OID_DELL_AMP_LOCATION = "1.3.6.1.4.1.674.10892.5.4.600.30.1.8"
 # Dell physicalDiskTable — per-disk identity + state + capacity.
 # 5.5.1.20.130.4.1.x:
 # .2 = physicalDiskName ("Physical Disk 0:1:0")
@@ -230,11 +231,11 @@ _OID_DELL_AMP_LOCATION  = "1.3.6.1.4.1.674.10892.5.4.600.30.1.8"
 # .6 = physicalDiskCapacityInMB (megabytes)
 # .10 = physicalDiskSerialNo
 # .11 = physicalDiskRevision
-_OID_DELL_PD_NAME       = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.2"
-_OID_DELL_PD_STATE      = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.4"
-_OID_DELL_PD_CAPACITY   = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.6"
-_OID_DELL_PD_SERIAL     = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.10"
-_OID_DELL_PD_REVISION   = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.11"
+_OID_DELL_PD_NAME = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.2"
+_OID_DELL_PD_STATE = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.4"
+_OID_DELL_PD_CAPACITY = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.6"
+_OID_DELL_PD_SERIAL = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.10"
+_OID_DELL_PD_REVISION = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.11"
 # Dell virtualDiskTable (RAID arrays). 5.5.1.20.140.1.1.x:
 # .2  = virtualDiskName
 # .4  = virtualDiskState (1=ready, 2=failed, 3=online, 4=offline,
@@ -242,10 +243,10 @@ _OID_DELL_PD_REVISION   = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.11"
 # .6  = virtualDiskSizeInMB
 # .13 = virtualDiskLayout (1=concat, 2=raid-0, 3=raid-1, 4=raid-5,
 #       5=raid-6, 6=raid-10, 7=raid-50, 8=raid-60)
-_OID_DELL_VD_NAME       = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.2"
-_OID_DELL_VD_STATE      = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.4"
-_OID_DELL_VD_SIZE       = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.6"
-_OID_DELL_VD_LAYOUT     = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.13"
+_OID_DELL_VD_NAME = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.2"
+_OID_DELL_VD_STATE = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.4"
+_OID_DELL_VD_SIZE = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.6"
+_OID_DELL_VD_LAYOUT = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.13"
 
 # Dell physicalDiskState (arrayDiskState) enum — Dell OpenManage Storage MIB
 # uses 1-indexed values. Empirically confirmed against an R730xd / iDRAC8:
@@ -287,11 +288,11 @@ _DELL_AMP_TYPE_WATTS = {23, 24, 25, 26}
 # Cisco — covers SG300 / SG350 / SG500 / Catalyst / Nexus.
 # productHardwareVer is SG300-specific (under enterprises.9.6.1.101);
 # memory pool + CPU% are common across the Cisco family.
-_OID_CISCO_PRODUCT_HW_VER       = "1.3.6.1.4.1.9.6.1.101.1.1.0"
-_OID_CISCO_MEM_POOL_NAME        = "1.3.6.1.4.1.9.9.48.1.1.1.2"
-_OID_CISCO_MEM_POOL_USED        = "1.3.6.1.4.1.9.9.48.1.1.1.5"
-_OID_CISCO_MEM_POOL_FREE        = "1.3.6.1.4.1.9.9.48.1.1.1.6"
-_OID_CISCO_CPU_TOTAL_5SEC       = "1.3.6.1.4.1.9.9.109.1.1.1.1.7"
+_OID_CISCO_PRODUCT_HW_VER = "1.3.6.1.4.1.9.6.1.101.1.1.0"
+_OID_CISCO_MEM_POOL_NAME = "1.3.6.1.4.1.9.9.48.1.1.1.2"
+_OID_CISCO_MEM_POOL_USED = "1.3.6.1.4.1.9.9.48.1.1.1.5"
+_OID_CISCO_MEM_POOL_FREE = "1.3.6.1.4.1.9.9.48.1.1.1.6"
+_OID_CISCO_CPU_TOTAL_5SEC = "1.3.6.1.4.1.9.9.109.1.1.1.1.7"
 
 # Dell global-status enum → string label.
 _DELL_STATUS_LABELS = {
@@ -304,16 +305,16 @@ _DELL_STATUS_LABELS = {
 # present but APC's PowerNet OIDs carry more detail (battery temp,
 # runtime in TimeTicks, load% per-phase). One probe pass covers
 # Smart-UPS RT, Back-UPS, BR-series, the rack PDU family, etc.
-_OID_APC_UPS_MODEL          = "1.3.6.1.4.1.318.1.1.1.1.1.1.0"
-_OID_APC_UPS_NAME           = "1.3.6.1.4.1.318.1.1.1.1.1.2.0"
-_OID_APC_UPS_FIRMWARE       = "1.3.6.1.4.1.318.1.1.1.1.2.1.0"
-_OID_APC_UPS_SERIAL         = "1.3.6.1.4.1.318.1.1.1.1.2.3.0"
-_OID_APC_UPS_BATT_STATUS    = "1.3.6.1.4.1.318.1.1.1.2.1.1.0"
-_OID_APC_UPS_BATT_CAPACITY  = "1.3.6.1.4.1.318.1.1.1.2.2.1.0"
-_OID_APC_UPS_BATT_TEMP_C    = "1.3.6.1.4.1.318.1.1.1.2.2.2.0"
-_OID_APC_UPS_BATT_RUNTIME   = "1.3.6.1.4.1.318.1.1.1.2.2.3.0"  # TimeTicks
-_OID_APC_UPS_OUTPUT_STATUS  = "1.3.6.1.4.1.318.1.1.1.4.1.1.0"
-_OID_APC_UPS_OUTPUT_LOAD    = "1.3.6.1.4.1.318.1.1.1.4.2.3.0"
+_OID_APC_UPS_MODEL = "1.3.6.1.4.1.318.1.1.1.1.1.1.0"
+_OID_APC_UPS_NAME = "1.3.6.1.4.1.318.1.1.1.1.1.2.0"
+_OID_APC_UPS_FIRMWARE = "1.3.6.1.4.1.318.1.1.1.1.2.1.0"
+_OID_APC_UPS_SERIAL = "1.3.6.1.4.1.318.1.1.1.1.2.3.0"
+_OID_APC_UPS_BATT_STATUS = "1.3.6.1.4.1.318.1.1.1.2.1.1.0"
+_OID_APC_UPS_BATT_CAPACITY = "1.3.6.1.4.1.318.1.1.1.2.2.1.0"
+_OID_APC_UPS_BATT_TEMP_C = "1.3.6.1.4.1.318.1.1.1.2.2.2.0"
+_OID_APC_UPS_BATT_RUNTIME = "1.3.6.1.4.1.318.1.1.1.2.2.3.0"  # TimeTicks
+_OID_APC_UPS_OUTPUT_STATUS = "1.3.6.1.4.1.318.1.1.1.4.1.1.0"
+_OID_APC_UPS_OUTPUT_LOAD = "1.3.6.1.4.1.318.1.1.1.4.2.3.0"
 
 # APC battery-status enum (from PowerNet-MIB upsBasicBatteryStatus).
 _APC_BATT_STATUS_LABELS = {
@@ -340,28 +341,28 @@ _OID_UCD_MEM_AVAIL_REAL = "1.3.6.1.4.1.2021.4.6.0"
 _OID_UCD_MEM_TOTAL_FREE = "1.3.6.1.4.1.2021.4.11.0"
 # buffers + cached for the stacked-area memory chart.
 # memShared (4.13) is rarely populated on modern Linux so skipped.
-_OID_UCD_MEM_BUFFER     = "1.3.6.1.4.1.2021.4.14.0"
-_OID_UCD_MEM_CACHED     = "1.3.6.1.4.1.2021.4.15.0"
-_OID_UCD_SS_CPU_USER    = "1.3.6.1.4.1.2021.11.9.0"
-_OID_UCD_SS_CPU_SYSTEM  = "1.3.6.1.4.1.2021.11.10.0"
-_OID_UCD_SS_CPU_IDLE    = "1.3.6.1.4.1.2021.11.11.0"
+_OID_UCD_MEM_BUFFER = "1.3.6.1.4.1.2021.4.14.0"
+_OID_UCD_MEM_CACHED = "1.3.6.1.4.1.2021.4.15.0"
+_OID_UCD_SS_CPU_USER = "1.3.6.1.4.1.2021.11.9.0"
+_OID_UCD_SS_CPU_SYSTEM = "1.3.6.1.4.1.2021.11.10.0"
+_OID_UCD_SS_CPU_IDLE = "1.3.6.1.4.1.2021.11.11.0"
 # laLoadInt walk — three rows: 1m / 5m / 15m × 100 (centi-load).
 # Index 1=1m, 2=5m, 3=15m on every snmpd impl I've seen.
-_OID_UCD_LA_LOAD_INT    = "1.3.6.1.4.1.2021.10.1.5"
+_OID_UCD_LA_LOAD_INT = "1.3.6.1.4.1.2021.10.1.5"
 # dskTable walk — per-mount path / total / used / percent.
-_OID_UCD_DSK_PATH    = "1.3.6.1.4.1.2021.9.1.2"
-_OID_UCD_DSK_TOTAL   = "1.3.6.1.4.1.2021.9.1.6"   # KB
-_OID_UCD_DSK_USED    = "1.3.6.1.4.1.2021.9.1.8"   # KB
+_OID_UCD_DSK_PATH = "1.3.6.1.4.1.2021.9.1.2"
+_OID_UCD_DSK_TOTAL = "1.3.6.1.4.1.2021.9.1.6"  # KB
+_OID_UCD_DSK_USED = "1.3.6.1.4.1.2021.9.1.8"  # KB
 _OID_UCD_DSK_PERCENT = "1.3.6.1.4.1.2021.9.1.9"
 
 # SYNOLOGY-MIB. DSM-based NAS (DiskStation, RackStation, etc.).
 # DSM 7+ also implements Host Resources MIB; these OIDs add identity +
 # DSM-specific health surface (temperature, upgrade-available flag).
-_OID_SYNO_MODEL_NAME    = "1.3.6.1.4.1.6574.1.5.5.0"
+_OID_SYNO_MODEL_NAME = "1.3.6.1.4.1.6574.1.5.5.0"
 _OID_SYNO_SERIAL_NUMBER = "1.3.6.1.4.1.6574.1.5.4.0"
-_OID_SYNO_DSM_VERSION   = "1.3.6.1.4.1.6574.1.5.3.0"
+_OID_SYNO_DSM_VERSION = "1.3.6.1.4.1.6574.1.5.3.0"
 _OID_SYNO_SYSTEM_STATUS = "1.3.6.1.4.1.6574.1.1.0"
-_OID_SYNO_SYSTEM_TEMP   = "1.3.6.1.4.1.6574.1.2.0"
+_OID_SYNO_SYSTEM_TEMP = "1.3.6.1.4.1.6574.1.2.0"
 _OID_SYNO_UPGRADE_AVAIL = "1.3.6.1.4.1.6574.1.5.1.0"
 
 # Synology system-status enum (1=normal, 2=failed).
@@ -381,37 +382,37 @@ _SYNO_UPGRADE_LABELS = {
 # `prtMarkerSupplies*` are per-supply walks (one row per toner /
 # ink cartridge / drum / waste container) with description, max
 # capacity, and current level.
-_OID_PRT_PAGE_COUNT       = "1.3.6.1.2.1.43.10.2.1.4.1.1"
-_OID_PRT_SUPPLIES_DESCR   = "1.3.6.1.2.1.43.11.1.1.6"
+_OID_PRT_PAGE_COUNT = "1.3.6.1.2.1.43.10.2.1.4.1.1"
+_OID_PRT_SUPPLIES_DESCR = "1.3.6.1.2.1.43.11.1.1.6"
 _OID_PRT_SUPPLIES_MAX_CAP = "1.3.6.1.2.1.43.11.1.1.8"
-_OID_PRT_SUPPLIES_LEVEL   = "1.3.6.1.2.1.43.11.1.1.9"
+_OID_PRT_SUPPLIES_LEVEL = "1.3.6.1.2.1.43.11.1.1.9"
 # Console / display message — useful when the printer is in an
 # error state ("Replace toner Y" / "Paper jam").
-_OID_PRT_CONSOLE_MSG      = "1.3.6.1.2.1.43.16.5.1.2.1.1"
-_OID_HR_STORAGE_TYPE  = "1.3.6.1.2.1.25.2.3.1.2"
-_OID_HR_STORAGE_DESC  = "1.3.6.1.2.1.25.2.3.1.3"
-_OID_HR_STORAGE_UNIT  = "1.3.6.1.2.1.25.2.3.1.4"
-_OID_HR_STORAGE_SIZE  = "1.3.6.1.2.1.25.2.3.1.5"
-_OID_HR_STORAGE_USED  = "1.3.6.1.2.1.25.2.3.1.6"
-_OID_HR_CPU_LOAD      = "1.3.6.1.2.1.25.3.3.1.2"
-_OID_IF_DESCR         = "1.3.6.1.2.1.2.2.1.2"
-_OID_IF_OPER_STATUS   = "1.3.6.1.2.1.2.2.1.8"
-_OID_IF_IN_OCTETS_32  = "1.3.6.1.2.1.2.2.1.10"
+_OID_PRT_CONSOLE_MSG = "1.3.6.1.2.1.43.16.5.1.2.1.1"
+_OID_HR_STORAGE_TYPE = "1.3.6.1.2.1.25.2.3.1.2"
+_OID_HR_STORAGE_DESC = "1.3.6.1.2.1.25.2.3.1.3"
+_OID_HR_STORAGE_UNIT = "1.3.6.1.2.1.25.2.3.1.4"
+_OID_HR_STORAGE_SIZE = "1.3.6.1.2.1.25.2.3.1.5"
+_OID_HR_STORAGE_USED = "1.3.6.1.2.1.25.2.3.1.6"
+_OID_HR_CPU_LOAD = "1.3.6.1.2.1.25.3.3.1.2"
+_OID_IF_DESCR = "1.3.6.1.2.1.2.2.1.2"
+_OID_IF_OPER_STATUS = "1.3.6.1.2.1.2.2.1.8"
+_OID_IF_IN_OCTETS_32 = "1.3.6.1.2.1.2.2.1.10"
 _OID_IF_OUT_OCTETS_32 = "1.3.6.1.2.1.2.2.1.16"
-_OID_IF_HC_IN_OCTETS  = "1.3.6.1.2.1.31.1.1.1.6"
+_OID_IF_HC_IN_OCTETS = "1.3.6.1.2.1.31.1.1.1.6"
 _OID_IF_HC_OUT_OCTETS = "1.3.6.1.2.1.31.1.1.1.10"
 # IF-MIB::ifHighSpeed — link speed in MEGAbits per second (Mbps).
 # Derived from the older 32-bit ifSpeed (bps) when the device only
 # supports IF-MIB v1; ifHighSpeed handles 10G+ links cleanly. Powers
 # the per-port utilization heatmap.
-_OID_IF_HIGH_SPEED    = "1.3.6.1.2.1.31.1.1.1.15"
+_OID_IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"
 
 # HOST-RESOURCES-MIB hrStorageType OID prefixes — the value of an
 # hrStorageType row points at one of these well-known OIDs.
-_OID_HR_TYPE_RAM        = "1.3.6.1.2.1.25.2.1.2"  # hrStorageRam
-_OID_HR_TYPE_VIRT_MEM   = "1.3.6.1.2.1.25.2.1.3"  # hrStorageVirtualMemory
+_OID_HR_TYPE_RAM = "1.3.6.1.2.1.25.2.1.2"  # hrStorageRam
+_OID_HR_TYPE_VIRT_MEM = "1.3.6.1.2.1.25.2.1.3"  # hrStorageVirtualMemory
 _OID_HR_TYPE_FIXED_DISK = "1.3.6.1.2.1.25.2.1.4"  # hrStorageFixedDisk
-_OID_HR_TYPE_REMOVABLE  = "1.3.6.1.2.1.25.2.1.5"  # hrStorageRemovableDisk
+_OID_HR_TYPE_REMOVABLE = "1.3.6.1.2.1.25.2.1.5"  # hrStorageRemovableDisk
 
 # Mount-path prefixes ALWAYS filtered from hrStorageFixedDisk reports.
 # These are OS pseudo-filesystems (devfs, procfs, sysfs, tmpfs slots)
@@ -424,18 +425,17 @@ _OID_HR_TYPE_REMOVABLE  = "1.3.6.1.2.1.25.2.1.5"  # hrStorageRemovableDisk
 # (e.g. `["/opt"]` for the dd-wrt phantom case) but the defaults
 # below apply globally because they're never genuine fixed disks.
 _DEFAULT_EXCLUDE_MOUNT_PREFIXES = (
-    "/dev",       # devfs
-    "/proc",      # procfs
-    "/sys",       # sysfs
-    "/run",       # tmpfs (systemd runtime dir)
-    "/var/run",   # tmpfs (legacy alias)
+    "/dev",  # devfs
+    "/proc",  # procfs
+    "/sys",  # sysfs
+    "/run",  # tmpfs (systemd runtime dir)
+    "/var/run",  # tmpfs (legacy alias)
     "/var/lock",  # tmpfs (legacy alias)
-    "/dev/shm",   # tmpfs (POSIX shared memory)
+    "/dev/shm",  # tmpfs (POSIX shared memory)
 )
 
 # Interface descriptions to skip when computing host-wide rx/tx totals.
 _LOOPBACK_PREFIXES = ("lo", "loopback", "null", "vlan-internal", "docker", "veth")
-
 
 # pysnmp is OPTIONAL — same lazy-optional pattern as icmplib in logic/ping.py.
 # Importing the asyncio HLAPI surface up front is fine because pysnmp is a
@@ -465,14 +465,47 @@ _LOOPBACK_PREFIXES = ("lo", "loopback", "null", "vlan-internal", "docker", "veth
 # `[snmp] pysnmp import failed: …` server log + the SPA's inline hint
 # (the operator no longer has to grep logs to identify renames).
 _SNMP_IMPORT_ERROR = ""
-SnmpEngine = CommunityData = UsmUserData = None  # type: ignore[assignment]
-UdpTransportTarget = ContextData = ObjectType = ObjectIdentity = None  # type: ignore[assignment]
-getCmd = bulkCmd = bulkWalkCmd = walkCmd = None  # type: ignore[assignment]
-usmHMACSHAAuthProtocol = usmHMACSHA256AuthProtocol = None  # type: ignore[assignment]
-usmAesCfb128Protocol = None  # type: ignore[assignment]
-usmNoAuthProtocol = usmNoPrivProtocol = None  # type: ignore[assignment]
+
+
+# Optional-import stubs — resolved at module load below from the
+# pysnmp HLAPI namespace. Names are exposed as module-level
+# callables via ``_None`` placeholders that the resolver overwrites
+# when pysnmp is importable. ``Any``-typed wrapper so call sites
+# stay clean for the type checker regardless of whether the runtime
+# resolved them. The v3-only USM constants stay ``None`` on v2c-only
+# deploys; the v3 code path checks for None and short-circuits with
+# a clear error.
+def _none_stub(*_args: Any, **_kwargs: Any) -> Any:
+    raise RuntimeError("pysnmp symbol not resolved at import time")
+
+
+async def _none_async_stub(*_args: Any, **_kwargs: Any) -> Any:
+    """Awaitable variant of ``_none_stub`` for ``getCmd`` / ``bulkCmd`` /
+    ``bulkWalkCmd`` / ``walkCmd``. Typing them as a coroutine function
+    means ``await getCmd(...)`` type-checks cleanly even when the
+    runtime resolution hasn't replaced the stub yet."""
+    raise RuntimeError("pysnmp async symbol not resolved at import time")
+
+
+SnmpEngine: Any = _none_stub
+CommunityData: Any = _none_stub
+UsmUserData: Any = _none_stub
+UdpTransportTarget: Any = _none_stub
+ContextData: Any = _none_stub
+ObjectType: Any = _none_stub
+ObjectIdentity: Any = _none_stub
+getCmd: Any = _none_async_stub
+bulkCmd: Any = _none_async_stub
+bulkWalkCmd: Any = _none_async_stub
+walkCmd: Any = _none_async_stub
+usmHMACSHAAuthProtocol: Any = None
+usmHMACSHA256AuthProtocol: Any = None
+usmAesCfb128Protocol: Any = None
+usmNoAuthProtocol: Any = None
+usmNoPrivProtocol: Any = None
 try:
     import importlib as _importlib
+
     _hlapi = None
     _SNMP_HLAPI_NS = ""
     for _ns in ("pysnmp.hlapi.v3arch.asyncio", "pysnmp.hlapi.asyncio"):
@@ -484,6 +517,7 @@ try:
             continue
     if _hlapi is None:
         raise ImportError("pysnmp not installed (neither v3arch nor legacy hlapi paths importable)")
+
 
     def _resolve_required(*candidates: str):
         """First-name-that-exists wins; raise if none of the candidates
@@ -498,6 +532,7 @@ try:
             f"pysnmp may have renamed/removed them again"
         )
 
+
     def _resolve_optional(*candidates: str):
         """First-name-that-exists wins; returns None if none match.
         Use for v3-only USM constants — v2c probes don't need them, so
@@ -511,16 +546,17 @@ try:
                 return v
         return None
 
-    SnmpEngine         = _resolve_required("SnmpEngine")
-    CommunityData      = _resolve_required("CommunityData")
-    UsmUserData        = _resolve_required("UsmUserData")
+
+    SnmpEngine = _resolve_required("SnmpEngine")
+    CommunityData = _resolve_required("CommunityData")
+    UsmUserData = _resolve_required("UsmUserData")
     UdpTransportTarget = _resolve_required("UdpTransportTarget")
-    ContextData        = _resolve_required("ContextData")
-    ObjectType         = _resolve_required("ObjectType")
-    ObjectIdentity     = _resolve_required("ObjectIdentity")
+    ContextData = _resolve_required("ContextData")
+    ObjectType = _resolve_required("ObjectType")
+    ObjectIdentity = _resolve_required("ObjectIdentity")
 
     # Cmd functions — snake_case (7.x) preferred, camelCase (≤6.x) fallback.
-    getCmd  = _resolve_required("get_cmd",  "getCmd")
+    getCmd = _resolve_required("get_cmd", "getCmd")
     bulkCmd = _resolve_required("bulk_cmd", "bulkCmd")
     # In pysnmp 7.x `bulk_cmd` returns a coroutine (single response —
     # not iterable!), and walks must use `bulk_walk_cmd` (or `walk_cmd`
@@ -531,13 +567,13 @@ try:
     # method, got coroutine" runtime error we hit on the live deploy
     # was exactly this: 7.x's bulk_cmd is no longer iterable.
     bulkWalkCmd = _resolve_optional("bulk_walk_cmd", "bulkWalkCmd")
-    walkCmd     = _resolve_optional("walk_cmd",      "walkCmd")
+    walkCmd = _resolve_optional("walk_cmd", "walkCmd")
 
     # USM protocols (v3-only — optional, see _resolve_optional docstring).
     # 7.x UPPER_SNAKE_CASE first, ≤6.x camelCase fallback. Variant names
     # cover the bit-length-prefixed forms (HMAC96 / HMAC192 / HMAC384) the
     # 7.x release notes used.
-    usmHMACSHAAuthProtocol    = _resolve_optional(
+    usmHMACSHAAuthProtocol = _resolve_optional(
         "USM_AUTH_HMAC96_SHA",
         "USM_AUTH_HMAC_SHA",
         "usmHMACSHAAuthProtocol",
@@ -547,16 +583,16 @@ try:
         "USM_AUTH_HMAC_SHA256",
         "usmHMACSHA256AuthProtocol",
     )
-    usmAesCfb128Protocol      = _resolve_optional(
+    usmAesCfb128Protocol = _resolve_optional(
         "USM_PRIV_CFB128_AES",
         "USM_PRIV_AES",
         "usmAesCfb128Protocol",
     )
-    usmNoAuthProtocol         = _resolve_optional(
+    usmNoAuthProtocol = _resolve_optional(
         "USM_AUTH_NONE",
         "usmNoAuthProtocol",
     )
-    usmNoPrivProtocol         = _resolve_optional(
+    usmNoPrivProtocol = _resolve_optional(
         "USM_PRIV_NONE",
         "usmNoPrivProtocol",
     )
@@ -569,8 +605,8 @@ try:
     # fallback. Module-level ONE-LINE log on import.
     try:
         _walk_fn_for_log = bulkWalkCmd or bulkCmd
-        _walk_fn_name    = getattr(_walk_fn_for_log, "__name__", "unknown")
-        _ns_used         = locals().get("_SNMP_HLAPI_NS", "unknown")
+        _walk_fn_name = getattr(_walk_fn_for_log, "__name__", "unknown")
+        _ns_used = locals().get("_SNMP_HLAPI_NS", "unknown")
         print(f"[snmp] walk function resolved: {_walk_fn_name} "
               f"(pysnmp ns={_ns_used})")
     except Exception:
@@ -672,7 +708,7 @@ async def _snmp_get(engine, auth, target, oids: list[str]) -> dict[str, object]:
     if not _HAS_SNMP:
         return {}
     try:
-        errorIndication, errorStatus, errorIndex, varBinds = await getCmd(
+        error_indication, error_status, _error_index, var_binds = await getCmd(
             engine, auth, target, ContextData(),
             *(ObjectType(ObjectIdentity(o)) for o in oids),
         )
@@ -689,14 +725,14 @@ async def _snmp_get(engine, auth, target, oids: list[str]) -> dict[str, object]:
         print(f"[snmp] WARN GET error against {target} oids={oids}: "
               f"{type(e).__name__}: {e}")
         return {}
-    if errorIndication:
-        print(f"[snmp] GET errorIndication: {errorIndication}")
+    if error_indication:
+        print(f"[snmp] GET errorIndication: {error_indication}")
         return {}
-    if errorStatus:
-        print(f"[snmp] GET errorStatus: {errorStatus.prettyPrint()}")
+    if error_status:
+        print(f"[snmp] GET errorStatus: {error_status.prettyPrint()}")
         return {}
     out: dict[str, object] = {}
-    for oid, val in varBinds:
+    for oid, val in var_binds:
         oid_s = str(oid)
         # pysnmp uses sentinel pretty-print strings for absent rows;
         # treat those as "not present" and skip.
@@ -887,11 +923,11 @@ def extract_sys_info(get_result: dict) -> dict:
     if descr and "," in descr:
         parts = [p.strip() for p in descr.split(",", 1)]
         if (len(parts) == 2
-                and parts[0]
-                and " " not in parts[0]
-                and parts[1] and parts[1][0].isdigit()
-                and "host_model" not in out
-                and "host_firmware" not in out):
+            and parts[0]
+            and " " not in parts[0]
+            and parts[1] and parts[1][0].isdigit()
+            and "host_model" not in out
+            and "host_firmware" not in out):
             out["host_model"] = parts[0]
             out["host_firmware"] = parts[1]
     return out
@@ -1031,7 +1067,7 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
     if ucd_mem:
         mem_total_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_TOTAL_REAL))
         mem_avail_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_AVAIL_REAL))
-        mem_free_kb  = _coerce_int(ucd_mem.get(_OID_UCD_MEM_TOTAL_FREE))
+        mem_free_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_TOTAL_FREE))
         # buffers + cached for the stacked-area memory chart.
         mem_buffer_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_BUFFER))
         mem_cached_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_CACHED))
@@ -1151,9 +1187,9 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             if max_cap > 0 and level >= 0:
                 pct = float(level) / float(max_cap) * 100.0
             supplies.append({
-                "name":    name or f"supply-{idx}",
-                "level":   level if level >= 0 else None,
-                "max":     max_cap if max_cap > 0 else None,
+                "name": name or f"supply-{idx}",
+                "level": level if level >= 0 else None,
+                "max": max_cap if max_cap > 0 else None,
                 "percent": pct,
             })
         if supplies:
@@ -1181,8 +1217,8 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             disk_total_sum += total_b
             disk_used_sum += used_b
             mounts.append({
-                "n":  path,
-                "d":  total_b / gib,
+                "n": path,
+                "d": total_b / gib,
                 "du": used_b / gib,
                 "dp": float(pct) if 0 <= pct <= 100 else (used_b / total_b * 100.0 if total_b else 0.0),
                 "dr": 0,
@@ -1197,6 +1233,7 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
                 out["host_disk_used"] = disk_used_sum
                 out["host_disk_free"] = max(0, disk_total_sum - disk_used_sum)
                 out["host_disk_percent"] = (disk_used_sum / disk_total_sum * 100.0) if disk_total_sum else 0.0
+
     # ---- Dell server health tables (iDRAC) --------------------------
     # Walk-paired extractors. Each emits a per-row list keyed by the
     # OID-trailing index. Empty walks → field absent (caller's snapshot
@@ -1223,10 +1260,10 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             status = _coerce_int(fan_status.get(status_oid))
             location = _coerce_str(fan_loc.get(loc_oid)).strip()
             rows.append({
-                "idx":      idx,
-                "name":     location or f"fan-{idx}",
-                "rpm":      rpm if rpm > 0 else None,
-                "status":   _DELL_STATUS_LABELS.get(status, "unknown"),
+                "idx": idx,
+                "name": location or f"fan-{idx}",
+                "rpm": rpm if rpm > 0 else None,
+                "status": _DELL_STATUS_LABELS.get(status, "unknown"),
             })
         if rows:
             out["host_dell_fans"] = rows
@@ -1248,10 +1285,10 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             status = _coerce_int(temp_status.get(status_oid))
             location = _coerce_str(temp_loc.get(loc_oid)).strip()
             rows.append({
-                "idx":      idx,
-                "name":     location or f"temp-{idx}",
-                "celsius":  celsius,
-                "status":   _DELL_STATUS_LABELS.get(status, "unknown"),
+                "idx": idx,
+                "name": location or f"temp-{idx}",
+                "celsius": celsius,
+                "status": _DELL_STATUS_LABELS.get(status, "unknown"),
             })
         if rows:
             out["host_dell_temps"] = rows
@@ -1275,10 +1312,10 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             watts = (raw_watts / 10.0) if raw_watts > 4000 else float(raw_watts)
             location = _coerce_str(psu_loc_walk.get(loc_oid)).strip()
             rows.append({
-                "idx":      idx,
-                "name":     location or f"psu-{idx}",
-                "watts":    watts if watts > 0 else None,
-                "status":   _DELL_STATUS_LABELS.get(status, "unknown"),
+                "idx": idx,
+                "name": location or f"psu-{idx}",
+                "watts": watts if watts > 0 else None,
+                "status": _DELL_STATUS_LABELS.get(status, "unknown"),
             })
         if rows:
             out["host_dell_psus"] = rows
@@ -1297,10 +1334,10 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             status = _coerce_int(volt_status.get(status_oid))
             location = _coerce_str(volt_loc.get(loc_oid)).strip()
             rows.append({
-                "idx":      idx,
-                "name":     location or f"volt-{idx}",
+                "idx": idx,
+                "name": location or f"volt-{idx}",
                 "millivolts": mv if mv > 0 else None,
-                "status":   _DELL_STATUS_LABELS.get(status, "unknown"),
+                "status": _DELL_STATUS_LABELS.get(status, "unknown"),
             })
         if rows:
             out["host_dell_voltages"] = rows
@@ -1326,11 +1363,11 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             ptype = _coerce_int(amp_type.get(type_oid))
             is_watts = ptype in _DELL_AMP_TYPE_WATTS
             rows.append({
-                "idx":      idx,
-                "name":     location or f"amp-{idx}",
-                "reading":  reading if reading > 0 else None,
-                "unit":     "W" if is_watts else "dA",
-                "status":   _DELL_STATUS_LABELS.get(status, "unknown"),
+                "idx": idx,
+                "name": location or f"amp-{idx}",
+                "reading": reading if reading > 0 else None,
+                "unit": "W" if is_watts else "dA",
+                "status": _DELL_STATUS_LABELS.get(status, "unknown"),
             })
             # First system-power probe (type=24 — pwrConsumption) wins
             # the chassis-total field.
@@ -1359,12 +1396,12 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             serial_no = _coerce_str(pd_serial.get(ser_oid)).strip()
             firmware_rev = _coerce_str(pd_revision.get(rev_oid)).strip()
             rows.append({
-                "idx":         idx,
-                "name":        name or f"disk-{idx}",
-                "state":       _DELL_PD_STATE_LABELS.get(state, f"state={state}"),
+                "idx": idx,
+                "name": name or f"disk-{idx}",
+                "state": _DELL_PD_STATE_LABELS.get(state, f"state={state}"),
                 "capacity_mb": capacity_mb if capacity_mb > 0 else None,
-                "serial":      serial_no,
-                "firmware":    firmware_rev,
+                "serial": serial_no,
+                "firmware": firmware_rev,
             })
         if rows:
             out["host_dell_phys_disks"] = rows
@@ -1386,11 +1423,11 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             size_mb = _coerce_int(vd_size.get(size_oid))
             layout = _coerce_int(vd_layout_walk.get(layout_oid))
             rows.append({
-                "idx":     idx,
-                "name":    name or f"vd-{idx}",
-                "state":   _DELL_VD_STATE_LABELS.get(state, f"state={state}"),
+                "idx": idx,
+                "name": name or f"vd-{idx}",
+                "state": _DELL_VD_STATE_LABELS.get(state, f"state={state}"),
                 "size_mb": size_mb if size_mb > 0 else None,
-                "layout":  _DELL_VD_LAYOUT_LABELS.get(layout, ""),
+                "layout": _DELL_VD_LAYOUT_LABELS.get(layout, ""),
             })
         if rows:
             out["host_dell_virt_disks"] = rows
@@ -1421,10 +1458,10 @@ def extract_entity_info(walk_results: dict) -> dict:
     'descr' / 'name' / 'serial' / 'model' / 'firmware' / 'class'.
     """
     out: dict = {}
-    descrs   = walk_results.get("descr") or {}
-    names    = walk_results.get("name") or {}
-    serials  = walk_results.get("serial") or {}
-    models   = walk_results.get("model") or {}
+    descrs = walk_results.get("descr") or {}
+    names = walk_results.get("name") or {}
+    serials = walk_results.get("serial") or {}
+    models = walk_results.get("model") or {}
     firmwares = walk_results.get("firmware") or {}
 
     def _first_nonempty(walk: dict) -> str:
@@ -1433,6 +1470,7 @@ def extract_entity_info(walk_results: dict) -> dict:
             if s:
                 return s
         return ""
+
     model = _first_nonempty(models) or _first_nonempty(names) or _first_nonempty(descrs)
     serial = _first_nonempty(serials)
     firmware = _first_nonempty(firmwares)
@@ -1512,6 +1550,7 @@ def extract_storage(
     # operator entries are EXACT or prefix-with-slash matches against
     # the desc field (which is the mountpoint path).
     op_excludes = tuple(s.strip() for s in (exclude_mounts or []) if isinstance(s, str) and s.strip())
+
     def _excluded(desc: str) -> bool:
         if not desc:
             return False
@@ -1567,8 +1606,8 @@ def extract_storage(
             disk_used += used_bytes
             pct = (used_bytes / total_bytes * 100) if total_bytes > 0 else 0.0
             mounts.append({
-                "n":  desc or f"snmp-{idx}",
-                "d":  total_bytes / gib,
+                "n": desc or f"snmp-{idx}",
+                "d": total_bytes / gib,
                 "du": used_bytes / gib,
                 "dp": pct,
                 "dr": 0,
@@ -1998,12 +2037,16 @@ async def probe_snmp(
     # Cisco / APC / UCD / Synology / Printer walks (~17 OIDs) drops
     # ~16s of wall-clock at concurrency=1.
     #
-  # Per-host ``vendors`` override (operator declared on the curated
+    # Per-host ``vendors`` override (operator declared on the curated
     # row) bypasses auto-detection — useful for agents with stripped
     # sysDescr or for forcing a specific vendor's walks even when
     # auto-detect would skip them. ``None`` (the default) means
     # auto-detect from sysDescr.
     # ----------------------------------------------------------------
+    # Defensive init so the outer ``except (asyncio.CancelledError,...)``
+    # at the bottom of this try block can cancel/flush even if we never
+    # got as far as the per-OID task fan-out below.
+    running: list = []
     try:
         try:
             sys_resp_phase0 = await _snmp_get(engine, auth, target, [
@@ -2020,7 +2063,11 @@ async def probe_snmp(
             sys_resp_phase0 = {}
         sys_descr_str = ""
         if isinstance(sys_resp_phase0, dict):
-            sys_descr_str = str(sys_resp_phase0.get(_OID_SYS_DESCR, "") or "")
+            _sd_val = sys_resp_phase0.get(_OID_SYS_DESCR)
+            if hasattr(_sd_val, "prettyPrint"):
+                sys_descr_str = _sd_val.prettyPrint()
+            elif isinstance(_sd_val, (str, bytes)):
+                sys_descr_str = _sd_val.decode() if isinstance(_sd_val, bytes) else _sd_val
         # Resolve active vendor set. Order: per-host override > auto-
         # detection > walk-all fallback.
         if vendors is not None:
@@ -2036,6 +2083,7 @@ async def probe_snmp(
         # generic ENTITY-MIB walks are pure overhead on a homogeneous
         # Dell server. Saves 5 walks (~5s at concurrency=1).
         skip_entity_mib = (active_vendors == {"dell"})
+
         # Resolved-coroutine helpers — instant-return placeholders that
         # plug into the existing 67-slot result list when a vendor is
         # pruned. Keeps the unpacking at the bottom of probe_snmp
@@ -2049,10 +2097,13 @@ async def probe_snmp(
         # default to empty containers (the skipped-walk semantics).
         async def _resolved_value(v=None):
             return v
+
         async def _resolved_dict(v=None):
             return v if v is not None else {}
+
         async def _resolved_list(v=None):
             return v if v is not None else []
+
         # Re-stamp Phase 0's sys response into the slot the unpack
         # expects so `sys_task` carries the same shape as before.
         sys_task = _resolved_value(sys_resp_phase0)
@@ -2078,17 +2129,17 @@ async def probe_snmp(
         # on Dell-only agents because Dell-RAC-MIB has the same identity
         # data and ENTITY-MIB is a redundant 5-walk overhead.
         if skip_entity_mib:
-            ent_descr_task  = _resolved_list()
-            ent_name_task   = _resolved_list()
+            ent_descr_task = _resolved_list()
+            ent_name_task = _resolved_list()
             ent_serial_task = _resolved_list()
-            ent_model_task  = _resolved_list()
-            ent_fw_task     = _resolved_list()
+            ent_model_task = _resolved_list()
+            ent_fw_task = _resolved_list()
         else:
-            ent_descr_task  = _snmp_walk(engine, auth, target, _OID_ENT_DESCR)
-            ent_name_task   = _snmp_walk(engine, auth, target, _OID_ENT_NAME)
+            ent_descr_task = _snmp_walk(engine, auth, target, _OID_ENT_DESCR)
+            ent_name_task = _snmp_walk(engine, auth, target, _OID_ENT_NAME)
             ent_serial_task = _snmp_walk(engine, auth, target, _OID_ENT_SERIAL_NUM)
-            ent_model_task  = _snmp_walk(engine, auth, target, _OID_ENT_MODEL_NAME)
-            ent_fw_task     = _snmp_walk(engine, auth, target, _OID_ENT_SOFTWARE_REV)
+            ent_model_task = _snmp_walk(engine, auth, target, _OID_ENT_MODEL_NAME)
+            ent_fw_task = _snmp_walk(engine, auth, target, _OID_ENT_SOFTWARE_REV)
         # Vendor-private MIB GETs/walks. Each vendor block is gated
         # on whether it's in `active_vendors` (resolved at the top of
         # this try block from per-host override > sysDescr auto-detect
@@ -2107,68 +2158,68 @@ async def probe_snmp(
             ])
             # Dell server health tables (iDRAC) — fans, temps, PSUs,
             # voltages, amperage, physical / virtual disks, BIOS.
-            dell_fan_status_task   = _snmp_walk(engine, auth, target, _OID_DELL_FAN_STATUS)
-            dell_fan_reading_task  = _snmp_walk(engine, auth, target, _OID_DELL_FAN_READING)
-            dell_fan_type_task     = _snmp_walk(engine, auth, target, _OID_DELL_FAN_TYPE)
-            dell_fan_loc_task      = _snmp_walk(engine, auth, target, _OID_DELL_FAN_LOCATION)
-            dell_temp_status_task  = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_STATUS)
+            dell_fan_status_task = _snmp_walk(engine, auth, target, _OID_DELL_FAN_STATUS)
+            dell_fan_reading_task = _snmp_walk(engine, auth, target, _OID_DELL_FAN_READING)
+            dell_fan_type_task = _snmp_walk(engine, auth, target, _OID_DELL_FAN_TYPE)
+            dell_fan_loc_task = _snmp_walk(engine, auth, target, _OID_DELL_FAN_LOCATION)
+            dell_temp_status_task = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_STATUS)
             dell_temp_reading_task = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_READING)
-            dell_temp_type_task    = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_TYPE)
-            dell_temp_loc_task     = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_LOCATION)
-            dell_psu_status_task   = _snmp_walk(engine, auth, target, _OID_DELL_PSU_STATUS)
-            dell_psu_watts_task    = _snmp_walk(engine, auth, target, _OID_DELL_PSU_WATTS)
-            dell_psu_type_task     = _snmp_walk(engine, auth, target, _OID_DELL_PSU_TYPE)
-            dell_psu_loc_task      = _snmp_walk(engine, auth, target, _OID_DELL_PSU_LOCATION)
-            dell_volt_status_task  = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_STATUS)
+            dell_temp_type_task = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_TYPE)
+            dell_temp_loc_task = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_LOCATION)
+            dell_psu_status_task = _snmp_walk(engine, auth, target, _OID_DELL_PSU_STATUS)
+            dell_psu_watts_task = _snmp_walk(engine, auth, target, _OID_DELL_PSU_WATTS)
+            dell_psu_type_task = _snmp_walk(engine, auth, target, _OID_DELL_PSU_TYPE)
+            dell_psu_loc_task = _snmp_walk(engine, auth, target, _OID_DELL_PSU_LOCATION)
+            dell_volt_status_task = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_STATUS)
             dell_volt_reading_task = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_READING)
-            dell_volt_loc_task     = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_LOCATION)
-            dell_amp_status_task   = _snmp_walk(engine, auth, target, _OID_DELL_AMP_STATUS)
-            dell_amp_reading_task  = _snmp_walk(engine, auth, target, _OID_DELL_AMP_READING)
-            dell_amp_type_task     = _snmp_walk(engine, auth, target, _OID_DELL_AMP_TYPE)
-            dell_amp_loc_task      = _snmp_walk(engine, auth, target, _OID_DELL_AMP_LOCATION)
-            dell_pd_name_task      = _snmp_walk(engine, auth, target, _OID_DELL_PD_NAME)
-            dell_pd_state_task     = _snmp_walk(engine, auth, target, _OID_DELL_PD_STATE)
-            dell_pd_capacity_task  = _snmp_walk(engine, auth, target, _OID_DELL_PD_CAPACITY)
-            dell_pd_serial_task    = _snmp_walk(engine, auth, target, _OID_DELL_PD_SERIAL)
-            dell_pd_revision_task  = _snmp_walk(engine, auth, target, _OID_DELL_PD_REVISION)
-            dell_vd_name_task      = _snmp_walk(engine, auth, target, _OID_DELL_VD_NAME)
-            dell_vd_state_task     = _snmp_walk(engine, auth, target, _OID_DELL_VD_STATE)
-            dell_vd_size_task      = _snmp_walk(engine, auth, target, _OID_DELL_VD_SIZE)
-            dell_vd_layout_task    = _snmp_walk(engine, auth, target, _OID_DELL_VD_LAYOUT)
+            dell_volt_loc_task = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_LOCATION)
+            dell_amp_status_task = _snmp_walk(engine, auth, target, _OID_DELL_AMP_STATUS)
+            dell_amp_reading_task = _snmp_walk(engine, auth, target, _OID_DELL_AMP_READING)
+            dell_amp_type_task = _snmp_walk(engine, auth, target, _OID_DELL_AMP_TYPE)
+            dell_amp_loc_task = _snmp_walk(engine, auth, target, _OID_DELL_AMP_LOCATION)
+            dell_pd_name_task = _snmp_walk(engine, auth, target, _OID_DELL_PD_NAME)
+            dell_pd_state_task = _snmp_walk(engine, auth, target, _OID_DELL_PD_STATE)
+            dell_pd_capacity_task = _snmp_walk(engine, auth, target, _OID_DELL_PD_CAPACITY)
+            dell_pd_serial_task = _snmp_walk(engine, auth, target, _OID_DELL_PD_SERIAL)
+            dell_pd_revision_task = _snmp_walk(engine, auth, target, _OID_DELL_PD_REVISION)
+            dell_vd_name_task = _snmp_walk(engine, auth, target, _OID_DELL_VD_NAME)
+            dell_vd_state_task = _snmp_walk(engine, auth, target, _OID_DELL_VD_STATE)
+            dell_vd_size_task = _snmp_walk(engine, auth, target, _OID_DELL_VD_SIZE)
+            dell_vd_layout_task = _snmp_walk(engine, auth, target, _OID_DELL_VD_LAYOUT)
             dell_bios_version_task = _snmp_walk(engine, auth, target, _OID_DELL_BIOS_VERSION)
-            dell_bios_date_task    = _snmp_walk(engine, auth, target, _OID_DELL_BIOS_RELEASE_DATE)
+            dell_bios_date_task = _snmp_walk(engine, auth, target, _OID_DELL_BIOS_RELEASE_DATE)
         else:
-            dell_vendor_task       = _resolved_dict()
-            dell_fan_status_task   = _resolved_list()
-            dell_fan_reading_task  = _resolved_list()
-            dell_fan_type_task     = _resolved_list()
-            dell_fan_loc_task      = _resolved_list()
-            dell_temp_status_task  = _resolved_list()
+            dell_vendor_task = _resolved_dict()
+            dell_fan_status_task = _resolved_list()
+            dell_fan_reading_task = _resolved_list()
+            dell_fan_type_task = _resolved_list()
+            dell_fan_loc_task = _resolved_list()
+            dell_temp_status_task = _resolved_list()
             dell_temp_reading_task = _resolved_list()
-            dell_temp_type_task    = _resolved_list()
-            dell_temp_loc_task     = _resolved_list()
-            dell_psu_status_task   = _resolved_list()
-            dell_psu_watts_task    = _resolved_list()
-            dell_psu_type_task     = _resolved_list()
-            dell_psu_loc_task      = _resolved_list()
-            dell_volt_status_task  = _resolved_list()
+            dell_temp_type_task = _resolved_list()
+            dell_temp_loc_task = _resolved_list()
+            dell_psu_status_task = _resolved_list()
+            dell_psu_watts_task = _resolved_list()
+            dell_psu_type_task = _resolved_list()
+            dell_psu_loc_task = _resolved_list()
+            dell_volt_status_task = _resolved_list()
             dell_volt_reading_task = _resolved_list()
-            dell_volt_loc_task     = _resolved_list()
-            dell_amp_status_task   = _resolved_list()
-            dell_amp_reading_task  = _resolved_list()
-            dell_amp_type_task     = _resolved_list()
-            dell_amp_loc_task      = _resolved_list()
-            dell_pd_name_task      = _resolved_list()
-            dell_pd_state_task     = _resolved_list()
-            dell_pd_capacity_task  = _resolved_list()
-            dell_pd_serial_task    = _resolved_list()
-            dell_pd_revision_task  = _resolved_list()
-            dell_vd_name_task      = _resolved_list()
-            dell_vd_state_task     = _resolved_list()
-            dell_vd_size_task      = _resolved_list()
-            dell_vd_layout_task    = _resolved_list()
+            dell_volt_loc_task = _resolved_list()
+            dell_amp_status_task = _resolved_list()
+            dell_amp_reading_task = _resolved_list()
+            dell_amp_type_task = _resolved_list()
+            dell_amp_loc_task = _resolved_list()
+            dell_pd_name_task = _resolved_list()
+            dell_pd_state_task = _resolved_list()
+            dell_pd_capacity_task = _resolved_list()
+            dell_pd_serial_task = _resolved_list()
+            dell_pd_revision_task = _resolved_list()
+            dell_vd_name_task = _resolved_list()
+            dell_vd_state_task = _resolved_list()
+            dell_vd_size_task = _resolved_list()
+            dell_vd_layout_task = _resolved_list()
             dell_bios_version_task = _resolved_list()
-            dell_bios_date_task    = _resolved_list()
+            dell_bios_date_task = _resolved_list()
         if "cisco" in active_vendors:
             cisco_hw_task = _snmp_get(engine, auth, target, [
                 _OID_CISCO_PRODUCT_HW_VER,
@@ -2176,13 +2227,13 @@ async def probe_snmp(
             cisco_mem_used_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_USED)
             cisco_mem_free_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_FREE)
             cisco_mem_name_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_NAME)
-            cisco_cpu_task      = _snmp_walk(engine, auth, target, _OID_CISCO_CPU_TOTAL_5SEC)
+            cisco_cpu_task = _snmp_walk(engine, auth, target, _OID_CISCO_CPU_TOTAL_5SEC)
         else:
-            cisco_hw_task       = _resolved_dict()
+            cisco_hw_task = _resolved_dict()
             cisco_mem_used_task = _resolved_list()
             cisco_mem_free_task = _resolved_list()
             cisco_mem_name_task = _resolved_list()
-            cisco_cpu_task      = _resolved_list()
+            cisco_cpu_task = _resolved_list()
         # APC PowerNet-MIB. One GET covers identity + battery + output.
         if "apc" in active_vendors:
             apc_vendor_task = _snmp_get(engine, auth, target, [
@@ -2201,18 +2252,18 @@ async def probe_snmp(
                 _OID_UCD_MEM_BUFFER, _OID_UCD_MEM_CACHED,
                 _OID_UCD_SS_CPU_USER, _OID_UCD_SS_CPU_SYSTEM, _OID_UCD_SS_CPU_IDLE,
             ])
-            ucd_load_task      = _snmp_walk(engine, auth, target, _OID_UCD_LA_LOAD_INT)
-            ucd_dsk_path_task  = _snmp_walk(engine, auth, target, _OID_UCD_DSK_PATH)
+            ucd_load_task = _snmp_walk(engine, auth, target, _OID_UCD_LA_LOAD_INT)
+            ucd_dsk_path_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_PATH)
             ucd_dsk_total_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_TOTAL)
-            ucd_dsk_used_task  = _snmp_walk(engine, auth, target, _OID_UCD_DSK_USED)
-            ucd_dsk_pct_task   = _snmp_walk(engine, auth, target, _OID_UCD_DSK_PERCENT)
+            ucd_dsk_used_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_USED)
+            ucd_dsk_pct_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_PERCENT)
         else:
-            ucd_mem_cpu_task   = _resolved_dict()
-            ucd_load_task      = _resolved_list()
-            ucd_dsk_path_task  = _resolved_list()
+            ucd_mem_cpu_task = _resolved_dict()
+            ucd_load_task = _resolved_list()
+            ucd_dsk_path_task = _resolved_list()
             ucd_dsk_total_task = _resolved_list()
-            ucd_dsk_used_task  = _resolved_list()
-            ucd_dsk_pct_task   = _resolved_list()
+            ucd_dsk_used_task = _resolved_list()
+            ucd_dsk_pct_task = _resolved_list()
         # SYNOLOGY-MIB. One GET covers identity + system status.
         if "synology" in active_vendors:
             syno_vendor_task = _snmp_get(engine, auth, target, [
@@ -2228,12 +2279,12 @@ async def probe_snmp(
                 _OID_PRT_PAGE_COUNT, _OID_PRT_CONSOLE_MSG,
             ])
             prt_supply_descr_task = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_DESCR)
-            prt_supply_max_task   = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_MAX_CAP)
+            prt_supply_max_task = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_MAX_CAP)
             prt_supply_level_task = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_LEVEL)
         else:
-            prt_basic_task        = _resolved_dict()
+            prt_basic_task = _resolved_dict()
             prt_supply_descr_task = _resolved_list()
-            prt_supply_max_task   = _resolved_list()
+            prt_supply_max_task = _resolved_list()
             prt_supply_level_task = _resolved_list()
 
         # wrap the gather in wait_for so the TimeoutError catch
@@ -2331,7 +2382,7 @@ async def probe_snmp(
             # stays quiet. ``close()`` is a no-op if the coroutine
             # already started, so the body path is unaffected.
             #
-          # Explicit acquire/release (instead of ``async with walk_sem:``)
+            # Explicit acquire/release (instead of ``async with walk_sem:``)
             # makes the placeholder-bypass + cancellation-cleanup paths
             # read uniformly — each branch is one statement, not nested
             # under a context manager. The try/finally guarantees
@@ -2474,17 +2525,17 @@ async def probe_snmp(
                 # Structured fields so the SPA / debug panel can render
                 # the diagnostic without parsing the prose.
                 "walk_concurrency_resolved": walk_concurrency_resolved,
-                "walk_concurrency_source":   walk_source,
-                "walk_concurrency_global":   tunable_walk_global,
+                "walk_concurrency_source": walk_source,
+                "walk_concurrency_global": tunable_walk_global,
                 "wall_clock_budget_resolved": int(wall_clock_budget_resolved),
-                "wall_clock_budget_source":   budget_source,
-                "wall_clock_budget_global":   tunable_budget_global,
-                "completed_branches":         done_count,
-                "total_branches":             len(running),
+                "wall_clock_budget_source": budget_source,
+                "wall_clock_budget_global": tunable_budget_global,
+                "completed_branches": done_count,
+                "total_branches": len(running),
                 # Vendor pruning diagnostics — operator can see which
                 # vendor walks were live AND why (per-host override,
                 # sysDescr auto-detect, or walk-all fallback).
-                "active_vendors":             sorted(active_vendors),
+                "active_vendors": sorted(active_vendors),
                 "active_vendors_source": (
                     "per-host override" if vendors is not None
                     else (
@@ -2493,8 +2544,8 @@ async def probe_snmp(
                         else "walk-all fallback (sysDescr empty / unrecognised)"
                     )
                 ),
-                "sys_descr":                  sys_descr_str[:200],
-                "skip_entity_mib":            skip_entity_mib,
+                "sys_descr": sys_descr_str[:200],
+                "skip_entity_mib": skip_entity_mib,
             }
     except (asyncio.CancelledError, KeyboardInterrupt):
         # Outer cancellation (parent task killed). Flush our running
@@ -2593,45 +2644,45 @@ async def probe_snmp(
             "apc": apc_vendor_get,
             "ucd_mem_cpu": ucd_mem_cpu_get,
             "ucd_load": ucd_load_walk,
-            "ucd_dsk_path":  ucd_dsk_path_walk,
+            "ucd_dsk_path": ucd_dsk_path_walk,
             "ucd_dsk_total": ucd_dsk_total_walk,
-            "ucd_dsk_used":  ucd_dsk_used_walk,
-            "ucd_dsk_pct":   ucd_dsk_pct_walk,
+            "ucd_dsk_used": ucd_dsk_used_walk,
+            "ucd_dsk_pct": ucd_dsk_pct_walk,
             "syno": syno_vendor_get,
             "prt_basic": prt_basic_get,
             "prt_supply_descr": prt_supply_descr_walk,
-            "prt_supply_max":   prt_supply_max_walk,
+            "prt_supply_max": prt_supply_max_walk,
             "prt_supply_level": prt_supply_level_walk,
-            "dell_fan_status":   dell_fan_status_walk,
-            "dell_fan_reading":  dell_fan_reading_walk,
-            "dell_fan_type":     dell_fan_type_walk,
-            "dell_fan_loc":      dell_fan_loc_walk,
-            "dell_temp_status":  dell_temp_status_walk,
+            "dell_fan_status": dell_fan_status_walk,
+            "dell_fan_reading": dell_fan_reading_walk,
+            "dell_fan_type": dell_fan_type_walk,
+            "dell_fan_loc": dell_fan_loc_walk,
+            "dell_temp_status": dell_temp_status_walk,
             "dell_temp_reading": dell_temp_reading_walk,
-            "dell_temp_type":    dell_temp_type_walk,
-            "dell_temp_loc":     dell_temp_loc_walk,
-            "dell_psu_status":   dell_psu_status_walk,
-            "dell_psu_watts":    dell_psu_watts_walk,
-            "dell_psu_type":     dell_psu_type_walk,
-            "dell_psu_loc":      dell_psu_loc_walk,
-            "dell_volt_status":  dell_volt_status_walk,
+            "dell_temp_type": dell_temp_type_walk,
+            "dell_temp_loc": dell_temp_loc_walk,
+            "dell_psu_status": dell_psu_status_walk,
+            "dell_psu_watts": dell_psu_watts_walk,
+            "dell_psu_type": dell_psu_type_walk,
+            "dell_psu_loc": dell_psu_loc_walk,
+            "dell_volt_status": dell_volt_status_walk,
             "dell_volt_reading": dell_volt_reading_walk,
-            "dell_volt_loc":     dell_volt_loc_walk,
-            "dell_amp_status":   dell_amp_status_walk,
-            "dell_amp_reading":  dell_amp_reading_walk,
-            "dell_amp_type":     dell_amp_type_walk,
-            "dell_amp_loc":      dell_amp_loc_walk,
-            "dell_pd_name":      dell_pd_name_walk,
-            "dell_pd_state":     dell_pd_state_walk,
-            "dell_pd_capacity":  dell_pd_capacity_walk,
-            "dell_pd_serial":    dell_pd_serial_walk,
-            "dell_pd_revision":  dell_pd_revision_walk,
-            "dell_vd_name":      dell_vd_name_walk,
-            "dell_vd_state":     dell_vd_state_walk,
-            "dell_vd_size":      dell_vd_size_walk,
-            "dell_vd_layout":    dell_vd_layout_walk,
+            "dell_volt_loc": dell_volt_loc_walk,
+            "dell_amp_status": dell_amp_status_walk,
+            "dell_amp_reading": dell_amp_reading_walk,
+            "dell_amp_type": dell_amp_type_walk,
+            "dell_amp_loc": dell_amp_loc_walk,
+            "dell_pd_name": dell_pd_name_walk,
+            "dell_pd_state": dell_pd_state_walk,
+            "dell_pd_capacity": dell_pd_capacity_walk,
+            "dell_pd_serial": dell_pd_serial_walk,
+            "dell_pd_revision": dell_pd_revision_walk,
+            "dell_vd_name": dell_vd_name_walk,
+            "dell_vd_state": dell_vd_state_walk,
+            "dell_vd_size": dell_vd_size_walk,
+            "dell_vd_layout": dell_vd_layout_walk,
             "dell_bios_version": dell_bios_version_walk,
-            "dell_bios_date":    dell_bios_date_walk,
+            "dell_bios_date": dell_bios_date_walk,
         },
         exclude_mounts=exclude_mounts,
     )
@@ -2678,6 +2729,7 @@ async def probe_snmp(
         # full picture.
         def _stringify(d: dict) -> dict:
             return {str(k): _coerce_str(v) for k, v in (d or {}).items()}
+
         storage_rows = []
         try:
             storage_rows = _summarise_storage_rows(
@@ -2733,41 +2785,41 @@ async def probe_snmp(
             "vendor_synology": _stringify(syno_vendor_get),
             "vendor_printer_basic": _stringify(prt_basic_get),
             "vendor_printer_supply_descr": _stringify(prt_supply_descr_walk),
-            "vendor_printer_supply_max":   _stringify(prt_supply_max_walk),
+            "vendor_printer_supply_max": _stringify(prt_supply_max_walk),
             "vendor_printer_supply_level": _stringify(prt_supply_level_walk),
             # Dell server health tables — fans, temps, PSUs, voltages,
             # amperage, physical / virtual disks, BIOS. Empty walks on
             # non-Dell agents so safe to always include.
-            "vendor_dell_fan_status":   _stringify(dell_fan_status_walk),
-            "vendor_dell_fan_reading":  _stringify(dell_fan_reading_walk),
-            "vendor_dell_fan_type":     _stringify(dell_fan_type_walk),
-            "vendor_dell_fan_loc":      _stringify(dell_fan_loc_walk),
-            "vendor_dell_temp_status":  _stringify(dell_temp_status_walk),
+            "vendor_dell_fan_status": _stringify(dell_fan_status_walk),
+            "vendor_dell_fan_reading": _stringify(dell_fan_reading_walk),
+            "vendor_dell_fan_type": _stringify(dell_fan_type_walk),
+            "vendor_dell_fan_loc": _stringify(dell_fan_loc_walk),
+            "vendor_dell_temp_status": _stringify(dell_temp_status_walk),
             "vendor_dell_temp_reading": _stringify(dell_temp_reading_walk),
-            "vendor_dell_temp_type":    _stringify(dell_temp_type_walk),
-            "vendor_dell_temp_loc":     _stringify(dell_temp_loc_walk),
-            "vendor_dell_psu_status":   _stringify(dell_psu_status_walk),
-            "vendor_dell_psu_watts":    _stringify(dell_psu_watts_walk),
-            "vendor_dell_psu_type":     _stringify(dell_psu_type_walk),
-            "vendor_dell_psu_loc":      _stringify(dell_psu_loc_walk),
-            "vendor_dell_volt_status":  _stringify(dell_volt_status_walk),
+            "vendor_dell_temp_type": _stringify(dell_temp_type_walk),
+            "vendor_dell_temp_loc": _stringify(dell_temp_loc_walk),
+            "vendor_dell_psu_status": _stringify(dell_psu_status_walk),
+            "vendor_dell_psu_watts": _stringify(dell_psu_watts_walk),
+            "vendor_dell_psu_type": _stringify(dell_psu_type_walk),
+            "vendor_dell_psu_loc": _stringify(dell_psu_loc_walk),
+            "vendor_dell_volt_status": _stringify(dell_volt_status_walk),
             "vendor_dell_volt_reading": _stringify(dell_volt_reading_walk),
-            "vendor_dell_volt_loc":     _stringify(dell_volt_loc_walk),
-            "vendor_dell_amp_status":   _stringify(dell_amp_status_walk),
-            "vendor_dell_amp_reading":  _stringify(dell_amp_reading_walk),
-            "vendor_dell_amp_type":     _stringify(dell_amp_type_walk),
-            "vendor_dell_amp_loc":      _stringify(dell_amp_loc_walk),
-            "vendor_dell_pd_name":      _stringify(dell_pd_name_walk),
-            "vendor_dell_pd_state":     _stringify(dell_pd_state_walk),
-            "vendor_dell_pd_capacity":  _stringify(dell_pd_capacity_walk),
-            "vendor_dell_pd_serial":    _stringify(dell_pd_serial_walk),
-            "vendor_dell_pd_revision":  _stringify(dell_pd_revision_walk),
-            "vendor_dell_vd_name":      _stringify(dell_vd_name_walk),
-            "vendor_dell_vd_state":     _stringify(dell_vd_state_walk),
-            "vendor_dell_vd_size":      _stringify(dell_vd_size_walk),
-            "vendor_dell_vd_layout":    _stringify(dell_vd_layout_walk),
+            "vendor_dell_volt_loc": _stringify(dell_volt_loc_walk),
+            "vendor_dell_amp_status": _stringify(dell_amp_status_walk),
+            "vendor_dell_amp_reading": _stringify(dell_amp_reading_walk),
+            "vendor_dell_amp_type": _stringify(dell_amp_type_walk),
+            "vendor_dell_amp_loc": _stringify(dell_amp_loc_walk),
+            "vendor_dell_pd_name": _stringify(dell_pd_name_walk),
+            "vendor_dell_pd_state": _stringify(dell_pd_state_walk),
+            "vendor_dell_pd_capacity": _stringify(dell_pd_capacity_walk),
+            "vendor_dell_pd_serial": _stringify(dell_pd_serial_walk),
+            "vendor_dell_pd_revision": _stringify(dell_pd_revision_walk),
+            "vendor_dell_vd_name": _stringify(dell_vd_name_walk),
+            "vendor_dell_vd_state": _stringify(dell_vd_state_walk),
+            "vendor_dell_vd_size": _stringify(dell_vd_size_walk),
+            "vendor_dell_vd_layout": _stringify(dell_vd_layout_walk),
             "vendor_dell_bios_version": _stringify(dell_bios_version_walk),
-            "vendor_dell_bios_date":    _stringify(dell_bios_date_walk),
+            "vendor_dell_bios_date": _stringify(dell_bios_date_walk),
             "walk_summary": {
                 "sys_keys": len(sys_get or {}),
                 "cpu_rows": len(cpu_walk or {}),
@@ -2791,13 +2843,13 @@ async def probe_snmp(
                 "vendor_synology_keys": len(syno_vendor_get or {}),
                 "vendor_printer_basic_keys": len(prt_basic_get or {}),
                 "vendor_printer_supply_rows": len(prt_supply_descr_walk or {}),
-                "vendor_dell_fan_rows":  len(dell_fan_reading_walk or {}),
+                "vendor_dell_fan_rows": len(dell_fan_reading_walk or {}),
                 "vendor_dell_temp_rows": len(dell_temp_reading_walk or {}),
-                "vendor_dell_psu_rows":  len(dell_psu_status_walk or {}),
+                "vendor_dell_psu_rows": len(dell_psu_status_walk or {}),
                 "vendor_dell_volt_rows": len(dell_volt_reading_walk or {}),
-                "vendor_dell_amp_rows":  len(dell_amp_reading_walk or {}),
-                "vendor_dell_pd_rows":   len(dell_pd_name_walk or {}),
-                "vendor_dell_vd_rows":   len(dell_vd_name_walk or {}),
+                "vendor_dell_amp_rows": len(dell_amp_reading_walk or {}),
+                "vendor_dell_pd_rows": len(dell_pd_name_walk or {}),
+                "vendor_dell_vd_rows": len(dell_vd_name_walk or {}),
                 "vendor_dell_bios_rows": len(dell_bios_version_walk or {}),
             },
         }

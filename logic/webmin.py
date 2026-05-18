@@ -53,7 +53,12 @@ import json as _json
 import time
 import re
 from typing import Optional
-from xml.etree import ElementTree as ET
+# Standard idiom — ``ElementTree`` is conventionally aliased as ``ET``
+# across the Python ecosystem despite PyCharm's "CamelCase imported as
+# constant" warning. The noinspection silences that one inspection
+# without leaking past this single import.
+# noinspection PyPep8Naming
+from xml.etree import ElementTree as ET  # noqa: N817
 
 import httpx
 
@@ -63,11 +68,11 @@ import httpx
 # back to "primary XML/JSON errors" reporting.
 try:
     from bs4 import BeautifulSoup  # type: ignore
+
     _HAS_BS4 = True
 except ImportError:
     BeautifulSoup = None  # type: ignore
     _HAS_BS4 = False
-
 
 # cool-down duration shared with logic/ssh.py via
 # `tuning_auth_failure_cooldown_seconds` (default 300, range 5-3600).
@@ -80,10 +85,10 @@ from logic.cooldown import Cooldown as _Cooldown
 from logic.merge import normalize_arch as _normalize_arch
 from logic import tuning as _tuning
 from logic.tuning import Tunable as _Tunable
+
 _auth_cooldown_timer = _Cooldown(
     seconds_fn=lambda: _tuning.tuning_int(_Tunable.AUTH_FAILURE_COOLDOWN_SECONDS)
 )
-
 
 # Threat model for the URL parameter: ``base_url`` is operator-set
 # via the admin-only ``/api/settings`` endpoint (require_admin gate +
@@ -98,13 +103,13 @@ from logic.url_safety import is_safe_http_url as _validate_webmin_url
 # "update"). Centralising the mapping avoids 3× duplicate logic.
 _SINGULAR_TAG = {
     "interfaces": "interface",
-    "ifaces":     "iface",
-    "mounts":     "mount",
+    "ifaces": "iface",
+    "mounts": "mount",
     "filesystems": "filesystem",
-    "disks":      "disk",
-    "updates":    "update",
-    "packages":   "package",
-    "pkgs":       "pkg",
+    "disks": "disk",
+    "updates": "update",
+    "packages": "package",
+    "pkgs": "pkg",
 }
 
 
@@ -221,12 +226,50 @@ def _strip_html(body: str) -> str:
     """
     if not body:
         return ""
-    m = re.search(r"<title[^>]*>([^<]+)</title>", body, re.IGNORECASE)
+    m = re.search(r"<title[^>]*>(?P<title>[^<]+)</title>", body, re.IGNORECASE)
     if m:
-        return m.group(1).strip()
+        return m.group("title").strip()
     text = re.sub(r"<[^>]+>", " ", body)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:200]
+
+
+async def _fetch_response_body(
+    client: httpx.AsyncClient,
+    base_url: str,
+    path: str,
+    user: str,
+) -> tuple[Optional[str], str, str, Optional[str]]:
+    """Common GET-and-classify scaffolding for ``_fetch_xml`` and
+    ``_fetch_json``. Returns ``(body, content_type, url, None)`` on a
+    2xx response with a non-empty body, or ``(None, "", url, error)``
+    on any non-2xx / parse-shaped failure. Arms the auth cool-down on
+    401. Never raises.
+
+    The XML / JSON probes only differ in how they parse the body —
+    every URL build, transport-error handler, status-code bucket, and
+    empty-body check is identical. Extracting this avoids a 17/21-line
+    duplicate the linter kept flagging. ``content_type`` and ``url``
+    flow back to the caller so the parse-error logger can include them.
+    """
+    url = base_url.rstrip("/") + path
+    try:
+        r = await client.get(url)  # lgtm[py/full-ssrf]
+    except Exception as e:
+        return None, "", url, f"{path}: {e}"
+    if r.status_code == 401:
+        _arm_cooldown(base_url, user)
+        return None, "", url, f"{path}: HTTP 401 — cool-down armed"
+    if r.status_code == 403:
+        hint = _strip_html(r.text)
+        return None, "", url, (f"{path}: HTTP 403"
+                               + (f" — {hint}" if hint else ""))
+    if r.status_code >= 400:
+        return None, "", url, f"{path}: HTTP {r.status_code}"
+    body = r.text or ""
+    if not body.strip():
+        return None, "", url, f"{path}: empty response"
+    return body, r.headers.get("content-type", "?"), url, None
 
 
 async def _fetch_xml(
@@ -240,27 +283,9 @@ async def _fetch_xml(
     Returns ``(root_element, None)`` on success or ``(None, error)``
     on any failure. Arms the auth cool-down on 401. Never raises.
     """
-    url = base_url.rstrip("/") + path
-    try:
-        r = await client.get(url)  # lgtm[py/full-ssrf]
-    except Exception as e:
-        return None, f"{path}: {e}"
-    if r.status_code == 401:
-        _arm_cooldown(base_url, user)
-        return None, f"{path}: HTTP 401 — cool-down armed"
-    if r.status_code == 403:
-        hint = _strip_html(r.text)
-        return None, (f"{path}: HTTP 403"
-                      + (f" — {hint}" if hint else ""))
-    if r.status_code >= 400:
-        return None, f"{path}: HTTP {r.status_code}"
-    # Keep a reference to the RAW body before any transforms — the
-    # operator needs to see exactly what the wire returned when a
-    # parse fails, including BOMs, duplicate XML declarations, or
-    # stray Content-Type-in-body bytes that the BOM strip missed.
-    raw_body = r.text or ""
-    if not raw_body.strip():
-        return None, f"{path}: empty response"
+    raw_body, ctype, url, err = await _fetch_response_body(client, base_url, path, user)
+    if err is not None or raw_body is None:
+        return None, err
     body = raw_body
     # Strip a BOM that some Webmin 2.x builds emit ahead of XML
     # declarations. ElementTree's parser rejects a leading BOM as
@@ -297,7 +322,6 @@ async def _fetch_xml(
             hex_preview = raw_bytes.hex(" ")
         except Exception:  # noqa: BLE001
             hex_preview = "<encode failed>"
-        ctype = r.headers.get("content-type", "?")
         print(
             f"[webmin] XML parse error for {url}: {e}\n"
             f"[webmin]   content-type: {ctype!r}\n"
@@ -361,23 +385,10 @@ async def _fetch_json(
     written against XML) can walk it without branching on format.
     ``(None, error)`` on any failure. Arms the auth cool-down on 401.
     """
-    url = base_url.rstrip("/") + path
-    try:
-        r = await client.get(url)  # lgtm[py/full-ssrf]
-    except Exception as e:
-        return None, f"{path}: {e}"
-    if r.status_code == 401:
-        _arm_cooldown(base_url, user)
-        return None, f"{path}: HTTP 401 — cool-down armed"
-    if r.status_code == 403:
-        hint = _strip_html(r.text)
-        return None, (f"{path}: HTTP 403"
-                      + (f" — {hint}" if hint else ""))
-    if r.status_code >= 400:
-        return None, f"{path}: HTTP {r.status_code}"
-    body = r.text or ""
-    if not body.strip():
-        return None, f"{path}: empty response"
+    body_opt, _ctype, url, err = await _fetch_response_body(client, base_url, path, user)
+    if err is not None or body_opt is None:
+        return None, err
+    body = body_opt
     stripped = body.lstrip().lower()
     if stripped.startswith("<!doctype html") or stripped.startswith("<html"):
         hint = _strip_html(body)
@@ -407,16 +418,16 @@ def _parse_bytes(text: str) -> int:
     # stripping only when there's a matching dot.
     if "," in s and "." in s:
         s = s.replace(",", "")
-    m = re.match(r"([\d.,]+)\s*([KMGTPE])?I?B?", s)
+    m = re.match(r"(?P<num>[\d.,]+)\s*(?P<unit>[KMGTPE])?I?B?", s)
     if not m:
         return 0
     try:
-        val = float(m.group(1).replace(",", "."))
+        val = float(m.group("num").replace(",", "."))
     except ValueError:
         return 0
-    unit = m.group(2) or ""
-    scale = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3,
-             "T": 1024**4, "P": 1024**5, "E": 1024**6}.get(unit, 1)
+    unit = m.group("unit") or ""
+    scale = {"": 1, "K": 1024, "M": 1024 ** 2, "G": 1024 ** 3,
+             "T": 1024 ** 4, "P": 1024 ** 5, "E": 1024 ** 6}.get(unit, 1)
     return int(val * scale)
 
 
@@ -434,21 +445,21 @@ def _scrape_package_updates(soup) -> Optional[ET.Element]:
     security = 0
     text = soup.get_text(" ", strip=True)
     for pat in (
-        r"(\d+)\s+packages?\s+(?:need|require|can be|to be)\s+updat",
-        r"(\d+)\s+update[s]?\s+(?:available|pending)",
-        r"(?:total|pending)[:\s]+(\d+)",
+            r"(?P<n>\d+)\s+packages?\s+(?:need|require|can be|to be)\s+updat",
+            r"(?P<n>\d+)\s+update[s]?\s+(?:available|pending)",
+            r"(?:total|pending)[:\s]+(?P<n>\d+)",
     ):
         m = re.search(pat, text, re.IGNORECASE)
         if m:
             try:
-                pending = int(m.group(1))
+                pending = int(m.group("n"))
                 break
             except ValueError:
                 pass
-    m = re.search(r"(\d+)\s+(?:are\s+)?security\s+update", text, re.IGNORECASE)
+    m = re.search(r"(?P<n>\d+)\s+(?:are\s+)?security\s+update", text, re.IGNORECASE)
     if m:
         try:
-            security = int(m.group(1))
+            security = int(m.group("n"))
         except ValueError:
             pass
     if pending == 0:
@@ -610,15 +621,15 @@ def _scrape_system_status(soup) -> Optional[ET.Element]:
     """
     root = ET.Element("root")
     text = soup.get_text(" ", strip=True)
-    m = re.search(r"(?:Hostname|System hostname)[:\s]+([\w.\-]+)", text, re.IGNORECASE)
+    m = re.search(r"(?:Hostname|System hostname)[:\s]+(?P<val>[\w.\-]+)", text, re.IGNORECASE)
     if m:
-        root.set("hostname", m.group(1).strip())
-    m = re.search(r"Kernel(?:\s+version)?[:\s]+(\S+\s+\S+)", text, re.IGNORECASE)
+        root.set("hostname", m.group("val").strip())
+    m = re.search(r"Kernel(?:\s+version)?[:\s]+(?P<val>\S+\s+\S+)", text, re.IGNORECASE)
     if m:
-        root.set("kernel", m.group(1).strip())
-    m = re.search(r"(?:Operating system|Distribution)[:\s]+([^\n]{2,80})", text, re.IGNORECASE)
+        root.set("kernel", m.group("val").strip())
+    m = re.search(r"(?:Operating system|Distribution)[:\s]+(?P<val>[^\n]{2,80})", text, re.IGNORECASE)
     if m:
-        root.set("os", m.group(1).strip())
+        root.set("os", m.group("val").strip())
     return root
 
 
@@ -659,10 +670,10 @@ async def _fetch_html_scrape(
     except Exception as e:
         return None, f"{path}: bs4 parse error — {e}"
     scrapers = {
-        "system_status":   _scrape_system_status,
+        "system_status": _scrape_system_status,
         "package_updates": _scrape_package_updates,
-        "mount":           _scrape_mounts,
-        "net":             _scrape_net,
+        "mount": _scrape_mounts,
+        "net": _scrape_net,
     }
     fn = scrapers.get(module)
     if fn is None:
@@ -814,8 +825,8 @@ def _parse_uptime_s(raw) -> int:
         return int(s)
     total = 0
     patterns = [
-        (r"(\d+)\s*d(?:ay)?s?\b",    86400),
-        (r"(\d+)\s*h(?:our)?s?\b",   3600),
+        (r"(\d+)\s*d(?:ay)?s?\b", 86400),
+        (r"(\d+)\s*h(?:our)?s?\b", 3600),
         (r"(\d+)\s*m(?:in)?(?:ute)?s?\b", 60),
         (r"(\d+)\s*s(?:ec)?(?:ond)?s?\b", 1),
     ]
@@ -893,12 +904,12 @@ def extract_system_status(root: ET.Element) -> dict:
         return int(value * 1024)
 
     hostname = pick("hostname", "host", "name")
-    kernel   = pick("kernel", "kernel_release", "release", "os_version")
-    distro   = pick("distro", "os", "pretty_name", "os_name", "os_release")
-    arch     = pick("arch", "architecture", "machine")
+    kernel = pick("kernel", "kernel_release", "release", "os_version")
+    distro = pick("distro", "os", "pretty_name", "os_name", "os_release")
+    arch = pick("arch", "architecture", "machine")
     cpu_type = pick("cpu_type", "cpu_model", "model", "cpu")
     cpus_raw = pick("cpus", "cores", "ncpus")
-    cores    = int(_num(cpus_raw)) if cpus_raw else 0
+    cores = int(_num(cpus_raw)) if cpus_raw else 0
     real_mem_raw, real_mem_key = pick_with_key("real_mem", "mem_total", "memory_total")
     real_mem = _num(real_mem_raw)
     free_mem = _num(pick("free_mem", "mem_free", "memory_free"))
@@ -928,21 +939,21 @@ def extract_system_status(root: ET.Element) -> dict:
 
     host_boot_ts = (time.time() - uptime_s) if uptime_s > 0 else None
     return {
-        "host_hostname":   hostname,
-        "host_kernel":     kernel,
-        "host_os":         distro,
-        "host_platform":   distro.split()[0] if distro else "",
-        "host_arch":       _normalize_arch(arch),
-        "host_cpu_model":  cpu_type,
-        "host_cores":      cores,
-        "host_mem_total":  mem_total_bytes,
-        "host_mem_used":   mem_used_bytes,
-        "host_mem_avail":  max(0, mem_total_bytes - mem_used_bytes),
-        "host_uptime_s":   uptime_s,
-        "host_boot_ts":    host_boot_ts,
-        "host_load_1m":    load_1m,
-        "host_load_5m":    load_5m,
-        "host_load_15m":   load_15,
+        "host_hostname": hostname,
+        "host_kernel": kernel,
+        "host_os": distro,
+        "host_platform": distro.split()[0] if distro else "",
+        "host_arch": _normalize_arch(arch),
+        "host_cpu_model": cpu_type,
+        "host_cores": cores,
+        "host_mem_total": mem_total_bytes,
+        "host_mem_used": mem_used_bytes,
+        "host_mem_avail": max(0, mem_total_bytes - mem_used_bytes),
+        "host_uptime_s": uptime_s,
+        "host_boot_ts": host_boot_ts,
+        "host_load_1m": load_1m,
+        "host_load_5m": load_5m,
+        "host_load_15m": load_15,
     }
 
 
@@ -974,6 +985,7 @@ def extract_package_updates(root: ET.Element) -> dict:
                 break
             except ValueError:
                 continue
+
     # Element-style: walk children and count or tally. scope
     # the walk to the first `<updates>` / `<packages>` / `<pkglist>`
     # parent's DIRECT children when one exists, so unrelated nested
@@ -1030,7 +1042,7 @@ def extract_package_updates(root: ET.Element) -> dict:
                 except ValueError:
                     pass
     return {
-        "host_updates_pending":  max(0, pending),
+        "host_updates_pending": max(0, pending),
         "host_updates_security": max(0, security),
     }
 
@@ -1099,16 +1111,16 @@ def extract_mounts(root: ET.Element) -> list[dict]:
             or node.get("free")
             or node.get("free_bytes")
         )
-        if size <= 0 and (used > 0 or avail > 0):
+        if size <= 0 < (used + avail):
             size = used + avail
-        if used <= 0 and size > 0 and avail > 0:
+        if used <= 0 < size and avail > 0:
             used = max(0.0, size - avail)
         if size <= 0:
             continue
         pct = (used / size * 100) if size > 0 else 0.0
         out.append({
-            "n":  mount,
-            "d":  size / gib,
+            "n": mount,
+            "d": size / gib,
             "du": used / gib,
             "dp": pct,
             "dr": 0,
@@ -1159,8 +1171,8 @@ def extract_net_ifaces(root: ET.Element) -> list[dict]:
                 if val and val not in addrs:
                     addrs.append(val)
         out.append({
-            "name":  name,
-            "mac":   mac,
+            "name": name,
+            "mac": mac,
             "addrs": addrs,
         })
     return out
@@ -1337,10 +1349,18 @@ async def probe_webmin(
     if all(r is None for r in roots.values()):
         return {"hosts": {}, "error": "; ".join(errors) or "webmin: all modules failed"}
 
-    system_status = extract_system_status(roots["system_status"])
-    package_updates = extract_package_updates(roots["package_updates"])
-    mounts = extract_mounts(roots["mount"])
-    net_ifaces = extract_net_ifaces(roots["net"])
+    # Fall back to an empty root when a module's probe failed — every
+    # extractor's signature wants a real ``Element``, and the empty
+    # element naturally extracts to empty / zero shape so the merged
+    # ``stats`` dict carries no fake values from the failed modules.
+    def _r(name: str) -> ET.Element:
+        node = roots.get(name)
+        return node if node is not None else ET.Element("root")
+
+    system_status = extract_system_status(_r("system_status"))
+    package_updates = extract_package_updates(_r("package_updates"))
+    mounts = extract_mounts(_r("mount"))
+    net_ifaces = extract_net_ifaces(_r("net"))
     stats = extract_stats(
         system_status, package_updates, mounts, net_ifaces,
         active_sources=active_sources,
@@ -1357,8 +1377,8 @@ async def probe_webmin(
     if errors:
         print(f"[webmin] probe: partial errors: {errors}")
     return {
-        "hosts":   {host_key: stats} if host_key else {},
-        "error":   None if not errors or stats else "; ".join(errors),
+        "hosts": {host_key: stats} if host_key else {},
+        "error": None if not errors or stats else "; ".join(errors),
         "partial_errors": errors,
     }
 

@@ -25,10 +25,14 @@ from typing import Tuple
 
 def _candidate_paths() -> Tuple[str, ...]:
     """Search order for VERSION.txt — dev-side first, then prod."""
+    # ``__file__`` is typed as ``str | bytes | LiteralString | Any`` in
+    # some stub revisions, which makes ``os.path.dirname`` unhappy. Cast
+    # explicitly to ``str`` so the join chain stays type-stable.
+    _here = str(__file__)
     return (
         # Dev: repo-root VERSION.txt, relative to the project (logic/
         # version.py sits inside logic/ which sits at the repo root).
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), "VERSION.txt"),
+        os.path.join(os.path.dirname(os.path.dirname(_here)), "VERSION.txt"),
         # Prod: file baked into the image at build time via Dockerfile's
         # ARG VERSION + `RUN echo "$VERSION" > /app/VERSION.txt`.
         "/app/VERSION.txt",

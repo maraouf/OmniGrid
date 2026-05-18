@@ -32,7 +32,6 @@ import httpx
 
 from logic.merge import normalize_arch as _normalize_arch
 
-
 # Filesystems we don't count toward host disk totals. These are either
 # virtual (procfs, sysfs, tmpfs, overlay) or Docker-internal mounts
 # that'd double-count the Docker footprint we already show separately.
@@ -53,7 +52,6 @@ _EXCLUDED_MOUNT_PREFIXES = (
     "/host/proc", "/host/sys",  # if exporter is containerised with --pid=host
 )
 
-
 # Lenient Prometheus exposition-format matcher. We only care about
 # labelled and unlabelled samples for a specific whitelist of metric
 # names; counters / gauges / histograms are all single-value lines for
@@ -62,7 +60,7 @@ _EXCLUDED_MOUNT_PREFIXES = (
 _LINE_RE = re.compile(
     r"""^
     (?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)       # metric name
-    (?:\{(?P<labels>[^}]*)\})?                # optional {k="v",k2="v2"}
+    (?:\{(?P<labels>[^}]*)})?                 # optional {k="v",k2="v2"}
     \s+
     (?P<value>[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?|NaN|\+Inf|-Inf)
     (?:\s+\d+)?                               # optional timestamp (ignored)
@@ -71,8 +69,7 @@ _LINE_RE = re.compile(
     re.VERBOSE,
 )
 
-_LABEL_RE = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"((?:[^"\\]|\\.)*)"')
-
+_LABEL_RE = re.compile(r'(?P<key>[a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"(?P<value>(?:[^"\\]|\\.)*)"')
 
 # Network interfaces we exclude from host-total RX/TX counters. These are
 # either loopback, Docker's NAT bridges / veth pairs, Calico / Flannel /
@@ -80,13 +77,13 @@ _LABEL_RE = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"((?:[^"\\]|\\.)*)"')
 # represent "real" traffic leaving the host. Prefix match when the glob
 # ends with ``*``; exact match otherwise.
 _EXCLUDED_NIC_PREFIXES = (
-    "docker",   # docker0, docker_gwbridge, ...
-    "br-",      # docker-compose user-defined bridges
-    "veth",     # docker / k8s veth pairs
-    "cali",     # Calico (calixxxx, cali-vxlan, ...)
+    "docker",  # docker0, docker_gwbridge, ...
+    "br-",  # docker-compose user-defined bridges
+    "veth",  # docker / k8s veth pairs
+    "cali",  # Calico (calixxxx, cali-vxlan, ...)
     "flannel",  # flannel.1, flannel.vxlan
-    "cni",      # cni0 / cnixxxx
-    "vmnet",    # VMware synthetic (vmnet1 / vmnet8)
+    "cni",  # cni0 / cnixxxx
+    "vmnet",  # VMware synthetic (vmnet1 / vmnet8)
 )
 _EXCLUDED_NIC_EXACT = {"lo"}
 
@@ -95,6 +92,41 @@ def _is_excluded_nic(name: str) -> bool:
     if name in _EXCLUDED_NIC_EXACT:
         return True
     return any(name.startswith(p) for p in _EXCLUDED_NIC_PREFIXES)
+
+
+def _iter_metric_samples(text: str, prefixes: tuple[str, ...]):
+    """Yield ``(metric_name, value, labels)`` tuples for every line that
+    starts with one of ``prefixes`` AND has a parseable float value.
+    Shared by all counter parsers — they only differ in the prefix set
+    and the per-label filtering, which each caller applies."""
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if not any(line.startswith(p) for p in prefixes):
+            continue
+        m = _LINE_RE.match(line)
+        if not m:
+            continue
+        try:
+            value = float(m.group("value"))
+        except ValueError:
+            continue
+        labels = _parse_labels(m.group("labels") or "")
+        yield m.group("name"), value, labels
+
+
+def _iter_device_counters(text: str, prefixes: tuple[str, ...]):
+    """Yield ``(metric_name, value, device)`` tuples for every line that
+    starts with one of ``prefixes`` AND has a parseable float value AND
+    a non-empty ``device`` label. Shared by ``parse_network_counters``
+    and ``parse_disk_counters`` — they only differ in the prefix set
+    and the exclusion check, which the caller applies."""
+    for name, value, labels in _iter_metric_samples(text, prefixes):
+        device = (labels.get("device") or "").strip()
+        if not device:
+            continue
+        yield name, value, device
 
 
 def parse_network_counters(text: str) -> dict:
@@ -119,25 +151,10 @@ def parse_network_counters(text: str) -> dict:
     these into bytes/s on their own.
     """
     per_iface: dict[str, dict] = {}
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        # Cheap name prefilter so we don't run the regex on every metric.
-        if not (line.startswith("node_network_receive_bytes_total")
-                or line.startswith("node_network_transmit_bytes_total")):
-            continue
-        m = _LINE_RE.match(line)
-        if not m:
-            continue
-        name = m.group("name")
-        try:
-            value = float(m.group("value"))
-        except ValueError:
-            continue
-        labels = _parse_labels(m.group("labels") or "")
-        device = (labels.get("device") or "").strip()
-        if not device or _is_excluded_nic(device):
+    _prefixes = ("node_network_receive_bytes_total",
+                 "node_network_transmit_bytes_total")
+    for name, value, device in _iter_device_counters(text, _prefixes):
+        if _is_excluded_nic(device):
             continue
         entry = per_iface.setdefault(device, {"name": device, "rx_bytes": 0, "tx_bytes": 0})
         if name.endswith("receive_bytes_total"):
@@ -166,11 +183,11 @@ def parse_network_counters(text: str) -> dict:
 # will double-count. That's a known limitation; better to over-report
 # than to silently report zero.
 _EXCLUDED_DISK_PREFIXES = (
-    "loop",     # loop0, loop1, ... (virtual loop mounts)
-    "ram",      # ram0, ram1 (kernel ramdisks)
-    "fd",       # legacy floppy
-    "sr",       # cd-rom (sr0)
-    "zram",     # in-memory swap
+    "loop",  # loop0, loop1, ... (virtual loop mounts)
+    "ram",  # ram0, ram1 (kernel ramdisks)
+    "fd",  # legacy floppy
+    "sr",  # cd-rom (sr0)
+    "zram",  # in-memory swap
 )
 
 # FreeBSD's `node_devstat_*` family uses different device naming. md*
@@ -183,9 +200,9 @@ _EXCLUDED_DISK_PREFIXES = (
 # always wins when `node_disk_*` is present, so md exclusion here only
 # applies to FreeBSD output.
 _EXCLUDED_DEVSTAT_PREFIXES = (
-    "pass",     # SCSI passthrough (pass0, pass1)
-    "md",       # FreeBSD memory disk (md98, md99 are stock)
-    "cd",       # cd-rom (cd0)
+    "pass",  # SCSI passthrough (pass0, pass1)
+    "md",  # FreeBSD memory disk (md98, md99 are stock)
+    "cd",  # cd-rom (cd0)
 )
 
 
@@ -237,24 +254,10 @@ def parse_disk_counters(text: str) -> dict:
     samples; a single probe cannot.
     """
     per_dev: dict[str, dict] = {}
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if not (line.startswith("node_disk_read_bytes_total")
-                or line.startswith("node_disk_written_bytes_total")):
-            continue
-        m = _LINE_RE.match(line)
-        if not m:
-            continue
-        name = m.group("name")
-        try:
-            value = float(m.group("value"))
-        except ValueError:
-            continue
-        labels = _parse_labels(m.group("labels") or "")
-        device = (labels.get("device") or "").strip()
-        if not device or _is_excluded_disk(device):
+    _prefixes = ("node_disk_read_bytes_total",
+                 "node_disk_written_bytes_total")
+    for name, value, device in _iter_device_counters(text, _prefixes):
+        if _is_excluded_disk(device):
             continue
         entry = per_dev.setdefault(device, {"name": device, "read_bytes": 0, "written_bytes": 0})
         if name.endswith("read_bytes_total"):
@@ -286,20 +289,9 @@ def parse_disk_counters(text: str) -> dict:
     # produced the bytes.
     if not devices:
         bsd_per_dev: dict[str, dict] = {}
-        for raw_line in text.splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if not line.startswith("node_devstat_bytes_total"):
-                continue
-            m = _LINE_RE.match(line)
-            if not m:
-                continue
-            try:
-                value = float(m.group("value"))
-            except ValueError:
-                continue
-            labels = _parse_labels(m.group("labels") or "")
+        for _name, value, labels in _iter_metric_samples(
+            text, ("node_devstat_bytes_total",),
+        ):
             device = (labels.get("device") or "").strip()
             kind = (labels.get("type") or "").strip().lower()
             if not device or _is_excluded_devstat(device):
@@ -326,11 +318,11 @@ def parse_disk_counters(text: str) -> dict:
         # Synology / RAID hosts before #_EXCLUDED_DISK_PREFIXES was
         # loosened.
         return {"devices": [], "total_read": None, "total_written": None}
-    total_read    = sum(r["read_bytes"]    for r in devices)
+    total_read = sum(r["read_bytes"] for r in devices)
     total_written = sum(r["written_bytes"] for r in devices)
     return {
-        "devices":       devices,
-        "total_read":    total_read,
+        "devices": devices,
+        "total_read": total_read,
         "total_written": total_written,
     }
 
@@ -340,8 +332,8 @@ def _parse_labels(raw: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for m in _LABEL_RE.finditer(raw):
         # Unescape the few characters Prometheus allows backslash-escaped.
-        v = m.group(2).replace('\\"', '"').replace('\\\\', '\\').replace('\\n', '\n')
-        out[m.group(1)] = v
+        v = m.group("value").replace('\\"', '"').replace('\\\\', '\\').replace('\\n', '\n')
+        out[m.group("key")] = v
     return out
 
 
@@ -380,7 +372,7 @@ def parse_exporter_text(text: str) -> dict:
     # delta-maths these against the previous tick to compute %CPU =
     # 100 * (1 - (delta_idle / delta_total)).
     cpu_seconds_total = 0.0
-    cpu_seconds_idle  = 0.0
+    cpu_seconds_idle = 0.0
     # Load averages — one gauge each, no labels. FreeBSD + Linux both
     # emit ``node_load1`` / ``node_load5`` / ``node_load15`` from the
     # `loadavg` collector; OPNsense ships this by default.
@@ -500,7 +492,7 @@ def parse_exporter_text(text: str) -> dict:
             # Sum cumulative seconds across all CPUs and ALL modes
             # for the total; only mode=idle for idle. The sampler
             # delta-maths these against the previous tick to derive
-            # %CPU = 100 * (1 - (delta_idle / delta_total)). 
+            # %CPU = 100 * (1 - (delta_idle / delta_total)).
             try:
                 cpu_seconds_total += value
                 if labels.get("mode") == "idle":
@@ -519,7 +511,7 @@ def parse_exporter_text(text: str) -> dict:
             if any(mount.startswith(p) for p in _EXCLUDED_MOUNT_PREFIXES):
                 continue
             entry = fs.setdefault(mount, {"mountpoint": mount, "fstype": fstype,
-                                         "device": device, "size": 0, "avail": 0})
+                                          "device": device, "size": 0, "avail": 0})
             entry["fstype"] = fstype or entry.get("fstype") or ""
             entry["device"] = device or entry.get("device") or ""
             if name == "node_filesystem_size_bytes":
@@ -540,7 +532,7 @@ def parse_exporter_text(text: str) -> dict:
     # Finalise mount list — compute used, drop any rows where size is 0
     # (kernel readahead race / unreadable mount).
     #
-  # ZFS pool dedup: datasets in the same pool report
+    # ZFS pool dedup: datasets in the same pool report
     # size_i  = used_i + pool_avail
     # avail_i = pool_avail   (identical across siblings)
     # so a naive sum across N datasets inflates the apparent total by
@@ -558,29 +550,36 @@ def parse_exporter_text(text: str) -> dict:
     zfs_pool_avail_seen: dict[str, int] = {}
     gib = 1024 ** 3
     for entry in fs.values():
-        size = entry.get("size", 0)
-        avail = entry.get("avail", 0)
+        _size_raw = entry.get("size", 0)
+        _avail_raw = entry.get("avail", 0)
+        size = int(_size_raw) if isinstance(_size_raw, (int, float)) else 0
+        avail = int(_avail_raw) if isinstance(_avail_raw, (int, float)) else 0
         if size <= 0:
             continue
         used = max(0, size - avail)
         size_gib = size / gib
         used_gib = used / gib
         dp = (used / size * 100) if size > 0 else 0.0
+        _fstype_raw = entry.get("fstype")
+        fstype = _fstype_raw if isinstance(_fstype_raw, str) else ""
+        _mp_raw = entry.get("mountpoint", "")
+        mountpoint = _mp_raw if isinstance(_mp_raw, str) else ""
         mounts.append({
-            "n":  entry["mountpoint"],
-            "fs": entry.get("fstype") or "",
-            "d":  size_gib,
+            "n": mountpoint,
+            "fs": fstype,
+            "d": size_gib,
             "du": used_gib,
             "dp": dp,
             # Legacy keys — don't break older consumers.
-            "mountpoint": entry["mountpoint"],
-            "fstype":     entry.get("fstype") or "",
-            "size":       size,
-            "used":       used,
+            "mountpoint": mountpoint,
+            "fstype": fstype,
+            "size": size,
+            "used": used,
         })
-        if (entry.get("fstype") or "").lower() == "zfs":
-            device = entry.get("device") or ""
-            pool = device.split("/", 1)[0] if "/" in device else (device or entry["mountpoint"])
+        if fstype.lower() == "zfs":
+            _device_raw = entry.get("device")
+            device = _device_raw if isinstance(_device_raw, str) else ""
+            pool = device.split("/", 1)[0] if "/" in device else (device or mountpoint)
             if pool not in zfs_pool_avail_seen:
                 # First dataset of this pool — counts the pool's
                 # avail + its own used toward the totals.
@@ -621,34 +620,34 @@ def parse_exporter_text(text: str) -> dict:
         # Identity / hardware — all optional. node-exporter runs LAST
         # in the merge so these values are authoritative for Linux /
         # FreeBSD hosts.
-        "host_kernel":    uname_release,
-        "host_arch":      arch,
-        "host_platform":  uname_sysname,   # "Linux" / "FreeBSD" / ...
+        "host_kernel": uname_release,
+        "host_arch": arch,
+        "host_platform": uname_sysname,  # "Linux" / "FreeBSD" / ...
         # Kernel-reported hostname (uname -n). Surfaced so SSH targets
         # + AI grounding match on the actual machine name, not just
         # the curated id / label. SNMP + Webmin emit the same field.
-        "host_hostname":  uname_nodename,
-        "host_cores":     len(cpu_labels),
+        "host_hostname": uname_nodename,
+        "host_cores": len(cpu_labels),
         # Load averages — gauge copies of /proc/loadavg (Linux) or
         # getloadavg(3) (FreeBSD). Zero-values mean "collector didn't
         # run" (filter in the UI, not here).
-        "host_load_1m":   load_1m,
-        "host_load_5m":   load_5m,
-        "host_load_15m":  load_15m,
+        "host_load_1m": load_1m,
+        "host_load_5m": load_5m,
+        "host_load_15m": load_15m,
         # DMI / hardware identity — surfaces what hypervisor / NUC /
         # OEM box this host actually runs on. Blank values mean "DMI
         # collector disabled" (containers / some VMs) — UI hides the
         # row when the field is empty.
-        "host_dmi_vendor":       dmi_vendor,
-        "host_dmi_product":      dmi_product,
-        "host_dmi_serial":       dmi_serial,
+        "host_dmi_vendor": dmi_vendor,
+        "host_dmi_product": dmi_product,
+        "host_dmi_serial": dmi_serial,
         "host_dmi_bios_version": dmi_bios_version,
         # CPU-seconds counters for sampler %CPU derivation.
         # Zero-values mean "node_cpu_seconds_total absent" — the
         # sampler skips %CPU computation in that case (chart stays
         # empty rather than showing nonsense).
         "host_cpu_seconds_total": cpu_seconds_total,
-        "host_cpu_seconds_idle":  cpu_seconds_idle,
+        "host_cpu_seconds_idle": cpu_seconds_idle,
     }
 
 
@@ -680,7 +679,7 @@ def _normalise_ne_url(url: str) -> str:
     netloc = p.netloc
     # Default port 9100 for bare hostname — the standard node_exporter port.
     if ":" not in netloc and netloc:
-        netloc = netloc + ":9100"
+        netloc += ":9100"
     path = p.path or ""
     # Strip trailing slash from path (already done for whole URL but be
     # explicit so /metrics/ doesn't become /metrics//metrics on append).
@@ -707,6 +706,7 @@ async def probe_node(
     merge this into nodes_info so the frontend can show "stats
     unavailable" next to that node instead of dropping it.
     """
+
     async def _fetch(u: str) -> tuple[Optional[str], Optional[str]]:
         """(body_text, error_str). One of the pair is always None."""
         try:
@@ -726,18 +726,20 @@ async def probe_node(
         text, err2 = await _fetch(url)
         if err2:
             return {"exporter_error":
-                    f"{canonical} → {err}; fallback {url} → {err2}"}
+                        f"{canonical} → {err}; fallback {url} → {err2}"}
     if err and text is None:
         return {"exporter_error": err}
+    if text is None:
+        return {"exporter_error": err or "no response body"}
 
     # Detect HTML landing pages. Exporters expose metrics ONLY as
     # plain text; any HTML response means we hit the wrong endpoint.
-    lead = (text or "").lstrip().lower()
+    lead = text.lstrip().lower()
     if lead.startswith("<!doctype") or lead.startswith("<html"):
         return {"exporter_error":
-                f"endpoint returned HTML, not Prometheus text — "
-                f"tried {canonical}; check the URL resolves to "
-                f"node_exporter's /metrics output"}
+                    f"endpoint returned HTML, not Prometheus text — "
+                    f"tried {canonical}; check the URL resolves to "
+                    f"node_exporter's /metrics output"}
 
     try:
         stats = parse_exporter_text(text)

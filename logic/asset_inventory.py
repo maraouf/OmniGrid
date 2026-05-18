@@ -390,7 +390,9 @@ def _extract_assets_from_payload(payload: Any) -> list:
         except (TypeError, ValueError):
             preview = repr(payload["result"])[:400]
         print(f"[asset_inventory] result sample: {preview}")
-    if (str(payload.get("return")) not in ("1", "True")
+    _ret_raw = payload.get("return")
+    _ret_str = _ret_raw if isinstance(_ret_raw, str) else str(_ret_raw) if _ret_raw is not None else ""
+    if (_ret_str not in ("1", "True")
         and (payload.get("details") or payload.get("message"))):
         print(f"[asset_inventory] envelope says NOT success — "
               f"return={payload.get('return')!r} "
@@ -1014,14 +1016,14 @@ def shape_asset(a: dict) -> Optional[dict]:
     }
 
 
-def index_by_custom_number(assets: list) -> dict[int, dict]:
+def index_by_custom_number(assets: list) -> dict[int, dict[str, Any]]:
     """Build a {custom_number: asset} map for drawer lookups.
 
     Accepts either snake_case (``custom_number``) or the upstream's
     camelCase (``CustomNumber``) — PersonalSite's JSON schema used
     the latter. Returns only rows whose CN parses as an int.
     """
-    out: dict[int, dict] = {}
+    out: dict[int, dict[str, Any]] = {}
     if not isinstance(assets, list):
         return out
     for a in assets:

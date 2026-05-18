@@ -38,11 +38,9 @@ allocation-free.
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
-from typing import Any, Iterable, Optional
-
+from typing import Any, Optional
 
 # Resolve the bundle root relative to the module's location so the
 # import doesn't break when CWD changes (uvicorn / pytest / scripts).
@@ -103,6 +101,7 @@ class _SafeMissing(dict):
     that reference an unknown placeholder still render the rest of
     the string visibly.
     """
+
     def __missing__(self, key: str) -> str:
         return "{" + key + "}"
 

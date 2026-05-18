@@ -34,10 +34,9 @@ import re
 import sys
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional, TextIO
 from logic.settings_keys import Settings
-
 
 # How many lines to retain in-memory. 2000 at ~150 bytes/line is ~300 KB —
 # negligible for a long-running single-replica process. Bump if operators
@@ -49,7 +48,6 @@ MAX_LINES = 2000
 _buf: deque[dict[str, Any]] = deque(maxlen=MAX_LINES)
 _installed = False
 
-
 # Persistent log directory. Override with LOG_DIR env if your deploy
 # doesn't bind ``/app/data``. The ``data/logs`` subdir is created on
 # first write so a fresh deploy doesn't need any pre-provisioning.
@@ -57,7 +55,7 @@ LOG_DIR = os.environ.get("LOG_DIR", "/app/data/logs")
 
 # Log filename matches ``omnigrid-YYYY-MM-DD.log`` so the date is
 # parseable by the prune sweeper without hitting filesystem mtime.
-_LOG_NAME_RE = re.compile(r"^omnigrid-(\d{4})-(\d{2})-(\d{2})\.log$")
+_LOG_NAME_RE = re.compile(r"^omnigrid-(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})\.log$")
 _LOG_FAILED_ONCE = False  # latch so a sustained write failure doesn't spam stderr
 
 
@@ -119,8 +117,8 @@ def _today_log_path() -> str:
 # error prints go to stdout too via plain print()), so we scan the body
 # for tell-tale tokens. Falls back to INFO.
 _RE_ERROR = re.compile(r"\berror\b|\bfail(?:ed|ure)?\b|\btraceback\b|\bcritical\b|\bfatal\b", re.IGNORECASE)
-_RE_WARN  = re.compile(r"\bwarn(?:ing)?\b|deprecat",                                          re.IGNORECASE)
-_RE_OK    = re.compile(r"\bsuccess\b|\bok —|→ ok\b",                                          re.IGNORECASE)
+_RE_WARN = re.compile(r"\bwarn(?:ing)?\b|deprecat", re.IGNORECASE)
+_RE_OK = re.compile(r"\bsuccess\b|\bok —|→ ok\b", re.IGNORECASE)
 
 
 def _severity_for(text: str, stream: str) -> str:
@@ -193,7 +191,8 @@ def _persist_line(record: dict[str, Any]) -> None:
             try:
                 # Direct write to the original stderr — bypass our own
                 # tee since that's the layer that's failing.
-                sys.__stderr__.write(f"[logs] persistent-log write failed (suppressed): {e}\n")
+                if sys.__stderr__ is not None:
+                    sys.__stderr__.write(f"[logs] persistent-log write failed (suppressed): {e}\n")
             except Exception:
                 pass
 
@@ -232,11 +231,11 @@ def recent_lines(*, levels: Optional[Iterable[str]] = None,
         if levels_set is not None and lvl not in levels_set:
             continue
         out.append({
-            "ts":    float(rec.get("ts") or 0.0),
+            "ts": float(rec.get("ts") or 0.0),
             "level": lvl,
-            "text":  text,
+            "text": text,
         })
-    if limit and limit > 0 and len(out) > limit:
+    if limit is not None and 0 < limit < len(out):
         out = out[-limit:]
     return out
 
@@ -360,7 +359,7 @@ def recent_lines_window(*, hours: int = 24,
             break
         name = f"omnigrid-{day.isoformat()}.log"
         path = safe_log_path(name)
-        if not path or not os.path.isfile(path):
+        if not path or not os.path.isfile(path):  # type: ignore[attr-defined]
             continue
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -392,7 +391,7 @@ def recent_lines_window(*, hours: int = 24,
     # files we walked newest-day-first, so we'd otherwise emit in
     # reverse).
     out.sort(key=lambda r: r["ts"])
-    if limit and limit > 0 and len(out) > limit:
+    if limit is not None and 0 < limit < len(out):
         out = out[-limit:]
     return out
 
@@ -419,8 +418,8 @@ def list_persistent_logs() -> list[dict]:
         except OSError:
             continue
         out.append({
-            "name":  name,
-            "size":  int(st.st_size),
+            "name": name,
+            "size": int(st.st_size),
             "mtime": float(st.st_mtime),
         })
     out.sort(key=lambda r: r["name"], reverse=True)
@@ -467,7 +466,7 @@ def read_persistent_log(name: str, tail_lines: Optional[int] = None) -> Optional
     because the operator explicitly asked for this view.
     """
     path = safe_log_path(name)
-    if not path or not os.path.isfile(path):
+    if not path or not os.path.isfile(path):  # type: ignore[attr-defined]
         return None
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         if tail_lines is None or tail_lines <= 0:
@@ -527,7 +526,7 @@ def prune_old_logs(retention_days: int, *, tz=None) -> int:
             continue
         try:
             file_date = datetime(
-                int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                int(m.group("year")), int(m.group("month")), int(m.group("day")),
                 tzinfo=tz,
             ).date()
         except ValueError:
@@ -575,7 +574,7 @@ class _TeeStream:
                 rec = {"ts": now, "stream": self._label, "text": line}
                 _buf.append(rec)
                 # Persist to today's daily file. Best-effort — see
-                # _persist_line() for the failure-mode contract. 
+                # _persist_line() for the failure-mode contract.
                 _persist_line(rec)
         except Exception:
             # Never let the tee break real logging. Swallow and move on.

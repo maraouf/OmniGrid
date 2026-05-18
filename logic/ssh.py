@@ -73,15 +73,12 @@ Host-key handling:
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import io
 import json
 import re
 import time
 from typing import Any, Optional
 
 import asyncssh
-
 
 # ---------------------------------------------------------------------------
 # Config + defaults
@@ -97,10 +94,10 @@ MAX_COMMAND_LEN = 4096
 # Compiled lazily per-call so setting edits take effect immediately
 # without a server restart.
 DEFAULT_DESTRUCTIVE_PATTERNS = (
-    r"\brm\s",             # rm / rm -rf / etc.
-    r"\bmkfs\b",           # any mkfs.* invocation
-    r"\bdd\s",             # dd if=.. of=..
-    r">\s*/",              # truncating redirect to an absolute path
+    r"\brm\s",  # rm / rm -rf / etc.
+    r"\bmkfs\b",  # any mkfs.* invocation
+    r"\bdd\s",  # dd if=.. of=..
+    r">\s*/",  # truncating redirect to an absolute path
     r"\bsystemctl\s+stop\b",
     r"\breboot\b",
     r"\bpoweroff\b",
@@ -115,6 +112,7 @@ from logic.cooldown import Cooldown
 from logic import tuning as _tuning
 from logic.tuning import Tunable as _Tunable
 from logic.settings_keys import Settings
+
 _auth_cooldown_timer = Cooldown(
     seconds_fn=lambda: _tuning.tuning_int(_Tunable.AUTH_FAILURE_COOLDOWN_SECONDS)
 )
@@ -142,19 +140,19 @@ def get_global_ssh_settings() -> dict:
     from logic.db import get_setting
     from logic import tuning as _tuning
     return {
-        "user":         (get_setting(Settings.SSH_DEFAULT_USER, "") or "").strip(),
-        "port":         _tuning.tuning_int(_Tunable.SSH_DEFAULT_PORT),
-        "private_key":  get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY, "") or "",
-        "passphrase":   get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY_PASSPHRASE, "") or "",
+        "user": (get_setting(Settings.SSH_DEFAULT_USER, "") or "").strip(),
+        "port": _tuning.tuning_int(_Tunable.SSH_DEFAULT_PORT),
+        "private_key": get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY, "") or "",
+        "passphrase": get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY_PASSPHRASE, "") or "",
         # Password auth fallback — used when private_key is blank, or
         # when the per-host override specifies a password. Returned in
         # the clear here (consumed by run_command); the /api/settings
         # shaper redacts via the ``password_set`` flag pattern.
-        "password":     get_setting(Settings.SSH_DEFAULT_PASSWORD, "") or "",
+        "password": get_setting(Settings.SSH_DEFAULT_PASSWORD, "") or "",
         # FQDN suffix appended to bare hostnames during resolve.
         # Normalised on save to include the leading dot.
-        "fqdn_suffix":  get_setting(Settings.SSH_FQDN_SUFFIX, "") or "",
-        "known_hosts":  get_setting(Settings.SSH_DEFAULT_KNOWN_HOSTS, "") or "",
+        "fqdn_suffix": get_setting(Settings.SSH_FQDN_SUFFIX, "") or "",
+        "known_hosts": get_setting(Settings.SSH_DEFAULT_KNOWN_HOSTS, "") or "",
         "destructive_patterns": (
             get_setting(Settings.SSH_DESTRUCTIVE_PATTERNS, "") or ""
         ).strip(),
@@ -256,6 +254,76 @@ def _compute_resolve_signature(
     return m.hexdigest()
 
 
+def _stamp_server_fingerprint(conn, resolved: dict) -> None:
+    """Extract the connected server's SHA256 host-key fingerprint and
+    record it under ``resolved["server_key_fingerprint"]``. Shared
+    between ``run_command`` and ``_open_connection`` so the audit row
+    + TOFU diagnostic see the same shortened fingerprint format
+    regardless of which path established the connection.
+    """
+    try:
+        server_key = conn.get_server_host_key()
+        fp = server_key.get_fingerprint("sha256") if server_key else ""
+        if fp and ":" in fp:
+            fp = fp.split(":", 1)[1]
+        resolved["server_key_fingerprint"] = fp[:16]
+    except Exception:
+        resolved["server_key_fingerprint"] = ""
+
+
+def _resolve_password_for_host(
+    host_id: str,
+    hosts_config: list,
+    resolved: dict,
+    global_password: str,
+) -> tuple[Optional[str], str]:
+    """Resolve the actual SSH password used for ``host_id`` AND the
+    audit-source label.
+
+    Shared between ``run_command`` and ``_open_connection`` so both go
+    through one source-of-truth for "did this connection authenticate
+    via per_host / sub_group / main_group / global". Honours the
+    downgrade rule: if ``resolved["password_source"]`` is per_host /
+    sub_group / main_group but the matching record's password is empty,
+    falls back to the global password and reports source ``"global"``.
+    Returns ``(password, source_label)``.
+    """
+    ssh_password: Optional[str] = None
+    record = _find_host_record(host_id, hosts_config)
+    src = resolved.get("password_source") or ""
+    if src == "per_host":
+        if record and isinstance(record.get("ssh"), dict):
+            ssh_password = (record["ssh"].get("password") or "").strip() or None
+    elif src in ("sub_group", "main_group"):
+        main_group, sub_group = _groups_for_host(record)
+        target = sub_group if src == "sub_group" else main_group
+        if target and isinstance(target.get("ssh"), dict):
+            ssh_password = (target["ssh"].get("password") or "").strip() or None
+    if ssh_password is None and global_password:
+        ssh_password = global_password
+        if src and src != "global":
+            print(f"[ssh] {host_id!r} password_source downgraded "
+                  f"from {src!r} to 'global' (no password at recorded source)")
+            return ssh_password, "global"
+    return ssh_password, src
+
+
+def _safe_int(v: Any) -> Optional[int]:
+    """Best-effort ``int(v)`` that returns ``None`` instead of raising.
+
+    Used wherever we read a numeric field out of operator-authored JSON
+    (host_groups, hosts_config, asset_inventory rows) — the field MAY
+    be missing, MAY be a string, MAY be a JSON number, and a typo
+    shouldn't crash the resolver.
+    """
+    if v is None:
+        return None
+    try:
+        return int(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
 def _groups_for_host(record: Optional[dict], *, verbose: bool = True) -> tuple[Optional[dict], Optional[dict]]:
     """Match a host_config record against the persisted ``host_groups``
     setting and return ``(main_group, sub_group)`` — either may be
@@ -268,78 +336,80 @@ def _groups_for_host(record: Optional[dict], *, verbose: bool = True) -> tuple[O
     such caller). Tolerant — malformed JSON / missing setting return
     ``(None, None)``.
     """
+
     def _log(msg: str) -> None:
         if verbose:
             print(msg)
+
     rid = (record or {}).get("id") if isinstance(record, dict) else None
     if record is None:
-        _log(f"[ssh] _groups_for_host: record is None")
-        return (None, None)
+        _log("[ssh] _groups_for_host: record is None")
+        return None, None
     cn = record.get("custom_number")
     if cn is None:
         _log(f"[ssh] _groups_for_host id={rid!r}: custom_number is None — no group match possible")
-        return (None, None)
-    try:
-        cn_int = int(cn)
-    except (TypeError, ValueError):
+        return None, None
+    cn_int = _safe_int(cn)
+    if cn_int is None:
         _log(f"[ssh] _groups_for_host id={rid!r}: custom_number={cn!r} not int-parseable")
-        return (None, None)
+        return None, None
     from logic.db import get_setting
     raw = get_setting(Settings.HOST_GROUPS, "") or ""
     if not raw.strip():
         _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups setting is empty — no groups defined")
-        return (None, None)
+        return None, None
     try:
         groups = json.loads(raw)
     except (TypeError, ValueError) as e:
         _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups JSON parse failed: {e}")
-        return (None, None)
+        return None, None
     if not isinstance(groups, list):
         _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups is not a list (got {type(groups).__name__})")
-        return (None, None)
+        return None, None
     _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: scanning {len(groups)} group(s)")
 
-    main_group: Optional[dict] = None
-    for g in groups:
-        if not isinstance(g, dict):
-            continue
-        if g.get("parent_name"):
-            continue  # skip sub-groups in pass 1
-        try:
-            rs = int(g.get("range_start"))
-            re_ = int(g.get("range_end"))
-        except (TypeError, ValueError):
-            continue
-        if rs <= cn_int <= re_:
-            main_group = g
-            _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: matched main_group "
-                 f"name={g.get('name')!r} range={rs}-{re_} "
-                 f"ssh_keys={list((g.get('ssh') or {}).keys())}")
-            break
+    def _group_range(g: dict) -> Optional[tuple[int, int]]:
+        rs = _safe_int(g.get("range_start"))
+        re_ = _safe_int(g.get("range_end"))
+        if rs is None or re_ is None:
+            return None
+        return rs, re_
+
+    # Capture cn_int as a non-None local so the closure below sees a
+    # narrowed ``int`` — pyright doesn't carry outer-scope narrowing
+    # into nested function bodies.
+    cn_target: int = cn_int
+
+    def _scan(filt, label: str) -> Optional[dict]:
+        """Walk ``groups``, return the first dict whose ``filt(g)`` is
+        true AND whose ``range_start..range_end`` covers ``cn_target``."""
+        for g in groups:
+            if not isinstance(g, dict):
+                continue
+            if not filt(g):
+                continue
+            rng = _group_range(g)
+            if rng is None:
+                continue
+            rs, re_ = rng
+            if rs <= cn_target <= re_:
+                _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_target}: matched {label} "
+                     f"name={g.get('name')!r} range={rs}-{re_} "
+                     f"ssh_keys={list((g.get('ssh') or {}).keys())}")
+                return g
+        return None
+
+    main_group = _scan(lambda g: not g.get("parent_name"), "main_group")
     if main_group is None:
         _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: NO main_group whose range covers cn — "
              f"check Admin → Host Groups (top-level group's range_start..range_end must include {cn_int})")
     sub_group: Optional[dict] = None
     if main_group is not None:
-        for g in groups:
-            if not isinstance(g, dict):
-                continue
-            if g.get("parent_name") != main_group.get("name"):
-                continue
-            try:
-                rs = int(g.get("range_start"))
-                re_ = int(g.get("range_end"))
-            except (TypeError, ValueError):
-                continue
-            if rs <= cn_int <= re_:
-                sub_group = g
-                _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: matched sub_group "
-                     f"name={g.get('name')!r} range={rs}-{re_} "
-                     f"ssh_keys={list((g.get('ssh') or {}).keys())}")
-                break
+        parent = main_group.get("name")
+        sub_group = _scan(lambda g: g.get("parent_name") == parent, "sub_group")
         if sub_group is None:
             _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: no sub_group matched (main only)")
-    return (main_group, sub_group)
+    return main_group, sub_group
 
 
 def _asset_fqdn_for_record(record: Optional[dict]) -> str:
@@ -354,12 +424,8 @@ def _asset_fqdn_for_record(record: Optional[dict]) -> str:
     """
     if not isinstance(record, dict):
         return ""
-    cn = record.get("custom_number")
-    if cn is None:
-        return ""
-    try:
-        cn_int = int(cn)
-    except (TypeError, ValueError):
+    cn_int = _safe_int(record.get("custom_number"))
+    if cn_int is None:
         return ""
     try:
         from logic import asset_inventory as _ai
@@ -368,7 +434,8 @@ def _asset_fqdn_for_record(record: Optional[dict]) -> str:
         raw = idx.get(cn_int)
         if not isinstance(raw, dict):
             return ""
-        hostname_str = str(raw.get("Hostname") or raw.get("hostname") or "").strip()
+        _hn_raw = raw.get("Hostname") or raw.get("hostname") or ""
+        hostname_str = (_hn_raw if isinstance(_hn_raw, str) else "").strip()
         if not hostname_str:
             return ""
         # Pick the LAST entry — by <asset-api-host> convention the CSV is
@@ -431,16 +498,16 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     # per-host walk, so the cost stays at one DB read.
     if (_get_setting(Settings.SSH_ENABLED, "true") or "true").lower() != "true":
         return {
-            "host":              "",
-            "user":              g["user"],
-            "port":              g["port"],
-            "disabled":          True,
-            "key_set":           bool(g["private_key"]),
-            "password_set":      bool(g["password"]),
-            "known_hosts_set":   bool(g["known_hosts"]),
-            "key_fingerprint":   "",
-            "password_source":   "",
-            "error":             "SSH disabled in Admin → SSH (master switch off)",
+            "host": "",
+            "user": g["user"],
+            "port": g["port"],
+            "disabled": True,
+            "key_set": bool(g["private_key"]),
+            "password_set": bool(g["password"]),
+            "known_hosts_set": bool(g["known_hosts"]),
+            "key_fingerprint": "",
+            "password_source": "",
+            "error": "SSH disabled in Admin → SSH (master switch off)",
         }
     _groups_raw = _get_setting(Settings.HOST_GROUPS, "") or ""
     _new_sig = _compute_resolve_signature(record, g, _groups_raw)
@@ -456,16 +523,16 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
          f"global_key_set={bool(g.get('private_key'))} global_password_set={bool(g.get('password'))} "
          f"global_fqdn_suffix={g.get('fqdn_suffix')!r}")
     resolved: dict[str, Any] = {
-        "host":              "",
-        "user":              g["user"],
-        "port":              g["port"],
-        "disabled":          False,
-        "key_set":           bool(g["private_key"]),
-        "password_set":      bool(g["password"]),
-        "known_hosts_set":   bool(g["known_hosts"]),
-        "key_fingerprint":   _key_fingerprint(g["private_key"], g["passphrase"]),
-        "password_source":   "global" if g["password"] else "",
-        "error":             None,
+        "host": "",
+        "user": g["user"],
+        "port": g["port"],
+        "disabled": False,
+        "key_set": bool(g["private_key"]),
+        "password_set": bool(g["password"]),
+        "known_hosts_set": bool(g["known_hosts"]),
+        "key_fingerprint": _key_fingerprint(g["private_key"], g["passphrase"]),
+        "password_source": "global" if g["password"] else "",
+        "error": None,
     }
     if record is None:
         resolved["error"] = f"unknown host_id: {host_id!r}"
@@ -489,7 +556,7 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     # Walk layers least-specific → most-specific so later overrides win.
     layer_specs = [
         ("main_group", _group_ssh(main_group)),
-        ("sub_group",  _group_ssh(sub_group)),
+        ("sub_group", _group_ssh(sub_group)),
     ]
     for source_name, s in layer_specs:
         if not s:
@@ -638,14 +705,14 @@ async def run_command(
     """
     started = time.time()
     base_result: dict[str, Any] = {
-        "ok":          False,
-        "exit_code":   None,
-        "stdout":      "",
-        "stderr":      "",
+        "ok": False,
+        "exit_code": None,
+        "stdout": "",
+        "stderr": "",
         "duration_ms": 0,
-        "dry_run":     bool(dry_run),
-        "resolved":    {},
-        "error":       None,
+        "dry_run": bool(dry_run),
+        "resolved": {},
+        "error": None,
     }
     if not isinstance(command, str):
         base_result["error"] = "command must be a string"
@@ -723,29 +790,15 @@ async def run_command(
     # classification), downgrade `password_source` to `"global"` in
     # both `resolved` and `base_result` so the audit row reflects what
     # actually authenticated, not the stale classification.
-    ssh_password: Optional[str] = None
-    record = _find_host_record(host_id, hosts_config)
-    src = resolved.get("password_source") or ""
-    if src == "per_host":
-        if record and isinstance(record.get("ssh"), dict):
-            ssh_password = (record["ssh"].get("password") or "").strip() or None
-    elif src in ("sub_group", "main_group"):
-        main_group, sub_group = _groups_for_host(record)
-        target = sub_group if src == "sub_group" else main_group
-        if target and isinstance(target.get("ssh"), dict):
-            ssh_password = (target["ssh"].get("password") or "").strip() or None
-    if ssh_password is None and g["password"]:
-        ssh_password = g["password"]
-        # Source classification was per_host / sub_group / main_group but
-        # that record's password was empty — the actual auth credential
-        # came from the global password. Stamp the audit accordingly so
-        # incident review can trust the recorded source.
-        if src and src != "global":
-            print(f"[ssh] {host_id!r} password_source downgraded "
-                  f"from {src!r} to 'global' (no password at recorded source)")
-            resolved["password_source"] = "global"
-            if isinstance(base_result, dict) and "resolved" in base_result and isinstance(base_result["resolved"], dict):
-                base_result["resolved"]["password_source"] = "global"
+    ssh_password, downgraded_src = _resolve_password_for_host(
+        host_id, hosts_config, resolved, g["password"],
+    )
+    if downgraded_src == "global" and (resolved.get("password_source") or "") != "global":
+        # Stamp the audit accordingly so incident review can trust the
+        # recorded source.
+        resolved["password_source"] = "global"
+        if isinstance(base_result, dict) and "resolved" in base_result and isinstance(base_result["resolved"], dict):
+            base_result["resolved"]["password_source"] = "global"
 
     # Known-hosts handling — see module docstring's "Host-key handling"
     # section. asyncssh accepts:
@@ -802,19 +855,12 @@ async def run_command(
             connect_timeout=max(5.0, min(timeout, 30.0)),
             login_timeout=max(5.0, min(timeout, 30.0)),
         )
-        async with asyncio.timeout(timeout) if hasattr(asyncio, "timeout") else _noop_timeout(timeout):
+        async with asyncio.timeout(timeout) if hasattr(asyncio, "timeout") else _NoopTimeout(timeout):
             async with conn_ctx as conn:
                 # Pull the server host-key fingerprint into the result
                 # so the UI can display what we trusted (especially
                 # important in the no-known-hosts TOFU path).
-                try:
-                    server_key = conn.get_server_host_key()
-                    fp = server_key.get_fingerprint("sha256") if server_key else ""
-                    if fp and ":" in fp:
-                        fp = fp.split(":", 1)[1]
-                    resolved["server_key_fingerprint"] = fp[:16]
-                except Exception:
-                    resolved["server_key_fingerprint"] = ""
+                _stamp_server_fingerprint(conn, resolved)
                 # `request_pty='force'` allocates a pseudo-TTY on the
                 # remote so interactive-ish tools like sudo can prompt
                 # / detect a terminal and behave the way they do over
@@ -892,7 +938,7 @@ async def run_command(
     return base_result
 
 
-class _noop_timeout:
+class _NoopTimeout:
     """Fallback for Python 3.10 which lacks ``asyncio.timeout``.
 
     We never actually hit this branch on 3.11+, but keeping the
@@ -900,6 +946,7 @@ class _noop_timeout:
     3.10. Real enforcement happens via asyncssh's own
     ``connect_timeout`` / ``login_timeout`` in that case.
     """
+
     def __init__(self, _seconds: float):
         pass
 
@@ -983,9 +1030,9 @@ def ssh_status(host_id: str, hosts_config: list[dict]) -> dict:
     # so future internal flags don't leak by default.
     public_resolved = {k: v for k, v in resolved.items() if not str(k).startswith("_")}
     return {
-        "enabled":      not resolved.get("disabled"),
-        "configured":   configured,
-        "resolved":     public_resolved,
+        "enabled": not resolved.get("disabled"),
+        "configured": configured,
+        "resolved": public_resolved,
     }
 
 
@@ -1006,8 +1053,8 @@ def sanitize_command_for_audit(command: str) -> str:
     # Redact obvious secret-bearing flags. Keep the flag name so the
     # intent is still readable.
     out = re.sub(
-        r"(--?(?:password|token|secret|api[-_]?key)[= ]\s*)\S+",
-        r"\1***",
+        r"(?P<flag>--?(?:password|token|secret|api[-_]?key)[= ]\s*)\S+",
+        r"\g<flag>***",
         out,
         flags=re.IGNORECASE,
     )
@@ -1042,6 +1089,7 @@ class TerminalAuthError(Exception):
     surfaces a localised reason via the WS close-frame and still writes
     an audit row before the socket goes away.
     """
+
     def __init__(self, message: str, *, code: str = "auth_failed", cooldown_armed: bool = False):
         super().__init__(message)
         self.code = code
@@ -1054,6 +1102,7 @@ class TerminalConfigError(Exception):
     :class:`TerminalAuthError` so the route can return a different
     close code + close reason.
     """
+
     def __init__(self, message: str, *, code: str = "not_configured"):
         super().__init__(message)
         self.code = code
@@ -1132,20 +1181,13 @@ async def open_shell(
             client_keys_arg = None
 
     # Mirror run_command's password-source lookup so per-host /
-    # per-group / global passwords are honoured.
-    ssh_password: Optional[str] = None
-    record = _find_host_record(host_id, hosts_config)
-    src = resolved.get("password_source") or ""
-    if src == "per_host":
-        if record and isinstance(record.get("ssh"), dict):
-            ssh_password = (record["ssh"].get("password") or "").strip() or None
-    elif src in ("sub_group", "main_group"):
-        main_group, sub_group = _groups_for_host(record)
-        target = sub_group if src == "sub_group" else main_group
-        if target and isinstance(target.get("ssh"), dict):
-            ssh_password = (target["ssh"].get("password") or "").strip() or None
-    if ssh_password is None and g["password"]:
-        ssh_password = g["password"]
+    # per-group / global passwords are honoured. Source-classification
+    # downgrade isn't echoed back to the WS client here (the audit log
+    # row only fires on the command path), so we discard the second
+    # tuple element.
+    ssh_password, _ = _resolve_password_for_host(
+        host_id, hosts_config, resolved, g["password"],
+    )
 
     known_hosts_arg: Any = None
     if g["known_hosts"]:
@@ -1225,14 +1267,7 @@ async def open_shell(
     try:
         # Server host-key fingerprint — surface the same way run_command
         # does so the audit row / drawer status footer stays consistent.
-        try:
-            server_key = conn.get_server_host_key()
-            fp = server_key.get_fingerprint("sha256") if server_key else ""
-            if fp and ":" in fp:
-                fp = fp.split(":", 1)[1]
-            resolved["server_key_fingerprint"] = fp[:16]
-        except Exception:
-            resolved["server_key_fingerprint"] = ""
+        _stamp_server_fingerprint(conn, resolved)
         # request_pty='force' — same reasoning as run_command. sudo
         # without a TTY behaves badly in piped contexts.
         proc = await conn.create_process(

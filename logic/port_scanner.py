@@ -45,7 +45,32 @@ from __future__ import annotations
 import asyncio
 import socket
 import time
-from typing import Iterable, Optional
+from typing import Awaitable, Iterable, Optional
+
+
+async def gather_port_probes(
+    coros: list[Awaitable[dict]],
+    error_label: str,
+) -> tuple[list[dict], Optional[str], int]:
+    """Run a port-probe fan-out under a wall-clock timer.
+
+    Shared by the TCP scanner here and the UDP scanner in
+    ``logic.port_scanner_udp`` so the gather + timer + sort + error-
+    classify scaffolding doesn't drift between the two. Returns
+    ``(results, err, duration_ms)`` where ``results`` is sorted by
+    ``port`` ascending. The error string is ``"<error_label>: <type>:
+    <msg>"`` on failure, ``None`` on success.
+    """
+    t0 = time.monotonic()
+    try:
+        results: list[dict] = list(await asyncio.gather(*coros))
+        err: Optional[str] = None
+    except Exception as e:  # noqa: BLE001
+        results = []
+        err = f"{error_label}: {type(e).__name__}: {e}"
+    duration_ms = int((time.monotonic() - t0) * 1000.0)
+    results.sort(key=lambda r: r.get("port", 0))
+    return results, err, duration_ms
 
 
 # Top-100 ports — well-known service ports + commonly-used app ports
@@ -70,7 +95,6 @@ DEFAULT_PORTS: tuple[int, ...] = (
     27018, 32400, 32469, 32500, 32769, 41080, 44444, 45876, 49669, 50000,
     51510, 51511, 51820, 53000, 57221,
 )
-
 
 # Tiny lookup table — port → likely service name. This is NAMING
 # convenience for chip labels, NOT a fingerprint. A connection to
@@ -200,7 +224,7 @@ def parse_port_csv(s: str) -> list[int]:
 
 
 async def _probe_one_port(host: str, port: int, timeout_s: float,
-                           banner_grab: bool) -> dict:
+                          banner_grab: bool) -> dict:
     """Probe one port. Returns a dict shape suitable for inclusion in
     the scan result's ``ports`` array. ``open: True`` means the TCP
     handshake completed; ``open: False`` covers timeout / refused /
@@ -328,16 +352,9 @@ async def scan_host(
         async with sem:
             return await _probe_one_port(target, p, timeout_s, banner_grab)
 
-    t0 = time.monotonic()
-    try:
-        results = await asyncio.gather(*[_bounded(p) for p in port_list])
-        err = None
-    except Exception as e:  # noqa: BLE001
-        results = []
-        err = f"scan failed: {type(e).__name__}: {e}"
-    duration_ms = int((time.monotonic() - t0) * 1000.0)
-    # Sort by port for deterministic output.
-    results.sort(key=lambda r: r.get("port", 0))
+    results, err, duration_ms = await gather_port_probes(
+        [_bounded(p) for p in port_list], "scan failed",
+    )
     # Categorise the closed-reason distribution so a "0 open ports"
     # outcome explains itself in the log. Most-common failure mode
     # is the operator's tip-off:
@@ -349,7 +366,7 @@ async def scan_host(
     #     on the scanned ports (likely real, but check the firewall).
     #   - mostly `timeout` → firewall silently dropping packets, OR
     #     timeout_s is too short for the WAN link.
-    open_count   = sum(1 for r in results if r.get("open"))
+    open_count = sum(1 for r in results if r.get("open"))
     reason_counts: dict[str, int] = {}
     for r in results:
         if r.get("open"):
@@ -375,7 +392,7 @@ async def scan_host(
     for r in results:
         r.pop("_closed_reason", None)
     return {
-        "host":        target,
+        "host": target,
         # Wire-level IP the OS resolved the target hostname to. None
         # when getaddrinfo() failed AND the target wasn't a literal
         # IP. Surfaced in toast / history so the operator can trace
@@ -383,10 +400,10 @@ async def scan_host(
         # → `192.X.X.X`, `ftth` → `192.X.X.X` via search-domain
         # resolution chain in the container's resolv.conf).
         "resolved_ip": resolved_ip,
-        "scanned_at":  int(time.time()),
-        "ports":       results,
+        "scanned_at": int(time.time()),
+        "ports": results,
         "duration_ms": duration_ms,
-        "error":       err,
+        "error": err,
     }
 
 
@@ -402,15 +419,15 @@ def open_ports_only(scan_result: dict) -> list[dict]:
         if p.get("open"):
             port_num = int(p.get("port") or 0)
             out.append({
-                "port":           port_num,
-                "service_hint":   hint_for_port(port_num),
+                "port": port_num,
+                "service_hint": hint_for_port(port_num),
                 "banner_excerpt": p.get("banner_excerpt") or "",
             })
     return out
 
 
 def diff_against_curated(open_ports: list[dict],
-                          curated_services: Optional[list[dict]]) -> dict:
+                         curated_services: Optional[list[dict]]) -> dict:
     """Diff a scan's open-port list against the operator's curated
     ``hosts_config[].services[]`` list. Returns
     ``{both: [...], detected_only: [...], curated_only: [...]}`` —
@@ -440,7 +457,7 @@ def diff_against_curated(open_ports: list[dict],
         if pnum not in matched_curated_ports
     ]
     return {
-        "both":          both,
+        "both": both,
         "detected_only": detected_only,
-        "curated_only":  curated_only,
+        "curated_only": curated_only,
     }

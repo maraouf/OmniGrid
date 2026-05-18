@@ -2641,7 +2641,8 @@
       "auth": "Admin → Authentication",
       "oidc": "Admin → Authentik OIDC",
       "portainer": "Admin → Portainer",
-      "debug": "Admin → Debug"
+      "debug": "Admin → Debug",
+      "public_ip": "Admin → Public IP"
     },
     "view": {
       "stacks": "Stacks view",

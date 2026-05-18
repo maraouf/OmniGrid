@@ -40,7 +40,6 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-
 # ----------------------------------------------------------------------------
 # Fernet key derivation -- keyed off SESSION_SECRET so rotating that one env
 # var rotates EVERY at-rest TOTP secret + backup code at once. Cached at
@@ -206,7 +205,7 @@ def decrypt_backup_codes(stored_json: Optional[str]) -> list[dict]:
         if not isinstance(entry, dict):
             continue
         ct = entry.get("code_encrypted")
-        if not ct:
+        if not isinstance(ct, str) or not ct:
             continue
         try:
             plain = decrypt_secret(ct)
@@ -235,16 +234,16 @@ def consume_backup_code(stored_json: Optional[str], attempt: str) -> tuple[bool,
     on the same record is fast even without a schema migration.
     """
     if not stored_json:
-        return (False, None)
+        return False, None
     try:
         raw = json.loads(stored_json)
     except (ValueError, TypeError):
-        return (False, None)
+        return False, None
     if not isinstance(raw, list):
-        return (False, None)
+        return False, None
     target = _normalise_for_compare(attempt)
     if len(target) != 8 or not target.isdigit():
-        return (False, None)
+        return False, None
     target_hash = hashlib.sha256(target.encode("ascii")).hexdigest()
 
     # Fast path — O(1) hash equality. Skips decrypt entirely.
@@ -258,7 +257,7 @@ def consume_backup_code(stored_json: Optional[str], attempt: str) -> tuple[bool,
         if h:
             if h == target_hash:
                 entry["used_at"] = int(time.time())
-                return (True, json.dumps(raw))
+                return True, json.dumps(raw)
             continue  # hash present but no match — skip without decrypt
         legacy_entries.append(entry)
 
@@ -268,7 +267,7 @@ def consume_backup_code(stored_json: Optional[str], attempt: str) -> tuple[bool,
     matched = False
     for entry in legacy_entries:
         ct = entry.get("code_encrypted")
-        if not ct:
+        if not isinstance(ct, str) or not ct:
             continue
         try:
             plain = decrypt_secret(ct)
@@ -282,9 +281,9 @@ def consume_backup_code(stored_json: Optional[str], attempt: str) -> tuple[bool,
             entry["used_at"] = int(time.time())
             matched = True
     if matched:
-        return (True, json.dumps(raw))
+        return True, json.dumps(raw)
     # Persist any backfilled hashes even on no-match so the legacy
     # decrypt loop runs only once per code lifetime.
     if any("code_hash" in e for e in legacy_entries):
-        return (False, json.dumps(raw))
-    return (False, None)
+        return False, json.dumps(raw)
+    return False, None

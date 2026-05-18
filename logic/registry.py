@@ -15,10 +15,8 @@ import httpx
 
 from logic import metrics
 
-
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
-
 
 # Bounded set of registry-label values for `omnigrid_registry_errors_total`
 # and `omnigrid_registry_latency_seconds`. Without this
@@ -29,7 +27,7 @@ DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
 # `private` bucket. Add new public registries by appending to the set.
 _KNOWN_REGISTRIES = frozenset({
     "registry-1.docker.io",  # canonical Docker Hub host
-    "docker.io",             # also used as a label by some clients
+    "docker.io",  # also used as a label by some clients
     "ghcr.io",
     "gcr.io",
     "quay.io",
@@ -211,6 +209,16 @@ async def _fetch_image_config_labels(
         if r.status_code != 200:
             return {}
         manifest = r.json()
+
+        # Shared sub-fetcher used for the manifest-index unwrap AND the
+        # config-blob fetch — both follow the same "GET this URL, return
+        # parsed JSON on 200, bail otherwise" pattern.
+        async def _fetch_json_or_empty(url: str) -> Optional[dict]:
+            r2 = await client.get(url, headers=h, follow_redirects=True)
+            if r2.status_code != 200:
+                return None
+            return r2.json()
+
         # If this is a manifest-index (multi-arch), pick the linux/amd64
         # variant (first amd64 entry). Operators on arm64 hosts still
         # have amd64 labels — they're identical across arch sub-manifests
@@ -218,26 +226,27 @@ async def _fetch_image_config_labels(
         if "manifests" in manifest:
             picks = [m for m in manifest["manifests"]
                      if (m.get("platform") or {}).get("architecture") == "amd64"]
-            sub = picks[0] if picks else (manifest["manifests"][0] if manifest["manifests"] else None)
-            if not sub:
+            sub: Optional[dict] = picks[0] if picks else (
+                manifest["manifests"][0] if manifest["manifests"] else None
+            )
+            if sub is None:
                 return {}
             sub_digest = sub.get("digest")
             if not sub_digest:
                 return {}
-            url2 = f"https://{reg}/v2/{repo}/manifests/{sub_digest}"
-            r2 = await client.get(url2, headers=h, follow_redirects=True)
-            if r2.status_code != 200:
+            _next = await _fetch_json_or_empty(
+                f"https://{reg}/v2/{repo}/manifests/{sub_digest}")
+            if _next is None:
                 return {}
-            manifest = r2.json()
+            manifest = _next
         config = manifest.get("config") or {}
         config_digest = config.get("digest")
         if not config_digest:
             return {}
-        blob_url = f"https://{reg}/v2/{repo}/blobs/{config_digest}"
-        r3 = await client.get(blob_url, headers=h, follow_redirects=True)
-        if r3.status_code != 200:
+        body = await _fetch_json_or_empty(
+            f"https://{reg}/v2/{repo}/blobs/{config_digest}")
+        if body is None:
             return {}
-        body = r3.json()
         # Labels can live under either `config.Labels` (Docker schema 2)
         # OR top-level `config.Labels` of the unwrapped config blob.
         labels = (body.get("config") or {}).get("Labels") or {}
@@ -310,11 +319,11 @@ async def _fetch_github_latest_release(
             body = r.json()
             tag = body.get("tag_name") or ""
             return {
-                "name":         body.get("name") or tag or "latest",
-                "body":         body.get("body") or "",
-                "html_url":     body.get("html_url") or f"https://github.com/{owner}/{repo}/releases/latest",
+                "name": body.get("name") or tag or "latest",
+                "body": body.get("body") or "",
+                "html_url": body.get("html_url") or f"https://github.com/{owner}/{repo}/releases/latest",
                 "published_at": body.get("published_at") or "",
-                "tag":          tag,
+                "tag": tag,
             }
     except Exception as e:
         print(f"[release-notes] github {owner}/{repo} latest: {e}")
@@ -353,9 +362,9 @@ async def _fetch_github_release_notes(
             if r.status_code == 200:
                 body = r.json()
                 return {
-                    "name":         body.get("name") or cand,
-                    "body":         body.get("body") or "",
-                    "html_url":     body.get("html_url") or f"https://github.com/{owner}/{repo}/releases/tag/{cand}",
+                    "name": body.get("name") or cand,
+                    "body": body.get("body") or "",
+                    "html_url": body.get("html_url") or f"https://github.com/{owner}/{repo}/releases/tag/{cand}",
                     "published_at": body.get("published_at") or "",
                 }
         except Exception as e:
@@ -384,10 +393,14 @@ async def get_release_notes(image: str) -> dict:
     # Cache: long TTL for ok results, shorter for misses.
     cached = _release_notes_cache.get(image)
     if cached:
-        age = time.time() - (cached.get("ts") or 0)
-        ttl = _RELEASE_NOTES_TTL_OK_S if (cached.get("data") or {}).get("ok") else _RELEASE_NOTES_TTL_ERR_S
+        _ts_raw = cached.get("ts")
+        _ts = float(_ts_raw) if isinstance(_ts_raw, (int, float)) else 0.0
+        age = time.time() - _ts
+        _data_raw = cached.get("data")
+        _data = _data_raw if isinstance(_data_raw, dict) else {}
+        ttl = _RELEASE_NOTES_TTL_OK_S if _data.get("ok") else _RELEASE_NOTES_TTL_ERR_S
         if age < ttl:
-            return cached["data"]
+            return _data
     try:
         reg, repo, ref_tag = parse_image_ref(image)
     except Exception as e:
@@ -402,6 +415,7 @@ async def get_release_notes(image: str) -> dict:
             or ""
         ).strip()
         version_label = (labels.get("org.opencontainers.image.version") or "").strip()
+
         # Identify "specific" vs "rolling" tag values. A tag is specific
         # when it points at a real release (e.g. `1.45.6`, `v2.0.0`,
         # `nginx-1.27`) — those query GitHub by exact tag. Rolling tags
@@ -410,6 +424,7 @@ async def get_release_notes(image: str) -> dict:
         # surface meaningful release notes.
         def _is_specific(t: str) -> bool:
             return bool(t) and t.lower() not in _ROLLING_TAG_SENTINELS
+
         # Choose the tag we ASK release-notes for. Prefer the ref's tag
         # (operator-visible "what they're pulling") when it's specific;
         # else try the version label; else "" → triggers latest fallback.
@@ -447,13 +462,13 @@ async def get_release_notes(image: str) -> dict:
                     used_tag = latest.get("tag") or "latest"
             if release:
                 out = {
-                    "ok":          True,
-                    "source_url":  source_url,
+                    "ok": True,
+                    "source_url": source_url,
                     "source_host": "github.com",
-                    "tag":         used_tag,
-                    "name":        release["name"],
-                    "body":        release["body"],
-                    "html_url":    release["html_url"],
+                    "tag": used_tag,
+                    "name": release["name"],
+                    "body": release["body"],
+                    "html_url": release["html_url"],
                     "published_at": release["published_at"],
                     # Flag whether the response came from the tagged
                     # lookup or the latest-release fallback. Lets the
@@ -467,11 +482,11 @@ async def get_release_notes(image: str) -> dict:
         # Fallback — surface the source URL so the SPA can link out
         # even when the release-notes API didn't yield a body.
         out = {
-            "ok":          False,
-            "source_url":  source_url,
+            "ok": False,
+            "source_url": source_url,
             "source_host": (source_url.split("/")[2] if "//" in source_url else ""),
-            "tag":         tag or ref_tag,
-            "error":       "no release notes found for tag" if tag else "no version tag resolved",
+            "tag": tag or ref_tag,
+            "error": "no release notes found for tag" if tag else "no version tag resolved",
         }
         _release_notes_cache[image] = {"ts": time.time(), "data": out}
         return out
