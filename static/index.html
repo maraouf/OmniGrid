@@ -603,23 +603,45 @@
         <div class="tabs-pill-popover" x-show="open" x-cloak>
           <div class="tabs-pill-header" x-text="t('topbar.tabs.popover_title')"></div>
           <template x-for="tab in tabActivityList()" :key="tab.client_id">
-            <button type="button"
-                    @click="focusTabByClientId(tab.client_id); open = false"
-                    class="tabs-pill-row"
-                    :title="t('topbar.tabs.row_focus_title')">
-              <div class="tabs-pill-row-title" x-text="tab.title || tab.view || '—'"></div>
-              <div class="tabs-pill-row-meta">
-                <span x-show="tab.actor" x-text="tab.actor"></span>
-                <span x-show="tab.ts"
-                      class="tabs-pill-row-age"
-                      x-text="(function(){
-                        const s = Math.max(0, Math.round((Date.now() - Number(tab.ts || 0) * 1000) / 1000));
-                        if (s < 60) return s + 's';
-                        if (s < 3600) return Math.round(s / 60) + 'm';
-                        return Math.round(s / 3600) + 'h';
-                      })()"></span>
-              </div>
-            </button>
+            <div class="tabs-pill-row-wrap">
+              <button type="button"
+                      @click="focusTabByClientId(tab.client_id); open = false"
+                      class="tabs-pill-row"
+                      :title="t('topbar.tabs.row_focus_title')">
+                <div class="tabs-pill-row-title" x-text="tab.title || tab.view || '—'"></div>
+                <!-- Rich label: filter chip state + selection count
+                     summary. Only renders when the source tab actually
+                     had filters or a selection active so quiet rows
+                     stay one-line. -->
+                <div x-show="tab.rich_label"
+                     class="tabs-pill-row-rich fs-3xs text-[var(--text-faint)]"
+                     x-text="tab.rich_label"></div>
+                <div class="tabs-pill-row-meta">
+                  <span x-show="tab.actor" x-text="tab.actor"></span>
+                  <span x-show="tab.ts"
+                        class="tabs-pill-row-age"
+                        x-text="(function(){
+                          const s = Math.max(0, Math.round((Date.now() - Number(tab.ts || 0) * 1000) / 1000));
+                          if (s < 60) return s + 's';
+                          if (s < 3600) return Math.round(s / 60) + 'm';
+                          return Math.round(s / 3600) + 'h';
+                        })()"></span>
+                </div>
+              </button>
+              <!-- "Reproduce here" button — copies the OTHER tab's
+                   filter / drawer / sub-tab state into the CURRENT
+                   tab. Surfaces only when the source tab has rich
+                   state worth mirroring (else the action is a no-op).
+                   Sibling button vs nested so the click doesn't
+                   bubble into the focus action. -->
+              <button type="button"
+                      x-show="tab.rich_label"
+                      @click.stop="reproduceTabHere(tab); open = false"
+                      class="tabs-pill-row-reproduce fs-3xs"
+                      :title="t('topbar.tabs.row_reproduce_title')"
+                      :aria-label="t('topbar.tabs.row_reproduce_title')"
+                      x-text="t('topbar.tabs.row_reproduce_button')"></button>
+            </div>
           </template>
           <div x-show="!tabActivityList().length"
                class="tabs-pill-empty"
@@ -2005,6 +2027,23 @@
                     :aria-pressed="isHostsProviderFilterActive('none')">
               <span x-text="t('hosts_extra.provider_filter.none')"></span>
               <span class="ms-1" x-text="hostsWithNoProviderCount()"></span>
+            </button>
+            <!-- Problem-hosts chip — surfaces only when at least one
+                 host is in trouble (down / paused / unknown). One
+                 click filters the list to those rows so operators
+                 triaging an incident don't scroll through 100+ healthy
+                 hosts. Same status set the Telegram AI context's
+                 `problem_hosts` block carries; the Stats dashboard
+                 "Problem hosts" tile flips the same flag. -->
+            <button type="button"
+                    x-show="problemHostCount() > 0"
+                    @click="toggleProblemHostsFilter()"
+                    class="chip fs-2xs cursor-pointer"
+                    :class="hostsProblemFilter ? 'chip-active pill-error' : 'pill-error'"
+                    :title="t('hosts_extra.provider_filter.problem_title', { count: problemHostCount() })"
+                    :aria-pressed="!!hostsProblemFilter">
+              <span x-text="t('hosts_extra.provider_filter.problem')"></span>
+              <span class="ms-1" x-text="problemHostCount()"></span>
             </button>
           </span>
         </div>

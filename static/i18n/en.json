@@ -210,7 +210,19 @@
       "popover_title": "Other OmniGrid tabs",
       "popover_empty": "No sibling tabs.",
       "row_focus_title": "Click to focus that tab (best-effort cross-window focus)",
-      "path_separator": "{leg} → {target}"
+      "row_reproduce_title": "Reproduce this tab's view + filters + drawer state here",
+      "row_reproduce_button": "Reproduce here",
+      "path_separator": "{leg} → {target}",
+      "rich": {
+        "selection": "{count, plural, one {# selected} other {# selected}}",
+        "problem_filter": "problem filter on",
+        "hide_unconfigured_filter": "hide unconfigured",
+        "provider_filter": "providers: {providers}",
+        "status_filter": "status: {status}",
+        "health_filter": "health: {health}",
+        "search": "search: {query}",
+        "reproduced": "Mirrored other tab's state — filters, drawer, view"
+      }
     }
   },
   "events": {
@@ -499,6 +511,10 @@
       "hosts": {
         "label": "Curated hosts",
         "sub": "{enabled} enabled in inventory"
+      },
+      "problem_hosts": {
+        "label": "Problem hosts",
+        "sub": "Down, paused, or unknown — click to filter the Hosts view"
       },
       "host_groups": {
         "label": "Host groups",
@@ -3119,6 +3135,8 @@
       "all_title": "Clear the provider filter — show every host (default).",
       "none": "No provider",
       "none_title": "Show only curated rows without any provider mapped ({count} host(s)). Useful for finding inventory-only entries waiting for an agent.",
+      "problem": "Problem",
+      "problem_title": "Show only hosts currently in trouble — status is down, paused, or unknown ({count} host(s)). One-click triage filter; clears when clicked again or when no hosts are in trouble.",
       "title_error": "{name} error: {error}",
       "title_unmatched": "{name} is enabled but matched no host",
       "title_match_one": "{name} — 1 host",

@@ -216,6 +216,15 @@ OP_TYPES: frozenset[str] = frozenset({
     # /api/notify/send + AI palette `send_notification` action). Distinct
     # from `notify_test` (fixed payload, fan-out to ALL enabled mediums).
     "notify_send",
+    # AI palette diagnostic-tool dispatch — fired when the AI emits a
+    # `TOOL: <name>` directive during a multi-round palette conversation
+    # (`logic/ai.py:PALETTE_TOOL_CATALOGUE`). Forensic anchor so the
+    # operator can trace "the AI ran a query on my behalf at 02:00 UTC"
+    # back to the prompt + result without re-creating the conversation.
+    # One row per tool call; the `target_kind` carries the tool name
+    # ("get_recent_history" / "ssh_diag" / etc.) and `target_id` carries
+    # the primary scope arg (host_id / target_id / preset name).
+    "ai_tool_call",
     # Audit-trail destruction — DELETE /api/history wipes every row.
     # The trailing audit row is written AFTER the bulk delete so it
     # survives; the row's actor surfaces who-cleared-when.
