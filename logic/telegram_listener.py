@@ -3504,127 +3504,104 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         ctx["updatable_items"] = []
         ctx["other_items"] = []
         ctx["items_summary"] = {"total": 0, "updatable_total": 0, "running_total": 0}
-    # ---- Hosts: curated config + last-known snapshot ---------------
-    # Operator-flagged bug: with a 30-host sample where every row had
-    # status="unknown" (snapshot table sparse on a fresh-deploy or
-    # SNMP-only fleet), the AI extrapolated "all 182 hosts unknown"
-    # from a sample biased toward un-snapshotted hosts at the head of
-    # `hosts_config`. Fix is two-pronged:
-    #   (1) compute statuses across the WHOLE fleet first, then sample
-    #       up/paused-first so the AI sees a representative mix.
-    #   (2) surface fleet-wide status counts in `hosts_summary` so the
-    #       AI answers "how many hosts are up" from those counts and
-    #       never extrapolates from the truncated `hosts[]` array.
+    # ---- Hosts: route through `api_hosts_list` ---------------------
+    # The Telegram AI context now consumes the SAME response shape the
+    # SPA's Hosts view does — `api_hosts_list` already runs the
+    # canonical `_shape_host_api_row` against every curated host using
+    # snapshot fallback + the cached host-provider state, so the
+    # status field reflects exactly what the operator sees on the
+    # /hosts page. Pre-fix this builder rolled its own snapshot
+    # classifier which (a) only recognised hosts with specific
+    # telemetry keys (cpu/mem/disk percent, uptime, hostname,
+    # platform, kernel) — SNMP-only / Webmin-only hosts that emit
+    # different fields fell through to "unknown" even when the
+    # snapshot row existed; (b) classified "no snapshot row" the same
+    # as "snapshot row with empty data", whereas the SPA differentiates
+    # `unconfigured` (no provider mapped) from `unknown` (providers
+    # mapped but none answered) from `up` (any live or snapshot-stale
+    # telemetry). Calling `api_hosts_list` directly inherits all that
+    # logic for free.
+    sample_cap = 60
     try:
-        hosts_cfg = _load_hosts_config()
-        paused_set = _load_host_paused_set()
-        # Read last-known host_snapshots via the canonical helper. The
-        # raw SQL form here used to query `SELECT host_id, snapshot` —
-        # WRONG column names (the real schema is `(host, ts, data)`) so
-        # every row failed to parse and every host fell through to
-        # status="unknown" regardless of whether snapshots existed.
-        # Going through `load_host_snapshots()` also gives us the
-        # short-TTL cache + JSON-parse-error tolerance for free.
-        try:
-            from logic.gather import load_host_snapshots
-            raw_snap_map = load_host_snapshots()
-        # noinspection PyBroadException
-        except Exception as e:  # noqa: BLE001
-            print(f"[telegram_listener] context snapshot load failed: {e}")
-            raw_snap_map = {}
-        # ``load_host_snapshots`` returns ``{host: {"ts": float,
-        # "data": {...}}}``; unwrap to the inner data dict per host so
-        # downstream `.get("host_cpu_percent")` etc. land on the real
-        # fields.
-        snap_map: dict[str, dict] = {
-            hid: (entry.get("data") if isinstance(entry, dict) else {}) or {}
-            for hid, entry in raw_snap_map.items()
-        }
-
-        # Pass 1 — compute the full classified set across every
-        # enabled host (no sample cap). Each entry carries its full
-        # record dict so the sample step below can emit them directly.
-        # "up" gate: a host counts as reporting live data when the
-        # snapshot dict carries at least one meaningful field — we
-        # check both percent-style telemetry AND the absolute totals,
-        # since SNMP / NE / Webmin all populate different subsets.
-        # An empty dict from a placeholder save shouldn't read as alive.
-        _LIVE_FIELDS = (
-            "host_cpu_percent", "host_mem_percent", "host_disk_percent",
-            "host_uptime_s", "host_uptime_seconds",
-            "host_mem_total", "host_disk_total",
-            "host_hostname", "host_platform", "host_kernel",
-        )
-
-        def _classify(h: dict) -> tuple[str, dict]:
-            hid = h.get("id") or ""
-            snap = snap_map.get(hid) or {}
-            has_live = bool(snap) and any(snap.get(k) for k in _LIVE_FIELDS)
-            if hid in paused_set:
-                status = "paused"
-            elif has_live:
-                status = "up"
-            else:
-                status = "unknown"
-            record = {
-                "id": hid,
-                "label": h.get("label") or hid,
-                "status": status,
-                "paused": hid in paused_set,
-                "address": h.get("address") or "",
-                "cpu_pct": snap.get("host_cpu_percent"),
-                "mem_pct": snap.get("host_mem_percent"),
-                "disk_pct": snap.get("host_disk_percent"),
-                # Canonical key is `host_uptime_s` (every provider
-                # writes that). `host_uptime_seconds` is kept only for
-                # legacy callers; check both for forward-compat.
-                "uptime_s": snap.get("host_uptime_s")
-                            or snap.get("host_uptime_seconds"),
-                "host_hostname": snap.get("host_hostname"),
-                "platform": snap.get("host_platform"),
-                "kernel": snap.get("host_kernel"),
-                # Operator-typed aliases — the AI uses these to match
-                # "the qotom" / "the r730" against the right host.
-                "beszel_name": h.get("beszel_name") or "",
-                "pulse_name": h.get("pulse_name") or "",
-                "webmin_name": h.get("webmin_name") or "",
-                "snmp_name": h.get("snmp_name") or "",
-            }
-            return status, record
-
-        enabled_hosts = [h for h in hosts_cfg if h.get("enabled", True)]
-        classified = [_classify(h) for h in enabled_hosts]
-
-        # Pass 2 — fleet-wide status counts. AUTHORITATIVE — the AI
-        # MUST answer "how many hosts are up/down/paused" from these,
-        # NOT from len(hosts) (which is the sample cap, not the total).
-        status_counts = {"up": 0, "paused": 0, "unknown": 0}
-        for st, _rec in classified:
+        from main import api_hosts_list as _api_hosts_list
+        # `api_hosts_list` is a FastAPI handler but its body has no
+        # Request dependencies and `_admin: AdminUser = ...` is
+        # accepted at call time without an injected user (the body
+        # short-circuits when curated is empty); we're calling it
+        # internally from a context that already validated admin auth
+        # for the Telegram message. `force=False` reuses the cached
+        # provider state so we don't pay a hub re-probe on every AI
+        # call.
+        list_resp = await _api_hosts_list(force=False)
+        if not isinstance(list_resp, dict):
+            list_resp = {}
+        api_hosts = list_resp.get("hosts") or []
+        # Status taxonomy (canonical from `_shape_host_api_row`):
+        # up / down / paused / loading / unconfigured / unknown
+        status_counts: dict[str, int] = {}
+        for row in api_hosts:
+            st = (row.get("status") or "unknown").lower()
             status_counts[st] = status_counts.get(st, 0) + 1
 
-        # Pass 3 — representative sample. Up/paused hosts go first so
-        # the AI sees real telemetry in the sample rather than a wall
-        # of "unknown". Within each status the order is the curated
-        # config order (operator-stable).
-        sample_cap = 60  # was 30; doubled now that the sample is
-        # status-balanced + counts are authoritative
-        order = {"up": 0, "paused": 1, "unknown": 2}
-        classified.sort(key=lambda t: order.get(t[0], 9))
-        host_records = [rec for _st, rec in classified[:sample_cap]]
+        # Pass 1 — order rows so the truncated sample is REPRESENTATIVE
+        # (up/down/paused first; unconfigured/loading/unknown last) so
+        # the AI sees real telemetry rather than a wall of "unknown"
+        # when the snapshot table is sparse.
+        order = {"up": 0, "down": 1, "paused": 2,
+                 "loading": 3, "unconfigured": 4, "unknown": 5}
+        api_hosts_sorted = sorted(
+            api_hosts, key=lambda r: order.get((r.get("status") or "unknown").lower(), 9),
+        )
+
+        # Shape rows for the AI — strip the dozens of fields
+        # `api_hosts_list` returns down to the ones the AI actually
+        # uses for grounding. `address` lets the AI match operator-
+        # typed targets; the `*_name` aliases let it match by
+        # provider-specific aliases.
+        def _shape(r: dict) -> dict:
+            return {
+                "id": r.get("id") or "",
+                "label": r.get("label") or r.get("id") or "",
+                "status": r.get("status") or "unknown",
+                "paused": bool(r.get("paused")),
+                "address": r.get("address") or "",
+                "cpu_pct": r.get("cpu_percent"),
+                "mem_pct": r.get("mem_percent"),
+                "disk_pct": r.get("disk_percent"),
+                "uptime_s": r.get("uptime_s"),
+                "host_hostname": r.get("host_hostname"),
+                "platform": r.get("host_platform"),
+                "kernel": r.get("host_kernel"),
+                "beszel_name": r.get("beszel_name") or "",
+                "pulse_name": r.get("pulse_name") or "",
+                "webmin_name": r.get("webmin_name") or "",
+                "snmp_name": r.get("snmp_name") or "",
+            }
+
+        host_records = [_shape(r) for r in api_hosts_sorted[:sample_cap]]
+
+        hosts_total = int(list_resp.get("curated_count") or 0) or len(api_hosts)
+        hosts_enabled = int(list_resp.get("enabled_count") or 0) or len(api_hosts)
 
         ctx["hosts"] = host_records
-        ctx["hosts_total"] = len(hosts_cfg)
-        ctx["hosts_enabled"] = len(enabled_hosts)
+        ctx["hosts_total"] = hosts_total
+        ctx["hosts_enabled"] = hosts_enabled
         ctx["hosts_sample_cap"] = sample_cap
         # Fleet-wide status counts — AUTHORITATIVE for "how many hosts
         # are X" questions. The palette user-prompt builder consumes
-        # this block via grounding directives.
+        # this block via grounding directives. Includes EVERY status
+        # the canonical shaper might emit so the AI has the full
+        # picture (`unconfigured` is normal — curated rows with no
+        # providers mapped — and SHOULDN'T be reported as "unknown").
         ctx["hosts_summary"] = {
-            "total": len(hosts_cfg),
-            "enabled": len(enabled_hosts),
+            "total": hosts_total,
+            "enabled": hosts_enabled,
             "up": status_counts.get("up", 0),
+            "down": status_counts.get("down", 0),
             "paused": status_counts.get("paused", 0),
+            "unconfigured": status_counts.get("unconfigured", 0),
             "unknown": status_counts.get("unknown", 0),
+            "loading": status_counts.get("loading", 0),
             "sample_cap": sample_cap,
             "sample_size": len(host_records),
         }
@@ -3634,11 +3611,12 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         ctx["hosts"] = []
         ctx["hosts_total"] = 0
         ctx["hosts_enabled"] = 0
-        ctx["hosts_sample_cap"] = 60
+        ctx["hosts_sample_cap"] = sample_cap
         ctx["hosts_summary"] = {
             "total": 0, "enabled": 0,
-            "up": 0, "paused": 0, "unknown": 0,
-            "sample_cap": 60, "sample_size": 0,
+            "up": 0, "down": 0, "paused": 0,
+            "unconfigured": 0, "unknown": 0, "loading": 0,
+            "sample_cap": sample_cap, "sample_size": 0,
         }
     # ---- Tunables: effective per-knob values ----------------------
     # Mirror the SPA's `_buildAiPaletteContext` `tunables` block so AI
