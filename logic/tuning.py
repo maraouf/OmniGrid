@@ -93,6 +93,7 @@ class Tunable(str, Enum):
     HOST_SNAPSHOTS_CACHE_TTL_SECONDS = "tuning_host_snapshots_cache_ttl_seconds"
     HOSTS_IDLE_FILL_INTERVAL_SECONDS = "tuning_hosts_idle_fill_interval_seconds"
     HOSTS_PARALLEL_FETCH = "tuning_hosts_parallel_fetch"
+    INCIDENTS_RETENTION_DAYS = "tuning_incidents_retention_days"
     KICK_GATHER_TIMEOUT_SECONDS = "tuning_kick_gather_timeout_seconds"
     LOAD_BUSY_MAX_SECONDS = "tuning_load_busy_max_seconds"
     LOG_RETENTION_DAYS = "tuning_log_retention_days"
@@ -344,6 +345,18 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # convention. Min 1d (a sweep that's run every hour wouldn't have
     # time to produce older files anyway); max 365d.
     "tuning_log_retention_days": ("LOG_RETENTION_DAYS", 7, 1, 365),
+    # ``host_failure_events`` retention window in days. Drives the
+    # Stats → Incidents view + Timeline tab + the inline
+    # similar-incident grouping in the host drawer. Rows older than
+    # this get deleted by the host_metrics_sampler prune loop on its
+    # hourly tick. Default 90 days — a quarter's worth of incident
+    # history for post-mortem learning without the table growing
+    # unbounded over years. Set to 0 to disable pruning entirely
+    # (legacy "keep every incident forever" behaviour); set to a
+    # smaller value (e.g. 30) on tiny deployments where the SQLite
+    # file itself is the bottleneck. Min 0 (forever), max 3650 (~10
+    # years).
+    "tuning_incidents_retention_days": ("INCIDENTS_RETENTION_DAYS", 90, 0, 3650),
     # host-snapshots read-side cache TTL in seconds. The SPA
     # fans out N parallel /api/hosts/one/{id} calls per refresh, each
     # of which triggers a full SELECT against host_snapshots. Caching

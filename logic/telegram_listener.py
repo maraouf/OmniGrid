@@ -3499,6 +3499,16 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         ctx["other_items"] = []
         ctx["items_summary"] = {"total": 0, "updatable_total": 0, "running_total": 0}
     # ---- Hosts: curated config + last-known snapshot ---------------
+    # Operator-flagged bug: with a 30-host sample where every row had
+    # status="unknown" (snapshot table sparse on a fresh-deploy or
+    # SNMP-only fleet), the AI extrapolated "all 182 hosts unknown"
+    # from a sample biased toward un-snapshotted hosts at the head of
+    # `hosts_config`. Fix is two-pronged:
+    #   (1) compute statuses across the WHOLE fleet first, then sample
+    #       up/paused-first so the AI sees a representative mix.
+    #   (2) surface fleet-wide status counts in `hosts_summary` so the
+    #       AI answers "how many hosts are up" from those counts and
+    #       never extrapolates from the truncated `hosts[]` array.
     try:
         import json as _json
         from logic.db import db_conn
@@ -3519,16 +3529,30 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         except (sqlite3.DatabaseError, sqlite3.OperationalError):
             # Snapshot table may not exist on a fresh DB; just continue.
             pass
-        host_records: list[dict] = []
-        for h in hosts_cfg[:30]:
-            if not h.get("enabled", True):
-                continue
+
+        # Pass 1 — compute the full classified set across every
+        # enabled host (no sample cap). Each entry carries its full
+        # record dict so the sample step below can emit them directly.
+        def _classify(h: dict) -> tuple[str, dict]:
             hid = h.get("id") or ""
             snap = snap_map.get(hid) or {}
-            status = "paused" if hid in paused_set else (
-                "up" if snap else "unknown"
+            # Snapshot row counts as "up" only if it carries at least
+            # one meaningful telemetry field — an empty / placeholder
+            # dict from a failed merge shouldn't read as alive.
+            has_live = bool(snap) and any(
+                snap.get(k) for k in (
+                    "host_cpu_percent", "host_mem_percent",
+                    "host_disk_percent", "host_uptime_seconds",
+                    "host_hostname", "host_platform",
+                )
             )
-            host_records.append({
+            if hid in paused_set:
+                status = "paused"
+            elif has_live:
+                status = "up"
+            else:
+                status = "unknown"
+            record = {
                 "id": hid,
                 "label": h.get("label") or hid,
                 "status": status,
@@ -3547,25 +3571,57 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                 "pulse_name": h.get("pulse_name") or "",
                 "webmin_name": h.get("webmin_name") or "",
                 "snmp_name": h.get("snmp_name") or "",
-            })
+            }
+            return status, record
+
+        enabled_hosts = [h for h in hosts_cfg if h.get("enabled", True)]
+        classified = [_classify(h) for h in enabled_hosts]
+
+        # Pass 2 — fleet-wide status counts. AUTHORITATIVE — the AI
+        # MUST answer "how many hosts are up/down/paused" from these,
+        # NOT from len(hosts) (which is the sample cap, not the total).
+        status_counts = {"up": 0, "paused": 0, "unknown": 0}
+        for st, _rec in classified:
+            status_counts[st] = status_counts.get(st, 0) + 1
+
+        # Pass 3 — representative sample. Up/paused hosts go first so
+        # the AI sees real telemetry in the sample rather than a wall
+        # of "unknown". Within each status the order is the curated
+        # config order (operator-stable).
+        SAMPLE_CAP = 60  # was 30; doubled now that the sample is
+        # status-balanced + counts are authoritative
+        order = {"up": 0, "paused": 1, "unknown": 2}
+        classified.sort(key=lambda t: order.get(t[0], 9))
+        host_records = [rec for _st, rec in classified[:SAMPLE_CAP]]
+
         ctx["hosts"] = host_records
-        # Authoritative counts — the AI must answer "how many hosts"
-        # from these, NOT from len(hosts) (which it sees as the
-        # sample cap of 30). Operator-flagged: with 183 configured
-        # hosts the AI replied "30 hosts" because that's all it
-        # could see in the sample block.
         ctx["hosts_total"] = len(hosts_cfg)
-        ctx["hosts_enabled"] = sum(
-            1 for h in hosts_cfg if h.get("enabled", True)
-        )
-        ctx["hosts_sample_cap"] = 30
+        ctx["hosts_enabled"] = len(enabled_hosts)
+        ctx["hosts_sample_cap"] = SAMPLE_CAP
+        # Fleet-wide status counts — AUTHORITATIVE for "how many hosts
+        # are X" questions. The palette user-prompt builder consumes
+        # this block via grounding directives.
+        ctx["hosts_summary"] = {
+            "total": len(hosts_cfg),
+            "enabled": len(enabled_hosts),
+            "up": status_counts.get("up", 0),
+            "paused": status_counts.get("paused", 0),
+            "unknown": status_counts.get("unknown", 0),
+            "sample_cap": SAMPLE_CAP,
+            "sample_size": len(host_records),
+        }
     # noinspection PyBroadException
     except Exception as e:
         print(f"[telegram_listener] context hosts build failed: {e}")
         ctx["hosts"] = []
         ctx["hosts_total"] = 0
         ctx["hosts_enabled"] = 0
-        ctx["hosts_sample_cap"] = 30
+        ctx["hosts_sample_cap"] = 60
+        ctx["hosts_summary"] = {
+            "total": 0, "enabled": 0,
+            "up": 0, "paused": 0, "unknown": 0,
+            "sample_cap": 60, "sample_size": 0,
+        }
     # ---- Tunables: effective per-knob values ----------------------
     # Mirror the SPA's `_buildAiPaletteContext` `tunables` block so AI
     # replies on Telegram have the same grounding for cadence /

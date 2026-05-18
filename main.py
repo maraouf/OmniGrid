@@ -3260,6 +3260,11 @@ class SettingsIn(BaseModel):
     # /app/data/logs/ older than this get deleted by the lifespan
     # _log_pruner_loop().
     tuning_log_retention_days: Optional[str] = None
+    # host_failure_events retention window in days. Drives the Stats →
+    # Incidents view + Timeline tab + the inline similar-incident
+    # grouping. Default 90; set to 0 to disable pruning (legacy "keep
+    # every incident forever" behaviour).
+    tuning_incidents_retention_days: Optional[str] = None
     # host-snapshots read-side cache TTL (seconds). The SPA fans
     # out N parallel /api/hosts/one/{id} per refresh; caching the
     # snapshot-table read for a few seconds collapses N reads into 1.
