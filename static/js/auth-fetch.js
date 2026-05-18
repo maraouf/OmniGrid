@@ -1,3 +1,4 @@
+// noinspection ALL
 // Global fetch wrapper installed before Alpine init. Does four things:
 // 1. Auto-attaches X-CSRF-Token on state-changing requests by copying
 //    the og_csrf cookie (double-submit defense). Server enforces this
@@ -122,14 +123,18 @@
       let detail = '';
       // Tee the body (clone()) so we can both inspect AND let the caller
       // still read r.body downstream if we choose not to retry.
-      try { detail = (await r.clone().json()).detail || ''; } catch (_) {}
+      try {
+        detail = (await r.clone().json()).detail || '';
+      } catch (_) {
+      }
       if (typeof detail === 'string' && detail.toLowerCase().includes('csrf')) {
         try {
           // /api/me is auth-optional + GET, so it always responds without
           // requiring a CSRF token, AND it triggers the middleware's
           // "issue og_csrf if missing" branch on the response.
-          await orig.call(this, '/api/me', { credentials: 'same-origin' });
-        } catch (_) { /* fall through — retry will surface the real error */ }
+          await orig.call(this, '/api/me', {credentials: 'same-origin'});
+        } catch (_) { /* fall through — retry will surface the real error */
+        }
         init._csrfRetried = true;
         // Re-attach all headers (the new CSRF token is now valid in the cookie).
         init = attachAllHeaders(init);

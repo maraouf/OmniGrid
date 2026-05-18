@@ -1,3 +1,4 @@
+// noinspection ALL
 // ------------------------------------------------------------------
 // i18n helper — vanilla JS, no external library. Pulls language files
 // from /i18n/<code>.json at boot and exposes `window.t(key, vars)` for
@@ -25,15 +26,15 @@ const I18N = {
   },
   async loadIndex() {
     try {
-      const r = await fetch('/i18n/index.json', { cache: 'no-cache' });
+      const r = await fetch('/i18n/index.json', {cache: 'no-cache'});
       if (r.ok) this.languages = await r.json();
     } catch (_) {
       // Fallback: at least offer English if the index is missing.
-      this.languages = [{ code: 'en', name: 'English', dir: 'ltr' }];
+      this.languages = [{code: 'en', name: 'English', dir: 'ltr'}];
     }
   },
   async load(code) {
-    const r = await fetch('/i18n/' + code + '.json', { cache: 'no-cache' });
+    const r = await fetch('/i18n/' + code + '.json', {cache: 'no-cache'});
     if (!r.ok) throw new Error('language ' + code + ' not found');
     const doc = await r.json();
     this.dict = this.flatten(doc);
@@ -73,12 +74,14 @@ window.t = I18N.t.bind(I18N);
 // has a dict) before applying the user's preferred language.
 window.__i18nReady = (async function () {
   try {
-    const r = await fetch('/i18n/en.json', { cache: 'no-cache' });
+    const r = await fetch('/i18n/en.json', {cache: 'no-cache'});
     if (r.ok) {
       const doc = await r.json();
       window.__i18nEn = I18N.flatten(doc);
     }
-  } catch (_) { window.__i18nEn = {}; }
+  } catch (_) {
+    window.__i18nEn = {};
+  }
   await I18N.loadIndex();
   const pref = localStorage.getItem('lang') || 'en';
   if (pref === 'en') {
@@ -88,8 +91,9 @@ window.__i18nReady = (async function () {
     document.documentElement.setAttribute('lang', 'en');
     document.documentElement.setAttribute('dir', 'ltr');
   } else {
-    try { await I18N.load(pref); }
-    catch (_) {
+    try {
+      await I18N.load(pref);
+    } catch (_) {
       I18N.dict = window.__i18nEn || {};
     }
   }
