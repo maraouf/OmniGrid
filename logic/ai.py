@@ -1994,35 +1994,80 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
         # actual fleet had most hosts up. With this block the AI sees
         # the real up/paused/unknown counts before reading the sample.
         up_count = hosts_summary.get("up")
+        down_count = hosts_summary.get("down")
         paused_count = hosts_summary.get("paused")
+        unconfigured_count = hosts_summary.get("unconfigured")
         unknown_count = hosts_summary.get("unknown")
+        loading_count = hosts_summary.get("loading")
         if isinstance(hosts_total, int) and hosts_total > 0:
             enabled_seg = (f" ({hosts_enabled} enabled)"
                            if isinstance(hosts_enabled, int) else "")
-            status_seg = ""
-            if isinstance(up_count, int) and isinstance(paused_count, int) \
-                and isinstance(unknown_count, int):
-                status_seg = (
-                    f"\n  - hosts_up: {up_count} "
-                    f"(reporting live telemetry)"
-                    f"\n  - hosts_paused: {paused_count} "
-                    f"(sampling explicitly paused by operator / auto-pause)"
-                    f"\n  - hosts_unknown: {unknown_count} "
-                    f"(no recent snapshot — provider down OR not yet probed)"
+            # Status-breakdown block. The Telegram context-builder now
+            # routes through `api_hosts_list` so the FULL canonical
+            # status taxonomy lands in `hosts_summary`: up / down /
+            # paused / unconfigured / unknown / loading. Pre-fix only
+            # up/paused/unknown were emitted and `unconfigured` rows
+            # (operator-curated inventory entries with no telemetry
+            # mapped on purpose — FTTH routers, dumb PDUs etc.) were
+            # reported as "unknown", which read as "monitoring broken"
+            # instead of "monitoring not configured for this row".
+            status_lines: list[str] = []
+            if isinstance(up_count, int):
+                status_lines.append(
+                    f"  - hosts_up: {up_count} (reporting live telemetry "
+                    f"OR recently snapshotted)"
                 )
+            if isinstance(down_count, int) and down_count > 0:
+                status_lines.append(
+                    f"  - hosts_down: {down_count} (provider reports "
+                    f"unreachable — Beszel/Pulse says paused-down OR "
+                    f"ping says no echo)"
+                )
+            if isinstance(paused_count, int):
+                status_lines.append(
+                    f"  - hosts_paused: {paused_count} (sampling "
+                    f"explicitly paused by operator / auto-pause)"
+                )
+            if isinstance(unconfigured_count, int) and unconfigured_count > 0:
+                status_lines.append(
+                    f"  - hosts_unconfigured: {unconfigured_count} "
+                    f"(curated row has NO provider mapped — operator "
+                    f"chose to list this host without telemetry; NOT "
+                    f"an outage, just an inventory-only entry)"
+                )
+            if isinstance(unknown_count, int):
+                status_lines.append(
+                    f"  - hosts_unknown: {unknown_count} (providers ARE "
+                    f"mapped but none answered AND no snapshot exists "
+                    f"— REAL outage signal OR host never probed since "
+                    f"boot)"
+                )
+            if isinstance(loading_count, int) and loading_count > 0:
+                status_lines.append(
+                    f"  - hosts_loading: {loading_count} (transient "
+                    f"SPA-only state — should be 0 from the backend)"
+                )
+            status_seg = ("\n" + "\n".join(status_lines)) if status_lines else ""
             parts.append(
                 f"Fleet counts (AUTHORITATIVE — use these to answer 'how many "
                 f"hosts' / 'count' / 'total' / 'up' / 'down' / 'unknown' / "
-                f"'paused' questions, NOT the sample-records block below):\n"
+                f"'paused' / 'unconfigured' questions, NOT the sample-records "
+                f"block below):\n"
                 f"  - hosts_total: {hosts_total}{enabled_seg}"
                 f"{status_seg}\n"
                 f"  - hosts shown below: capped at top {hosts_sample_cap} for "
                 f"prompt-token budget; the rest exist but aren't enumerated. "
                 f"NEVER answer 'we have N hosts' / 'all N are unknown' where "
                 f"N is the visible-sample size — always cite the matching "
-                f"counter above. If hosts_up > 0 the fleet IS reporting "
-                f"telemetry; a sample dominated by 'unknown' rows is a "
-                f"sampling-order artefact, NOT 'every host is unknown'."
+                f"counter above. CRITICAL: `unconfigured` hosts are NOT "
+                f"a problem — they're operator-curated inventory entries "
+                f"with no telemetry mapped on purpose (network gear / dumb "
+                f"PDUs / FTTH routers). Only `unknown` and `down` are "
+                f"actual outage signals; `unconfigured` is intentional. If "
+                f"hosts_up + hosts_down + hosts_paused > 0 the fleet IS "
+                f"reporting telemetry; a sample dominated by 'unconfigured' "
+                f"or 'unknown' rows is a sampling-order artefact, NOT a "
+                f"fleet-wide outage."
             )
         hosts = _typed_field(ctx, "hosts", list)
         if hosts:
