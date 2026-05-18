@@ -41,9 +41,9 @@ from logic.db import (
     db_conn,
     get_setting,
     active_host_stats_providers as _active_providers,
+    iter_curated_hosts,
 )
 from logic.settings_keys import Settings
-
 
 # Same sanity bounds as the Pulse sampler — see that module's
 # docstring for the full discussion. Out-of-bounds deltas SKIP the
@@ -53,7 +53,6 @@ _MIN_DELTA_SECONDS = 60
 _MAX_DELTA_SECONDS = 900
 _MIN_DELTA_BYTES = 0
 _MAX_DELTA_BYTES = 10 * 1024 * 1024 * 1024  # 10 GB
-
 
 # Per-host previous (ts, rx_bytes, tx_bytes) — module-level so the
 # delta math survives across ticks. Cleared on lifespan
@@ -68,27 +67,14 @@ def _curated_beszel_hosts() -> list[dict]:
 
     Mirrors ``logic.host_pulse_sampler._curated_pulse_hosts``. Lives
     locally because the row-shape is sampler-specific (we need just
-    ``id`` and ``beszel_name``).
+    ``id`` and ``beszel_name``). The JSON-parse + enabled-gate prelude
+    is delegated to :func:`logic.db.iter_curated_hosts` (DUP-001).
     """
-    import json as _json
-    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
-    if not raw.strip():
-        return []
-    try:
-        parsed = _json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(parsed, list):
-        return []
     out: list[dict] = []
-    for row in parsed:
-        if not isinstance(row, dict):
-            continue
-        if not row.get("enabled", True):
-            continue
-        hid = (row.get("id") or "").strip()
+    for row in iter_curated_hosts():
+        hid = (row.get("id") or "").strip()  # iter_curated_hosts already guarantees non-empty
         bname = (row.get("beszel_name") or "").strip()
-        if not hid or not bname:
+        if not bname:
             continue
         out.append({"id": hid, "beszel_name": bname})
     return out
@@ -102,8 +88,8 @@ async def _probe_one_tick() -> dict:
     a logged warning so the sampler tick still completes.
     """
     base_url = (get_setting(Settings.BESZEL_HUB_URL, "") or "").strip()
-    ident    = (get_setting(Settings.BESZEL_IDENTITY, "") or "").strip()
-    passw    = (get_setting(Settings.BESZEL_PASSWORD, "") or "").strip()
+    ident = (get_setting(Settings.BESZEL_IDENTITY, "") or "").strip()
+    passw = (get_setting(Settings.BESZEL_PASSWORD, "") or "").strip()
     verify_tls = (get_setting(Settings.BESZEL_VERIFY_TLS, "true") or "true").lower() == "true"
     if not base_url or not ident or not passw:
         return {}
@@ -128,6 +114,7 @@ async def _probe_one_tick() -> dict:
     return systems if isinstance(systems, dict) else {}
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
     """Compute the persistable row for ONE host's tick.
 
@@ -165,8 +152,8 @@ def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
                 drx = rx_now - prev_rx
                 dtx = tx_now - prev_tx
                 if (_MIN_DELTA_SECONDS <= ds <= _MAX_DELTA_SECONDS
-                        and _MIN_DELTA_BYTES <= drx <= _MAX_DELTA_BYTES
-                        and _MIN_DELTA_BYTES <= dtx <= _MAX_DELTA_BYTES):
+                    and _MIN_DELTA_BYTES <= drx <= _MAX_DELTA_BYTES
+                    and _MIN_DELTA_BYTES <= dtx <= _MAX_DELTA_BYTES):
                     nr_bps = drx / ds
                     ns_bps = dtx / ds
             _last_counters[host_id] = (now, rx_now, tx_now)
@@ -176,10 +163,10 @@ def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
     # skip-don't-synthesize discipline applies — the field is stored
     # as None when the agent doesn't emit it; only the basic-signal
     # check above gates whether the row is INSERTed at all.
-    load_1m  = stats.get("host_load_1m")
-    load_5m  = stats.get("host_load_5m")
+    load_1m = stats.get("host_load_1m")
+    load_5m = stats.get("host_load_5m")
     load_15m = stats.get("host_load_15m")
-    swap_pct  = stats.get("host_swap_percent")
+    swap_pct = stats.get("host_swap_percent")
     swap_used = stats.get("host_swap_used")
     bandwidth = stats.get("host_bandwidth")
     containers = stats.get("host_containers")
@@ -214,10 +201,10 @@ def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
         int(disk_total) if disk_total is not None else None,
         int(disk_used) if disk_used is not None else None,
         nr_bps, ns_bps,
-        float(load_1m)  if load_1m  is not None else None,
-        float(load_5m)  if load_5m  is not None else None,
+        float(load_1m) if load_1m is not None else None,
+        float(load_5m) if load_5m is not None else None,
         float(load_15m) if load_15m is not None else None,
-        float(swap_pct)  if swap_pct  is not None else None,
+        float(swap_pct) if swap_pct is not None else None,
         float(swap_used) if swap_used is not None else None,
         float(bandwidth) if bandwidth is not None else None,
         int(containers) if containers is not None else None,
@@ -340,6 +327,7 @@ async def _prune_old_rows() -> None:
         print(f"[host_beszel_sampler] prune failed: {e}")
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 async def host_beszel_sampler_loop() -> None:
     """Lifespan-managed sampler. Ticks every
     ``tuning_stats_sample_interval_seconds``; dormant when ``beszel``
@@ -475,34 +463,39 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
         # malformed row doesn't poison the chart.
         temps = None
         if r[15]:
-            try: temps = _json.loads(r[15])
-            except (ValueError, TypeError): temps = None
+            try:
+                temps = _json.loads(r[15])
+            except (ValueError, TypeError):
+                temps = None
         gpus = None
         if r[16]:
-            try: gpus = _json.loads(r[16])
-            except (ValueError, TypeError): gpus = None
+            try:
+                gpus = _json.loads(r[16])
+            except (ValueError, TypeError):
+                gpus = None
         out.append({
             "ts": int(r[0]),
             "cpu_percent": (float(r[1]) if r[1] is not None else None),
-            "mem_total":   (int(r[2]) if r[2] is not None else None),
-            "mem_used":    (int(r[3]) if r[3] is not None else None),
-            "disk_total":  (int(r[4]) if r[4] is not None else None),
-            "disk_used":   (int(r[5]) if r[5] is not None else None),
-            "net_rx_bps":  (float(r[6]) if r[6] is not None else None),
-            "net_tx_bps":  (float(r[7]) if r[7] is not None else None),
-            "load_1m":     (float(r[8])  if r[8]  is not None else None),
-            "load_5m":     (float(r[9])  if r[9]  is not None else None),
-            "load_15m":    (float(r[10]) if r[10] is not None else None),
-            "swap_percent":(float(r[11]) if r[11] is not None else None),
-            "swap_used":   (float(r[12]) if r[12] is not None else None),
-            "bandwidth":   (float(r[13]) if r[13] is not None else None),
-            "containers":  (int(r[14])   if r[14] is not None else None),
+            "mem_total": (int(r[2]) if r[2] is not None else None),
+            "mem_used": (int(r[3]) if r[3] is not None else None),
+            "disk_total": (int(r[4]) if r[4] is not None else None),
+            "disk_used": (int(r[5]) if r[5] is not None else None),
+            "net_rx_bps": (float(r[6]) if r[6] is not None else None),
+            "net_tx_bps": (float(r[7]) if r[7] is not None else None),
+            "load_1m": (float(r[8]) if r[8] is not None else None),
+            "load_5m": (float(r[9]) if r[9] is not None else None),
+            "load_15m": (float(r[10]) if r[10] is not None else None),
+            "swap_percent": (float(r[11]) if r[11] is not None else None),
+            "swap_used": (float(r[12]) if r[12] is not None else None),
+            "bandwidth": (float(r[13]) if r[13] is not None else None),
+            "containers": (int(r[14]) if r[14] is not None else None),
             "temperatures": temps,
-            "gpus":         gpus,
+            "gpus": gpus,
         })
     return out
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 def history_series(host_id: str, hours: int) -> list[dict]:
     """Beszel-compatible series envelope so the SPA's chart helpers
     work against the local-table path with no branching.
@@ -564,14 +557,22 @@ def history_series(host_id: str, hours: int) -> list[dict]:
         for _g in gpus:
             if not isinstance(_g, dict):
                 continue
-            try: gpu_pwr_sum += float(_g.get("power_watts") or 0)
-            except (TypeError, ValueError): pass
-            try: gpu_usage_sum += float(_g.get("usage_percent") or 0)
-            except (TypeError, ValueError): pass
-            try: gpu_vram_used_sum += int(_g.get("vram_used_bytes") or 0)
-            except (TypeError, ValueError): pass
-            try: gpu_vram_total_sum += int(_g.get("vram_total_bytes") or 0)
-            except (TypeError, ValueError): pass
+            try:
+                gpu_pwr_sum += float(_g.get("power_watts") or 0)
+            except (TypeError, ValueError):
+                pass
+            try:
+                gpu_usage_sum += float(_g.get("usage_percent") or 0)
+            except (TypeError, ValueError):
+                pass
+            try:
+                gpu_vram_used_sum += int(_g.get("vram_used_bytes") or 0)
+            except (TypeError, ValueError):
+                pass
+            try:
+                gpu_vram_total_sum += int(_g.get("vram_total_bytes") or 0)
+            except (TypeError, ValueError):
+                pass
             gpu_n += 1
         gpu_pwr_avg = (gpu_pwr_sum / gpu_n) if gpu_n else 0.0
         gpu_usage_avg = (gpu_usage_sum / gpu_n) if gpu_n else 0.0
@@ -585,51 +586,53 @@ def history_series(host_id: str, hours: int) -> list[dict]:
         temps = r.get("temperatures") or {}
         temp_max = 0.0
         if isinstance(temps, dict) and temps:
-            try: temp_max = max(float(v) for v in temps.values() if v is not None)
-            except (TypeError, ValueError): temp_max = 0.0
-        la1_raw  = r.get("load_1m")  or 0.0
-        la5_raw  = r.get("load_5m")  or 0.0
+            try:
+                temp_max = max(float(v) for v in temps.values() if v is not None)
+            except (TypeError, ValueError):
+                temp_max = 0.0
+        la1_raw = r.get("load_1m") or 0.0
+        la5_raw = r.get("load_5m") or 0.0
         la15_raw = r.get("load_15m") or 0.0
         series.append({
-            "t":   r["ts"],
+            "t": r["ts"],
             "cpu": r.get("cpu_percent") or 0.0,
-            "mp":  (100.0 * mem_used / mem_total) if mem_total else 0.0,
-            "dp":  (100.0 * disk_used / disk_total) if disk_total else 0.0,
-            "mu":  (mem_used / gib) if mem_used else 0.0,
-            "du":  (disk_used / gib) if disk_used else 0.0,
-            "b":   r.get("bandwidth") or net,
-            "nr":  nr,
-            "ns":  ns,
+            "mp": (100.0 * mem_used / mem_total) if mem_total else 0.0,
+            "dp": (100.0 * disk_used / disk_total) if disk_total else 0.0,
+            "mu": (mem_used / gib) if mem_used else 0.0,
+            "du": (disk_used / gib) if disk_used else 0.0,
+            "b": r.get("bandwidth") or net,
+            "nr": nr,
+            "ns": ns,
             "net": net,
             # No per-disk I/O on Beszel — leave 0 (drawer card hides
             # via the existing `maxRaw > 0` gate).
-            "dr":  0.0,
-            "dw":  0.0,
+            "dr": 0.0,
+            "dw": 0.0,
             # Load avg raw + percent-of-cores variants. Drawer Load
             # chart prefers `la*_pct` (0..100 rendering) when present
             # and falls back to raw `la*` otherwise.
-            "la1":  la1_raw,
-            "la5":  la5_raw,
+            "la1": la1_raw,
+            "la5": la5_raw,
             "la15": la15_raw,
-            "la1_pct":  min(100.0, (la1_raw  / cores) * 100.0),
-            "la5_pct":  min(100.0, (la5_raw  / cores) * 100.0),
+            "la1_pct": min(100.0, (la1_raw / cores) * 100.0),
+            "la5_pct": min(100.0, (la5_raw / cores) * 100.0),
             "la15_pct": min(100.0, (la15_raw / cores) * 100.0),
-            "s":    r.get("swap_percent") or 0.0,
-            "su":   r.get("swap_used")    or 0.0,
+            "s": r.get("swap_percent") or 0.0,
+            "su": r.get("swap_used") or 0.0,
             # Temperatures / GPUs ride alongside as parsed payloads
             # so the SPA can render the dedicated chart cards
             # without a second fetch. Empty / null when the agent
             # didn't emit them.
             "temps": temps,
-            "gpus":  gpus,
+            "gpus": gpus,
             # Synthesised aggregates the SPA chart cards bind to
             # directly. Missing → 0 → chart shows "Collecting data"
             # via the gate `hostChartMax(...) > 0`.
-            "temp_max":             temp_max,
-            "gpu_pwr":              gpu_pwr_avg,
-            "gpu_usage":            gpu_usage_avg,
-            "gpu_vram_pct":         gpu_vram_pct,
-            "gpu_vram_used_bytes":  gpu_vram_used_sum,
+            "temp_max": temp_max,
+            "gpu_pwr": gpu_pwr_avg,
+            "gpu_usage": gpu_usage_avg,
+            "gpu_vram_pct": gpu_vram_pct,
+            "gpu_vram_used_bytes": gpu_vram_used_sum,
             "gpu_vram_total_bytes": gpu_vram_total_sum,
         })
     return series
@@ -660,11 +663,11 @@ def services_for_host(host_id: str) -> list[dict]:
     out: list[dict] = []
     for r in rows:
         out.append({
-            "name":            str(r[0] or ""),
-            "state":           (int(r[1]) if r[1] is not None else None),
-            "sub_state":       (int(r[2]) if r[2] is not None else None),
-            "last_seen_ts":    int(r[3] or 0),
-            "last_change_ts":  int(r[4] or 0),
+            "name": str(r[0] or ""),
+            "state": (int(r[1]) if r[1] is not None else None),
+            "sub_state": (int(r[2]) if r[2] is not None else None),
+            "last_seen_ts": int(r[3] or 0),
+            "last_change_ts": int(r[4] or 0),
         })
     return out
 

@@ -33000,7 +33000,12 @@ function app() {
         } else {
           containers += 1;
         }
-        const updateChip = ((it.status || '') === 'update')
+        // Orphan-type items are leftover Swarm task containers from
+        // the PREVIOUS image — already replaced by Swarm, scheduled
+        // for /cleanup removal, NOT pending re-update. Exclude from
+        // the update-available chip render to match the Telegram
+        // /update preview's contract (#0224).
+        const updateChip = (((it.status || '') === 'update') && ((it.type || '') !== 'orphan'))
           ? ` <span class="blast-radius-chip blast-radius-chip--update">${esc(this.t('blast_radius.has_update') || 'update available')}</span>`
           : '';
         lines.push(`<li class="blast-radius-item">`

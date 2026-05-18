@@ -100,10 +100,10 @@ def _coerce_counter_pair(a_raw: Any, b_raw: Any) -> Optional[tuple[int, int]]:
     return a, b
 
 
-from logic import node_exporter as _ne
-from logic import tuning
-from logic.tuning import Tunable
-from logic.db import db_conn
+from logic import node_exporter as _ne  # noqa: E402
+from logic import tuning  # noqa: E402
+from logic.tuning import Tunable  # noqa: E402
+from logic.db import db_conn  # noqa: E402
 
 # Sanity bounds — same values, same rationale as host_net_sampler.
 _MIN_DELTA_SECONDS = 60
@@ -132,19 +132,20 @@ _last_counters: dict[str, tuple] = {}  # host_id → variable-length tuple
 # Active-providers parser + curated-hosts walker live in logic/db.py —
 # single source of truth shared with main.py / gather.py / both
 # samplers .
-from logic.db import (
+from logic.db import (  # noqa: E402
     active_host_stats_providers as _active_providers,
     curated_ne_hosts as _load_curated_hosts,
     curated_snmp_hosts as _load_curated_snmp_hosts,
     get_setting as _get_setting,
+    iter_curated_hosts,
 )
-from logic.settings_keys import Settings
+from logic.settings_keys import Settings  # noqa: E402
 
 # Canonical strict-positive helper lives in logic/merge.py — alias it
 # locally so existing call sites stay readable. Kept as a thin alias
 # rather than a re-import-everywhere refactor; the behaviour contract
 # is identical.
-from logic.merge import is_positive_number as _is_meaningful_number
+from logic.merge import is_positive_number as _is_meaningful_number  # noqa: E402
 
 
 def _delta_seconds_ok(delta_seconds: float) -> bool:
@@ -449,45 +450,44 @@ def _host_provider_config() -> dict[str, set[str]]:
         return _HOST_PROVIDER_CONFIG_CACHE
     out: dict[str, set[str]] = {}
     try:
-        raw = _get_setting(Settings.HOSTS_CONFIG) or ""
-        if raw:
-            import json as _json
-            data = _json.loads(raw)
-            if isinstance(data, list):
-                for h in data:
-                    if not isinstance(h, dict):
-                        continue
-                    hid = (h.get("id") or "").strip()
-                    if not hid:
-                        continue
-                    configured: set[str] = set()
-                    if (h.get("beszel_name") or "").strip(): configured.add("beszel")
-                    if (h.get("pulse_name") or "").strip(): configured.add("pulse")
-                    if (h.get("ne_url") or "").strip(): configured.add("node_exporter")
-                    if (h.get("webmin_name") or "").strip(): configured.add("webmin")
-                    if bool((h.get("ping") or {}).get("enabled", False)):
-                        configured.add("ping")
-                    # SNMP is configured when EITHER `snmp_name` OR the
-                    # shared `address` field is non-empty AND `snmp.enabled`
-                    # is True. Mirrors the resolver chain in
-                    # `_probe_one_snmp` and `_merge_one_host` (aliases →
-                    # snmp_name → address → SKIP). Pre-fix this only
-                    # checked `snmp_name`, so a host that cleared
-                    # `snmp_name` intending to use the shared `address`
-                    # was incorrectly treated as "SNMP not configured" —
-                    # `record_provider_outcome`'s defensive guard then
-                    # refused to record failures AND deleted any pre-
-                    # existing failure-state + last_ok rows for that host,
-                    # making the chip subtitle "Updated Xm ago" disappear.
-                    snmp_target_present = (
-                        (h.get("snmp_name") or "").strip()
-                        or (h.get("address") or "").strip()
-                    )
-                    if snmp_target_present and (
-                        isinstance(h.get("snmp"), dict) and h["snmp"].get("enabled") is True
-                    ):
-                        configured.add("snmp")
-                    out[hid] = configured
+        # JSON-parse + isinstance + enabled-gate + id-empty filtering is
+        # delegated to `iter_curated_hosts` (DUP-001). Per-provider field
+        # filtering stays here because the SNMP gate is non-trivial
+        # (snmp_name OR address AND snmp.enabled).
+        for h in iter_curated_hosts():
+            hid = (h.get("id") or "").strip()  # iter_curated_hosts already guarantees non-empty
+            configured: set[str] = set()
+            if (h.get("beszel_name") or "").strip():
+                configured.add("beszel")
+            if (h.get("pulse_name") or "").strip():
+                configured.add("pulse")
+            if (h.get("ne_url") or "").strip():
+                configured.add("node_exporter")
+            if (h.get("webmin_name") or "").strip():
+                configured.add("webmin")
+            if bool((h.get("ping") or {}).get("enabled", False)):
+                configured.add("ping")
+            # SNMP is configured when EITHER `snmp_name` OR the
+            # shared `address` field is non-empty AND `snmp.enabled`
+            # is True. Mirrors the resolver chain in
+            # `_probe_one_snmp` and `_merge_one_host` (aliases →
+            # snmp_name → address → SKIP). Pre-fix this only
+            # checked `snmp_name`, so a host that cleared
+            # `snmp_name` intending to use the shared `address`
+            # was incorrectly treated as "SNMP not configured" —
+            # `record_provider_outcome`'s defensive guard then
+            # refused to record failures AND deleted any pre-
+            # existing failure-state + last_ok rows for that host,
+            # making the chip subtitle "Updated Xm ago" disappear.
+            snmp_target_present = (
+                (h.get("snmp_name") or "").strip()
+                or (h.get("address") or "").strip()
+            )
+            if snmp_target_present and (
+                isinstance(h.get("snmp"), dict) and h["snmp"].get("enabled") is True
+            ):
+                configured.add("snmp")
+            out[hid] = configured
     # noinspection PyBroadException
     except Exception as e:
         # DB read failure is non-fatal — fall back to "every provider
@@ -1538,6 +1538,7 @@ def series_collectors_present(host_id: str, hours: int) -> dict:
     return has
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 def history_series(host_id: str, hours: int) -> list[dict]:
     """Read rows from the table and shape them as a Beszel-compatible series.
 

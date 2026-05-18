@@ -38,6 +38,7 @@ from logic.db import (
     db_conn,
     get_setting,
     active_host_stats_providers as _active_providers,
+    iter_curated_hosts,
 )
 from logic.settings_keys import Settings
 
@@ -107,27 +108,14 @@ def _curated_pulse_hosts() -> list[dict]:
 
     Mirrors ``host_metrics_sampler._load_curated_hosts`` shape. Lives
     locally because the row-shape is sampler-specific (we need just
-    ``id`` and ``pulse_name``).
+    ``id`` and ``pulse_name``). The JSON-parse + enabled-gate prelude
+    is delegated to :func:`logic.db.iter_curated_hosts` (DUP-001).
     """
-    import json as _json
-    raw = get_setting(Settings.HOSTS_CONFIG) or ""
-    if not raw.strip():
-        return []
-    try:
-        parsed = _json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(parsed, list):
-        return []
     out: list[dict] = []
-    for row in parsed:
-        if not isinstance(row, dict):
-            continue
-        if not row.get("enabled", True):
-            continue
-        hid = (row.get("id") or "").strip()
+    for row in iter_curated_hosts():
+        hid = (row.get("id") or "").strip()  # iter_curated_hosts already guarantees non-empty
         pname = (row.get("pulse_name") or "").strip()
-        if not hid or not pname:
+        if not pname:
             continue
         out.append({"id": hid, "pulse_name": pname})
     return out
@@ -161,6 +149,7 @@ async def _probe_one_tick() -> dict:
     return hosts if isinstance(hosts, dict) else {}
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
     """Compute the persistable row for ONE host's tick.
 
@@ -262,6 +251,7 @@ async def _prune_old_rows() -> None:
         print(f"[host_pulse_sampler] prune failed: {e}")
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 async def host_pulse_sampler_loop() -> None:
     """Lifespan-managed sampler. Ticks every
     ``tuning_stats_sample_interval_seconds``; dormant when ``pulse``
@@ -348,6 +338,7 @@ async def host_pulse_sampler_loop() -> None:
 
 # ---- Read helpers (consumed by /api/hosts/history dispatch) -----
 
+# noinspection DuplicatedCode,PyTypeChecker
 def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
     """Return rows for one host back to ``since_ts`` (epoch s),
     oldest-first. Empty list when the host has no rows yet.
@@ -381,6 +372,7 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
     return out
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 def history_series(host_id: str, hours: int) -> list[dict]:
     """Return the host-drawer time-series envelope for one Pulse-only host.
 
@@ -428,6 +420,7 @@ def history_series(host_id: str, hours: int) -> list[dict]:
     return series
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 def last_samples(host_id: str, limit: int = 5) -> list[dict]:
     """Newest-first recent rows for the debug endpoint. Mirrors
     ``host_metrics_sampler.last_samples``'s contract.

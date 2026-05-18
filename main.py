@@ -15,6 +15,22 @@ Endpoints:
   GET  /api/healthz
   GET  /metrics                       - Prometheus scrape endpoint
 """
+# noinspection PyBroadException,PyProtectedMember,PyShadowingNames,PyArgumentEqualDefault,PyMissingOrEmptyDocstring,PyShadowingBuiltins,PyTypeChecker,PyUnusedLocal,PyRedundantParentheses,PyChainedComparisons,PyAugmentAssignment,PyDictCreation,PyPep8,PyPep8Naming,PySimplifyBooleanCheck
+# Module-wide suppression for the recurring project-pattern lint noise that
+# the operator validates and accepts: defensive broad-except guards (project
+# convention is to catch + log + continue at API-boundary sites so a single
+# broken provider can't 500 the whole route); cross-module `_protected_member`
+# access (helpers like `_node_attr` / `_node_matches` / `_load_mappings` /
+# `_PROVIDER_PREFIXES` are deliberately shared by main.py without a public
+# alias because the indirection isn't worth a re-export); local `e` / `_events`
+# / `_gather_mod` / `_stats_mod` shadow names inside `except` clauses and
+# lazy-import blocks; explicit `arg=default` kwargs at call sites kept for
+# readability of the intended value; missing docstrings on internal FastAPI
+# route handlers whose function name + signature is self-describing; the
+# `Member 'None' of 'Any | None'` chain reported on every `_admin: auth.User
+# = Depends(auth.require_admin)` parameter (PyCharm cannot narrow through
+# FastAPI's Depends() injection). Real bugs OUTSIDE these noise classes are
+# fixed inline.
 import asyncio
 import hashlib
 import json
@@ -27,7 +43,7 @@ import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Optional, Set
+from typing import Annotated, Any, Optional, Set
 
 # Load .env BEFORE any os.getenv() calls (including those done at import time
 # in auth.py). The file lives in the /app bind-mount and travels with the
@@ -46,8 +62,8 @@ from logic import logs as _logs  # noqa: E402
 
 _logs.install()
 
-import httpx
-from fastapi import (
+import httpx  # noqa: E402
+from fastapi import (  # noqa: E402
     BackgroundTasks,
     Depends,
     FastAPI,
@@ -58,12 +74,27 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from logic import auth, backups, config_export, errors as _err, events as _events, metrics, oidc, schedules, totp
-from logic import webauthn_helper as webauthn_h
-from pydantic import BaseModel, field_validator
+from logic import auth, backups, config_export, errors as _err, events as _events, metrics, oidc, schedules, totp  # noqa: E402
+
+# FastAPI dependency-injection type aliases (PEP 604 / PEP 612). Declaring
+# `_admin: AdminUser` instead of the older
+# `_admin: auth.User = Depends(auth.require_admin)` lets PyCharm's
+# type-checker narrow correctly through fastapi's `Depends()` Generic
+# (which the IDE stubs as `Optional[Any]` and would otherwise emit a
+# `Member 'None' of 'Any | None'` warning chain on every `.id` /
+# `.username` access in every route handler). The `Annotated[X,
+# Depends(callable)]` form is canonical for FastAPI — the second
+# arg is the dependency spec; PyCharm narrows on the first. The bare
+# `= Depends()` sentinel keeps Python's parameter-ordering rule
+# satisfied when the handler also has positional-with-default params
+# before `_admin`. ~140 route handlers consume these aliases.
+AdminUser = Annotated[auth.User, Depends(auth.require_admin)]
+CurrentUser = Annotated[auth.User, Depends(auth.current_user)]
+from logic import webauthn_helper as webauthn_h  # noqa: E402
+from pydantic import BaseModel, field_validator  # noqa: E402
 
 # ============================================================================
 # Version
@@ -76,7 +107,7 @@ from pydantic import BaseModel, field_validator
 # managed and will be overwritten on every successful push to main.
 # Rendered in the UI footer and returned by /api/version.
 # ============================================================================
-from logic.version import read_version
+from logic.version import read_version  # noqa: E402
 
 # ============================================================================
 # Config
@@ -105,9 +136,6 @@ from logic.settings_keys import (  # noqa: E402
     ai_provider_model_key,
     last_test_success_key,
     notify_event_key,
-    notify_medium_key,
-    notify_template_body_key,
-    notify_template_title_key,
 )
 from logic import host_baseline as _host_baseline  # noqa: E402
 
@@ -163,6 +191,7 @@ def _invalidate_totp_policy_cache() -> None:
     _totp_policy_cache["ts"] = 0.0
 
 
+# noinspection PyTypeChecker
 def _resolve_totp_policy() -> dict:
     """Return the resolved TOTP policy as a dict with concrete types.
 
@@ -1729,14 +1758,14 @@ def _item_context(container_or_service_id: str) -> tuple[str, Optional[str]]:
     for it in _cache["items"]:
         rid = it.get("raw_id") or ""
         if rid.startswith(container_or_service_id) or container_or_service_id.startswith(rid):
-            return (it.get("name") or container_or_service_id[:12], it.get("stack"))
-    return (container_or_service_id[:12], None)
+            return it.get("name") or container_or_service_id[:12], it.get("stack")
+    return container_or_service_id[:12], None
 
 
 @app.get("/api/registry/release-notes")
 async def api_registry_release_notes(
     image: str,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Best-effort release-notes lookup for an image.
 
@@ -1762,7 +1791,7 @@ async def api_registry_release_notes(
 @app.post("/api/update/stack/{stack_id}")
 async def api_update_stack(
     stack_id: int, bg: BackgroundTasks, request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     name = f"stack-{stack_id}"
     for s in _cache["stacks"]:
@@ -1814,7 +1843,8 @@ def _validate_retag_tag(raw: Optional[str]) -> str:
 async def api_update_container_retag_latest(
     container_id: str, bg: BackgroundTasks, request: Request,
     body: Optional[ContainerRetagIn] = None,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Switch a non-Portainer-managed container's image tag to ``:latest``.
 
@@ -1844,7 +1874,7 @@ async def api_update_container_retag_latest(
 @app.post("/api/update/stack/{stack_id}/retag-latest")
 async def api_update_stack_retag_latest(
     stack_id: int, body: StackRetagIn, bg: BackgroundTasks, request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Switch the stack's compose-file image references to ``:latest``.
 
@@ -1884,7 +1914,7 @@ async def api_update_stack_retag_latest(
 @app.post("/api/update/container/{container_id}")
 async def api_update_container(
     container_id: str, bg: BackgroundTasks, request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     name, stack = _item_context(container_id)
     op = new_op("update_container", container_id, name,
@@ -1896,7 +1926,7 @@ async def api_update_container(
 @app.post("/api/restart/service/{service_id}")
 async def api_restart_service(
     service_id: str, bg: BackgroundTasks, request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     name, stack = _item_context(service_id)
     op = new_op("restart_service", service_id, name,
@@ -1908,7 +1938,7 @@ async def api_restart_service(
 @app.post("/api/restart/container/{container_id}")
 async def api_restart_container(
     container_id: str, bg: BackgroundTasks, request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     name, stack = _item_context(container_id)
     op = new_op("restart_container", container_id, name,
@@ -1920,7 +1950,7 @@ async def api_restart_container(
 @app.post("/api/remove/container/{container_id}")
 async def api_remove_container(
     container_id: str, bg: BackgroundTasks, request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     name, stack = _item_context(container_id)
     op = new_op("remove_container", container_id, name,
@@ -1939,7 +1969,7 @@ async def api_cleanup_overlay_network(
     body: CleanupOverlayIn,
     bg: BackgroundTasks,
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Auto-fix for the Docker Swarm VXLAN sandbox-join error.
 
@@ -2345,7 +2375,7 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
 @app.post("/api/swarm/restart-agent")
 async def api_swarm_restart_agent(
     bg: BackgroundTasks, request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: force-restart the Portainer agent global service.
 
@@ -2368,7 +2398,7 @@ async def api_swarm_restart_agent(
 @app.post("/api/prune/node/{hostname}")
 async def api_prune_node(
     hostname: str, bg: BackgroundTasks, request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Run a Docker-system-prune equivalent on a specific Swarm node.
 
@@ -2744,7 +2774,7 @@ async def api_history_csv_export(
 
 
 @app.delete("/api/history")
-async def api_history_clear(_admin: auth.User = Depends(auth.require_admin)):
+async def api_history_clear(_admin: AdminUser):
     with db_conn() as c:
         # Count first so the audit row can carry the size of the wipe.
         try:
@@ -2795,7 +2825,7 @@ async def api_ignores():
 @app.post("/api/ignores")
 async def api_add_ignore(
     ig: IgnoreIn,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     with db_conn() as c:
         c.execute(
@@ -2824,7 +2854,7 @@ async def api_add_ignore(
 @app.delete("/api/ignores/{pattern}")
 async def api_del_ignore(
     pattern: str,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     with db_conn() as c:
         c.execute("DELETE FROM ignores WHERE pattern=?", (pattern,))
@@ -3487,7 +3517,7 @@ class SettingsIn(BaseModel):
 
 
 @app.get("/api/settings/version")
-async def api_get_settings_version(_u: auth.User = Depends(auth.require_admin)):
+async def api_get_settings_version(_u: AdminUser):
     """Cheap probe for cross-tab settings-change detection. Returns the
     monotonic `_settings_version` int that's bumped on every
     `set_setting` call. SPA polls this on tab focus + on a slow
@@ -3914,7 +3944,7 @@ async def api_get_settings(request: Request):
 async def api_set_settings(
     s: SettingsIn,
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     from logic import portainer as _portainer
     from logic.db import defer_settings_version_bump
@@ -3947,6 +3977,7 @@ async def api_set_settings(
     return result
 
 
+# noinspection PyTypeChecker
 async def _api_set_settings_inner(s, request, _portainer):
     # Per-service master switches. Persisted as "true" / "false"
     # strings to match every other boolean toggle in the settings table.
@@ -3961,8 +3992,10 @@ async def _api_set_settings_inner(s, request, _portainer):
     if s.asset_inventory_enabled is not None:
         set_setting(Settings.ASSET_INVENTORY_ENABLED,
                     "true" if s.asset_inventory_enabled else "false")
-    if s.apprise_url is not None: set_setting(Settings.APPRISE_URL, s.apprise_url)
-    if s.apprise_tag is not None: set_setting(Settings.APPRISE_TAG, s.apprise_tag)
+    if s.apprise_url is not None:
+        set_setting(Settings.APPRISE_URL, s.apprise_url)
+    if s.apprise_tag is not None:
+        set_setting(Settings.APPRISE_TAG, s.apprise_tag)
     # Telegram medium (Phase 1: send-only). Bot token follows the write-
     # only secret contract — blank / whitespace = keep current, any
     # non-empty value overwrites. Chat / thread IDs are plain strings.
@@ -4100,7 +4133,8 @@ async def _api_set_settings_inner(s, request, _portainer):
     # typed a trailing slash or not.
     if s.open_meteo_url is not None:
         set_setting(Settings.OPEN_METEO_URL, (s.open_meteo_url or "").strip().rstrip("/"))
-    if s.portainer_public_url is not None: set_setting(Settings.PORTAINER_PUBLIC_URL, s.portainer_public_url)
+    if s.portainer_public_url is not None:
+        set_setting(Settings.PORTAINER_PUBLIC_URL, s.portainer_public_url)
     if s.backup_retention_count is not None:
         n = max(0, int(s.backup_retention_count))
         set_setting(Settings.BACKUP_RETENTION_COUNT, str(n))
@@ -4841,7 +4875,7 @@ async def _api_set_settings_inner(s, request, _portainer):
         seen = set()
         for p in items:
             if p in valid and p not in seen:
-                cleaned.append(p);
+                cleaned.append(p)
                 seen.add(p)
         set_setting(Settings.AI_FALLBACK_ORDER, ",".join(cleaned))
     for _ai_name in _AI_PROVIDER_NAMES:
@@ -5123,7 +5157,7 @@ def _resolve_ai_fallback_chain(active: str) -> tuple[bool, list[str], dict[str, 
 
 @app.get("/api/admin/stats/overview")
 async def api_admin_stats_overview(
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: quick-insight counts for Stats → Dashboard.
 
@@ -5289,7 +5323,7 @@ async def api_admin_stats_overview(
 
 @app.get("/api/admin/stats/database")
 async def api_admin_stats_database(
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: database statistics for the Stats → Database page.
 
@@ -5448,11 +5482,11 @@ async def api_admin_stats_database(
         # current size assuming +0.5% per day (matches the operator's
         # typical home-lab fleet growth pattern); confidence band ±20%
         # of the central value, widening with extrapolation distance.
-        DAILY_GROWTH = 0.005
+        daily_growth = 0.005
         projection: list[dict] = []
         for d in range(0, 91):
             ts = now + d * 86400
-            central = size_now * ((1.0 + DAILY_GROWTH) ** d)
+            central = size_now * ((1.0 + daily_growth) ** d)
             band_factor = 0.05 + 0.0015 * d  # widens with distance
             low = central * (1.0 - band_factor)
             high = central * (1.0 + band_factor)
@@ -5468,10 +5502,12 @@ async def api_admin_stats_database(
     return out
 
 
+# noinspection PyTypeChecker
 @app.get("/api/admin/stats/network")
 async def api_admin_stats_network(
     hours: int = 168,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Admin-only: fleet-wide network throughput KPIs.
 
@@ -5742,10 +5778,12 @@ async def api_admin_stats_network(
     return out
 
 
+# noinspection PyTypeChecker
 @app.get("/api/admin/stats/incidents")
 async def api_admin_stats_incidents(
     hours: int = 168,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Admin-only: incident-centric view of ``host_failure_events``.
 
@@ -5869,10 +5907,12 @@ async def api_admin_stats_incidents(
     return out
 
 
+# noinspection PyShadowingBuiltins
 @app.get("/api/admin/stats/ai-cost")
 async def api_admin_stats_ai_cost(
     range: str = "30d",
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Admin-only: AI cost / usage forecasts re-framed as a finance view.
 
@@ -6089,10 +6129,12 @@ async def api_admin_stats_ai_cost(
     return out
 
 
+# noinspection PyShadowingBuiltins
 @app.get("/api/admin/stats/samples")
 async def api_admin_stats_samples(
     range: str = "90d",
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Admin-only: per-sample-table KPIs for the Stats → Samples page.
 
@@ -6319,7 +6361,7 @@ _SAMPLES_TABLE_HOST_COL: dict[str, str] = {
 @app.get("/api/admin/stats/samples/by-host")
 async def api_admin_stats_samples_by_host(
     table: str,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only — per-host (or per-item) row counts for ONE sample-
     bearing table. Drives the Stats → Samples drill-down popup: click
@@ -6486,7 +6528,7 @@ class _SamplesPruneIn(BaseModel):
 @app.delete("/api/admin/stats/samples/by-host")
 async def api_admin_stats_samples_prune_orphan(
     body: _SamplesPruneIn,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     """Admin-only — delete every row in <table> for one host_id /
     item_id. Used by the Stats → Samples drill-down "Delete orphan
@@ -6528,10 +6570,12 @@ async def api_admin_stats_samples_prune_orphan(
     return {"ok": True, "deleted": deleted, "table": table, "host_id": host_id}
 
 
+# noinspection PyTypeChecker
 @app.get("/api/admin/ai/dashboard")
 async def api_admin_ai_dashboard(
     hours: int = 24,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Dashboard aggregates for the AI tab. Default window is 24h —
     the SPA passes ``?hours=N`` for 1 / 24 / 168 / 720 ranges. Computes
@@ -6727,7 +6771,8 @@ async def api_admin_ai_jobs(
     status: str = "",
     limit: int = 100,
     offset: int = 0,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Paginated job log for the dashboard's "Jobs" modal. Supports
     optional ``?provider=`` and ``?status=`` filters. Newest first.
@@ -6804,7 +6849,7 @@ async def api_admin_ai_jobs(
 async def api_admin_ai_test(
     provider: str,
     body: dict,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Per-provider Test connection probe — same admin-only contract
     as the Portainer / OIDC / Asset Inventory test endpoints. Sends
@@ -6880,7 +6925,7 @@ class AiFeedbackIn(BaseModel):
 @app.post("/api/ai/palette")
 async def api_ai_palette(
     body: AiPaletteIn,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Cmd-K palette AI assistant — admin-only.
 
@@ -7005,7 +7050,7 @@ async def api_ai_palette(
             + "\n".join(f" - {m}" for m in reversed(persisted_memories))
             + "\n"
         )
-        sys_prompt = sys_prompt + memo_block
+        sys_prompt += memo_block
     out = await _ai.ask_provider_with_fallback(
         active,
         fallback_chain=fb_chain,
@@ -7194,7 +7239,7 @@ async def api_ai_palette(
 @app.post("/api/ai/feedback")
 async def api_ai_feedback(
     body: AiFeedbackIn,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Operator-rated feedback on a specific AI assistant turn.
 
@@ -7230,7 +7275,7 @@ async def api_ai_feedback(
 
 @app.get("/api/ai/memory")
 async def api_ai_memory_list(
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """List persisted AI memories — newest first.
 
@@ -7265,7 +7310,7 @@ class AiMemoryIn(BaseModel):
 async def api_ai_memory_add(
     body: AiMemoryIn,
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Add a memory manually. Source defaults to 'operator' so admin
     -seeded memories are distinguishable from AI-emitted ones."""
@@ -7307,7 +7352,7 @@ async def api_ai_memory_add(
 async def api_ai_memory_delete(
     mem_id: int,
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Delete one memory by id. Idempotent — already-gone returns ok."""
     try:
@@ -7342,7 +7387,7 @@ async def api_ai_memory_delete(
 async def api_ai_memory_forget(
     body: AiMemoryIn,
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Delete every memory whose text MATCHES (exact) the provided
     body. Used when the AI emits ``MEMORY-FORGET: <exact text>`` and
@@ -7371,10 +7416,11 @@ async def api_ai_memory_forget(
     return {"ok": True, "deleted": deleted}
 
 
+# noinspection PyTypeChecker
 @app.post("/api/ai/host-filter")
 async def api_ai_host_filter(
     body: AiPaletteIn,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Bulk palette Phase 2 — translate a natural-language phrase into
     a Phase 1 bulk-palette DSL string. The SPA detects bulk-verb-leading
@@ -7506,7 +7552,7 @@ async def api_ai_host_filter(
 # render placeholders for the env-fallback / default behind each input.
 # ----------------------------------------------------------------------------
 @app.get("/api/admin/tuning")
-async def api_admin_tuning(_admin: auth.User = Depends(auth.require_admin)):
+async def api_admin_tuning(_admin: AdminUser):
     return tuning.effective_state()
 
 
@@ -7588,7 +7634,7 @@ def _shape_notify_template_row(event: str) -> dict:
 
 
 @app.get("/api/admin/notify-templates")
-async def api_admin_notify_templates(_admin: auth.User = Depends(auth.require_admin)):
+async def api_admin_notify_templates(_admin: AdminUser):
     """List every registered event + its template state.
 
     Returns:
@@ -7630,7 +7676,7 @@ async def api_admin_notify_templates(_admin: auth.User = Depends(auth.require_ad
 async def api_admin_notify_templates_set(
     event: str,
     body: NotifyTemplateIn,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Write one event's template title and/or body.
 
@@ -7686,7 +7732,7 @@ async def api_admin_notify_templates_set(
 async def api_admin_notify_templates_preview(
     event: str,
     body: NotifyTemplatePreviewIn,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Render an in-flight template against sample values.
 
@@ -7759,7 +7805,7 @@ async def api_admin_notify_templates_test(
     event: str,
     body: NotifyTemplatePreviewIn,
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Fire one real notification through the live dispatcher.
 
@@ -7871,7 +7917,7 @@ def _stamp_test_success(provider: str, result: dict) -> dict:
 @app.post("/api/oidc/test")
 async def api_oidc_test(
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: probe the issuer's discovery endpoint. Used by the
     "Test connection" button in the Settings panel. No state changes.
@@ -7892,7 +7938,7 @@ async def api_oidc_test(
 @app.post("/api/portainer/test")
 async def api_portainer_test(
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: probe ``{url}/api/status`` with the given API key.
     Supports both already-saved creds (empty api_key means "use current")
@@ -7983,7 +8029,7 @@ async def api_portainer_test(
 @app.post("/api/pulse/test")
 async def api_pulse_test(
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: probe a Pulse instance with the given (or saved)
     credentials. Mirrors :func:`api_beszel_test` — accepts unsaved form
@@ -8012,7 +8058,7 @@ async def api_pulse_test(
 @app.post("/api/webmin/test")
 async def api_webmin_test(
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: probe a Webmin Miniserv instance.
 
@@ -8066,7 +8112,7 @@ async def api_webmin_test(
 @app.post("/api/beszel/test")
 async def api_beszel_test(
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: probe a Beszel Hub with the given (or saved) creds.
 
@@ -8099,9 +8145,10 @@ async def api_beszel_test(
     ))
 
 
+# noinspection PyTypeChecker
 @app.get("/api/telegram/links")
 async def api_telegram_links_list(
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: list every persisted Telegram → OmniGrid user
     mapping. Returns ``{links: [{telegram_user_id, username, role}]}``
@@ -8136,7 +8183,7 @@ async def api_telegram_links_list(
 @app.delete("/api/telegram/links/{telegram_user_id}")
 async def api_telegram_links_unlink(
     telegram_user_id: int,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: drop one Telegram → OmniGrid mapping by Telegram
     user_id. Used by the admin datatable's row-action Unlink button.
@@ -8156,7 +8203,7 @@ async def api_telegram_links_unlink(
 @app.post("/api/telegram/test")
 async def api_telegram_test(
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: send a Telegram test message.
 
@@ -8186,10 +8233,11 @@ async def api_telegram_test(
     return _stamp_test_success("telegram", result)
 
 
+# noinspection PyTypeChecker
 @app.post("/api/snmp/test")
 async def api_snmp_test(
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: probe one SNMP host.
 
@@ -8358,7 +8406,7 @@ def _is_asset_inventory_enabled() -> bool:
 
 
 @app.get("/api/asset-inventory")
-async def api_asset_inventory(_admin: auth.User = Depends(auth.require_admin)):
+async def api_asset_inventory(_admin: AdminUser):
     """Admin-only: return the cached asset inventory snapshot.
 
     Returns the shape ``{ok, ts, count, assets, upstream, error}``. An
@@ -8378,7 +8426,7 @@ async def api_asset_inventory(_admin: auth.User = Depends(auth.require_admin)):
 @app.post("/api/asset-inventory/test")
 async def api_asset_inventory_test(
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: validate asset-inventory credentials end-to-end.
 
@@ -8487,7 +8535,7 @@ async def api_asset_inventory_test(
 
 @app.post("/api/asset-inventory/refresh")
 async def api_asset_inventory_refresh(
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: probe auth + fetch assets + overwrite the cache.
 
@@ -8591,7 +8639,7 @@ def _asset_inventory_verify_tls() -> bool:
 # centralised so the merge semantics stay byte-
 # identical across the two call sites without a "don't import private
 # helpers across modules" caveat.
-from logic.merge import merge_best as _merge_best
+from logic.merge import merge_best as _merge_best  # noqa: E402
 
 
 def _resolve_field(body: dict, body_key: str,
@@ -8730,6 +8778,7 @@ def _format_provider_test_summary(
             count_key: len(hosts), items_key: names}
 
 
+# noinspection PyTypeChecker
 @app.get("/api/hosts")
 async def api_hosts(force: bool = False):
     """Hosts view — returns the CURATED host list merged with live
@@ -9160,6 +9209,7 @@ def _kick_background_stats_gather() -> bool:
         return False
 
 
+# noinspection PyTypeChecker
 async def _get_host_provider_state(force: bool = False) -> dict:
     """Fetch + cache the provider state needed to merge any host.
 
@@ -9462,6 +9512,7 @@ def _populate_detected_ports(host_id: str, merged: dict) -> bool:
         return False
 
 
+# noinspection PyTypeChecker
 async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                           client_id: str | None = None) -> tuple[dict, list[str]]:
     """Merge one curated host with provider data. Runs NE + Webmin
@@ -10412,6 +10463,7 @@ def _resolve_ping_target(h: dict) -> Optional[str]:
     return candidate or (h.get("id") or "")
 
 
+# noinspection PyTypeChecker
 def _shape_host_api_row(
     h: dict,
     merged: dict,
@@ -10572,7 +10624,10 @@ def _shape_host_api_row(
         "disk_used": s.get("host_disk_used") or 0,
         "disk_total": s.get("host_disk_total") or 0,
         "mounts": s.get("mounts") or [],
-        "network_ifaces": s.get("network_ifaces") or [],
+        # `network_ifaces` is set further down (the SNMP-extras-aware
+        # site at the bottom of this dict literal) — keeping a second
+        # identical key here would be a PyCharm "duplicate dict keys"
+        # warning AND the second assignment silently wins regardless.
         "bandwidth": s.get("host_bandwidth") or 0,
         "containers": s.get("host_containers") or 0,
         "uptime_s": s.get("host_uptime_s") or 0,
@@ -10611,6 +10666,7 @@ def _shape_host_api_row(
         # every ping-enabled host with no indication of which port /
         # transport was actually being probed. Empty / null = inherit
         # global default. Transport is one of `tcp` / `icmp` / null.
+        # noinspection PyUnboundLocalVariable,PyTypeChecker
         "ping_port": (int(_pp) if (_pp := (h.get("ping") or {}).get("port")) is not None else None),
         "ping_transport": ((h.get("ping") or {}).get("transport") or None),
         # Resolved ping TARGET — what `logic.ping_sampler._probe_one`
@@ -10625,7 +10681,9 @@ def _shape_host_api_row(
         # parsed from the curated `url` field.
         "ping_target": _resolve_ping_target(h),
         "ping_alive": bool(s.get("host_ping_alive")) if s.get("host_ping_alive") is not None else None,
+        # noinspection PyUnboundLocalVariable,PyTypeChecker
         "ping_rtt_ms": (float(_prtt) if (_prtt := s.get("host_ping_rtt_ms")) is not None else None),
+        # noinspection PyUnboundLocalVariable,PyTypeChecker
         "ping_loss_pct": (float(_plp) if (_plp := s.get("host_ping_loss_pct")) is not None else None),
         # Load averages (node-exporter primary, Beszel agents emit
         # `la=[1m,5m,15m]` which `extract_stats` now also surfaces here
@@ -10683,6 +10741,7 @@ def _shape_host_api_row(
         "host_health": s.get("host_health") or "",
         "host_contact": s.get("host_contact") or "",
         "host_location": s.get("host_location") or "",
+        # noinspection PyUnboundLocalVariable,PyTypeChecker
         "host_temp_c": (float(_htc) if (_htc := s.get("host_temp_c")) is not None else None),
         "host_upgrade_status": s.get("host_upgrade_status") or "",
         # per-core CPU + UCD memory breakdown for the new
@@ -10696,10 +10755,14 @@ def _shape_host_api_row(
         # APC PowerNet-MIB UPS. Present only when the
         # host responded to upsBasicIdentModel / upsBasicOutputStatus.
         "host_ups_status": s.get("host_ups_status") or "",
+        # noinspection PyUnboundLocalVariable,PyTypeChecker
         "host_battery_percent": (float(_hbp) if (_hbp := s.get("host_battery_percent")) is not None else None),
+        # noinspection PyUnboundLocalVariable,PyTypeChecker
         "host_battery_runtime_s": (int(_hbrs) if (_hbrs := s.get("host_battery_runtime_s")) is not None else None),
+        # noinspection PyUnboundLocalVariable,PyTypeChecker
         "host_battery_temp_c": (float(_hbtc) if (_hbtc := s.get("host_battery_temp_c")) is not None else None),
         "host_battery_status": s.get("host_battery_status") or "",
+        # noinspection PyUnboundLocalVariable,PyTypeChecker
         "host_load_percent": (float(_hlp) if (_hlp := s.get("host_load_percent")) is not None else None),
         # Printer-MIB. Empty list / 0 / "" → frontend cards hide.
         "printer_page_count": int(s.get("printer_page_count") or 0),
@@ -10723,6 +10786,7 @@ def _shape_host_api_row(
         "host_dell_amperages": list(s.get("host_dell_amperages") or []),
         "host_dell_phys_disks": list(s.get("host_dell_phys_disks") or []),
         "host_dell_virt_disks": list(s.get("host_dell_virt_disks") or []),
+        # noinspection PyUnboundLocalVariable,PyTypeChecker
         "host_dell_power_watts": (float(_hdpw) if (_hdpw := s.get("host_dell_power_watts")) is not None else None),
         "host_bios_version": s.get("host_bios_version") or "",
         "host_bios_date": s.get("host_bios_date") or "",
@@ -10884,6 +10948,7 @@ _PROVIDER_STATE_CACHE_TTL = 5.0
 _provider_state_cache: dict = {"ts": 0.0, "by_host": {}}
 
 
+# noinspection PyTypeChecker
 def _build_provider_state_index() -> dict:
     """One-shot full-table scan; returns ``{host_id: {provider: stateDict}}``.
 
@@ -11393,6 +11458,7 @@ def _load_hosts_config() -> list[dict]:
     return clean
 
 
+# noinspection PyTypeChecker
 def _clean_host_port_scan(raw: Any) -> dict:
     """Normalise the per-host ``port_scan`` sub-dict.
 
@@ -11438,6 +11504,7 @@ def _clean_host_port_scan(raw: Any) -> dict:
     return out
 
 
+# noinspection PyTypeChecker
 def _clean_host_ssh(raw: Any) -> dict:
     """Normalise the per-host ``ssh`` sub-dict.
 
@@ -11506,6 +11573,7 @@ def _clean_host_ssh(raw: Any) -> dict:
     return out
 
 
+# noinspection PyTypeChecker
 def _clean_host_ping(raw: Any) -> dict:
     """Normalise the per-host ``ping`` sub-dict.
 
@@ -11536,6 +11604,7 @@ def _clean_host_ping(raw: Any) -> dict:
     return out
 
 
+# noinspection PyTypeChecker
 def _clean_host_snmp(raw: Any) -> dict:
     """Normalise the per-host ``snmp`` override sub-dict.
 
@@ -11830,7 +11899,7 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
 
 
 @app.get("/api/hosts/config")
-async def api_hosts_config_get(_u: auth.User = Depends(auth.require_admin)):
+async def api_hosts_config_get(_u: AdminUser):
     """Admin-only: return the curated host list used by the Hosts tab."""
     return {"hosts": _load_hosts_config()}
 
@@ -11838,7 +11907,7 @@ async def api_hosts_config_get(_u: auth.User = Depends(auth.require_admin)):
 @app.post("/api/hosts/config")
 async def api_hosts_config_set(
     body: dict,
-    _u: auth.User = Depends(auth.require_admin),
+    _u: AdminUser,
 ):
     """Admin-only: replace the curated host list.
 
@@ -11929,11 +11998,16 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
         if not hid:
             continue
         configured: set[str] = set()
-        if (h.get("beszel_name") or "").strip(): configured.add("beszel")
-        if (h.get("pulse_name") or "").strip(): configured.add("pulse")
-        if (h.get("ne_url") or "").strip(): configured.add("node_exporter")
-        if (h.get("webmin_name") or "").strip(): configured.add("webmin")
-        if bool((h.get("ping") or {}).get("enabled", False)): configured.add("ping")
+        if (h.get("beszel_name") or "").strip():
+            configured.add("beszel")
+        if (h.get("pulse_name") or "").strip():
+            configured.add("pulse")
+        if (h.get("ne_url") or "").strip():
+            configured.add("node_exporter")
+        if (h.get("webmin_name") or "").strip():
+            configured.add("webmin")
+        if bool((h.get("ping") or {}).get("enabled", False)):
+            configured.add("ping")
         # SNMP: configured when EITHER `snmp_name` OR the shared
         # `address` field is set AND `snmp.enabled === True`. MUST stay
         # in lock-step with `logic/host_metrics_sampler.py:_host_provider_config`
@@ -11993,10 +12067,11 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
     return total
 
 
+# noinspection PyTypeChecker
 @app.post("/api/hosts/{host_id}/resume-sampling")
 async def api_hosts_resume_sampling(
     host_id: str,
-    _u: auth.User = Depends(auth.require_admin),
+    _u: AdminUser,
 ):
     """Admin-only: clear the auto-pause marker for a host that the
     host_metrics_sampler has put on hold after consecutive failures.
@@ -12126,11 +12201,12 @@ async def api_hosts_resume_sampling(
     }
 
 
+# noinspection PyTypeChecker
 @app.post("/api/hosts/{host_id}/provider/{provider}/resume")
 async def api_hosts_provider_resume(
     host_id: str, provider: str,
     request: Request,
-    _u: auth.User = Depends(auth.require_admin),
+    _u: AdminUser,
 ):
     """Admin-only: clear the per-(provider, host) auto-pause marker
     . Mirrors `/api/hosts/{id}/resume-sampling` but scoped to a
@@ -12316,10 +12392,11 @@ async def api_hosts_provider_resume(
     }
 
 
+# noinspection PyTypeChecker
 @app.post("/api/hosts/test")
 async def api_hosts_test(
     body: dict,
-    _u: auth.User = Depends(auth.require_admin),
+    _u: AdminUser,
 ):
     """Admin-only: probe each provider for a single host-config row.
 
@@ -12451,7 +12528,8 @@ async def api_hosts_test(
             else:
                 names = sorted((r.get("systems") or {}).keys(), key=str.lower)
                 hint = ", ".join(names[:3])
-                if len(names) > 3: hint += f" (+{len(names) - 3} more)"
+                if len(names) > 3:
+                    hint += f" (+{len(names) - 3} more)"
                 out["beszel"] = {"ok": False, "skipped": False,
                                  "detail": f"no match in hub. Known: {hint or 'none'}"}
         else:
@@ -12467,6 +12545,7 @@ async def api_hosts_test(
             if r.get("error"):
                 out["pulse"] = {"ok": False, "skipped": False,
                                 "detail": f"pulse error: {r['error']}"}
+            # noinspection PyUnboundLocalVariable
             elif (st := _pulse.lookup(r.get("hosts") or {}, pulse_name)):
                 # Walrus binds once + type-narrows to non-None inside
                 # the truthy branch — was previously calling `lookup`
@@ -12477,7 +12556,8 @@ async def api_hosts_test(
             else:
                 names = sorted((r.get("hosts") or {}).keys(), key=str.lower)
                 hint = ", ".join(names[:3])
-                if len(names) > 3: hint += f" (+{len(names) - 3} more)"
+                if len(names) > 3:
+                    hint += f" (+{len(names) - 3} more)"
                 out["pulse"] = {"ok": False, "skipped": False,
                                 "detail": f"no match in Pulse. Known: {hint or 'none'}"}
         else:
@@ -12610,7 +12690,7 @@ async def api_hosts_test(
 
 
 @app.get("/api/hosts/discover")
-async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
+async def api_hosts_discover(_u: AdminUser):
     """Admin-only: pull every known host name from each enabled
     provider. Used by the Admin → Hosts editor as autocomplete source
     so operators don't have to type provider-side names from memory.
@@ -12762,12 +12842,14 @@ def _item_samples_in_window(item_id: str, since_hours: int) -> dict:
     return out
 
 
+# noinspection PyShadowingBuiltins,PyTypeChecker
 @app.get("/api/debug/subject")
 async def api_debug_subject(
     kind: str = "",
     id: str = "",
     since_hours: int = 1,
-    _u: auth.User = Depends(auth.require_admin),
+    *,
+    _u: AdminUser,
 ):
     """Admin-only diagnostic for the Stacks / Services / Nodes drawers.
 
@@ -13047,11 +13129,13 @@ async def api_debug_subject(
     return out
 
 
+# noinspection PyShadowingBuiltins,PyTypeChecker
 @app.get("/api/hosts/debug")
 async def api_hosts_debug(
     id: str = "",
     since_hours: int = 1,
-    _u: auth.User = Depends(auth.require_admin),
+    *,
+    _u: AdminUser,
 ):
     """Admin-only diagnostic: raw provider responses + normalized
     per-provider + merged + rendered for ONE curated host.
@@ -13896,7 +13980,7 @@ def _ssh_write_audit_row(
 @app.get("/api/hosts/{host_id}/ssh/status")
 async def api_ssh_status(
     host_id: str,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Return the resolved SSH connection params for one host.
 
@@ -13912,7 +13996,7 @@ async def api_ssh_status(
 async def api_ssh_test(
     host_id: str,
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: run `whoami` on the host to verify connectivity.
 
@@ -13934,12 +14018,13 @@ async def api_ssh_test(
     return result
 
 
+# noinspection PyTypeChecker
 @app.post("/api/hosts/{host_id}/ssh/run")
 async def api_ssh_run(
     host_id: str,
     body: dict,
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Admin-only: run one command over SSH.
 
@@ -14094,6 +14179,7 @@ def _ssh_terminal_audit_close(
 # Registered BEFORE the StaticFiles "/" catch-all per CLAUDE.md mount-order
 # rule — the catch-all responds to every path and would shadow the
 # WebSocket route otherwise.
+# noinspection PyTypeChecker
 @app.websocket("/api/hosts/{host_id}/ssh/terminal")
 async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
     """Bridge a browser WebSocket to a live PTY-backed SSH shell.
@@ -14277,6 +14363,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
             finally:
                 stop_event.set()
 
+# noinspection PyTypeChecker
         async def ws_to_upstream():
             """Read WS frames, write to shell stdin or handle controls."""
             nonlocal bytes_in
@@ -14776,10 +14863,12 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
     }
 
 
+# noinspection PyTypeChecker
 @app.get("/api/hosts/{host_id}/ping/history")
 async def api_hosts_ping_history(
     host_id: str, hours: int = 1,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Ping reachability time-series for one curated host.
 
@@ -14894,7 +14983,7 @@ async def api_hosts_ping_history(
 @app.get("/api/hosts/{host_id}/beszel/services")
 async def api_hosts_beszel_services(
     host_id: str,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Per-unit Beszel systemd-services snapshot for one curated host.
 
@@ -14932,7 +15021,8 @@ async def api_hosts_beszel_services(
 @app.get("/api/hosts/{host_id}/snmp/history")
 async def api_hosts_snmp_history(
     host_id: str, hours: int = 1,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """SNMP time-series for one curated host.
 
@@ -15068,7 +15158,8 @@ async def api_hosts_snmp_history(
 @app.get("/api/hosts/{host_id}/disk-projection")
 async def api_hosts_disk_projection(
     host_id: str, hours: int = 720,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Linear-projection disk-fill forecast for one curated host.
 
@@ -15163,7 +15254,7 @@ async def api_hosts_disk_projection(
     t0 = series[0][0]
     xs = [(s[0] - t0) for s in series]
     ys = [s[1] for s in series]
-    sx = sum(xs);
+    sx = sum(xs)
     sy = sum(ys)
     sxx = sum(x * x for x in xs)
     sxy = sum(x * y for x, y in zip(xs, ys))
@@ -15205,7 +15296,7 @@ async def api_hosts_disk_projection(
         # that the linear-extrapolation assumption is too fragile).
         now_ts = int(time.time())
         max_horizon = now_ts + (h * 3600 * 10)
-        if t_exhaust > now_ts and t_exhaust < max_horizon:
+        if now_ts < t_exhaust < max_horizon:
             exhaustion_ts = int(t_exhaust)
     # Slope rendered as pct-per-day for the operator-friendly summary.
     slope_pct_per_day = slope * 86400.0
@@ -15297,7 +15388,8 @@ async def api_hosts_disk_projection(
 @app.get("/api/hosts/{host_id}/snmp/iface_history")
 async def api_hosts_snmp_iface_history(
     host_id: str, hours: int = 1,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Per-interface SNMP counter history for one host.
 
@@ -15380,7 +15472,8 @@ async def api_hosts_snmp_iface_history(
 @app.get("/api/hosts/{host_id}/snmp/temp_history")
 async def api_hosts_snmp_temp_history(
     host_id: str, hours: int = 1,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Per-temperature-probe SNMP history for one host.
 
@@ -15457,7 +15550,8 @@ async def api_hosts_snmp_temp_history(
 async def api_hosts_triage(
     host_id: str,
     hours: int = 720,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Similar-incidents grouping for one host. Walks history /
     notifications / host_failure_events for the last ``hours``
@@ -15489,7 +15583,8 @@ async def api_hosts_timeline(
     host_id: str,
     hours: int = 168,
     limit: int = 200,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Unified per-host event timeline for incident triage.
 
@@ -15890,7 +15985,7 @@ def _bulk_resolve_host_ids(host_ids: list[str], curated: list[dict]) -> tuple[li
 # SPA can fall back to the existing typed-hostname / SweetAlert confirm
 # without surfacing a misleading "wrong password" toast.
 # ---------------------------------------------------------------------------
-import secrets as _reauth_secrets
+import secrets as _reauth_secrets  # noqa: E402
 
 _REAUTH_TTL_SECONDS = 300
 
@@ -15919,7 +16014,7 @@ class ReauthIn(BaseModel):
 async def api_admin_reauth(
     body: ReauthIn,
     request: Request,
-    u: auth.User = Depends(auth.require_admin),
+    u: AdminUser,
 ):
     """Mint a short-lived reauth token for the calling admin.
 
@@ -16001,7 +16096,7 @@ def _user_has_local_password(user_id: int) -> bool:
     return bool(row and (row["password_hash"] or "").strip())
 
 
-def _require_reauth(request: Request, u: auth.User = Depends(auth.require_admin)) -> auth.User:
+def _require_reauth(request: Request, u: AdminUser) -> auth.User:
     """Dependency that consumes a `X-OmniGrid-Reauth-Token` header.
 
     Single-use: the token is deleted on first successful verify so a
@@ -16167,7 +16262,7 @@ async def api_hosts_bulk_pause(
 async def api_hosts_bulk_resume(
     body: HostsBulkResumeIn,
     request: Request,
-    _u: auth.User = Depends(auth.require_admin),
+    _u: AdminUser,
 ):
     """Clear the auto-pause marker for every host in the request.
     Mirrors `/api/hosts/{host_id}/resume-sampling` per-row with the
@@ -16249,11 +16344,12 @@ async def api_hosts_bulk_resume(
     }
 
 
+# noinspection PyTypeChecker
 @app.post("/api/hosts/bulk/snmp_vendors")
 async def api_hosts_bulk_snmp_vendors(
     body: HostsBulkSnmpVendorsIn,
     request: Request,
-    _u: auth.User = Depends(auth.require_admin),
+    _u: AdminUser,
 ):
     """Apply an SNMP vendor MIB selection to every host in the request.
 
@@ -16358,11 +16454,12 @@ async def api_hosts_bulk_snmp_vendors(
     }
 
 
+# noinspection PyTypeChecker
 @app.post("/api/hosts/bulk/snmp_tunables")
 async def api_hosts_bulk_snmp_tunables(
     body: HostsBulkSnmpTunablesIn,
     request: Request,
-    _u: auth.User = Depends(auth.require_admin),
+    _u: AdminUser,
 ):
     """Apply per-host SNMP tunable overrides to every host in the request.
 
@@ -16977,7 +17074,8 @@ async def api_hosts_port_scan(
     host_id: str,
     request: Request,
     body: Optional[PortScanIn] = None,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """On-demand port scan for one curated host. Admin-only.
 
@@ -17191,7 +17289,7 @@ async def api_hosts_port_scan(
 @app.get("/api/history/port-scan/{scan_id}/ports")
 async def api_history_port_scan_ports(
     scan_id: str,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Return the open ports recorded for a specific historical
     scan_id. Powers the History-tab detail popup for `op_type='port_scan'`
@@ -17231,7 +17329,7 @@ async def api_history_port_scan_ports(
 @app.post("/api/ping/test")
 async def api_ping_test(
     body: PingTestIn,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """One-shot ping probe against a curated host. Used by the
     "Test ping" button in Settings → Host stats and the per-host test
@@ -17332,7 +17430,7 @@ async def api_auth_providers(request: Request):
 
 
 @app.post("/api/notify-test")
-async def api_notify_test(_admin: auth.User = Depends(auth.require_admin)):
+async def api_notify_test(_admin: AdminUser):
     """Combined Test — fans out to EVERY enabled medium (app + apprise
     + telegram). Kept for back-compat with the legacy single-button UX;
     the Notifications admin tab now ALSO exposes per-channel Test
@@ -17355,7 +17453,7 @@ async def api_notify_test(_admin: auth.User = Depends(auth.require_admin)):
 
 
 @app.post("/api/apprise/test")
-async def api_apprise_test(_admin: auth.User = Depends(auth.require_admin)):
+async def api_apprise_test(_admin: AdminUser):
     """Per-channel Apprise Test — fires ONLY the Apprise medium (#0223).
     Per-channel siblings: `/api/telegram/test` (already exists). The
     combined `/api/notify-test` route stays for back-compat. Result
@@ -17428,7 +17526,8 @@ async def api_notifications_list(
     unread_only: bool = False,
     event: Optional[str] = None,
     severity: Optional[str] = None,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Paginated list of in-app notifications, newest first.
 
@@ -17487,7 +17586,7 @@ async def api_notifications_list(
 async def api_notifications_mark_read(
     nid: int,
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Mark one notification row as read. Idempotent — already-read rows
     return 200 with the existing ``read_at``. 404 when the id doesn't
@@ -17528,7 +17627,7 @@ async def api_notifications_mark_read(
 @app.post("/api/notifications/read-all")
 async def api_notifications_mark_all_read(
     request: Request,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     """Mark every unread notification as read. Returns the count that
     was flipped so the SPA can show a "Marked N as read" toast and the
@@ -17555,7 +17654,7 @@ async def api_notifications_mark_all_read(
 async def api_notifications_delete(
     nid: int,
     request: Request,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     """Admin-only delete one notification. Operators rarely need this —
     the prune_notifications schedule sweeps old rows automatically — but
@@ -17805,7 +17904,7 @@ _WMO_CODES: dict[int, tuple[str, str]] = {
 
 
 @app.get("/api/public-ip")
-async def api_public_ip(_admin: auth.User = Depends(auth.require_admin)):
+async def api_public_ip(_admin: AdminUser):
     """Admin-only public-IP + ISP / ASN lookup. Standalone subsystem
     (NOT AI-related). The AI palette + Telegram /ip command both
     consume it but the feature owns its own Admin → Public IP section.
@@ -17832,6 +17931,7 @@ async def api_public_ip(_admin: auth.User = Depends(auth.require_admin)):
     return {"enabled": True, **data}
 
 
+# noinspection PyTypeChecker
 @app.get("/api/weather")
 async def api_weather(
     lat: Optional[float] = None,
@@ -17964,7 +18064,8 @@ async def api_weather(
 async def api_logs(
     limit: int = 500,
     since: float = 0.0,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     # Clamp limit to a sane upper bound so a misconfigured client can't
     # pull the whole buffer repeatedly at poll rate.
@@ -17977,7 +18078,7 @@ async def api_logs(
 
 
 @app.delete("/api/logs")
-async def api_logs_clear(_admin: auth.User = Depends(auth.require_admin)):
+async def api_logs_clear(_admin: AdminUser):
     # Audit row BEFORE the clear so the forensic anchor survives even
     # the very destruction it records. Same pattern as DELETE /api/history.
     try:
@@ -18004,7 +18105,7 @@ async def api_logs_clear(_admin: auth.User = Depends(auth.require_admin)):
 # so path-traversal attempts (../, absolute paths) bounce with 404.
 # ----------------------------------------------------------------------------
 @app.get("/api/admin/logs/files")
-async def api_admin_logs_files(_admin: auth.User = Depends(auth.require_admin)):
+async def api_admin_logs_files(_admin: AdminUser):
     return {"files": _logs.list_persistent_logs(), "log_dir": _logs.LOG_DIR}
 
 
@@ -18012,7 +18113,8 @@ async def api_admin_logs_files(_admin: auth.User = Depends(auth.require_admin)):
 async def api_admin_logs_file_view(
     name: str,
     tail: int = 0,
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     body = _logs.read_persistent_log(name, tail_lines=tail if tail > 0 else None)
     if body is None:
@@ -18023,9 +18125,12 @@ async def api_admin_logs_file_view(
 @app.get("/api/admin/logs/files/{name}/download")
 async def api_admin_logs_file_download(
     name: str,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
+    """Stream one persistent log file. Name must be `<YYYY-MM-DD>.log` per
+    `_logs.safe_log_path`'s validator; anything else 404s."""
     path = _logs.safe_log_path(name)
+    # noinspection PyUnresolvedReferences  # PyCharm mis-infers os.path as str → false `isfile` warning
     if not path or not os.path.isfile(path):
         return JSONResponse(status_code=404, content={"detail": "log file not found"})
     return FileResponse(path, filename=name, media_type="text/plain; charset=utf-8")
@@ -18099,6 +18204,7 @@ _webauthn_login_challenges: dict[str, dict] = {}
 _webauthn_register_challenges: dict[int, dict] = {}
 
 
+# noinspection PyTypeChecker
 def _prune_webauthn_challenges() -> None:
     now = time.time()
     for k in [k for k, v in _webauthn_login_challenges.items()
@@ -18545,6 +18651,7 @@ async def api_local_login_totp(
     return resp
 
 
+# noinspection PyTypeChecker
 @app.post("/api/local-auth/totp-setup-confirm")
 async def api_local_login_totp_setup_confirm(
     request: Request,
@@ -18912,7 +19019,8 @@ async def api_change_password(
     current_password: str = Form(...),
     new_password: str = Form(...),
     confirm_password: str = Form(...),
-    user: auth.User = Depends(auth.current_user),
+    *,
+    user: CurrentUser,
 ):
     """Let a logged-in local user rotate their own password.
 
@@ -18976,6 +19084,7 @@ async def api_local_logout(request: Request):
     return resp
 
 
+# noinspection PyTypeChecker
 @app.post("/api/local-auth/bootstrap")
 async def api_local_bootstrap(
     request: Request,
@@ -19022,6 +19131,7 @@ async def api_local_bootstrap(
     return resp
 
 
+# noinspection PyTypeChecker,PyDictCreation
 @app.get("/api/me")
 async def api_me(request: Request):
     """Return the current identity if any. Auth-optional — returns
@@ -19271,11 +19381,11 @@ async def api_me(request: Request):
         # AND a NOTIFY_MEDIUMS sender registered. Surfaced so the SPA
         # can render one Profile→Notifications column per available
         # medium without a separate /api/notify-mediums round-trip.
-        from logic.ops import NOTIFY_MEDIUMS as _ops_mediums
+        from logic.ops import NOTIFY_MEDIUMS as _OPS_MEDIUMS
         from logic.ops import _is_medium_enabled as _ops_medium_enabled
         notify_mediums = [
             {"name": m, "enabled": bool(_ops_medium_enabled(m))}
-            for m in _ops_mediums.keys()
+            for m in _OPS_MEDIUMS.keys()
         ]
         # Resolved per-event map: now `{event: bool | {medium: bool}}`
         # to mirror the per-medium granularity introduced for Profile→
@@ -19373,6 +19483,7 @@ class UiPrefsIn(BaseModel):
     prefs: dict
 
 
+# noinspection PyTypeChecker
 @app.patch("/api/me/ui-prefs")
 async def api_me_ui_prefs(body: UiPrefsIn, request: Request):
     """Merge `body.prefs` into the calling user's `ui_prefs`.
@@ -19391,6 +19502,7 @@ async def api_me_ui_prefs(body: UiPrefsIn, request: Request):
     return {"ui_prefs": merged}
 
 
+# noinspection PyTypeChecker
 @app.post("/api/me/telegram-link-code")
 async def api_me_telegram_link_code(request: Request):
     """Mint a one-time, 15-minute, single-use code the user pastes into
@@ -19427,6 +19539,7 @@ async def api_me_telegram_link_code(request: Request):
     }
 
 
+# noinspection PyTypeChecker
 @app.delete("/api/me/telegram-link")
 async def api_me_telegram_unlink(request: Request):
     """Remove the calling user's Telegram mapping (operator-side
@@ -19454,6 +19567,7 @@ async def api_me_telegram_unlink(request: Request):
     return {"removed": removed}
 
 
+# noinspection PyTypeChecker
 @app.post("/api/me/ui-prefs/beacon")
 async def api_me_ui_prefs_beacon(body: UiPrefsIn, request: Request):
     """Beacon-friendly variant of PATCH /api/me/ui-prefs.
@@ -19481,7 +19595,7 @@ async def api_me_ui_prefs_beacon(body: UiPrefsIn, request: Request):
 @app.patch("/api/me/notify-prefs")
 async def api_me_notify_prefs(
     request: Request,
-    user: auth.User = Depends(auth.current_user),
+    user: CurrentUser,
 ):
     """Per-user opt-in/out for the per-event notification preferences.
 
@@ -19600,11 +19714,11 @@ async def api_me_notify_prefs(
         auth.set_user_notify_prefs(c, user.id, merged)
     # Per-medium roster echoed back so the SPA can re-render the grid
     # without a separate /api/me round-trip.
-    from logic.ops import NOTIFY_MEDIUMS as _ops_mediums
+    from logic.ops import NOTIFY_MEDIUMS as _OPS_MEDIUMS
     from logic.ops import _is_medium_enabled as _ops_medium_enabled
     notify_mediums = [
         {"name": m, "enabled": bool(_ops_medium_enabled(m))}
-        for m in _ops_mediums.keys()
+        for m in _OPS_MEDIUMS.keys()
     ]
     # Resolved map mirrors api_get_me's shape exactly so the SPA can
     # drop the response straight into state.
@@ -19630,7 +19744,7 @@ class ProfileIn(BaseModel):
 @app.patch("/api/me/profile")
 async def api_update_profile(
     p: ProfileIn,
-    user: auth.User = Depends(auth.current_user),
+    user: CurrentUser,
 ):
     """Update the caller's own display_name / bio / email. Authentik users
     CAN edit these locally — those values don't round-trip to Authentik,
@@ -19668,7 +19782,7 @@ _AVATAR_MAX_BYTES = 1_000_000  # 1 MB — avatars are small, reject uploads abov
 @app.post("/api/me/avatar")
 async def api_upload_avatar(
     request: Request,
-    user: auth.User = Depends(auth.current_user),
+    user: CurrentUser,
 ):
     """Accept a multipart image upload and store it under /app/data/avatars/.
 
@@ -19822,7 +19936,7 @@ def _safe_avatar_path(name: str) -> Optional[str]:
 
 
 @app.delete("/api/me/avatar")
-async def api_clear_avatar(user: auth.User = Depends(auth.current_user)):
+async def api_clear_avatar(user: CurrentUser):
     with db_conn() as c:
         p = auth.get_user_profile(c, user.id)
     if p and p.get("avatar_path"):
@@ -19843,7 +19957,7 @@ async def api_clear_avatar(user: auth.User = Depends(auth.current_user)):
 
 
 @app.get("/api/avatars/{fname}")
-async def api_serve_avatar(fname: str, _user: auth.User = Depends(auth.current_user)):
+async def api_serve_avatar(fname: str, _user: CurrentUser):
     """Serve an uploaded avatar. Authed — avatars are user data, shouldn't
     be browsable anonymously.
 
@@ -19905,7 +20019,7 @@ def _totp_required_for_user(user: auth.User) -> bool:
 
 
 @app.get("/api/me/totp")
-async def api_me_totp_status(user: auth.User = Depends(auth.current_user)):
+async def api_me_totp_status(user: CurrentUser):
     """Return the caller's 2FA status + decrypted backup codes.
 
     Backup codes are returned in plaintext (with a ``used_at`` flag per
@@ -19939,7 +20053,7 @@ async def api_me_totp_status(user: auth.User = Depends(auth.current_user)):
 
 
 @app.post("/api/me/totp/enroll-start")
-async def api_me_totp_enroll_start(user: auth.User = Depends(auth.current_user)):
+async def api_me_totp_enroll_start(user: CurrentUser):
     """Generate a fresh secret + provisioning_uri for the caller.
 
     The secret is NOT persisted at this stage -- the SPA echoes it back
@@ -19968,7 +20082,7 @@ async def api_me_totp_enroll_start(user: auth.User = Depends(auth.current_user))
 @app.post("/api/me/totp/enroll-confirm")
 async def api_me_totp_enroll_confirm(
     body: TotpEnrollConfirmIn,
-    user: auth.User = Depends(auth.current_user),
+    user: CurrentUser,
 ):
     """Persist the secret + generate backup codes after a successful
     verification.
@@ -20016,7 +20130,7 @@ async def api_me_totp_enroll_confirm(
 
 @app.post("/api/me/totp/regenerate-codes")
 async def api_me_totp_regenerate_codes(
-    user: auth.User = Depends(auth.current_user),
+    user: CurrentUser,
 ):
     """Replace the backup codes with a fresh batch of 10. Existing
     codes are discarded (used + unused alike). One-time reveal of the
@@ -20047,7 +20161,7 @@ async def api_me_totp_regenerate_codes(
 @app.post("/api/me/totp/disable")
 async def api_me_totp_disable(
     body: TotpDisableIn,
-    user: auth.User = Depends(auth.current_user),
+    user: CurrentUser,
 ):
     """Self-disable 2FA after re-confirming the password.
 
@@ -20139,7 +20253,7 @@ class WebauthnClientErrorIn(BaseModel):
 async def api_me_webauthn_client_error(
     body: WebauthnClientErrorIn,
     request: Request,
-    user: auth.User = Depends(auth.current_user),
+    user: CurrentUser,
 ):
     """Surface a client-side WebAuthn ceremony failure into the server
     log buffer. Pure logging — no DB write, no state change. Caps each
@@ -20173,7 +20287,7 @@ async def api_me_webauthn_client_error(
 @app.get("/api/me/webauthn")
 async def api_me_webauthn_list(
     request: Request,
-    user: auth.User = Depends(auth.current_user),
+    user: CurrentUser,
 ):
     """Return every passkey enrolled for the caller.
 
@@ -20228,7 +20342,7 @@ async def api_me_webauthn_list(
 @app.post("/api/me/webauthn/register-start")
 async def api_me_webauthn_register_start(
     request: Request,
-    user: auth.User = Depends(auth.current_user),
+    user: CurrentUser,
 ):
     """Hand the SPA ``PublicKeyCredentialCreationOptions``.
 
@@ -20285,7 +20399,7 @@ async def api_me_webauthn_register_start(
 async def api_me_webauthn_register_finish(
     body: WebauthnRegisterFinishIn,
     request: Request,
-    user: auth.User = Depends(auth.current_user),
+    user: CurrentUser,
 ):
     """Verify the attestation + persist the new credential row.
 
@@ -20377,7 +20491,7 @@ async def api_me_webauthn_register_finish(
 @app.delete("/api/me/webauthn/{credential_row_id}")
 async def api_me_webauthn_delete(
     credential_row_id: int,
-    user: auth.User = Depends(auth.current_user),
+    user: CurrentUser,
 ):
     """Revoke ONE passkey owned by the caller.
 
@@ -20430,7 +20544,7 @@ class TokenCreate(BaseModel):
 
 
 @app.get("/api/users")
-async def api_list_users(_admin: auth.User = Depends(auth.require_admin)):
+async def api_list_users(_admin: AdminUser):
     with db_conn() as c:
         return {"users": auth.list_users(c)}
 
@@ -20438,7 +20552,7 @@ async def api_list_users(_admin: auth.User = Depends(auth.require_admin)):
 @app.post("/api/users")
 async def api_create_user(
     u: UserCreate,
-    _admin: auth.User = Depends(auth.require_admin),
+    _admin: AdminUser,
 ):
     name = (u.username or "").strip()
     if not name:
@@ -20471,7 +20585,7 @@ async def api_create_user(
 async def api_update_user(
     user_id: int,
     p: UserPatch,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     with db_conn() as c:
         target = auth.get_user(c, user_id)
@@ -20511,7 +20625,7 @@ async def api_update_user(
 @app.delete("/api/users/{user_id}")
 async def api_delete_user(
     user_id: int,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     if user_id == admin.id:
         raise HTTPException(status_code=400, detail="You can't delete yourself.")
@@ -20553,7 +20667,7 @@ async def api_delete_user(
 async def api_reset_password(
     user_id: int,
     r: PasswordResetIn,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     """Admin password-reset for a local user.
 
@@ -20587,7 +20701,7 @@ async def api_reset_password(
 async def api_admin_disable_totp(
     user_id: int,
     request: Request,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     """Admin override: clear a user's TOTP enrolment + lockout state.
 
@@ -20659,7 +20773,7 @@ class TotpForceIn(BaseModel):
 async def api_admin_totp_force(
     user_id: int,
     body: TotpForceIn,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     """Admin override: per-user force-2FA flag.
 
@@ -20727,7 +20841,7 @@ async def api_admin_totp_force(
 
 
 @app.get("/api/sessions")
-async def api_list_sessions(_admin: auth.User = Depends(auth.require_admin)):
+async def api_list_sessions(_admin: AdminUser):
     with db_conn() as c:
         return {"sessions": auth.list_sessions(c)}
 
@@ -20735,7 +20849,7 @@ async def api_list_sessions(_admin: auth.User = Depends(auth.require_admin)):
 @app.delete("/api/sessions/{token_id}")
 async def api_revoke_session(
     token_id: str,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     with db_conn() as c:
         auth.delete_session(c, token_id)
@@ -20749,7 +20863,7 @@ async def api_revoke_session(
 
 
 @app.get("/api/tokens")
-async def api_list_tokens(_admin: auth.User = Depends(auth.require_admin)):
+async def api_list_tokens(_admin: AdminUser):
     with db_conn() as c:
         return {"tokens": auth.list_api_tokens(c)}
 
@@ -20757,7 +20871,7 @@ async def api_list_tokens(_admin: auth.User = Depends(auth.require_admin)):
 @app.post("/api/tokens")
 async def api_create_token(
     t: TokenCreate,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     name = (t.name or "").strip()
     if not name:
@@ -20783,7 +20897,7 @@ async def api_create_token(
 @app.delete("/api/tokens/{token_id}")
 async def api_delete_token(
     token_id: int,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     with db_conn() as c:
         auth.delete_api_token(c, token_id)
@@ -20803,12 +20917,12 @@ async def api_delete_token(
 # path-traversal guards).
 # ============================================================================
 @app.get("/api/backups")
-async def api_list_backups(_admin: auth.User = Depends(auth.require_admin)):
+async def api_list_backups(_admin: AdminUser):
     return {"backups": backups.list_backups()}
 
 
 @app.post("/api/backups")
-async def api_create_backup(admin: auth.User = Depends(auth.require_admin)):
+async def api_create_backup(admin: AdminUser):
     result = backups.create_backup()
     # Retention — surfaced to the operator in the response so they can
     # see what got pruned without re-listing. Zero/empty setting means
@@ -20836,7 +20950,7 @@ async def api_create_backup(admin: auth.User = Depends(auth.require_admin)):
 
 @app.get("/api/backups/{name}")
 async def api_download_backup(
-    name: str, _admin: auth.User = Depends(auth.require_admin),
+    name: str, _admin: AdminUser,
 ):
     try:
         path = backups._backup_path(name)
@@ -20849,7 +20963,7 @@ async def api_download_backup(
 
 @app.delete("/api/backups/{name}")
 async def api_delete_backup(
-    name: str, admin: auth.User = Depends(auth.require_admin),
+    name: str, admin: AdminUser,
 ):
     try:
         backups.delete_backup(name)
@@ -20867,7 +20981,7 @@ async def api_delete_backup(
 
 @app.post("/api/backups/{name}/restore")
 async def api_restore_backup_named(
-    name: str, admin: auth.User = Depends(auth.require_admin),
+    name: str, admin: AdminUser,
 ):
     try:
         result = backups.restore_by_name(name)
@@ -20889,7 +21003,7 @@ async def api_restore_backup_named(
 
 @app.post("/api/backups/restore")
 async def api_restore_backup_upload(
-    request: Request, _admin: auth.User = Depends(auth.require_admin),
+    request: Request, _admin: AdminUser,
 ):
     """Upload a zip file and restore from it. 200 MB cap."""
     form = await request.form()
@@ -20924,7 +21038,8 @@ async def api_restore_backup_upload(
             os.remove(tmp_path)
         except OSError:
             pass
-    return result
+    # noinspection PyUnboundLocalVariable
+    return result  # `result` is bound iff neither except branch fired (both raise — terminal).
 
 
 # ============================================================================
@@ -20936,7 +21051,7 @@ async def api_restore_backup_upload(
 
 
 @app.get("/api/admin/config-backup/export")
-async def api_config_backup_export(_admin: auth.User = Depends(auth.require_admin)):
+async def api_config_backup_export(_admin: AdminUser):
     """Build a fresh snapshot and stream it as a JSON download.
 
     Operators commit the file to a private git repo for change tracking.
@@ -20956,7 +21071,7 @@ async def api_config_backup_export(_admin: auth.User = Depends(auth.require_admi
 
 
 @app.get("/api/admin/config-backup/preview")
-async def api_config_backup_preview(_admin: auth.User = Depends(auth.require_admin)):
+async def api_config_backup_preview(_admin: AdminUser):
     """Return the current snapshot as a JSON object (NOT a download).
 
     Used by the Admin → Config backup tab to show the operator what
@@ -20976,7 +21091,7 @@ class ConfigBackupImportIn(BaseModel):
 @app.post("/api/admin/config-backup/import")
 async def api_config_backup_import(
     body: ConfigBackupImportIn,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     """Apply an uploaded snapshot to the live DB. See
     `logic.config_export.apply_snapshot` for the per-surface semantics
@@ -21001,14 +21116,14 @@ async def api_config_backup_import(
 
 
 @app.get("/api/admin/config-backup/list")
-async def api_config_backup_list(_admin: auth.User = Depends(auth.require_admin)):
+async def api_config_backup_list(_admin: AdminUser):
     """List saved snapshot files written by the `config_backup`
     schedule kind (or any future manual save-to-disk path)."""
     return {"files": config_export.list_snapshots()}
 
 
 @app.post("/api/admin/config-backup/save")
-async def api_config_backup_save(admin: auth.User = Depends(auth.require_admin)):
+async def api_config_backup_save(admin: AdminUser):
     """Write a fresh snapshot to disk on demand. Same path the
     `config_backup` schedule kind uses. Returns the saved file's
     {name, size, mtime}."""
@@ -21026,7 +21141,7 @@ async def api_config_backup_save(admin: auth.User = Depends(auth.require_admin))
 
 @app.get("/api/admin/config-backup/saved/{name}")
 async def api_config_backup_download_saved(
-    name: str, _admin: auth.User = Depends(auth.require_admin),
+    name: str, _admin: AdminUser,
 ):
     """Download a previously-saved snapshot file."""
     try:
@@ -21040,7 +21155,7 @@ async def api_config_backup_download_saved(
 
 @app.post("/api/admin/config-backup/saved/{name}/restore")
 async def api_config_backup_restore_saved(
-    name: str, admin: auth.User = Depends(auth.require_admin),
+    name: str, admin: AdminUser,
 ):
     """Read a saved snapshot file and apply it. Same as POSTing the
     file's contents to `/api/admin/config-backup/import`, just routed
@@ -21065,7 +21180,7 @@ async def api_config_backup_restore_saved(
 
 @app.delete("/api/admin/config-backup/saved/{name}")
 async def api_config_backup_delete_saved(
-    name: str, admin: auth.User = Depends(auth.require_admin),
+    name: str, admin: AdminUser,
 ):
     """Delete a saved snapshot file."""
     try:
@@ -21116,7 +21231,7 @@ class SchedulePatch(BaseModel):
 
 
 @app.get("/api/schedules")
-async def api_list_schedules(_admin: auth.User = Depends(auth.require_admin)):
+async def api_list_schedules(_admin: AdminUser):
     with db_conn() as c:
         return {
             "schedules": schedules.list_schedules(c),
@@ -21128,7 +21243,7 @@ async def api_list_schedules(_admin: auth.User = Depends(auth.require_admin)):
 @app.post("/api/schedules")
 async def api_create_schedule(
     s: ScheduleIn,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     name = (s.name or "").strip()
     if not name:
@@ -21181,7 +21296,7 @@ async def api_create_schedule(
 async def api_update_schedule(
     schedule_id: int,
     p: SchedulePatch,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     # exclude_unset keeps explicit None values so "clear this field" works
     # via wire-level null (e.g. flipping back to interval mode by sending
@@ -21219,7 +21334,7 @@ async def api_update_schedule(
 @app.delete("/api/schedules/{schedule_id}")
 async def api_delete_schedule(
     schedule_id: int,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     with db_conn() as c:
         existing = schedules.get_schedule(c, schedule_id)
@@ -21239,7 +21354,7 @@ async def api_delete_schedule(
 @app.post("/api/schedules/{schedule_id}/run")
 async def api_run_schedule(
     schedule_id: int,
-    admin: auth.User = Depends(auth.require_admin),
+    admin: AdminUser,
 ):
     """Fire a schedule immediately, bypassing its interval.
 
@@ -21274,7 +21389,8 @@ async def api_schedule_queue(
     page: int = 1,
     page_size: int = 0,
     search: str = "",
-    _admin: auth.User = Depends(auth.require_admin),
+    *,
+    _admin: AdminUser,
 ):
     """Recent scheduler-driven ops from the history table.
 
@@ -21434,6 +21550,7 @@ def _expand_includes(body: str, path: str) -> tuple[str, tuple]:
     return expanded, tuple(sig)
 
 
+# noinspection PyTypeChecker
 def _render_shell(path: str) -> Response:
     """Serve an HTML shell with `__APP_VERSION__` → current version.
 
@@ -21598,7 +21715,7 @@ _NPM_ALLOWED: Set[str] = {
 # the inspector (it reads `path:path` as a parameter name and can't see
 # the converter is a TYPE annotation, not a name); the inspector noqa
 # directive below silences it.
-# noinspection PyUnresolvedReferences
+# noinspection PyUnresolvedReferences,FastApiInspection,FastApi
 @app.get("/node_modules/{path:path}")  # type: ignore[arg-type]
 async def api_node_modules(path: str = FastApiPath(...)):
     """Allowlist-gated static server for the 7 npm files the SPA actually

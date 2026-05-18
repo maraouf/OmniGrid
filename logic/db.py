@@ -271,43 +271,76 @@ def active_host_stats_providers() -> set[str]:
     return out
 
 
+from typing import Iterator
+
+
+def iter_curated_hosts(*, require_enabled: bool = True) -> Iterator[dict]:
+    """Yield validated ``hosts_config`` rows.
+
+    Canonical generator over the ``hosts_config`` settings row, replacing
+    the ~25-line `raw = get_setting → strip → json.loads → isinstance(list)
+    → iterate → isinstance(dict) → id-empty-skip → enabled-gate` boilerplate
+    that was copy-pasted across 10+ sampler / consumer sites (DUP-001).
+
+    Each yielded row is GUARANTEED to:
+      - be a ``dict`` (non-dict rows are skipped silently);
+      - have a non-empty ``.get('id').strip()`` value (rows without an
+        id are skipped — every downstream consumer needs the id as
+        primary key anyway);
+      - pass the ``enabled`` gate when ``require_enabled=True`` (the
+        default — matches the canonical "ignore disabled rows" contract
+        every sampler uses). Pass ``require_enabled=False`` to walk
+        EVERY row (e.g. when an admin endpoint needs to surface disabled
+        hosts in a count or audit context).
+
+    Per-provider field filtering (``beszel_name`` non-empty, ``ne_url``
+    set, ``snmp.enabled=True``, etc.) is the CALLER's responsibility —
+    different samplers care about different fields, and a single helper
+    that tried to express every per-provider variant would be a worse
+    abstraction than the per-sampler one-liner that wraps this generator.
+
+    Returns empty iterator on missing / malformed settings — forgiving
+    contract matches the previous per-helper behaviour so a stale
+    settings blob can't crash a lifespan task.
+    """
+    import json as _json
+
+    raw = (get_setting(Settings.HOSTS_CONFIG) or "").strip()
+    if not raw:
+        return
+    try:
+        parsed = _json.loads(raw)
+    except (ValueError, TypeError):
+        return
+    if not isinstance(parsed, list):
+        return
+    for row in parsed:
+        if not isinstance(row, dict):
+            continue
+        hid = (row.get("id") or "").strip()
+        if not hid:
+            continue
+        if require_enabled and not row.get("enabled", True):
+            continue
+        yield row
+
+
 # noinspection DuplicatedCode
 def _walk_hosts_config() -> list[dict]:
     """Walk the ``hosts_config`` JSON settings row → list of enabled
     host dicts.
 
-    Shared prelude for every ``curated_*_hosts`` helper. Returns ONLY
-    rows that are dicts AND not explicitly disabled. Caller layers
-    provider-specific gates (ne_url present / snmp.enabled true / etc.)
-    on top. Pre-fix every helper carried its own copy of the 8-line
-    JSON-parse + isinstance + enabled-gate loop — 4 byte-for-byte
-    duplicates flagged by PyCharm's duplicate detector. This helper
-    is the single source of truth; consumers iterate the returned
-    list and filter for their provider.
+    Back-compat wrapper around :func:`iter_curated_hosts` (kept because
+    the four ``curated_*_hosts`` helpers below still consume a list).
+    Net behaviour change vs the pre-DUP-001 shape: rows without a
+    non-empty ``id`` are now filtered out here too (every downstream
+    consumer rejected them anyway, so the gate just moved upstream).
 
     Returns empty list on missing / malformed settings — forgiving
     contract matches what the helpers had before, so a stale settings
     blob can't crash the lifespan tasks.
     """
-    import json as _json
-
-    raw = get_setting(Settings.HOSTS_CONFIG) or ""
-    if not raw.strip():
-        return []
-    try:
-        parsed = _json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(parsed, list):
-        return []
-    out: list[dict] = []
-    for row in parsed:
-        if not isinstance(row, dict):
-            continue
-        if not row.get("enabled", True):
-            continue
-        out.append(row)
-    return out
+    return list(iter_curated_hosts(require_enabled=True))
 
 
 # noinspection DuplicatedCode

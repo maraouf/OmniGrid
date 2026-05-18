@@ -36,16 +36,15 @@ from logic.db import (
     db_conn,
     get_setting,
     active_host_stats_providers as _active_providers,
+    iter_curated_hosts,
 )
 from logic.settings_keys import Settings
-
 
 # Same sanity bounds as host_metrics_sampler / host_pulse_sampler.
 _MIN_DELTA_SECONDS = 60
 _MAX_DELTA_SECONDS = 900
 _MIN_DELTA_BYTES = 0
 _MAX_DELTA_BYTES = 10 * 1024 * 1024 * 1024  # 10 GB
-
 
 # Per-host previous (ts, rx_bytes, tx_bytes) — module-level so the
 # delta math survives across ticks. Cleared on lifespan
@@ -60,17 +59,9 @@ def _curated_webmin_hosts() -> list[dict]:
     Walks `hosts_config` for rows whose `webmin_url` (resolved via the
     `webmin_aliases` settings map) is set. Returns one row per enabled
     entry as `{id, url}`. Empty list when Webmin isn't a registered
-    provider on the curated row.
+    provider on the curated row. The JSON-parse + enabled-gate prelude
+    is delegated to :func:`logic.db.iter_curated_hosts` (DUP-001).
     """
-    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
-    if not raw.strip():
-        return []
-    try:
-        parsed = json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(parsed, list):
-        return []
     try:
         aliases = json.loads(get_setting(Settings.WEBMIN_ALIASES, "{}") or "{}")
         if not isinstance(aliases, dict):
@@ -78,14 +69,8 @@ def _curated_webmin_hosts() -> list[dict]:
     except ValueError:
         aliases = {}
     out: list[dict] = []
-    for row in parsed:
-        if not isinstance(row, dict):
-            continue
-        if not row.get("enabled", True):
-            continue
-        hid = (row.get("id") or "").strip()
-        if not hid:
-            continue
+    for row in iter_curated_hosts():
+        hid = (row.get("id") or "").strip()  # iter_curated_hosts already guarantees non-empty
         # Resolution chain: webmin_aliases[id] → row.webmin_url →
         # row.webmin_name (last-resort, matches the curated alias
         # convention some operators use). Empty all three = skip.
@@ -99,6 +84,7 @@ def _curated_webmin_hosts() -> list[dict]:
     return out
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
     """Compute the persistable row for ONE host's tick.
 
@@ -129,8 +115,8 @@ def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
                 drx = rx_now - prev_rx
                 dtx = tx_now - prev_tx
                 if (_MIN_DELTA_SECONDS <= ds <= _MAX_DELTA_SECONDS
-                        and _MIN_DELTA_BYTES <= drx <= _MAX_DELTA_BYTES
-                        and _MIN_DELTA_BYTES <= dtx <= _MAX_DELTA_BYTES):
+                    and _MIN_DELTA_BYTES <= drx <= _MAX_DELTA_BYTES
+                    and _MIN_DELTA_BYTES <= dtx <= _MAX_DELTA_BYTES):
                     nr_bps = drx / ds
                     ns_bps = dtx / ds
             _last_counters[host_id] = (now, rx_now, tx_now)
@@ -310,6 +296,7 @@ async def host_webmin_sampler_loop() -> None:
 
 # ---- Read helpers ----
 
+# noinspection DuplicatedCode,PyTypeChecker
 def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
     if not host_id:
         return []
@@ -330,16 +317,17 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
         out.append({
             "ts": int(r[0]),
             "cpu_percent": (float(r[1]) if r[1] is not None else None),
-            "mem_total":   (int(r[2]) if r[2] is not None else None),
-            "mem_used":    (int(r[3]) if r[3] is not None else None),
-            "disk_total":  (int(r[4]) if r[4] is not None else None),
-            "disk_used":   (int(r[5]) if r[5] is not None else None),
-            "net_rx_bps":  (float(r[6]) if r[6] is not None else None),
-            "net_tx_bps":  (float(r[7]) if r[7] is not None else None),
+            "mem_total": (int(r[2]) if r[2] is not None else None),
+            "mem_used": (int(r[3]) if r[3] is not None else None),
+            "disk_total": (int(r[4]) if r[4] is not None else None),
+            "disk_used": (int(r[5]) if r[5] is not None else None),
+            "net_rx_bps": (float(r[6]) if r[6] is not None else None),
+            "net_tx_bps": (float(r[7]) if r[7] is not None else None),
         })
     return out
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 def history_series(host_id: str, hours: int) -> list[dict]:
     """Beszel-compatible series envelope. Field-for-field match with
     `host_pulse_sampler.history_series` / `host_metrics_sampler.history_series`
@@ -359,28 +347,29 @@ def history_series(host_id: str, hours: int) -> list[dict]:
         ns = r.get("net_tx_bps") or 0.0
         net = nr + ns
         series.append({
-            "t":   r["ts"],
+            "t": r["ts"],
             "cpu": r.get("cpu_percent") or 0.0,
-            "mp":  (100.0 * mem_used / mem_total) if mem_total else 0.0,
-            "dp":  (100.0 * disk_used / disk_total) if disk_total else 0.0,
-            "mu":  (mem_used / gib) if mem_used else 0.0,
-            "du":  (disk_used / gib) if disk_used else 0.0,
-            "b":   net,
-            "nr":  nr,
-            "ns":  ns,
+            "mp": (100.0 * mem_used / mem_total) if mem_total else 0.0,
+            "dp": (100.0 * disk_used / disk_total) if disk_total else 0.0,
+            "mu": (mem_used / gib) if mem_used else 0.0,
+            "du": (disk_used / gib) if disk_used else 0.0,
+            "b": net,
+            "nr": nr,
+            "ns": ns,
             "net": net,
             # Webmin doesn't expose per-disk I/O / load avg / swap.
-            "dr":  0.0,
-            "dw":  0.0,
+            "dr": 0.0,
+            "dw": 0.0,
             "la1": 0.0,
             "la5": 0.0,
             "la15": 0.0,
-            "s":   0.0,
-            "su":  0.0,
+            "s": 0.0,
+            "su": 0.0,
         })
     return series
 
 
+# noinspection DuplicatedCode,PyTypeChecker
 def last_samples(host_id: str, limit: int = 5) -> list[dict]:
     if not host_id:
         return []
@@ -401,11 +390,11 @@ def last_samples(host_id: str, limit: int = 5) -> list[dict]:
         out.append({
             "ts": int(r[0]),
             "cpu_percent": (float(r[1]) if r[1] is not None else None),
-            "mem_total":   (int(r[2]) if r[2] is not None else None),
-            "mem_used":    (int(r[3]) if r[3] is not None else None),
-            "disk_total":  (int(r[4]) if r[4] is not None else None),
-            "disk_used":   (int(r[5]) if r[5] is not None else None),
-            "net_rx_bps":  (float(r[6]) if r[6] is not None else None),
-            "net_tx_bps":  (float(r[7]) if r[7] is not None else None),
+            "mem_total": (int(r[2]) if r[2] is not None else None),
+            "mem_used": (int(r[3]) if r[3] is not None else None),
+            "disk_total": (int(r[4]) if r[4] is not None else None),
+            "disk_used": (int(r[5]) if r[5] is not None else None),
+            "net_rx_bps": (float(r[6]) if r[6] is not None else None),
+            "net_tx_bps": (float(r[7]) if r[7] is not None else None),
         })
     return out
