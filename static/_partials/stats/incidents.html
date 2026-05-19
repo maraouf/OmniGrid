@@ -1,4 +1,4 @@
-<!--suppress ALL -->
+<!--suppress HtmlUnknownAttribute -->
 <div x-show="statsTab==='incidents'" class="space-y-4">
   <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
            :aria-busy="_loadBusy.stats_incidents === true ? 'true' : 'false'">
@@ -58,8 +58,8 @@
 
       <!-- Headline cards row. Total failures / recoveries /
            events / overall MTTR. -->
-      <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr))">
-        <div class="stats-card" style="cursor:default">
+      <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+        <div class="stats-card" style="cursor:default;">
           <div class="stats-card-icon">
             <svg width="20" height="20" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
@@ -71,7 +71,7 @@
             <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.incidents.cards.failures_sub')"></div>
           </div>
         </div>
-        <div class="stats-card" style="cursor:default">
+        <div class="stats-card" style="cursor:default;">
           <div class="stats-card-icon">
             <svg width="20" height="20" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/>
@@ -83,7 +83,7 @@
             <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.incidents.cards.recoveries_sub')"></div>
           </div>
         </div>
-        <div class="stats-card" style="cursor:default">
+        <div class="stats-card" style="cursor:default;">
           <div class="stats-card-icon">
             <svg width="20" height="20" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
@@ -95,7 +95,7 @@
             <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.incidents.cards.mttr_sub')"></div>
           </div>
         </div>
-        <div class="stats-card" style="cursor:default">
+        <div class="stats-card" style="cursor:default;">
           <div class="stats-card-icon">
             <svg width="20" height="20" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>

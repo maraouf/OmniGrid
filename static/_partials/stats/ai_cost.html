@@ -1,4 +1,4 @@
-<!--suppress ALL -->
+<!--suppress HtmlUnknownAttribute -->
 <div x-show="statsTab==='ai_cost'" class="space-y-4">
   <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
            :aria-busy="_loadBusy.stats_ai_cost === true ? 'true' : 'false'">
@@ -33,8 +33,8 @@
     <div x-show="statsAiCostLoaded" class="p-5 space-y-5">
 
       <!-- MTD headline row: cost + jobs + pass rate + tokens + avg RT + accuracy. -->
-      <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr))">
-        <div class="stats-card" style="cursor:default">
+      <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+        <div class="stats-card" style="cursor:default;">
           <div class="stats-card-icon">
             <svg width="20" height="20" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
@@ -51,7 +51,7 @@
                        })"></div>
           </div>
         </div>
-        <div class="stats-card" style="cursor:default">
+        <div class="stats-card" style="cursor:default;">
           <div class="stats-card-icon">
             <svg width="20" height="20" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-history"/>
@@ -68,7 +68,7 @@
                        })"></div>
           </div>
         </div>
-        <div class="stats-card" style="cursor:default">
+        <div class="stats-card" style="cursor:default;">
           <div class="stats-card-icon">
             <svg width="20" height="20" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
@@ -80,7 +80,7 @@
             <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.ai_cost.cards.jobs_sub')"></div>
           </div>
         </div>
-        <div class="stats-card" style="cursor:default">
+        <div class="stats-card" style="cursor:default;">
           <div class="stats-card-icon">
             <svg width="20" height="20" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/>
@@ -97,7 +97,7 @@
                        })"></div>
           </div>
         </div>
-        <div class="stats-card" style="cursor:default">
+        <div class="stats-card" style="cursor:default;">
           <div class="stats-card-icon">
             <svg width="20" height="20" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/>
@@ -109,7 +109,7 @@
             <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.ai_cost.cards.tokens_sub')"></div>
           </div>
         </div>
-        <div class="stats-card" style="cursor:default">
+        <div class="stats-card" style="cursor:default;">
           <div class="stats-card-icon">
             <svg width="20" height="20" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
@@ -122,7 +122,7 @@
             <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.ai_cost.cards.avg_rt_sub')"></div>
           </div>
         </div>
-        <div class="stats-card" style="cursor:default">
+        <div class="stats-card" style="cursor:default;">
           <div class="stats-card-icon">
             <svg width="20" height="20" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
@@ -135,7 +135,7 @@
             <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.ai_cost.cards.accuracy_sub')"></div>
           </div>
         </div>
-        <div class="stats-card" style="cursor:default">
+        <div class="stats-card" style="cursor:default;">
           <div class="stats-card-icon">
             <svg width="20" height="20" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trending-up"/>
