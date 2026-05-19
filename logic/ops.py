@@ -1840,6 +1840,7 @@ async def do_update_container(op: Operation, container_id: str) -> None:
             except (httpx.HTTPError, OSError) as _e:
                 op.log(f"Pre-recreate inspect failed ({type(_e).__name__}: {_e}) — digest comparison disabled", "warning")
         recreate_endpoint_error: Optional[str] = None
+        recreate_response_body: str = ""
         async with portainer.write_client(timeout=_portainer_op_timeout("long")) as client:
             try:
                 # `json={}` is REQUIRED — Portainer's recreate endpoint
@@ -1873,18 +1874,40 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                 # for the inspect+pull+create dance even if the
                 # `/recreate` call itself dropped.
                 recreate_endpoint_error = f"{type(e).__name__}: {e}"
-        # Silent-recreate detection: if Portainer accepted the call but
-        # the container's image-id is unchanged, the /recreate endpoint
-        # no-op'd. Re-inspect to confirm. Treat unchanged-digest as a
-        # fallback trigger so the operator's "click Recreate → no
-        # change" report can't happen silently anymore.
+        # Silent-recreate detection: Portainer /recreate has TWO failure
+        # modes the operator hit in succession on external containers:
+        #   (a) returns 200, container is unchanged (no new container ID).
+        #   (b) returns 200, NEW container is created BUT the image was
+        #       NOT pulled — `?PullImage=true` was silently ignored, so
+        #       the new container runs the SAME image as the old one.
+        # Both need to fall through to `_recreate_container_in_place`.
+        # Detection: parse the NEW container ID from the /recreate
+        # response body (when present), inspect IT instead of the old
+        # ID (which Docker has already reaped), compare its `Image`
+        # field to the pre-recreate digest. If unchanged → no-op.
         if recreate_endpoint_error is None and pre_digest:
+            # Extract the new container ID from the response body. The
+            # /recreate endpoint returns the full inspect JSON of the
+            # new container; `Id` is the canonical sha256 of the new
+            # container, which we need to inspect since the old `container_id`
+            # is now 404. Fall back to the original ID when parsing fails
+            # so we still get a diagnostic (instead of silently skipping).
+            new_container_id = container_id
+            try:
+                import json as _json_post
+                _resp_json = _json_post.loads(recreate_response_body) if recreate_response_body else None
+                if isinstance(_resp_json, dict):
+                    new_container_id = (_resp_json.get("Id") or container_id).strip() or container_id
+            except (ValueError, TypeError):
+                pass
+            if new_container_id != container_id:
+                op.log(f"Portainer /recreate spawned new container {new_container_id[:12]} (was {container_id[:12]})")
             async with portainer.write_client(timeout=_portainer_op_timeout("short")) as _post_client:
                 try:
                     _r2 = await _post_client.get(
                         f"{portainer.PORTAINER_URL}/api/endpoints/"
                         f"{portainer.PORTAINER_ENDPOINT_ID}"
-                        f"/docker/containers/{container_id}/json",
+                        f"/docker/containers/{new_container_id}/json",
                         headers=portainer.headers(agent_target=node),
                     )
                     if _r2.status_code == 200:
@@ -1892,12 +1915,23 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                         op.log(f"Post-recreate container image-id: {post_digest[:19] + '…' if post_digest else '(unknown)'}")
                         if post_digest and post_digest == pre_digest:
                             recreate_endpoint_error = (
-                                f"Portainer /recreate returned 200 but the container's "
-                                f"image-id is unchanged ({pre_digest[:19]}…); the endpoint "
-                                f"no-op'd — common for external / non-Portainer-deployed containers"
+                                f"Portainer /recreate spawned a new container ({new_container_id[:12]}) "
+                                f"BUT the image-id is unchanged ({pre_digest[:19]}…) — `?PullImage=true` "
+                                f"was silently ignored. Common for external / non-Portainer-deployed containers; "
+                                f"the manual fallback path will force the pull"
                             )
                     elif _r2.status_code == 404:
-                        op.log("Post-recreate inspect 404 — container ID changed (recreate DID land)", "success")
+                        # Both old AND new IDs 404 — recreate landed but the
+                        # new container immediately exited / was removed.
+                        # Can't verify the digest. Log it so the operator
+                        # sees the path that ran; don't auto-fallback (the
+                        # manual recreate would also fail to find a target).
+                        op.log(
+                            f"Post-recreate inspect 404 on new container {new_container_id[:12]} — "
+                            f"can't verify image-id; the new container may have exited immediately. "
+                            f"Check `docker ps -a` on the node",
+                            "warning",
+                        )
                     else:
                         op.log(f"Post-recreate inspect HTTP {_r2.status_code} — assuming success", "warning")
                 except (httpx.HTTPError, OSError) as _e:
