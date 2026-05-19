@@ -1394,6 +1394,14 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - get_container_events(args: {name_prefix?, hours=1}) — container state / health transitions from the live gather cache. Filters items by name prefix (e.g. 'omnigrid_' / 'auth' / etc.) and reports state / health / replicas / desired / error. Use this when the operator asks 'is X still restarting' / 'when did this container go unhealthy' — most-recent gather is authoritative.\n"
     " - ssh_diag(args: {host_id, preset}) — run a WHITELISTED read-only diagnostic command on the target host via SSH. Presets: 'journalctl_docker_last_hour' (docker.service journal, last hour), 'journalctl_containerd_last_hour' (containerd.service journal), 'ps_failed' (`docker ps -a` filtered to exited / dead containers), 'df_h' (disk usage on the host filesystem), 'dmesg_tail' (kernel ring buffer tail), 'uptime' (`uptime` output), 'docker_system_df' (`docker system df -v` — total disk used by images / containers / volumes / build cache on this host), 'docker_ps_with_sizes' (`docker ps -a -s` — per-container writable-layer size + status, ranked when piped through sort), 'du_root_top' (`du -sh /var/lib/docker /var/log /home /opt /tmp` — top consumers under common system paths). DESTRUCTIVE-ADJACENT — touches the actual machine so this routes through the SPA's inline-confirm chip BEFORE the SSH session opens. Example: 'is the docker daemon crashing?' → emit ssh_diag with `{host_id:'<host>', preset:'journalctl_docker_last_hour'}`. 'Why is the disk filling up on web01?' → emit ssh_diag with `{host_id:'web01', preset:'docker_system_df'}` AND `{host_id:'web01', preset:'du_root_top'}`. NEVER emit free-form `command` strings; only the whitelisted presets are accepted.\n"
     " - docker_container_du(args: {host_id, container_name, path='/', limit=20}) — run `du -ah <path> | sort -rh | head -<limit>` INSIDE the named container on the target host. Returns the top <limit> largest files / directories within the container's filesystem. THIS is the tool to reach for when the operator asks 'why is X container growing?' / 'what's eating disk in Y?' — DON'T just tell them to SSH and run du themselves. Pair with `ssh_diag preset=docker_ps_with_sizes` first to identify WHICH container the growth lives in, then drill into it with `docker_container_du`. The container_name must be the literal docker container name (often `<stack>_<service>.<N>.<task>` for Swarm tasks or `<stack>_<service>_1` for compose). path defaults to `/`; common drill-down paths: `/config` (most *arr apps), `/var/lib/<app>`, `/data`, `/var/log`. DESTRUCTIVE-ADJACENT — routes through the inline-confirm chip like ssh_diag.\n"
+    "TOOL DIRECTIVE FORMAT — STRICT. Every tool call requires TWO consecutive lines, in this exact order: line one is `TOOL: <name>` (the bare tool name, no JSON), line two is `TOOL_ARGS: {<json>}` (the arg dict). DO NOT emit a `TOOL_ARGS:` line on its own — the parser pairs each TOOL_ARGS with the immediately-preceding TOOL: line; an orphan TOOL_ARGS is recoverable via best-effort discriminator inference but you MUST NOT rely on that fallback. Concrete WRONG shapes (don't produce these): just `TOOL_ARGS: {\"preset\":\"docker_ps_with_sizes\"}` (missing the TOOL: line above it); `TOOL: ssh_diag {\"preset\":\"docker_ps_with_sizes\"}` (args on the same line as TOOL:, no separate TOOL_ARGS line); `TOOL: ssh_diag, TOOL_ARGS: {...}` (both on one line). RIGHT shape, multiple tool calls: write each as a pair with a newline between pairs:\n"
+    "  ```\n"
+    "  TOOL: ssh_diag\n"
+    "  TOOL_ARGS: {\"host_id\":\"docker\",\"preset\":\"docker_ps_with_sizes\"}\n"
+    "  TOOL: docker_container_du\n"
+    "  TOOL_ARGS: {\"host_id\":\"docker\",\"container_name\":\"tracearr_tracearr\",\"path\":\"/config\",\"limit\":20}\n"
+    "  ```\n"
+    "Same shape for every other tool: TOOL line + TOOL_ARGS line, repeated per call. NEVER skip the TOOL line.\n"
     "AUTONOMOUS DIAGNOSIS — STRICT. When the operator asks a 'why is X happening?' / 'what's causing Y?' / 'show me Z' question, you MUST emit the appropriate TOOL directives and let the backend gather the data; you MUST NOT dispense shell commands as prose, ask the operator to SSH and run du themselves, or say 'you'll need to inspect the container's filesystem'. The whole point of having tools is so you USE them. If the question would normally be answered with a shell command, find a TOOL or ssh_diag preset that runs it FOR the operator and emit that instead. The operator has already authorised the OmniGrid → host SSH chain; treat every tool call as a first-class action, not a last resort. Examples of the WRONG pattern (do not produce these): 'You can SSH in and run `du -ah /config | sort -rh | head -10`', 'To find out, run docker exec ...', 'You'll need to log in to the host and check ...'. Examples of the RIGHT pattern: emit `TOOL: ssh_diag` with the appropriate preset OR `TOOL: docker_container_du` with the container_name + path, get the result back, then compose a finding from the actual output ('I see /config/logs/ at 4.2 GB and /config/database.db at 1.8 GB — the log directory is the dominant grower'). Only fall back to descriptive prose when (a) no tool fits the question OR (b) the operator EXPLICITLY asked 'how would I check' / 'what command would I run' (a pedagogical question, not a diagnostic one).\n"
     "EXAMPLE diagnostic flow. Operator: 'why does opnsense keep failing to ping?'. Your FIRST-ROUND reply: 'Let me check the recent history + ping-related logs.\\nTOOL: get_recent_history\\nTOOL_ARGS: {\"target_kind\":\"host\",\"target_id\":\"opnsense\",\"hours\":24}\\nTOOL: get_recent_logs\\nTOOL_ARGS: {\"severity_min\":\"WARN\",\"tag_prefix\":\"ping\",\"hours\":1,\"line_cap\":50}'. Backend dispatches the tools + re-invokes you. SECOND-ROUND reply uses the tool results to answer: 'I see 8 ping-paused events on opnsense in the last 24h, all clustered around 02:00-04:00 UTC. The ping logs show \"icmp: no echo reply\" — looks like a nightly maintenance window on opnsense. Check its cron / scheduled-reboot config.' (Don't fabricate tool results — only cite values that came back in the `Tool results:` block.)\n"
     "EXAMPLE container-bloat flow. Operator: 'tracearr is showing dramatic increase in container size, why?'. Identify the host the container is running on from the supplied items[]/hosts[] context (the item record carries node/placement info; cross-reference against curated hosts). Your FIRST-ROUND reply: 'Let me check the container disk usage on the host.\\nTOOL: ssh_diag\\nTOOL_ARGS: {\"host_id\":\"<host>\",\"preset\":\"docker_ps_with_sizes\"}\\nTOOL: docker_container_du\\nTOOL_ARGS: {\"host_id\":\"<host>\",\"container_name\":\"tracearr_tracearr\",\"path\":\"/config\",\"limit\":15}'. Backend dispatches both, re-invokes you with the actual output. SECOND-ROUND reply names the bloat by file: 'tracearr_tracearr is at 6.4 GB writable layer. Inside /config the top consumers are /config/logs/tracearr.log at 3.1 GB and /config/cache/ at 2.0 GB — the log directory is the dominant grower. Likely an unrotated tracearr log; setting `LOG_LEVEL=warn` or wiring a logrotate sidecar would cap it.' (Concrete sizes, named paths, actionable next step — never generic advice like 'check the logs'.)\n"
@@ -1825,6 +1833,41 @@ def parse_palette_action_data(text: str) -> tuple[Optional[dict], str]:
     return data, cleaned_text
 
 
+def _infer_tool_from_args(args: dict) -> str:
+    """Best-effort inference of the tool name from an orphan TOOL_ARGS
+    payload (when the AI emitted args but forgot the leading
+    ``TOOL: <name>`` line). Returns the canonical tool name when one
+    discriminator key uniquely identifies it; empty string otherwise.
+
+    Discriminator map: each tool's signature carries at least one key
+    that no other tool in :data:`PALETTE_TOOL_CATALOGUE` accepts, so
+    the args dict alone disambiguates. When multiple discriminators
+    fire we return the most-specific match; when none fire we return
+    "" and the caller treats the orphan as un-parseable.
+    """
+    if not isinstance(args, dict):
+        return ""
+    keys = set(args.keys())
+    # Most-specific discriminators first.
+    if "preset" in keys:
+        return "ssh_diag"
+    if "container_name" in keys:
+        return "docker_container_du"
+    if "metric" in keys:
+        return "get_host_metrics_recent"
+    if "severity_min" in keys or "tag_prefix" in keys:
+        return "get_recent_logs"
+    if "name_prefix" in keys:
+        return "get_container_events"
+    if "op_type" in keys or "target_kind" in keys:
+        return "get_recent_history"
+    # Last-resort: a bare host_id-only payload matches get_failure_events
+    # (the only tool that takes host_id alone as a meaningful query).
+    if keys == {"host_id"} or (keys.issubset({"host_id", "hours", "limit"}) and "host_id" in keys):
+        return "get_failure_events"
+    return ""
+
+
 def parse_palette_tool_calls(text: str) -> tuple[list[dict], str]:
     """Parse `TOOL: <name>` + `TOOL_ARGS: {<json>}` directive pairs.
 
@@ -1840,6 +1883,13 @@ def parse_palette_tool_calls(text: str) -> tuple[list[dict], str]:
     matching TOOL_ARGS is paired with an empty ``args={}`` dict so the
     dispatcher can fall back to default args.
 
+    Forgiving path: when the AI emits a `TOOL_ARGS:` line WITHOUT the
+    leading `TOOL: <name>` line (a common LLM mis-formatting), we
+    infer the tool name from the args' discriminator keys via
+    :func:`_infer_tool_from_args`. This keeps the diagnostic flow
+    moving instead of dropping the call silently — see
+    `_infer_tool_from_args` for the discriminator map.
+
     Returns ``(tool_calls, cleaned_text)``. Returns an empty list when
     no TOOL directives are present.
     """
@@ -1848,8 +1898,12 @@ def parse_palette_tool_calls(text: str) -> tuple[list[dict], str]:
     import json as _json
     # Pattern: TOOL: name optionally followed by TOOL_ARGS: {json}.
     # Anchored multi-line so we match per-line and strip surgically.
+    # NB: the post-name whitespace class is `[ \t]*` (horizontal-only) —
+    # `\s*` would eagerly consume the newline that the optional
+    # TOOL_ARGS group needs to anchor, breaking the canonical
+    # two-line pairing.
     tool_re = _re.compile(
-        r"(?:^|\n)[\s`*]*TOOL\s*:\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*"
+        r"(?:^|\n)[\s`*]*TOOL\s*:\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t]*"
         r"(?:\n[\s`*]*TOOL_ARGS\s*:\s*(?P<args>\{.+?}))?",
         _re.IGNORECASE | _re.DOTALL,
     )
@@ -1872,6 +1926,33 @@ def parse_palette_tool_calls(text: str) -> tuple[list[dict], str]:
                 pass
         if name:
             tool_calls.append({"name": name, "args": args})
+        cleaned = cleaned[: m.start()].rstrip() + "\n" + cleaned[m.end():].lstrip()
+        cleaned = cleaned.strip() + ("\n" if not cleaned.endswith("\n") else "")
+    # Forgiving second pass: pick up orphan `TOOL_ARGS:` lines whose
+    # leading `TOOL:` line the model forgot to emit. Discriminator
+    # inference on args keys gives us the tool name; un-inferable
+    # orphans are stripped from the prose so they don't leak into the
+    # user-visible reply but no call fires.
+    orphan_re = _re.compile(
+        r"(?:^|\n)[\s`*]*TOOL_ARGS\s*:\s*(?P<args>\{.+?})",
+        _re.IGNORECASE | _re.DOTALL,
+    )
+    while True:
+        m = orphan_re.search(cleaned)
+        if not m:
+            break
+        args_raw = (m.group("args") or "").strip()
+        args = {}
+        if args_raw:
+            try:
+                parsed = _json.loads(args_raw)
+                if isinstance(parsed, dict):
+                    args = parsed
+            except _json.JSONDecodeError:
+                pass
+        inferred = _infer_tool_from_args(args)
+        if inferred:
+            tool_calls.append({"name": inferred, "args": args})
         cleaned = cleaned[: m.start()].rstrip() + "\n" + cleaned[m.end():].lstrip()
         cleaned = cleaned.strip() + ("\n" if not cleaned.endswith("\n") else "")
     return tool_calls, cleaned.strip()
@@ -2148,7 +2229,6 @@ async def _tool_docker_container_du(args: dict, _ctx: dict) -> dict:
     inside the container so the path resolves against the container's
     own filesystem (where the bloat usually is).
     """
-    import re as _re
     import shlex as _shlex
     from logic import ssh as _ssh
     host_id = (args.get("host_id") or "").strip()
@@ -2184,7 +2264,6 @@ async def _tool_docker_container_du(args: dict, _ctx: dict) -> dict:
             host_id=host_id,
             command=cmd,
             hosts_config=hosts_cfg_raw if isinstance(hosts_cfg_raw, list) else [],
-            timeout=30.0,
         )
     except Exception as e:  # noqa: BLE001
         return {"error": f"docker_container_du failed: {type(e).__name__}: {e}"}
