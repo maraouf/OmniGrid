@@ -240,8 +240,9 @@ def publish(
     # Stamp client_id into the payload (non-destructive: callers'
     # original dict isn't mutated; we make a shallow copy when needed).
     if client_id:
-        payload = dict(payload or {})
-        payload["client_id"] = client_id
+        enriched: dict = dict(payload or {})
+        enriched["client_id"] = client_id
+        payload = enriched
     try:
         bus.publish(type_, payload, ts)
     except Exception as e:

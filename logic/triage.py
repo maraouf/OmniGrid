@@ -110,9 +110,9 @@ def triage_host(host_id: str, hours: int = 720) -> dict:
     def _bucket(bucket_provider: str, bucket_pattern: str) -> dict:
         """Fetch or initialise the rolling group for `(provider, pattern)`."""
         key = (bucket_provider or "", bucket_pattern or "other")
-        bucket = groups.get(key)
-        if bucket is None:
-            bucket = {
+        entry = groups.get(key)
+        if entry is None:
+            entry = {
                 "provider": key[0],
                 "pattern": key[1],
                 "count": 0,
@@ -122,31 +122,31 @@ def triage_host(host_id: str, hours: int = 720) -> dict:
                 "sample_errors": [],
                 "occurrences": [],
             }
-            groups[key] = bucket
-        return bucket
+            groups[key] = entry
+        return entry
 
-    def _record(bucket: dict, ts: float, err: str, duration_s: Optional[float] = None) -> None:
-        """Append one occurrence to `bucket` + update min/max/duration aggregates."""
-        bucket["count"] += 1
+    def _record(entry: dict, ts: float, error_text: str, duration_s: Optional[float] = None) -> None:
+        """Append one occurrence to `entry` + update min/max/duration aggregates."""
+        entry["count"] += 1
         ts_int = int(ts or 0)
-        if bucket["first_ts"] is None or ts_int < bucket["first_ts"]:
-            bucket["first_ts"] = ts_int
-        if bucket["last_ts"] is None or ts_int > bucket["last_ts"]:
-            bucket["last_ts"] = ts_int
+        if entry["first_ts"] is None or ts_int < entry["first_ts"]:
+            entry["first_ts"] = ts_int
+        if entry["last_ts"] is None or ts_int > entry["last_ts"]:
+            entry["last_ts"] = ts_int
         if duration_s is not None:
             try:
-                bucket["durations_s"].append(float(duration_s))
+                entry["durations_s"].append(float(duration_s))
             except (TypeError, ValueError):
                 pass
         # Cap sample errors at 3 — enough for operator pattern-matching,
         # not so many they blow the response size.
-        if err and len(bucket["sample_errors"]) < 3 and err not in bucket["sample_errors"]:
-            bucket["sample_errors"].append(err[:300])
+        if error_text and len(entry["sample_errors"]) < 3 and error_text not in entry["sample_errors"]:
+            entry["sample_errors"].append(error_text[:300])
         # Cap full occurrence list at 50 per group — operators rarely
         # need to scroll past that, and keeps the endpoint response
         # tight on a chatty host.
-        if len(bucket["occurrences"]) < 50:
-            bucket["occurrences"].append({"ts": ts_int, "error": (err or "")[:200]})
+        if len(entry["occurrences"]) < 50:
+            entry["occurrences"].append({"ts": ts_int, "error": (error_text or "")[:200]})
 
     try:
         with db_conn() as c:

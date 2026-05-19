@@ -217,9 +217,11 @@ async def probe_ping(
     if timeout_seconds is None:
         try:
             from logic.tuning import Tunable, tuning_int as _tuning_int
-            timeout_seconds = float(_tuning_int(Tunable.PING_PROBE_TIMEOUT_SECONDS))
+            timeout_s: float = float(_tuning_int(Tunable.PING_PROBE_TIMEOUT_SECONDS))
         except (ImportError, KeyError, ValueError, TypeError):
-            timeout_seconds = 2.0
+            timeout_s = 2.0
+    else:
+        timeout_s = float(timeout_seconds)
     host_clean = (host or "").strip()
     if not host_clean:
         return {
@@ -249,7 +251,7 @@ async def probe_ping(
     # ICMP path (with TCP fallback on import / capability error).
     if transport == "icmp" and _HAS_ICMP:
         try:
-            return await _probe_icmp(host_clean, count, timeout_seconds)
+            return await _probe_icmp(host_clean, count, timeout_s)
         except Exception as e:
             print(f"[ping] {host_clean!r} ICMP failed ({e}); falling back to TCP")
 
@@ -259,7 +261,7 @@ async def probe_ping(
     rcv = 0
     last_err: Optional[str] = None
     for _ in range(sent):
-        ok, rtt, err = await _probe_tcp_once(host_clean, port_int, timeout_seconds)
+        ok, rtt, err = await _probe_tcp_once(host_clean, port_int, timeout_s)
         if ok and rtt is not None:
             rcv += 1
             rtts.append(rtt)

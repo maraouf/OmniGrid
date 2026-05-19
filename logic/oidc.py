@@ -169,7 +169,7 @@ def _http_timeout_seconds() -> float:
     try:
         from logic.tuning import Tunable, tuning_int as _tuning_int
         return float(_tuning_int(Tunable.OIDC_HTTP_TIMEOUT_SECONDS))
-    except Exception:
+    except (ImportError, AttributeError, KeyError, TypeError, ValueError):
         return 15.0
 
 
@@ -470,6 +470,7 @@ async def callback(request: Request):
     # Rate-limit per IP the same way /api/local-auth/login does. Stops a
     # runaway loop from hammering the token endpoint on misconfigured
     # deploys, and makes bruteforcing the state/nonce pair pointless.
+    # noinspection PyProtectedMember
     ip = auth._client_ip(request)
     auth.rate_limit_check(ip)
 
@@ -590,7 +591,7 @@ async def callback(request: Request):
         # text.
         try:
             actual = jwt.decode(id_token, options={"verify_signature": False}).get("iss", "?")
-        except Exception:
+        except (jwt.PyJWTError, ValueError, TypeError):
             actual = "?"
         auth.rate_limit_record_failure(ip)
         raise HTTPException(

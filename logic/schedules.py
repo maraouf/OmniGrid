@@ -905,6 +905,7 @@ async def _run_prune_all_nodes(_params: dict) -> tuple[str, Awaitable[tuple[int,
     parallel, durations don't add); status = 'success' iff every child
     succeeded, otherwise 'error'.
     """
+    # noinspection PyProtectedMember
     nodes_info = (gather._cache.get("nodes_info") or {})
     # Filter to ACTUAL Swarm nodes — `nodes_info` is the shared host
     # inventory that ALSO accumulates non-Docker curated hosts (WiFi
@@ -1023,8 +1024,7 @@ async def _run_backup(_params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
         err: Optional[str] = None
         backup_name: Optional[str] = None
         try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, backups.create_backup)
+            result = await asyncio.to_thread(backups.create_backup)
             backup_name = result.get("name")
             print(f"[scheduler] backup created: {backup_name}")
             # Apply retention right after a successful create — matches
@@ -1039,9 +1039,7 @@ async def _run_backup(_params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
             except (TypeError, ValueError):
                 keep = 0
             if keep > 0:
-                pruned = await loop.run_in_executor(
-                    None, backups.prune_backups, keep,
-                )
+                pruned = await asyncio.to_thread(backups.prune_backups, keep)
                 if pruned:
                     print(
                         f"[scheduler] backup retention: pruned {len(pruned)} older "
@@ -1810,6 +1808,7 @@ async def _run_port_scan_refresh(
 
             # 1. Read curated host list — source of truth for "which
             #    hosts are eligible for scanning right now".
+            # noinspection PyProtectedMember
             curated = _main._load_hosts_config()
             now_ts = int(time.time())
 
@@ -1976,6 +1975,7 @@ async def _run_port_scan_refresh(
                 import uuid as _uuid
                 scan_id = str(_uuid.uuid4())
                 async with sem:
+                    # noinspection PyProtectedMember
                     await _main._run_port_scan_async(
                         hid=scan_hid,
                         target=target,
@@ -2102,10 +2102,7 @@ async def _run_config_backup(_params: dict) -> tuple[str, Awaitable[tuple[int, s
         err: Optional[str] = None
         snap_name: Optional[str] = None
         try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                None, _cfg_export.save_snapshot_to_disk,
-            )
+            result = await asyncio.to_thread(_cfg_export.save_snapshot_to_disk)
             snap_name = result.get("name")
             print(f"[scheduler] config_backup created: {snap_name}")
             try:
@@ -2114,9 +2111,7 @@ async def _run_config_backup(_params: dict) -> tuple[str, Awaitable[tuple[int, s
             except (TypeError, ValueError):
                 keep = 0
             if keep > 0:
-                pruned = await loop.run_in_executor(
-                    None, _cfg_export.prune_snapshots, keep,
-                )
+                pruned = await asyncio.to_thread(_cfg_export.prune_snapshots, keep)
                 if pruned:
                     print(
                         f"[scheduler] config_backup retention: pruned "

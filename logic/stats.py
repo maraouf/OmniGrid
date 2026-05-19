@@ -433,7 +433,7 @@ async def gather_stats() -> None:
                         return h, []
 
                 per_node = await asyncio.gather(*(_per_node(h) for h in hostnames))
-                seen: dict[str, dict] = {}
+                seen: dict[str, dict[str, Any]] = {}
                 for h, lst in per_node:
                     for c in (lst or []):
                         cid = c.get("Id")
@@ -441,7 +441,7 @@ async def gather_stats() -> None:
                             continue
                         seen[cid] = c
                         sweep_node_by_cid[cid] = h
-                containers = list(seen.values())
+                containers: list[dict[str, Any]] = list(seen.values())
                 print(f"[stats] gather_stats: per-node sweep hosts={hostnames} "
                       f"sizes={[len(lst) for _, lst in per_node]} "
                       f"merged={len(containers)}")

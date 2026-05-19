@@ -934,7 +934,20 @@ def extract_sys_info(get_result: dict) -> dict:
     return out
 
 
-def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
+def _walks_get(walks: dict, name: str) -> dict[str, Any]:
+    """Return ``walks[name]`` if it is a dict, else an empty dict.
+
+    Pyright's truthy-narrowing on ``walks.get(name) or {}`` keeps the
+    Optional in the result type, which makes every subsequent
+    ``.get(...)`` call a weak-warning. This helper does the
+    ``isinstance`` check explicitly so the caller gets a clean
+    ``dict[str, Any]`` back.
+    """
+    v = walks.get(name)
+    return v if isinstance(v, dict) else {}
+
+
+def extract_vendor_info(walks: dict[str, Any], existing: Optional[dict[str, Any]] = None) -> dict:
     """DELL-RAC-MIB + Cisco vendor-MIB extractor.
 
     Fills `host_model` / `host_serial` / `host_firmware` / `host_health`
@@ -952,10 +965,18 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
     'cisco_mem_used' / 'cisco_mem_free' / 'cisco_mem_name' (walk dicts),
     'cisco_cpu' (walk dict).
     """
-    existing = existing or {}
+    have: dict[str, Any] = existing if existing is not None else {}
     out: dict = {}
+
+    def _walk(key: str) -> dict[str, Any]:
+        """Return ``walks[key]`` when it is a dict, else an empty dict.
+        Centralised so each per-vendor block narrows cleanly without
+        repeating ``isinstance`` boilerplate at every site.
+        """
+        return _walks_get(walks, key)
+
     # ---- Dell DELL-RAC-MIB (iDRAC) ----------------------------------
-    dell = walks.get("dell") or {}
+    dell = _walk("dell")
     chassis_tag = _coerce_str(dell.get(_OID_DELL_CHASSIS_SERVICE_TAG)).strip()
     chassis_model = _coerce_str(dell.get(_OID_DELL_CHASSIS_MODEL)).strip()
     rac_firmware = _coerce_str(dell.get(_OID_DELL_RAC_FIRMWARE)).strip()
@@ -964,9 +985,9 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
     global_status = _coerce_int(dell.get(_OID_DELL_GLOBAL_SYS_STATUS))
     serial = chassis_tag or sys_tag
     model = chassis_model or sys_model
-    if serial and not existing.get("host_serial"):
+    if serial and not have.get("host_serial"):
         out["host_serial"] = serial
-    if model and not existing.get("host_model"):
+    if model and not have.get("host_model"):
         out["host_model"] = model
     # OID 1.3.6.1.4.1.674.10892.5.1.1.6.0 is `iDRACURL` on iDRAC9/10
     # (the chassis web management URL like `https://<ip>:443`), NOT
@@ -982,28 +1003,28 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
     # the original behaviour for back-compat.
     if rac_firmware:
         is_urlish = rac_firmware.lower().startswith(("http://", "https://"))
-        if is_urlish and not existing.get("host_idrac_url"):
+        if is_urlish and not have.get("host_idrac_url"):
             out["host_idrac_url"] = rac_firmware
-        elif not is_urlish and not existing.get("host_firmware"):
+        elif not is_urlish and not have.get("host_firmware"):
             out["host_firmware"] = rac_firmware
     if global_status > 0:
         out["host_health"] = _DELL_STATUS_LABELS.get(global_status, f"status={global_status}")
     # ---- Cisco product hardware version -----------------------------
-    cisco_hw = walks.get("cisco_hw") or {}
+    cisco_hw = _walk("cisco_hw")
     cisco_model = _coerce_str(cisco_hw.get(_OID_CISCO_PRODUCT_HW_VER)).strip()
-    if cisco_model and not existing.get("host_model"):
+    if cisco_model and not have.get("host_model"):
         out["host_model"] = cisco_model
     # ---- Cisco memory pools (sum across all pools) ------------------
-    mem_used_walk = walks.get("cisco_mem_used") or {}
-    mem_free_walk = walks.get("cisco_mem_free") or {}
+    mem_used_walk = _walk("cisco_mem_used")
+    mem_free_walk = _walk("cisco_mem_free")
     if mem_used_walk and mem_free_walk:
         used_sum = sum(_coerce_int(v) for v in mem_used_walk.values())
         free_sum = sum(_coerce_int(v) for v in mem_free_walk.values())
         total = used_sum + free_sum
         if total > 0:
-            if not existing.get("host_mem_total"):
+            if not have.get("host_mem_total"):
                 out["host_mem_total"] = total
-            if not existing.get("host_mem_used"):
+            if not have.get("host_mem_used"):
                 out["host_mem_used"] = used_sum
                 out["host_mem_avail"] = free_sum
                 out["host_mem_percent"] = (used_sum / total * 100.0) if total else 0.0
@@ -1014,8 +1035,8 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
     # bogus "0% CPU" entry. We filter to entries that pysnmp actually
     # returned (not just zero defaults) by inspecting the raw value
     # BEFORE coercion.
-    cpu_walk = walks.get("cisco_cpu") or {}
-    if cpu_walk and existing.get("host_cpu_percent") is None:
+    cpu_walk = _walk("cisco_cpu")
+    if cpu_walk and have.get("host_cpu_percent") is None:
         loads = [_coerce_int(v) for v in cpu_walk.values() if v is not None]
         loads = [n for n in loads if 0 <= n <= 100]
         if loads:
@@ -1026,15 +1047,15 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
     # host_battery_*, host_load_percent — these don't conflict with
     # any existing host_* field and are ONLY emitted by APC gear, so
     # they're additive.
-    apc = walks.get("apc") or {}
+    apc = _walk("apc")
     apc_model = _coerce_str(apc.get(_OID_APC_UPS_MODEL)).strip()
     apc_firmware = _coerce_str(apc.get(_OID_APC_UPS_FIRMWARE)).strip()
     apc_serial = _coerce_str(apc.get(_OID_APC_UPS_SERIAL)).strip()
-    if apc_model and not existing.get("host_model"):
+    if apc_model and not have.get("host_model"):
         out["host_model"] = apc_model
-    if apc_firmware and not existing.get("host_firmware"):
+    if apc_firmware and not have.get("host_firmware"):
         out["host_firmware"] = apc_firmware
-    if apc_serial and not existing.get("host_serial"):
+    if apc_serial and not have.get("host_serial"):
         out["host_serial"] = apc_serial
     apc_batt_status = _coerce_int(apc.get(_OID_APC_UPS_BATT_STATUS))
     if apc_batt_status > 0:
@@ -1064,7 +1085,7 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
     # DD-WRT / OpenWrt / generic Linux without Beszel/NE pick
     # up CPU% (100 - ssCpuIdle), memory (KB → bytes), 1/5/15-min load
     # average (centi-load → float), and per-mount disk via dskTable.
-    ucd_mem = walks.get("ucd_mem_cpu") or {}
+    ucd_mem = _walk("ucd_mem_cpu")
     if ucd_mem:
         mem_total_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_TOTAL_REAL))
         mem_avail_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_AVAIL_REAL))
@@ -1072,7 +1093,7 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         # buffers + cached for the stacked-area memory chart.
         mem_buffer_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_BUFFER))
         mem_cached_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_CACHED))
-        if mem_total_kb > 0 and not existing.get("host_mem_total"):
+        if mem_total_kb > 0 and not have.get("host_mem_total"):
             mem_total = mem_total_kb * 1024
             # Prefer memAvailReal if present (accounts for cache); fall
             # back to memTotalFree (raw free, no cache discount).
@@ -1106,12 +1127,12 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         # spurious 100% CPU stamped onto the row — which gets persisted
         # into the snapshot and locks the host card's CPU bar at full
         # red even after later probes correctly return nothing.
-        if _OID_UCD_SS_CPU_IDLE in ucd_mem and existing.get("host_cpu_percent") is None:
+        if _OID_UCD_SS_CPU_IDLE in ucd_mem and have.get("host_cpu_percent") is None:
             cpu_idle = _coerce_int(ucd_mem.get(_OID_UCD_SS_CPU_IDLE))
             if 0 <= cpu_idle <= 100:
                 out["host_cpu_percent"] = float(max(0, min(100, 100 - cpu_idle)))
     # laLoadInt walk — three rows × 100 (centi-load).
-    ucd_load = walks.get("ucd_load") or {}
+    ucd_load = _walk("ucd_load")
     if ucd_load:
         load_by_idx: dict[int, float] = {}
         for oid, v in ucd_load.items():
@@ -1124,26 +1145,26 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
                 centi = _coerce_int(v)
                 if centi >= 0:
                     load_by_idx[idx] = centi / 100.0
-        if 1 in load_by_idx and not existing.get("host_load_1m"):
+        if 1 in load_by_idx and not have.get("host_load_1m"):
             out["host_load_1m"] = load_by_idx[1]
-        if 2 in load_by_idx and not existing.get("host_load_5m"):
+        if 2 in load_by_idx and not have.get("host_load_5m"):
             out["host_load_5m"] = load_by_idx[2]
-        if 3 in load_by_idx and not existing.get("host_load_15m"):
+        if 3 in load_by_idx and not have.get("host_load_15m"):
             out["host_load_15m"] = load_by_idx[3]
     # ---- SYNOLOGY-MIB (DSM NAS) -------------------------------------
     # DSM 7+ also implements Host Resources MIB; these OIDs
     # add the NAS-specific identity + the system temperature + an
     # upgrade-available signal. Picks up DiskStation / RackStation
     # gear where the operator hasn't (yet) deployed an OmniGrid agent.
-    syno = walks.get("syno") or {}
+    syno = _walk("syno")
     syno_model = _coerce_str(syno.get(_OID_SYNO_MODEL_NAME)).strip()
     syno_serial = _coerce_str(syno.get(_OID_SYNO_SERIAL_NUMBER)).strip()
     syno_dsm = _coerce_str(syno.get(_OID_SYNO_DSM_VERSION)).strip()
-    if syno_model and not existing.get("host_model") and "host_model" not in out:
+    if syno_model and not have.get("host_model") and "host_model" not in out:
         out["host_model"] = syno_model
-    if syno_serial and not existing.get("host_serial") and "host_serial" not in out:
+    if syno_serial and not have.get("host_serial") and "host_serial" not in out:
         out["host_serial"] = syno_serial
-    if syno_dsm and not existing.get("host_firmware") and "host_firmware" not in out:
+    if syno_dsm and not have.get("host_firmware") and "host_firmware" not in out:
         out["host_firmware"] = syno_dsm
     syno_status = _coerce_int(syno.get(_OID_SYNO_SYSTEM_STATUS))
     if syno_status > 0 and "host_health" not in out:
@@ -1163,16 +1184,16 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
     # `printer_console_msg` (str — "Replace toner Y" / "Paper jam" /
     # etc.), and `printer_supplies[]` (per-supply rows aligned across
     # the three walks).
-    prt_basic = walks.get("prt_basic") or {}
+    prt_basic = _walk("prt_basic")
     page_count = _coerce_int(prt_basic.get(_OID_PRT_PAGE_COUNT))
     console_msg = _coerce_str(prt_basic.get(_OID_PRT_CONSOLE_MSG)).strip()
     if page_count > 0:
         out["printer_page_count"] = page_count
     if console_msg:
         out["printer_console_msg"] = console_msg
-    prt_descrs = walks.get("prt_supply_descr") or {}
-    prt_maxs = walks.get("prt_supply_max") or {}
-    prt_levels = walks.get("prt_supply_level") or {}
+    prt_descrs = _walk("prt_supply_descr")
+    prt_maxs = _walk("prt_supply_max")
+    prt_levels = _walk("prt_supply_level")
     if prt_descrs:
         supplies = []
         for oid in prt_descrs.keys():
@@ -1196,11 +1217,11 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         if supplies:
             out["printer_supplies"] = supplies
     # dskTable — per-mount disk. Only emit when hrStorage didn't.
-    ucd_paths = walks.get("ucd_dsk_path") or {}
-    ucd_totals = walks.get("ucd_dsk_total") or {}
-    ucd_useds = walks.get("ucd_dsk_used") or {}
-    ucd_pcts = walks.get("ucd_dsk_pct") or {}
-    if ucd_paths and not existing.get("mounts"):
+    ucd_paths = _walk("ucd_dsk_path")
+    ucd_totals = _walk("ucd_dsk_total")
+    ucd_useds = _walk("ucd_dsk_used")
+    ucd_pcts = _walk("ucd_dsk_pct")
+    if ucd_paths and not have.get("mounts"):
         gib = 1024 ** 3
         mounts = []
         disk_total_sum = 0
@@ -1229,7 +1250,7 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         if mounts:
             mounts.sort(key=lambda m: m.get("dp", 0), reverse=True)
             out["mounts"] = mounts
-            if not existing.get("host_disk_total"):
+            if not have.get("host_disk_total"):
                 out["host_disk_total"] = disk_total_sum
                 out["host_disk_used"] = disk_used_sum
                 out["host_disk_free"] = max(0, disk_total_sum - disk_used_sum)
@@ -1248,10 +1269,10 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         return row_oid.rsplit(".", 1)[-1]
 
     # Fans — coolingDeviceTable.
-    fan_readings = walks.get("dell_fan_reading") or {}
+    fan_readings = _walk("dell_fan_reading")
     if fan_readings:
-        fan_status = walks.get("dell_fan_status") or {}
-        fan_loc = walks.get("dell_fan_loc") or {}
+        fan_status = _walk("dell_fan_status")
+        fan_loc = _walk("dell_fan_loc")
         rows: list[dict] = []
         for oid, v in fan_readings.items():
             idx = _row_index(oid, _OID_DELL_FAN_READING)
@@ -1270,10 +1291,10 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             out["host_dell_fans"] = rows
 
     # Temperature probes — temperatureProbeTable.
-    temp_readings = walks.get("dell_temp_reading") or {}
+    temp_readings = _walk("dell_temp_reading")
     if temp_readings:
-        temp_status = walks.get("dell_temp_status") or {}
-        temp_loc = walks.get("dell_temp_loc") or {}
+        temp_status = _walk("dell_temp_status")
+        temp_loc = _walk("dell_temp_loc")
         rows: list[dict] = []
         for oid, v in temp_readings.items():
             idx = _row_index(oid, _OID_DELL_TEMP_READING)
@@ -1295,10 +1316,10 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             out["host_dell_temps"] = rows
 
     # Power supplies — powerSupplyTable.
-    psu_status_walk = walks.get("dell_psu_status") or {}
+    psu_status_walk = _walk("dell_psu_status")
     if psu_status_walk:
-        psu_watts_walk = walks.get("dell_psu_watts") or {}
-        psu_loc_walk = walks.get("dell_psu_loc") or {}
+        psu_watts_walk = _walk("dell_psu_watts")
+        psu_loc_walk = _walk("dell_psu_loc")
         rows: list[dict] = []
         for oid, v in psu_status_walk.items():
             idx = _row_index(oid, _OID_DELL_PSU_STATUS)
@@ -1322,10 +1343,10 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             out["host_dell_psus"] = rows
 
     # Voltage probes — voltageProbeTable.
-    volt_readings = walks.get("dell_volt_reading") or {}
+    volt_readings = _walk("dell_volt_reading")
     if volt_readings:
-        volt_status = walks.get("dell_volt_status") or {}
-        volt_loc = walks.get("dell_volt_loc") or {}
+        volt_status = _walk("dell_volt_status")
+        volt_loc = _walk("dell_volt_loc")
         rows: list[dict] = []
         for oid, v in volt_readings.items():
             idx = _row_index(oid, _OID_DELL_VOLT_READING)
@@ -1347,11 +1368,11 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
     # On iDRAC9+ this also surfaces system-power watts (type=24);
     # the extractor splits that into host_dell_power_watts (chassis
     # total) when available.
-    amp_readings = walks.get("dell_amp_reading") or {}
+    amp_readings = _walk("dell_amp_reading")
     if amp_readings:
-        amp_status = walks.get("dell_amp_status") or {}
-        amp_loc = walks.get("dell_amp_loc") or {}
-        amp_type = walks.get("dell_amp_type") or {}
+        amp_status = _walk("dell_amp_status")
+        amp_loc = _walk("dell_amp_loc")
+        amp_type = _walk("dell_amp_type")
         rows: list[dict] = []
         for oid, v in amp_readings.items():
             idx = _row_index(oid, _OID_DELL_AMP_READING)
@@ -1378,12 +1399,12 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             out["host_dell_amperages"] = rows
 
     # Physical disks — physicalDiskTable.
-    pd_names = walks.get("dell_pd_name") or {}
+    pd_names = _walk("dell_pd_name")
     if pd_names:
-        pd_state_walk = walks.get("dell_pd_state") or {}
-        pd_capacity = walks.get("dell_pd_capacity") or {}
-        pd_serial = walks.get("dell_pd_serial") or {}
-        pd_revision = walks.get("dell_pd_revision") or {}
+        pd_state_walk = _walk("dell_pd_state")
+        pd_capacity = _walk("dell_pd_capacity")
+        pd_serial = _walk("dell_pd_serial")
+        pd_revision = _walk("dell_pd_revision")
         rows: list[dict] = []
         for oid, v in pd_names.items():
             idx = _row_index(oid, _OID_DELL_PD_NAME)
@@ -1408,11 +1429,11 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             out["host_dell_phys_disks"] = rows
 
     # Virtual disks — virtualDiskTable.
-    vd_names = walks.get("dell_vd_name") or {}
+    vd_names = _walk("dell_vd_name")
     if vd_names:
-        vd_state_walk = walks.get("dell_vd_state") or {}
-        vd_size = walks.get("dell_vd_size") or {}
-        vd_layout_walk = walks.get("dell_vd_layout") or {}
+        vd_state_walk = _walk("dell_vd_state")
+        vd_size = _walk("dell_vd_size")
+        vd_layout_walk = _walk("dell_vd_layout")
         rows: list[dict] = []
         for oid, v in vd_names.items():
             idx = _row_index(oid, _OID_DELL_VD_NAME)
@@ -1434,14 +1455,14 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             out["host_dell_virt_disks"] = rows
 
     # System BIOS — systemBIOSTable; pick the first non-empty version.
-    bios_versions = walks.get("dell_bios_version") or {}
+    bios_versions = _walk("dell_bios_version")
     if bios_versions:
         for _, v in bios_versions.items():
             ver = _coerce_str(v).strip()
             if ver:
                 out["host_bios_version"] = ver
                 break
-        bios_dates = walks.get("dell_bios_date") or {}
+        bios_dates = _walk("dell_bios_date")
         for _, v in (bios_dates or {}).items():
             d = _coerce_str(v).strip()
             if d:
