@@ -1392,8 +1392,11 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - get_failure_events(args: {host_id?, hours=24, limit=50}) — recent rows from the `host_failure_events` table — state transitions for provider availability per host (provider paused / resumed / recovered). Use this when the operator asks 'how often does X go offline' / 'which providers are flapping on this host' / 'show me the recent failure events'.\n"
     " - get_host_metrics_recent(args: {host_id, metric='cpu_percent', hours=6, limit=200}) — recent rows from `host_metrics_samples` for ONE host + ONE metric (whitelisted: cpu_percent / mem_percent / disk_percent / load_1m / load_5m / load_15m / host_uptime_s / host_swap_percent). Use this when the operator asks 'show me the cpu spike at 02:00' / 'has memory been creeping up on this host all week' — chart-level questions where the raw samples matter more than the chart.\n"
     " - get_container_events(args: {name_prefix?, hours=1}) — container state / health transitions from the live gather cache. Filters items by name prefix (e.g. 'omnigrid_' / 'auth' / etc.) and reports state / health / replicas / desired / error. Use this when the operator asks 'is X still restarting' / 'when did this container go unhealthy' — most-recent gather is authoritative.\n"
-    " - ssh_diag(args: {host_id, preset}) — run a WHITELISTED read-only diagnostic command on the target host via SSH. Presets: 'journalctl_docker_last_hour' (docker.service journal, last hour), 'journalctl_containerd_last_hour' (containerd.service journal), 'ps_failed' (`docker ps -a` filtered to exited / dead containers), 'df_h' (disk usage), 'dmesg_tail' (kernel ring buffer tail), 'uptime' (`uptime` output). DESTRUCTIVE-ADJACENT — touches the actual machine so this routes through the SPA's inline-confirm chip BEFORE the SSH session opens. Use sparingly + only when the DB-side tools can't answer the question. Example: 'is the docker daemon crashing?' → emit ssh_diag with `{host_id:'<host>', preset:'journalctl_docker_last_hour'}`. NEVER emit free-form `command` strings; only the whitelisted presets are accepted.\n"
+    " - ssh_diag(args: {host_id, preset}) — run a WHITELISTED read-only diagnostic command on the target host via SSH. Presets: 'journalctl_docker_last_hour' (docker.service journal, last hour), 'journalctl_containerd_last_hour' (containerd.service journal), 'ps_failed' (`docker ps -a` filtered to exited / dead containers), 'df_h' (disk usage on the host filesystem), 'dmesg_tail' (kernel ring buffer tail), 'uptime' (`uptime` output), 'docker_system_df' (`docker system df -v` — total disk used by images / containers / volumes / build cache on this host), 'docker_ps_with_sizes' (`docker ps -a -s` — per-container writable-layer size + status, ranked when piped through sort), 'du_root_top' (`du -sh /var/lib/docker /var/log /home /opt /tmp` — top consumers under common system paths). DESTRUCTIVE-ADJACENT — touches the actual machine so this routes through the SPA's inline-confirm chip BEFORE the SSH session opens. Example: 'is the docker daemon crashing?' → emit ssh_diag with `{host_id:'<host>', preset:'journalctl_docker_last_hour'}`. 'Why is the disk filling up on web01?' → emit ssh_diag with `{host_id:'web01', preset:'docker_system_df'}` AND `{host_id:'web01', preset:'du_root_top'}`. NEVER emit free-form `command` strings; only the whitelisted presets are accepted.\n"
+    " - docker_container_du(args: {host_id, container_name, path='/', limit=20}) — run `du -ah <path> | sort -rh | head -<limit>` INSIDE the named container on the target host. Returns the top <limit> largest files / directories within the container's filesystem. THIS is the tool to reach for when the operator asks 'why is X container growing?' / 'what's eating disk in Y?' — DON'T just tell them to SSH and run du themselves. Pair with `ssh_diag preset=docker_ps_with_sizes` first to identify WHICH container the growth lives in, then drill into it with `docker_container_du`. The container_name must be the literal docker container name (often `<stack>_<service>.<N>.<task>` for Swarm tasks or `<stack>_<service>_1` for compose). path defaults to `/`; common drill-down paths: `/config` (most *arr apps), `/var/lib/<app>`, `/data`, `/var/log`. DESTRUCTIVE-ADJACENT — routes through the inline-confirm chip like ssh_diag.\n"
+    "AUTONOMOUS DIAGNOSIS — STRICT. When the operator asks a 'why is X happening?' / 'what's causing Y?' / 'show me Z' question, you MUST emit the appropriate TOOL directives and let the backend gather the data; you MUST NOT dispense shell commands as prose, ask the operator to SSH and run du themselves, or say 'you'll need to inspect the container's filesystem'. The whole point of having tools is so you USE them. If the question would normally be answered with a shell command, find a TOOL or ssh_diag preset that runs it FOR the operator and emit that instead. The operator has already authorised the OmniGrid → host SSH chain; treat every tool call as a first-class action, not a last resort. Examples of the WRONG pattern (do not produce these): 'You can SSH in and run `du -ah /config | sort -rh | head -10`', 'To find out, run docker exec ...', 'You'll need to log in to the host and check ...'. Examples of the RIGHT pattern: emit `TOOL: ssh_diag` with the appropriate preset OR `TOOL: docker_container_du` with the container_name + path, get the result back, then compose a finding from the actual output ('I see /config/logs/ at 4.2 GB and /config/database.db at 1.8 GB — the log directory is the dominant grower'). Only fall back to descriptive prose when (a) no tool fits the question OR (b) the operator EXPLICITLY asked 'how would I check' / 'what command would I run' (a pedagogical question, not a diagnostic one).\n"
     "EXAMPLE diagnostic flow. Operator: 'why does opnsense keep failing to ping?'. Your FIRST-ROUND reply: 'Let me check the recent history + ping-related logs.\\nTOOL: get_recent_history\\nTOOL_ARGS: {\"target_kind\":\"host\",\"target_id\":\"opnsense\",\"hours\":24}\\nTOOL: get_recent_logs\\nTOOL_ARGS: {\"severity_min\":\"WARN\",\"tag_prefix\":\"ping\",\"hours\":1,\"line_cap\":50}'. Backend dispatches the tools + re-invokes you. SECOND-ROUND reply uses the tool results to answer: 'I see 8 ping-paused events on opnsense in the last 24h, all clustered around 02:00-04:00 UTC. The ping logs show \"icmp: no echo reply\" — looks like a nightly maintenance window on opnsense. Check its cron / scheduled-reboot config.' (Don't fabricate tool results — only cite values that came back in the `Tool results:` block.)\n"
+    "EXAMPLE container-bloat flow. Operator: 'tracearr is showing dramatic increase in container size, why?'. Identify the host the container is running on from the supplied items[]/hosts[] context (the item record carries node/placement info; cross-reference against curated hosts). Your FIRST-ROUND reply: 'Let me check the container disk usage on the host.\\nTOOL: ssh_diag\\nTOOL_ARGS: {\"host_id\":\"<host>\",\"preset\":\"docker_ps_with_sizes\"}\\nTOOL: docker_container_du\\nTOOL_ARGS: {\"host_id\":\"<host>\",\"container_name\":\"tracearr_tracearr\",\"path\":\"/config\",\"limit\":15}'. Backend dispatches both, re-invokes you with the actual output. SECOND-ROUND reply names the bloat by file: 'tracearr_tracearr is at 6.4 GB writable layer. Inside /config the top consumers are /config/logs/tracearr.log at 3.1 GB and /config/cache/ at 2.0 GB — the log directory is the dominant grower. Likely an unrotated tracearr log; setting `LOG_LEVEL=warn` or wiring a logrotate sidecar would cap it.' (Concrete sizes, named paths, actionable next step — never generic advice like 'check the logs'.)\n"
     "Example single-action reply: 'I'll mark every notification as read for you.\\n"
     "ACTION: mark_all_notifications_read'\n"
     "Example multi-action reply (\"refresh and cleanup\"): 'Refreshing the dashboard, then opening the cleanup confirm.\\n"
@@ -2121,7 +2124,83 @@ SSH_DIAG_PRESETS: dict[str, str] = {
     "df_h": "df -h | head -30",
     "dmesg_tail": "dmesg --time-format=iso 2>/dev/null | tail -100 || dmesg | tail -100",
     "uptime": "uptime",
+    # Disk-usage diagnostics — operators ask "why is X growing?" /
+    # "which container is eating disk?" routinely. These let the AI
+    # gather the actual data instead of dispensing shell commands.
+    "docker_system_df": "docker system df -v 2>/dev/null | head -200 || sudo docker system df -v | head -200",
+    "docker_ps_with_sizes": "docker ps -a -s --format 'table {{.Names}}\\t{{.Size}}\\t{{.Status}}\\t{{.Image}}' 2>/dev/null | head -80 || sudo docker ps -a -s --format 'table {{.Names}}\\t{{.Size}}\\t{{.Status}}\\t{{.Image}}' | head -80",
+    "du_root_top": "du -sh /var/lib/docker /var/log /home /opt /tmp 2>/dev/null | sort -rh | head -20",
 }
+
+
+async def _tool_docker_container_du(args: dict, _ctx: dict) -> dict:
+    """Run ``du -ah <path> | sort -rh | head -<n>`` inside a named
+    container on the target host. Used by the AI palette to identify
+    what's eating disk inside a specific container (the most-common
+    answer to "why is X growing?"). Parametric (unlike the fixed
+    presets in :data:`SSH_DIAG_PRESETS`) because the container name +
+    path vary per question.
+
+    Defensive shape: the container name is shell-escaped via
+    :func:`shlex.quote` before composition, the path is restricted to
+    safe characters (``[A-Za-z0-9/_.-]``) so a confused / malicious
+    model can't smuggle shell metacharacters, and the ``du`` runs
+    inside the container so the path resolves against the container's
+    own filesystem (where the bloat usually is).
+    """
+    import re as _re
+    import shlex as _shlex
+    from logic import ssh as _ssh
+    host_id = (args.get("host_id") or "").strip()
+    container = (args.get("container_name") or "").strip()
+    path = (args.get("path") or "/").strip() or "/"
+    try:
+        n = max(5, min(int(args.get("limit") or 20), 50))
+    except (TypeError, ValueError):
+        n = 20
+    if not host_id:
+        return {"error": "host_id is required"}
+    if not container:
+        return {"error": "container_name is required"}
+    if not _re.fullmatch(r"[A-Za-z0-9/_.-]+", path):
+        return {"error": f"path must match [A-Za-z0-9/_.-]+ (got {path!r})"}
+    if not _re.fullmatch(r"[A-Za-z0-9_.-]+", container):
+        return {"error": f"container_name must match [A-Za-z0-9_.-]+ (got {container!r})"}
+    cmd = (
+        f"docker exec {_shlex.quote(container)} sh -c "
+        f"\"du -ah {path} 2>/dev/null | sort -rh | head -n {n}\" "
+        f"2>/dev/null || sudo docker exec {_shlex.quote(container)} sh -c "
+        f"\"du -ah {path} 2>/dev/null | sort -rh | head -n {n}\""
+    )
+    try:
+        from logic.db import get_setting
+        from logic.settings_keys import Settings
+        import json as _json_ssh
+        try:
+            hosts_cfg_raw = _json_ssh.loads(get_setting(Settings.HOSTS_CONFIG) or "[]")
+        except (TypeError, ValueError):
+            hosts_cfg_raw = []
+        result = await _ssh.run_command(
+            host_id=host_id,
+            command=cmd,
+            hosts_config=hosts_cfg_raw if isinstance(hosts_cfg_raw, list) else [],
+            timeout=30.0,
+        )
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"docker_container_du failed: {type(e).__name__}: {e}"}
+    if not isinstance(result, dict):
+        return {"error": "docker_container_du returned non-dict result"}
+    return {
+        "host_id": host_id,
+        "container_name": container,
+        "path": path,
+        "limit": n,
+        "exit_code": result.get("exit_code"),
+        "stdout": (result.get("stdout") or "")[:4000],
+        "stderr": (result.get("stderr") or "")[:1000],
+        "error": result.get("error") or "",
+        "duration_ms": result.get("duration_ms"),
+    }
 
 
 async def _tool_ssh_diag(args: dict, _ctx: dict) -> dict:
@@ -2184,6 +2263,7 @@ PALETTE_TOOL_CATALOGUE: dict = {
     "get_host_metrics_recent": _tool_get_host_metrics_recent,
     "get_container_events": _tool_get_container_events,
     "ssh_diag": _tool_ssh_diag,
+    "docker_container_du": _tool_docker_container_du,
 }
 
 # Tools whose dispatch is DESTRUCTIVE-adjacent — they touch the
@@ -2192,7 +2272,7 @@ PALETTE_TOOL_CATALOGUE: dict = {
 # orchestrator skips these on the SPA fast-path; the SPA must
 # emit them via the same confirm flow used for ACTION-class
 # destructive ops.
-PALETTE_TOOLS_REQUIRING_CONFIRM: frozenset[str] = frozenset({"ssh_diag"})
+PALETTE_TOOLS_REQUIRING_CONFIRM: frozenset[str] = frozenset({"ssh_diag", "docker_container_du"})
 
 
 async def dispatch_palette_tool(call: dict, ctx: Optional[dict] = None) -> dict:
