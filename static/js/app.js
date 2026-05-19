@@ -4027,12 +4027,16 @@ function app() {
     // stacked so the top edge is the sum. Same gridline + axis style
     // as the 90d growth chart so the Stats family reads as a coherent
     // visual treatment.
-    _renderFleetNetChart(points) {
+    _renderFleetNetChart(points, hours) {
       if (!Array.isArray(points) || points.length < 2) {
         return '';
       }
+      // 90d range (hours >= 2160) — rotate x-axis labels -45° + reserve
+      // wider bottom padding so the dense date labels don't overlap.
+      // Same treatment as the Samples + AI Cost bar charts.
       const W = 720, H = 220;
-      const PAD_L = 80, PAD_R = 16, PAD_T = 12, PAD_B = 24;
+      const rotateXLabels = (Number(hours) || 0) >= 2160;
+      const PAD_L = 80, PAD_R = 16, PAD_T = 12, PAD_B = rotateXLabels ? 60 : 24;
       const plotW = W - PAD_L - PAD_R;
       const plotH = H - PAD_T - PAD_B;
       const tsMin = points[0].bucket_ts;
@@ -4130,7 +4134,13 @@ function app() {
       // TX area (top, success tint).
       svg += '<path d="' + txArea + '" fill="var(--success)" fill-opacity="0.35" stroke="var(--success)" stroke-width="1"/>';
       for (const t of xTicks) {
-        svg += '<text x="' + t.x + '" y="' + (H - 6) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
+        if (rotateXLabels) {
+          const ly = (H - PAD_B + 16).toFixed(1);
+          svg += '<text x="' + t.x + '" y="' + ly + '" text-anchor="end" fill="var(--text-faint)" font-size="10"'
+            + ' transform="rotate(-45 ' + t.x + ' ' + ly + ')">' + esc(t.label) + '</text>';
+        } else {
+          svg += '<text x="' + t.x + '" y="' + (H - 6) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
+        }
       }
       svg += '</svg>';
       return svg;
@@ -23824,8 +23834,12 @@ function app() {
       if (!Array.isArray(points) || points.length === 0) {
         return '';
       }
+      // 90d range packs the X-axis with dense `dd/MM/yyyy` labels.
+      // Rotate -45° + reserve a wider bottom pad to keep dates legible
+      // (parallels `_renderSamplesBucketChart`'s treatment).
       const W = 720, H = 220;
-      const PAD_L = 56, PAD_R = 12, PAD_T = 12, PAD_B = 28;
+      const rotateXLabels = ((range || '').toString() === '90d');
+      const PAD_L = 56, PAD_R = 12, PAD_T = 12, PAD_B = rotateXLabels ? 60 : 28;
       const plotW = W - PAD_L - PAD_R;
       const plotH = H - PAD_T - PAD_B;
       const n = points.length;
@@ -23902,8 +23916,15 @@ function app() {
           continue;
         }
         const cx = (X(i) + barW / 2).toFixed(1);
-        svg += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">'
-          + esc(fmtXLabel(p.bucket_ts)) + '</text>';
+        if (rotateXLabels) {
+          const ly = (H - PAD_B + 16).toFixed(1);
+          svg += '<text x="' + cx + '" y="' + ly + '" text-anchor="end" fill="var(--text-faint)" font-size="10"'
+            + ' transform="rotate(-45 ' + cx + ' ' + ly + ')">'
+            + esc(fmtXLabel(p.bucket_ts)) + '</text>';
+        } else {
+          svg += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">'
+            + esc(fmtXLabel(p.bucket_ts)) + '</text>';
+        }
       }
       svg += '</svg>';
       return svg;
@@ -23912,8 +23933,14 @@ function app() {
       if (!Array.isArray(points) || points.length === 0) {
         return '';
       }
+      // Operator-flagged: at 90d the ~14 weekly `dd/MM/yyyy` x-axis
+      // labels overlap horizontally. Tilt labels -45° at 90d (and any
+      // future long range) so dense date labels stay readable; reserve
+      // ~60px of bottom padding to fit the rotated text without
+      // clipping the SVG viewBox.
       const W = 720, H = 220;
-      const PAD_L = 56, PAD_R = 12, PAD_T = 12, PAD_B = 28;
+      const rotateXLabels = ((range || '').toString() === '90d');
+      const PAD_L = 56, PAD_R = 12, PAD_T = 12, PAD_B = rotateXLabels ? 60 : 28;
       const plotW = W - PAD_L - PAD_R;
       const plotH = H - PAD_T - PAD_B;
       const n = points.length;
@@ -24061,15 +24088,26 @@ function app() {
           + '<title>' + esc(fmtTooltipDate(p.date)) + ': ' + total.toLocaleString() + ' rows</title>'
           + '</rect>';
       }
-      // X-axis tick labels.
+      // X-axis tick labels — rotated -45° at 90d so the ~14 weekly
+      // `dd/MM/yyyy` labels stop overlapping. With `text-anchor="end"`
+      // + `rotate(-45 cx ly)` the label's RIGHT edge anchors at the
+      // bar centre and the text extends up-left from there; the
+      // operator's date pref still flows through `fmtXLabel`.
       for (const i of dedup) {
         const p = points[i];
         if (!p) {
           continue;
         }
         const cx = (X(i) + barW / 2).toFixed(1);
-        svg += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">'
-          + esc(fmtXLabel(p.date)) + '</text>';
+        if (rotateXLabels) {
+          const ly = (H - PAD_B + 16).toFixed(1);
+          svg += '<text x="' + cx + '" y="' + ly + '" text-anchor="end" fill="var(--text-faint)" font-size="10"'
+            + ' transform="rotate(-45 ' + cx + ' ' + ly + ')">'
+            + esc(fmtXLabel(p.date)) + '</text>';
+        } else {
+          svg += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">'
+            + esc(fmtXLabel(p.date)) + '</text>';
+        }
       }
       svg += '</svg>';
       return svg;
