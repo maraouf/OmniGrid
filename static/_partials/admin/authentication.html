@@ -1,182 +1,185 @@
-      <div x-show="adminTab==='authentication'" class="space-y-4">
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <!-- Title row + Enabled/Disabled pill — matches Portainer /
-               Notifications / SSH / OIDC pattern. Pill is "Enabled"
-               when AT LEAST ONE 2FA method is allowed (TOTP OR
-               passkeys); both off → "Disabled". -->
-          <div class="flex items-start justify-between">
-            <div>
-              <div class="flex items-center gap-2 mb-2">
-                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
-                <h3 class="font-semibold fs-md"
-                    x-text="t('admin.config.totp.title')"></h3>
-              </div>
-              <p class="fs-xs text-[var(--text-faint)] mb-3"
-                 x-text="t('admin.config.totp.subtitle')"></p>
-            </div>
-            <span class="chip"
-                  :class="(settings.totp_allowed || settings.passkeys_allowed) ? 'pill-ok' : 'pill-muted'"
-                  x-text="(settings.totp_allowed || settings.passkeys_allowed) ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
-          </div>
+<!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
+<div x-show="adminTab==='authentication'" class="space-y-4">
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+    <!-- Title row + Enabled/Disabled pill — matches Portainer /
+         Notifications / SSH / OIDC pattern. Pill is "Enabled"
+         when AT LEAST ONE 2FA method is allowed (TOTP OR
+         passkeys); both off → "Disabled". -->
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/>
+          </svg>
+          <h3 class="font-semibold fs-md"
+              x-text="t('admin.config.totp.title')"></h3>
+        </div>
+        <p class="fs-xs text-[var(--text-faint)] mb-3"
+           x-text="t('admin.config.totp.subtitle')"></p>
+      </div>
+      <span class="chip"
+            :class="(settings.totp_allowed || settings.passkeys_allowed) ? 'pill-ok' : 'pill-muted'"
+            x-text="(settings.totp_allowed || settings.passkeys_allowed) ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
+    </div>
 
-          <div class="space-y-3" x-show="settings">
-            <!-- TOTP master toggle — help text BEFORE the checkbox
-                 (operator-canonical pattern matching every other admin
-                 section). Indent dropped so the explainer aligns flush-
-                 left with the checkbox row. -->
-            <div>
-              <p class="fs-xs text-[var(--text-faint)] mb-1"
-                 x-text="t('admin.config.totp.allowed_hint')"></p>
-              <label class="flex items-center gap-2 fs-sm">
-                <input type="checkbox" x-model="settings.totp_allowed"
-                       :disabled="!isAdmin()">
-                <span x-text="t('admin.config.totp.allowed_label')"></span>
-              </label>
-            </div>
+    <div class="space-y-3" x-show="settings">
+      <!-- TOTP master toggle — help text BEFORE the checkbox
+           (operator-canonical pattern matching every other admin
+           section). Indent dropped so the explainer aligns flush-
+           left with the checkbox row. -->
+      <div>
+        <p class="fs-xs text-[var(--text-faint)] mb-1"
+           x-text="t('admin.config.totp.allowed_hint')"></p>
+        <label class="flex items-center gap-2 fs-sm">
+          <input type="checkbox" x-model="settings.totp_allowed"
+                 :disabled="!isAdmin()">
+          <span x-text="t('admin.config.totp.allowed_label')"></span>
+        </label>
+      </div>
 
-            <!-- Passkey master toggle. Mirrors `totp_allowed`
-                 in shape and semantics: when off, register-start
-                 returns 403 + login flow drops 'webauthn' from the
-                 methods list, but existing enrolments stay listed
-                 + revocable from Profile so users aren't locked out
-                 of cleanup. -->
-            <!-- Passkeys block — help text BEFORE the checkbox (matches
-                 the canonical pattern used in Asset Inventory / Public IP
-                 / Port Scan). Indent dropped so the explainer aligns
-                 with the checkbox row's left edge. -->
-            <div class="pt-2 border-t border-[var(--border)] mt-2">
-              <p class="fs-xs text-[var(--text-faint)] mb-1"
-                 x-text="t('admin.config.totp.passkeys_allowed_hint')"></p>
-              <label class="flex items-center gap-2 fs-sm">
-                <input type="checkbox" x-model="settings.passkeys_allowed"
-                       :disabled="!isAdmin()">
-                <span x-text="t('admin.config.totp.passkeys_allowed_label')"></span>
-              </label>
-            </div>
+      <!-- Passkey master toggle. Mirrors `totp_allowed`
+           in shape and semantics: when off, register-start
+           returns 403 + login flow drops 'webauthn' from the
+           methods list, but existing enrolments stay listed
+           + revocable from Profile so users aren't locked out
+           of cleanup. -->
+      <!-- Passkeys block — help text BEFORE the checkbox (matches
+           the canonical pattern used in Asset Inventory / Public IP
+           / Port Scan). Indent dropped so the explainer aligns
+           with the checkbox row's left edge. -->
+      <div class="pt-2 border-t border-[var(--border)] mt-2">
+        <p class="fs-xs text-[var(--text-faint)] mb-1"
+           x-text="t('admin.config.totp.passkeys_allowed_hint')"></p>
+        <label class="flex items-center gap-2 fs-sm">
+          <input type="checkbox" x-model="settings.passkeys_allowed"
+                 :disabled="!isAdmin()">
+          <span x-text="t('admin.config.totp.passkeys_allowed_label')"></span>
+        </label>
+      </div>
 
-            <!-- Require 2FA for admins — help text BEFORE the checkbox.
-                 Now carries its own explainer (operator request: this
-                 toggle had no descriptive text). -->
-            <div>
-              <p class="fs-xs text-[var(--text-faint)] mb-1"
-                 x-text="t('admin.config.totp.required_admins_hint')"></p>
-              <label class="flex items-center gap-2 fs-sm">
-                <input type="checkbox" x-model="settings.totp_required_for_admins"
-                       :disabled="!isAdmin() || !settings.totp_allowed">
-                <span x-text="t('admin.config.totp.required_admins_label')"></span>
-              </label>
-            </div>
+      <!-- Require 2FA for admins — help text BEFORE the checkbox.
+           Now carries its own explainer (operator request: this
+           toggle had no descriptive text). -->
+      <div>
+        <p class="fs-xs text-[var(--text-faint)] mb-1"
+           x-text="t('admin.config.totp.required_admins_hint')"></p>
+        <label class="flex items-center gap-2 fs-sm">
+          <input type="checkbox" x-model="settings.totp_required_for_admins"
+                 :disabled="!isAdmin() || !settings.totp_allowed">
+          <span x-text="t('admin.config.totp.required_admins_label')"></span>
+        </label>
+      </div>
 
-            <!-- Require 2FA for users — help text BEFORE the checkbox. -->
-            <div>
-              <p class="fs-xs text-[var(--text-faint)] mb-1"
-                 x-text="t('admin.config.totp.required_hint')"></p>
-              <label class="flex items-center gap-2 fs-sm">
-                <input type="checkbox" x-model="settings.totp_required_for_users"
-                       :disabled="!isAdmin() || !settings.totp_allowed">
-                <span x-text="t('admin.config.totp.required_users_label')"></span>
-              </label>
-            </div>
+      <!-- Require 2FA for users — help text BEFORE the checkbox. -->
+      <div>
+        <p class="fs-xs text-[var(--text-faint)] mb-1"
+           x-text="t('admin.config.totp.required_hint')"></p>
+        <label class="flex items-center gap-2 fs-sm">
+          <input type="checkbox" x-model="settings.totp_required_for_users"
+                 :disabled="!isAdmin() || !settings.totp_allowed">
+          <span x-text="t('admin.config.totp.required_users_label')"></span>
+        </label>
+      </div>
 
-            <!-- Lockout knobs — same visual treatment as TUNABLES
-                 (label → help → textbox + bounds-chips with min / max /
-                 default). They remain plain settings (saved through
-                 `saveTotpPolicy()`, not the tuning pipeline) but render
-                 with the same chrome so the form matches the rest of
-                 the admin surface. Each field stacks on its own line —
-                 no side-by-side grid. -->
-            <div class="space-y-4 pt-2">
-              <div>
-                <label class="block fs-xs font-medium mb-1"
-                       x-text="t('admin.config.totp.max_failures_label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-                   x-text="t('admin.config.totp.max_failures_hint')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number" min="3" max="20" step="1"
-                         x-model.number="settings.totp_lockout_max_failures"
-                         :disabled="!isAdmin() || !settings.totp_allowed"
-                         class="w-44 mono fs-sm py-1">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+      <!-- Lockout knobs — same visual treatment as TUNABLES
+           (label → help → textbox + bounds-chips with min / max /
+           default). They remain plain settings (saved through
+           `saveTotpPolicy()`, not the tuning pipeline) but render
+           with the same chrome so the form matches the rest of
+           the admin surface. Each field stacks on its own line —
+           no side-by-side grid. -->
+      <div class="space-y-4 pt-2">
+        <div>
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.totp.max_failures_label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.totp.max_failures_hint')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number" min="3" max="20" step="1"
+                   x-model.number="settings.totp_lockout_max_failures"
+                   :disabled="!isAdmin() || !settings.totp_allowed"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span>3</span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span>20</span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span>5</span>
                     </span>
-                  </div>
-                </div>
-              </div>
-              <div>
-                <label class="block fs-xs font-medium mb-1"
-                       x-text="t('admin.config.totp.lockout_minutes_label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-                   x-text="t('admin.config.totp.lockout_minutes_hint')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number" min="1" max="1440" step="1"
-                         x-model.number="settings.totp_lockout_minutes"
-                         :disabled="!isAdmin() || !settings.totp_allowed"
-                         class="w-44 mono fs-sm py-1">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+            </div>
+          </div>
+        </div>
+        <div>
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.totp.lockout_minutes_label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.totp.lockout_minutes_hint')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number" min="1" max="1440" step="1"
+                   x-model.number="settings.totp_lockout_minutes"
+                   :disabled="!isAdmin() || !settings.totp_allowed"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span>1</span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span>1440</span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span>15</span>
                     </span>
-                  </div>
-                </div>
-              </div>
             </div>
+          </div>
+        </div>
+      </div>
 
-            <div class="flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
-              <button type="button" x-show="isAdmin()" @click="saveTotpPolicy()"
-                      :disabled="totpPolicySaving"
-                      :class="totpPolicyDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                      class="btn btn-primary fs-sm">
-                <span x-show="!totpPolicySaving" x-text="t('actions.save')"></span>
-                <span x-show="totpPolicySaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-              </button>
-              <span x-show="totpPolicyDirty()"
-                    class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
-                    :title="t('common.unsaved_title')">
+      <div class="flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
+        <button type="button" x-show="isAdmin()" @click="saveTotpPolicy()"
+                :disabled="totpPolicySaving"
+                :class="totpPolicyDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                class="btn btn-primary fs-sm">
+          <span x-show="!totpPolicySaving" x-text="t('actions.save')"></span>
+          <span x-show="totpPolicySaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+        </button>
+        <span x-show="totpPolicyDirty()"
+              class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
+              :title="t('common.unsaved_title')">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
                 <span class="unsaved-flash" x-text="t('common.unsaved')"></span>
               </span>
-            </div>
-          </div>
-        </section>
       </div>
+    </div>
+  </section>
+</div>
 
-      <!-- (Admin → Version page removed 2026-04-30 alongside            deploy migration to image-build. The page wrote to
-           /app/VERSION.txt via a per-file bind that no longer exists;
-           writes would have landed in the container's ephemeral
-           overlay layer and disappeared on the next service update.
-           Operators now seed MAJOR/MINOR by editing repo-root
-           VERSION.txt, committing, and pushing — deploy.yml's source-B
-           resolver picks it up.) -->
+<!-- (Admin → Version page removed 2026-04-30 alongside            deploy migration to image-build. The page wrote to
+     /app/VERSION.txt via a per-file bind that no longer exists;
+     writes would have landed in the container's ephemeral
+     overlay layer and disappeared on the next service update.
+     Operators now seed MAJOR/MINOR by editing repo-root
+     VERSION.txt, committing, and pushing — deploy.yml's source-B
+     resolver picks it up.) -->
 
-      <!-- DEBUG TAB — admin-wide debug / diagnostic preferences. One
-           home for every "show me internals" toggle so they're easy
-           to find + easy to turn off. First item is the host-drawer
-           debug panel (raw provider JSON + merged shape); future
-           toggles land below it. Each flips on change, no Save. -->
+<!-- DEBUG TAB — admin-wide debug / diagnostic preferences. One
+     home for every "show me internals" toggle so they're easy
+     to find + easy to turn off. First item is the host-drawer
+     debug panel (raw provider JSON + merged shape); future
+     toggles land below it. Each flips on change, no Save. -->

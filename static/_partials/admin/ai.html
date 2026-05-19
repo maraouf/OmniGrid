@@ -1,737 +1,746 @@
-      <div x-show="adminTab==='ai'" class="space-y-4">
-        <!-- Top section — master toggle + active provider selector +
-             Save button. Stage 1 ships configuration only; the actual
-             AI call wrapper + per-provider rate cards land in stage 2+. -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="flex items-center gap-2 mb-2">
-                <svg width="16" height="16" aria-hidden="true" class="text-[var(--text-dim)]">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
-                </svg>
-                <h3 class="font-semibold fs-md" x-text="t('admin.ai.heading')"></h3>
-              </div>
-              <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.ai.intro')"></p>
-            </div>
-            <span class="chip" :class="settings.ai_enabled ? 'pill-ok' : 'pill-muted'"
-                  x-text="settings.ai_enabled ? t('admin.ai.enabled_chip') : t('admin.ai.disabled_chip')"></span>
-          </div>
+<!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
+<div x-show="adminTab==='ai'" class="space-y-4">
+  <!-- Top section — master toggle + active provider selector +
+       Save button. Stage 1 ships configuration only; the actual
+       AI call wrapper + per-provider rate cards land in stage 2+. -->
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="16" height="16" aria-hidden="true" class="text-[var(--text-dim)]">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
+          </svg>
+          <h3 class="font-semibold fs-md" x-text="t('admin.ai.heading')"></h3>
+        </div>
+        <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.ai.intro')"></p>
+      </div>
+      <span class="chip" :class="settings.ai_enabled ? 'pill-ok' : 'pill-muted'"
+            x-text="settings.ai_enabled ? t('admin.ai.enabled_chip') : t('admin.ai.disabled_chip')"></span>
+    </div>
 
-          <div class="space-y-3">
-            <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
-              <input type="checkbox" x-model="settings.ai_enabled"
-                     @change="markAiFormDirty()"
-                     :disabled="isReadonly()">
-              <span class="font-medium" x-text="t('admin.ai.master_label')"></span>
-              <span class="fs-xs text-[var(--text-faint)]"
-                    x-text="settings.ai_enabled ? '' : t('admin.ai.master_hint_disabled')"></span>
-            </label>
+    <div class="space-y-3">
+      <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
+        <input type="checkbox" x-model="settings.ai_enabled"
+               @change="markAiFormDirty()"
+               :disabled="isReadonly()">
+        <span class="font-medium" x-text="t('admin.ai.master_label')"></span>
+        <span class="fs-xs text-[var(--text-faint)]"
+              x-text="settings.ai_enabled ? '' : t('admin.ai.master_hint_disabled')"></span>
+      </label>
 
-            <!-- Stacked layout: Active-provider selector on its own
-                 row (max width 260px so the dropdown doesn't stretch
-                 across wide screens), Save button on the row below.
-                 Pre-fix the two were a side-by-side grid, which read
-                 fine but coupled the Save affordance to a control
-                 group it isn't actually scoped to — the Save commits
-                 the whole AI tab (master toggle + active provider
-                 + every provider card), not just the dropdown. -->
-            <div>
-              <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.active_provider_label')"></label>
-              <select x-model="settings.ai_active_provider"
-                      @change="markAiFormDirty()"
-                      :disabled="isReadonly() || !settings.ai_enabled"
-                      class="w-full md:max-w-[260px] fs-sm">
-                <template x-for="name in aiProviderNames" :key="name">
-                  <option :value="name"
-                          :disabled="!aiForm.providers[name].enabled"
-                          x-text="aiProviderDisplayName(name) + (!aiForm.providers[name].enabled ? ' — ' + t('admin.ai.disabled_chip') : '')"></option>
-                </template>
-              </select>
-              <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                 x-text="t('admin.ai.active_provider_hint')"></p>
-              <!-- Inline warning when the operator has the active provider
-                   set to a disabled one. Doesn't block Save (staged
-                   config is a real workflow — set name now, enable
-                   later) but flags the mismatch so they don't ship a
-                   broken state and wonder why the palette can't reach
-                   the model. -->
-              <p x-show="settings.ai_enabled && settings.ai_active_provider
+      <!-- Stacked layout: Active-provider selector on its own
+           row (max width 260px so the dropdown doesn't stretch
+           across wide screens), Save button on the row below.
+           Pre-fix the two were a side-by-side grid, which read
+           fine but coupled the Save affordance to a control
+           group it isn't actually scoped to — the Save commits
+           the whole AI tab (master toggle + active provider
+           + every provider card), not just the dropdown. -->
+      <div>
+        <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.active_provider_label')"></label>
+        <select x-model="settings.ai_active_provider"
+                @change="markAiFormDirty()"
+                :disabled="isReadonly() || !settings.ai_enabled"
+                class="w-full md:max-w-[260px] fs-sm">
+          <template x-for="name in aiProviderNames" :key="name">
+            <option :value="name"
+                    :disabled="!aiForm.providers[name].enabled"
+                    x-text="aiProviderDisplayName(name) + (!aiForm.providers[name].enabled ? ' — ' + t('admin.ai.disabled_chip') : '')"></option>
+          </template>
+        </select>
+        <p class="fs-2xs text-[var(--text-faint)] mt-1"
+           x-text="t('admin.ai.active_provider_hint')"></p>
+        <!-- Inline warning when the operator has the active provider
+             set to a disabled one. Doesn't block Save (staged
+             config is a real workflow — set name now, enable
+             later) but flags the mismatch so they don't ship a
+             broken state and wonder why the palette can't reach
+             the model. -->
+        <p x-show="settings.ai_enabled && settings.ai_active_provider
                           && aiForm.providers[settings.ai_active_provider]
                           && !aiForm.providers[settings.ai_active_provider].enabled"
-                 class="fs-2xs text-[var(--warning)] mt-1 flex items-center gap-1.5">
-                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
-                <span x-text="t('admin.ai.active_provider_disabled_warning')"></span>
-              </p>
-            </div>
-            <!-- AI Integration tunables — top-level heading + intro for
-                 the WHOLE tunables section that follows (output cap,
-                 retry, fallback depth, sidebar layout, persist cadence,
-                 log context, HTTP timeouts). Replaces the prior pattern
-                 where "Auto-retry on transient overload" implicitly
-                 headed everything beneath it even though it only
-                 described the retry knobs. -->
-            <div x-show="tuningLoaded" class="pt-3 mt-2 border-t border-[var(--border)]">
-              <div class="flex items-center gap-2 mb-2">
-                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
-                <h3 class="font-semibold fs-sm"
-                    x-text="t('admin.ai.tunables_heading')"></h3>
-              </div>
-              <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
-                 x-text="t('admin.ai.tunables_intro')"></p>
-            </div>
-            <!-- Auto-retry knobs (master toggle + backoff + first-attempt
-                 cap). Disabled inputs while AI master toggle is off,
-                 since retry has no effect when AI is disabled. The
-                 section heading + intro live above (canonical "AI
-                 Integration tunables" header that covers every knob in
-                 this section). Layout convention: the two checkboxes
-                 (retry-enabled + conversation-export-enabled) come
-                 first, then the textual tunables — max_tokens / backoff
-                 / first-attempt-max / log-context / HTTP timeouts. -->
-            <div class="pt-3 mt-2 border-t border-[var(--border)]" x-show="tuningLoaded">
-              <!-- Master toggle (0/1 encoded as int per TUNABLES contract). -->
-              <div class="mb-3">
-                <!-- Checkbox encodes 0/1 — checked → "1", unchecked → "0".
-                     `:true-value` / `:false-value` keep the storage shape
-                     consistent with the TUNABLES int contract (and with
-                     the placeholder showing the live default). -->
-                <!-- Help text BEFORE the checkbox (operator-canonical
-                     pattern). Effective-label stays AFTER because it's
-                     a state indicator, not an explainer. -->
-                <p class="fs-2xs text-[var(--text-faint)] mb-1"
-                   x-text="t('admin.config.fields.tuning_ai_retry_enabled.help')"></p>
-                <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
-                  <input type="checkbox"
-                         x-model="tuningForm['tuning_ai_retry_enabled']"
-                         true-value="1" false-value="0"
-                         :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
-                         class="cursor-pointer">
-                  <span x-text="t('admin.config.fields.tuning_ai_retry_enabled.label')"></span>
-                </label>
-                <div class="mt-1 fs-2xs text-[var(--text-faint)]"
-                     x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_retry_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
-              </div>
-              <!-- AI conversation export master toggle. Grouped with
-                   the retry-enabled checkbox above so the section reads
-                   as "checkboxes first, then text tunables". Stored as
-                   0/1 via tuning_int; the SPA's sidebar-header export
-                   buttons gate on the resolved
-                   `me.client_config.ai_conversation_export_enabled`. -->
-              <div class="mb-3">
-                <!-- Help BEFORE the checkbox; effective-label AFTER. -->
-                <p class="fs-2xs text-[var(--text-faint)] mb-1"
-                   x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.help')"></p>
-                <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
-                  <input type="checkbox"
-                         x-model="tuningForm['tuning_ai_conversation_export_enabled']"
-                         true-value="1" false-value="0"
-                         :disabled="!isAdmin() || tuningSaving">
-                  <span x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.label')"></span>
-                </label>
-                <div class="fs-2xs text-[var(--text-faint)] mt-1"
-                     x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_conversation_export_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
-              </div>
-              <!-- Max response tokens — applied to every provider's chat
-                   completion request. Placed AFTER the two checkboxes
-                   (retry-enabled + conversation-export-enabled) so the
-                   section reads "checkboxes first, then text tunables".
-                   Bumped when a provider's response keeps coming back
-                   truncated; lowered to cap costs on a paid tier. Routes
-                   through TUNABLES so DB > env > default + bounds-clamp
-                   applies. -->
-              <div class="mb-3">
-                <label class="block fs-xs font-medium mb-1"
-                       x-text="t('admin.config.fields.tuning_ai_max_tokens.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-                   x-text="t('admin.config.fields.tuning_ai_max_tokens.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm['tuning_ai_max_tokens']"
-                         :placeholder="tuningPlaceholder('tuning_ai_max_tokens')"
-                         :min="(tuningEffective['tuning_ai_max_tokens'] || {}).min"
-                         :max="(tuningEffective['tuning_ai_max_tokens'] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
-                         class="w-44 mono fs-sm py-1">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+           class="fs-2xs text-[var(--warning)] mt-1 flex items-center gap-1.5">
+          <svg width="11" height="11" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+          </svg>
+          <span x-text="t('admin.ai.active_provider_disabled_warning')"></span>
+        </p>
+      </div>
+      <!-- AI Integration tunables — top-level heading + intro for
+           the WHOLE tunables section that follows (output cap,
+           retry, fallback depth, sidebar layout, persist cadence,
+           log context, HTTP timeouts). Replaces the prior pattern
+           where "Auto-retry on transient overload" implicitly
+           headed everything beneath it even though it only
+           described the retry knobs. -->
+      <div x-show="tuningLoaded" class="pt-3 mt-2 border-t border-[var(--border)]">
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+          </svg>
+          <h3 class="font-semibold fs-sm"
+              x-text="t('admin.ai.tunables_heading')"></h3>
+        </div>
+        <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
+           x-text="t('admin.ai.tunables_intro')"></p>
+      </div>
+      <!-- Auto-retry knobs (master toggle + backoff + first-attempt
+           cap). Disabled inputs while AI master toggle is off,
+           since retry has no effect when AI is disabled. The
+           section heading + intro live above (canonical "AI
+           Integration tunables" header that covers every knob in
+           this section). Layout convention: the two checkboxes
+           (retry-enabled + conversation-export-enabled) come
+           first, then the textual tunables — max_tokens / backoff
+           / first-attempt-max / log-context / HTTP timeouts. -->
+      <div class="pt-3 mt-2 border-t border-[var(--border)]" x-show="tuningLoaded">
+        <!-- Master toggle (0/1 encoded as int per TUNABLES contract). -->
+        <div class="mb-3">
+          <!-- Checkbox encodes 0/1 — checked → "1", unchecked → "0".
+               `:true-value` / `:false-value` keep the storage shape
+               consistent with the TUNABLES int contract (and with
+               the placeholder showing the live default). -->
+          <!-- Help text BEFORE the checkbox (operator-canonical
+               pattern). Effective-label stays AFTER because it's
+               a state indicator, not an explainer. -->
+          <p class="fs-2xs text-[var(--text-faint)] mb-1"
+             x-text="t('admin.config.fields.tuning_ai_retry_enabled.help')"></p>
+          <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
+            <input type="checkbox"
+                   x-model="tuningForm['tuning_ai_retry_enabled']"
+                   true-value="1" false-value="0"
+                   :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
+                   class="cursor-pointer">
+            <span x-text="t('admin.config.fields.tuning_ai_retry_enabled.label')"></span>
+          </label>
+          <div class="mt-1 fs-2xs text-[var(--text-faint)]"
+               x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_retry_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
+        </div>
+        <!-- AI conversation export master toggle. Grouped with
+             the retry-enabled checkbox above so the section reads
+             as "checkboxes first, then text tunables". Stored as
+             0/1 via tuning_int; the SPA's sidebar-header export
+             buttons gate on the resolved
+             `me.client_config.ai_conversation_export_enabled`. -->
+        <div class="mb-3">
+          <!-- Help BEFORE the checkbox; effective-label AFTER. -->
+          <p class="fs-2xs text-[var(--text-faint)] mb-1"
+             x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.help')"></p>
+          <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer">
+            <input type="checkbox"
+                   x-model="tuningForm['tuning_ai_conversation_export_enabled']"
+                   true-value="1" false-value="0"
+                   :disabled="!isAdmin() || tuningSaving">
+            <span x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.label')"></span>
+          </label>
+          <div class="fs-2xs text-[var(--text-faint)] mt-1"
+               x-text="t('admin.config.effective_label', { value: ((tuningEffective['tuning_ai_conversation_export_enabled'] || {}).effective ? t('admin.ai.retry.enabled_on') : t('admin.ai.retry.enabled_off')) })"></div>
+        </div>
+        <!-- Max response tokens — applied to every provider's chat
+             completion request. Placed AFTER the two checkboxes
+             (retry-enabled + conversation-export-enabled) so the
+             section reads "checkboxes first, then text tunables".
+             Bumped when a provider's response keeps coming back
+             truncated; lowered to cap costs on a paid tier. Routes
+             through TUNABLES so DB > env > default + bounds-clamp
+             applies. -->
+        <div class="mb-3">
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.tuning_ai_max_tokens.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.fields.tuning_ai_max_tokens.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_ai_max_tokens']"
+                   :placeholder="tuningPlaceholder('tuning_ai_max_tokens')"
+                   :min="(tuningEffective['tuning_ai_max_tokens'] || {}).min"
+                   :max="(tuningEffective['tuning_ai_max_tokens'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_max_tokens'] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_max_tokens'] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_max_tokens'] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="tuningEffectiveLabel('tuning_ai_max_tokens')"></span>
-                </div>
-              </div>
-              <!-- Backoff in milliseconds. -->
-              <div class="mb-3">
-                <label class="block fs-xs font-medium mb-1"
-                       x-text="t('admin.config.fields.tuning_ai_retry_backoff_ms.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-                   x-text="t('admin.config.fields.tuning_ai_retry_backoff_ms.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm['tuning_ai_retry_backoff_ms']"
-                         :placeholder="tuningPlaceholder('tuning_ai_retry_backoff_ms')"
-                         :min="(tuningEffective['tuning_ai_retry_backoff_ms'] || {}).min"
-                         :max="(tuningEffective['tuning_ai_retry_backoff_ms'] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
-                         class="w-44 mono fs-sm py-1">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+            </div>
+            <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                  x-text="tuningEffectiveLabel('tuning_ai_max_tokens')"></span>
+          </div>
+        </div>
+        <!-- Backoff in milliseconds. -->
+        <div class="mb-3">
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.tuning_ai_retry_backoff_ms.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.fields.tuning_ai_retry_backoff_ms.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_ai_retry_backoff_ms']"
+                   :placeholder="tuningPlaceholder('tuning_ai_retry_backoff_ms')"
+                   :min="(tuningEffective['tuning_ai_retry_backoff_ms'] || {}).min"
+                   :max="(tuningEffective['tuning_ai_retry_backoff_ms'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_retry_backoff_ms'] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_retry_backoff_ms'] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_retry_backoff_ms'] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="tuningEffectiveLabel('tuning_ai_retry_backoff_ms')"></span>
-                </div>
-              </div>
-              <!-- First-attempt-max-duration gate (ms). -->
-              <div>
-                <label class="block fs-xs font-medium mb-1"
-                       x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-                   x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm['tuning_ai_retry_first_attempt_max_ms']"
-                         :placeholder="tuningPlaceholder('tuning_ai_retry_first_attempt_max_ms')"
-                         :min="(tuningEffective['tuning_ai_retry_first_attempt_max_ms'] || {}).min"
-                         :max="(tuningEffective['tuning_ai_retry_first_attempt_max_ms'] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
-                         class="w-44 mono fs-sm py-1">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+            </div>
+            <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                  x-text="tuningEffectiveLabel('tuning_ai_retry_backoff_ms')"></span>
+          </div>
+        </div>
+        <!-- First-attempt-max-duration gate (ms). -->
+        <div>
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_ai_retry_first_attempt_max_ms']"
+                   :placeholder="tuningPlaceholder('tuning_ai_retry_first_attempt_max_ms')"
+                   :min="(tuningEffective['tuning_ai_retry_first_attempt_max_ms'] || {}).min"
+                   :max="(tuningEffective['tuning_ai_retry_first_attempt_max_ms'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_retry_first_attempt_max_ms'] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_retry_first_attempt_max_ms'] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_retry_first_attempt_max_ms'] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="tuningEffectiveLabel('tuning_ai_retry_first_attempt_max_ms')"></span>
-                </div>
-              </div>
-              <!-- AI sidebar drawer width — operator-tunable so the
-                   same drawer adapts cleanly across viewport sizes.
-                   Sits in the AI tab (not the generic Process tunables
-                   form) because it's an AI-feature UI control. Same
-                   shape as the retry first-attempt-max field above so
-                   the visual rhythm matches. -->
-              <div class="mt-3">
-                <label class="block fs-xs font-medium mb-1"
-                       x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-                   x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm['tuning_ai_sidebar_width_px']"
-                         :placeholder="tuningPlaceholder('tuning_ai_sidebar_width_px')"
-                         :min="(tuningEffective['tuning_ai_sidebar_width_px'] || {}).min"
-                         :max="(tuningEffective['tuning_ai_sidebar_width_px'] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving"
-                         class="w-44 mono fs-sm py-1">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+            </div>
+            <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                  x-text="tuningEffectiveLabel('tuning_ai_retry_first_attempt_max_ms')"></span>
+          </div>
+        </div>
+        <!-- AI sidebar drawer width — operator-tunable so the
+             same drawer adapts cleanly across viewport sizes.
+             Sits in the AI tab (not the generic Process tunables
+             form) because it's an AI-feature UI control. Same
+             shape as the retry first-attempt-max field above so
+             the visual rhythm matches. -->
+        <div class="mt-3">
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_ai_sidebar_width_px']"
+                   :placeholder="tuningPlaceholder('tuning_ai_sidebar_width_px')"
+                   :min="(tuningEffective['tuning_ai_sidebar_width_px'] || {}).min"
+                   :max="(tuningEffective['tuning_ai_sidebar_width_px'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_sidebar_width_px'] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_sidebar_width_px'] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_sidebar_width_px'] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="tuningEffectiveLabel('tuning_ai_sidebar_width_px')"></span>
-                </div>
-              </div>
-              <!-- AI conversation persist cadence (ms). Same shape as
-                   the sidebar-width input row above. Read by the SPA's
-                   `_aiPersistInterval` once on init. -->
-              <div class="mt-3">
-                <label class="block fs-xs font-medium mb-1"
-                       x-text="t('admin.config.fields.tuning_ai_conversation_persist_interval_ms.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-                   x-text="t('admin.config.fields.tuning_ai_conversation_persist_interval_ms.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm['tuning_ai_conversation_persist_interval_ms']"
-                         :placeholder="tuningPlaceholder('tuning_ai_conversation_persist_interval_ms')"
-                         :min="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).min"
-                         :max="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving"
-                         class="w-44 mono fs-sm py-1">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+            </div>
+            <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                  x-text="tuningEffectiveLabel('tuning_ai_sidebar_width_px')"></span>
+          </div>
+        </div>
+        <!-- AI conversation persist cadence (ms). Same shape as
+             the sidebar-width input row above. Read by the SPA's
+             `_aiPersistInterval` once on init. -->
+        <div class="mt-3">
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.tuning_ai_conversation_persist_interval_ms.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.fields.tuning_ai_conversation_persist_interval_ms.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_ai_conversation_persist_interval_ms']"
+                   :placeholder="tuningPlaceholder('tuning_ai_conversation_persist_interval_ms')"
+                   :min="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).min"
+                   :max="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="tuningEffectiveLabel('tuning_ai_conversation_persist_interval_ms')"></span>
-                </div>
-              </div>
-              <!-- AI log-context window — how many hours of persistent
-                   log files the palette injects per call. Default 168
-                   (7 days). Pre-fix the AI saw only the in-memory
-                   ring buffer's last 30 lines (minutes on a busy
-                   fleet). Bounded by `tuning_ai_log_context_lines`
-                   below for a hard token-budget cap. -->
-              <div class="mt-3">
-                <label class="block fs-xs font-medium mb-1"
-                       x-text="t('admin.config.fields.tuning_ai_log_context_hours.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-                   x-text="t('admin.config.fields.tuning_ai_log_context_hours.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm['tuning_ai_log_context_hours']"
-                         :placeholder="tuningPlaceholder('tuning_ai_log_context_hours')"
-                         :min="(tuningEffective['tuning_ai_log_context_hours'] || {}).min"
-                         :max="(tuningEffective['tuning_ai_log_context_hours'] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving"
-                         class="w-44 mono fs-sm py-1">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+            </div>
+            <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                  x-text="tuningEffectiveLabel('tuning_ai_conversation_persist_interval_ms')"></span>
+          </div>
+        </div>
+        <!-- AI log-context window — how many hours of persistent
+             log files the palette injects per call. Default 168
+             (7 days). Pre-fix the AI saw only the in-memory
+             ring buffer's last 30 lines (minutes on a busy
+             fleet). Bounded by `tuning_ai_log_context_lines`
+             below for a hard token-budget cap. -->
+        <div class="mt-3">
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.tuning_ai_log_context_hours.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.fields.tuning_ai_log_context_hours.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_ai_log_context_hours']"
+                   :placeholder="tuningPlaceholder('tuning_ai_log_context_hours')"
+                   :min="(tuningEffective['tuning_ai_log_context_hours'] || {}).min"
+                   :max="(tuningEffective['tuning_ai_log_context_hours'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_log_context_hours'] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_log_context_hours'] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_log_context_hours'] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="tuningEffectiveLabel('tuning_ai_log_context_hours')"></span>
-                </div>
-              </div>
-              <!-- AI log-context cap — hard upper bound on number of
-                   error+warn lines injected per call. Newest-last so
-                   the most recent issues survive trimming. -->
-              <div class="mt-3">
-                <label class="block fs-xs font-medium mb-1"
-                       x-text="t('admin.config.fields.tuning_ai_log_context_lines.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-                   x-text="t('admin.config.fields.tuning_ai_log_context_lines.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm['tuning_ai_log_context_lines']"
-                         :placeholder="tuningPlaceholder('tuning_ai_log_context_lines')"
-                         :min="(tuningEffective['tuning_ai_log_context_lines'] || {}).min"
-                         :max="(tuningEffective['tuning_ai_log_context_lines'] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving"
-                         class="w-44 mono fs-sm py-1">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+            </div>
+            <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                  x-text="tuningEffectiveLabel('tuning_ai_log_context_hours')"></span>
+          </div>
+        </div>
+        <!-- AI log-context cap — hard upper bound on number of
+             error+warn lines injected per call. Newest-last so
+             the most recent issues survive trimming. -->
+        <div class="mt-3">
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.tuning_ai_log_context_lines.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.fields.tuning_ai_log_context_lines.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_ai_log_context_lines']"
+                   :placeholder="tuningPlaceholder('tuning_ai_log_context_lines')"
+                   :min="(tuningEffective['tuning_ai_log_context_lines'] || {}).min"
+                   :max="(tuningEffective['tuning_ai_log_context_lines'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_log_context_lines'] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_log_context_lines'] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective['tuning_ai_log_context_lines'] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="tuningEffectiveLabel('tuning_ai_log_context_lines')"></span>
-                </div>
-              </div>
-              <!-- AI provider outbound HTTP timeouts — Test-connection
-                   probe (lightweight one-token ping) + real chat-completion
-                   call. Per-use reads inside `logic.ai.test_provider`
-                   / `ask_provider` so a Save here takes effect on the
-                   next round-trip without restart. -->
-              <template x-for="key in ['tuning_ai_http_timeout_seconds',
+            </div>
+            <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                  x-text="tuningEffectiveLabel('tuning_ai_log_context_lines')"></span>
+          </div>
+        </div>
+        <!-- AI provider outbound HTTP timeouts — Test-connection
+             probe (lightweight one-token ping) + real chat-completion
+             call. Per-use reads inside `logic.ai.test_provider`
+             / `ask_provider` so a Save here takes effect on the
+             next round-trip without restart. -->
+        <template x-for="key in ['tuning_ai_http_timeout_seconds',
                                         'tuning_ai_extended_http_timeout_seconds']"
-                        :key="key">
-                <div class="mt-3">
-                  <label class="block fs-xs font-medium mb-1"
-                         x-text="t('admin.config.fields.' + key + '.label')"></label>
-                  <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-                     x-text="t('admin.config.fields.' + key + '.help')"></p>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <input type="number"
-                           x-model="tuningForm[key]"
-                           :placeholder="tuningPlaceholder(key)"
-                           :min="(tuningEffective[key] || {}).min"
-                           :max="(tuningEffective[key] || {}).max"
-                           :disabled="!isAdmin() || tuningSaving"
-                           class="w-44 mono fs-sm py-1">
-                    <div class="bounds-chips" role="group"
-                         :aria-label="t('admin.config.bounds.group_label')">
+                  :key="key">
+          <div class="mt-3">
+            <label class="block fs-xs font-medium mb-1"
+                   x-text="t('admin.config.fields.' + key + '.label')"></label>
+            <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+               x-text="t('admin.config.fields.' + key + '.help')"></p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input type="number"
+                     x-model="tuningForm[key]"
+                     :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min"
+                     :max="(tuningEffective[key] || {}).max"
+                     :disabled="!isAdmin() || tuningSaving"
+                     class="w-44 mono fs-sm py-1">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
                       <span class="bounds-chip bounds-chip--min"
                             :title="t('admin.config.bounds.min_title')">
                         <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                         <span x-text="(tuningEffective[key] || {}).min"></span>
                       </span>
-                      <span class="bounds-chip bounds-chip--max"
-                            :title="t('admin.config.bounds.max_title')">
+                <span class="bounds-chip bounds-chip--max"
+                      :title="t('admin.config.bounds.max_title')">
                         <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                         <span x-text="(tuningEffective[key] || {}).max"></span>
                       </span>
-                      <span class="bounds-chip bounds-chip--default"
-                            :title="t('admin.config.bounds.default_title')">
+                <span class="bounds-chip bounds-chip--default"
+                      :title="t('admin.config.bounds.default_title')">
                         <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                         <span x-text="(tuningEffective[key] || {}).default"></span>
                       </span>
-                    </div>
-                    <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                          x-text="tuningEffectiveLabel(key)"></span>
-                  </div>
-                </div>
-              </template>
+              </div>
+              <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                    x-text="tuningEffectiveLabel(key)"></span>
             </div>
-            <!-- Provider fallback chain — opt-in resilience surface.
-                 When enabled, a transient overload (HTTP 429 / 502 /
-                 503 / 504) on the active provider falls through to the
-                 operator-ordered backup chain. Eligibility filter:
-                 only providers that are master-enabled AND have an
-                 API key configured AND aren't the active primary can
-                 join the chain. Section is rendered (but most controls
-                 disabled) when fewer than 1 eligible provider exists,
-                 with an explanation hint. -->
-            <div class="pt-3 mt-2 border-t border-[var(--border)]">
-              <div class="flex items-center gap-2 mb-2">
-                <svg width="13" height="13" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
-                <h3 class="font-semibold fs-sm"
-                    x-text="t('admin.ai.fallback.heading')"></h3>
-              </div>
-              <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
-                 x-text="t('admin.ai.fallback.help')"></p>
-              <!-- Master toggle. Only meaningful when ≥ 1 eligible
-                   alternate provider exists; we still allow the toggle
-                   on (so saving config ahead of provider rollout is
-                   possible) but render an inline hint when nothing
-                   would actually fire. -->
-              <label class="inline-flex items-center gap-2 fs-xs text-[var(--text)] cursor-pointer mb-2">
-                <input type="checkbox"
-                       x-model="settings.ai_fallback_enabled"
-                       @change="markAiFormDirty()"
-                       :disabled="isReadonly() || !settings.ai_enabled"
-                       class="cursor-pointer">
-                <span x-text="t('admin.ai.fallback.enable_label')"></span>
-              </label>
-              <!-- Eligibility hint — fires when the chain is enabled
-                   AND no eligible provider exists. The form-state still
-                   persists fine; this just tells the operator nothing
-                   will actually fire until they enable + key another
-                   provider. Aligned to section left, not indented under
-                   the checkbox label, to match the rest of the page. -->
-              <p class="mb-3 fs-2xs text-[var(--warning)]"
-                 x-show="settings.ai_fallback_enabled && aiFallbackEligibleCount() === 0"
-                 x-text="t('admin.ai.fallback.no_eligible_warning')"></p>
-              <!-- Max-depth selector — 1 or 2 hops. -->
-              <div class="mb-3" x-show="settings.ai_fallback_enabled">
-                <label class="block fs-xs text-[var(--text-dim)] mb-1"
-                       x-text="t('admin.ai.fallback.max_depth_label')"></label>
-                <div class="flex flex-wrap items-center gap-2">
-                  <!-- Bound to the TUNABLES form, NOT
-                       `settings.ai_fallback_max_depth` (legacy plain
-                       key). Pre-fix the operator's edit persisted to
-                       the legacy key but every consumer reads
-                       `tuning_int("tuning_ai_fallback_max_depth")`,
-                       so the choice silently no-op'd. -->
-                  <select x-model.number="tuningForm['tuning_ai_fallback_max_depth']"
-                          @change="markAiFormDirty()"
-                          :disabled="isReadonly() || !settings.ai_enabled"
-                          class="fs-sm w-20">
-                    <option :value="1">1</option>
-                    <option :value="2">2</option>
-                  </select>
-                  <span class="fs-2xs text-[var(--text-faint)]"
-                        x-text="t('admin.ai.fallback.max_depth_hint')"></span>
-                </div>
-              </div>
-              <!-- Per-provider chain controls. Lists every supported
-                   provider as a compact card row with the provider
-                   name on the left + status pill / action buttons on
-                   the right. Each row gets a subtle surface-2 fill +
-                   border so the chain reads as a list of cards
-                   instead of cramped flex lines, and the Backup
-                   priority chip reads cleanly against the row's own
-                   background.
-                   Eligible providers get reorder + Add/Remove buttons;
-                   ineligible ones (disabled / no key / IS the active
-                   primary) show a status pill or muted hint instead. -->
-              <div x-show="settings.ai_fallback_enabled">
-                <label class="block fs-xs text-[var(--text-dim)] mb-1"
-                       x-text="t('admin.ai.fallback.chain_label')"></label>
-                <div class="flex flex-col gap-1.5">
-                  <template x-for="name in aiProviderNames" :key="name">
-                    <div class="flex items-center gap-2 fs-xs
+          </div>
+        </template>
+      </div>
+      <!-- Provider fallback chain — opt-in resilience surface.
+           When enabled, a transient overload (HTTP 429 / 502 /
+           503 / 504) on the active provider falls through to the
+           operator-ordered backup chain. Eligibility filter:
+           only providers that are master-enabled AND have an
+           API key configured AND aren't the active primary can
+           join the chain. Section is rendered (but most controls
+           disabled) when fewer than 1 eligible provider exists,
+           with an explanation hint. -->
+      <div class="pt-3 mt-2 border-t border-[var(--border)]">
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="13" height="13" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/>
+          </svg>
+          <h3 class="font-semibold fs-sm"
+              x-text="t('admin.ai.fallback.heading')"></h3>
+        </div>
+        <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
+           x-text="t('admin.ai.fallback.help')"></p>
+        <!-- Master toggle. Only meaningful when ≥ 1 eligible
+             alternate provider exists; we still allow the toggle
+             on (so saving config ahead of provider rollout is
+             possible) but render an inline hint when nothing
+             would actually fire. -->
+        <label class="inline-flex items-center gap-2 fs-xs text-[var(--text)] cursor-pointer mb-2">
+          <input type="checkbox"
+                 x-model="settings.ai_fallback_enabled"
+                 @change="markAiFormDirty()"
+                 :disabled="isReadonly() || !settings.ai_enabled"
+                 class="cursor-pointer">
+          <span x-text="t('admin.ai.fallback.enable_label')"></span>
+        </label>
+        <!-- Eligibility hint — fires when the chain is enabled
+             AND no eligible provider exists. The form-state still
+             persists fine; this just tells the operator nothing
+             will actually fire until they enable + key another
+             provider. Aligned to section left, not indented under
+             the checkbox label, to match the rest of the page. -->
+        <p class="mb-3 fs-2xs text-[var(--warning)]"
+           x-show="settings.ai_fallback_enabled && aiFallbackEligibleCount() === 0"
+           x-text="t('admin.ai.fallback.no_eligible_warning')"></p>
+        <!-- Max-depth selector — 1 or 2 hops. -->
+        <div class="mb-3" x-show="settings.ai_fallback_enabled">
+          <label class="block fs-xs text-[var(--text-dim)] mb-1"
+                 x-text="t('admin.ai.fallback.max_depth_label')"></label>
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Bound to the TUNABLES form, NOT
+                 `settings.ai_fallback_max_depth` (legacy plain
+                 key). Pre-fix the operator's edit persisted to
+                 the legacy key but every consumer reads
+                 `tuning_int("tuning_ai_fallback_max_depth")`,
+                 so the choice silently no-op'd. -->
+            <select x-model.number="tuningForm['tuning_ai_fallback_max_depth']"
+                    @change="markAiFormDirty()"
+                    :disabled="isReadonly() || !settings.ai_enabled"
+                    class="fs-sm w-20">
+              <option :value="1">1</option>
+              <option :value="2">2</option>
+            </select>
+            <span class="fs-2xs text-[var(--text-faint)]"
+                  x-text="t('admin.ai.fallback.max_depth_hint')"></span>
+          </div>
+        </div>
+        <!-- Per-provider chain controls. Lists every supported
+             provider as a compact card row with the provider
+             name on the left + status pill / action buttons on
+             the right. Each row gets a subtle surface-2 fill +
+             border so the chain reads as a list of cards
+             instead of cramped flex lines, and the Backup
+             priority chip reads cleanly against the row's own
+             background.
+             Eligible providers get reorder + Add/Remove buttons;
+             ineligible ones (disabled / no key / IS the active
+             primary) show a status pill or muted hint instead. -->
+        <div x-show="settings.ai_fallback_enabled">
+          <label class="block fs-xs text-[var(--text-dim)] mb-1"
+                 x-text="t('admin.ai.fallback.chain_label')"></label>
+          <div class="flex flex-col gap-1.5">
+            <template x-for="name in aiProviderNames" :key="name">
+              <div class="flex items-center gap-2 fs-xs
                                 bg-[var(--surface-2)] border border-[var(--border)]
                                 rounded-md px-3 py-2">
                       <span class="mono font-semibold text-[var(--text)]"
                             x-text="aiProviderDisplayName(name)"></span>
-                      <!-- Active primary — can't be a fallback target. -->
-                      <span x-show="settings.ai_active_provider === name"
-                            class="chip pill-info fs-3xs"
-                            x-text="t('admin.ai.active_chip')"></span>
-                      <!-- Disabled or no API key — ineligible. -->
-                      <span x-show="settings.ai_active_provider !== name
+                <!-- Active primary — can't be a fallback target. -->
+                <span x-show="settings.ai_active_provider === name"
+                      class="chip pill-info fs-3xs"
+                      x-text="t('admin.ai.active_chip')"></span>
+                <!-- Disabled or no API key — ineligible. -->
+                <span x-show="settings.ai_active_provider !== name
                                     && (!aiForm.providers[name].enabled
                                         || (!aiForm.providers[name].api_key_set
                                             && !(aiForm.providers[name].api_key || '').trim()))"
-                            class="fs-2xs text-[var(--text-faint)] italic"
-                            x-text="t('admin.ai.fallback.ineligible_hint')"></span>
-                      <!-- Eligible — Backup priority chip + reorder /
-                           Add+Remove buttons pinned to the trailing
-                           edge so the row reads name-on-left,
-                           controls-on-right consistently. -->
-                      <template x-if="settings.ai_active_provider !== name
+                      class="fs-2xs text-[var(--text-faint)] italic"
+                      x-text="t('admin.ai.fallback.ineligible_hint')"></span>
+                <!-- Eligible — Backup priority chip + reorder /
+                     Add+Remove buttons pinned to the trailing
+                     edge so the row reads name-on-left,
+                     controls-on-right consistently. -->
+                <template x-if="settings.ai_active_provider !== name
                                        && aiForm.providers[name].enabled
                                        && (aiForm.providers[name].api_key_set
                                            || (aiForm.providers[name].api_key || '').trim())">
-                        <div class="flex items-center gap-1.5 ms-auto">
+                  <div class="flex items-center gap-1.5 ms-auto">
                           <span x-show="fallbackPriority(name) >= 0"
                                 class="chip pill-warning fs-3xs"
                                 x-text="t('admin.ai.backup_chip', { n: (fallbackPriority(name) + 1) })"></span>
-                          <button type="button"
-                                  x-show="fallbackPriority(name) >= 1"
-                                  @click="moveFallbackProvider(name, -1)"
-                                  :disabled="isReadonly() || !settings.ai_enabled || !settings.ai_fallback_enabled"
-                                  class="btn btn-ghost fs-xs px-2 py-0.5"
-                                  :aria-label="t('admin.ai.fallback.move_up')"
-                                  :title="t('admin.ai.fallback.move_up')">↑</button>
-                          <button type="button"
-                                  x-show="fallbackPriority(name) >= 0
+                    <button type="button"
+                            x-show="fallbackPriority(name) >= 1"
+                            @click="moveFallbackProvider(name, -1)"
+                            :disabled="isReadonly() || !settings.ai_enabled || !settings.ai_fallback_enabled"
+                            class="btn btn-ghost fs-xs px-2 py-0.5"
+                            :aria-label="t('admin.ai.fallback.move_up')"
+                            :title="t('admin.ai.fallback.move_up')">↑
+                    </button>
+                    <button type="button"
+                            x-show="fallbackPriority(name) >= 0
                                           && fallbackPriority(name) < (settings.ai_fallback_order || []).length - 1"
-                                  @click="moveFallbackProvider(name, +1)"
-                                  :disabled="isReadonly() || !settings.ai_enabled || !settings.ai_fallback_enabled"
-                                  class="btn btn-ghost fs-xs px-2 py-0.5"
-                                  :aria-label="t('admin.ai.fallback.move_down')"
-                                  :title="t('admin.ai.fallback.move_down')">↓</button>
-                          <button type="button"
-                                  @click="toggleFallbackProvider(name)"
-                                  :disabled="isReadonly() || !settings.ai_enabled || !settings.ai_fallback_enabled"
-                                  class="btn fs-xs px-2 py-0.5"
-                                  :class="fallbackPriority(name) >= 0 ? 'btn-ghost' : 'btn-primary'"
-                                  x-text="fallbackPriority(name) >= 0
+                            @click="moveFallbackProvider(name, +1)"
+                            :disabled="isReadonly() || !settings.ai_enabled || !settings.ai_fallback_enabled"
+                            class="btn btn-ghost fs-xs px-2 py-0.5"
+                            :aria-label="t('admin.ai.fallback.move_down')"
+                            :title="t('admin.ai.fallback.move_down')">↓
+                    </button>
+                    <button type="button"
+                            @click="toggleFallbackProvider(name)"
+                            :disabled="isReadonly() || !settings.ai_enabled || !settings.ai_fallback_enabled"
+                            class="btn fs-xs px-2 py-0.5"
+                            :class="fallbackPriority(name) >= 0 ? 'btn-ghost' : 'btn-primary'"
+                            x-text="fallbackPriority(name) >= 0
                                             ? t('admin.ai.fallback.remove_btn')
                                             : t('admin.ai.fallback.add_btn')"></button>
-                        </div>
-                      </template>
-                    </div>
-                  </template>
-                </div>
-                <p class="fs-2xs text-[var(--text-faint)] mt-2"
-                   x-text="t('admin.ai.fallback.chain_hint')"></p>
+                  </div>
+                </template>
               </div>
-            </div>
-            <!-- Single Save row — saves both the AI master settings
-                 (toggle / active provider / max_tokens) AND the retry
-                 tunables in one click. Disabled gate fires when EITHER
-                 form is mid-save OR neither is dirty. The amber-ring
-                 dirty-cue lights up on EITHER side dirty. -->
-            <div class="flex items-center gap-2 flex-wrap pt-3 border-t border-[var(--border)]">
-              <button type="button" @click="saveAiSettings()"
-                      :disabled="isReadonly() || aiSaving || !aiFormDirty()"
-                      class="btn btn-primary fs-sm"
-                      :class="aiFormDirty() ? 'ring-2 ring-[var(--warning)]' : ''">
-                <span x-show="!aiSaving && !tuningSaving" x-text="t('actions.save')"></span>
-                <span x-show="aiSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-              </button>
-              <span x-show="(aiFormDirty() || tuningDirty()) && !aiSaving && !tuningSaving"
-                    class="fs-2xs text-[var(--warning)] flex items-center gap-1">
+            </template>
+          </div>
+          <p class="fs-2xs text-[var(--text-faint)] mt-2"
+             x-text="t('admin.ai.fallback.chain_hint')"></p>
+        </div>
+      </div>
+      <!-- Single Save row — saves both the AI master settings
+           (toggle / active provider / max_tokens) AND the retry
+           tunables in one click. Disabled gate fires when EITHER
+           form is mid-save OR neither is dirty. The amber-ring
+           dirty-cue lights up on EITHER side dirty. -->
+      <div class="flex items-center gap-2 flex-wrap pt-3 border-t border-[var(--border)]">
+        <button type="button" @click="saveAiSettings()"
+                :disabled="isReadonly() || aiSaving || !aiFormDirty()"
+                class="btn btn-primary fs-sm"
+                :class="aiFormDirty() ? 'ring-2 ring-[var(--warning)]' : ''">
+          <span x-show="!aiSaving && !tuningSaving" x-text="t('actions.save')"></span>
+          <span x-show="aiSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+        </button>
+        <span x-show="(aiFormDirty() || tuningDirty()) && !aiSaving && !tuningSaving"
+              class="fs-2xs text-[var(--warning)] flex items-center gap-1">
                 <span class="dot dot-warning dot-pulse" aria-hidden="true"></span>
                 <span class="unsaved-flash" x-text="t('common.unsaved')"></span>
               </span>
-            </div>
-          </div>
-        </section>
+      </div>
+    </div>
+  </section>
 
-        <!-- Dashboard tiles — top row of compact stat cards. Renders
-             zero / NA cleanly on a fresh deploy with no recorded jobs.
-             aria-busy on the section flips while a fetch is in flight
-             so screen readers announce the loading state without the
-             operator misreading "0%" as authoritative empty data. The
-             header also shows a subtle inline spinner while loading. -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
-                 :aria-busy="aiDashboardLoading ? 'true' : 'false'">
-          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
-            <div class="flex items-center gap-2">
-              <svg width="14" height="14" aria-hidden="true" class="text-[var(--text-dim)]">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
-              </svg>
-              <h3 class="font-semibold fs-md" x-text="t('admin.ai.dashboard_title')"></h3>
-              <span x-show="aiDashboardLoading" class="spin" aria-hidden="true"></span>
-              <span x-show="aiDashboardLoading" class="fs-2xs text-[var(--text-faint)]"
-                    x-text="t('admin.ai.dashboard_loading')"></span>
-            </div>
-            <div class="flex items-center gap-2 fs-xs">
-              <span class="text-[var(--text-faint)]" x-text="t('admin.ai.range_label')"></span>
-              <template x-for="opt in [[1,'range_1h'], [24,'range_24h'], [168,'range_7d'], [720,'range_30d']]" :key="opt[0]">
-                <button type="button"
-                        @click="setAiRange(opt[0])"
-                        class="btn btn-ghost fs-xs px-2 py-0.5"
-                        :class="aiRange === opt[0] ? 'btn-soft' : ''"
-                        x-text="t('admin.ai.' + opt[1])"></button>
-              </template>
-              <span class="flex-1"></span>
-              <button type="button"
-                      @click="loadAiDashboard(true)"
-                      :disabled="aiDashboardLoading"
-                      class="btn btn-ghost fs-xs"
-                      :title="t('admin.ai.refresh')"
-                      :aria-label="t('admin.ai.refresh')">
-                <svg width="12" height="12" aria-hidden="true" :class="aiDashboardLoading ? 'spin-md' : ''">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/>
-                </svg>
-              </button>
-            </div>
-          </div>
+  <!-- Dashboard tiles — top row of compact stat cards. Renders
+       zero / NA cleanly on a fresh deploy with no recorded jobs.
+       aria-busy on the section flips while a fetch is in flight
+       so screen readers announce the loading state without the
+       operator misreading "0%" as authoritative empty data. The
+       header also shows a subtle inline spinner while loading. -->
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
+           :aria-busy="aiDashboardLoading ? 'true' : 'false'">
+    <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+      <div class="flex items-center gap-2">
+        <svg width="14" height="14" aria-hidden="true" class="text-[var(--text-dim)]">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
+        </svg>
+        <h3 class="font-semibold fs-md" x-text="t('admin.ai.dashboard_title')"></h3>
+        <span x-show="aiDashboardLoading" class="spin" aria-hidden="true"></span>
+        <span x-show="aiDashboardLoading" class="fs-2xs text-[var(--text-faint)]"
+              x-text="t('admin.ai.dashboard_loading')"></span>
+      </div>
+      <div class="flex items-center gap-2 fs-xs">
+        <span class="text-[var(--text-faint)]" x-text="t('admin.ai.range_label')"></span>
+        <template x-for="opt in [[1,'range_1h'], [24,'range_24h'], [168,'range_7d'], [720,'range_30d']]" :key="opt[0]">
+          <button type="button"
+                  @click="setAiRange(opt[0])"
+                  class="btn btn-ghost fs-xs px-2 py-0.5"
+                  :class="aiRange === opt[0] ? 'btn-soft' : ''"
+                  x-text="t('admin.ai.' + opt[1])"></button>
+        </template>
+        <span class="flex-1"></span>
+        <button type="button"
+                @click="loadAiDashboard(true)"
+                :disabled="aiDashboardLoading"
+                class="btn btn-ghost fs-xs"
+                :title="t('admin.ai.refresh')"
+                :aria-label="t('admin.ai.refresh')">
+          <svg width="12" height="12" aria-hidden="true" :class="aiDashboardLoading ? 'spin-md' : ''">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/>
+          </svg>
+        </button>
+      </div>
+    </div>
 
-          <!-- Tile grid — 6 compact summary cards. Click a card with
-               a modal handler to expand the relevant detail view. -->
-          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <!-- Each tile is a clickable summary card. `:aria-label`
-                 composes a full sentence so screen-reader users hear
-                 "AI jobs — 1,234 total. 1200 / 30 / 4. Click to view
-                 detail" instead of just "button". -->
-            <button type="button" @click="openAiModal('jobs')" class="ai-tile"
-                    :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.jobs'), value: ((aiDashboard && aiDashboard.summary.total_jobs) || 0), sub: (aiDashboard ? (aiDashboard.summary.success + ' / ' + aiDashboard.summary.error + ' / ' + aiDashboard.summary.running) : '— / — / —') })">
-              <div class="ai-tile-label" x-text="t('admin.ai.tile.jobs')"></div>
-              <div class="ai-tile-value" x-text="(aiDashboard && aiDashboard.summary.total_jobs) || 0"></div>
-              <div class="ai-tile-sub"
-                   x-text="aiDashboard ? (aiDashboard.summary.success + ' / ' + aiDashboard.summary.error + ' / ' + aiDashboard.summary.running) : '— / — / —'"></div>
-            </button>
-            <button type="button" @click="openAiModal('passrate')" class="ai-tile"
-                    :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.pass_rate'), value: (aiDashboard ? (Math.round(aiDashboard.summary.pass_rate * 100) + '%') : '—'), sub: t('admin.ai.tile.pass_rate_sub') })">
-              <div class="ai-tile-label" x-text="t('admin.ai.tile.pass_rate')"></div>
-              <div class="ai-tile-value"
-                   x-text="aiDashboard ? (Math.round(aiDashboard.summary.pass_rate * 100) + '%') : '—'"></div>
-              <div class="ai-tile-sub" x-text="t('admin.ai.tile.pass_rate_sub')"></div>
-            </button>
-            <button type="button" @click="openAiModal('cost')" class="ai-tile"
-                    :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.cost'), value: (aiDashboard ? aiFormatCost(aiDashboard.summary.total_cost_usd) : '—'), sub: t('admin.ai.tile.cost_sub') })">
-              <div class="ai-tile-label" x-text="t('admin.ai.tile.cost')"></div>
-              <div class="ai-tile-value"
-                   x-text="aiDashboard ? aiFormatCost(aiDashboard.summary.total_cost_usd) : '—'"></div>
-              <div class="ai-tile-sub" x-text="t('admin.ai.tile.cost_sub')"></div>
-            </button>
-            <button type="button" @click="openAiModal('tokens')" class="ai-tile"
-                    :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.tokens'), value: (aiDashboard ? aiFormatNumber(aiDashboard.summary.total_tokens) : '0'), sub: (aiDashboard ? (aiFormatNumber(aiDashboard.summary.prompt_tokens) + ' / ' + aiFormatNumber(aiDashboard.summary.completion_tokens)) : '— / —') })">
-              <div class="ai-tile-label" x-text="t('admin.ai.tile.tokens')"></div>
-              <div class="ai-tile-value" x-text="aiDashboard ? aiFormatNumber(aiDashboard.summary.total_tokens) : '0'"></div>
-              <div class="ai-tile-sub"
-                   x-text="aiDashboard ? (aiFormatNumber(aiDashboard.summary.prompt_tokens) + ' / ' + aiFormatNumber(aiDashboard.summary.completion_tokens)) : '— / —'"></div>
-            </button>
-            <button type="button" @click="openAiModal('response_time')" class="ai-tile"
-                    :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.response_time'), value: ((aiDashboard && aiDashboard.summary.avg_response_time_ms !== null) ? (Math.round(aiDashboard.summary.avg_response_time_ms)).toLocaleString() + ' ms' : '—'), sub: t('admin.ai.tile.response_time_sub') })">
-              <div class="ai-tile-label" x-text="t('admin.ai.tile.response_time')"></div>
-              <div class="ai-tile-value"
-                   x-text="(aiDashboard && aiDashboard.summary.avg_response_time_ms !== null) ? (Math.round(aiDashboard.summary.avg_response_time_ms)).toLocaleString() + ' ms' : '—'"></div>
-              <div class="ai-tile-sub" x-text="t('admin.ai.tile.response_time_sub')"></div>
-            </button>
-            <button type="button" @click="openAiModal('accuracy')" class="ai-tile"
-                    :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.accuracy'), value: (aiDashboard ? aiFormatPct01(aiDashboard.summary.avg_accuracy_score) : '—'), sub: t('admin.ai.tile.accuracy_sub') })">
-              <div class="ai-tile-label" x-text="t('admin.ai.tile.accuracy')"></div>
-              <div class="ai-tile-value"
-                   x-text="aiDashboard ? aiFormatPct01(aiDashboard.summary.avg_accuracy_score) : '—'"></div>
-              <div class="ai-tile-sub" x-text="t('admin.ai.tile.accuracy_sub')"></div>
-            </button>
-          </div>
+    <!-- Tile grid — 6 compact summary cards. Click a card with
+         a modal handler to expand the relevant detail view. -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <!-- Each tile is a clickable summary card. `:aria-label`
+           composes a full sentence so screen-reader users hear
+           "AI jobs — 1,234 total. 1200 / 30 / 4. Click to view
+           detail" instead of just "button". -->
+      <button type="button" @click="openAiModal('jobs')" class="ai-tile"
+              :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.jobs'), value: ((aiDashboard && aiDashboard.summary.total_jobs) || 0), sub: (aiDashboard ? (aiDashboard.summary.success + ' / ' + aiDashboard.summary.error + ' / ' + aiDashboard.summary.running) : '— / — / —') })">
+        <div class="ai-tile-label" x-text="t('admin.ai.tile.jobs')"></div>
+        <div class="ai-tile-value" x-text="(aiDashboard && aiDashboard.summary.total_jobs) || 0"></div>
+        <div class="ai-tile-sub"
+             x-text="aiDashboard ? (aiDashboard.summary.success + ' / ' + aiDashboard.summary.error + ' / ' + aiDashboard.summary.running) : '— / — / —'"></div>
+      </button>
+      <button type="button" @click="openAiModal('passrate')" class="ai-tile"
+              :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.pass_rate'), value: (aiDashboard ? (Math.round(aiDashboard.summary.pass_rate * 100) + '%') : '—'), sub: t('admin.ai.tile.pass_rate_sub') })">
+        <div class="ai-tile-label" x-text="t('admin.ai.tile.pass_rate')"></div>
+        <div class="ai-tile-value"
+             x-text="aiDashboard ? (Math.round(aiDashboard.summary.pass_rate * 100) + '%') : '—'"></div>
+        <div class="ai-tile-sub" x-text="t('admin.ai.tile.pass_rate_sub')"></div>
+      </button>
+      <button type="button" @click="openAiModal('cost')" class="ai-tile"
+              :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.cost'), value: (aiDashboard ? aiFormatCost(aiDashboard.summary.total_cost_usd) : '—'), sub: t('admin.ai.tile.cost_sub') })">
+        <div class="ai-tile-label" x-text="t('admin.ai.tile.cost')"></div>
+        <div class="ai-tile-value"
+             x-text="aiDashboard ? aiFormatCost(aiDashboard.summary.total_cost_usd) : '—'"></div>
+        <div class="ai-tile-sub" x-text="t('admin.ai.tile.cost_sub')"></div>
+      </button>
+      <button type="button" @click="openAiModal('tokens')" class="ai-tile"
+              :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.tokens'), value: (aiDashboard ? aiFormatNumber(aiDashboard.summary.total_tokens) : '0'), sub: (aiDashboard ? (aiFormatNumber(aiDashboard.summary.prompt_tokens) + ' / ' + aiFormatNumber(aiDashboard.summary.completion_tokens)) : '— / —') })">
+        <div class="ai-tile-label" x-text="t('admin.ai.tile.tokens')"></div>
+        <div class="ai-tile-value" x-text="aiDashboard ? aiFormatNumber(aiDashboard.summary.total_tokens) : '0'"></div>
+        <div class="ai-tile-sub"
+             x-text="aiDashboard ? (aiFormatNumber(aiDashboard.summary.prompt_tokens) + ' / ' + aiFormatNumber(aiDashboard.summary.completion_tokens)) : '— / —'"></div>
+      </button>
+      <button type="button" @click="openAiModal('response_time')" class="ai-tile"
+              :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.response_time'), value: ((aiDashboard && aiDashboard.summary.avg_response_time_ms !== null) ? (Math.round(aiDashboard.summary.avg_response_time_ms)).toLocaleString() + ' ms' : '—'), sub: t('admin.ai.tile.response_time_sub') })">
+        <div class="ai-tile-label" x-text="t('admin.ai.tile.response_time')"></div>
+        <div class="ai-tile-value"
+             x-text="(aiDashboard && aiDashboard.summary.avg_response_time_ms !== null) ? (Math.round(aiDashboard.summary.avg_response_time_ms)).toLocaleString() + ' ms' : '—'"></div>
+        <div class="ai-tile-sub" x-text="t('admin.ai.tile.response_time_sub')"></div>
+      </button>
+      <button type="button" @click="openAiModal('accuracy')" class="ai-tile"
+              :aria-label="t('admin.ai.tile.aria_template', { label: t('admin.ai.tile.accuracy'), value: (aiDashboard ? aiFormatPct01(aiDashboard.summary.avg_accuracy_score) : '—'), sub: t('admin.ai.tile.accuracy_sub') })">
+        <div class="ai-tile-label" x-text="t('admin.ai.tile.accuracy')"></div>
+        <div class="ai-tile-value"
+             x-text="aiDashboard ? aiFormatPct01(aiDashboard.summary.avg_accuracy_score) : '—'"></div>
+        <div class="ai-tile-sub" x-text="t('admin.ai.tile.accuracy_sub')"></div>
+      </button>
+    </div>
 
-          <!-- Per-provider breakdown — token + cost + jobs split by
-               provider with model rollups inline. Read-only. -->
-          <div class="mt-4 border-t border-[var(--border)] pt-3">
-            <div class="fs-xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold"
-                 x-text="t('admin.ai.by_provider_heading')"></div>
-            <div x-show="!aiDashboard || aiDashboard.providers.length === 0"
-                 class="fs-xs text-[var(--text-faint)] italic"
-                 x-text="t('admin.ai.no_data')"></div>
-            <div x-show="aiDashboard && aiDashboard.providers.length > 0" class="ai-provider-grid">
-              <template x-for="p in (aiDashboard ? aiDashboard.providers : [])" :key="p.name">
-                <div class="ai-provider-row-group">
-                  <!-- Top row: provider summary across every model
-                       recorded in the selected period. -->
-                  <div class="ai-provider-row">
-                    <div class="flex items-center gap-2 min-w-0">
-                      <!-- Three-state taxonomy: green (enabled + API key
-                           configured), amber (enabled but key missing —
-                           visible nudge that calls will 401), grey
-                           (disabled). Pre-fix the chip read pill-ok for
-                           "enabled but unusable" providers, hiding the
-                           configuration gap until the operator hit Test. -->
-                      <!-- Color + icon doubly encode state so colorblind
-                           operators can triage without hover (CLAUDE.md
-                           "Color is never the sole carrier of meaning").
-                           pill-ok → check, pill-warning → alert-triangle,
-                           pill-muted → circle-slash. The aria-label on
-                           the chip carries the same state in plain text
-                           for screen-reader users. -->
-                      <span class="chip fs-3xs inline-flex items-center gap-1"
-                            :class="!p.enabled ? 'pill-muted' : ((aiForm.providers[p.name] && (aiForm.providers[p.name].api_key_set || aiForm.providers[p.name].api_key)) ? 'pill-ok' : 'pill-warning')"
-                            :title="!p.enabled ? t('admin.ai.chip_disabled_title') : ((aiForm.providers[p.name] && (aiForm.providers[p.name].api_key_set || aiForm.providers[p.name].api_key)) ? t('admin.ai.chip_ok_title') : t('admin.ai.chip_no_key_title'))"
-                            :aria-label="aiProviderDisplayName(p.name) + ' — ' + (!p.enabled ? t('admin.ai.chip_disabled_title') : ((aiForm.providers[p.name] && (aiForm.providers[p.name].api_key_set || aiForm.providers[p.name].api_key)) ? t('admin.ai.chip_ok_title') : t('admin.ai.chip_no_key_title')))">
+    <!-- Per-provider breakdown — token + cost + jobs split by
+         provider with model rollups inline. Read-only. -->
+    <div class="mt-4 border-t border-[var(--border)] pt-3">
+      <div class="fs-xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold"
+           x-text="t('admin.ai.by_provider_heading')"></div>
+      <div x-show="!aiDashboard || aiDashboard.providers.length === 0"
+           class="fs-xs text-[var(--text-faint)] italic"
+           x-text="t('admin.ai.no_data')"></div>
+      <div x-show="aiDashboard && aiDashboard.providers.length > 0" class="ai-provider-grid">
+        <template x-for="p in (aiDashboard ? aiDashboard.providers : [])" :key="p.name">
+          <div class="ai-provider-row-group">
+            <!-- Top row: provider summary across every model
+                 recorded in the selected period. -->
+            <div class="ai-provider-row">
+              <div class="flex items-center gap-2 min-w-0">
+                <!-- Three-state taxonomy: green (enabled + API key
+                     configured), amber (enabled but key missing —
+                     visible nudge that calls will 401), grey
+                     (disabled). Pre-fix the chip read pill-ok for
+                     "enabled but unusable" providers, hiding the
+                     configuration gap until the operator hit Test. -->
+                <!-- Color + icon doubly encode state so colorblind
+                     operators can triage without hover (CLAUDE.md
+                     "Color is never the sole carrier of meaning").
+                     pill-ok → check, pill-warning → alert-triangle,
+                     pill-muted → circle-slash. The aria-label on
+                     the chip carries the same state in plain text
+                     for screen-reader users. -->
+                <span class="chip fs-3xs inline-flex items-center gap-1"
+                      :class="!p.enabled ? 'pill-muted' : ((aiForm.providers[p.name] && (aiForm.providers[p.name].api_key_set || aiForm.providers[p.name].api_key)) ? 'pill-ok' : 'pill-warning')"
+                      :title="!p.enabled ? t('admin.ai.chip_disabled_title') : ((aiForm.providers[p.name] && (aiForm.providers[p.name].api_key_set || aiForm.providers[p.name].api_key)) ? t('admin.ai.chip_ok_title') : t('admin.ai.chip_no_key_title'))"
+                      :aria-label="aiProviderDisplayName(p.name) + ' — ' + (!p.enabled ? t('admin.ai.chip_disabled_title') : ((aiForm.providers[p.name] && (aiForm.providers[p.name].api_key_set || aiForm.providers[p.name].api_key)) ? t('admin.ai.chip_ok_title') : t('admin.ai.chip_no_key_title')))">
                         <svg width="9" height="9" aria-hidden="true"
                              x-show="p.enabled && aiForm.providers[p.name] && (aiForm.providers[p.name].api_key_set || aiForm.providers[p.name].api_key)">
                           <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-check'"/>
@@ -746,35 +755,35 @@
                         </svg>
                         <span x-text="aiProviderDisplayName(p.name)"></span>
                       </span>
-                      <span class="fs-2xs text-[var(--text-faint)] truncate"
-                            x-show="p.model"
-                            :title="t('admin.ai.current_model_title')"
-                            x-text="t('admin.ai.current_model_label') + ' ' + p.model"></span>
-                    </div>
-                    <div class="ai-provider-stats">
+                <span class="fs-2xs text-[var(--text-faint)] truncate"
+                      x-show="p.model"
+                      :title="t('admin.ai.current_model_title')"
+                      x-text="t('admin.ai.current_model_label') + ' ' + p.model"></span>
+              </div>
+              <div class="ai-provider-stats">
                       <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.jobs') + ':'"></span>
                             <span class="mono" x-text="p.total_jobs"></span></span>
-                      <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.tokens') + ':'"></span>
+                <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.tokens') + ':'"></span>
                             <span class="mono" x-text="aiFormatNumber(p.total_tokens)"></span></span>
-                      <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.cost') + ':'"></span>
+                <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.cost') + ':'"></span>
                             <span class="mono" x-text="aiFormatCost(p.total_cost_usd)"></span></span>
-                      <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.pass_rate') + ':'"></span>
+                <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.pass_rate') + ':'"></span>
                             <span class="mono" x-text="Math.round((p.pass_rate || 0) * 100) + '%'"></span></span>
-                    </div>
-                  </div>
-                  <!-- Per-model sub-rows. The dashboard endpoint
-                       returns one entry per (provider, model) seen in
-                       the period, so swapping `gemini-2.5-pro` →
-                       `gemini-flash` mid-window keeps both visible
-                       with their own jobs / tokens / cost. Hidden
-                       when there's only one model OR the data is
-                       empty (Stage 1 fresh deploy). -->
-                  <template x-for="m in (p.models || [])" :key="p.name + ':' + m.model">
-                    <div class="ai-provider-model-row">
+              </div>
+            </div>
+            <!-- Per-model sub-rows. The dashboard endpoint
+                 returns one entry per (provider, model) seen in
+                 the period, so swapping `gemini-2.5-pro` →
+                 `gemini-flash` mid-window keeps both visible
+                 with their own jobs / tokens / cost. Hidden
+                 when there's only one model OR the data is
+                 empty (Stage 1 fresh deploy). -->
+            <template x-for="m in (p.models || [])" :key="p.name + ':' + m.model">
+              <div class="ai-provider-model-row">
                       <span class="ai-provider-model-name mono"
                             :class="m.model === p.model ? 'is-current' : ''"
                             x-text="m.model + (m.model === p.model ? ' · ' + t('admin.ai.current_chip') : '')"></span>
-                      <span class="ai-provider-model-stats">
+                <span class="ai-provider-model-stats">
                         <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.jobs') + ':'"></span>
                               <span class="mono" x-text="m.total_jobs"></span></span>
                         <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.tokens') + ':'"></span>
@@ -782,498 +791,505 @@
                         <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.cost') + ':'"></span>
                               <span class="mono" x-text="aiFormatCost(m.total_cost_usd)"></span></span>
                       </span>
-                    </div>
-                  </template>
-                </div>
-              </template>
-            </div>
+              </div>
+            </template>
           </div>
-        </section>
+        </template>
+      </div>
+    </div>
+  </section>
 
-        <!-- Per-provider configuration cards. Each renders the same
-             fields (enable / model / base URL / API key) so operators
-             can swap an active provider at any time without losing
-             stored credentials. API key uses the keep-current-if-blank
-             contract — empty input keeps the existing value. -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <div class="flex items-center gap-2 mb-3">
-            <svg width="14" height="14" aria-hidden="true" class="text-[var(--text-dim)]">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-key"/>
-            </svg>
-            <h3 class="font-semibold fs-md" x-text="t('admin.ai.providers_heading')"></h3>
-          </div>
-          <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.ai.providers_intro')"></p>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <template x-for="name in aiProviderNames" :key="name">
-              <div class="ai-provider-card">
-                <div class="flex items-center justify-between mb-2">
-                  <div class="flex items-center gap-2">
-                    <!-- Mono brand icon — `icon-claude` / `icon-gemini`
-                         / `icon-chatgpt` / `icon-deepseek` resolve via
-                         the sprite. Uses `name` directly as the icon
-                         suffix since the four `aiProviderNames` strings
-                         match the symbol ids verbatim. -->
-                    <svg width="16" height="16" class="text-[var(--text-dim)]" aria-hidden="true"><use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-' + name"/></svg>
-                    <span class="font-semibold fs-md" x-text="aiProviderDisplayName(name)"></span>
-                    <!-- "Active" chip — only shows when EVERY gate is open:
-                         master AI is on AND this provider's per-provider
-                         enable is on AND it matches the active selector.
-                         Pre-fix the chip rendered just on the third gate,
-                         so a fresh deploy with `ai_active_provider=claude`
-                         (default) showed "Active" on Claude even though
-                         nothing was enabled. -->
-                    <span class="chip fs-3xs"
-                          x-show="settings.ai_enabled && aiForm.providers[name].enabled && settings.ai_active_provider === name"
-                          :class="'pill-info'"
-                          x-text="t('admin.ai.active_chip')"></span>
-                    <!-- BACKUP N chip — gated on fallback being enabled
-                         AND this provider being in the fallback chain
-                         AND not the active primary. Shows the priority
-                         number (1 = first to try after primary). Same
-                         shape as the ACTIVE chip but `pill-warning`
-                         coloured so the eye distinguishes them. -->
-                    <span class="chip fs-3xs ms-1"
-                          x-show="settings.ai_enabled
+  <!-- Per-provider configuration cards. Each renders the same
+       fields (enable / model / base URL / API key) so operators
+       can swap an active provider at any time without losing
+       stored credentials. API key uses the keep-current-if-blank
+       contract — empty input keeps the existing value. -->
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+    <div class="flex items-center gap-2 mb-3">
+      <svg width="14" height="14" aria-hidden="true" class="text-[var(--text-dim)]">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-key"/>
+      </svg>
+      <h3 class="font-semibold fs-md" x-text="t('admin.ai.providers_heading')"></h3>
+    </div>
+    <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.ai.providers_intro')"></p>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <template x-for="name in aiProviderNames" :key="name">
+        <div class="ai-provider-card">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <!-- Mono brand icon — `icon-claude` / `icon-gemini`
+                   / `icon-chatgpt` / `icon-deepseek` resolve via
+                   the sprite. Uses `name` directly as the icon
+                   suffix since the four `aiProviderNames` strings
+                   match the symbol ids verbatim. -->
+              <svg width="16" height="16" class="text-[var(--text-dim)]" aria-hidden="true">
+                <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-' + name"/>
+              </svg>
+              <span class="font-semibold fs-md" x-text="aiProviderDisplayName(name)"></span>
+              <!-- "Active" chip — only shows when EVERY gate is open:
+                   master AI is on AND this provider's per-provider
+                   enable is on AND it matches the active selector.
+                   Pre-fix the chip rendered just on the third gate,
+                   so a fresh deploy with `ai_active_provider=claude`
+                   (default) showed "Active" on Claude even though
+                   nothing was enabled. -->
+              <span class="chip fs-3xs"
+                    x-show="settings.ai_enabled && aiForm.providers[name].enabled && settings.ai_active_provider === name"
+                    :class="'pill-info'"
+                    x-text="t('admin.ai.active_chip')"></span>
+              <!-- BACKUP N chip — gated on fallback being enabled
+                   AND this provider being in the fallback chain
+                   AND not the active primary. Shows the priority
+                   number (1 = first to try after primary). Same
+                   shape as the ACTIVE chip but `pill-warning`
+                   coloured so the eye distinguishes them. -->
+              <span class="chip fs-3xs ms-1"
+                    x-show="settings.ai_enabled
                                   && settings.ai_fallback_enabled
                                   && aiForm.providers[name].enabled
                                   && settings.ai_active_provider !== name
                                   && fallbackPriority(name) >= 0"
-                          :class="'pill-warning'"
-                          x-text="t('admin.ai.backup_chip', { n: (fallbackPriority(name) + 1) })"></span>
-                  </div>
-                  <label class="flex items-center gap-1.5 fs-xs cursor-pointer select-none">
-                    <input type="checkbox" x-model="aiForm.providers[name].enabled"
-                           @change="markAiFormDirty()"
-                           :disabled="isReadonly() || !settings.ai_enabled">
-                    <span x-text="t('admin_integrations.enabled_label')"></span>
-                  </label>
-                </div>
-                <div class="space-y-2">
-                  <div>
-                    <label class="block fs-2xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.model_label')"></label>
-                    <input type="text" x-model="aiForm.providers[name].model"
-                           @input="markAiFormDirty()"
-                           :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
-                           :placeholder="aiProviderModelPlaceholder(name)"
-                           class="w-full mono fs-sm">
-                    <p class="fs-3xs text-[var(--text-faint)] mt-1"
-                       x-text="aiProviderModelHint(name)"></p>
-                  </div>
-                  <div>
-                    <label class="block fs-2xs text-[var(--text-dim)] mb-1">
-                      <span x-text="t('admin.ai.api_key_label')"></span>
-                    </label>
-                    <span x-show="aiForm.providers[name].api_key_set"
-                          class="block fs-2xs text-[var(--success)] mb-1"
-                          x-text="t('settings.secret_input.saved_hint')"></span>
-                    <input type="password" x-model="aiForm.providers[name].api_key"
-                           @input="markAiFormDirty()"
-                           :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
-                           :placeholder="aiForm.providers[name].api_key_set ? t('settings.secret_input.placeholder_keep') : t('admin.ai.api_key_placeholder')"
-                           autocomplete="new-password"
-                           class="w-full mono fs-sm">
-                  </div>
-                  <div>
-                    <label class="block fs-2xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.base_url_label')"></label>
-                    <input type="url" x-model="aiForm.providers[name].base_url"
-                           @input="markAiFormDirty()"
-                           :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
-                           :placeholder="aiProviderBaseUrlPlaceholder(name)"
-                           class="w-full mono fs-sm">
-                    <p class="fs-3xs text-[var(--text-faint)] mt-1" x-text="t('admin.ai.base_url_hint')"></p>
-                    <!-- Cleartext-credentials warning — fires when the
-                         operator's base_url uses http:// (not https://).
-                         The api_key gets sent in the Authorization
-                         header on every request; over plain HTTP that
-                         means it's readable on the wire. Operator owns
-                         the URL choice (same trust model as Portainer /
-                         OIDC base URLs), so this is a hint not a hard
-                         gate — the value still saves. Per CLAUDE.md
-                         "Operator-private hostnames" + the SEC-LOW
-                         finding from the 2026-05-08-2 code review. -->
-                    <p x-show="(aiForm.providers[name].base_url || '').toLowerCase().startsWith('http://')"
-                       class="fs-3xs text-[var(--warning)] mt-1 inline-flex items-center gap-1"
-                       x-cloak>
-                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
-                      <span x-text="t('admin.ai.base_url_http_warning') || 'Cleartext: API key will be sent unencrypted over HTTP. Use https:// unless this is a same-host service.'"></span>
-                    </p>
-                  </div>
-                  <!-- Test connection — uses the saved api_key when the
-                       password input is blank (lets admins re-test after
-                       a successful Save without re-pasting the secret).
-                       Result chip stays inline so the toast doesn't
-                       have to carry per-provider error text. -->
-                  <div class="flex items-center gap-2 flex-wrap pt-1">
-                    <button type="button"
-                            @click="testAiProvider(name)"
-                            :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled || (!aiForm.providers[name].api_key && !aiForm.providers[name].api_key_set) || aiTestState[name].loading"
-                            class="btn btn-ghost fs-xs">
+                    :class="'pill-warning'"
+                    x-text="t('admin.ai.backup_chip', { n: (fallbackPriority(name) + 1) })"></span>
+            </div>
+            <label class="flex items-center gap-1.5 fs-xs cursor-pointer select-none">
+              <input type="checkbox" x-model="aiForm.providers[name].enabled"
+                     @change="markAiFormDirty()"
+                     :disabled="isReadonly() || !settings.ai_enabled">
+              <span x-text="t('admin_integrations.enabled_label')"></span>
+            </label>
+          </div>
+          <div class="space-y-2">
+            <div>
+              <label class="block fs-2xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.model_label')"></label>
+              <input type="text" x-model="aiForm.providers[name].model"
+                     @input="markAiFormDirty()"
+                     :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
+                     :placeholder="aiProviderModelPlaceholder(name)"
+                     class="w-full mono fs-sm">
+              <p class="fs-3xs text-[var(--text-faint)] mt-1"
+                 x-text="aiProviderModelHint(name)"></p>
+            </div>
+            <div>
+              <label class="block fs-2xs text-[var(--text-dim)] mb-1">
+                <span x-text="t('admin.ai.api_key_label')"></span>
+              </label>
+              <span x-show="aiForm.providers[name].api_key_set"
+                    class="block fs-2xs text-[var(--success)] mb-1"
+                    x-text="t('settings.secret_input.saved_hint')"></span>
+              <input type="password" x-model="aiForm.providers[name].api_key"
+                     @input="markAiFormDirty()"
+                     :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
+                     :placeholder="aiForm.providers[name].api_key_set ? t('settings.secret_input.placeholder_keep') : t('admin.ai.api_key_placeholder')"
+                     autocomplete="new-password"
+                     class="w-full mono fs-sm">
+            </div>
+            <div>
+              <label class="block fs-2xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.base_url_label')"></label>
+              <input type="url" x-model="aiForm.providers[name].base_url"
+                     @input="markAiFormDirty()"
+                     :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
+                     :placeholder="aiProviderBaseUrlPlaceholder(name)"
+                     class="w-full mono fs-sm">
+              <p class="fs-3xs text-[var(--text-faint)] mt-1" x-text="t('admin.ai.base_url_hint')"></p>
+              <!-- Cleartext-credentials warning — fires when the
+                   operator's base_url uses http:// (not https://).
+                   The api_key gets sent in the Authorization
+                   header on every request; over plain HTTP that
+                   means it's readable on the wire. Operator owns
+                   the URL choice (same trust model as Portainer /
+                   OIDC base URLs), so this is a hint not a hard
+                   gate — the value still saves. Per CLAUDE.md
+                   "Operator-private hostnames" + the SEC-LOW
+                   finding from the 2026-05-08-2 code review. -->
+              <p x-show="(aiForm.providers[name].base_url || '').toLowerCase().startsWith('http://')"
+                 class="fs-3xs text-[var(--warning)] mt-1 inline-flex items-center gap-1"
+                 x-cloak>
+                <svg width="11" height="11" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+                </svg>
+                <span x-text="t('admin.ai.base_url_http_warning') || 'Cleartext: API key will be sent unencrypted over HTTP. Use https:// unless this is a same-host service.'"></span>
+              </p>
+            </div>
+            <!-- Test connection — uses the saved api_key when the
+                 password input is blank (lets admins re-test after
+                 a successful Save without re-pasting the secret).
+                 Result chip stays inline so the toast doesn't
+                 have to carry per-provider error text. -->
+            <div class="flex items-center gap-2 flex-wrap pt-1">
+              <button type="button"
+                      @click="testAiProvider(name)"
+                      :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled || (!aiForm.providers[name].api_key && !aiForm.providers[name].api_key_set) || aiTestState[name].loading"
+                      class="btn btn-ghost fs-xs">
                       <span x-show="!aiTestState[name].loading"
                             class="flex items-center gap-1">
                         <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/></svg>
                         <span x-text="t('admin.ai.test_button')"></span>
                       </span>
-                      <span x-show="aiTestState[name].loading"
-                            class="flex items-center gap-1">
+                <span x-show="aiTestState[name].loading"
+                      class="flex items-center gap-1">
                         <span class="spin"></span>
                         <span x-text="t('admin.ai.testing')"></span>
                       </span>
-                    </button>
-                    <span x-show="aiTestState[name].result"
-                          class="chip fs-2xs flex items-center gap-1 max-w-full truncate"
-                          :class="aiTestState[name].result?.ok ? 'pill-ok' : 'pill-error'"
-                          :title="aiTestState[name].result?.detail || ''">
+              </button>
+              <span x-show="aiTestState[name].result"
+                    class="chip fs-2xs flex items-center gap-1 max-w-full truncate"
+                    :class="aiTestState[name].result?.ok ? 'pill-ok' : 'pill-error'"
+                    :title="aiTestState[name].result?.detail || ''">
                       <span x-text="aiTestState[name].result?.ok ? t('admin.ai.test_ok') : t('admin.ai.test_failed')"></span>
-                      <!-- Optional chaining everywhere — Alpine evaluates
-                           x-text on render even when the parent is hidden
-                           via x-show (the element stays in the DOM with
-                           display:none), so a null `result` would throw
-                           on `result.response_time_ms` without `?.`. -->
+                <!-- Optional chaining everywhere — Alpine evaluates
+                     x-text on render even when the parent is hidden
+                     via x-show (the element stays in the DOM with
+                     display:none), so a null `result` would throw
+                     on `result.response_time_ms` without `?.`. -->
                       <span x-show="aiTestState[name].result?.response_time_ms !== undefined"
                             class="text-[var(--text-faint)] mono"
                             x-text="'(' + (Number(aiTestState[name].result?.response_time_ms ?? 0)).toLocaleString() + ' ms)'"></span>
                     </span>
-                  </div>
-                  <p x-show="aiTestState[name].result && !aiTestState[name].result?.ok"
-                     class="fs-2xs text-[var(--danger)] mono break-words"
-                     x-text="aiTestState[name].result?.detail || ''"></p>
-                </div>
-              </div>
-            </template>
+            </div>
+            <p x-show="aiTestState[name].result && !aiTestState[name].result?.ok"
+               class="fs-2xs text-[var(--danger)] mono break-words"
+               x-text="aiTestState[name].result?.detail || ''"></p>
           </div>
+        </div>
+      </template>
+    </div>
 
-          <!-- Mirror Save button at the END of the page so admins
-               configuring multiple provider cards don't have to scroll
-               back to the top section after every edit. Same handler,
-               same dirty cue, same disabled gate as the top Save —
-               whichever the operator clicks does the same write. -->
-          <!-- Mirror Save button at the END of the page so admins
-               configuring multiple provider cards don't have to scroll
-               back to the top section after every edit. Same handler
-               shape as the top Save: commits BOTH AI settings AND
-               tuning when EITHER is dirty. Pre-fix this only called
-               saveAiSettings(), so an admin who edited a retry-tunable
-               input then scrolled to the bottom Save would persist
-               the AI cards but silently drop the tunable change. -->
-          <div class="mt-4 pt-4 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
-            <button type="button" @click="if (aiFormDirty()) saveAiSettings(); if (tuningDirty()) saveTuning();"
-                    :disabled="isReadonly() || aiSaving || tuningSaving || (!aiFormDirty() && !tuningDirty())"
-                    class="btn btn-primary fs-sm"
-                    :class="(aiFormDirty() || tuningDirty()) ? 'ring-2 ring-[var(--warning)]' : ''">
-              <span x-show="!aiSaving && !tuningSaving" x-text="t('actions.save')"></span>
-              <span x-show="aiSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-            </button>
-            <span x-show="(aiFormDirty() || tuningDirty()) && !aiSaving && !tuningSaving"
-                  class="fs-2xs text-[var(--warning)] flex items-center gap-1">
+    <!-- Mirror Save button at the END of the page so admins
+         configuring multiple provider cards don't have to scroll
+         back to the top section after every edit. Same handler,
+         same dirty cue, same disabled gate as the top Save —
+         whichever the operator clicks does the same write. -->
+    <!-- Mirror Save button at the END of the page so admins
+         configuring multiple provider cards don't have to scroll
+         back to the top section after every edit. Same handler
+         shape as the top Save: commits BOTH AI settings AND
+         tuning when EITHER is dirty. Pre-fix this only called
+         saveAiSettings(), so an admin who edited a retry-tunable
+         input then scrolled to the bottom Save would persist
+         the AI cards but silently drop the tunable change. -->
+    <div class="mt-4 pt-4 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+      <button type="button" @click="if (aiFormDirty()) saveAiSettings(); if (tuningDirty()) saveTuning();"
+              :disabled="isReadonly() || aiSaving || tuningSaving || (!aiFormDirty() && !tuningDirty())"
+              class="btn btn-primary fs-sm"
+              :class="(aiFormDirty() || tuningDirty()) ? 'ring-2 ring-[var(--warning)]' : ''">
+        <span x-show="!aiSaving && !tuningSaving" x-text="t('actions.save')"></span>
+        <span x-show="aiSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+      </button>
+      <span x-show="(aiFormDirty() || tuningDirty()) && !aiSaving && !tuningSaving"
+            class="fs-2xs text-[var(--warning)] flex items-center gap-1">
               <span class="dot dot-warning dot-pulse" aria-hidden="true"></span>
               <span class="unsaved-flash" x-text="t('common.unsaved')"></span>
             </span>
-          </div>
-        </section>
+    </div>
+  </section>
 
-        <!-- AI Memory — durable lessons the AI has learned about
-             this OmniGrid deployment. Captured automatically when the
-             AI emits MEMORY: lines; toasts notify the operator
-             on save. Admin can manually add memories OR delete ones
-             that are stale / wrong. Memories are injected into the
-             palette system prompt on every call so the AI accumulates
-             knowledge over time. -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 space-y-3">
-          <div class="flex items-center gap-2 mb-1">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-tag"/></svg>
-            <h3 class="font-semibold fs-md" x-text="t('ai_memory.title')"></h3>
-          </div>
-          <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
-             x-text="t('ai_memory.subtitle')"></p>
-          <div class="flex items-stretch gap-2">
-            <input type="text"
-                   x-model="aiMemoryAddText"
-                   :placeholder="t('ai_memory.add_placeholder')"
-                   :disabled="isReadonly() || aiMemoryBusy"
-                   class="flex-1 fs-sm py-1"
-                   @keydown.enter.prevent="addAiMemory()">
-            <button type="button"
-                    @click="addAiMemory()"
-                    :disabled="isReadonly() || aiMemoryBusy || !(aiMemoryAddText || '').trim()"
-                    class="btn btn-soft fs-sm"
-                    x-text="t('ai_memory.add_button')"></button>
-          </div>
-          <div x-show="!aiMemories || aiMemories.length === 0"
-               class="py-6 text-center fs-sm text-[var(--text-faint)] italic"
-               x-text="t('ai_memory.empty')"></div>
-          <ul x-show="aiMemories && aiMemories.length > 0"
-              class="space-y-2">
-            <template x-for="m in (aiMemories || [])" :key="m.id">
-              <li class="flex items-start gap-2 p-2 rounded border border-[var(--border)] bg-[var(--surface-2)]"
-                  :aria-label="t('ai_memory.list_item_label', { source: t('ai_memory.source_' + (m.source || 'ai')) || (m.source || 'ai'), actor: m.actor || t('ai_memory.unknown_actor'), time: aiFormatTime(m.ts) })">
+  <!-- AI Memory — durable lessons the AI has learned about
+       this OmniGrid deployment. Captured automatically when the
+       AI emits MEMORY: lines; toasts notify the operator
+       on save. Admin can manually add memories OR delete ones
+       that are stale / wrong. Memories are injected into the
+       palette system prompt on every call so the AI accumulates
+       knowledge over time. -->
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 space-y-3">
+    <div class="flex items-center gap-2 mb-1">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-tag"/>
+      </svg>
+      <h3 class="font-semibold fs-md" x-text="t('ai_memory.title')"></h3>
+    </div>
+    <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
+       x-text="t('ai_memory.subtitle')"></p>
+    <div class="flex items-stretch gap-2">
+      <input type="text"
+             x-model="aiMemoryAddText"
+             :placeholder="t('ai_memory.add_placeholder')"
+             :disabled="isReadonly() || aiMemoryBusy"
+             class="flex-1 fs-sm py-1"
+             @keydown.enter.prevent="addAiMemory()">
+      <button type="button"
+              @click="addAiMemory()"
+              :disabled="isReadonly() || aiMemoryBusy || !(aiMemoryAddText || '').trim()"
+              class="btn btn-soft fs-sm"
+              x-text="t('ai_memory.add_button')"></button>
+    </div>
+    <div x-show="!aiMemories || aiMemories.length === 0"
+         class="py-6 text-center fs-sm text-[var(--text-faint)] italic"
+         x-text="t('ai_memory.empty')"></div>
+    <ul x-show="aiMemories && aiMemories.length > 0"
+        class="space-y-2">
+      <template x-for="m in (aiMemories || [])" :key="m.id">
+        <li class="flex items-start gap-2 p-2 rounded border border-[var(--border)] bg-[var(--surface-2)]"
+            :aria-label="t('ai_memory.list_item_label', { source: t('ai_memory.source_' + (m.source || 'ai')) || (m.source || 'ai'), actor: m.actor || t('ai_memory.unknown_actor'), time: aiFormatTime(m.ts) })">
                 <span class="chip pill-info fs-3xs uppercase shrink-0"
                       x-text="t('ai_memory.source_' + (m.source || 'ai'))"></span>
-                <div class="flex-1 min-w-0">
-                  <p class="fs-sm leading-snug break-words" x-text="m.text"></p>
-                  <p class="fs-3xs text-[var(--text-faint)] mt-1">
-                    <span x-text="m.actor || ''"></span>
-                    <span x-show="m.actor"> · </span>
-                    <span x-text="aiFormatTime(m.ts)"></span>
-                  </p>
-                </div>
+          <div class="flex-1 min-w-0">
+            <p class="fs-sm leading-snug break-words" x-text="m.text"></p>
+            <p class="fs-3xs text-[var(--text-faint)] mt-1">
+              <span x-text="m.actor || ''"></span>
+              <span x-show="m.actor"> · </span>
+              <span x-text="aiFormatTime(m.ts)"></span>
+            </p>
+          </div>
+          <button type="button"
+                  @click="deleteAiMemory(m.id)"
+                  :disabled="isReadonly()"
+                  class="user-action-btn user-action-btn--danger shrink-0"
+                  :title="t('ai_memory.delete_button')"
+                  :aria-label="t('ai_memory.delete_button')">
+            <svg width="14" height="14" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+            </svg>
+          </button>
+        </li>
+      </template>
+    </ul>
+  </section>
+
+  <!-- Modal — opens via openAiModal('<key>'). Stage 1 surfaces
+       the recent jobs table; the chart-style modal kinds (cost /
+       tokens / accuracy / passrate / response_time) all share the
+       same container and render either an empty-state or a
+       tiny ASCII-style sparkline computed from `aiDashboard.trend`. -->
+  <div x-show="aiModalKey" class="fixed inset-0 z-50 fade-in" x-cloak>
+    <div @click="closeAiModal()" class="absolute inset-0 backdrop-strong"></div>
+    <div class="relative flex items-center justify-center p-4 w-full h-full overflow-auto scrollbar">
+      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-3xl w-full flex flex-col overflow-hidden shadow-xl"
+           style="max-height: 80vh;"
+           role="dialog" aria-modal="true"
+           :aria-label="aiModalTitle()"
+           @keydown="_focusTrapKeydown($event, $el)"
+           @click.stop>
+        <div class="flex items-center gap-2 p-3 border-b border-[var(--border)]">
+          <h4 class="font-semibold fs-md flex-1"
+              x-text="aiModalTitle()"></h4>
+          <button type="button" @click="closeAiModal()"
+                  class="btn btn-ghost text-base leading-none"
+                  :title="t('actions.close')"
+                  :aria-label="t('actions.close')">✕
+          </button>
+        </div>
+        <div class="overflow-y-auto scrollbar p-4 flex-1">
+          <!-- Jobs modal — paginated job log. -->
+          <div x-show="aiModalKey === 'jobs'">
+            <div class="flex items-center gap-2 flex-wrap mb-3">
+              <select x-model="aiJobsFilterProvider"
+                      @change="aiModalPage = 1; loadAiJobs()"
+                      class="fs-xs py-1">
+                <option value="" x-text="t('admin.ai.modal.filter_all_providers')"></option>
+                <template x-for="name in aiProviderNames" :key="name">
+                  <option :value="name" x-text="aiProviderDisplayName(name)"></option>
+                </template>
+              </select>
+              <select x-model="aiJobsFilterStatus"
+                      @change="aiModalPage = 1; loadAiJobs()"
+                      class="fs-xs py-1">
+                <option value="" x-text="t('admin.ai.modal.filter_all_statuses')"></option>
+                <option value="success" x-text="t('op_status.success')"></option>
+                <option value="error" x-text="t('op_status.error')"></option>
+                <option value="running" x-text="t('op_status.running')"></option>
+              </select>
+              <span class="flex-1"></span>
+              <span class="fs-2xs text-[var(--text-faint)]"
+                    x-text="aiJobs ? (aiJobs.total + ' ' + t('admin.ai.modal.total_jobs')) : ''"></span>
+            </div>
+            <div x-show="!aiJobs || aiJobs.jobs.length === 0"
+                 class="py-8 text-center fs-sm text-[var(--text-faint)] italic"
+                 x-text="t('admin.ai.modal.empty_jobs')"></div>
+            <table x-show="aiJobs && aiJobs.jobs.length > 0" class="w-full fs-xs mono">
+              <thead>
+              <tr class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] text-start">
+                <!-- Sortable headers — buttons (not spans) so
+                     keyboard users can Tab into them and Enter
+                     to sort. `aiSortBy(col)` toggles asc/desc
+                     on repeat clicks and resets to desc on a
+                     new column; `aiSortIndicator(col)` paints
+                     a unicode arrow when the column is active.
+                     Column keys mirror the row dict from
+                     `/api/admin/ai/jobs`. -->
+                <!-- `:aria-sort` on the <th> per WAI-ARIA spec
+                     — screen-reader users hear "ascending" /
+                     "descending" / "none" alongside the column
+                     name when sort changes. The sort button
+                     still owns the click + visual indicator. -->
+                <th class="text-start py-1.5"
+                    :aria-sort="_sortAria('ts', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('ts')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_when')"></span><span x-text="aiSortIndicator('ts')"></span>
+                  </button>
+                </th>
+                <th class="text-start py-1.5"
+                    :aria-sort="_sortAria('provider', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('provider')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_provider')"></span><span x-text="aiSortIndicator('provider')"></span>
+                  </button>
+                </th>
+                <th class="text-start py-1.5"
+                    :aria-sort="_sortAria('model', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('model')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_model')"></span><span x-text="aiSortIndicator('model')"></span>
+                  </button>
+                </th>
+                <th class="text-start py-1.5"
+                    :aria-sort="_sortAria('status', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('status')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_status')"></span><span x-text="aiSortIndicator('status')"></span>
+                  </button>
+                </th>
+                <th class="text-end py-1.5"
+                    :aria-sort="_sortAria('total_tokens', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('total_tokens')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_tokens')"></span><span x-text="aiSortIndicator('total_tokens')"></span>
+                  </button>
+                </th>
+                <th class="text-end py-1.5"
+                    :aria-sort="_sortAria('cost_usd', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('cost_usd')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_cost')"></span><span x-text="aiSortIndicator('cost_usd')"></span>
+                  </button>
+                </th>
+                <th class="text-end py-1.5"
+                    :aria-sort="_sortAria('response_time_ms', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('response_time_ms')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_response')"></span><span x-text="aiSortIndicator('response_time_ms')"></span>
+                  </button>
+                </th>
+              </tr>
+              </thead>
+              <tbody>
+              <template x-for="j in aiJobsRows()" :key="j.id">
+                <tr class="border-t border-[var(--border)]">
+                  <td class="py-1" x-text="aiFormatTime(j.ts)"></td>
+                  <td class="py-1" x-text="aiProviderDisplayName(j.provider)"></td>
+                  <td class="py-1 truncate max-w-[140px]" x-text="j.model"></td>
+                  <td class="py-1"
+                      :class="j.status === 'success' ? 'text-[var(--success)]' : (j.status === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]')"
+                      x-text="opStatusLabel(j.status)"></td>
+                  <td class="py-1 text-end" x-text="aiFormatNumber(j.total_tokens || 0)"></td>
+                  <td class="py-1 text-end" x-text="(j.cost_usd !== null && j.cost_usd !== undefined) ? '$' + j.cost_usd.toFixed(4) : '—'"></td>
+                  <td class="py-1 text-end" x-text="(j.response_time_ms !== null && j.response_time_ms !== undefined) ? (Number(j.response_time_ms)).toLocaleString() + ' ms' : '—'"></td>
+                </tr>
+              </template>
+              </tbody>
+            </table>
+            <!-- Paginator — page X of Y + Prev / Next. Hidden
+                 when there's at most one page. Server-paged for
+                 JOBS so each click triggers a fresh fetch. -->
+            <div x-show="aiJobs && aiJobs.jobs.length > 0 && aiModalTotalPages() > 1"
+                 class="flex items-center justify-between gap-3 mt-3 fs-xs">
+                    <span class="text-[var(--text-faint)]"
+                          x-text="t('admin.ai.modal.page_label', { page: aiModalPage, total: aiModalTotalPages() })"></span>
+              <div class="inline-flex items-center gap-2">
                 <button type="button"
-                        @click="deleteAiMemory(m.id)"
-                        :disabled="isReadonly()"
-                        class="user-action-btn user-action-btn--danger shrink-0"
-                        :title="t('ai_memory.delete_button')"
-                        :aria-label="t('ai_memory.delete_button')">
-                  <svg width="14" height="14" aria-hidden="true">
-                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
-                  </svg>
-                </button>
-              </li>
-            </template>
-          </ul>
-        </section>
-
-        <!-- Modal — opens via openAiModal('<key>'). Stage 1 surfaces
-             the recent jobs table; the chart-style modal kinds (cost /
-             tokens / accuracy / passrate / response_time) all share the
-             same container and render either an empty-state or a
-             tiny ASCII-style sparkline computed from `aiDashboard.trend`. -->
-        <div x-show="aiModalKey" class="fixed inset-0 z-50 fade-in" x-cloak>
-          <div @click="closeAiModal()" class="absolute inset-0 backdrop-strong"></div>
-          <div class="relative flex items-center justify-center p-4 w-full h-full overflow-auto scrollbar">
-            <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-3xl w-full flex flex-col overflow-hidden shadow-xl"
-                 style="max-height: 80vh;"
-                 role="dialog" aria-modal="true"
-                 :aria-label="aiModalTitle()"
-                 @keydown="_focusTrapKeydown($event, $el)"
-                 @click.stop>
-              <div class="flex items-center gap-2 p-3 border-b border-[var(--border)]">
-                <h4 class="font-semibold fs-md flex-1"
-                    x-text="aiModalTitle()"></h4>
-                <button type="button" @click="closeAiModal()"
-                        class="btn btn-ghost text-base leading-none"
-                        :title="t('actions.close')"
-                        :aria-label="t('actions.close')">✕</button>
+                        :disabled="aiModalPage <= 1"
+                        @click="aiModalGoPage(aiModalPage - 1)"
+                        class="btn btn-ghost fs-xs"
+                        x-text="t('pagination.prev')"></button>
+                <button type="button"
+                        :disabled="aiModalPage >= aiModalTotalPages()"
+                        @click="aiModalGoPage(aiModalPage + 1)"
+                        class="btn btn-ghost fs-xs"
+                        x-text="t('pagination.next')"></button>
               </div>
-              <div class="overflow-y-auto scrollbar p-4 flex-1">
-                <!-- Jobs modal — paginated job log. -->
-                <div x-show="aiModalKey === 'jobs'">
-                  <div class="flex items-center gap-2 flex-wrap mb-3">
-                    <select x-model="aiJobsFilterProvider"
-                            @change="aiModalPage = 1; loadAiJobs()"
-                            class="fs-xs py-1">
-                      <option value="" x-text="t('admin.ai.modal.filter_all_providers')"></option>
-                      <template x-for="name in aiProviderNames" :key="name">
-                        <option :value="name" x-text="aiProviderDisplayName(name)"></option>
-                      </template>
-                    </select>
-                    <select x-model="aiJobsFilterStatus"
-                            @change="aiModalPage = 1; loadAiJobs()"
-                            class="fs-xs py-1">
-                      <option value="" x-text="t('admin.ai.modal.filter_all_statuses')"></option>
-                      <option value="success" x-text="t('op_status.success')"></option>
-                      <option value="error"   x-text="t('op_status.error')"></option>
-                      <option value="running" x-text="t('op_status.running')"></option>
-                    </select>
-                    <span class="flex-1"></span>
-                    <span class="fs-2xs text-[var(--text-faint)]"
-                          x-text="aiJobs ? (aiJobs.total + ' ' + t('admin.ai.modal.total_jobs')) : ''"></span>
-                  </div>
-                  <div x-show="!aiJobs || aiJobs.jobs.length === 0"
-                       class="py-8 text-center fs-sm text-[var(--text-faint)] italic"
-                       x-text="t('admin.ai.modal.empty_jobs')"></div>
-                  <table x-show="aiJobs && aiJobs.jobs.length > 0" class="w-full fs-xs mono">
-                    <thead>
-                      <tr class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] text-start">
-                        <!-- Sortable headers — buttons (not spans) so
-                             keyboard users can Tab into them and Enter
-                             to sort. `aiSortBy(col)` toggles asc/desc
-                             on repeat clicks and resets to desc on a
-                             new column; `aiSortIndicator(col)` paints
-                             a unicode arrow when the column is active.
-                             Column keys mirror the row dict from
-                             `/api/admin/ai/jobs`. -->
-                        <!-- `:aria-sort` on the <th> per WAI-ARIA spec
-                             — screen-reader users hear "ascending" /
-                             "descending" / "none" alongside the column
-                             name when sort changes. The sort button
-                             still owns the click + visual indicator. -->
-                        <th class="text-start py-1.5"
-                            :aria-sort="_sortAria('ts', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('ts')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_when')"></span><span x-text="aiSortIndicator('ts')"></span>
-                          </button>
-                        </th>
-                        <th class="text-start py-1.5"
-                            :aria-sort="_sortAria('provider', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('provider')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_provider')"></span><span x-text="aiSortIndicator('provider')"></span>
-                          </button>
-                        </th>
-                        <th class="text-start py-1.5"
-                            :aria-sort="_sortAria('model', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('model')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_model')"></span><span x-text="aiSortIndicator('model')"></span>
-                          </button>
-                        </th>
-                        <th class="text-start py-1.5"
-                            :aria-sort="_sortAria('status', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('status')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_status')"></span><span x-text="aiSortIndicator('status')"></span>
-                          </button>
-                        </th>
-                        <th class="text-end py-1.5"
-                            :aria-sort="_sortAria('total_tokens', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('total_tokens')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_tokens')"></span><span x-text="aiSortIndicator('total_tokens')"></span>
-                          </button>
-                        </th>
-                        <th class="text-end py-1.5"
-                            :aria-sort="_sortAria('cost_usd', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('cost_usd')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_cost')"></span><span x-text="aiSortIndicator('cost_usd')"></span>
-                          </button>
-                        </th>
-                        <th class="text-end py-1.5"
-                            :aria-sort="_sortAria('response_time_ms', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('response_time_ms')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_response')"></span><span x-text="aiSortIndicator('response_time_ms')"></span>
-                          </button>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="j in aiJobsRows()" :key="j.id">
-                        <tr class="border-t border-[var(--border)]">
-                          <td class="py-1" x-text="aiFormatTime(j.ts)"></td>
-                          <td class="py-1" x-text="aiProviderDisplayName(j.provider)"></td>
-                          <td class="py-1 truncate max-w-[140px]" x-text="j.model"></td>
-                          <td class="py-1"
-                              :class="j.status === 'success' ? 'text-[var(--success)]' : (j.status === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]')"
-                              x-text="opStatusLabel(j.status)"></td>
-                          <td class="py-1 text-end" x-text="aiFormatNumber(j.total_tokens || 0)"></td>
-                          <td class="py-1 text-end" x-text="(j.cost_usd !== null && j.cost_usd !== undefined) ? '$' + j.cost_usd.toFixed(4) : '—'"></td>
-                          <td class="py-1 text-end" x-text="(j.response_time_ms !== null && j.response_time_ms !== undefined) ? (Number(j.response_time_ms)).toLocaleString() + ' ms' : '—'"></td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                  <!-- Paginator — page X of Y + Prev / Next. Hidden
-                       when there's at most one page. Server-paged for
-                       JOBS so each click triggers a fresh fetch. -->
-                  <div x-show="aiJobs && aiJobs.jobs.length > 0 && aiModalTotalPages() > 1"
-                       class="flex items-center justify-between gap-3 mt-3 fs-xs">
-                    <span class="text-[var(--text-faint)]"
-                          x-text="t('admin.ai.modal.page_label', { page: aiModalPage, total: aiModalTotalPages() })"></span>
-                    <div class="inline-flex items-center gap-2">
-                      <button type="button"
-                              :disabled="aiModalPage <= 1"
-                              @click="aiModalGoPage(aiModalPage - 1)"
-                              class="btn btn-ghost fs-xs"
-                              x-text="t('pagination.prev')"></button>
-                      <button type="button"
-                              :disabled="aiModalPage >= aiModalTotalPages()"
-                              @click="aiModalGoPage(aiModalPage + 1)"
-                              class="btn btn-ghost fs-xs"
-                              x-text="t('pagination.next')"></button>
-                    </div>
-                  </div>
-                </div>
+            </div>
+          </div>
 
-                <!-- Trend / breakdown modals — share the same container.
-                     Stage 1 renders a simple table from aiDashboard.trend
-                     and leaves richer chart visualisations to stage 2+. -->
-                <div x-show="aiModalKey && aiModalKey !== 'jobs'">
-                  <p class="fs-xs text-[var(--text-faint)] mb-3"
-                     x-text="aiModalKey ? t('admin.ai.modal.' + aiModalKey + '_desc') : ''"></p>
-                  <div x-show="!aiDashboard || aiDashboard.trend.length === 0"
-                       class="py-8 text-center fs-sm text-[var(--text-faint)] italic"
-                       x-text="t('admin.ai.modal.empty_trend')"></div>
-                  <table x-show="aiDashboard && aiDashboard.trend.length > 0" class="w-full fs-xs mono">
-                    <thead>
-                      <tr class="fs-3xs uppercase tracking-wider text-[var(--text-faint)]">
-                        <!-- Sortable headers — same shape as the JOBS
-                             table above. Trend rows are bucketed by
-                             hour from /api/admin/ai/dashboard, so
-                             pagination is client-side via
-                             `aiTrendRows()` (slice of
-                             aiDashboard.trend). Column keys mirror
-                             the row dict's actual fields. -->
-                        <th class="text-start py-1.5"
-                            :aria-sort="_sortAria('ts', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('ts')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_when')"></span><span x-text="aiSortIndicator('ts')"></span>
-                          </button>
-                        </th>
-                        <th class="text-end py-1.5"
-                            :aria-sort="_sortAria('jobs', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('jobs')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_jobs')"></span><span x-text="aiSortIndicator('jobs')"></span>
-                          </button>
-                        </th>
-                        <th class="text-end py-1.5"
-                            :aria-sort="_sortAria('pass_rate', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('pass_rate')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_pass_rate')"></span><span x-text="aiSortIndicator('pass_rate')"></span>
-                          </button>
-                        </th>
-                        <th class="text-end py-1.5"
-                            :aria-sort="_sortAria('total_tokens', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('total_tokens')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_tokens')"></span><span x-text="aiSortIndicator('total_tokens')"></span>
-                          </button>
-                        </th>
-                        <th class="text-end py-1.5"
-                            :aria-sort="_sortAria('total_cost_usd', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('total_cost_usd')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_cost')"></span><span x-text="aiSortIndicator('total_cost_usd')"></span>
-                          </button>
-                        </th>
-                        <th class="text-end py-1.5"
-                            :aria-sort="_sortAria('avg_accuracy_score', aiModalSortCol, aiModalSortDir)">
-                          <button type="button" @click="aiSortBy('avg_accuracy_score')" class="uppercase tracking-wider hover:text-[var(--text)]">
-                            <span x-text="t('admin.ai.modal.col_accuracy')"></span><span x-text="aiSortIndicator('avg_accuracy_score')"></span>
-                          </button>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <!-- Loop variable is `row`, NOT `t` — using
-                           `t` would shadow the global `t()` i18n
-                           helper inside the loop scope. -->
-                      <template x-for="row in aiTrendRows()" :key="row.ts">
-                        <tr class="border-t border-[var(--border)]">
-                          <td class="py-1" x-text="aiFormatTime(row.ts)"></td>
-                          <td class="py-1 text-end" x-text="row.jobs"></td>
-                          <td class="py-1 text-end" x-text="Math.round((row.pass_rate || 0) * 100) + '%'"></td>
-                          <td class="py-1 text-end" x-text="aiFormatNumber(row.total_tokens || 0)"></td>
-                          <td class="py-1 text-end" x-text="aiFormatCost(row.total_cost_usd)"></td>
-                          <td class="py-1 text-end" x-text="aiFormatPct01(row.avg_accuracy_score)"></td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                  <!-- Paginator — same shape as the JOBS modal. Trend
-                       rows page client-side; no extra round-trip on
-                       Prev/Next. -->
-                  <div x-show="aiDashboard && aiDashboard.trend.length > 0 && aiModalTotalPages() > 1"
-                       class="flex items-center justify-between gap-3 mt-3 fs-xs">
+          <!-- Trend / breakdown modals — share the same container.
+               Stage 1 renders a simple table from aiDashboard.trend
+               and leaves richer chart visualisations to stage 2+. -->
+          <div x-show="aiModalKey && aiModalKey !== 'jobs'">
+            <p class="fs-xs text-[var(--text-faint)] mb-3"
+               x-text="aiModalKey ? t('admin.ai.modal.' + aiModalKey + '_desc') : ''"></p>
+            <div x-show="!aiDashboard || aiDashboard.trend.length === 0"
+                 class="py-8 text-center fs-sm text-[var(--text-faint)] italic"
+                 x-text="t('admin.ai.modal.empty_trend')"></div>
+            <table x-show="aiDashboard && aiDashboard.trend.length > 0" class="w-full fs-xs mono">
+              <thead>
+              <tr class="fs-3xs uppercase tracking-wider text-[var(--text-faint)]">
+                <!-- Sortable headers — same shape as the JOBS
+                     table above. Trend rows are bucketed by
+                     hour from /api/admin/ai/dashboard, so
+                     pagination is client-side via
+                     `aiTrendRows()` (slice of
+                     aiDashboard.trend). Column keys mirror
+                     the row dict's actual fields. -->
+                <th class="text-start py-1.5"
+                    :aria-sort="_sortAria('ts', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('ts')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_when')"></span><span x-text="aiSortIndicator('ts')"></span>
+                  </button>
+                </th>
+                <th class="text-end py-1.5"
+                    :aria-sort="_sortAria('jobs', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('jobs')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_jobs')"></span><span x-text="aiSortIndicator('jobs')"></span>
+                  </button>
+                </th>
+                <th class="text-end py-1.5"
+                    :aria-sort="_sortAria('pass_rate', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('pass_rate')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_pass_rate')"></span><span x-text="aiSortIndicator('pass_rate')"></span>
+                  </button>
+                </th>
+                <th class="text-end py-1.5"
+                    :aria-sort="_sortAria('total_tokens', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('total_tokens')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_tokens')"></span><span x-text="aiSortIndicator('total_tokens')"></span>
+                  </button>
+                </th>
+                <th class="text-end py-1.5"
+                    :aria-sort="_sortAria('total_cost_usd', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('total_cost_usd')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_cost')"></span><span x-text="aiSortIndicator('total_cost_usd')"></span>
+                  </button>
+                </th>
+                <th class="text-end py-1.5"
+                    :aria-sort="_sortAria('avg_accuracy_score', aiModalSortCol, aiModalSortDir)">
+                  <button type="button" @click="aiSortBy('avg_accuracy_score')" class="uppercase tracking-wider hover:text-[var(--text)]">
+                    <span x-text="t('admin.ai.modal.col_accuracy')"></span><span x-text="aiSortIndicator('avg_accuracy_score')"></span>
+                  </button>
+                </th>
+              </tr>
+              </thead>
+              <tbody>
+              <!-- Loop variable is `row`, NOT `t` — using
+                   `t` would shadow the global `t()` i18n
+                   helper inside the loop scope. -->
+              <template x-for="row in aiTrendRows()" :key="row.ts">
+                <tr class="border-t border-[var(--border)]">
+                  <td class="py-1" x-text="aiFormatTime(row.ts)"></td>
+                  <td class="py-1 text-end" x-text="row.jobs"></td>
+                  <td class="py-1 text-end" x-text="Math.round((row.pass_rate || 0) * 100) + '%'"></td>
+                  <td class="py-1 text-end" x-text="aiFormatNumber(row.total_tokens || 0)"></td>
+                  <td class="py-1 text-end" x-text="aiFormatCost(row.total_cost_usd)"></td>
+                  <td class="py-1 text-end" x-text="aiFormatPct01(row.avg_accuracy_score)"></td>
+                </tr>
+              </template>
+              </tbody>
+            </table>
+            <!-- Paginator — same shape as the JOBS modal. Trend
+                 rows page client-side; no extra round-trip on
+                 Prev/Next. -->
+            <div x-show="aiDashboard && aiDashboard.trend.length > 0 && aiModalTotalPages() > 1"
+                 class="flex items-center justify-between gap-3 mt-3 fs-xs">
                     <span class="text-[var(--text-faint)]"
                           x-text="t('admin.ai.modal.page_label', { page: aiModalPage, total: aiModalTotalPages() })"></span>
-                    <div class="inline-flex items-center gap-2">
-                      <button type="button"
-                              :disabled="aiModalPage <= 1"
-                              @click="aiModalGoPage(aiModalPage - 1)"
-                              class="btn btn-ghost fs-xs"
-                              x-text="t('pagination.prev')"></button>
-                      <button type="button"
-                              :disabled="aiModalPage >= aiModalTotalPages()"
-                              @click="aiModalGoPage(aiModalPage + 1)"
-                              class="btn btn-ghost fs-xs"
-                              x-text="t('pagination.next')"></button>
-                    </div>
-                  </div>
-                </div>
+              <div class="inline-flex items-center gap-2">
+                <button type="button"
+                        :disabled="aiModalPage <= 1"
+                        @click="aiModalGoPage(aiModalPage - 1)"
+                        class="btn btn-ghost fs-xs"
+                        x-text="t('pagination.prev')"></button>
+                <button type="button"
+                        :disabled="aiModalPage >= aiModalTotalPages()"
+                        @click="aiModalGoPage(aiModalPage + 1)"
+                        class="btn btn-ghost fs-xs"
+                        x-text="t('pagination.next')"></button>
               </div>
             </div>
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</div>

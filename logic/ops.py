@@ -1842,6 +1842,13 @@ async def do_update_container(op: Operation, container_id: str) -> None:
         recreate_endpoint_error: Optional[str] = None
         recreate_response_body: str = ""
         recreate_response_full: str = ""
+        # The container ID the FALLBACK should inspect. Defaults to the
+        # original `container_id`; reassigned to the new ID once we parse
+        # the /recreate response body. When Portainer's /recreate spawns
+        # a fresh container, the OLD `container_id` is reaped — the
+        # manual-fallback inspect MUST point at the live new container
+        # OR it will 404 and abort before pulling the fresh image.
+        new_container_id: str = container_id
         async with portainer.write_client(timeout=_portainer_op_timeout("long")) as client:
             try:
                 # `json={}` is REQUIRED — Portainer's recreate endpoint
@@ -1897,9 +1904,8 @@ async def do_update_container(op: Operation, container_id: str) -> None:
             # /recreate endpoint returns the full inspect JSON of the
             # new container; `Id` is the canonical sha256 of the new
             # container, which we need to inspect since the old `container_id`
-            # is now 404. Fall back to the original ID when parsing fails
-            # so we still get a diagnostic (instead of silently skipping).
-            new_container_id = container_id
+            # is now 404. `new_container_id` is hoisted above so the
+            # fallback path can also reach it.
             try:
                 import json as _json_post
                 # Parse the FULL body, not the 500-char log preview —
@@ -1954,12 +1960,24 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                 except (httpx.HTTPError, OSError) as _e:
                     op.log(f"Post-recreate inspect failed ({type(_e).__name__}: {_e}) — assuming success", "warning")
         if recreate_endpoint_error:
+            # If Portainer's /recreate already spawned a fresh container
+            # (no-op'd the pull but DID swap the container), the OLD
+            # `container_id` is reaped — the fallback's inspect would
+            # 404. Point it at the live new container so the manual
+            # pull + recreate operates on the right target. When no new
+            # ID was produced (Portainer returned an error before
+            # spawning anything), `new_container_id` is still equal to
+            # `container_id` and the fallback behaves as before.
+            fallback_target = new_container_id if new_container_id != container_id else container_id
             op.log(
                 f"Portainer /recreate refused or no-op'd ({recreate_endpoint_error}); "
                 f"falling back to manual inspect + pull + stop + remove + "
-                f"create + start", "warning",
+                f"create + start"
+                + (f" (against new container {fallback_target[:12]})"
+                   if fallback_target != container_id else ""),
+                "warning",
             )
-            await _recreate_container_in_place(op, container_id)
+            await _recreate_container_in_place(op, fallback_target)
             op.log("Container recreated (manual fallback)", "success")
         op.done("success")
         await notify(f"✅ Container updated: {op.target_name}", "", "success",
