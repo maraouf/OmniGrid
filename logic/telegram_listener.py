@@ -1892,6 +1892,15 @@ async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     # the file at build time so its mtime IS the build timestamp.
     # Defensive: if the file doesn't exist (running outside the
     # container) we skip the line entirely.
+    #
+    # Render the timestamp in the SENDER's preferred datetime format
+    # (Profile → Formats `ui_prefs.datetime_format`) and in the
+    # deployment's configured timezone (`scheduler_timezone` setting,
+    # the canonical "what day is it for OmniGrid?" knob per CLAUDE.md).
+    # Falls back to UTC when neither side is available so unmapped
+    # senders still see a coherent timestamp. The TZ abbreviation
+    # (`CET` / `EEST` / `UTC` / etc.) is appended so operators across
+    # time zones don't have to mentally translate.
     build_time_line = ""
     try:
         import os as _os
@@ -1899,11 +1908,29 @@ async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         version_file = "/app/VERSION.txt"
         if _os.path.exists(version_file):
             mtime = _os.path.getmtime(version_file)
-            build_dt = _dt.fromtimestamp(mtime, tz=_tz.utc)
-            build_time_line = (
-                f"\n🕓 Built: <i>{_escape(build_dt.strftime('%Y-%m-%d %H:%M UTC'))}</i>"
+            build_dt_utc = _dt.fromtimestamp(mtime, tz=_tz.utc)
+            # Resolve TZ via the canonical scheduler_timezone setting;
+            # fall back to UTC when unset or invalid.
+            from logic.schedules import _scheduler_tz as _sched_tz_fn
+            sched_tz = _sched_tz_fn()
+            build_dt_local = build_dt_utc.astimezone(sched_tz) if sched_tz else build_dt_utc
+            # Per-user format pref (falls back to the deployment-wide
+            # default inside `get_user_datetime_format` when the sender
+            # isn't mapped or hasn't set a pref).
+            sender_id_v = (msg.get("from") or {}).get("id")
+            username_v = _lookup_omnigrid_user(sender_id_v) if sender_id_v is not None else None
+            from logic.datetime_fmt import (
+                apply_datetime_format as _apply_fmt,
+                get_user_datetime_format as _get_user_fmt,
             )
-    except (OSError, ValueError):
+            user_fmt = _get_user_fmt(username_v or "")
+            formatted = _apply_fmt(build_dt_local, user_fmt)
+            tz_abbrev = build_dt_local.strftime("%Z") or "UTC"
+            build_time_line = (
+                f"\n🕓 Built: <i>{_escape(formatted)}</i> "
+                f"<code>{_escape(tz_abbrev)}</code>"
+            )
+    except (OSError, ValueError, ImportError):
         build_time_line = ""
     # Optional git SHA — the deploy pipeline may write a `/app/GIT_SHA`
     # file (one line, short SHA). When absent, skip cleanly.
