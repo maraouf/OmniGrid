@@ -27,20 +27,31 @@
   utilities for the topbar picker).
 -->
 <!--suppress HtmlUnknownAttribute -->
+<!--
+  NB: optional rpLeadingLabel / rpExtraClass / rpTitle are read via
+  `$data['<name>']` (bracket-notation property access on Alpine's
+  scope proxy). The earlier `typeof X !== 'undefined' && X` pattern
+  works in plain JS but Alpine v3 compiles expressions with strict
+  semantics where a bare undeclared identifier throws ReferenceError
+  BEFORE typeof can guard it (caught fleet-wide on the 4 stats range
+  pickers — only the topbar consumer declared rpLeadingLabel, the
+  others crashed on every mount). `$data['rpLeadingLabel']` returns
+  undefined cleanly when the parent scope doesn't declare it.
+-->
 <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
-     :class="(typeof rpExtraClass !== 'undefined' && rpExtraClass) ? rpExtraClass : ''"
+     :class="$data['rpExtraClass'] ? $data['rpExtraClass'] : ''"
      role="radiogroup"
      :aria-label="rpAriaLabel"
-     :title="(typeof rpTitle !== 'undefined' && rpTitle) ? rpTitle : ''"
+     :title="$data['rpTitle'] ? $data['rpTitle'] : ''"
      @keydown="_buttonGroupArrowKey($event)">
   <!-- Optional leading decorative label (topbar refresh picker uses
        this for the "REFRESH" prefix text). Sits inside the styled
        chrome but outside the role="radiogroup" semantic via
        aria-hidden — screen-readers hear only the radio options. -->
-  <span x-show="typeof rpLeadingLabel !== 'undefined' && rpLeadingLabel"
+  <span x-show="$data['rpLeadingLabel']"
         aria-hidden="true"
         class="px-1.5 fs-3xs text-faint uppercase tracking-wider"
-        x-text="rpLeadingLabel"></span>
+        x-text="$data['rpLeadingLabel']"></span>
   <template x-for="opt in rpOptions" :key="opt.value">
     <button type="button"
             :aria-pressed="rpCurrent === opt.value ? 'true' : 'false'"

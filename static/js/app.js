@@ -18807,6 +18807,68 @@ function app() {
       return [...new Set(ns)].join(', ');
     },
 
+    // Resolve the http://<host>:<published> URL for an item's exposed
+    // port. Returns '' when no host can be determined OR the port
+    // protocol isn't tcp (UDP / SCTP have no in-browser navigation).
+    //
+    // Host resolution chain:
+    //   1. For a container item: look up the curated host whose
+    //      id / hostname matches `item.node` (Swarm node hostname); the
+    //      host's `address` field (canonical provider-independent
+    //      target per CLAUDE.md) is preferred.
+    //   2. Fallback: hostname extracted from the Portainer public URL
+    //      (settings.portainer_public_url) — works for ingress-mode
+    //      service publishes which land on every Swarm node.
+    //   3. Last resort: window.location.hostname so the link still
+    //      navigates somewhere reasonable in a dev / single-host
+    //      setup.
+    // Protocol is always http:// — the Docker port publish doesn't
+    // imply TLS; operators with TLS-fronted services point their
+    // browser at the published port over their own ingress separately.
+    itemPortLink(item, port) {
+      if (!item || !port || !port.published) {
+        return '';
+      }
+      const proto = (port.protocol || 'tcp').toLowerCase();
+      if (proto !== 'tcp') {
+        return '';
+      }
+      // Try the curated-host match for container items first.
+      let host = '';
+      const nodeName = (item && item.node) || '';
+      if (nodeName && Array.isArray(this.hosts)) {
+        const match = this.hosts.find(h => {
+          if (!h) {
+            return false;
+          }
+          const candidates = [h.id, h.host_hostname, h.label];
+          return candidates.some(c => c && String(c).toLowerCase() === String(nodeName).toLowerCase());
+        });
+        if (match) {
+          host = (match.address || match.host_hostname || match.id || '').trim();
+        }
+      }
+      // Fallback to Portainer public URL hostname (ingress publishes).
+      if (!host) {
+        const pubUrl = (this.settings && this.settings.portainer_public_url) || '';
+        if (pubUrl) {
+          try {
+            host = new URL(pubUrl).hostname;
+          } catch (_) {
+            // ignore
+          }
+        }
+      }
+      // Last resort: the SPA's own window hostname.
+      if (!host) {
+        host = window.location.hostname || '';
+      }
+      if (!host) {
+        return '';
+      }
+      return 'http://' + host + ':' + port.published;
+    },
+
     // Auto-fix actions surfaced in the known-issue panel below the
     // remediation prose. Each action descriptor: { id, label, kind,
     // help, danger? }. `kind` drives the dispatcher in
@@ -21176,6 +21238,87 @@ function app() {
       turn.cancelled       = true;
       this.persistAiConversation();
     },
+
+    // Tool-dispatch confirm handler. Distinct from confirmInlineAction
+    // because we're not running a SPA-side action descriptor; we're
+    // re-POSTing to /api/ai/palette with tool_confirm_granted=true so
+    // the backend dispatcher actually fires the confirm-required tools
+    // (ssh_diag / docker_container_du) and returns the second-round AI
+    // reply composed from the tool output.
+    async confirmInlineToolDispatch(turnIdx) {
+      const turn = this.aiConversation[turnIdx];
+      if (!turn || !turn.pending_tool_confirms || !turn.pending_query) {
+        return;
+      }
+      const origQuery = turn.pending_query;
+      // Clear the pending state immediately so the chip disappears and
+      // double-click can't fire twice. We'll replace turn.text once
+      // the second-round reply lands.
+      turn.pending_tool_confirms = null;
+      turn.pending_query         = null;
+      this.aiSidebarBusy = true;
+      this.persistAiConversation();
+      this._scrollAiSidebarToBottom();
+      try {
+        const ctx = this._buildAiPaletteContext();
+        // Conversation history up to (but not including) THIS pending
+        // turn — so the AI doesn't re-see its own first-round reply
+        // and confuse "tool already pending" with "ask again".
+        const priorTurns = this.aiConversation
+          .slice(0, turnIdx)
+          .filter(t => t && (t.role === 'user' || t.role === 'assistant') && t.text)
+          .map(t => ({ role: t.role, text: t.text }));
+        const r = await fetch('/api/ai/palette', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: origQuery,
+            context: ctx,
+            conversation: priorTurns,
+            tool_confirm_granted: true,
+          }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) {
+          turn.error = (j && j.detail) || (this.t('toasts.failed') || 'Failed');
+        } else {
+          // Replace the first-round prose with the second-round reply
+          // composed from the tool results. Keep the same `ts` so the
+          // bubble's DOM identity is stable.
+          turn.text = (j.text || '').trim() || (this.t('command_palette.ai.empty_response') || '(empty response)');
+          turn.provider = j.provider || turn.provider;
+          turn.model = j.model || turn.model;
+          turn.response_time_ms = (turn.response_time_ms || 0) + (j.response_time_ms || 0);
+          turn.tokens = (turn.tokens || 0) + ((j.tokens && (j.tokens.prompt + j.tokens.completion)) || 0);
+          turn.job_id = (j.job_id !== undefined && j.job_id !== null) ? j.job_id : turn.job_id;
+          // tool_calls + tool_results are surfaced on the response for
+          // operator-visible "what did we actually run?" affordance.
+          if (Array.isArray(j.tool_calls)) {
+            turn.tool_calls = j.tool_calls;
+          }
+          if (j.tool_results && typeof j.tool_results === 'object') {
+            turn.tool_results = j.tool_results;
+          }
+        }
+      } catch (e) {
+        turn.error = (e && e.message) ? e.message : 'Tool dispatch failed';
+      } finally {
+        this.aiSidebarBusy = false;
+        this._scrollAiSidebarToBottom();
+        this.persistAiConversation();
+      }
+    },
+
+    cancelInlineToolDispatch(turnIdx) {
+      const turn = this.aiConversation[turnIdx];
+      if (!turn) {
+        return;
+      }
+      turn.pending_tool_confirms = null;
+      turn.pending_query         = null;
+      turn.cancelled             = true;
+      this.persistAiConversation();
+    },
     // Single source of truth for "should the AI surface be wired into
     // Cmd-K right now?" Consulted both at result-build time (deciding
     // whether to show the synthetic row) AND at activation time
@@ -21851,6 +21994,20 @@ function app() {
           // round-trip to the AI. Defaults to "disk_projection" via
           // the populator when absent — preserves legacy turns.
           chart_kind:       chartKind,
+          // Tool-dispatch confirm — set when the backend short-
+          // circuits a confirm-required tool call (ssh_diag /
+          // docker_container_du) with a pending_tool_confirms
+          // envelope. The inline chip in the assistant bubble's
+          // `pending_tool_confirms` branch reads this; clicking Yes
+          // re-POSTs to /api/ai/palette with tool_confirm_granted:
+          // true + the same original query, so the backend re-parses,
+          // dispatches the tools without short-circuiting, and
+          // returns the second-round AI reply composed from the
+          // actual tool output. We persist the original query on the
+          // turn so the re-POST has the exact text the user typed,
+          // not whatever's in the input box at click time.
+          pending_tool_confirms: Array.isArray(j.pending_tool_confirms) ? j.pending_tool_confirms : null,
+          pending_query:         (j.pending_tool_confirms && j.pending_tool_confirms.length) ? q : null,
           ts:               Date.now(),
         };
         this.aiConversation.push(turn);
