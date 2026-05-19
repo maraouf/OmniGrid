@@ -135,7 +135,7 @@ async def _probe_tcp_once(host: str, port: int, timeout_seconds: float) -> tuple
     try:
         writer.close()
         await writer.wait_closed()
-    except Exception:
+    except (OSError, ConnectionError):
         pass
     return True, rtt_ms, None
 
@@ -218,7 +218,7 @@ async def probe_ping(
         try:
             from logic.tuning import Tunable, tuning_int as _tuning_int
             timeout_seconds = float(_tuning_int(Tunable.PING_PROBE_TIMEOUT_SECONDS))
-        except Exception:
+        except (ImportError, KeyError, ValueError, TypeError):
             timeout_seconds = 2.0
     host_clean = (host or "").strip()
     if not host_clean:

@@ -340,7 +340,7 @@ def _walk_hosts_config() -> list[dict]:
     contract matches what the helpers had before, so a stale settings
     blob can't crash the lifespan tasks.
     """
-    return list(iter_curated_hosts(require_enabled=True))
+    return list(iter_curated_hosts())
 
 
 # noinspection DuplicatedCode

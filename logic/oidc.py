@@ -286,13 +286,13 @@ async def test_discovery(issuer_url: str, verify_tls: Optional[bool] = None) -> 
 # cookie because the user isn't authenticated yet.
 # ----------------------------------------------------------------------------
 def _sign_flow(payload: str) -> str:
-    sig = hmac.new(auth.SESSION_SECRET, payload.encode("utf-8"), hashlib.sha256).digest()
+    sig = hmac.new(auth.SESSION_SECRET, payload.encode(), hashlib.sha256).digest()
     return base64.urlsafe_b64encode(sig).rstrip(b"=").decode("ascii")
 
 
 def _encode_flow(data: dict) -> str:
     raw = json.dumps(data, separators=(",", ":"))
-    b64 = base64.urlsafe_b64encode(raw.encode("utf-8")).rstrip(b"=").decode("ascii")
+    b64 = base64.urlsafe_b64encode(raw.encode()).rstrip(b"=").decode("ascii")
     return f"{b64}.{_sign_flow(b64)}"
 
 
@@ -306,7 +306,7 @@ def _decode_flow(cookie: str) -> Optional[dict]:
     pad = "=" * (-len(b64) % 4)
     try:
         raw = base64.urlsafe_b64decode(b64 + pad)
-        data = json.loads(raw.decode("utf-8"))
+        data = json.loads(raw.decode())
     except (ValueError, json.JSONDecodeError):
         return None
     # Enforce TTL server-side too — cookies with expired TTLs shouldn't
@@ -375,7 +375,7 @@ def _safe_next(value: Optional[str]) -> str:
     m = _SAFE_NEXT_PATH_RE.fullmatch(value)
     if m is None:
         return _SAFE_NEXT_FALLBACK
-    return m.group(0)
+    return m.group()
 
 
 # ----------------------------------------------------------------------------
@@ -456,7 +456,7 @@ async def login(request: Request):
         max_age=FLOW_COOKIE_TTL,
         httponly=True,
         secure=_is_https(request),
-        samesite="lax",  # lax so the IdP redirect back carries the cookie
+        # `samesite` defaults to "lax" — the IdP redirect back carries the cookie
         path="/api/oidc/",  # scoped to the callback path — no other route needs it
     )
     return resp
@@ -524,7 +524,6 @@ async def callback(request: Request):
     client_id = s["oidc_client_id"]
     client_secret = s["oidc_client_secret"]
     redirect_uri = s.get("oidc_redirect_uri") or _default_redirect_uri(request)
-    admin_group = s.get("oidc_admin_group") or ""
 
     doc = await _fetch_discovery(issuer)
     _token_ep_raw = doc.get("token_endpoint")
@@ -583,7 +582,7 @@ async def callback(request: Request):
             expected_iss=expected_iss,
             client_id=client_id, expected_nonce=flow["nonce"],
         )
-    except jwt.InvalidIssuerError as e:
+    except jwt.InvalidIssuerError:
         # Dig out the actual iss in the token so the operator can spot
         # trailing-slash / host mismatches without reaching for jwt.io.
         # route through the errors catalog so Apprise +
@@ -691,7 +690,6 @@ async def callback(request: Request):
         await _notify(
             f"🔓 {u.username} signed in",
             f"via authentik from {ip}",
-            "info",
             event="user_login",
             actor_username=u.username,
         )

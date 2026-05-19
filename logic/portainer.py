@@ -34,10 +34,12 @@ from logic.tuning import Tunable
 # constants, so the live UI override takes effect on the next call.
 # ----------------------------------------------------------------------------
 def registry_concurrency() -> int:
+    """Per-use read of the registry-fetch concurrency cap (DB > env > default)."""
     return tuning.tuning_int(Tunable.REGISTRY_CONCURRENCY)
 
 
 def stats_concurrency() -> int:
+    """Per-use read of the /containers/*/stats fan-out cap (DB > env > default)."""
     return tuning.tuning_int(Tunable.STATS_CONCURRENCY)
 
 
@@ -166,6 +168,7 @@ def get_portainer_settings(conn: Optional[sqlite3.Connection] = None) -> dict:
 
 
 def invalidate_portainer_cache() -> None:
+    """Drop the in-process Portainer settings cache so the next read re-fetches from DB."""
     global _portainer_cache_valid
     _portainer_cache_valid = False
 

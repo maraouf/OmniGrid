@@ -47,7 +47,7 @@ def _read_version_file() -> str:
     """
     for p in _candidate_paths():
         try:
-            with open(p, "r", encoding="utf-8") as f:
+            with open(p, encoding="utf-8") as f:
                 v = f.read().strip().splitlines()[0].strip()
                 if v:
                     return v

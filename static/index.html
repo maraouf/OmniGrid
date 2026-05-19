@@ -1,5 +1,5 @@
+<!--suppress AnonymousFunctionJS, ConditionalExpressionJS, HtmlUnknownAttribute, ConstantOnRightSideOfComparisonJS, NestedConditionalExpressionJS, HtmlUnknownTag, EmptyCatchBlockJS, UnusedCatchParameterJS, FunctionWithMultipleReturnPointsJS, MagicNumberJS, HtmlFormInputWithoutLabel, HtmlWrongAttributeValue, HtmlRequiredAltAttribute, CssConvertColorToRgbInspection, ReuseOfLocalVariableJS -->
 <!DOCTYPE html>
-<!--suppress ALL -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -34,14 +34,14 @@
   <link rel="shortcut icon" href="/img/logo/omnigrid.png">
   <script>
     (function () {
-      var pref = localStorage.getItem('theme') || 'auto';
-      var sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
-      var resolved = pref === 'auto' ? (sysLight ? 'light' : 'dark') : pref;
+      const pref = localStorage.getItem('theme') || 'auto';
+      const sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      const resolved = pref === 'auto' ? (sysLight ? 'light' : 'dark') : pref;
       document.documentElement.setAttribute('data-theme', resolved);
       // Apply persisted language/direction before first paint so RTL layout
       // doesn't flash LTR on page load. The full i18n helper below handles
       // JSON fetch + key lookups.
-      var lang = localStorage.getItem('lang') || 'en';
+      const lang = localStorage.getItem('lang') || 'en';
       document.documentElement.setAttribute('lang', lang);
       // `ar` is hard-coded as RTL here just so the *shell* flips before the
       // async JSON fetch completes. Every other language's direction comes
@@ -63,7 +63,7 @@
     // requires it. Attached to BOTH document and window so iOS Safari
     // can't bypass via either path.
     (function () {
-      var pd = function (e) {
+      const pd = function (e) {
         try {
           e.preventDefault();
         } catch (_) {
@@ -73,7 +73,7 @@
         document.addEventListener(evt, pd, {passive: false});
         window.addEventListener(evt, pd, {passive: false});
       });
-      var blockMultiTouch = function (e) {
+      const blockMultiTouch = function (e) {
         if (e.touches && e.touches.length > 1) {
           pd(e);
           return;
@@ -86,9 +86,9 @@
       };
       document.addEventListener('touchstart', blockMultiTouch, {passive: false});
       document.addEventListener('touchmove', blockMultiTouch, {passive: false});
-      var lastTouchEnd = 0;
+      let lastTouchEnd = 0;
       document.addEventListener('touchend', function (e) {
-        var now = Date.now();
+        const now = Date.now();
         if (now - lastTouchEnd < 300) {
           pd(e);
         }
@@ -3228,14 +3228,14 @@
                @change="setHistoryDateFromText('from', $event.target.value)"
                :placeholder="_userDateOnlyFormat()"
                class="fs-sm mono"
-               style="width: 9.5rem"
+               style="width: 9.5rem;"
                :title="t('history.from_date_title')">
         <input type="text"
                :value="_formatIsoDate(historyFilters.toDate)"
                @change="setHistoryDateFromText('to', $event.target.value)"
                :placeholder="_userDateOnlyFormat()"
                class="fs-sm mono"
-               style="width: 9.5rem"
+               style="width: 9.5rem;"
                :title="t('history.to_date_title')">
         <button type="button" x-show="hasHistoryFilter()" @click="historyApplyFilter(() => resetHistoryFilters())"
                 class="btn btn-ghost fs-xs" x-text="t('history.clear_filters')"></button>
@@ -3248,18 +3248,18 @@
             <thead>
             <tr>
               <th class="col-chev"></th>
-              <th style="width: var(--col-when)" x-text="t('columns.when')"></th>
-              <th style="width: var(--col-op)" x-text="t('columns.op')"></th>
+              <th style="width: var(--col-when);" x-text="t('columns.when')"></th>
+              <th style="width: var(--col-op);" x-text="t('columns.op')"></th>
               <th class="col-grow" x-text="t('columns.target')"></th>
-              <th style="width: var(--col-stack)" class="hidden md:table-cell" x-text="t('columns.stack')"></th>
-              <th style="width: var(--col-history-status)" x-text="t('columns.status')"></th>
-              <th style="width: var(--col-duration)" class="hidden md:table-cell" x-text="t('columns.duration')"></th>
-              <th style="width: var(--col-actor)" class="hidden lg:table-cell" x-text="t('columns.actor')"></th>
+              <th style="width: var(--col-stack);" class="hidden md:table-cell" x-text="t('columns.stack')"></th>
+              <th style="width: var(--col-history-status);" x-text="t('columns.status')"></th>
+              <th style="width: var(--col-duration);" class="hidden md:table-cell" x-text="t('columns.duration')"></th>
+              <th style="width: var(--col-actor);" class="hidden lg:table-cell" x-text="t('columns.actor')"></th>
             </tr>
             </thead>
             <tbody>
             <template x-for="h in history" :key="h.id">
-              <tr class="item-row" @click="openHistoryDetail(h)" style="cursor:pointer">
+              <tr class="item-row" @click="openHistoryDetail(h)" style="cursor:pointer;">
                 <td><span class="dot" :class="h.status==='success' ? 'dot-healthy' : 'dot-offline'"></span></td>
                 <td class="mono fs-xs text-dim" x-text="formatTime(h.ts)"></td>
                 <td><span class="chip fs-2xs" x-text="(h.op_type||'').replace(/_/g,' ')"></span></td>
@@ -3503,7 +3503,7 @@
        is 0px so behaviour is unchanged. -->
   <div x-show="activeOps.length>0"
        class="fixed end-4 bg-[var(--surface)] border border-[var(--primary)]/40 rounded-md w-[380px] max-w-[calc(100vw-32px)] z-40 glow fade-in"
-       style="bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + var(--s-4))">
+       style="bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + var(--s-4));">
     <button type="button"
             class="active-ops-header w-full text-start px-3 py-2 bg-[var(--surface-2)] border-b border-[var(--border)] flex items-center gap-2 cursor-pointer rounded-t-md"
             :aria-expanded="opsExpanded ? 'true' : 'false'"
@@ -5520,7 +5520,7 @@
                     <button type="button" @click="toggleNetworkIfacesBusyAll(h)"
                             class="fs-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
                             :title="t('host_drawer.network.busy_all_toggle_title')">
-                      <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowAllBusy[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out">
+                      <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowAllBusy[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out;">
                         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
                       </svg>
                       <span x-text="networkIfacesShowAllBusy[h.id]
@@ -5539,7 +5539,7 @@
                     <button type="button" @click="toggleNetworkIfacesIdle(h)"
                             class="fs-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
                             :title="t('host_drawer.network.idle_toggle_title')">
-                      <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowIdle[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out">
+                      <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowIdle[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out;">
                         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
                       </svg>
                       <span x-text="networkIfacesShowIdle[h.id]
@@ -5604,7 +5604,7 @@
                     <button type="button" @click="toggleNetworkIfacesDocker(h)"
                             class="fs-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
                             :title="t('host_drawer.network.docker_toggle_title')">
-                      <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowDocker[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out">
+                      <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowDocker[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out;">
                         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
                       </svg>
                       <span x-text="networkIfacesShowDocker[h.id]
@@ -5922,7 +5922,7 @@
                         :title="t('hosts_extra.metrics.ping_loss_title')"
                         x-text="hostPingWindowLoss(hostPingHistoryKey(h)) + '% loss'"></span>
                   <span x-show="hostMetricStats(hostPingHistoryKey(h), 'rtt', false)">
-                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span class="metric-legend-dot" style="background: var(--success);"></span>
                         <span x-text="t('hosts_extra.metrics.ping_rtt')"></span>
                         <span class="legend-val"
                               x-text="hostMetricStats(hostPingHistoryKey(h), 'rtt', false) ? (hostMetricStats(hostPingHistoryKey(h), 'rtt', false).minRaw.toFixed(1) + '–' + hostMetricStats(hostPingHistoryKey(h), 'rtt', false).maxRaw.toFixed(1) + ' ms') : ''"></span>
@@ -5938,7 +5938,7 @@
                   </div>
                   <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                     <path class="metric-grid" :d="hostChart(hostPingHistoryKey(h), 'rtt', { min: 0, max: hostChartMax(hostPingHistoryKey(h), ['rtt']), height: 120 }).gridPath" fill="none"/>
-                    <path class="metric-line" style="color: var(--success)"
+                    <path class="metric-line" style="color: var(--success);"
                           :d="hostChart(hostPingHistoryKey(h), 'rtt', { min: 0, max: hostChartMax(hostPingHistoryKey(h), ['rtt']), height: 120 }).pathGapped"/>
                   </svg>
                   <div class="metric-x-axis">
@@ -6051,12 +6051,12 @@
                 </div>
                 <div class="metric-card-stats">
                       <span x-show="snmpStats(h.id, 'cpu_used_pct')">
-                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span class="metric-legend-dot" style="background: var(--success);"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_used')"></span>
                         <span class="legend-val" x-text="snmpStats(h.id, 'cpu_used_pct') ? Math.round(snmpStats(h.id, 'cpu_used_pct').last) + '%' : ''"></span>
                       </span>
                   <span x-show="(h.host_cpu_per_core || []).length">
-                        <span class="metric-legend-dot" style="background: var(--info); opacity: 0.55"></span>
+                        <span class="metric-legend-dot" style="background: var(--info); opacity: 0.55;"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_per_core', { n: (h.host_cpu_per_core || []).length })"></span>
                       </span>
                 </div>
@@ -6113,17 +6113,17 @@
                 </div>
                 <div class="metric-card-stats">
                       <span>
-                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span class="metric-legend-dot" style="background: var(--success);"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_1m')"></span>
                         <span class="legend-val" x-text="Math.round(snmpLoadPctLive(h.id, h.host_load_1m || (snmpStats(h.id, 'load_1m') || {}).max || 0)) + '%'"></span>
                       </span>
                   <span>
-                        <span class="metric-legend-dot" style="background: var(--warning)"></span>
+                        <span class="metric-legend-dot" style="background: var(--warning);"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_5m')"></span>
                         <span class="legend-val" x-text="Math.round(snmpLoadPctLive(h.id, h.host_load_5m || (snmpStats(h.id, 'load_5m') || {}).max || 0)) + '%'"></span>
                       </span>
                   <span>
-                        <span class="metric-legend-dot" style="background: var(--info)"></span>
+                        <span class="metric-legend-dot" style="background: var(--info);"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_15m')"></span>
                         <span class="legend-val" x-text="Math.round(snmpLoadPctLive(h.id, h.host_load_15m || (snmpStats(h.id, 'load_15m') || {}).max || 0)) + '%'"></span>
                       </span>
@@ -6190,22 +6190,22 @@
                 </div>
                 <div class="metric-card-stats">
                       <span x-show="snmpStats(h.id, 'mem_used')">
-                        <span class="metric-legend-dot" style="background: var(--danger)"></span>
+                        <span class="metric-legend-dot" style="background: var(--danger);"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_mem_used')"></span>
                         <span class="legend-val" x-text="snmpStats(h.id, 'mem_used') ? fmtBytesAt(snmpStats(h.id, 'mem_used').last, snmpMemMax(h)) : ''"></span>
                       </span>
                   <span x-show="snmpStats(h.id, 'mem_cached')">
-                        <span class="metric-legend-dot" style="background: var(--warning)"></span>
+                        <span class="metric-legend-dot" style="background: var(--warning);"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_mem_cached')"></span>
                         <span class="legend-val" x-text="snmpStats(h.id, 'mem_cached') ? fmtBytesAt(snmpStats(h.id, 'mem_cached').last, snmpMemMax(h)) : ''"></span>
                       </span>
                   <span x-show="snmpStats(h.id, 'mem_buffers')">
-                        <span class="metric-legend-dot" style="background: var(--info)"></span>
+                        <span class="metric-legend-dot" style="background: var(--info);"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_mem_buffers')"></span>
                         <span class="legend-val" x-text="snmpStats(h.id, 'mem_buffers') ? fmtBytesAt(snmpStats(h.id, 'mem_buffers').last, snmpMemMax(h)) : ''"></span>
                       </span>
                   <span x-show="snmpStats(h.id, 'mem_free')">
-                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span class="metric-legend-dot" style="background: var(--success);"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_mem_free')"></span>
                         <span class="legend-val" x-text="snmpStats(h.id, 'mem_free') ? fmtBytesAt(snmpStats(h.id, 'mem_free').last, snmpMemMax(h)) : ''"></span>
                       </span>
@@ -6273,12 +6273,12 @@
                 </div>
                 <div class="metric-card-stats">
                       <span>
-                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span class="metric-legend-dot" style="background: var(--success);"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_throughput_in')"></span>
                         <span class="legend-val" x-text="fmtBytesAt(snmpThroughputLast(h.id, 'rx'), snmpThroughputMaxBps(h.id)) + '/s'"></span>
                       </span>
                   <span>
-                        <span class="metric-legend-dot" style="background: var(--info)"></span>
+                        <span class="metric-legend-dot" style="background: var(--info);"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_throughput_out')"></span>
                         <span class="legend-val" x-text="fmtBytesAt(snmpThroughputLast(h.id, 'tx'), snmpThroughputMaxBps(h.id)) + '/s'"></span>
                       </span>
@@ -6571,7 +6571,7 @@
                 <div class="metric-card-stats"
                      x-show="typeof h.host_load_percent === 'number'">
                       <span>
-                        <span class="metric-legend-dot" style="background: var(--warning)"></span>
+                        <span class="metric-legend-dot" style="background: var(--warning);"></span>
                         <span x-text="t('host_drawer.snmp_charts.ups_load_legend')"></span>
                         <span class="legend-val mono" x-text="(+h.host_load_percent).toFixed(0) + '%'"></span>
                       </span>
@@ -6617,7 +6617,7 @@
                 <div class="metric-card-stats"
                      x-show="typeof h.host_battery_percent === 'number'">
                       <span>
-                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span class="metric-legend-dot" style="background: var(--success);"></span>
                         <span x-text="t('host_drawer.snmp_charts.ups_battery_legend')"></span>
                         <span class="legend-val mono" x-text="(+h.host_battery_percent).toFixed(0) + '%'"></span>
                       </span>
@@ -6665,7 +6665,7 @@
                 <div class="metric-card-stats"
                      x-show="typeof h.host_battery_temp_c === 'number'">
                       <span>
-                        <span class="metric-legend-dot" style="background: var(--danger)"></span>
+                        <span class="metric-legend-dot" style="background: var(--danger);"></span>
                         <span x-text="t('host_drawer.snmp_charts.ups_battery_temp_legend')"></span>
                         <span class="legend-val mono" x-text="(+h.host_battery_temp_c).toFixed(0) + '°C'"></span>
                       </span>
@@ -7020,12 +7020,12 @@
                 </div>
                 <div class="metric-card-stats">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'nr', false)">
-                        <span class="metric-legend-dot" style="background: var(--metric-net)"></span>
+                        <span class="metric-legend-dot" style="background: var(--metric-net);"></span>
                         <span x-text="t('hosts_extra.metrics.net_in')"></span>
                         <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'nr', false) ? hostMetricStats(hostHistoryKey(h), 'nr', false).max : ''"></span>
                       </span>
                   <span x-show="hostMetricStats(hostHistoryKey(h), 'ns', false)">
-                        <span class="metric-legend-dot" style="background: var(--metric-net-out)"></span>
+                        <span class="metric-legend-dot" style="background: var(--metric-net-out);"></span>
                         <span x-text="t('hosts_extra.metrics.net_out')"></span>
                         <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'ns', false) ? hostMetricStats(hostHistoryKey(h), 'ns', false).max : ''"></span>
                       </span>
@@ -7045,9 +7045,9 @@
                              uses `metric-net` color; Out uses
                              `metric-net-out` so they're visually
                              distinguishable on the legend. -->
-                    <path class="metric-line" style="color: var(--metric-net)"
+                    <path class="metric-line" style="color: var(--metric-net);"
                           :d="hostChart(hostHistoryKey(h), 'nr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['nr','ns']), height: 120 }).pathGapped"/>
-                    <path class="metric-line" style="color: var(--metric-net-out)"
+                    <path class="metric-line" style="color: var(--metric-net-out);"
                           :d="hostChart(hostHistoryKey(h), 'ns', { min: 0, max: hostChartMax(hostHistoryKey(h), ['nr','ns']), height: 120 }).pathGapped"/>
                   </svg>
                   <div class="metric-x-axis">
@@ -7163,12 +7163,12 @@
                 </div>
                 <div class="metric-card-stats">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'dr', false)">
-                        <span class="metric-legend-dot" style="background: var(--metric-net)"></span>
+                        <span class="metric-legend-dot" style="background: var(--metric-net);"></span>
                         <span x-text="t('hosts_extra.metrics.read')"></span>
                         <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'dr', false) ? hostMetricStats(hostHistoryKey(h), 'dr', false).max : ''"></span>
                       </span>
                   <span x-show="hostMetricStats(hostHistoryKey(h), 'dw', false)">
-                        <span class="metric-legend-dot" style="background: var(--metric-net-out)"></span>
+                        <span class="metric-legend-dot" style="background: var(--metric-net-out);"></span>
                         <span x-text="t('hosts_extra.metrics.write')"></span>
                         <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'dw', false) ? hostMetricStats(hostHistoryKey(h), 'dw', false).max : ''"></span>
                       </span>
@@ -7183,9 +7183,9 @@
                   </div>
                   <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                     <path class="metric-grid" :d="hostChart(hostHistoryKey(h), 'dr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['dr','dw']), height: 120 }).gridPath" fill="none"/>
-                    <path class="metric-line" style="color: var(--metric-net)"
+                    <path class="metric-line" style="color: var(--metric-net);"
                           :d="hostChart(hostHistoryKey(h), 'dr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['dr','dw']), height: 120 }).pathGapped"/>
-                    <path class="metric-line" style="color: var(--metric-net-out)"
+                    <path class="metric-line" style="color: var(--metric-net-out);"
                           :d="hostChart(hostHistoryKey(h), 'dw', { min: 0, max: hostChartMax(hostHistoryKey(h), ['dr','dw']), height: 120 }).pathGapped"/>
                   </svg>
                   <div class="metric-x-axis">
@@ -7268,15 +7268,15 @@
                 </div>
                 <div class="metric-card-stats">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'la1_pct', false)">
-                        <span class="metric-legend-dot" style="background: var(--metric-cpu)"></span>1m
+                        <span class="metric-legend-dot" style="background: var(--metric-cpu);"></span>1m
                         <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la1_pct', false) ? Math.round(hostMetricStats(hostHistoryKey(h), 'la1_pct', false).maxRaw) + '%' : ''"></span>
                       </span>
                   <span x-show="hostMetricStats(hostHistoryKey(h), 'la5_pct', false)">
-                        <span class="metric-legend-dot" style="background: var(--metric-mem)"></span>5m
+                        <span class="metric-legend-dot" style="background: var(--metric-mem);"></span>5m
                         <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la5_pct', false) ? Math.round(hostMetricStats(hostHistoryKey(h), 'la5_pct', false).maxRaw) + '%' : ''"></span>
                       </span>
                   <span x-show="hostMetricStats(hostHistoryKey(h), 'la15_pct', false)">
-                        <span class="metric-legend-dot" style="background: var(--metric-disk)"></span>15m
+                        <span class="metric-legend-dot" style="background: var(--metric-disk);"></span>15m
                         <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la15_pct', false) ? Math.round(hostMetricStats(hostHistoryKey(h), 'la15_pct', false).maxRaw) + '%' : ''"></span>
                       </span>
                 </div>
@@ -7293,11 +7293,11 @@
                   </div>
                   <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                     <path class="metric-grid" :d="hostChart(hostHistoryKey(h), 'la1_pct', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
-                    <path class="metric-line" style="color: var(--metric-cpu)"
+                    <path class="metric-line" style="color: var(--metric-cpu);"
                           :d="hostChart(hostHistoryKey(h), 'la1_pct', { min: 0, max: 100, height: 120 }).pathGapped"/>
-                    <path class="metric-line" style="color: var(--metric-mem)"
+                    <path class="metric-line" style="color: var(--metric-mem);"
                           :d="hostChart(hostHistoryKey(h), 'la5_pct', { min: 0, max: 100, height: 120 }).pathGapped"/>
-                    <path class="metric-line" style="color: var(--metric-disk)"
+                    <path class="metric-line" style="color: var(--metric-disk);"
                           :d="hostChart(hostHistoryKey(h), 'la15_pct', { min: 0, max: 100, height: 120 }).pathGapped"/>
                   </svg>
                   <div class="metric-x-axis">
@@ -7529,19 +7529,19 @@
                            when the slug has no data so an empty `d`
                            doesn't render an invisible glyph. -->
                   <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                    <path class="metric-line" style="color: var(--primary)"
+                    <path class="metric-line" style="color: var(--primary);"
                           :d="(hostTempChart(hostHistoryKey(h)).dByColor || {}).primary || ''"
                           fill="none"></path>
-                    <path class="metric-line" style="color: var(--warning)"
+                    <path class="metric-line" style="color: var(--warning);"
                           :d="(hostTempChart(hostHistoryKey(h)).dByColor || {}).warning || ''"
                           fill="none"></path>
-                    <path class="metric-line" style="color: var(--danger)"
+                    <path class="metric-line" style="color: var(--danger);"
                           :d="(hostTempChart(hostHistoryKey(h)).dByColor || {}).danger || ''"
                           fill="none"></path>
-                    <path class="metric-line" style="color: var(--success)"
+                    <path class="metric-line" style="color: var(--success);"
                           :d="(hostTempChart(hostHistoryKey(h)).dByColor || {}).success || ''"
                           fill="none"></path>
-                    <path class="metric-line" style="color: var(--info)"
+                    <path class="metric-line" style="color: var(--info);"
                           :d="(hostTempChart(hostHistoryKey(h)).dByColor || {}).info || ''"
                           fill="none"></path>
                   </svg>
@@ -7599,7 +7599,7 @@
                 <div class="metric-card-stats">
                   <template x-for="(gpu, i) in (h.host_gpus || [])" :key="'gpw' + i">
                         <span class="fs-xs">
-                          <span class="metric-legend-dot" style="background: var(--warning)"></span>
+                          <span class="metric-legend-dot" style="background: var(--warning);"></span>
                           <span x-text="gpu.name || ('GPU ' + gpu.index)"></span>
                           <span class="legend-val" x-text="(+gpu.power_watts || 0).toFixed(1) + ' W'"></span>
                         </span>
@@ -7616,7 +7616,7 @@
                   <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
                     <path class="metric-grid"
                           :d="hostChart(hostHistoryKey(h), 'gpu_pwr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['gpu_pwr']), height: 120 }).gridPath" fill="none"/>
-                    <path class="metric-line" style="color: var(--warning)" fill="none"
+                    <path class="metric-line" style="color: var(--warning);" fill="none"
                           :d="hostChart(hostHistoryKey(h), 'gpu_pwr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['gpu_pwr']), height: 120 }).pathGapped"/>
                   </svg>
                   <div class="metric-x-axis">
@@ -7659,7 +7659,7 @@
                 <div class="metric-card-stats">
                   <template x-for="(gpu, i) in (h.host_gpus || [])" :key="'gus' + i">
                         <span class="fs-xs">
-                          <span class="metric-legend-dot" style="background: var(--success)"></span>
+                          <span class="metric-legend-dot" style="background: var(--success);"></span>
                           <span x-text="gpu.name || ('GPU ' + gpu.index)"></span>
                           <span class="legend-val" x-text="Math.round(+gpu.usage_percent || 0) + '%'"></span>
                         </span>
@@ -7674,7 +7674,7 @@
                   <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
                     <path class="metric-grid"
                           :d="hostChart(hostHistoryKey(h), 'gpu_usage', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
-                    <path class="metric-line" style="color: var(--success)" fill="none"
+                    <path class="metric-line" style="color: var(--success);" fill="none"
                           :d="hostChart(hostHistoryKey(h), 'gpu_usage', { min: 0, max: 100, height: 120 }).pathGapped"/>
                   </svg>
                   <div class="metric-x-axis">
@@ -7717,7 +7717,7 @@
                 <div class="metric-card-stats">
                   <template x-for="(gpu, i) in (h.host_gpus || [])" :key="'gvr' + i">
                         <span class="fs-xs">
-                          <span class="metric-legend-dot" style="background: var(--info)"></span>
+                          <span class="metric-legend-dot" style="background: var(--info);"></span>
                           <span x-text="gpu.name || ('GPU ' + gpu.index)"></span>
                           <span class="legend-val"
                                 x-text="fmtBytes(gpu.vram_used_bytes) + ' / ' + fmtBytes(gpu.vram_total_bytes)"></span>
@@ -7733,7 +7733,7 @@
                   <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
                     <path class="metric-grid"
                           :d="hostChart(hostHistoryKey(h), 'gpu_vram_pct', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
-                    <path class="metric-line" style="color: var(--info)" fill="none"
+                    <path class="metric-line" style="color: var(--info);" fill="none"
                           :d="hostChart(hostHistoryKey(h), 'gpu_vram_pct', { min: 0, max: 100, height: 120 }).pathGapped"/>
                   </svg>
                   <div class="metric-x-axis">

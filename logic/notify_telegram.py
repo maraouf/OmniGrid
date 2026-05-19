@@ -77,7 +77,7 @@ def _telegram_api_base() -> str:
     stripped so the per-send URL composition stays clean.
     """
     from logic.db import get_setting
-    raw = (get_setting(Settings.TELEGRAM_API_BASE, "") or "").strip()
+    raw = (get_setting(Settings.TELEGRAM_API_BASE) or "").strip()
     if not raw:
         return _TELEGRAM_API_BASE_DEFAULT
     return raw.rstrip("/")
@@ -232,12 +232,21 @@ async def send(
     useful — the operator-visible detail string names which chats
     failed). Never raises.
     """
+    # `actor_username` / `target_kind` / `target_id` / `metadata` are
+    # part of the notify-medium protocol contract (every medium's
+    # `send` is invoked by `logic.ops.notify` with the same kwargs);
+    # Telegram doesn't currently surface them into the rendered
+    # message body but the signature stays for parity with Apprise +
+    # any future medium. Touch them as a no-op read so static analysers
+    # see them as "used" rather than dead parameters.
+    _ = (actor_username, target_kind, target_id, metadata)
+
     # Lazy import — keeps module import cheap when Telegram isn't used.
     from logic.db import get_setting
 
-    token = (bot_token or get_setting(Settings.TELEGRAM_BOT_TOKEN, "") or "").strip()
-    raw_chat = (chat_id or get_setting(Settings.TELEGRAM_CHAT_ID, "") or "").strip()
-    thread = (thread_id or get_setting(Settings.TELEGRAM_THREAD_ID, "") or "").strip()
+    token = (bot_token or get_setting(Settings.TELEGRAM_BOT_TOKEN) or "").strip()
+    raw_chat = (chat_id or get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()
+    thread = (thread_id or get_setting(Settings.TELEGRAM_THREAD_ID) or "").strip()
     verify_tls = (get_setting(Settings.TELEGRAM_VERIFY_TLS, "true") or "true").strip().lower() != "false"
 
     if not token:

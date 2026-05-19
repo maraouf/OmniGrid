@@ -193,7 +193,7 @@ def _snmp_probe(community: str = "public") -> bytes:
     varbind_list = bytes([0x30, len(varbind)]) + varbind
     # PDU: GetRequest [0xA0] { request-id INTEGER, error-status INTEGER, error-index INTEGER, varbind-list }
     request_id = random.randint(1, 0x7FFFFFFF)
-    rid_bytes = request_id.to_bytes(4, "big")
+    rid_bytes = request_id.to_bytes(4)
     pdu_body = (
         b"\x02\x04" + rid_bytes
         + b"\x02\x01\x00"  # error-status = 0
@@ -311,19 +311,23 @@ class _UdpProtocol(asyncio.DatagramProtocol):
         self.transport: Optional[asyncio.DatagramTransport] = None
 
     def connection_made(self, transport):
+        """asyncio DatagramProtocol hook: store the transport for write access."""
         self.transport = transport
 
     def datagram_received(self, data: bytes, addr) -> None:
+        """asyncio DatagramProtocol hook: resolve the probe future on any reply."""
         if not self._future.done():
             self._future.set_result(("open", data))
 
     def error_received(self, exc):
+        """asyncio DatagramProtocol hook: peer sent ICMP unreachable → mark closed."""
         # ICMP error came back — typically ECONNREFUSED on Linux
         # when the host returns "port unreachable". Marks closed.
         if not self._future.done():
             self._future.set_result(("closed", str(exc)))
 
     def connection_lost(self, exc):
+        """asyncio DatagramProtocol hook: transport gone early → mark open|filtered."""
         # Transport closed before we got a response. Not normally
         # how UDP fails, but propagate as filtered.
         if not self._future.done() and exc is not None:
@@ -365,11 +369,11 @@ async def _probe_one_udp(host: str, port: int, timeout_s: float, *,
             # the response. Most UDP services return binary; we
             # render it as best-effort UTF-8 with replacement chars.
             try:
-                txt = (payload or b"").decode("utf-8", errors="replace").strip()
+                txt = (payload or b"").decode(errors="replace").strip()
                 txt = "".join(c for c in txt if c.isprintable() or c in " \t")
                 if txt:
                     out["banner_excerpt"] = txt[:200]
-            except Exception:
+            except (UnicodeDecodeError, ValueError):
                 pass
         elif state == "closed":
             out["state"] = "closed"
@@ -381,7 +385,7 @@ async def _probe_one_udp(host: str, port: int, timeout_s: float, *,
         if transport is not None:
             try:
                 transport.close()
-            except Exception:
+            except OSError:
                 pass
     return out
 

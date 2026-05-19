@@ -76,7 +76,7 @@ def _load_hosts_config_for_gather() -> list[dict]:
     to their existing host-string behaviour.
     """
     from logic.db import get_setting
-    raw = get_setting(Settings.HOSTS_CONFIG, "") or ""
+    raw = get_setting(Settings.HOSTS_CONFIG) or ""
     if not raw.strip():
         return []
     try:
@@ -340,7 +340,7 @@ def load_host_snapshots() -> dict[str, dict]:
     try:
         from logic.tuning import Tunable, tuning_int
         ttl = float(tuning_int(Tunable.HOST_SNAPSHOTS_CACHE_TTL_SECONDS))
-    except Exception:
+    except (ImportError, KeyError, ValueError, TypeError):
         ttl = 5.0
     cached_map = _snapshots_cache.get("map")
     cached_ts = _snapshots_cache.get("ts") or 0.0
@@ -407,7 +407,7 @@ def apply_host_snapshot_fallback(
     try:
         from logic.tuning import Tunable, tuning_int
         grace_hours = float(tuning_int(Tunable.HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS))
-    except Exception:
+    except (ImportError, KeyError, ValueError, TypeError):
         grace_hours = 24.0
     grace_window_s = max(1.0, grace_hours) * 3600.0
     now = time.time()
@@ -538,7 +538,7 @@ def seed_nodes_info_from_snapshots() -> int:
     try:
         from logic.tuning import Tunable, tuning_int
         grace_hours = float(tuning_int(Tunable.HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS))
-    except Exception:
+    except (ImportError, KeyError, ValueError, TypeError):
         grace_hours = 24.0
     grace_window_s = max(1.0, grace_hours) * 3600.0
     now = time.time()
@@ -685,7 +685,7 @@ def save_items_snapshot() -> bool:
             "ts": float(_cache.get("ts") or 0.0),
         }
         blob = json.dumps(payload, default=str)
-        blob_bytes = len(blob.encode("utf-8"))
+        blob_bytes = len(blob.encode())
         if blob_bytes > _ITEMS_SNAPSHOT_MAX_BYTES:
             print(
                 f"[gather] save_items_snapshot SKIPPED — payload size "
@@ -927,16 +927,24 @@ async def _gather_impl() -> None:
     try:
         from logic.tuning import Tunable, tuning_int as _tuning_int
         _gather_client_to = float(_tuning_int(Tunable.GATHER_CLIENT_TIMEOUT_SECONDS))
-    except Exception:
+    except (ImportError, KeyError, ValueError, TypeError):
         _gather_client_to = 60.0
     async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_gather_client_to) as client:
         ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
 
         async def safe(coro, fb):
+            """Await `coro` and return its result; on any failure log + return `fb`.
+
+            CancelledError + KeyboardInterrupt propagate per CLAUDE.md's
+            "broad except MUST carve out cancellation" rule so lifespan
+            shutdown of the gather task doesn't get swallowed.
+            """
             try:
                 return await coro
-            except Exception as e:
-                print(f"[gather] {e}")
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as gather_err:
+                print(f"[gather] {gather_err}")
                 return fb
 
         services = await safe(portainer.pg(client, f"{ep}/services"), [])
@@ -1050,34 +1058,43 @@ async def _gather_impl() -> None:
         #
         # Errors per-node are swallowed — a 500 on one daemon shouldn't
         # blank the whole Nodes view. Missing nodes keep docker_disk_bytes=0.
-        async def _one_df(host: str):
+        async def _one_df(target_host: str):
+            """Fetch /system/df for ONE Docker host via Portainer-agent routing.
+
+            Returns ``(host, total_bytes)``. Any per-node failure swallows
+            to ``(host, 0)`` so one bad daemon doesn't blank the Nodes view.
+            CancelledError + KeyboardInterrupt propagate per CLAUDE.md's
+            "broad except MUST carve out cancellation" rule.
+            """
             try:
                 r = await client.get(
                     f"{portainer.PORTAINER_URL}{ep}/system/df",
-                    headers=portainer.headers(agent_target=host),
+                    headers=portainer.headers(agent_target=target_host),
                 )
                 if r.status_code >= 400:
-                    return host, 0
+                    return target_host, 0
                 j = r.json() or {}
-                total = int(j.get("LayersSize") or 0)
+                df_total = int(j.get("LayersSize") or 0)
                 for c in (j.get("Containers") or []):
-                    total += int(c.get("SizeRw") or 0)
+                    df_total += int(c.get("SizeRw") or 0)
                 for v in (j.get("Volumes") or []):
                     usage = (v.get("UsageData") or {}).get("Size", 0)
                     if isinstance(usage, (int, float)) and usage > 0:
-                        total += int(usage)
+                        df_total += int(usage)
                 for bc in (j.get("BuildCache") or []):
-                    total += int(bc.get("Size") or 0)
-                return host, total
-            except Exception as e:
-                print(f"[gather] /system/df for {host}: {e}")
-                return host, 0
+                    df_total += int(bc.get("Size") or 0)
+                return target_host, df_total
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as df_err:
+                print(f"[gather] /system/df for {target_host}: {df_err}")
+                return target_host, 0
 
         df_hosts = [h for h, info in nodes_info.items()
                     if info.get("state") == "ready"]
         if df_hosts:
             df_results = await asyncio.gather(
-                *(_one_df(h) for h in df_hosts), return_exceptions=False,
+                *(_one_df(h) for h in df_hosts),
             )
             for host, total in df_results:
                 if host in nodes_info:
@@ -1124,10 +1141,11 @@ async def _gather_impl() -> None:
         # out of host_snapshots at save time by the leading-underscore
         # rule, so per-gather hits don't get restored from a stale
         # snapshot.
-        def _provider_returned_data(stats: dict) -> bool:
-            if not isinstance(stats, dict):
+        def _provider_returned_data(provider_stats: dict) -> bool:
+            """True iff the provider returned at least one meaningful host_* field."""
+            if not isinstance(provider_stats, dict):
                 return False
-            for k, v in stats.items():
+            for k, v in provider_stats.items():
                 if k == "exporter_error":
                     continue
                 if _meaningful(v):
@@ -1146,9 +1164,9 @@ async def _gather_impl() -> None:
             # not ``name`` (user-editable label), because ``host`` is
             # stable and typically matches what Docker reports.
             import json as _json
-            hub_url = get_setting(Settings.BESZEL_HUB_URL, "") or ""
-            ident = get_setting(Settings.BESZEL_IDENTITY, "") or ""
-            passw = get_setting(Settings.BESZEL_PASSWORD, "") or ""
+            hub_url = get_setting(Settings.BESZEL_HUB_URL) or ""
+            ident = get_setting(Settings.BESZEL_IDENTITY) or ""
+            passw = get_setting(Settings.BESZEL_PASSWORD) or ""
             verify = (get_setting(Settings.BESZEL_VERIFY_TLS, "true") or "true").lower() == "true"
             try:
                 aliases = _json.loads(get_setting(Settings.BESZEL_ALIASES, "{}") or "{}")
@@ -1201,8 +1219,8 @@ async def _gather_impl() -> None:
         if "pulse" in active_sources and df_hosts:
             import json as _json
             from logic import pulse as _pulse
-            pulse_url = get_setting(Settings.PULSE_URL, "") or ""
-            pulse_token = get_setting(Settings.PULSE_TOKEN, "") or ""
+            pulse_url = get_setting(Settings.PULSE_URL) or ""
+            pulse_token = get_setting(Settings.PULSE_TOKEN) or ""
             pulse_verify = (get_setting(Settings.PULSE_VERIFY_TLS, "true")
                             or "true").lower() == "true"
             try:
@@ -1257,15 +1275,15 @@ async def _gather_impl() -> None:
             from logic import snmp as _snmp
             from logic import tuning as _tuning
             from logic.tuning import Tunable
-            default_community = get_setting(Settings.SNMP_DEFAULT_COMMUNITY, "") or "public"
-            default_version = (get_setting(Settings.SNMP_DEFAULT_VERSION, "") or "v2c").strip().lower()
+            default_community = get_setting(Settings.SNMP_DEFAULT_COMMUNITY) or "public"
+            default_version = (get_setting(Settings.SNMP_DEFAULT_VERSION) or "v2c").strip().lower()
             try:
                 default_port = _tuning.tuning_int(Tunable.SNMP_DEFAULT_PORT)
             except (TypeError, ValueError):
                 default_port = 161
-            v3_user = get_setting(Settings.SNMP_V3_USER, "") or ""
-            v3_auth_key = get_setting(Settings.SNMP_V3_AUTH_KEY, "") or ""
-            v3_priv_key = get_setting(Settings.SNMP_V3_PRIV_KEY, "") or ""
+            v3_user = get_setting(Settings.SNMP_V3_USER) or ""
+            v3_auth_key = get_setting(Settings.SNMP_V3_AUTH_KEY) or ""
+            v3_priv_key = get_setting(Settings.SNMP_V3_PRIV_KEY) or ""
             try:
                 snmp_aliases_raw = json.loads(get_setting(Settings.SNMP_ALIASES, "{}") or "{}")
                 if not isinstance(snmp_aliases_raw, dict):
@@ -1278,11 +1296,11 @@ async def _gather_impl() -> None:
             snmp_sem = asyncio.Semaphore(_tuning.tuning_int(Tunable.SNMP_CONCURRENCY))
 
             async def _one_snmp(h: str):
-                row = _match_hosts_row(h, snmp_hosts_cfg)
+                snmp_row = _match_hosts_row(h, snmp_hosts_cfg)
                 # per-host opt-in gate. Skip when the row lacks
                 # `snmp.enabled === True` so disabled hosts (and the
                 # default) don't fan out probes.
-                _row_snmp_raw = row.get("snmp") if isinstance(row, dict) else None
+                _row_snmp_raw = snmp_row.get("snmp") if isinstance(snmp_row, dict) else None
                 row_snmp: dict = _row_snmp_raw if isinstance(_row_snmp_raw, dict) else {}
                 # `is not True` is intentional — rejects truthy non-bool values
                 # noinspection PySimplifyBooleanCheck,PyComparisonWithCallableTrueFalse
@@ -1293,7 +1311,7 @@ async def _gather_impl() -> None:
                 # out 200 SNMP probes, ~all-but-mapped of which timed out.
                 target_host = (
                     snmp_aliases_raw.get(h)
-                    or (row.get("snmp_name") if isinstance(row, dict) else "")
+                    or (snmp_row.get("snmp_name") if isinstance(snmp_row, dict) else "")
                     or ""
                 )
                 target_host = (target_host or "").strip()
@@ -1329,7 +1347,7 @@ async def _gather_impl() -> None:
                     else None
                 )
                 async with snmp_sem:
-                    result = await _snmp.probe_snmp(
+                    snmp_result = await _snmp.probe_snmp(
                         target_host,
                         community=community,
                         version=version,
@@ -1342,17 +1360,17 @@ async def _gather_impl() -> None:
                         walk_concurrency=row_walk_conc,
                         vendors=row_vendors,
                     )
-                if result.get("error") and not result.get("hosts"):
-                    return h, {"exporter_error": f"snmp: {result['error']}"}
-                hosts_map = result.get("hosts") or {}
+                if snmp_result.get("error") and not snmp_result.get("hosts"):
+                    return h, {"exporter_error": f"snmp: {snmp_result['error']}"}
+                hosts_map = snmp_result.get("hosts") or {}
                 if not hosts_map:
                     return h, None
-                stats = next(iter(hosts_map.values()))
-                return h, stats
+                snmp_stats = next(iter(hosts_map.values()))
+                return h, snmp_stats
 
             snmp_results = await asyncio.gather(*(
                 _one_snmp(h) for h in df_hosts
-            ), return_exceptions=False)
+            ))
             for host, stats in snmp_results:
                 if host not in nodes_info or not stats:
                     continue
@@ -1382,7 +1400,7 @@ async def _gather_impl() -> None:
                 overrides = json.loads(overrides_raw)
                 if not isinstance(overrides, dict):
                     overrides = {}
-            except Exception:
+            except (ValueError, TypeError):
                 overrides = {}
             ne_hosts_cfg = _load_hosts_config_for_gather()
             # Per-use read so Admin → Config edits land on the next gather
@@ -1391,7 +1409,7 @@ async def _gather_impl() -> None:
             try:
                 from logic.tuning import Tunable as _Tunable, tuning_int as _tuning_int
                 _ne_to = float(_tuning_int(_Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS))
-            except Exception:
+            except (ImportError, KeyError, ValueError, TypeError):
                 _ne_to = 10.0
             async with httpx.AsyncClient(verify=False, timeout=_ne_to) as ne_client:
                 async def _ne_probe(h):
@@ -1408,16 +1426,15 @@ async def _gather_impl() -> None:
                     ip = str(info.get("ip") or "")
                     url = overrides.get(h) or ""
                     if not url:
-                        row = _match_hosts_row(h, ne_hosts_cfg)
-                        if isinstance(row, dict) and (row.get("ne_url") or "").strip():
-                            url = row["ne_url"].strip()
+                        ne_row = _match_hosts_row(h, ne_hosts_cfg)
+                        if isinstance(ne_row, dict) and (ne_row.get("ne_url") or "").strip():
+                            url = ne_row["ne_url"].strip()
                     if not url:
                         url = tpl.replace("{host}", h).replace("{ip}", ip)
                     return h, await _ne.probe_node(ne_client, url)
 
                 results = await asyncio.gather(
                     *(_ne_probe(h) for h in df_hosts),
-                    return_exceptions=False,
                 )
                 for host, stats in results:
                     if host in nodes_info:
@@ -1432,8 +1449,8 @@ async def _gather_impl() -> None:
         # hosts-without-Webmin keep working unchanged.
         if "webmin" in active_sources and df_hosts:
             from logic import webmin as _webmin
-            user = get_setting(Settings.WEBMIN_USER, "") or ""
-            passw = get_setting(Settings.WEBMIN_PASSWORD, "") or ""
+            user = get_setting(Settings.WEBMIN_USER) or ""
+            passw = get_setting(Settings.WEBMIN_PASSWORD) or ""
             webmin_verify = (get_setting(Settings.WEBMIN_VERIFY_TLS, "false")
                              or "false").lower() == "true"
             try:
@@ -1453,27 +1470,27 @@ async def _gather_impl() -> None:
                     # fallback — check hosts_config for a webmin_url.
                     # Not every hosts_config row carries one; when blank
                     # the existing "skip this host" behaviour wins.
-                    row = _match_hosts_row(h, webmin_hosts_cfg)
-                    if row:
-                        url = (row.get("webmin_url") or "").strip()
+                    webmin_row = _match_hosts_row(h, webmin_hosts_cfg)
+                    if webmin_row:
+                        url = (webmin_row.get("webmin_url") or "").strip()
                 if not url:
                     return h, None
-                result = await _webmin.probe_webmin(
+                webmin_result = await _webmin.probe_webmin(
                     url, user, passw,
                     verify_tls=webmin_verify,
                     active_sources=active_sources,
                 )
-                if result.get("error") and not result.get("hosts"):
-                    return h, {"exporter_error": f"webmin: {result['error']}"}
-                hosts_map = result.get("hosts") or {}
+                if webmin_result.get("error") and not webmin_result.get("hosts"):
+                    return h, {"exporter_error": f"webmin: {webmin_result['error']}"}
+                hosts_map = webmin_result.get("hosts") or {}
                 if not hosts_map:
                     return h, None
-                stats = next(iter(hosts_map.values()))
-                return h, stats
+                webmin_stats = next(iter(hosts_map.values()))
+                return h, webmin_stats
 
             webmin_results = await asyncio.gather(*(
                 _one_webmin(h) for h in df_hosts
-            ), return_exceptions=False)
+            ))
             for host, stats in webmin_results:
                 if host not in nodes_info or not stats:
                     continue
@@ -1607,30 +1624,35 @@ async def _gather_impl() -> None:
             try:
                 from logic.tuning import Tunable as _Tunable, tuning_int as _tuning_int
                 _orphan_probe_to = float(_tuning_int(_Tunable.GATHER_ORPHAN_PROBE_TIMEOUT_SECONDS))
-            except Exception:
+            except (ImportError, KeyError, ValueError, TypeError):
                 _orphan_probe_to = 3.0
 
-            async def _probe_one(cid: str) -> tuple[str, Optional[str]]:
-                # Try each hostname in turn. Use a short timeout — a
-                # 404 should come back fast. First 200 wins.
+            async def _probe_one(probe_cid: str) -> tuple[str, Optional[str]]:
+                """Try each Swarm node in turn for `probe_cid`; first 200 wins.
+
+                Returns ``(probe_cid, hostname)`` on hit or ``(probe_cid, None)``
+                if no node has the container. Per-attempt exceptions are
+                swallowed so one slow daemon doesn't black-hole the probe.
+                """
                 for h in hostnames:
                     try:
                         r = await client.get(
-                            f"{portainer.PORTAINER_URL}{ep}/containers/{cid}/json",
+                            f"{portainer.PORTAINER_URL}{ep}/containers/{probe_cid}/json",
                             headers=portainer.headers(agent_target=h),
                             timeout=_orphan_probe_to,
                         )
                         if r.status_code == 200:
-                            return cid, h
-                    except Exception:
+                            return probe_cid, h
+                    except (httpx.HTTPError, OSError):
                         continue
-                return cid, None
+                return probe_cid, None
 
             sem = asyncio.Semaphore(portainer.stats_concurrency())
 
-            async def _probe_bounded(cid: str):
+            async def _probe_bounded(bounded_cid: str):
+                """Semaphore-bounded wrapper around `_probe_one`."""
                 async with sem:
-                    return await _probe_one(cid)
+                    return await _probe_one(bounded_cid)
 
             probe_results = await asyncio.gather(*(_probe_bounded(cid) for cid in unresolved_ids))
             probed_hits = 0
@@ -1685,26 +1707,27 @@ async def _gather_impl() -> None:
             if image_id in image_digest_cache:
                 return image_digest_cache[image_id]
             try:
-                img = await portainer.pg(client, f"{ep}/images/{image_id}/json")
-                for rd in img.get("RepoDigests") or []:
-                    if "@" in rd:
-                        digest = rd.split("@", 1)[1]
+                img_doc = await portainer.pg(client, f"{ep}/images/{image_id}/json")
+                for repo_digest in img_doc.get("RepoDigests") or []:
+                    if "@" in repo_digest:
+                        digest = repo_digest.split("@", 1)[1]
                         image_digest_cache[image_id] = digest
                         return digest
-            except Exception as e:
-                print(f"[digest-fallback] {image_id[:12]}: {e}")
+            except (httpx.HTTPError, OSError, ValueError) as digest_err:
+                print(f"[digest-fallback] {image_id[:12]}: {digest_err}")
             image_digest_cache[image_id] = None
             return None
 
         with db_conn() as c:
             ignores = [dict(r) for r in c.execute("SELECT * FROM ignores").fetchall()]
 
-        def is_ignored(image, stack):
+        def is_ignored(image, ig_stack):
+            """True if `image` or `ig_stack` matches any row in the ignores table."""
             for ig in ignores:
                 p = ig["pattern"]
                 if ig["kind"] == "image" and p and p in (image or ""):
                     return True
-                if ig["kind"] == "stack" and p and p == (stack or ""):
+                if ig["kind"] == "stack" and p and p == (ig_stack or ""):
                     return True
             return False
 
@@ -1960,7 +1983,7 @@ async def _gather_impl() -> None:
                     real_tags = [t for t in (img.get("RepoTags") or []) if t and "<none>" not in t]
                     if real_tags:
                         image_ref = real_tags[0]
-            except Exception:
+            except (httpx.HTTPError, OSError, ValueError, KeyError):
                 pass
             # Fallback digest from the Image field (e.g. orphan task containers
             # whose image was purged and image-inspect now 404s).
@@ -2000,21 +2023,22 @@ async def _gather_impl() -> None:
         # --- Enrich with remote digests ---
         sem = asyncio.Semaphore(portainer.registry_concurrency())
 
-        async def enrich(it):
+        async def enrich(enrich_item):
+            """Resolve remote digest for one item + classify update status."""
             async with sem:
-                remote = await registry.get_remote_digest(client, it["image"])
-            it["remote_digest"] = remote
-            if it["ignored"]:
-                it["status"] = "ignored"
-            elif not it["current_digest"]:
-                it["status"] = "unknown"
+                remote = await registry.get_remote_digest(client, enrich_item["image"])
+            enrich_item["remote_digest"] = remote
+            if enrich_item["ignored"]:
+                enrich_item["status"] = "ignored"
+            elif not enrich_item["current_digest"]:
+                enrich_item["status"] = "unknown"
             elif not remote:
-                it["status"] = "error"
-            elif it["current_digest"] == remote:
-                it["status"] = "up-to-date"
+                enrich_item["status"] = "error"
+            elif enrich_item["current_digest"] == remote:
+                enrich_item["status"] = "up-to-date"
             else:
-                it["status"] = "update"
-            return it
+                enrich_item["status"] = "update"
+            return enrich_item
 
         items = list(await asyncio.gather(*(enrich(i) for i in items)))
 

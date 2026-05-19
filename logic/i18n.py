@@ -66,7 +66,7 @@ def _load_bundle(locale: str) -> Optional[dict]:
         return None
     path = _I18N_DIR / f"{locale}.json"
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError, OSError) as e:
         print(f"[i18n] failed to load locale={locale!r}: {e}")
@@ -147,7 +147,7 @@ def available_locales() -> list[str]:
     """
     index_path = _I18N_DIR / "index.json"
     try:
-        with open(index_path, "r", encoding="utf-8") as f:
+        with open(index_path, encoding="utf-8") as f:
             data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         data = None

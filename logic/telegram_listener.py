@@ -3532,7 +3532,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         # for the Telegram message. `force=False` reuses the cached
         # provider state so we don't pay a hub re-probe on every AI
         # call.
-        list_resp = await _api_hosts_list(force=False)
+        list_resp = await _api_hosts_list()
         if not isinstance(list_resp, dict):
             list_resp = {}
         api_hosts = list_resp.get("hosts") or []
@@ -3636,10 +3636,10 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         # minimum fields the AI needs to identify the host (id +
         # label + status + address + provider aliases). Same `_shape`
         # function as the main hosts[] sample.
-        PROBLEM_STATUSES = {"down", "unknown", "paused"}
+        problem_statuses = {"down", "unknown", "paused"}
         problem_hosts = [
             _shape(r) for r in api_hosts
-            if (r.get("status") or "unknown").lower() in PROBLEM_STATUSES
+            if (r.get("status") or "unknown").lower() in problem_statuses
         ][:200]
 
         hosts_total = int(list_resp.get("curated_count") or 0) or len(api_hosts)
@@ -4161,7 +4161,7 @@ async def _ai_reply(
     # reply so the operator sees BOTH the AI's natural-language framing
     # AND the actual dispatch result in one bubble.
     if action_outcome_line:
-        clean = clean + action_outcome_line
+        clean += action_outcome_line
     # Record BEFORE truncation so the persisted answer matches what
     # the model actually returned (truncation is purely a Telegram
     # wire-limit accommodation, not the canonical record).

@@ -92,7 +92,7 @@ def hub_link(image: str) -> Optional[str]:
     """
     try:
         reg, repo, _ = parse_image_ref(image)
-    except Exception:
+    except (ValueError, AttributeError):
         return None
     if reg == "lscr.io" and repo.startswith("linuxserver/"):
         return f"https://github.com/linuxserver/docker-{repo.split('/', 1)[1]}"
@@ -150,7 +150,7 @@ async def _get_bearer(client: httpx.AsyncClient, www_auth: str, repo: str) -> Op
     try:
         from urllib.parse import urlparse as _urlparse
         _host = (_urlparse(realm).hostname or "").lower()
-    except Exception:
+    except (ValueError, ImportError):
         _host = ""
     _is_dockerhub = (_host == "docker.io" or _host.endswith(".docker.io"))
     if _is_dockerhub and DOCKERHUB_USER and DOCKERHUB_TOKEN:
@@ -189,7 +189,7 @@ async def _fetch_image_config_labels(
     """
     try:
         reg, repo, tag = parse_image_ref(image)
-    except Exception:
+    except (ValueError, AttributeError):
         return {}
     accept = ", ".join([
         "application/vnd.docker.distribution.manifest.v2+json",
@@ -213,8 +213,9 @@ async def _fetch_image_config_labels(
         # Shared sub-fetcher used for the manifest-index unwrap AND the
         # config-blob fetch — both follow the same "GET this URL, return
         # parsed JSON on 200, bail otherwise" pattern.
-        async def _fetch_json_or_empty(url: str) -> Optional[dict]:
-            r2 = await client.get(url, headers=h, follow_redirects=True)
+        async def _fetch_json_or_empty(sub_url: str) -> Optional[dict]:
+            """GET `sub_url` with the prepared Accept+Auth headers; return JSON on 200, else None."""
+            r2 = await client.get(sub_url, headers=h, follow_redirects=True)
             if r2.status_code != 200:
                 return None
             return r2.json()
@@ -278,7 +279,7 @@ def _parse_github_source(source_url: str) -> Optional[tuple[str, str]]:
         if repo.endswith(".git"):
             repo = repo[:-4]
         return owner, repo
-    except Exception:
+    except (ValueError, AttributeError, ImportError):
         return None
 
 

@@ -29,6 +29,7 @@ rejected even if the value matches.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 import secrets
@@ -82,14 +83,14 @@ def encrypt_secret(plaintext: str) -> str:
     """Encrypt a string for at-rest storage. Caller wraps exceptions."""
     if not plaintext:
         raise ValueError("plaintext is empty")
-    return _fernet().encrypt(plaintext.encode("utf-8")).decode("ascii")
+    return _fernet().encrypt(plaintext.encode()).decode("ascii")
 
 
 def decrypt_secret(ciphertext: str) -> str:
     """Reverse encrypt_secret. Raises InvalidToken on bad input."""
     if not ciphertext:
         raise InvalidToken("ciphertext is empty")
-    return _fernet().decrypt(ciphertext.encode("ascii")).decode("utf-8")
+    return _fernet().decrypt(ciphertext.encode("ascii")).decode()
 
 
 # ----------------------------------------------------------------------------
@@ -113,8 +114,8 @@ def verify_code(secret_plain: str, code: str) -> bool:
     if not cleaned.isdigit() or len(cleaned) != 6:
         return False
     try:
-        return pyotp.TOTP(secret_plain, interval=30).verify(cleaned, valid_window=1)
-    except Exception:
+        return pyotp.TOTP(secret_plain).verify(cleaned, valid_window=1)
+    except (ValueError, TypeError, binascii.Error):
         return False
 
 

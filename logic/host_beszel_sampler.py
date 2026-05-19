@@ -87,9 +87,9 @@ async def _probe_one_tick() -> dict:
     on failure (probe_hub never raises). Network errors land here as
     a logged warning so the sampler tick still completes.
     """
-    base_url = (get_setting(Settings.BESZEL_HUB_URL, "") or "").strip()
-    ident = (get_setting(Settings.BESZEL_IDENTITY, "") or "").strip()
-    passw = (get_setting(Settings.BESZEL_PASSWORD, "") or "").strip()
+    base_url = (get_setting(Settings.BESZEL_HUB_URL) or "").strip()
+    ident = (get_setting(Settings.BESZEL_IDENTITY) or "").strip()
+    passw = (get_setting(Settings.BESZEL_PASSWORD) or "").strip()
     verify_tls = (get_setting(Settings.BESZEL_VERIFY_TLS, "true") or "true").lower() == "true"
     if not base_url or not ident or not passw:
         return {}
@@ -529,7 +529,7 @@ def history_series(host_id: str, hours: int) -> list[dict]:
         _c = _snap.get("host_cores") or _snap.get("cores")
         if _c:
             cores = max(1, int(_c))
-    except Exception:  # noqa: BLE001
+    except (ImportError, ValueError, TypeError, OSError):
         cores = 1
     series: list[dict] = []
     for r in raw:

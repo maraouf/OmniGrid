@@ -118,7 +118,7 @@ async def _fetch_version(client: httpx.AsyncClient, base_url: str, token: str) -
         if v:
             _version_cache[base_url] = v
             return v
-    except Exception:
+    except (httpx.HTTPError, OSError, ValueError, KeyError):
         pass
     return None
 
@@ -673,15 +673,15 @@ async def probe_pulse(
         (``guests``/``vms``/``lxc``/``qemu`` at top level, nested under
         ``pve``, or hanging off each node) without hard-coding key
         names."""
-        out: list = []
+        collected: list = []
         if isinstance(container, list):
             for item in container:
                 if _looks_like_guest(item):
                     if inherited_node and not item.get("node"):
                         item = {**item, "node": inherited_node}
-                    out.append(item)
+                    collected.append(item)
                 elif isinstance(item, (list, dict)):
-                    out.extend(_harvest(item, inherited_node))
+                    collected.extend(_harvest(item, inherited_node))
         elif isinstance(container, dict):
             # When walking the state root, don't recurse into
             # ``nodes`` again (we handle those separately) so a guest
@@ -690,8 +690,8 @@ async def probe_pulse(
             for k, v in container.items():
                 if k == "nodes":
                     continue
-                out.extend(_harvest(v, inherited_node))
-        return out
+                collected.extend(_harvest(v, inherited_node))
+        return collected
 
     guests: list = _harvest(state)
     # Also walk each node's sub-dicts — some builds attach guests
@@ -738,7 +738,7 @@ async def probe_pulse(
                       f"count={len(arr)}")
                 try:
                     raw = _dbg_json.dumps(sample, default=str)[:1200]
-                except Exception:
+                except (TypeError, ValueError):
                     raw = repr(sample)[:1200]
                 print(f"[pulse] probe: state.{top_key}[0] RAW={raw}")
     # Dump the raw shape of the first node + guest so operators can
@@ -757,7 +757,7 @@ async def probe_pulse(
         import json as _dbg_json
         try:
             raw = _dbg_json.dumps(g0, default=str)[:1200]
-        except Exception:
+        except (TypeError, ValueError):
             raw = repr(g0)[:1200]
         print(f"[pulse] probe: sample guest RAW={raw}")
         # Also dump sub-object keys since Pulse sometimes nests the
@@ -773,11 +773,12 @@ async def probe_pulse(
     # operator having to type it pixel-perfect.
     out: dict[str, dict] = {}
 
-    def _add(key: str, stats: dict):
+    def _add(key: str, entry_stats: dict):
+        """Index `entry_stats` under `key` in the per-host result map (skip blanks)."""
         key = (key or "").strip()
         if not key:
             return
-        out[key] = stats
+        out[key] = entry_stats
 
     for n in nodes:
         if not isinstance(n, dict):
