@@ -18812,19 +18812,32 @@ function app() {
     // protocol isn't tcp (UDP / SCTP have no in-browser navigation).
     //
     // Host resolution chain:
-    //   1. For a container item: look up the curated host whose
-    //      id / hostname matches `item.node` (Swarm node hostname); the
-    //      host's `address` field (canonical provider-independent
-    //      target per CLAUDE.md) is preferred.
-    //   2. Fallback: hostname extracted from the Portainer public URL
-    //      (settings.portainer_public_url) — works for ingress-mode
-    //      service publishes which land on every Swarm node.
-    //   3. Last resort: window.location.hostname so the link still
-    //      navigates somewhere reasonable in a dev / single-host
-    //      setup.
-    // Protocol is always http:// — the Docker port publish doesn't
-    // imply TLS; operators with TLS-fronted services point their
-    // browser at the published port over their own ingress separately.
+    //   1. Direct `item.node` (only standalone containers carry this).
+    //   2. First running placement's node from `item.placements` —
+    //      this is where Swarm services live. Pre-fix this step was
+    //      missing so services fell through to the Portainer URL
+    //      (user-flagged: a service on `debian13docker` linked to
+    //      `portainer.example.com:9618` instead of
+    //      `debian13docker:<published>`).
+    //   3. Any placement's node from `item.placements` (running pref
+    //      first, but accept stopped placements as a last hint).
+    //   4. Hostname extracted from the Portainer public URL — works
+    //      for ingress-mode publishes that genuinely route on every
+    //      Swarm node.
+    //   5. window.location.hostname so the link still navigates
+    //      somewhere reasonable in a dev / single-host setup.
+    //
+    // For steps 1-3, the resolved node-hostname is mapped against
+    // curated hosts (id / host_hostname / label) and the curated row's
+    // `address` field is preferred when available. When no curated
+    // match exists, the raw node hostname itself is used (Swarm node
+    // hostnames typically resolve in the operator's local DNS / hosts
+    // file, otherwise the operator types the IP in Admin → Hosts and
+    // the curated match kicks in).
+    //
+    // Protocol is always http:// — Docker port publish doesn't imply
+    // TLS; operators with TLS-fronted services reach them via their
+    // own ingress separately.
     itemPortLink(item, port) {
       if (!item || !port || !port.published) {
         return '';
@@ -18833,22 +18846,60 @@ function app() {
       if (proto !== 'tcp') {
         return '';
       }
-      // Try the curated-host match for container items first.
-      let host = '';
-      const nodeName = (item && item.node) || '';
-      if (nodeName && Array.isArray(this.hosts)) {
-        const match = this.hosts.find(h => {
+      // Build the candidate node-hostname list in priority order.
+      const candidateNodes = [];
+      if (item.node) {
+        candidateNodes.push(item.node);
+      }
+      if (Array.isArray(item.placements)) {
+        // Running placements first, then everything else — same node
+        // may appear twice but the curated-host lookup is identity-
+        // tolerant so the duplicate is harmless.
+        for (const p of item.placements) {
+          if (p && p.node && p.state === 'running') {
+            candidateNodes.push(p.node);
+          }
+        }
+        for (const p of item.placements) {
+          if (p && p.node) {
+            candidateNodes.push(p.node);
+          }
+        }
+      }
+      const _hostsArr = Array.isArray(this.hosts) ? this.hosts : [];
+      const _findCurated = (nodeName) => {
+        if (!nodeName) {
+          return null;
+        }
+        const lower = String(nodeName).toLowerCase();
+        return _hostsArr.find(h => {
           if (!h) {
             return false;
           }
-          const candidates = [h.id, h.host_hostname, h.label];
-          return candidates.some(c => c && String(c).toLowerCase() === String(nodeName).toLowerCase());
-        });
-        if (match) {
-          host = (match.address || match.host_hostname || match.id || '').trim();
+          return [h.id, h.host_hostname, h.label].some(c => c && String(c).toLowerCase() === lower);
+        }) || null;
+      };
+      // Walk candidates in order, resolving via curated-host match
+      // when possible. The raw node hostname is acceptable too (Swarm
+      // hostnames usually resolve in the operator's local DNS) — we
+      // just prefer the curated `address` when it's set.
+      let host = '';
+      for (const nodeName of candidateNodes) {
+        if (!nodeName) {
+          continue;
         }
+        const match = _findCurated(nodeName);
+        if (match) {
+          host = (match.address || match.host_hostname || match.id || nodeName || '').trim();
+          if (host) { break; }
+        }
+        // No curated match — fall back to the raw node hostname.
+        host = String(nodeName).trim();
+        if (host) { break; }
       }
-      // Fallback to Portainer public URL hostname (ingress publishes).
+      // Portainer public URL fallback — ingress-mode publishes land
+      // on every Swarm node, so the public URL hostname is reasonable
+      // when no placement-derived candidate worked.
       if (!host) {
         const pubUrl = (this.settings && this.settings.portainer_public_url) || '';
         if (pubUrl) {
@@ -21299,6 +21350,30 @@ function app() {
           if (j.tool_results && typeof j.tool_results === 'object') {
             turn.tool_results = j.tool_results;
           }
+          // Multi-round chain — the second-round reply itself may emit
+          // NEW TOOL directives (common when the first round surfaced
+          // a container ID and the AI now wants to drill into it).
+          // Re-stamp the pending state from the new response so the
+          // chip appears for the next round. In autonomous mode, the
+          // post-push autonomous gate at the bottom of this function
+          // will re-fire `confirmInlineToolDispatch` again, walking
+          // the chain to completion. Hard-cap chain depth at
+          // ~5 rounds via `turn.tool_chain_depth` so a buggy model
+          // can't infinite-loop us through the dispatcher.
+          const chainDepth = (turn.tool_chain_depth || 0) + 1;
+          turn.tool_chain_depth = chainDepth;
+          if (Array.isArray(j.pending_tool_confirms) && j.pending_tool_confirms.length
+              && chainDepth < 5) {
+            turn.pending_tool_confirms = j.pending_tool_confirms;
+            turn.pending_query = origQuery;
+            // Autonomous mode auto-chains the next round; approval
+            // mode renders the chip again and waits for the operator.
+            if (this.aiSidebarMode === 'autonomous') {
+              this.$nextTick(() => {
+                this.confirmInlineToolDispatch(turnIdx);
+              });
+            }
+          }
         }
       } catch (e) {
         turn.error = (e && e.message) ? e.message : 'Tool dispatch failed';
@@ -22019,6 +22094,24 @@ function app() {
             for (const hid of hostIds) {
               this._populateAiSidebarHostChart(hid, turn.ts, chartKind);
             }
+          });
+        }
+        // Autonomous-mode auto-dispatch of confirm-required tools
+        // (ssh_diag / docker_container_du). Operator-flagged: in
+        // autonomous mode the AI sidebar is supposed to act without
+        // intervention — the tool-dispatch chip rendering a Yes/Cancel
+        // prompt defeats the contract. When the operator has opted
+        // into autonomous mode AND the backend returned a
+        // pending_tool_confirms envelope, fire confirmInlineToolDispatch
+        // programmatically so the tools run + the second-round AI
+        // reply lands without any chip ever surfacing. Approval mode
+        // (the default) keeps the chip — the SSH-touching contract
+        // still requires an operator click there.
+        if (turn.pending_tool_confirms && turn.pending_tool_confirms.length
+            && this.aiSidebarMode === 'autonomous') {
+          const turnIdx = this.aiConversation.length - 1;
+          this.$nextTick(() => {
+            this.confirmInlineToolDispatch(turnIdx);
           });
         }
         // Auto-run the proposed action. Non-destructive actions fire
