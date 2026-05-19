@@ -1793,30 +1793,63 @@ async def do_update_container(op: Operation, container_id: str) -> None:
     the target's Swarm node from the gather cache and threads
     `X-PortainerAgent-Target` so worker-node containers route
     correctly. Logs to the Operation, notifies on completion,
-    invalidates the gather cache in the finally block."""
+    invalidates the gather cache in the finally block.
+
+    Fallback path — when Portainer's `/recreate` endpoint refuses the
+    request (any 4xx/5xx response or network error), automatically
+    falls through to the manual inspect → pull → stop → remove →
+    create → start flow via :func:`_recreate_container_in_place`.
+    Portainer's recreate endpoint is unreliable for containers it
+    didn't itself deploy (Komodo-managed, raw `docker run`, external
+    compose stacks): operator reported the SPA's bulk-update + the
+    Telegram `/update all` both silently fail for those containers
+    even though their image manifests have updates available. The
+    fallback is the same recreate primitive the operator-confirmed
+    `do_retag_container_to_latest` uses, just without the retag
+    step — so volumes / networks / env / config survive the same way
+    Portainer's own recreate would have preserved them.
+    """
     try:
         node = portainer.node_for_container(gather.get_cache(), container_id)
         op.log("Recreating container with PullImage=true"
                + (f" on node '{node}'" if node else ""))
+        recreate_endpoint_error: Optional[str] = None
         async with portainer.write_client(timeout=_portainer_op_timeout("long")) as client:
-            # `json={}` is REQUIRED — Portainer's recreate endpoint
-            # rejects an empty request body with
-            # `HTTP 400 {"message":"Invalid request payload","details":"EOF"}`
-            # on newer versions. The body is otherwise unused (the
-            # `?PullImage=true` query param drives the actual recreate
-            # behaviour); it just needs to be valid JSON so the
-            # backend's body-parser doesn't EOF before reading
-            # anything. Operator-flagged 2026-05-10 against Portainer
-            # CE recent.
-            r = await client.post(
-                f"{portainer.PORTAINER_URL}/api/docker/{portainer.PORTAINER_ENDPOINT_ID}"
-                f"/containers/{container_id}/recreate?PullImage=true",
-                headers=portainer.headers(agent_target=node),
-                json={},
+            try:
+                # `json={}` is REQUIRED — Portainer's recreate endpoint
+                # rejects an empty request body with
+                # `HTTP 400 {"message":"Invalid request payload","details":"EOF"}`
+                # on newer versions. The body is otherwise unused (the
+                # `?PullImage=true` query param drives the actual recreate
+                # behaviour); it just needs to be valid JSON so the
+                # backend's body-parser doesn't EOF before reading
+                # anything. Operator-flagged 2026-05-10 against Portainer
+                # CE recent.
+                r = await client.post(
+                    f"{portainer.PORTAINER_URL}/api/docker/{portainer.PORTAINER_ENDPOINT_ID}"
+                    f"/containers/{container_id}/recreate?PullImage=true",
+                    headers=portainer.headers(agent_target=node),
+                    json={},
+                )
+                if r.status_code >= 400:
+                    recreate_endpoint_error = f"HTTP {r.status_code}: {r.text[:300]}"
+                else:
+                    op.log("Container recreated (Portainer /recreate)", "success")
+            except (httpx.HTTPError, OSError) as e:
+                # Network-level failure talking to Portainer — also a
+                # fallback trigger. The manual path opens its own
+                # client so a flaky Portainer connection might recover
+                # for the inspect+pull+create dance even if the
+                # `/recreate` call itself dropped.
+                recreate_endpoint_error = f"{type(e).__name__}: {e}"
+        if recreate_endpoint_error:
+            op.log(
+                f"Portainer /recreate refused ({recreate_endpoint_error}); "
+                f"falling back to manual inspect + pull + stop + remove + "
+                f"create + start", "warning",
             )
-            if r.status_code >= 400:
-                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
-            op.log("Container recreated", "success")
+            await _recreate_container_in_place(op, container_id)
+            op.log("Container recreated (manual fallback)", "success")
         op.done("success")
         await notify(f"✅ Container updated: {op.target_name}", "", "success",
                      event="container_update_success", actor_username=op.actor,
@@ -1830,6 +1863,157 @@ async def do_update_container(op: Operation, container_id: str) -> None:
     finally:
         persist_history(op)
         gather.invalidate_cache()
+
+
+async def _recreate_container_in_place(op: Operation, container_id: str) -> None:
+    """Manual recreate primitive: pull-fresh-manifest + stop + remove +
+    create + start, preserving the container's current image REF.
+
+    Mirrors the recreate flow inside :func:`do_retag_container_to_latest`
+    but skips the retag step — the new container uses the same image
+    ref the old one had, so this is the "Portainer's /recreate endpoint
+    refused, but we can still pull a fresh digest under the same tag and
+    recreate" path. Used as a fallback by :func:`do_update_container`.
+
+    Does NOT call ``op.done`` / ``persist_history`` / ``notify`` —
+    those belong to the caller's outer Operation lifecycle. Raises
+    ``RuntimeError`` on any failure with a diagnostic message.
+
+    Volumes / networks / env / restart policy survive because we copy
+    Config + HostConfig + NetworkSettings.Networks from the inspect.
+    Anonymous volumes are lost on remove — same as Portainer's own
+    `/recreate` endpoint, no new risk.
+    """
+    node = portainer.node_for_container(gather.get_cache(), container_id)
+    op.log("[fallback] Inspecting container"
+           + (f" on node '{node}'" if node else ""))
+    async with portainer.write_client(timeout=_portainer_op_timeout("long")) as client:
+        # ---- 1. Inspect ------------------------------------------------
+        inspect_url = (
+            f"{portainer.PORTAINER_URL}/api/endpoints/"
+            f"{portainer.PORTAINER_ENDPOINT_ID}"
+            f"/docker/containers/{container_id}/json"
+        )
+        r = await client.get(inspect_url, headers=portainer.headers(agent_target=node))
+        if r.status_code >= 400:
+            raise RuntimeError(f"inspect HTTP {r.status_code}: {r.text[:300]}")
+        inspect = r.json()
+        old_name = (inspect.get("Name") or "").lstrip("/")
+        old_image_ref = (inspect.get("Config") or {}).get("Image") or ""
+        if not old_image_ref:
+            raise RuntimeError("inspect returned no Config.Image — cannot recreate")
+        # Strip any `@sha256:…` digest so the pull resolves the current
+        # manifest tag (the whole point of an update is to land on the
+        # latest digest for the same tag). A digest-pinned ref would
+        # silently re-pull the SAME bits and recreate with no actual
+        # update.
+        target_image_ref = old_image_ref.split("@", 1)[0]
+        op.log(f"[fallback] Image ref {old_image_ref!r} "
+               + (f"→ {target_image_ref!r} (digest stripped)"
+                  if target_image_ref != old_image_ref else "(unchanged)"))
+
+        # ---- 2. Pull a fresh manifest under the same tag ---------------
+        pull_url = (
+            f"{portainer.PORTAINER_URL}/api/endpoints/"
+            f"{portainer.PORTAINER_ENDPOINT_ID}"
+            f"/docker/images/create?fromImage={target_image_ref}"
+        )
+        op.log("[fallback] Pulling fresh image manifest…")
+        r = await client.post(pull_url, headers=portainer.headers(agent_target=node))
+        if r.status_code >= 400:
+            raise RuntimeError(f"pull HTTP {r.status_code}: {r.text[:300]}")
+
+        # ---- 3. Capture config (same shape as do_retag uses) -----------
+        cfg = dict(inspect.get("Config") or {})
+        host_cfg = dict(inspect.get("HostConfig") or {})
+        net_settings = inspect.get("NetworkSettings") or {}
+        networks = dict((net_settings.get("Networks") or {}))
+        cfg["Image"] = target_image_ref
+
+        first_network_name = next(iter(networks), None)
+        extra_networks = list(networks.items())[1:] if first_network_name else []
+        networking_config: dict = {}
+        if first_network_name:
+            first_endpoint = networks[first_network_name] or {}
+            networking_config = {
+                "EndpointsConfig": {
+                    first_network_name: first_endpoint,
+                }
+            }
+
+        # ---- 4. Stop + remove old --------------------------------------
+        op.log("[fallback] Stopping old container…")
+        r = await client.post(
+            f"{portainer.PORTAINER_URL}/api/endpoints/"
+            f"{portainer.PORTAINER_ENDPOINT_ID}"
+            f"/docker/containers/{container_id}/stop?t=10",
+            headers=portainer.headers(agent_target=node),
+        )
+        # 304 = already stopped, OK; 404 = already gone, OK; >= 500 fails.
+        if r.status_code >= 500:
+            raise RuntimeError(f"stop HTTP {r.status_code}: {r.text[:300]}")
+
+        op.log("[fallback] Removing old container…")
+        r = await client.delete(
+            f"{portainer.PORTAINER_URL}/api/endpoints/"
+            f"{portainer.PORTAINER_ENDPOINT_ID}"
+            f"/docker/containers/{container_id}?force=true&v=false",
+            headers=portainer.headers(agent_target=node),
+        )
+        if r.status_code >= 500:
+            raise RuntimeError(f"remove HTTP {r.status_code}: {r.text[:300]}")
+
+        # ---- 5. Create new ---------------------------------------------
+        # `Hostname` from inspect is the SHORT container id of the old
+        # container — Docker rejects it or quietly overrides. Drop so
+        # the new container gets a fresh hostname matching its own id.
+        create_body = {
+            **{k: v for k, v in cfg.items() if k != "Hostname"},
+            "HostConfig": host_cfg,
+            "NetworkingConfig": networking_config,
+        }
+        op.log(f"[fallback] Creating new container '{old_name}'…")
+        r = await client.post(
+            f"{portainer.PORTAINER_URL}/api/endpoints/"
+            f"{portainer.PORTAINER_ENDPOINT_ID}"
+            f"/docker/containers/create?name={old_name}",
+            headers=portainer.headers(agent_target=node),
+            json=create_body,
+        )
+        if r.status_code >= 400:
+            raise RuntimeError(f"create HTTP {r.status_code}: {r.text[:300]}")
+        new_container_id = (r.json() or {}).get("Id") or ""
+        if not new_container_id:
+            raise RuntimeError("create returned no container Id")
+        op.log(f"[fallback] Created {new_container_id[:12]}")
+
+        # ---- 5b. Reconnect extra networks ------------------------------
+        for net_name, endpoint in extra_networks:
+            connect_body = {
+                "Container": new_container_id,
+                "EndpointConfig": endpoint or {},
+            }
+            r = await client.post(
+                f"{portainer.PORTAINER_URL}/api/endpoints/"
+                f"{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/networks/{net_name}/connect",
+                headers=portainer.headers(agent_target=node),
+                json=connect_body,
+            )
+            if r.status_code >= 400:
+                op.log(f"[fallback] warn: network connect '{net_name}' "
+                       f"HTTP {r.status_code}: {r.text[:200]}", "warning")
+
+        # ---- 6. Start --------------------------------------------------
+        op.log("[fallback] Starting new container…")
+        r = await client.post(
+            f"{portainer.PORTAINER_URL}/api/endpoints/"
+            f"{portainer.PORTAINER_ENDPOINT_ID}"
+            f"/docker/containers/{new_container_id}/start",
+            headers=portainer.headers(agent_target=node),
+        )
+        if r.status_code >= 400:
+            raise RuntimeError(f"start HTTP {r.status_code}: {r.text[:300]}")
 
 
 def _retag_image_string(

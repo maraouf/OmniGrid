@@ -14007,6 +14007,17 @@ function app() {
             const wasUnknown = !this._opsSeen.has(o.id);
             this._opsSeen.add(o.id);
             if (o.status === 'running') {
+              // The original `_markBusy(key)` set a 3 s auto-clear timer
+              // so a missed poll couldn't strand a button. Once we
+              // SEE the op as running on the wire, cancel that timer
+              // — the running → terminal transition path below will
+              // call `_clearBusy` via `_clearBusyFromOp` when the op
+              // actually finishes, however long that takes (stack
+              // pull + recreate routinely exceeds 3 s).
+              const runningKey = this._opBusyKey(o);
+              if (runningKey && this.busy[runningKey]) {
+                this._holdBusy(runningKey);
+              }
               continue;
             }
             if (this._opLingerUntil[o.id]) {
