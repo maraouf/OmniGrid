@@ -7187,6 +7187,47 @@ async def api_ai_palette(
                 for c in tool_calls
             ]
             out["tool_results"] = tool_results
+            # Re-parse the SECOND-round reply for follow-up TOOL
+            # directives. Common case: the first round identified a
+            # container ID and the AI's second-round reply emits a NEW
+            # TOOL: docker_container_du with the corrected name. Without
+            # this re-parse, the TOOL: + TOOL_ARGS: lines would stay
+            # visible in the chat and no follow-up dispatch would fire.
+            # We strip the directives from the visible text AND surface
+            # them as `pending_tool_confirms` so the SPA can chain the
+            # next round (autonomous mode auto-dispatches; approval
+            # mode renders the chip again). Hard-cap chain depth is
+            # enforced SPA-side via `turn.tool_chain_depth` so a buggy
+            # model can't infinite-loop us.
+            second_text = (out.get("text") or "")
+            second_tools, second_cleaned = _ai.parse_palette_tool_calls(second_text)
+            if second_tools:
+                # Run any non-confirm-required tools immediately so the
+                # SPA only sees the truly-pending ones. (Future-proof
+                # for read-only tools chained as part of an autonomous
+                # diagnostic flow.) Confirm-required tools are returned
+                # as the new pending list.
+                new_pending: list = []
+                for call in second_tools:
+                    name2 = call.get("name") or ""
+                    if name2 in _ai.PALETTE_TOOLS_REQUIRING_CONFIRM:
+                        new_pending.append({
+                            "tool": name2,
+                            "args": call.get("args") or {},
+                            "reason": (f"{name2} touches a target host (even for reads) "
+                                       f"— operator must confirm via the inline chip "
+                                       f"in the AI sidebar before this fires."),
+                        })
+                    else:
+                        # Read-only tool — fire inline and merge result.
+                        try:
+                            result_inline = await _ai.dispatch_palette_tool(call, ctx)
+                            tool_results[name2] = result_inline
+                        except Exception:  # noqa: BLE001
+                            pass
+                out["text"] = second_cleaned or second_text
+                if new_pending:
+                    out["pending_tool_confirms"] = new_pending
 
     # Split the optional `ACTION: <id>` trailer(s) off the visible
     # text. Multi-action queries ("refresh and cleanup") emit one
