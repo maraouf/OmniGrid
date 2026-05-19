@@ -138,23 +138,22 @@ def get_global_ssh_settings() -> dict:
     shaper. The API layer redacts per CLAUDE.md's ``_set`` flag pattern.
     """
     from logic.db import get_setting
-    from logic import tuning as _tuning
     return {
-        "user": (get_setting(Settings.SSH_DEFAULT_USER, "") or "").strip(),
+        "user": (get_setting(Settings.SSH_DEFAULT_USER) or "").strip(),
         "port": _tuning.tuning_int(_Tunable.SSH_DEFAULT_PORT),
-        "private_key": get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY, "") or "",
-        "passphrase": get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY_PASSPHRASE, "") or "",
+        "private_key": get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY) or "",
+        "passphrase": get_setting(Settings.SSH_DEFAULT_PRIVATE_KEY_PASSPHRASE) or "",
         # Password auth fallback — used when private_key is blank, or
         # when the per-host override specifies a password. Returned in
         # the clear here (consumed by run_command); the /api/settings
         # shaper redacts via the ``password_set`` flag pattern.
-        "password": get_setting(Settings.SSH_DEFAULT_PASSWORD, "") or "",
+        "password": get_setting(Settings.SSH_DEFAULT_PASSWORD) or "",
         # FQDN suffix appended to bare hostnames during resolve.
         # Normalised on save to include the leading dot.
-        "fqdn_suffix": get_setting(Settings.SSH_FQDN_SUFFIX, "") or "",
-        "known_hosts": get_setting(Settings.SSH_DEFAULT_KNOWN_HOSTS, "") or "",
+        "fqdn_suffix": get_setting(Settings.SSH_FQDN_SUFFIX) or "",
+        "known_hosts": get_setting(Settings.SSH_DEFAULT_KNOWN_HOSTS) or "",
         "destructive_patterns": (
-            get_setting(Settings.SSH_DESTRUCTIVE_PATTERNS, "") or ""
+            get_setting(Settings.SSH_DESTRUCTIVE_PATTERNS) or ""
         ).strip(),
     }
 
@@ -239,7 +238,7 @@ def _compute_resolve_signature(
     # (`repr(dict)` was sensitive to that — a hosts_config copy
     # with re-inserted keys would blow the cache and re-emit the
     # full verbose trace). in the code review.
-    m.update(json.dumps(record, sort_keys=True, default=str).encode("utf-8", "ignore"))
+    m.update(json.dumps(record, sort_keys=True, default=str).encode(errors="ignore"))
     # Only the fields that actually influence resolution — drops
     # known_hosts + fingerprint etc. which don't change auth path.
     relevant = (
@@ -249,8 +248,8 @@ def _compute_resolve_signature(
         bool(g_settings.get("password")),
         g_settings.get("fqdn_suffix"),
     )
-    m.update(json.dumps(relevant, default=str).encode("utf-8", "ignore"))
-    m.update(host_groups_raw.encode("utf-8", "ignore"))
+    m.update(json.dumps(relevant, default=str).encode(errors="ignore"))
+    m.update(host_groups_raw.encode(errors="ignore"))
     return m.hexdigest()
 
 
@@ -263,11 +262,11 @@ def _stamp_server_fingerprint(conn, resolved: dict) -> None:
     """
     try:
         server_key = conn.get_server_host_key()
-        fp = server_key.get_fingerprint("sha256") if server_key else ""
+        fp = server_key.get_fingerprint() if server_key else ""
         if fp and ":" in fp:
             fp = fp.split(":", 1)[1]
         resolved["server_key_fingerprint"] = fp[:16]
-    except Exception:
+    except (AttributeError, ValueError, TypeError, asyncssh.Error):
         resolved["server_key_fingerprint"] = ""
 
 
@@ -354,7 +353,7 @@ def _groups_for_host(record: Optional[dict], *, verbose: bool = True) -> tuple[O
         _log(f"[ssh] _groups_for_host id={rid!r}: custom_number={cn!r} not int-parseable")
         return None, None
     from logic.db import get_setting
-    raw = get_setting(Settings.HOST_GROUPS, "") or ""
+    raw = get_setting(Settings.HOST_GROUPS) or ""
     if not raw.strip():
         _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups setting is empty — no groups defined")
         return None, None
@@ -450,7 +449,7 @@ def _asset_fqdn_for_record(record: Optional[dict]) -> str:
                 continue
             return p
         return ""
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         return ""
 
 
@@ -509,7 +508,7 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
             "password_source": "",
             "error": "SSH disabled in Admin → SSH (master switch off)",
         }
-    _groups_raw = _get_setting(Settings.HOST_GROUPS, "") or ""
+    _groups_raw = _get_setting(Settings.HOST_GROUPS) or ""
     _new_sig = _compute_resolve_signature(record, g, _groups_raw)
     verbose = _resolve_input_sig.get(host_id) != _new_sig
     _resolve_input_sig[host_id] = _new_sig
@@ -671,7 +670,7 @@ def _key_fingerprint(private_key_pem: str, passphrase: str) -> str:
         # AsyncSSH public-key objects expose ``get_fingerprint()`` in
         # openssh format (``SHA256:abc…``). Trim to 16 chars after the
         # prefix so the UI doesn't have to handle a long string.
-        fp = key.get_fingerprint("sha256") or ""
+        fp = key.get_fingerprint() or ""
         if ":" in fp:
             fp = fp.split(":", 1)[1]
         return fp[:16]
@@ -871,7 +870,7 @@ async def run_command(
                 # didn't apply". With a PTY sudo either runs (NOPASSWD
                 # or via cached creds) or fails loudly with "a
                 # password is required" on stderr.
-                proc = await conn.run(command, check=False, request_pty="force")
+                proc = await conn.run(command, request_pty="force")
                 base_result["ok"] = True
                 base_result["exit_code"] = proc.exit_status
                 base_result["stdout"] = (proc.stdout or "")[: 256 * 1024]
@@ -963,7 +962,7 @@ async def test_connection(host_id: str, hosts_config: list[dict]) -> dict:
     resolution, known-hosts handling) with the real runner.
     """
     r = await run_command(
-        host_id, "whoami", hosts_config, timeout=10.0, dry_run=False,
+        host_id, "whoami", hosts_config, timeout=10.0,
     )
     return r
 
@@ -1148,7 +1147,6 @@ async def open_shell(
     if not resolved.get("host") or not resolved.get("user"):
         raise TerminalConfigError(
             "SSH not configured (host + user both required)",
-            code="not_configured",
         )
     if not resolved.get("key_set") and not resolved.get("password_set"):
         raise TerminalConfigError(
@@ -1264,6 +1262,7 @@ async def open_shell(
             code="host_key",
         )
 
+    succeeded = False
     try:
         # Server host-key fingerprint — surface the same way run_command
         # does so the audit row / drawer status footer stays consistent.
@@ -1276,17 +1275,19 @@ async def open_shell(
             term_size=(cols, rows),
             encoding=None,  # raw bytes both ways — don't transcode
         )
+        succeeded = True
         return conn, proc, resolved
-    except Exception:
-        # If the shell open failed AFTER auth, drop the connection so
-        # we don't leak a TCP socket. Re-raise so the route layer can
-        # report it.
-        try:
-            conn.close()
-            await conn.wait_closed()
-        except Exception:
-            pass
-        raise
+    finally:
+        # If the shell open failed AFTER auth (or the task was cancelled),
+        # drop the connection so we don't leak a TCP socket. The route
+        # layer's own raise/cancel still propagates because `finally`
+        # doesn't swallow exceptions.
+        if not succeeded:
+            try:
+                conn.close()
+                await conn.wait_closed()
+            except (asyncssh.Error, OSError):
+                pass
 
 
 def resize_shell(proc: Any, cols: int, rows: int) -> None:
@@ -1305,6 +1306,6 @@ def resize_shell(proc: Any, cols: int, rows: int) -> None:
         return
     try:
         proc.change_terminal_size(c, r)
-    except Exception as e:
+    except (asyncssh.Error, OSError, AttributeError) as e:
         # Don't let a bad resize tear the session down. Log + continue.
         print(f"[ssh] terminal resize ignored ({type(e).__name__}: {e})")

@@ -322,9 +322,9 @@ async def _fetch_xml(
         raw_preview = raw_body[:200].replace("\n", "\\n").replace("\r", "\\r")
         stripped_preview = body[:200].replace("\n", "\\n").replace("\r", "\\r")
         try:
-            raw_bytes = raw_body.encode("utf-8", errors="replace")[:32]
+            raw_bytes = raw_body.encode(errors="replace")[:32]
             hex_preview = raw_bytes.hex(" ")
-        except Exception:  # noqa: BLE001
+        except (UnicodeError, TypeError, ValueError):
             hex_preview = "<encode failed>"
         print(
             f"[webmin] XML parse error for {url}: {e}\n"
@@ -404,7 +404,7 @@ async def _fetch_json(
         preview = body[:200].replace("\n", "\\n").replace("\r", "\\r")
         print(f"[webmin] JSON parse error for {url}: {e}; body preview: {preview!r}")
         return None, f"{path}: JSON parse error — {e}"
-    return _json_to_element(data, "root"), None
+    return _json_to_element(data), None
 
 
 def _parse_bytes(text: str) -> int:
@@ -731,12 +731,12 @@ async def _fetch_first_working(
     html_path_candidates: list[str] = []
     auth_failure = False
 
-    async def _dispatch(path: str):
-        if "json=1" in path:
-            root, err = await _fetch_json(client, base_url, path, user)
+    async def _dispatch(dispatch_path: str):
+        if "json=1" in dispatch_path:
+            d_root, d_err = await _fetch_json(client, base_url, dispatch_path, user)
         else:
-            root, err = await _fetch_xml(client, base_url, path, user)
-        return path, root, err
+            d_root, d_err = await _fetch_xml(client, base_url, dispatch_path, user)
+        return dispatch_path, d_root, d_err
 
     if structured_paths:
         tasks = [asyncio.create_task(_dispatch(p)) for p in structured_paths]
@@ -858,6 +858,7 @@ def extract_system_status(root: ET.Element) -> dict:
                 scopes.append(child)
 
     def pick(*names: str) -> str:
+        """Return the first non-empty value across `scopes` for any of `names`."""
         for sc in scopes:
             v = _findtext(sc, *names)
             if v:
@@ -1000,15 +1001,15 @@ def extract_package_updates(root: ET.Element) -> dict:
         count = 0
         sec = 0
         saw = False
-        for child in iterable:
-            tag = child.tag.lower()
-            if tag in ("update", "package", "pkg"):
+        for node in iterable:
+            node_tag = node.tag.lower()
+            if node_tag in ("update", "package", "pkg"):
                 saw = True
                 count += 1
                 sev = (
-                    child.get("severity")
-                    or child.get("type")
-                    or child.get("category")
+                    node.get("severity")
+                    or node.get("type")
+                    or node.get("category")
                     or ""
                 ).strip().lower()
                 if "security" in sev:
@@ -1333,7 +1334,7 @@ async def probe_webmin(
             results = await asyncio.gather(*(
                 _fetch_first_working(client, base, alts, user, module=mod)
                 for mod, alts in path_alternatives.items()
-            ), return_exceptions=False)
+            ))
     except Exception as e:
         return {"hosts": {}, "error": f"webmin: {e}"}
 

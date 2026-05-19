@@ -195,7 +195,6 @@ def make_registration_options(
         user_id=user_id,
         user_name=username,
         user_display_name=display_name or username,
-        attestation=AttestationConveyancePreference.NONE,
         authenticator_selection=AuthenticatorSelectionCriteria(
             resident_key=ResidentKeyRequirement.PREFERRED,
             user_verification=UserVerificationRequirement.PREFERRED,
@@ -244,7 +243,6 @@ def verify_registration(
         expected_challenge=expected_challenge,
         expected_origin=expected_origin,
         expected_rp_id=expected_rp_id,
-        require_user_verification=False,
     )
     transports_raw = (credential_json.get("response") or {}).get("transports") or []
     # Whitelist against the documented `AuthenticatorTransport` enum
@@ -419,7 +417,6 @@ def verify_authentication(
         expected_origin=expected_origin,
         credential_public_key=public_key,
         credential_current_sign_count=current_sign_count,
-        require_user_verification=False,
     )
     new_sc = int(verification.new_sign_count)
     # `verify_authentication_response` already rejects sign-count
