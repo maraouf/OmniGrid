@@ -73,11 +73,11 @@ def _resolved_tz():
     """
     try:
         from logic.db import get_setting
-        tz_name = (get_setting(Settings.SCHEDULER_TIMEZONE, "") or "").strip()
+        tz_name = (get_setting(Settings.SCHEDULER_TIMEZONE) or "").strip()
         if tz_name:
             from zoneinfo import ZoneInfo
             return ZoneInfo(tz_name)
-    except Exception:
+    except (ImportError, ValueError, OSError):
         pass
     try:
         # Container-local TZ via the libc-resolved zone (TZ env +
@@ -85,7 +85,7 @@ def _resolved_tz():
         # `datetime.now().astimezone()` returns the local zone object
         # without needing the IANA name.
         return datetime.now().astimezone().tzinfo
-    except Exception:
+    except (ValueError, OSError):
         return None
 
 
@@ -106,7 +106,7 @@ def _today_log_path() -> str:
     try:
         today = datetime.now(tz).strftime("%Y-%m-%d") if tz \
             else datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    except Exception:
+    except (ValueError, OSError):
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     return os.path.join(LOG_DIR, f"omnigrid-{today}.log")
 
@@ -121,7 +121,7 @@ _RE_WARN = re.compile(r"\bwarn(?:ing)?\b|deprecat", re.IGNORECASE)
 _RE_OK = re.compile(r"\bsuccess\b|\bok —|→ ok\b", re.IGNORECASE)
 
 
-def _severity_for(text: str, stream: str) -> str:
+def _severity_for(text: str, _stream: str) -> str:
     """Classify a log line into INFO / WARN / ERROR / SUCCESS. Content
     wins over stream so stderr lines without negative keywords stay at
     INFO (uvicorn's startup banners + our own [tag] info prints all go
@@ -193,7 +193,7 @@ def _persist_line(record: dict[str, Any]) -> None:
                 # tee since that's the layer that's failing.
                 if sys.__stderr__ is not None:
                     sys.__stderr__.write(f"[logs] persistent-log write failed (suppressed): {e}\n")
-            except Exception:
+            except OSError:
                 pass
 
 
@@ -287,7 +287,7 @@ def redact_secrets(text: str) -> str:
     for pat, repl in _SECRET_PATTERNS:
         try:
             out = _re.sub(pat, repl, out)
-        except Exception:  # noqa: BLE001
+        except (re.error, TypeError):
             continue
     return out
 
@@ -362,7 +362,7 @@ def recent_lines_window(*, hours: int = 24,
         if not path or not os.path.isfile(path):  # type: ignore[attr-defined]
             continue
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
+            with open(path, encoding="utf-8", errors="replace") as f:
                 file_lines = f.readlines()
         except OSError:
             continue
@@ -468,7 +468,7 @@ def read_persistent_log(name: str, tail_lines: Optional[int] = None) -> Optional
     path = safe_log_path(name)
     if not path or not os.path.isfile(path):  # type: ignore[attr-defined]
         return None
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         if tail_lines is None or tail_lines <= 0:
             return f.read()
         # Lazy tail — grab everything then slice. The biggest log file
@@ -513,7 +513,7 @@ def prune_old_logs(retention_days: int, *, tz=None) -> int:
     cutoff_ts = time.time() - (retention_days * 86400)
     try:
         cutoff_dt = datetime.fromtimestamp(cutoff_ts, tz=tz).date()
-    except Exception:
+    except (ValueError, OSError, OverflowError):
         cutoff_dt = datetime.fromtimestamp(cutoff_ts, tz=timezone.utc).date()
     removed = 0
     try:
@@ -556,6 +556,7 @@ class _TeeStream:
         self._partial = ""
 
     def write(self, data: str) -> int:
+        """Forward `data` to the wrapped stream and tee into the ring buffer + log file."""
         # Forward to the real stream FIRST so any exception on our side
         # can't suppress real diagnostics. The ring buffer is an
         # auxiliary view, not the source of truth.
@@ -576,15 +577,16 @@ class _TeeStream:
                 # Persist to today's daily file. Best-effort — see
                 # _persist_line() for the failure-mode contract.
                 _persist_line(rec)
-        except Exception:
+        except (OSError, ValueError, TypeError):
             # Never let the tee break real logging. Swallow and move on.
             pass
         return n
 
     def flush(self) -> None:
+        """Flush the wrapped stream; swallow OS-level flush failures."""
         try:
             self._stream.flush()
-        except Exception:
+        except OSError:
             pass
 
     # Passthrough misc attributes (isatty, fileno, encoding, etc.) so
@@ -629,4 +631,5 @@ def clear() -> None:
 
 
 def size() -> int:
+    """Return the current ring-buffer length (count of in-memory log records)."""
     return len(_buf)

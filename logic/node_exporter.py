@@ -593,7 +593,7 @@ def parse_exporter_text(text: str) -> dict:
         else:
             total_size += size
             total_free += avail
-    mounts.sort(key=lambda m: m["n"])
+    mounts.sort(key=lambda m_entry: m_entry["n"])
     total_used = max(0, total_size - total_free)
     # Normalise machine label → canonical arch name so the UI's
     # "Architecture" row reads the same whether the host runs FreeBSD
@@ -711,8 +711,8 @@ async def probe_node(
         """(body_text, error_str). One of the pair is always None."""
         try:
             r = await client.get(u, timeout=timeout)
-        except Exception as e:
-            return None, str(e)
+        except (httpx.HTTPError, OSError) as fetch_err:
+            return None, str(fetch_err)
         if r.status_code >= 400:
             return None, f"HTTP {r.status_code}"
         return r.text, None

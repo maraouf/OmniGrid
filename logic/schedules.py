@@ -45,7 +45,7 @@ from logic.settings_keys import Settings
 # Clock-time schedules use "HH:MM" — 24-hour, container local time. Matches
 # what a human types when they say "run at 1 AM". We don't accept seconds;
 # per-second precision is meaningless against a 60-second tick loop.
-_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_HHMM_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
 # Cadence modes — mutually exclusive. 'interval' is the legacy path
 # (interval_seconds); the others all pin to a clock-time anchor
@@ -89,8 +89,8 @@ def _scheduler_tz():
         return None
     if not tz_name:
         return None
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
     try:
-        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
         return ZoneInfo(tz_name)
     except (ZoneInfoNotFoundError, ValueError, OSError) as e:
         # Log once per process — otherwise a bad TZ spams the tick loop.
@@ -125,8 +125,8 @@ def scheduler_tz_state() -> dict:
         return {"configured": "", "resolved": None, "fallback": False}
     if not configured:
         return {"configured": "", "resolved": None, "fallback": False}
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
     try:
-        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
         ZoneInfo(configured)
     except (ZoneInfoNotFoundError, ValueError, OSError):
         return {"configured": configured, "resolved": None, "fallback": True}
@@ -245,7 +245,7 @@ def _day_anchor_ts(hh: int, mm: int, y: int, m: int, d: int) -> float:
     import datetime
     tz = _scheduler_tz()
     if tz is not None:
-        anchor = datetime.datetime(y, m, d, hh, mm, 0, tzinfo=tz)
+        anchor = datetime.datetime(y, m, d, hh, mm, tzinfo=tz)
         return anchor.timestamp()
     return time.mktime((y, m, d, hh, mm, 0, 0, 0, -1))
 
@@ -486,7 +486,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     try:
         dow_raw = d.get("days_of_week")
         d["days_of_week"] = (
-            [int(x) for x in json.loads(dow_raw) if 0 <= int(x) <= 6]
+            [int(x) for x in json.loads(str(dow_raw)) if 0 <= int(x) <= 6]
             if dow_raw else []
         )
     except (TypeError, ValueError, json.JSONDecodeError):
@@ -1110,17 +1110,17 @@ async def _run_asset_inventory_refresh(
         # no-op without erasing the cache or the persisted credentials.
         if (get_setting(Settings.ASSET_INVENTORY_ENABLED, "true") or "true").lower() != "true":
             return 0, "skipped (asset_inventory disabled)"
-        base_url = (get_setting(Settings.ASSET_INVENTORY_BASE_URL, "") or "").strip().rstrip("/")
-        auth_mode = (get_setting(Settings.ASSET_INVENTORY_AUTH_MODE, "") or "oauth2").strip().lower()
+        base_url = (get_setting(Settings.ASSET_INVENTORY_BASE_URL) or "").strip().rstrip("/")
+        auth_mode = (get_setting(Settings.ASSET_INVENTORY_AUTH_MODE) or "oauth2").strip().lower()
         if auth_mode not in ("oauth2", "lifetime_token"):
             auth_mode = "oauth2"
         try:
             if auth_mode == "lifetime_token":
-                lifetime_token = get_setting(Settings.ASSET_INVENTORY_LIFETIME_TOKEN, "") or ""
-                service = (get_setting(Settings.ASSET_INVENTORY_SERVICE, "") or "").strip()
-                action = (get_setting(Settings.ASSET_INVENTORY_ACTION, "") or "").strip()
-                min_raw = (get_setting(Settings.ASSET_INVENTORY_MIN_VALUE, "") or "").strip()
-                max_raw = (get_setting(Settings.ASSET_INVENTORY_MAX_VALUE, "") or "").strip()
+                lifetime_token = get_setting(Settings.ASSET_INVENTORY_LIFETIME_TOKEN) or ""
+                service = (get_setting(Settings.ASSET_INVENTORY_SERVICE) or "").strip()
+                action = (get_setting(Settings.ASSET_INVENTORY_ACTION) or "").strip()
+                min_raw = (get_setting(Settings.ASSET_INVENTORY_MIN_VALUE) or "").strip()
+                max_raw = (get_setting(Settings.ASSET_INVENTORY_MAX_VALUE) or "").strip()
                 try:
                     min_value = int(min_raw) if min_raw else None
                 except ValueError:
@@ -1150,10 +1150,10 @@ async def _run_asset_inventory_refresh(
                     max_value=max_value,
                 )
             else:
-                token_url = (get_setting(Settings.ASSET_INVENTORY_TOKEN_URL, "") or "").strip()
-                client_id = (get_setting(Settings.ASSET_INVENTORY_CLIENT_ID, "") or "").strip()
-                client_secret = get_setting(Settings.ASSET_INVENTORY_CLIENT_SECRET, "") or ""
-                scope = (get_setting(Settings.ASSET_INVENTORY_SCOPE, "") or "").strip()
+                token_url = (get_setting(Settings.ASSET_INVENTORY_TOKEN_URL) or "").strip()
+                client_id = (get_setting(Settings.ASSET_INVENTORY_CLIENT_ID) or "").strip()
+                client_secret = get_setting(Settings.ASSET_INVENTORY_CLIENT_SECRET) or ""
+                scope = (get_setting(Settings.ASSET_INVENTORY_SCOPE) or "").strip()
                 if not base_url or not token_url or not client_id or not client_secret:
                     raise RuntimeError(
                         "asset_inventory OAuth2 credentials incomplete — "
@@ -1224,7 +1224,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
         status = "success"
         err: Optional[str] = None
         removed = 0
-        days: Optional[int] = None
+        days: int = 0
         try:
             # Match the unified Tuning Config bounds for log retention so
             # an admin-supplied schedule param can't silently disable the
@@ -1242,7 +1242,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
                     days = _tuning_mod.tuning_int(Tunable.LOG_RETENTION_DAYS)
             else:
                 days = _tuning_mod.tuning_int(Tunable.LOG_RETENTION_DAYS)
-            days = max(_lo, min(_hi, days))
+            days = max(int(_lo), min(int(_hi), days))
             removed = _logs_mod.prune_old_logs(days)
         except Exception as e:
             status = "error"
@@ -1304,7 +1304,7 @@ async def _run_prune_notifications(
         status = "success"
         err: Optional[str] = None
         removed = 0
-        days: Optional[int] = None
+        days: int = 0
         try:
             _, _, _lo, _hi = _tuning_mod.TUNABLES[Tunable.NOTIFICATION_RETENTION_DAYS]
             override = params.get("days") if isinstance(params, dict) else None
@@ -1315,7 +1315,7 @@ async def _run_prune_notifications(
                     days = _tuning_mod.tuning_int(Tunable.NOTIFICATION_RETENTION_DAYS)
             else:
                 days = _tuning_mod.tuning_int(Tunable.NOTIFICATION_RETENTION_DAYS)
-            days = max(_lo, min(_hi, days))
+            days = max(int(_lo), min(int(_hi), days))
             cutoff = int(time.time()) - days * 86400
             with db_conn() as c:
                 cur = c.execute(
@@ -1404,19 +1404,19 @@ def _load_swarm_autoheal_anchors() -> None:
     _swarm_autoheal_anchors_loaded = True
     from logic.db import get_setting
     try:
-        rt = get_setting(Settings.SWARM_AUTOHEAL_LAST_RESTART_TS, "") or ""
+        rt = get_setting(Settings.SWARM_AUTOHEAL_LAST_RESTART_TS) or ""
         if rt:
             _swarm_autoheal_last_restart_ts = float(rt)
     except (ValueError, TypeError):
         pass
     try:
-        nt = get_setting(Settings.SWARM_AUTOHEAL_LAST_NOTIFY_TS, "") or ""
+        nt = get_setting(Settings.SWARM_AUTOHEAL_LAST_NOTIFY_TS) or ""
         if nt:
             _swarm_autoheal_last_notify_ts = float(nt)
     except (ValueError, TypeError):
         pass
     try:
-        ns_raw = get_setting(Settings.SWARM_AUTOHEAL_LAST_NOTIFY_SET, "") or ""
+        ns_raw = get_setting(Settings.SWARM_AUTOHEAL_LAST_NOTIFY_SET) or ""
         if ns_raw:
             _swarm_autoheal_last_notify_set = frozenset(json.loads(ns_raw))
     except (ValueError, TypeError, json.JSONDecodeError):
@@ -1444,7 +1444,7 @@ def _persist_swarm_autoheal_notify_state(ts: float, host_set: frozenset) -> None
 
 
 async def _run_swarm_agent_health(
-    params: dict,
+    _params: dict,
 ) -> tuple[str, Awaitable[tuple[int, str]]]:
     """Periodic Portainer-agent health probe + autoheal action.
 
@@ -1715,7 +1715,7 @@ async def _run_swarm_agent_health(
 
 
 async def _run_port_scan_refresh(
-    params: dict,
+    _params: dict,
 ) -> tuple[str, Awaitable[tuple[int, str]]]:
     """Periodically re-scan port-scan-enabled hosts whose last scan is
     older than ``tuning_port_scan_schedule_min_age_seconds``.
@@ -1781,7 +1781,7 @@ async def _run_port_scan_refresh(
         first_skip_reason = ""
 
         try:
-            if not get_setting_bool(Settings.PORT_SCAN_ENABLED, False):
+            if not get_setting_bool(Settings.PORT_SCAN_ENABLED):
                 first_skip_reason = "master_toggle_off"
                 duration = int(time.time() - started)
                 _record_history_row(
@@ -1796,7 +1796,7 @@ async def _run_port_scan_refresh(
                 print(
                     "[scheduler] port_scan_refresh skipped — master toggle off"
                 )
-                return (duration, "success")
+                return duration, "success"
 
             max_hosts = _tuning_mod.tuning_int(
                 Tunable.PORT_SCAN_SCHEDULE_MAX_HOSTS_PER_TICK
@@ -1847,7 +1847,7 @@ async def _run_port_scan_refresh(
                         "AND provider = ''"
                     ).fetchall()
                 paused_ids = {str(r["host_id"]) for r in paused_rows}
-            except Exception:  # noqa: BLE001
+            except (sqlite3.Error, KeyError, TypeError):
                 # Schema drift defence — first-deploy / pre-migration
                 # path returns empty pause set rather than crashing the
                 # whole tick. The runner still proceeds; ALL hosts are
@@ -1914,7 +1914,7 @@ async def _run_port_scan_refresh(
                         "min_age": min_age,
                     },
                 )
-                return (duration, "success")
+                return duration, "success"
 
             # 5. Fire scans. Each call into _run_port_scan_async runs the
             #    full scan inline (no fire-and-forget) so we can wait for
@@ -1928,31 +1928,33 @@ async def _run_port_scan_refresh(
             from logic import port_scanner as _ps
             from logic.db import get_setting
 
-            async def _scan_one(h: dict) -> str:
-                hid = str(h["id"])
-                ps_cfg = h.get("port_scan") if isinstance(h.get("port_scan"), dict) else {}
+            async def _scan_one(scan_host: dict) -> str:
+                """Run one port-scan tick for `scan_host`; returns the scan_id string."""
+                scan_hid = str(scan_host["id"])
+                scan_ps_cfg_raw = scan_host.get("port_scan")
+                scan_ps_cfg: dict = scan_ps_cfg_raw if isinstance(scan_ps_cfg_raw, dict) else {}
                 target = (
-                    (h.get("address") or "").strip()
-                    or hid
+                    (scan_host.get("address") or "").strip()
+                    or scan_hid
                 )
                 ports_csv = (
-                    (ps_cfg.get("ports") or "").strip()
-                    or (get_setting(Settings.PORT_SCAN_DEFAULT_PORTS, "") or "").strip()
+                    (scan_ps_cfg.get("ports") or "").strip()
+                    or (get_setting(Settings.PORT_SCAN_DEFAULT_PORTS) or "").strip()
                 )
                 ports_list = (
                     _ps.parse_port_csv(ports_csv) if ports_csv
                     else list(_ps.DEFAULT_PORTS)
                 )
                 timeout_s = (
-                    ps_cfg.get("timeout_s")
-                    if ps_cfg.get("timeout_s") is not None
+                    scan_ps_cfg.get("timeout_s")
+                    if scan_ps_cfg.get("timeout_s") is not None
                     else _tuning_mod.tuning_int(
                         Tunable.PORT_SCAN_DEFAULT_TIMEOUT_SECONDS
                     )
                 )
                 concurrency = (
-                    ps_cfg.get("concurrency")
-                    if ps_cfg.get("concurrency") is not None
+                    scan_ps_cfg.get("concurrency")
+                    if scan_ps_cfg.get("concurrency") is not None
                     else _tuning_mod.tuning_int(
                         Tunable.PORT_SCAN_DEFAULT_CONCURRENCY
                     )
@@ -1961,25 +1963,25 @@ async def _run_port_scan_refresh(
                 # operators who want UDP can run an on-demand scan from
                 # the host drawer. Per-host UDP-on schedule support can
                 # land in Stage 2 if the user asks for it.
-                udp_enabled = False
                 max_seconds = _tuning_mod.tuning_int(
                     Tunable.PORT_SCAN_MAX_SECONDS
                 )
-                snmp_cfg = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
+                snmp_cfg_raw = scan_host.get("snmp")
+                snmp_cfg: dict = snmp_cfg_raw if isinstance(snmp_cfg_raw, dict) else {}
                 snmp_community = (
                     snmp_cfg.get("community")
-                    or get_setting(Settings.SNMP_DEFAULT_COMMUNITY, "")
+                    or get_setting(Settings.SNMP_DEFAULT_COMMUNITY)
                     or "public"
                 )
                 import uuid as _uuid
                 scan_id = str(_uuid.uuid4())
                 async with sem:
                     await _main._run_port_scan_async(
-                        hid=hid,
+                        hid=scan_hid,
                         target=target,
                         ports_list=ports_list,
-                        timeout_s=int(timeout_s),
-                        concurrency=int(concurrency),
+                        timeout_s=int(timeout_s) if timeout_s is not None else 0,
+                        concurrency=int(concurrency) if concurrency is not None else 0,
                         banner_grab=False,
                         udp_enabled=False,
                         udp_ports_list=[],
@@ -1989,10 +1991,10 @@ async def _run_port_scan_refresh(
                         max_seconds=int(max_seconds),
                         scan_id=scan_id,
                         started=time.time(),
-                        h=h,
+                        h=scan_host,
                         actor=SCHEDULER_ACTOR,
                     )
-                return hid
+                return scan_hid
 
             scan_results = await asyncio.gather(
                 *[_scan_one(h) for h in picks],
@@ -2196,9 +2198,9 @@ def bootstrap_swarm_agent_health_schedule(conn: sqlite3.Connection) -> dict:
     from logic.db import get_setting, set_setting
     from logic import portainer as _portainer
 
-    bootstrap_enabled = (get_setting(Settings.SWARM_AUTOHEAL_BOOTSTRAP_ENABLED, "")
+    bootstrap_enabled = (get_setting(Settings.SWARM_AUTOHEAL_BOOTSTRAP_ENABLED)
                          or "").strip().lower()
-    bootstrap_done = (get_setting(Settings.SWARM_AUTOHEAL_BOOTSTRAP_DONE, "")
+    bootstrap_done = (get_setting(Settings.SWARM_AUTOHEAL_BOOTSTRAP_DONE)
                       or "").strip().lower() == "true"
 
     if bootstrap_done:
@@ -2354,24 +2356,25 @@ async def fire_schedule(schedule: dict) -> str:
     # Waiter: completes the record_run row with the real duration and
     # status when the op finishes. Fire-and-forget — we don't await it.
     async def _await_and_record():
+        """Wait for the spawned op to finish, then stamp record_run + publish end SSE."""
         try:
             duration, status = await done_awaitable
-        except (asyncio.CancelledError, asyncio.InvalidStateError, RuntimeError, ValueError) as e:
-            if isinstance(e, asyncio.CancelledError):
+        except (asyncio.CancelledError, asyncio.InvalidStateError, RuntimeError, ValueError) as wait_err:
+            if isinstance(wait_err, asyncio.CancelledError):
                 raise
-            print(f"[scheduler] waiter for {op_id} failed: {e}")
+            print(f"[scheduler] waiter for {op_id} failed: {wait_err}")
             duration, status = 0, "error"
         try:
-            with db_conn() as c:
-                record_run(c, int(schedule["id"]), op_id, duration, status)
-        except sqlite3.Error as e:
-            print(f"[scheduler] record_run update for {op_id} failed: {e}")
+            with db_conn() as record_conn:
+                record_run(record_conn, int(schedule["id"]), op_id, duration, status)
+        except sqlite3.Error as rec_err:
+            print(f"[scheduler] record_run update for {op_id} failed: {rec_err}")
         # SSE — fire END event with the resolved duration + status so
         # the SPA can update the row in place and append the queue
         # entry without polling.
         try:
-            from logic import events as _events
-            _events.publish("schedule:fired", {
+            from logic import events as _events_end
+            _events_end.publish("schedule:fired", {
                 "schedule_id": int(schedule["id"]),
                 "name": schedule.get("name"),
                 "kind": kind,
@@ -2380,8 +2383,8 @@ async def fire_schedule(schedule: dict) -> str:
                 "duration": duration,
                 "status": status,
             })
-        except (RuntimeError, ValueError, TypeError) as e:
-            print(f"[events] schedule:fired (end) publish failed: {e}")
+        except (RuntimeError, ValueError, TypeError) as pub_err:
+            print(f"[events] schedule:fired (end) publish failed: {pub_err}")
 
     asyncio.create_task(_await_and_record())
     return op_id
@@ -2507,7 +2510,7 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
     # write lock is released for the other concurrent caller.
     try:
         conn.commit()
-    except Exception:
+    except sqlite3.Error:
         pass
 
 
@@ -2529,7 +2532,7 @@ def _is_previous_run_active(schedule: dict) -> bool:
         return False
     if schedule.get("last_duration") is None:
         return True
-    live = _ops.ops.get(last_op_id)
+    live = _ops.ops.get(str(last_op_id))
     return bool(live and getattr(live, "status", None) == "running")
 
 

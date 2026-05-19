@@ -49,10 +49,12 @@ _agent_health: dict[str, dict[str, Any]] = {}
 
 
 def get_stats_cache() -> dict:
+    """Return the shared module-level `_stats_cache` dict (per-item resource samples)."""
     return _stats_cache
 
 
 def get_agent_health() -> dict:
+    """Return the shared module-level `_agent_health` dict (per-node bad-gather state)."""
     return _agent_health
 
 
@@ -159,6 +161,7 @@ def _prune_old_samples() -> int:
 
 
 async def stats_sampler_loop() -> None:
+    """Lifespan-managed loop that snapshots `_stats_cache` into `stats_samples` + prunes hourly."""
     # Wait a beat so the first gather_stats() has a chance to populate
     # _stats_cache before we write a row of zeros.
     interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
@@ -334,7 +337,6 @@ async def _one_container_stats(
     # — no retry — so a 5-node fleet pays at most 4 extra calls per
     # failing cid. Skips the originally-tried `node` to avoid double-
     # billing the retry that already happened.
-    fallback_used: Optional[str] = None
     fallback_status_map: dict[str, int] = {}
     if fallback_nodes:
         for alt in fallback_nodes:
@@ -346,16 +348,15 @@ async def _one_container_stats(
                     timeout=targeted_to,
                 )
                 if r.status_code == 200:
-                    fallback_used = alt
                     payload = _parse_stats_payload(r.json())
                     print(f"[stats] {cid[:12]} fallback agent_target={alt} succeeded "
                           f"(originally resolved to {node!r})")
                     return payload
                 fallback_status_map[alt] = r.status_code
-            except Exception as e:
+            except (httpx.HTTPError, OSError, ValueError) as fb_err:
                 fallback_status_map[alt] = -1
                 print(f"[stats] {cid[:12]} fallback agent_target={alt} err: "
-                      f"{type(e).__name__}: {e}")
+                      f"{type(fb_err).__name__}: {fb_err}")
 
     # All paths exhausted — log a single diagnostic line that captures
     # every attempt's status code so the operator can see exactly
@@ -416,19 +417,19 @@ async def gather_stats() -> None:
         nodes_by_id = items_cache.get("nodes") or {}
         hostnames = [h for h in nodes_by_id.values() if h]
         sweep_node_by_cid: dict[str, str] = {}
-        containers: list = []
         try:
             if len(hostnames) >= 2:
                 async def _per_node(h: str):
+                    """Per-host /containers/json fan-out; swallows per-node errors to keep the sweep alive."""
                     try:
                         return h, await portainer.pg(
                             client,
                             f"{ep}/containers/json?all=1&size=1",
                             agent_target=h,
                         )
-                    except Exception as e:
+                    except (httpx.HTTPError, OSError, ValueError) as node_err:
                         print(f"[stats] gather_stats: per-node list for {h} FAILED: "
-                              f"{type(e).__name__}: {e}")
+                              f"{type(node_err).__name__}: {node_err}")
                         return h, []
 
                 per_node = await asyncio.gather(*(_per_node(h) for h in hostnames))
@@ -576,10 +577,11 @@ async def gather_stats() -> None:
         # every fetch so we don't pay the dict.values() cost per cid.
         all_hostnames: list[str] = list(hostnames)
 
-        async def fetch(cid: str):
+        async def fetch(fetch_cid: str):
+            """Semaphore-bounded wrapper around `_one_container_stats` for one container id."""
             async with sem:
-                return cid, await _one_container_stats(
-                    client, ep, cid, node_by_cid.get(cid),
+                return fetch_cid, await _one_container_stats(
+                    client, ep, fetch_cid, node_by_cid.get(fetch_cid),
                     fallback_nodes=all_hostnames,
                 )
 

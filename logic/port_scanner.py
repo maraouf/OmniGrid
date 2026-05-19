@@ -255,7 +255,7 @@ async def _probe_one_port(host: str, port: int, timeout_s: float,
             try:
                 data = await asyncio.wait_for(reader.read(256), timeout=banner_timeout)
                 if data:
-                    text = data.decode("utf-8", errors="replace").strip()
+                    text = data.decode(errors="replace").strip()
                     # Strip control chars; cap at 200 chars so the JSON
                     # payload stays compact.
                     text = "".join(c for c in text if c.isprintable() or c in " \t")
@@ -277,7 +277,7 @@ async def _probe_one_port(host: str, port: int, timeout_s: float,
             try:
                 writer.close()
                 await writer.wait_closed()
-            except Exception:
+            except (OSError, ConnectionError):
                 pass
     return out
 
@@ -333,7 +333,7 @@ async def scan_host(
         loop = asyncio.get_event_loop()
         infos = await loop.getaddrinfo(
             str(target), None,
-            family=0, type=socket.SOCK_STREAM,
+            type=socket.SOCK_STREAM,
         )
         if infos:
             # Pick the first address-family entry. IPv4 preferred when

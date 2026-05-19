@@ -37,6 +37,7 @@ own independent probe. Merging them would muddy both APIs.
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 from typing import Optional
 
@@ -112,7 +113,7 @@ def _is_paused(host_id: str) -> bool:
                 "WHERE host_id = ? AND provider = ''",
                 (host_id,),
             ).fetchone()
-    except Exception:
+    except (sqlite3.Error, OSError):
         return False
     return bool(r and r[0])
 
@@ -145,7 +146,7 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
     try:
         _ne_to = float(tuning.tuning_int(
             Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS))
-    except Exception:
+    except (KeyError, ValueError, TypeError):
         _ne_to = 10.0
     try:
         stats = await _ne.probe_node(client, ne_url, timeout=_ne_to)
@@ -258,7 +259,7 @@ async def host_net_sampler_loop() -> None:
                     try:
                         _outer_to = float(tuning.tuning_int(
                             Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS)) * 1.5
-                    except Exception:
+                    except (KeyError, ValueError, TypeError):
                         _outer_to = 15.0
                     async with httpx.AsyncClient(verify=False, timeout=_outer_to) as client:
                         # Sequential over hosts — NE probes are already

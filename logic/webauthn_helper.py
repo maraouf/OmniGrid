@@ -128,11 +128,13 @@ def assert_available() -> None:
 
 
 def b64u_encode(data: bytes) -> str:
+    """Base64url-encode `data` for the WebAuthn JSON wire format."""
     assert_available()
     return bytes_to_base64url(data)
 
 
 def b64u_decode(s: str) -> bytes:
+    """Base64url-decode `s` from the WebAuthn JSON wire format back to raw bytes."""
     assert_available()
     return base64url_to_bytes(s)
 

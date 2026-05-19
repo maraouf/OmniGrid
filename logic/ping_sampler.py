@@ -29,6 +29,7 @@ the operator wants ("when did it go down?"), not noise.
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 
 from logic import ping as _ping
@@ -54,7 +55,7 @@ def _curated_ping_hosts() -> list[dict]:
     is delegated to :func:`logic.db.iter_curated_hosts` (DUP-001).
     """
     default_port = _resolve_default_port()
-    use_icmp_global = get_setting_bool(Settings.PING_USE_ICMP, False)
+    use_icmp_global = get_setting_bool(Settings.PING_USE_ICMP)
     default_transport = "icmp" if (use_icmp_global and _ping.has_icmp_support()) else "tcp"
 
     out: list[dict] = []
@@ -121,7 +122,7 @@ def _resolve_default_port() -> int:
     from logic import tuning as _tuning
     try:
         return _tuning.tuning_int(_Tunable.PING_DEFAULT_PORT) or 443
-    except Exception:
+    except (KeyError, ValueError, TypeError):
         return 443
 
 
@@ -157,7 +158,7 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
                 ).fetchone()
             if _r and _r[0]:
                 return
-        except Exception:
+        except (sqlite3.Error, OSError):
             pass  # DB blip — let the probe run
         timeout_s = float(tuning.tuning_int(_Tunable.PING_PROBE_TIMEOUT_SECONDS))
         ping_pause_rounds = tuning.tuning_int(_Tunable.PING_FAILURE_PAUSE_ROUNDS)
@@ -167,7 +168,6 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
                 host["host"], port=host["port"],
                 transport=host.get("transport", "tcp"),
                 timeout_seconds=timeout_s,
-                count=3,
             )
         except asyncio.CancelledError:
             raise

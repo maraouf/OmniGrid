@@ -1,0 +1,18 @@
+{
+  "esversion": 11,
+  "strict": "implied",
+  "browser": true,
+  "devel": true,
+  "module": true,
+  "curly": false,
+  "bitwise": false,
+  "laxbreak": true,
+  "eqeqeq": false,
+  "-W069": true,
+  "globals": {
+    "Alpine": true,
+    "Swal": true,
+    "I18N": true,
+    "t": true
+  }
+}

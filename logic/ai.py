@@ -1881,7 +1881,7 @@ def parse_palette_tool_calls(text: str) -> tuple[list[dict], str]:
 # `tool_results[<name>]` entry). Adding a tool means one entry here
 # + one paragraph in PALETTE_SYSTEM_PROMPT teaching the model when
 # to emit `TOOL: <name>`.
-def _tool_get_recent_history(args: dict, ctx: dict) -> dict:
+def _tool_get_recent_history(args: dict, _ctx: dict) -> dict:
     """Return recent `history` rows filtered by target_kind / target_id
     over the last N hours. Used when the AI needs to answer "how
     many times has X restarted in the last day?" / "what ops have
@@ -1928,12 +1928,18 @@ def _tool_get_recent_history(args: dict, ctx: dict) -> dict:
             "filters": {"target_kind": target_kind, "target_id": target_id, "op_type": op_type}}
 
 
-def _tool_get_recent_logs(args: dict, ctx: dict) -> dict:
+def _tool_get_recent_logs(args: dict, _ctx: dict) -> dict:
     """Return recent persistent-log entries filtered by severity floor
     + tag prefix. Used when the AI needs to answer "any errors in the
     last hour from <X>?" / "what's in the logs around the incident?".
+
+    Reads through `recent_lines_window` (NOT `recent_lines`) so the
+    `hours` arg actually scopes the read to the persistent log files
+    on disk rather than the in-memory ring buffer's ~last-N-minutes
+    window. `recent_lines` only takes `(levels, limit)`; the
+    `_window` variant adds time-range support.
     """
-    from logic.logs import recent_lines
+    from logic.logs import recent_lines_window
     hours = max(1, min(168, int(args.get("hours") or 1)))
     line_cap = max(1, min(500, int(args.get("line_cap") or 100)))
     severity_min = (args.get("severity_min") or "WARN").upper()
@@ -1941,21 +1947,35 @@ def _tool_get_recent_logs(args: dict, ctx: dict) -> dict:
     severity_order = {"DEBUG": 0, "INFO": 1, "WARN": 2, "ERROR": 3}
     sev_floor = severity_order.get(severity_min, 2)
     try:
-        lines = recent_lines(hours=hours, limit=line_cap * 4)  # over-fetch then filter
+        lines = recent_lines_window(hours=hours, limit=line_cap * 4)  # over-fetch then filter
     except Exception as e:  # noqa: BLE001
         return {"error": f"logs read failed: {e}", "lines": []}
     out = []
     for ln in lines:
-        sev = (ln.get("severity") or "INFO").upper()
+        # `recent_lines_window` returns `{ts, level, text}`. Level is
+        # lowercase (`error` / `warn` / `info` / `success`) per the
+        # in-memory ring buffer schema; uppercase here for parity with
+        # the `severity_min` user-facing arg. Tag is embedded in the
+        # text as a leading `[tag] ` prefix; extract on the fly for
+        # the `tag_prefix` filter so callers don't need to know the
+        # storage format.
+        sev = (ln.get("level") or "info").upper()
         if severity_order.get(sev, 1) < sev_floor:
             continue
-        if tag_prefix and not (ln.get("tag") or "").startswith(tag_prefix):
+        text = ln.get("text") or ""
+        # Extract `[tag]` prefix if present so the filter matches
+        # what operators see in Admin → Logs (tag colouring there
+        # also keys off the bracketed prefix).
+        tag = ""
+        if text.startswith("[") and "]" in text:
+            tag = text[1:text.index("]")]
+        if tag_prefix and not tag.startswith(tag_prefix):
             continue
         out.append({
             "ts": int(ln.get("ts") or 0),
             "severity": sev,
-            "tag": ln.get("tag") or "",
-            "message": (ln.get("message") or "")[:500],
+            "tag": tag,
+            "message": text[:500],
         })
         if len(out) >= line_cap:
             break
@@ -1963,7 +1983,7 @@ def _tool_get_recent_logs(args: dict, ctx: dict) -> dict:
             "filters": {"severity_min": severity_min, "tag_prefix": tag_prefix}}
 
 
-def _tool_get_failure_events(args: dict, ctx: dict) -> dict:
+def _tool_get_failure_events(args: dict, _ctx: dict) -> dict:
     """Return rows from `host_failure_events` for a specific host (or
     fleet-wide) over the last N hours. Each row is a state transition
     — provider paused / resumed / recovered. Used when the AI needs
@@ -2002,7 +2022,7 @@ def _tool_get_failure_events(args: dict, ctx: dict) -> dict:
             "filters": {"host_id": host_id}}
 
 
-def _tool_get_host_metrics_recent(args: dict, ctx: dict) -> dict:
+def _tool_get_host_metrics_recent(args: dict, _ctx: dict) -> dict:
     """Return recent time-series points from `host_metrics_samples` for
     a specific host + metric. Used for 'show me the cpu spike at
     02:00' / 'has memory been creeping up on this host all week?'
@@ -2025,7 +2045,7 @@ def _tool_get_host_metrics_recent(args: dict, ctx: dict) -> dict:
     }
     if metric not in allowed_metrics:
         return {"error": f"metric '{metric}' not in whitelist — valid: "
-                + ", ".join(sorted(allowed_metrics)), "samples": []}
+                         + ", ".join(sorted(allowed_metrics)), "samples": []}
     cutoff = int(time.time() - hours * 3600)
     sql = (f"SELECT ts, {metric} FROM host_metrics_samples "
            f"WHERE host_id = ? AND ts >= ? ORDER BY ts DESC LIMIT ?")
@@ -2039,7 +2059,7 @@ def _tool_get_host_metrics_recent(args: dict, ctx: dict) -> dict:
             "host_id": host_id, "metric": metric, "window_hours": hours}
 
 
-def _tool_get_container_events(args: dict, ctx: dict) -> dict:
+def _tool_get_container_events(args: dict, _ctx: dict) -> dict:
     """Return container state / health transitions from the gather
     cache for items whose name starts with `name_prefix`. Used for
     'is X still restarting?' / 'when did this container go unhealthy'
@@ -2104,7 +2124,7 @@ SSH_DIAG_PRESETS: dict[str, str] = {
 }
 
 
-async def _tool_ssh_diag(args: dict, ctx: dict) -> dict:
+async def _tool_ssh_diag(args: dict, _ctx: dict) -> dict:
     """Run a WHITELISTED read-only diagnostic command via SSH on the
     target host. Distinct from the read-only DB tools because it
     touches the actual machine — per the SSH gate convention the
@@ -2122,22 +2142,24 @@ async def _tool_ssh_diag(args: dict, ctx: dict) -> dict:
     cmd = SSH_DIAG_PRESETS.get(preset)
     if cmd is None:
         return {"error": f"preset '{preset}' not in whitelist — valid: "
-                + ", ".join(sorted(SSH_DIAG_PRESETS.keys()))}
+                         + ", ".join(sorted(SSH_DIAG_PRESETS.keys()))}
     try:
-        hosts_cfg_raw = []
         from logic.db import get_setting
-        from logic.settings_keys import Settings as _S
+        from logic.settings_keys import Settings
         import json as _json_ssh
         try:
-            hosts_cfg_raw = _json_ssh.loads(get_setting(_S.HOSTS_CONFIG, "") or "[]")
+            hosts_cfg_raw = _json_ssh.loads(get_setting(Settings.HOSTS_CONFIG) or "[]")
         except (TypeError, ValueError):
             hosts_cfg_raw = []
+        # NB: `run_command`'s signature is (host_id, command, hosts_config,
+        # timeout=30, dry_run=False) — no actor kwarg. Actor capture for
+        # this call lands in the `ai_tool_call` audit row written by
+        # `dispatch_palette_tool` below, NOT in the `ssh_run` row
+        # `run_command` writes itself. Two rows, two perspectives.
         result = await _ssh.run_command(
             host_id=host_id,
             command=cmd,
             hosts_config=hosts_cfg_raw if isinstance(hosts_cfg_raw, list) else [],
-            dry_run=False,
-            actor_username=(ctx.get("actor") if isinstance(ctx, dict) else None) or "ai_palette",
             timeout=20.0,
         )
     except Exception as e:  # noqa: BLE001
@@ -2237,7 +2259,7 @@ async def dispatch_palette_tool(call: dict, ctx: Optional[dict] = None) -> dict:
                 c, "ai_tool_call",
                 target_kind=name, target_name=str(target_id)[:128],
                 actor=actor,
-                message=(f"AI dispatched {name}({str(args)[:200]}) → {status}"),
+                message=f"AI dispatched {name}({str(args)[:200]}) → {status}",
             )
     except Exception as _audit_err:  # noqa: BLE001
         print(f"[ai] ai_tool_call audit-row write failed: {_audit_err}")

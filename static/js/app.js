@@ -1,3 +1,5 @@
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
+/* global Alpine, Swal, I18N, t */
 // Registry of every icon file that actually exists under static/img/icons/.
 // `iconUrlFor()` consults this before returning a /img/icons/<slug>.svg URL
 // so unknown stack / host names don't trigger 404 noise in the browser

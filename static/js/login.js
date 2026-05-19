@@ -1,4 +1,4 @@
-// noinspection ALL
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // Login-page controller. Kept separate from /js/app.js because this page
 // has no Alpine — it's a vanilla form submission, plus a data-i18n DOM
 // sweep, plus an SSO-button toggle that polls /api/auth/providers.
@@ -17,6 +17,7 @@
 //               provisioning_uri, challenge_id}        -> setup form
 // totp -> {ok}              -> redirect
 //      -> {ok, backup_codes} -> reveal codes -> redirect on continue
+// noinspection FunctionWithMultipleLoopsJS,FunctionNamingConventionJS,ConditionalExpressionJS,NonBlockStatementBodyJS,ConstantOnRightSideOfComparisonJS,EmptyCatchBlockJS,UnusedCatchParameterJS,AnonymousFunctionJS,NestedFunctionJS,FunctionWithMultipleReturnPointsJS,ChainedFunctionCallJS,NestedFunctionCallJS,OverlyComplexBooleanExpressionJS,FunctionTooLongJS,OverlyComplexFunctionJS,IfStatementWithTooManyBranchesJS,MagicNumberJS,JSUnusedLocalSymbols,InnerHTMLJS,LocalVariableNamingConventionJS,ExceptionCaughtLocallyJS,JSUnresolvedReference,DuplicatedCode,JSIgnoredPromiseFromCall
 
 function applyI18nDom() {
   const els = document.querySelectorAll('[data-i18n]');

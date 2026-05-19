@@ -1,9 +1,11 @@
-// noinspection ALL
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, -W069 */
 // ------------------------------------------------------------------
 // i18n helper — vanilla JS, no external library. Pulls language files
 // from /i18n/<code>.json at boot and exposes `window.t(key, vars)` for
 // use in Alpine templates (`x-text="t('nav.stacks')"`) and JS.
 // ------------------------------------------------------------------
+// noinspection AssignmentToFunctionParameterJS,JSUnfilteredForInLoop,ConditionalExpressionJS,ConstantOnRightSideOfComparisonJS,NestedFunctionCallJS,NonBlockStatementBodyJS,UnusedCatchParameterJS,ChainedFunctionCallJS,AnonymousFunctionJS
+
 const I18N = {
   dict: {},
   code: 'en',

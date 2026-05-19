@@ -217,8 +217,8 @@ async def host_webmin_sampler_loop() -> None:
                     print(f"[host_webmin_sampler] iter {iter_count} skip: no curated webmin hosts")
                     await asyncio.sleep(interval)
                     continue
-                user = (get_setting(Settings.WEBMIN_USER, "") or "").strip()
-                password = (get_setting(Settings.WEBMIN_PASSWORD, "") or "").strip()
+                user = (get_setting(Settings.WEBMIN_USER) or "").strip()
+                password = (get_setting(Settings.WEBMIN_PASSWORD) or "").strip()
                 if not user or not password:
                     print(f"[host_webmin_sampler] iter {iter_count} skip: missing creds")
                     await asyncio.sleep(interval)
@@ -298,6 +298,7 @@ async def host_webmin_sampler_loop() -> None:
 
 # noinspection DuplicatedCode,PyTypeChecker
 def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
+    """Return up to `limit` host_webmin_samples rows for `host_id` newer than `since_ts`."""
     if not host_id:
         return []
     try:
@@ -371,6 +372,7 @@ def history_series(host_id: str, hours: int) -> list[dict]:
 
 # noinspection DuplicatedCode,PyTypeChecker
 def last_samples(host_id: str, limit: int = 5) -> list[dict]:
+    """Return the most recent `limit` host_webmin_samples rows for `host_id`."""
     if not host_id:
         return []
     try:

@@ -609,7 +609,7 @@ try:
         _ns_used = locals().get("_SNMP_HLAPI_NS", "unknown")
         print(f"[snmp] walk function resolved: {_walk_fn_name} "
               f"(pysnmp ns={_ns_used})")
-    except Exception:
+    except (AttributeError, NameError):
         pass
 except Exception as _e:
     _HAS_SNMP = False
@@ -849,11 +849,12 @@ def _coerce_int(v) -> int:
 
 
 def _coerce_str(v) -> str:
+    """Best-effort `str(v).strip()` — return empty string on None or coercion failure."""
     if v is None:
         return ""
     try:
         return str(v).strip()
-    except Exception:
+    except (TypeError, ValueError, UnicodeDecodeError):
         return ""
 
 
@@ -1238,13 +1239,13 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
     # Walk-paired extractors. Each emits a per-row list keyed by the
     # OID-trailing index. Empty walks → field absent (caller's snapshot
     # / merge layer treats absent as "no data" cleanly).
-    def _row_index(oid: str, prefix: str) -> str:
+    def _row_index(row_oid: str, prefix: str) -> str:
         # Trailing index for an instance OID under `prefix`.
         # `1.3.6.1.4.1.674.10892.5.4.700.20.1.6.1.1` under prefix
         # `...20.1.6` → "1.1".
-        if oid.startswith(prefix + "."):
-            return oid[len(prefix) + 1:]
-        return oid.rsplit(".", 1)[-1]
+        if row_oid.startswith(prefix + "."):
+            return row_oid[len(prefix) + 1:]
+        return row_oid.rsplit(".", 1)[-1]
 
     # Fans — coolingDeviceTable.
     fan_readings = walks.get("dell_fan_reading") or {}
@@ -1551,19 +1552,21 @@ def extract_storage(
     # the desc field (which is the mountpoint path).
     op_excludes = tuple(s.strip() for s in (exclude_mounts or []) if isinstance(s, str) and s.strip())
 
-    def _excluded(desc: str) -> bool:
-        if not desc:
+    def _excluded(mount_desc: str) -> bool:
+        """True if the mountpoint path matches any default or operator-defined exclude prefix."""
+        if not mount_desc:
             return False
         for pref in _DEFAULT_EXCLUDE_MOUNT_PREFIXES:
-            if desc == pref or desc.startswith(pref + "/"):
+            if mount_desc == pref or mount_desc.startswith(pref + "/"):
                 return True
         for op in op_excludes:
-            if desc == op or desc.startswith(op + "/"):
+            if mount_desc == op or mount_desc.startswith(op + "/"):
                 return True
         return False
 
     # Re-key each walk by the index suffix so we can join across them.
     def by_idx(walk: dict, base: str) -> dict[str, object]:
+        """Re-key a `{oid: value}` walk dict by its last-index suffix under `base`."""
         return {_last_index(oid, base): val for oid, val in walk.items()}
 
     types = by_idx(type_walk, _OID_HR_STORAGE_TYPE)
@@ -1715,7 +1718,7 @@ def extract_stats(
     cpu_walk: dict,
     storage_walks: dict,
     iface_walks: dict,
-    active_sources: Optional[set[str]] = None,
+    _active_sources: Optional[set[str]] = None,
     entity_walks: Optional[dict] = None,
     vendor_walks: Optional[dict] = None,
     exclude_mounts: Optional[list[str]] = None,
@@ -2055,7 +2058,7 @@ async def probe_snmp(
             ])
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
-        except Exception:
+        except (OSError, RuntimeError, ValueError, AttributeError):
             # Phase 0 failure → empty response. Phase 1 still runs but
             # vendor detection will return empty → walk-all fallback.
             # Keeps the probe useful on agents where sysDescr fails but
@@ -2459,7 +2462,7 @@ async def probe_snmp(
         running = [asyncio.create_task(_bounded(t)) for t in all_tasks]
         try:
             results = await asyncio.wait_for(asyncio.gather(
-                *running, return_exceptions=False,
+                *running,
             ), timeout=wall_clock_budget_resolved)
         except asyncio.TimeoutError:
             # Cancel still-running tasks + flush their cancellations so
@@ -2628,7 +2631,7 @@ async def probe_snmp(
          "in_hc": if_hc_in, "out_hc": if_hc_out,
          "in_32": if_in, "out_32": if_out,
          "high_speed": if_high_speed},
-        active_sources=active_sources,
+        _active_sources=active_sources,
         entity_walks={
             "descr": ent_descr, "name": ent_name,
             "serial": ent_serial, "model": ent_model,
@@ -2730,30 +2733,27 @@ async def probe_snmp(
         def _stringify(d: dict) -> dict:
             return {str(k): _coerce_str(v) for k, v in (d or {}).items()}
 
-        storage_rows = []
         try:
             storage_rows = _summarise_storage_rows(
                 {"type": st_type, "desc": st_desc, "unit": st_unit,
                  "size": st_size, "used": st_used},
             )
-        except Exception:  # noqa: BLE001
+        except (TypeError, KeyError, AttributeError, ValueError):
             storage_rows = []
-        iface_rows = []
         try:
             iface_rows = _summarise_iface_rows(
                 if_descr, if_oper, if_hc_in, if_hc_out, if_in, if_out,
             )
-        except Exception:  # noqa: BLE001
+        except (TypeError, KeyError, AttributeError, ValueError):
             iface_rows = []
         # entity rows for the verbose surface. Each physical
         # entry is one row keyed by entPhysicalIndex with name / model /
         # serial / firmware aligned.
-        entity_rows = []
         try:
             entity_rows = _summarise_entity_rows(
                 ent_descr, ent_name, ent_serial, ent_model, ent_fw,
             )
-        except Exception:  # noqa: BLE001
+        except (TypeError, KeyError, AttributeError, ValueError):
             entity_rows = []
         out["raw"] = {
             "system": _stringify(sys_get),

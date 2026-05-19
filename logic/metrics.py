@@ -106,6 +106,7 @@ class _EventsCountersCollector:
         self._dropped = getters["dropped_count"]
 
     def collect(self):
+        """Yield SSE subscriber / dropped-event gauges for Prometheus scrape."""
         sub = GaugeMetricFamily(
             "omnigrid_events_subscribers",
             "Active SSE subscribers connected to /api/events",
@@ -144,6 +145,7 @@ class _CacheAgeCollector:
         self._get = cache_getter
 
     def collect(self):
+        """Yield the items-cache freshness gauge for Prometheus scrape."""
         g = GaugeMetricFamily(
             "omnigrid_cache_age_seconds",
             "Seconds since items cache was last populated",
