@@ -1841,6 +1841,7 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                 op.log(f"Pre-recreate inspect failed ({type(_e).__name__}: {_e}) — digest comparison disabled", "warning")
         recreate_endpoint_error: Optional[str] = None
         recreate_response_body: str = ""
+        recreate_response_full: str = ""
         async with portainer.write_client(timeout=_portainer_op_timeout("long")) as client:
             try:
                 # `json={}` is REQUIRED — Portainer's recreate endpoint
@@ -1858,7 +1859,13 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                     headers=portainer.headers(agent_target=node),
                     json={},
                 )
-                recreate_response_body = (r.text or "")[:500]
+                # Keep the FULL response text for downstream JSON parsing
+                # (the new container ID lives in `Id` — Docker inspect JSON
+                # is typically multi-KB, so a pre-parse truncation would
+                # chop the body mid-string and json.loads would raise). The
+                # 500-char copy is only for the operator-facing log lines.
+                recreate_response_full = r.text or ""
+                recreate_response_body = recreate_response_full[:500]
                 if r.status_code >= 400:
                     recreate_endpoint_error = f"HTTP {r.status_code}: {recreate_response_body[:300]}"
                 else:
@@ -1895,11 +1902,21 @@ async def do_update_container(op: Operation, container_id: str) -> None:
             new_container_id = container_id
             try:
                 import json as _json_post
-                _resp_json = _json_post.loads(recreate_response_body) if recreate_response_body else None
+                # Parse the FULL body, not the 500-char log preview —
+                # Docker inspect JSON is multi-KB and truncating before
+                # parsing made json.loads raise on every successful
+                # recreate, leaving `new_container_id` pointing at the
+                # already-reaped old container so the inspect below 404'd.
+                _resp_json = _json_post.loads(recreate_response_full) if recreate_response_full else None
                 if isinstance(_resp_json, dict):
                     new_container_id = (_resp_json.get("Id") or container_id).strip() or container_id
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _parse_err:
+                op.log(
+                    f"Failed to parse /recreate response body as JSON "
+                    f"({type(_parse_err).__name__}); will inspect old container_id "
+                    f"as a fallback and likely get 404",
+                    "warning",
+                )
             if new_container_id != container_id:
                 op.log(f"Portainer /recreate spawned new container {new_container_id[:12]} (was {container_id[:12]})")
             async with portainer.write_client(timeout=_portainer_op_timeout("short")) as _post_client:
