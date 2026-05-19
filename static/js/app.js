@@ -37317,6 +37317,14 @@ function app() {
     },
     async itemAction(item, opts) {
       if (this.isItemBusy(item)) {
+        // Silent no-op was the prior behaviour — operator-flagged after
+        // pressing Recreate repeatedly on an external container with a
+        // stuck "running" op in activeOps and seeing nothing happen +
+        // no logs. Toast surfaces the busy state so the operator knows
+        // the click registered AND knows where to look if the op-in-
+        // flight is stale: the floating running-ops pill at the bottom
+        // of the page OR the History tab.
+        this.showToast(this.t('toasts.already_in_progress', { name: item.name || item.stack || item.raw_id }), 'warning');
         return;
       }
       const skipConfirm = !!(opts && opts.skipConfirm);

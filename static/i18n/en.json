@@ -2798,6 +2798,7 @@
     "token_revoked": "Token revoked",
     "history_cleared": "History cleared",
     "queued": "Queued: {name}",
+    "already_in_progress": "Already in progress: {name} — see the running-ops pill in the topbar or the History tab if this seems stuck",
     "restart_queued": "Restart queued: {name}",
     "remove_queued": "Remove queued: {name}",
     "retag_already_latest": "Already on :latest: {name}",

@@ -1,4 +1,4 @@
-/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, -W069 */
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // ------------------------------------------------------------------
 // i18n helper — vanilla JS, no external library. Pulls language files
 // from /i18n/<code>.json at boot and exposes `window.t(key, vars)` for
