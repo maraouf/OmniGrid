@@ -818,6 +818,79 @@ def _parse_docker_ts(ts) -> Optional[float]:
         return None
 
 
+def _extract_service_ports(svc: dict) -> list[dict]:
+    """Return ``[{published, target, protocol}, …]`` for a Swarm service.
+
+    Reads ``Endpoint.Ports`` (Portainer / Docker mirrors this from
+    ``Spec.EndpointSpec.Ports`` for ingress-mode publishes). Skips
+    entries with no PublishedPort (port is declared on the service
+    spec but not actually published to the host).
+
+    Uses ``try/except (ValueError, TypeError)`` around the int casts
+    rather than truthy-narrowing because pyright can't statically
+    narrow ``dict.get(...)`` from ``Any | None`` to a concrete
+    SupportsInt — the try/except also gracefully drops malformed
+    payloads (string ``"abc"``, ``None``, etc.).
+    """
+    out: list[dict] = []
+    seen: set = set()
+    raw = ((svc.get("Endpoint") or {}).get("Ports") or [])
+    for p in raw:
+        if not isinstance(p, dict):
+            continue
+        try:
+            published = int(p.get("PublishedPort") or 0)
+            target = int(p.get("TargetPort") or 0)
+        except (ValueError, TypeError):
+            continue
+        if not published or not target:
+            continue
+        proto = (p.get("Protocol") or "tcp").lower()
+        key = (published, target, proto)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"published": published, "target": target, "protocol": proto})
+    return out
+
+
+def _extract_container_ports(cont: dict) -> list[dict]:
+    """Return ``[{published, target, protocol}, …]`` for a container.
+
+    Portainer's container list returns a ``Ports`` array of
+    ``{IP, PrivatePort, PublicPort, Type}`` entries. Containers
+    bound to both IPv4 (``0.0.0.0``) and IPv6 (``::``) produce
+    duplicate entries — we de-dupe on ``(published, target, proto)``.
+    Skips entries with no PublicPort (private-only, no host bind,
+    so no clickable URL can be constructed).
+
+    Same ``try/except`` shape as :func:`_extract_service_ports` —
+    pyright can't narrow ``Any | None`` through truthy checks; the
+    explicit cast + catch is both type-clean and tolerant of
+    malformed payloads.
+    """
+    out: list[dict] = []
+    seen: set = set()
+    raw = cont.get("Ports") or []
+    for p in raw:
+        if not isinstance(p, dict):
+            continue
+        try:
+            published = int(p.get("PublicPort") or 0)
+            target = int(p.get("PrivatePort") or 0)
+        except (ValueError, TypeError):
+            continue
+        if not target or not published:
+            continue
+        proto = (p.get("Type") or "tcp").lower()
+        key = (published, target, proto)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"published": published, "target": target, "protocol": proto})
+    return out
+
+
 def _node_attr(node: dict, key: str):
     """Resolve a Swarm placement-constraint attribute against a raw node dict."""
     spec = node.get("Spec") or {}
@@ -1898,6 +1971,7 @@ async def _gather_impl() -> None:
                 "ignored": is_ignored(image_name_tag, stack_name),
                 "created": spec.get("CreatedAt") or svc.get("CreatedAt"),
                 "updated": spec.get("UpdatedAt") or svc.get("UpdatedAt"),
+                "ports": _extract_service_ports(svc),
             })
 
         # --- Standalone / compose (non-Swarm) containers + orphan Swarm task containers ---
@@ -2018,6 +2092,7 @@ async def _gather_impl() -> None:
                 "hub_link": registry.hub_link(image_ref),
                 "ignored": is_ignored(image_ref, compose_project),
                 "created": cont.get("Created"),
+                "ports": _extract_container_ports(cont),
             })
 
         # --- Enrich with remote digests ---

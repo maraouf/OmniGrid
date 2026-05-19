@@ -6935,6 +6935,13 @@ class AiPaletteIn(BaseModel):
     query: str
     context: Optional[dict] = None
     conversation: Optional[list] = None
+    # Operator-granted approval for confirm-required tools (currently
+    # ssh_diag + docker_container_du). The SPA sets this to True after
+    # the inline-confirm chip's Yes click and re-POSTs with the same
+    # query so the backend re-parses the AI's last reply, dispatches
+    # the tools WITHOUT the short-circuit, and returns the second-round
+    # AI reply composed from the tool results.
+    tool_confirm_granted: Optional[bool] = None
 
 
 class AiFeedbackIn(BaseModel):
@@ -6996,6 +7003,12 @@ async def api_ai_palette(
     if not query:
         raise HTTPException(400, "query is required")
     ctx = body.context if isinstance(body.context, dict) else {}
+    # Forward the SPA's inline-confirm approval to the dispatcher so
+    # the confirm-required tools (ssh_diag / docker_container_du) skip
+    # their `_pending_confirm` short-circuit and actually fire on the
+    # re-POST after the operator clicks Yes on the chip.
+    if body.tool_confirm_granted:
+        ctx["_tool_confirm_granted"] = True
     # Inject recent-log signals into the AI context so the model can
     # honestly answer "any errors I should fix in the past 7 days?" /
     # "check logs" instead of falsely claiming it has no log access.

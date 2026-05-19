@@ -8647,6 +8647,39 @@
               </div>
             </div>
 
+            <!-- Exposed ports — surfaces external:internal mappings for
+                 services + containers. Each row carries an "Open"
+                 link that navigates to http://<host>:<published>
+                 when a host can be resolved. Host resolution chain:
+                 (a) for containers, the curated host with the same
+                 hostname as item.node, falling back to the Portainer
+                 public URL hostname; (b) for services published in
+                 ingress mode, the Portainer public URL hostname (any
+                 swarm node serves the published port). When no host
+                 can be resolved, the row renders without a link
+                 (the mapping is still visible). -->
+            <div x-show="drawerItem.ports && drawerItem.ports.length">
+              <div class="fs-3xs text-[var(--text-faint)] uppercase tracking-wider" x-text="t('drawer.ports')"></div>
+              <div class="mt-1 space-y-1">
+                <template x-for="(pt,i) in drawerItem.ports" :key="i">
+                  <div class="fs-sm mono flex items-center gap-2 flex-wrap">
+                    <span class="font-semibold" x-text="pt.published"></span>
+                    <span class="text-[var(--text-faint)]">→</span>
+                    <span x-text="pt.target"></span>
+                    <span class="text-[var(--text-faint)] fs-xs" x-text="pt.protocol || 'tcp'"></span>
+                    <template x-if="itemPortLink(drawerItem, pt)">
+                      <a :href="itemPortLink(drawerItem, pt)" target="_blank" rel="noopener"
+                         class="fs-xs ms-auto inline-flex items-center gap-1 text-[var(--primary)] hover:underline"
+                         :title="itemPortLink(drawerItem, pt)">
+                        <span x-text="t('drawer.ports_open') || 'Open'"></span>
+                        <span aria-hidden="true">↗</span>
+                      </a>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </div>
+
             <!-- Recent task errors — surfaces task.Status.Err so the
                  user doesn't have to SSH into the manager and run
                  `docker service ps --no-trunc`. Only renders when at
@@ -9628,7 +9661,7 @@
                consequence summary. The visible prompt span IS the
                consequence summary so we point describedby at it via
                an id stamped per turn-index (one chip per pending turn). -->
-          <div x-show="turn.role === 'assistant' && turn.pending_confirm"
+          <div x-show="turn.role === 'assistant' && turn.pending_confirm && !turn.pending_tool_confirms"
                class="ai-confirm-chip"
                role="alertdialog"
                aria-live="assertive"
@@ -9648,6 +9681,43 @@
             <button type="button"
                     class="ai-confirm-btn ai-confirm-btn-no"
                     @click="cancelInlineAction(idx)"
+                    x-text="t('ai_sidebar.confirm_cancel')"></button>
+          </div>
+          <!-- Tool-dispatch confirm chip. Separate from the destructive-
+               action chip above so the two confirm flows don't collide.
+               Fires when the AI emits TOOL: ssh_diag / docker_container_du
+               directives — the backend short-circuits dispatch with a
+               `pending_tool_confirms` envelope; the SPA renders this chip;
+               clicking Yes re-POSTs to /api/ai/palette with
+               `tool_confirm_granted: true` so the dispatcher fires the
+               tools and returns the second-round AI reply composed from
+               the actual tool output. -->
+          <div x-show="turn.role === 'assistant' && turn.pending_tool_confirms && turn.pending_tool_confirms.length"
+               class="ai-confirm-chip"
+               role="alertdialog"
+               aria-live="assertive"
+               aria-atomic="true"
+               :aria-label="t('ai_sidebar.tool_dispatch_prompt')"
+               :aria-describedby="'ai-tooldispatch-desc-' + idx">
+            <svg width="11" height="11" aria-hidden="true">
+              <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-alert-triangle'"/>
+            </svg>
+            <span class="ai-confirm-label"
+                  :id="'ai-tooldispatch-desc-' + idx">
+              <span x-text="t('ai_sidebar.tool_dispatch_prompt')"></span>
+              <template x-for="(tc, ti) in (turn.pending_tool_confirms || [])" :key="ti">
+                <code class="mono fs-2xs ms-1" x-text="tc.tool + (tc.args && tc.args.preset ? ': ' + tc.args.preset : (tc.args && tc.args.container_name ? ': ' + tc.args.container_name : ''))"></code>
+              </template>
+            </span>
+            <button type="button"
+                    class="ai-confirm-btn ai-confirm-btn-yes"
+                    @click="confirmInlineToolDispatch(idx)"
+                    :disabled="aiSidebarBusy"
+                    x-text="aiSidebarBusy ? (t('actions.working') || 'Working…') : t('ai_sidebar.tool_dispatch_yes')"></button>
+            <button type="button"
+                    class="ai-confirm-btn ai-confirm-btn-no"
+                    @click="cancelInlineToolDispatch(idx)"
+                    :disabled="aiSidebarBusy"
                     x-text="t('ai_sidebar.confirm_cancel')"></button>
           </div>
           <!-- Cancelled — operator picked Cancel. Show a faint marker
