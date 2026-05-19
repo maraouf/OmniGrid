@@ -410,6 +410,7 @@ function applyI18nDom() {
       const publicKey = buildPublicKeyOptions(startJ.options);
       let cred;
       try {
+        // noinspection JSCheckFunctionSignatures
         cred = await navigator.credentials.get({publicKey});
       } catch (_) {
         showErr(tx('login.passkey_failed', 'Passkey sign-in failed.'));
@@ -723,6 +724,7 @@ function applyI18nDom() {
     }
     try {
       const qr = window.qrcode(0, 'M');
+      // noinspection JSCheckFunctionSignatures
       qr.addData(uri);
       qr.make();
       // — parse the SVG via DOMParser + adopt its <svg> root

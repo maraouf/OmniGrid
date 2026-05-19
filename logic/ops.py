@@ -1813,6 +1813,32 @@ async def do_update_container(op: Operation, container_id: str) -> None:
         node = portainer.node_for_container(gather.get_cache(), container_id)
         op.log("Recreating container with PullImage=true"
                + (f" on node '{node}'" if node else ""))
+        # Capture the pre-recreate image digest so we can detect the
+        # "Portainer /recreate returned 200 but did NOTHING" failure
+        # mode — operator-flagged for external (Komodo / raw-`docker run`)
+        # containers where Portainer's /recreate endpoint accepts the
+        # request, returns 200, but no actual pull+recreate happens.
+        # Pre-fix the op landed as `success` with no indication the
+        # container was unchanged. Post-fix: if the local digest is
+        # identical after the /recreate call, fall through to the
+        # manual recreate path the same way a 4xx/5xx response does.
+        pre_digest: Optional[str] = None
+        async with portainer.write_client(timeout=_portainer_op_timeout("short")) as _digest_client:
+            try:
+                _r = await _digest_client.get(
+                    f"{portainer.PORTAINER_URL}/api/endpoints/"
+                    f"{portainer.PORTAINER_ENDPOINT_ID}"
+                    f"/docker/containers/{container_id}/json",
+                    headers=portainer.headers(agent_target=node),
+                )
+                if _r.status_code == 200:
+                    _j = _r.json() or {}
+                    pre_digest = (_j.get("Image") or "").strip() or None
+                    op.log(f"Pre-recreate container image-id: {pre_digest[:19] + '…' if pre_digest else '(unknown)'}")
+                else:
+                    op.log(f"Pre-recreate inspect returned HTTP {_r.status_code} — digest comparison disabled", "warning")
+            except (httpx.HTTPError, OSError) as _e:
+                op.log(f"Pre-recreate inspect failed ({type(_e).__name__}: {_e}) — digest comparison disabled", "warning")
         recreate_endpoint_error: Optional[str] = None
         async with portainer.write_client(timeout=_portainer_op_timeout("long")) as client:
             try:
@@ -1831,10 +1857,15 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                     headers=portainer.headers(agent_target=node),
                     json={},
                 )
+                recreate_response_body = (r.text or "")[:500]
                 if r.status_code >= 400:
-                    recreate_endpoint_error = f"HTTP {r.status_code}: {r.text[:300]}"
+                    recreate_endpoint_error = f"HTTP {r.status_code}: {recreate_response_body[:300]}"
                 else:
-                    op.log("Container recreated (Portainer /recreate)", "success")
+                    op.log(
+                        f"Portainer /recreate accepted (HTTP {r.status_code}); "
+                        f"response body: {recreate_response_body[:200] or '(empty)'}",
+                        "success",
+                    )
             except (httpx.HTTPError, OSError) as e:
                 # Network-level failure talking to Portainer — also a
                 # fallback trigger. The manual path opens its own
@@ -1842,9 +1873,38 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                 # for the inspect+pull+create dance even if the
                 # `/recreate` call itself dropped.
                 recreate_endpoint_error = f"{type(e).__name__}: {e}"
+        # Silent-recreate detection: if Portainer accepted the call but
+        # the container's image-id is unchanged, the /recreate endpoint
+        # no-op'd. Re-inspect to confirm. Treat unchanged-digest as a
+        # fallback trigger so the operator's "click Recreate → no
+        # change" report can't happen silently anymore.
+        if recreate_endpoint_error is None and pre_digest:
+            async with portainer.write_client(timeout=_portainer_op_timeout("short")) as _post_client:
+                try:
+                    _r2 = await _post_client.get(
+                        f"{portainer.PORTAINER_URL}/api/endpoints/"
+                        f"{portainer.PORTAINER_ENDPOINT_ID}"
+                        f"/docker/containers/{container_id}/json",
+                        headers=portainer.headers(agent_target=node),
+                    )
+                    if _r2.status_code == 200:
+                        post_digest = ((_r2.json() or {}).get("Image") or "").strip()
+                        op.log(f"Post-recreate container image-id: {post_digest[:19] + '…' if post_digest else '(unknown)'}")
+                        if post_digest and post_digest == pre_digest:
+                            recreate_endpoint_error = (
+                                f"Portainer /recreate returned 200 but the container's "
+                                f"image-id is unchanged ({pre_digest[:19]}…); the endpoint "
+                                f"no-op'd — common for external / non-Portainer-deployed containers"
+                            )
+                    elif _r2.status_code == 404:
+                        op.log("Post-recreate inspect 404 — container ID changed (recreate DID land)", "success")
+                    else:
+                        op.log(f"Post-recreate inspect HTTP {_r2.status_code} — assuming success", "warning")
+                except (httpx.HTTPError, OSError) as _e:
+                    op.log(f"Post-recreate inspect failed ({type(_e).__name__}: {_e}) — assuming success", "warning")
         if recreate_endpoint_error:
             op.log(
-                f"Portainer /recreate refused ({recreate_endpoint_error}); "
+                f"Portainer /recreate refused or no-op'd ({recreate_endpoint_error}); "
                 f"falling back to manual inspect + pull + stop + remove + "
                 f"create + start", "warning",
             )
