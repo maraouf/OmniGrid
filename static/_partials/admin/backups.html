@@ -1,166 +1,175 @@
-      <div x-show="adminTab==='backups'" class="space-y-4">
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/></svg>
-            <h3 class="font-semibold fs-md" x-text="t('admin.backups.create_title')"></h3>
-          </div>
-          <p class="fs-xs text-[var(--text-faint)] mb-3" x-html="t('admin.backups.create_desc')"></p>
-          <div class="flex items-center gap-2 flex-wrap">
-            <button type="button" @click="createBackup()" :disabled="backupBusy"
-                    class="btn btn-primary fs-sm"
-                    :class="backupBusy && 'opacity-60'"
-                    x-text="backupBusy ? t('loading.creating') : t('admin.backups.backup_now')"></button>
-            <label class="btn btn-soft fs-sm cursor-pointer">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              <span x-text="t('admin.backups.restore_from_file')"></span>
-              <input type="file" accept=".zip,application/zip"
-                     class="hidden" @change="restoreBackupFromFile($event)">
-            </label>
-          </div>
-          <!-- Retention: keep the newest N backups after every create
-               (manual or scheduled). 0 = keep all. Applies to the
-               manual "Backup now" button AND the scheduler 'backup' kind.
-               Routed through TUNABLES so DB > env > default + bounds-clamp
-               applies; rendered HERE (Admin → Backups) via
-               `relocatedTuningKeys` instead of the generic Process
-               tunables form. -->
-          <div class="mt-4 pt-4 border-t border-[var(--border)]" x-show="tuningLoaded">
-            <label class="block fs-xs font-medium mb-1"
-                   x-text="t('admin.config.fields.tuning_backup_retention_count.label')"></label>
-            <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
-               x-text="t('admin.config.fields.tuning_backup_retention_count.help')"></p>
-            <div class="flex flex-wrap items-center gap-2">
-              <input type="number"
-                     x-model="tuningForm['tuning_backup_retention_count']"
-                     :placeholder="tuningPlaceholder('tuning_backup_retention_count')"
-                     :min="(tuningEffective['tuning_backup_retention_count'] || {}).min"
-                     :max="(tuningEffective['tuning_backup_retention_count'] || {}).max"
-                     :disabled="!isAdmin() || tuningSaving"
-                     class="w-44 mono fs-sm py-1">
-              <div class="bounds-chips" role="group"
-                   :aria-label="t('admin.config.bounds.group_label')">
+<!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
+<div x-show="adminTab==='backups'" class="space-y-4">
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+    <div class="flex items-center gap-2 mb-2">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/>
+      </svg>
+      <h3 class="font-semibold fs-md" x-text="t('admin.backups.create_title')"></h3>
+    </div>
+    <p class="fs-xs text-[var(--text-faint)] mb-3" x-html="t('admin.backups.create_desc')"></p>
+    <div class="flex items-center gap-2 flex-wrap">
+      <button type="button" @click="createBackup()" :disabled="backupBusy"
+              class="btn btn-primary fs-sm"
+              :class="backupBusy && 'opacity-60'"
+              x-text="backupBusy ? t('loading.creating') : t('admin.backups.backup_now')"></button>
+      <label class="btn btn-soft fs-sm cursor-pointer">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <span x-text="t('admin.backups.restore_from_file')"></span>
+        <input type="file" accept=".zip,application/zip"
+               class="hidden" @change="restoreBackupFromFile($event)">
+      </label>
+    </div>
+    <!-- Retention: keep the newest N backups after every create
+         (manual or scheduled). 0 = keep all. Applies to the
+         manual "Backup now" button AND the scheduler 'backup' kind.
+         Routed through TUNABLES so DB > env > default + bounds-clamp
+         applies; rendered HERE (Admin → Backups) via
+         `relocatedTuningKeys` instead of the generic Process
+         tunables form. -->
+    <div class="mt-4 pt-4 border-t border-[var(--border)]" x-show="tuningLoaded">
+      <label class="block fs-xs font-medium mb-1"
+             x-text="t('admin.config.fields.tuning_backup_retention_count.label')"></label>
+      <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
+         x-text="t('admin.config.fields.tuning_backup_retention_count.help')"></p>
+      <div class="flex flex-wrap items-center gap-2">
+        <input type="number"
+               x-model="tuningForm['tuning_backup_retention_count']"
+               :placeholder="tuningPlaceholder('tuning_backup_retention_count')"
+               :min="(tuningEffective['tuning_backup_retention_count'] || {}).min"
+               :max="(tuningEffective['tuning_backup_retention_count'] || {}).max"
+               :disabled="!isAdmin() || tuningSaving"
+               class="w-44 mono fs-sm py-1">
+        <div class="bounds-chips" role="group"
+             :aria-label="t('admin.config.bounds.group_label')">
                 <span class="bounds-chip bounds-chip--min"
                       :title="t('admin.config.bounds.min_title')">
                   <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                   <span x-text="(tuningEffective['tuning_backup_retention_count'] || {}).min"></span>
                 </span>
-                <span class="bounds-chip bounds-chip--max"
-                      :title="t('admin.config.bounds.max_title')">
+          <span class="bounds-chip bounds-chip--max"
+                :title="t('admin.config.bounds.max_title')">
                   <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                   <span x-text="(tuningEffective['tuning_backup_retention_count'] || {}).max"></span>
                 </span>
-                <span class="bounds-chip bounds-chip--default"
-                      :title="t('admin.config.bounds.default_title')">
+          <span class="bounds-chip bounds-chip--default"
+                :title="t('admin.config.bounds.default_title')">
                   <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                   <span x-text="(tuningEffective['tuning_backup_retention_count'] || {}).default"></span>
                 </span>
-              </div>
-              <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                    x-text="tuningEffectiveLabel('tuning_backup_retention_count')"></span>
-            </div>
-          </div>
-          <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
-            <button type="button" @click="saveRetention()"
-                    :disabled="retentionSaving"
-                    class="btn btn-primary fs-sm">
-              <span x-show="!retentionSaving" x-text="t('actions.save')"></span>
-              <span x-show="retentionSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-            </button>
-          </div>
-        </section>
-
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
-          <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
-            <div class="flex items-center gap-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/></svg>
-              <h3 class="font-semibold fs-md">
-                <span x-text="t('admin.backups.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + backups.length + ')'"></span>
-              </h3>
-            </div>
-            <button type="button"
-                    @click="_runWithBusy('backups', () => loadBackups())"
-                    :disabled="_loadBusy.backups === true"
-                    :title="t('actions.reload')"
-                    :aria-label="t('actions.reload')"
-                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.backups === true ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-              </svg>
-              <span x-text="t('actions.reload')"></span>
-            </button>
-          </div>
-          <!-- Loading indicator (parity with Users / Schedules /
-               Logs / Snapshots tables). -->
-          <div x-show="!backupsLoaded" class="loading-state">
-            <span class="spin-lg" aria-hidden="true"></span>
-            <span x-text="t('loading.section')"></span>
-          </div>
-          <div class="overflow-x-auto scrollbar" x-show="backupsLoaded">
-            <table class="w-full fs-sm">
-              <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
-                <tr>
-                  <th class="text-start px-4 py-2" x-text="t('columns.name')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.size')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.created')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.produced_by')"></th>
-                  <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="b in backups" :key="b.name">
-                  <tr class="border-t border-[var(--border)]">
-                    <td class="px-4 py-2 mono fs-xs" x-text="b.name"></td>
-                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtBytes(b.size)"></td>
-                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtDate(b.mtime)"></td>
-                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="b.version || '—'"></td>
-                    <td class="px-4 py-2 text-end">
-                      <!-- Action-button row — same pattern as Admin →
-                           Users + Admin → Config Backup
-                           (`.user-action-btn` 26×26 icon-only buttons
-                           + `.user-action-sep` divider before the
-                           destructive action). Operator-flagged for
-                           cross-tab unification. -->
-                      <div class="inline-flex items-center gap-0.5 justify-end user-actions">
-                        <a :href="'/api/backups/' + encodeURIComponent(b.name)"
-                           download
-                           class="user-action-btn"
-                           :title="t('admin.backups.download')"
-                           :aria-label="t('admin.backups.download')">
-                          <svg width="14" height="14" aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
-                          </svg>
-                        </a>
-                        <button type="button"
-                                @click="restoreBackup(b)"
-                                class="user-action-btn"
-                                :title="t('admin.backups.restore')"
-                                :aria-label="t('admin.backups.restore')">
-                          <svg width="14" height="14" aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-ccw"/>
-                          </svg>
-                        </button>
-                        <span class="user-action-sep"></span>
-                        <button type="button"
-                                @click="deleteBackup(b)"
-                                class="user-action-btn user-action-btn--danger"
-                                :title="t('actions.delete')"
-                                :aria-label="t('actions.delete')">
-                          <svg width="14" height="14" aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
-                          </svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </template>
-                <tr x-show="backups.length===0">
-                  <td colspan="5" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_backups')"></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
+        </div>
+        <span class="fs-xs text-[var(--text-dim)] ms-auto"
+              x-text="tuningEffectiveLabel('tuning_backup_retention_count')"></span>
       </div>
+    </div>
+    <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+      <button type="button" @click="saveRetention()"
+              :disabled="retentionSaving"
+              class="btn btn-primary fs-sm">
+        <span x-show="!retentionSaving" x-text="t('actions.save')"></span>
+        <span x-show="retentionSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+      </button>
+    </div>
+  </section>
 
-      <!-- LOGS TAB — two sub-tabs : Live (in-memory ring buffer)
-           and Files (persistent daily logs on disk with download). -->
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+    <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
+      <div class="flex items-center gap-2">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/>
+        </svg>
+        <h3 class="font-semibold fs-md">
+          <span x-text="t('admin.backups.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + backups.length + ')'"></span>
+        </h3>
+      </div>
+      <button type="button"
+              @click="_runWithBusy('backups', () => loadBackups())"
+              :disabled="_loadBusy.backups === true"
+              :title="t('actions.reload')"
+              :aria-label="t('actions.reload')"
+              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="_loadBusy.backups === true ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+        </svg>
+        <span x-text="t('actions.reload')"></span>
+      </button>
+    </div>
+    <!-- Loading indicator (parity with Users / Schedules /
+         Logs / Snapshots tables). -->
+    <div x-show="!backupsLoaded" class="loading-state">
+      <span class="spin-lg" aria-hidden="true"></span>
+      <span x-text="t('loading.section')"></span>
+    </div>
+    <div class="overflow-x-auto scrollbar" x-show="backupsLoaded">
+      <table class="w-full fs-sm">
+        <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+        <tr>
+          <th class="text-start px-4 py-2" x-text="t('columns.name')"></th>
+          <th class="text-start px-4 py-2" x-text="t('columns.size')"></th>
+          <th class="text-start px-4 py-2" x-text="t('columns.created')"></th>
+          <th class="text-start px-4 py-2" x-text="t('columns.produced_by')"></th>
+          <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
+        </tr>
+        </thead>
+        <tbody>
+        <template x-for="b in backups" :key="b.name">
+          <tr class="border-t border-[var(--border)]">
+            <td class="px-4 py-2 mono fs-xs" x-text="b.name"></td>
+            <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtBytes(b.size)"></td>
+            <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtDate(b.mtime)"></td>
+            <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="b.version || '—'"></td>
+            <td class="px-4 py-2 text-end">
+              <!-- Action-button row — same pattern as Admin →
+                   Users + Admin → Config Backup
+                   (`.user-action-btn` 26×26 icon-only buttons
+                   + `.user-action-sep` divider before the
+                   destructive action). Operator-flagged for
+                   cross-tab unification. -->
+              <div class="inline-flex items-center gap-0.5 justify-end user-actions">
+                <a :href="'/api/backups/' + encodeURIComponent(b.name)"
+                   download
+                   class="user-action-btn"
+                   :title="t('admin.backups.download')"
+                   :aria-label="t('admin.backups.download')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
+                  </svg>
+                </a>
+                <button type="button"
+                        @click="restoreBackup(b)"
+                        class="user-action-btn"
+                        :title="t('admin.backups.restore')"
+                        :aria-label="t('admin.backups.restore')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-ccw"/>
+                  </svg>
+                </button>
+                <span class="user-action-sep"></span>
+                <button type="button"
+                        @click="deleteBackup(b)"
+                        class="user-action-btn user-action-btn--danger"
+                        :title="t('actions.delete')"
+                        :aria-label="t('actions.delete')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+                  </svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="backups.length===0">
+          <td colspan="5" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_backups')"></td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<!-- LOGS TAB — two sub-tabs : Live (in-memory ring buffer)
+     and Files (persistent daily logs on disk with download). -->

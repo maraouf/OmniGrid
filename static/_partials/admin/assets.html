@@ -1,377 +1,384 @@
-      <section x-show="adminTab==='assets'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <div class="flex items-center justify-between gap-2 mb-2">
-          <div class="flex items-center gap-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-package"/></svg>
-            <h3 class="font-semibold fs-md" x-text="t('admin_assets.title')"></h3>
-          </div>
-          <span class="chip"
-                :class="settings.asset_inventory_enabled ? 'pill-ok' : 'pill-muted'"
-                x-text="settings.asset_inventory_enabled ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
-        </div>
-        <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
-           x-text="t('admin_assets.intro')"></p>
-        <!-- Master switch. Disables /api/asset-inventory
-             reads + refreshes + scheduled refreshes in the backend
-             without erasing the credentials — flip back on to resume.
-             The "Test connection" button still works while disabled
-             so the operator can verify creds before re-enabling. -->
-        <label class="flex items-center gap-2 fs-sm cursor-pointer mb-3 select-none">
-          <input type="checkbox" x-model="settings.asset_inventory_enabled"
-                 :disabled="isReadonly()">
-          <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
-          <span class="fs-xs text-[var(--text-faint)]"
-                x-text="settings.asset_inventory_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
-        </label>
+<!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
+<section x-show="adminTab==='assets'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+  <div class="flex items-center justify-between gap-2 mb-2">
+    <div class="flex items-center gap-2">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-package"/>
+      </svg>
+      <h3 class="font-semibold fs-md" x-text="t('admin_assets.title')"></h3>
+    </div>
+    <span class="chip"
+          :class="settings.asset_inventory_enabled ? 'pill-ok' : 'pill-muted'"
+          x-text="settings.asset_inventory_enabled ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
+  </div>
+  <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
+     x-text="t('admin_assets.intro')"></p>
+  <!-- Master switch. Disables /api/asset-inventory
+       reads + refreshes + scheduled refreshes in the backend
+       without erasing the credentials — flip back on to resume.
+       The "Test connection" button still works while disabled
+       so the operator can verify creds before re-enabling. -->
+  <label class="flex items-center gap-2 fs-sm cursor-pointer mb-3 select-none">
+    <input type="checkbox" x-model="settings.asset_inventory_enabled"
+           :disabled="isReadonly()">
+    <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
+    <span class="fs-xs text-[var(--text-faint)]"
+          x-text="settings.asset_inventory_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
+  </label>
 
-        <!-- Master-toggle gate. Wrapping the form content in a
-             `<fieldset :disabled>` cascades to every nested input /
-             button via the HTML spec, so we don't have to thread
-             `|| !settings.asset_inventory_enabled` through every
-             `:disabled` binding. The Test / Save / Refresh buttons
-             live OUTSIDE this fieldset (Test still runs while
-             disabled so creds can be verified before re-enabling;
-             Save commits the toggle flip; Refresh respects the
-             state via its own per-button gate below). -->
-        <fieldset :disabled="!settings.asset_inventory_enabled" class="contents">
+  <!-- Master-toggle gate. Wrapping the form content in a
+       `<fieldset :disabled>` cascades to every nested input /
+       button via the HTML spec, so we don't have to thread
+       `|| !settings.asset_inventory_enabled` through every
+       `:disabled` binding. The Test / Save / Refresh buttons
+       live OUTSIDE this fieldset (Test still runs while
+       disabled so creds can be verified before re-enabling;
+       Save commits the toggle flip; Refresh respects the
+       state via its own per-button gate below). -->
+  <fieldset :disabled="!settings.asset_inventory_enabled" class="contents">
 
-        <!-- Auth mode selector — segmented control. -->
-        <div class="mb-3">
-          <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                 x-text="t('admin_assets.auth_mode_label')"></label>
-          <div class="inline-flex border border-[var(--border)] rounded overflow-hidden">
-            <button type="button"
-                    class="fs-sm px-3 py-1.5 transition-colors"
-                    :class="assetForm.auth_mode !== 'lifetime_token'
+    <!-- Auth mode selector — segmented control. -->
+    <div class="mb-3">
+      <label class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('admin_assets.auth_mode_label')"></label>
+      <div class="inline-flex border border-[var(--border)] rounded overflow-hidden">
+        <button type="button"
+                class="fs-sm px-3 py-1.5 transition-colors"
+                :class="assetForm.auth_mode !== 'lifetime_token'
                       ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
                       : 'bg-[var(--surface-2)] text-[var(--text-dim)]'"
-                    :disabled="isReadonly()"
-                    @click="assetForm.auth_mode = 'oauth2'"
-                    x-text="t('admin_assets.auth_mode_oauth2')"></button>
-            <button type="button"
-                    class="fs-sm px-3 py-1.5 transition-colors"
-                    :class="assetForm.auth_mode === 'lifetime_token'
+                :disabled="isReadonly()"
+                @click="assetForm.auth_mode = 'oauth2'"
+                x-text="t('admin_assets.auth_mode_oauth2')"></button>
+        <button type="button"
+                class="fs-sm px-3 py-1.5 transition-colors"
+                :class="assetForm.auth_mode === 'lifetime_token'
                       ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
                       : 'bg-[var(--surface-2)] text-[var(--text-dim)]'"
-                    :disabled="isReadonly()"
-                    @click="assetForm.auth_mode = 'lifetime_token'"
-                    x-text="t('admin_assets.auth_mode_lifetime')"></button>
-          </div>
-          <p class="fs-xs text-[var(--text-faint)] mt-1"
-             x-text="assetForm.auth_mode === 'lifetime_token'
+                :disabled="isReadonly()"
+                @click="assetForm.auth_mode = 'lifetime_token'"
+                x-text="t('admin_assets.auth_mode_lifetime')"></button>
+      </div>
+      <p class="fs-xs text-[var(--text-faint)] mt-1"
+         x-text="assetForm.auth_mode === 'lifetime_token'
                        ? t('admin_assets.auth_mode_lifetime_help')
                        : t('admin_assets.auth_mode_oauth2_help')"></p>
-        </div>
+    </div>
 
-        <!-- Base URL is shared between both modes. -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-          <div class="md:col-span-2">
+    <!-- Base URL is shared between both modes. -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+      <div class="md:col-span-2">
+        <label class="block fs-xs text-[var(--text-faint)] mb-1"
+               x-text="t('admin_assets.base_url_label')"></label>
+        <input type="url" x-model="assetForm.base_url" :disabled="isReadonly()"
+               class="w-full mono fs-sm py-1.5"
+               :placeholder="t('admin_assets.base_url_placeholder')">
+      </div>
+
+      <!-- OAuth2-only fields. -->
+      <template x-if="assetForm.auth_mode !== 'lifetime_token'">
+        <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
             <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                   x-text="t('admin_assets.base_url_label')"></label>
-            <input type="url" x-model="assetForm.base_url" :disabled="isReadonly()"
+                   x-text="t('admin_assets.token_url_label')"></label>
+            <input type="url" x-model="assetForm.token_url" :disabled="isReadonly()"
                    class="w-full mono fs-sm py-1.5"
-                   :placeholder="t('admin_assets.base_url_placeholder')">
+                   :placeholder="t('admin_assets.token_url_placeholder')">
           </div>
-
-          <!-- OAuth2-only fields. -->
-          <template x-if="assetForm.auth_mode !== 'lifetime_token'">
-            <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                       x-text="t('admin_assets.token_url_label')"></label>
-                <input type="url" x-model="assetForm.token_url" :disabled="isReadonly()"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_assets.token_url_placeholder')">
-              </div>
-              <div>
-                <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                       x-text="t('admin_assets.client_id_label')"></label>
-                <input type="text" x-model="assetForm.client_id" :disabled="isReadonly()"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_assets.client_id_placeholder')">
-              </div>
-              <div>
-                <label class="block fs-xs text-[var(--text-faint)] mb-1">
-                  <span x-text="t('admin_assets.client_secret_label')"></span>
-                </label>
-                <span x-show="assetStatus && assetStatus.client_secret_set"
-                      class="block fs-xs text-[var(--success)] mb-1"
-                      x-text="t('settings.secret_input.saved_hint')"></span>
-                <div class="secret-input-row">
-                  <input type="password" x-model="assetForm.client_secret" :disabled="isReadonly()"
-                         class="w-full mono fs-sm py-1.5"
-                         :placeholder="(assetStatus && assetStatus.client_secret_set) ? t('settings.secret_input.placeholder_keep') : t('admin_assets.client_secret_placeholder')"
-                         autocomplete="new-password">
-                  <button type="button"
-                          x-show="isAdmin() && assetStatus && assetStatus.client_secret_set"
-                          @click="clearAssetClientSecret()"
-                          class="btn btn-ghost fs-xs secret-input-clear"
-                          x-text="t('admin_assets.clear_secret')"></button>
-                </div>
-              </div>
-              <div>
-                <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                       x-text="t('admin_assets.scope_label')"></label>
-                <input type="text" x-model="assetForm.scope" :disabled="isReadonly()"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_assets.scope_placeholder')">
-              </div>
-              <!-- / — TLS verification toggle for the asset
-                   API. Default checked; flip off for self-signed
-                   homelab endpoints. Mirrors the Portainer / Beszel
-                   verify_tls shape. -->
-              <label class="md:col-span-2 inline-flex items-center gap-2 fs-sm text-[var(--text-dim)]">
-                <input type="checkbox" x-model="assetForm.verify_tls" :disabled="isReadonly()">
-                <span x-text="t('admin_assets.verify_tls_label')"></span>
-              </label>
-            </div>
-          </template>
-
-          <!-- Lifetime-token-only fields. -->
-          <template x-if="assetForm.auth_mode === 'lifetime_token'">
-            <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div class="md:col-span-2">
-                <label class="block fs-xs text-[var(--text-faint)] mb-1">
-                  <span x-text="t('admin_assets.lifetime_token_label')"></span>
-                </label>
-                <span x-show="assetStatus && assetStatus.lifetime_token_set"
-                      class="block fs-xs text-[var(--success)] mb-1"
-                      x-text="t('settings.secret_input.saved_hint')"></span>
-                <div class="secret-input-row">
-                  <input type="password" x-model="assetForm.lifetime_token" :disabled="isReadonly()"
-                         class="w-full mono fs-sm py-1.5"
-                         :placeholder="(assetStatus && assetStatus.lifetime_token_set) ? t('settings.secret_input.placeholder_keep') : t('admin_assets.lifetime_token_placeholder')"
-                         autocomplete="new-password">
-                  <button type="button"
-                          x-show="isAdmin() && assetStatus && assetStatus.lifetime_token_set"
-                          @click="clearAssetLifetimeToken()"
-                          class="btn btn-ghost fs-xs secret-input-clear"
-                          x-text="t('admin_assets.clear_lifetime_token')"></button>
-                </div>
-              </div>
-              <div>
-                <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                       x-text="t('admin_assets.service_label')"></label>
-                <input type="text" x-model="assetForm.service" :disabled="isReadonly()"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_assets.service_placeholder')">
-              </div>
-              <div>
-                <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                       x-text="t('admin_assets.action_label')"></label>
-                <input type="text" x-model="assetForm.action" :disabled="isReadonly()"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_assets.action_placeholder')">
-              </div>
-              <p class="md:col-span-2 fs-xs text-[var(--text-faint)]"
-                 x-text="t('admin_assets.service_action_help')"></p>
-
-              <div>
-                <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                       x-text="t('admin_assets.min_value_label')"></label>
-                <input type="number" x-model="assetForm.min_value" :disabled="isReadonly()"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_assets.min_value_placeholder')">
-              </div>
-              <div>
-                <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                       x-text="t('admin_assets.max_value_label')"></label>
-                <input type="number" x-model="assetForm.max_value" :disabled="isReadonly()"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_assets.max_value_placeholder')">
-              </div>
-              <p class="md:col-span-2 fs-xs text-[var(--text-faint)]"
-                 x-text="t('admin_assets.range_help')"></p>
-            </div>
-          </template>
-
-          <!-- Edit URL prefix — operator-supplied. The asset's
-               id is appended at the end. Placeholders {id} /
-               {custom_number} / {base} are also honoured for
-               non-trivial templates. -->
-          <div class="md:col-span-2">
+          <div>
             <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                   x-text="t('admin_assets.edit_url_label')"></label>
-            <input type="url" x-model="assetForm.edit_url_template" :disabled="isReadonly()"
+                   x-text="t('admin_assets.client_id_label')"></label>
+            <input type="text" x-model="assetForm.client_id" :disabled="isReadonly()"
                    class="w-full mono fs-sm py-1.5"
-                   :placeholder="t('admin_assets.edit_url_placeholder')">
-            <p class="fs-xs text-[var(--text-faint)] mt-1"
-               x-text="t('admin_assets.edit_url_help')"></p>
+                   :placeholder="t('admin_assets.client_id_placeholder')">
           </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-faint)] mb-1">
+              <span x-text="t('admin_assets.client_secret_label')"></span>
+            </label>
+            <span x-show="assetStatus && assetStatus.client_secret_set"
+                  class="block fs-xs text-[var(--success)] mb-1"
+                  x-text="t('settings.secret_input.saved_hint')"></span>
+            <div class="secret-input-row">
+              <input type="password" x-model="assetForm.client_secret" :disabled="isReadonly()"
+                     class="w-full mono fs-sm py-1.5"
+                     :placeholder="(assetStatus && assetStatus.client_secret_set) ? t('settings.secret_input.placeholder_keep') : t('admin_assets.client_secret_placeholder')"
+                     autocomplete="new-password">
+              <button type="button"
+                      x-show="isAdmin() && assetStatus && assetStatus.client_secret_set"
+                      @click="clearAssetClientSecret()"
+                      class="btn btn-ghost fs-xs secret-input-clear"
+                      x-text="t('admin_assets.clear_secret')"></button>
+            </div>
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_assets.scope_label')"></label>
+            <input type="text" x-model="assetForm.scope" :disabled="isReadonly()"
+                   class="w-full mono fs-sm py-1.5"
+                   :placeholder="t('admin_assets.scope_placeholder')">
+          </div>
+          <!-- / — TLS verification toggle for the asset
+               API. Default checked; flip off for self-signed
+               homelab endpoints. Mirrors the Portainer / Beszel
+               verify_tls shape. -->
+          <label class="md:col-span-2 inline-flex items-center gap-2 fs-sm text-[var(--text-dim)]">
+            <input type="checkbox" x-model="assetForm.verify_tls" :disabled="isReadonly()">
+            <span x-text="t('admin_assets.verify_tls_label')"></span>
+          </label>
         </div>
-        </fieldset>
+      </template>
 
-        <!-- Action row 1: Test connection + last-connected indicator +
-             Refresh. These three live together because they're all
-             upstream-API actions / status. Save sits on its own row
-             below, separated by an HR. -->
-        <div class="mt-3 flex items-center gap-2 flex-wrap">
-          <button type="button" x-show="isAdmin()" @click="testAssetConnection()"
-                  class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
-                  :disabled="assetTestResult && assetTestResult.pending">
-            <svg width="13" height="13" :class="(assetTestResult && assetTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-            </svg>
-            <span x-show="!(assetTestResult && assetTestResult.pending)"
-                  x-text="t('admin_assets.test')"></span>
-            <span x-show="assetTestResult && assetTestResult.pending"
-                  x-text="t('admin_assets.testing')"></span>
-          </button>
-          <span x-show="lastTestSuccessLabel('asset_inventory')"
-                class="fs-xs text-[var(--text-faint)]"
-                x-text="lastTestSuccessLabel('asset_inventory')"></span>
-          <button type="button" x-show="isAdmin()" @click="refreshAssetCache()"
-                  class="btn btn-ghost fs-sm inline-flex items-center gap-1.5 ms-auto"
-                  :disabled="assetRefreshing || !settings.asset_inventory_enabled"
-                  :title="!settings.asset_inventory_enabled ? t('admin_integrations.disabled_hint') : t('admin_assets.refresh')">
-            <svg width="13" height="13" :class="assetRefreshing ? 'spin-md' : ''" aria-hidden="true">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-            </svg>
-            <span x-show="!assetRefreshing" x-text="t('admin_assets.refresh')"></span>
-            <span x-show="assetRefreshing" x-text="t('admin_assets.refreshing')"></span>
-          </button>
+      <!-- Lifetime-token-only fields. -->
+      <template x-if="assetForm.auth_mode === 'lifetime_token'">
+        <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="md:col-span-2">
+            <label class="block fs-xs text-[var(--text-faint)] mb-1">
+              <span x-text="t('admin_assets.lifetime_token_label')"></span>
+            </label>
+            <span x-show="assetStatus && assetStatus.lifetime_token_set"
+                  class="block fs-xs text-[var(--success)] mb-1"
+                  x-text="t('settings.secret_input.saved_hint')"></span>
+            <div class="secret-input-row">
+              <input type="password" x-model="assetForm.lifetime_token" :disabled="isReadonly()"
+                     class="w-full mono fs-sm py-1.5"
+                     :placeholder="(assetStatus && assetStatus.lifetime_token_set) ? t('settings.secret_input.placeholder_keep') : t('admin_assets.lifetime_token_placeholder')"
+                     autocomplete="new-password">
+              <button type="button"
+                      x-show="isAdmin() && assetStatus && assetStatus.lifetime_token_set"
+                      @click="clearAssetLifetimeToken()"
+                      class="btn btn-ghost fs-xs secret-input-clear"
+                      x-text="t('admin_assets.clear_lifetime_token')"></button>
+            </div>
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_assets.service_label')"></label>
+            <input type="text" x-model="assetForm.service" :disabled="isReadonly()"
+                   class="w-full mono fs-sm py-1.5"
+                   :placeholder="t('admin_assets.service_placeholder')">
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_assets.action_label')"></label>
+            <input type="text" x-model="assetForm.action" :disabled="isReadonly()"
+                   class="w-full mono fs-sm py-1.5"
+                   :placeholder="t('admin_assets.action_placeholder')">
+          </div>
+          <p class="md:col-span-2 fs-xs text-[var(--text-faint)]"
+             x-text="t('admin_assets.service_action_help')"></p>
+
+          <div>
+            <label class="block fs-xs text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_assets.min_value_label')"></label>
+            <input type="number" x-model="assetForm.min_value" :disabled="isReadonly()"
+                   class="w-full mono fs-sm py-1.5"
+                   :placeholder="t('admin_assets.min_value_placeholder')">
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_assets.max_value_label')"></label>
+            <input type="number" x-model="assetForm.max_value" :disabled="isReadonly()"
+                   class="w-full mono fs-sm py-1.5"
+                   :placeholder="t('admin_assets.max_value_placeholder')">
+          </div>
+          <p class="md:col-span-2 fs-xs text-[var(--text-faint)]"
+             x-text="t('admin_assets.range_help')"></p>
         </div>
+      </template>
 
-        <!-- Test result chip — lives directly under the Test button row
-             (before the Save HR) so the operator sees pending / ok /
-             error feedback adjacent to the action that produced it.
-             Pre-fix this chip sat AFTER the Save row, which felt
-             detached from the action. -->
-        <div x-show="assetTestResult"
-             class="mt-3 rounded-md px-3 py-2 fs-sm"
-             :class="assetTestResult && assetTestResult.pending
+      <!-- Edit URL prefix — operator-supplied. The asset's
+           id is appended at the end. Placeholders {id} /
+           {custom_number} / {base} are also honoured for
+           non-trivial templates. -->
+      <div class="md:col-span-2">
+        <label class="block fs-xs text-[var(--text-faint)] mb-1"
+               x-text="t('admin_assets.edit_url_label')"></label>
+        <input type="url" x-model="assetForm.edit_url_template" :disabled="isReadonly()"
+               class="w-full mono fs-sm py-1.5"
+               :placeholder="t('admin_assets.edit_url_placeholder')">
+        <p class="fs-xs text-[var(--text-faint)] mt-1"
+           x-text="t('admin_assets.edit_url_help')"></p>
+      </div>
+    </div>
+  </fieldset>
+
+  <!-- Action row 1: Test connection + last-connected indicator +
+       Refresh. These three live together because they're all
+       upstream-API actions / status. Save sits on its own row
+       below, separated by an HR. -->
+  <div class="mt-3 flex items-center gap-2 flex-wrap">
+    <button type="button" x-show="isAdmin()" @click="testAssetConnection()"
+            class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
+            :disabled="assetTestResult && assetTestResult.pending">
+      <svg width="13" height="13" :class="(assetTestResult && assetTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+      </svg>
+      <span x-show="!(assetTestResult && assetTestResult.pending)"
+            x-text="t('admin_assets.test')"></span>
+      <span x-show="assetTestResult && assetTestResult.pending"
+            x-text="t('admin_assets.testing')"></span>
+    </button>
+    <span x-show="lastTestSuccessLabel('asset_inventory')"
+          class="fs-xs text-[var(--text-faint)]"
+          x-text="lastTestSuccessLabel('asset_inventory')"></span>
+    <button type="button" x-show="isAdmin()" @click="refreshAssetCache()"
+            class="btn btn-ghost fs-sm inline-flex items-center gap-1.5 ms-auto"
+            :disabled="assetRefreshing || !settings.asset_inventory_enabled"
+            :title="!settings.asset_inventory_enabled ? t('admin_integrations.disabled_hint') : t('admin_assets.refresh')">
+      <svg width="13" height="13" :class="assetRefreshing ? 'spin-md' : ''" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+      </svg>
+      <span x-show="!assetRefreshing" x-text="t('admin_assets.refresh')"></span>
+      <span x-show="assetRefreshing" x-text="t('admin_assets.refreshing')"></span>
+    </button>
+  </div>
+
+  <!-- Test result chip — lives directly under the Test button row
+       (before the Save HR) so the operator sees pending / ok /
+       error feedback adjacent to the action that produced it.
+       Pre-fix this chip sat AFTER the Save row, which felt
+       detached from the action. -->
+  <div x-show="assetTestResult"
+       class="mt-3 rounded-md px-3 py-2 fs-sm"
+       :class="assetTestResult && assetTestResult.pending
                      ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
                      : (assetTestResult && assetTestResult.ok
                        ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
                        : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-             x-text="assetTestResult && assetTestResult.pending
+       x-text="assetTestResult && assetTestResult.pending
                      ? t('admin_assets.testing')
                      : ((assetTestResult && assetTestResult.detail) || '')"></div>
 
-        <!-- Asset-inventory-scoped tunables — operator-tunable
-             outbound HTTP wall-clocks for the OAuth2 token probe +
-             paginated asset fetch. Section-owned save: editing
-             either flips the same amber ring as the rest of the
-             asset form; `saveAssetSettings()` POSTs them in the
-             same body so dirty/undirty round-trips cleanly. Same
-             bounds-chips + effective-label shape every Admin →
-             Config row uses. -->
-        <div x-show="tuningLoaded" class="mt-3 pt-3 border-t border-[var(--border)] space-y-3">
-          <div class="flex items-center gap-2 mb-1">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
-            <h3 class="font-semibold fs-sm"
-                x-text="t('admin_assets.tunables_heading')"></h3>
-          </div>
-          <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-             x-text="t('admin_assets.tunables_intro')"></p>
-          <template x-for="key in ['tuning_asset_inventory_token_timeout_seconds',
+  <!-- Asset-inventory-scoped tunables — operator-tunable
+       outbound HTTP wall-clocks for the OAuth2 token probe +
+       paginated asset fetch. Section-owned save: editing
+       either flips the same amber ring as the rest of the
+       asset form; `saveAssetSettings()` POSTs them in the
+       same body so dirty/undirty round-trips cleanly. Same
+       bounds-chips + effective-label shape every Admin →
+       Config row uses. -->
+  <div x-show="tuningLoaded" class="mt-3 pt-3 border-t border-[var(--border)] space-y-3">
+    <div class="flex items-center gap-2 mb-1">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+      </svg>
+      <h3 class="font-semibold fs-sm"
+          x-text="t('admin_assets.tunables_heading')"></h3>
+    </div>
+    <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+       x-text="t('admin_assets.tunables_intro')"></p>
+    <template x-for="key in ['tuning_asset_inventory_token_timeout_seconds',
                                     'tuning_asset_inventory_fetch_timeout_seconds']"
-                    :key="key">
-            <div>
-              <!-- Canonical order: title → help → textbox + bounds.
-                   Matches the AI Integration partial pattern. -->
-              <label class="block fs-xs font-medium mb-1"
-                     x-text="t('admin.config.fields.' + key + '.label')"></label>
-              <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-                 x-text="t('admin.config.fields.' + key + '.help')"></p>
-              <div class="flex flex-wrap items-center gap-2">
-                <input type="number"
-                       x-model="tuningForm[key]"
-                       :placeholder="tuningPlaceholder(key)"
-                       :min="(tuningEffective[key] || {}).min"
-                       :max="(tuningEffective[key] || {}).max"
-                       :disabled="!isAdmin() || assetSaving || !settings.asset_inventory_enabled"
-                       class="w-44 mono fs-sm py-1">
-                <div class="bounds-chips" role="group"
-                     :aria-label="t('admin.config.bounds.group_label')">
+              :key="key">
+      <div>
+        <!-- Canonical order: title → help → textbox + bounds.
+             Matches the AI Integration partial pattern. -->
+        <label class="block fs-xs font-medium mb-1"
+               x-text="t('admin.config.fields.' + key + '.label')"></label>
+        <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+           x-text="t('admin.config.fields.' + key + '.help')"></p>
+        <div class="flex flex-wrap items-center gap-2">
+          <input type="number"
+                 x-model="tuningForm[key]"
+                 :placeholder="tuningPlaceholder(key)"
+                 :min="(tuningEffective[key] || {}).min"
+                 :max="(tuningEffective[key] || {}).max"
+                 :disabled="!isAdmin() || assetSaving || !settings.asset_inventory_enabled"
+                 class="w-44 mono fs-sm py-1">
+          <div class="bounds-chips" role="group"
+               :aria-label="t('admin.config.bounds.group_label')">
                   <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title')">
                     <svg width="11" height="11" aria-hidden="true">
                       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
                     </svg>
                     <span x-text="(tuningEffective[key] || {}).min"></span>
                   </span>
-                  <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
+            <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
                     <svg width="11" height="11" aria-hidden="true">
                       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
                     </svg>
                     <span x-text="(tuningEffective[key] || {}).max"></span>
                   </span>
-                  <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
+            <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
                     <svg width="11" height="11" aria-hidden="true">
                       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
                     </svg>
                     <span x-text="(tuningEffective[key] || {}).default"></span>
                   </span>
-                </div>
-                <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                      x-text="tuningEffectiveLabel(key)"></span>
-              </div>
-            </div>
-          </template>
+          </div>
+          <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                x-text="tuningEffectiveLabel(key)"></span>
         </div>
+      </div>
+    </template>
+  </div>
 
-        <!-- Action row 2 (Save): separated by HR like authentication.
-             Test-before-Save gate: same pattern as Portainer / OIDC.
-             When asset_inventory_enabled is ON, Save is locked until
-             a Test connection has succeeded against the CURRENT form
-             values; any edit after a passing Test re-locks Save. When
-             the master toggle is OFF the gate releases. -->
-        <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
-          <button type="button" x-show="isAdmin()" @click="saveAssetSettings()"
-                  class="btn btn-primary fs-sm"
-                  :class="assetDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                  :disabled="assetSaving || !canSaveAsset()"
-                  :title="!canSaveAsset() ? t('admin_assets.save_requires_test') : ''">
-            <span x-show="!assetSaving" x-text="t('actions.save')"></span>
-            <span x-show="assetSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_assets.saving')"></span></span>
-          </button>
-          <span x-show="assetDirty()"
-                class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
-                :title="t('common.unsaved_title')">
+  <!-- Action row 2 (Save): separated by HR like authentication.
+       Test-before-Save gate: same pattern as Portainer / OIDC.
+       When asset_inventory_enabled is ON, Save is locked until
+       a Test connection has succeeded against the CURRENT form
+       values; any edit after a passing Test re-locks Save. When
+       the master toggle is OFF the gate releases. -->
+  <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+    <button type="button" x-show="isAdmin()" @click="saveAssetSettings()"
+            class="btn btn-primary fs-sm"
+            :class="assetDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+            :disabled="assetSaving || !canSaveAsset()"
+            :title="!canSaveAsset() ? t('admin_assets.save_requires_test') : ''">
+      <span x-show="!assetSaving" x-text="t('actions.save')"></span>
+      <span x-show="assetSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_assets.saving')"></span></span>
+    </button>
+    <span x-show="assetDirty()"
+          class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
+          :title="t('common.unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
-          <span x-show="settings.asset_inventory_enabled && !canSaveAsset()"
-                class="fs-xs text-[var(--text-faint)]"
-                x-text="t('admin_assets.save_requires_test')"></span>
-        </div>
+    <span x-show="settings.asset_inventory_enabled && !canSaveAsset()"
+          class="fs-xs text-[var(--text-faint)]"
+          x-text="t('admin_assets.save_requires_test')"></span>
+  </div>
 
-        <!-- Cache preview — `icon-archive` reads as "stored / archived
-             snapshot" and matches the section's role of showing the
-             last successful refresh of the asset inventory cache file
-             on disk. -->
-        <div class="mt-6 pt-5 border-t border-[var(--border)]">
-          <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/></svg>
-            <h4 class="font-semibold fs-sm" x-text="t('admin_assets.cache_heading')"></h4>
-          </div>
-          <div x-show="!assetCache || (assetCache && !assetCache.ok && !(assetCache.assets || []).length)"
-               class="fs-sm text-[var(--text-faint)] italic"
-               x-text="(assetCache && assetCache.error) ? assetCache.error : t('admin_assets.cache_empty')"></div>
-          <template x-if="assetCache && ((assetCache.assets || []).length > 0 || assetCache.ts)">
-            <div>
-              <div class="flex items-center gap-3 fs-xs text-[var(--text-dim)] mb-2 flex-wrap">
+  <!-- Cache preview — `icon-archive` reads as "stored / archived
+       snapshot" and matches the section's role of showing the
+       last successful refresh of the asset inventory cache file
+       on disk. -->
+  <div class="mt-6 pt-5 border-t border-[var(--border)]">
+    <div class="flex items-center gap-2 mb-2">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/>
+      </svg>
+      <h4 class="font-semibold fs-sm" x-text="t('admin_assets.cache_heading')"></h4>
+    </div>
+    <div x-show="!assetCache || (assetCache && !assetCache.ok && !(assetCache.assets || []).length)"
+         class="fs-sm text-[var(--text-faint)] italic"
+         x-text="(assetCache && assetCache.error) ? assetCache.error : t('admin_assets.cache_empty')"></div>
+    <template x-if="assetCache && ((assetCache.assets || []).length > 0 || assetCache.ts)">
+      <div>
+        <div class="flex items-center gap-3 fs-xs text-[var(--text-dim)] mb-2 flex-wrap">
                 <span>
                   <span class="text-[var(--text-faint)]" x-text="t('admin_assets.cache_count', {count: (assetCache.assets || []).length})"></span>
                 </span>
-                <span x-show="assetCache.ts">
+          <span x-show="assetCache.ts">
                   <span class="text-[var(--text-faint)]" x-text="t('admin_assets.cache_updated') + ':'"></span>
                   <span class="mono" x-text="fmtDate(assetCache.ts)"></span>
                 </span>
-                <span x-show="assetCache.upstream">
+          <span x-show="assetCache.upstream">
                   <span class="text-[var(--text-faint)]" x-text="t('admin_assets.cache_upstream') + ':'"></span>
                   <span class="mono text-[var(--text-faint)]" x-text="assetCache.upstream"></span>
                 </span>
-              </div>
-              <div x-show="(assetCache.assets || []).length > 0">
-                <div class="fs-xs text-[var(--text-faint)] mb-1"
-                     x-text="t('admin_assets.preview_heading')"></div>
-                <pre class="fs-xs mono bg-[var(--surface-2)] border border-[var(--border)] rounded p-2 overflow-auto scrollbar max-h-[320px]"
-                     x-text="JSON.stringify((assetCache.assets || []).slice(0, 10), null, 2)"></pre>
-              </div>
-            </div>
-          </template>
         </div>
-      </section>
+        <div x-show="(assetCache.assets || []).length > 0">
+          <div class="fs-xs text-[var(--text-faint)] mb-1"
+               x-text="t('admin_assets.preview_heading')"></div>
+          <pre class="fs-xs mono bg-[var(--surface-2)] border border-[var(--border)] rounded p-2 overflow-auto scrollbar max-h-[320px]"
+               x-text="JSON.stringify((assetCache.assets || []).slice(0, 10), null, 2)"></pre>
+        </div>
+      </div>
+    </template>
+  </div>
+</section>
 
-      <!-- SSH TAB — global defaults + a "test on a host" widget. Per-host
-           overrides live on each row in Admin → Hosts. -->
+<!-- SSH TAB — global defaults + a "test on a host" widget. Per-host
+     overrides live on each row in Admin → Hosts. -->
