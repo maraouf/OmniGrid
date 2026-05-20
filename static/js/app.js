@@ -5206,7 +5206,7 @@ function app() {
     // implement ←/→ keyboard nav per the WAI-ARIA tablist authoring
     // pattern. New tabs added here automatically participate in
     // keyboard navigation.
-    HOST_STATS_TAB_ORDER: ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp'],
+    HOST_STATS_TAB_ORDER: ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp', 'http_probe'],
     // Cycle tabs by ±1, wrapping at both ends. Called from each tab
     // button's @keydown.left / @keydown.right handler. After the tab
     // switches we focus the newly-active button so the focus ring
