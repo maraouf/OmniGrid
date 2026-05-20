@@ -30696,12 +30696,16 @@ function app() {
           styled: false,
         };
       }
+      // Hide the chip entirely when the provider is globally enabled
+      // but no curated host has it mapped — that's noise on the
+      // toolbar. Operator-flagged: "Webmin not enabled in any host's
+      // providers, chip is displayed no matter what which doesn't make
+      // sense". The chip reappears the moment a curated host gets the
+      // matching `<provider>_name` field set. Errored state (above)
+      // still wins — we keep the ✗ visible when probes are failing so
+      // the operator sees the breakage even before any host matches.
       if (matchCount === 0) {
-        return {
-          visible: true, cls: 'pill-unknown', icon: '·',
-          title: this.t('hosts_extra.provider_filter.title_unmatched', { name }),
-          styled: false,
-        };
+        return { visible: false, cls: '', icon: '', title: '', styled: false };
       }
       // Healthy state — use the operator-customised provider colour
       // via `pill-custom` + `providerChipStyle()`.
