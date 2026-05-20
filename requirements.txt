@@ -6,21 +6,21 @@
 # at module level. Hard-pinned because FastAPI minor versions
 # occasionally tighten Pydantic v2 deprecations that surface in our
 # own request/response models without warning.
-fastapi==0.136.1
+fastapi>=0.136.1
 # Pydantic is FastAPI's request/response validation engine — pulled in
 # transitively by fastapi but listed explicitly so import-time references
 # (`from pydantic import BaseModel`) don't trip the IDE's
 # `package-not-in-requirements` lint. Floor-pinned to 2.x so the v1-style
 # `.dict()` calls we already migrated stay valid; fastapi's own pin
 # bounds the upper edge.
-pydantic>=2.0.0
+pydantic>=2.13.4
 # ASGI server. The [standard] extras pull in `httptools` + `uvloop` for
 # the production-grade async performance path AND `websockets` for the
 # admin SSH terminal modal (logic/ssh.py drives an xterm-backed PTY
 # over a FastAPI WebSocket). Local dev runs `uvicorn main:app --reload`;
 # prod runs the same single-replica process behind NPM's reverse proxy.
 
-uvicorn[standard]==0.47.0
+uvicorn[standard]>=0.47.0
 # Async HTTP client used for EVERY outbound call: Portainer REST API
 # (services / containers / stacks / registries proxy), Beszel Hub
 # (Pocketbase auth + paginated fetches), Pulse, Webmin (with cookie
@@ -28,21 +28,21 @@ uvicorn[standard]==0.47.0
 # with WWW-Authenticate token dance), Apprise webhooks, Open-Meteo
 # weather, OIDC discovery + token exchange, asset inventory's OAuth2
 # client_credentials. We use ONLY async — no sync httpx.Client anywhere.
-httpx==0.28.1
+httpx>=0.28.1
 # Prometheus client for the operator-facing /metrics endpoint that
 # Grafana scrapes (see docs/grafana_dashboard_omnigrid.example.json).
 # logic/metrics.py defines the singleton REGISTRY plus every Counter /
 # Gauge / Histogram (cache-age gauge, op-result counter, host-probe
 # duration histogram, etc.). Pinned because some 0.x releases reshape
 # the multiprocess collector path we don't use today but might.
-prometheus-client==0.25.0
+prometheus-client>=0.25.0
 # Password hashing for local-auth users. logic/auth.py uses
 # `bcrypt.hashpw(...)` at user creation + `checkpw(...)` on every
 # login. Pinned at 5.x for the modern hash format and constant-time
 # verification semantics. Note: the prior 4.x line silently rejected
 # passwords longer than 72 bytes with a stack trace; 5.x raises a
 # clearer error which we map to HTTP 400 in the bootstrap path.
-bcrypt==5.0.0
+bcrypt>=5.0.0
 # multipart/form-data body parser. FastAPI's `Form(...)` and `File(...)`
 # parameter types BOTH require this package — without it the endpoint
 # raises at module import. Used by the avatar upload route, the local
@@ -50,14 +50,14 @@ bcrypt==5.0.0
 # same parser path), and the bootstrap admin form. Pinned because
 # FastAPI's parameter validation occasionally couples to specific
 # python-multipart versions during major bumps.
-python-multipart==0.0.29
+python-multipart>=0.0.29
 # .env loader — reads /app/.env (or `ENV_FILE_PATH` override) at
 # startup. main.py's first real line is `load_dotenv("/app/.env",
 # override=False)` so every os.environ.get() in main / logic resolves
 # correctly. The repo is private, so .env is COMMITTED — see
 # CLAUDE.md "Secrets" for the private-repo trade-off + the rotate-
 # everything rule if visibility ever changes.
-python-dotenv==1.2.2
+python-dotenv>=1.2.2
 # OIDC SSO (Authentik / any OIDC provider) — JWT signature verification
 # against the issuer's JWKS. PyJWT is used instead of authlib: smaller
 # surface, and we already own the discovery + token-exchange httpx calls.
@@ -69,7 +69,7 @@ PyJWT[crypto]>=2.12.1
 # key parsing, and fingerprint exposure natively so we don't shell out
 # to the OpenSSH CLI. Pulls in `cryptography` transitively (already a
 # PyJWT[crypto] dep) so no new heavy dependency is introduced.
-asyncssh==2.23.0
+asyncssh>=2.23.0
 # TOTP-based 2FA for local-auth users. pyotp implements RFC 6238
 # (~150 lines, no native deps); cryptography supplies Fernet for at-rest
 # encryption of TOTP secrets + backup codes (key derived via HKDF-SHA256
@@ -94,7 +94,7 @@ webauthn>=2.7.1
 # full HTML UI for both. When that happens ``logic/webmin.py`` parses
 # the HTML to extract the table data rather than failing hard. Pulled
 # in only for the scrape path; the XML and JSON branches don't touch it.
-beautifulsoup4==4.14.3
+beautifulsoup4>=4.14.3
 # Optional ICMP transport for the Ping host-stats provider.
 # logic/ping.py imports this LAZILY and falls back to TCP-connect
 # probes when the package is missing — so this dep is genuinely
@@ -106,7 +106,7 @@ beautifulsoup4==4.14.3
 # import succeeds but every probe raises SocketPermissionError →
 # ping.py auto-falls-back to TCP at probe time, so a missing cap is
 # not a boot-blocker, just "ICMP toggle on but TCP is what runs".
-icmplib==3.0.4
+icmplib>=3.0.4
 # SNMP host-stats provider. pysnmp is the engine for the v2c +
 # v3 (USM) probes against managed switches / routers / UPSes / network
 # printers / managed APs that don't run unix-style agents. logic/snmp.py
@@ -129,4 +129,4 @@ icmplib==3.0.4
 # legacy `pysnmp.hlapi.asyncio` path — the legacy branch is now
 # unreachable under this pin but kept as defence-in-depth in case
 # pysnmp 8.x reorganises the namespace again.
-pysnmp>=7.1.26
+pysnmp>=7.1.27
