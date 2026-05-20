@@ -21457,7 +21457,21 @@ function app() {
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.ok) {
-          turn.error = (j && j.detail) || (this.t('toasts.failed') || 'Failed');
+          let detail = (j && j.detail) || (this.t('toasts.failed') || 'Failed');
+          // Operator-helpful hint: when the AI provider timed out AND
+          // the fallback chain wasn't engaged (either disabled OR no
+          // viable secondary providers configured), tell the operator
+          // where to fix it. Pre-fix the bare "Request timed out"
+          // error left the operator wondering why they configured a
+          // fallback at all.
+          const isTimeout = typeof detail === 'string' && /timed out after/i.test(detail);
+          const noFallback = j && j.fallback_used === false
+            && Array.isArray(j.fallback_chain) && j.fallback_chain.length <= 1;
+          if (isTimeout && noFallback) {
+            detail = detail + ' ' + (this.t('toasts.ai_no_fallback_hint')
+              || '(Tip: configure a fallback provider in Admin → AI Integration → Fallback chain so the next provider can pick up when the primary times out.)');
+          }
+          turn.error = detail;
         } else {
           // Replace the first-round prose with the second-round reply
           // composed from the tool results. Keep the same `ts` so the
@@ -38342,7 +38356,19 @@ function app() {
       if (!item || this._retagBusy) {
         return;
       }
-      const target = (this._retagDraft || '').trim();
+      let target = (this._retagDraft || '').trim();
+      // User-friendly tolerance: if the operator typed something
+      // image-shaped (`server:2026.2.3` or
+      // `ghcr.io/goauthentik/server:2026.2.3`) instead of just the
+      // bare tag, strip everything up to and including the last `:`.
+      // Docker's tag spec defines the tag as the text AFTER the last
+      // colon, so treating the tail as the tag matches operator
+      // intent. Operator-reported pattern: typed `2026.2.3` after the
+      // current-image `<code>` block visually adjacent to the input,
+      // ended up with `server:2026.2.3` in the field.
+      if (target.includes(':')) {
+        target = target.slice(target.lastIndexOf(':') + 1).trim();
+      }
       // Client-side validation mirrors the backend's _validate_retag_tag.
       // Empty is allowed (server defaults to "latest"); otherwise must
       // match Docker tag charset.
@@ -38657,6 +38683,13 @@ function app() {
           return;
         }
       }
+      // Track which raw_ids we just successfully fired a remove for so
+      // we can OPTIMISTICALLY splice them out of `this.items` once the
+      // POSTs return — without that splice, the topbar "Cleanup (N)"
+      // count stayed > 0 (and the button stayed visible) until the
+      // next gather refresh ~30s later, which read as "the button
+      // didn't work" + "I have to click refresh to see it disappear".
+      const okIds = [];
       let okCount = 0, fail = 0;
       for (const i of picked) {
         const key = this._busyKey('ctn', i.raw_id);
@@ -38668,6 +38701,7 @@ function app() {
           const r = await fetch(`/api/remove/container/${i.raw_id}`, { method: 'POST' });
           if (r.ok) {
             okCount++;
+            okIds.push(i.raw_id);
           }
           else { fail++; this._clearBusy(key); }
         } catch (_) { fail++; this._clearBusy(key); }
@@ -38675,7 +38709,29 @@ function app() {
       if (clearSelection) {
         this.selected = [];
       }
+      // Optimistically splice the successfully-removed items out of
+      // the local items list IN PLACE (per CLAUDE.md "reactive arrays
+      // mutated in place" rule). This makes the topbar "Cleanup (N)"
+      // count drop immediately so the button disappears without
+      // waiting for the next gather refresh. The backend op completes
+      // asynchronously; if any of these removes ultimately fail, the
+      // next /api/items?force=true will reinstate the row.
+      if (okIds.length && Array.isArray(this.items)) {
+        const idSet = new Set(okIds);
+        for (let idx = this.items.length - 1; idx >= 0; idx--) {
+          if (idSet.has(this.items[idx].raw_id)) {
+            this.items.splice(idx, 1);
+          }
+        }
+      }
       this.pollOpsNow();
+      // Also kick a forced items refresh so any rows we couldn't
+      // splice locally (e.g. cache miss) get reconciled on the next
+      // poll cycle. `refresh(true)` bypasses the 900s items-cache TTL
+      // and pulls a fresh gather.
+      if (okCount > 0) {
+        this.refresh(true).catch(() => {});
+      }
       this.showToast(this.t('toasts.remove_result', { ok: okCount, fail }), fail ? 'error' : 'success');
     },
   };
