@@ -26,13 +26,14 @@ import sqlite3
 from contextlib import contextmanager
 from typing import Any, Optional
 
+from logic.env_keys import EnvKey, env_get
 from logic.settings_keys import Settings
 
 _SUPPORTED_DB_TYPES = frozenset({"sqlite"})
 
-DB_TYPE: str = (os.getenv("DB_TYPE") or "sqlite").strip().lower()
+DB_TYPE: str = (env_get(EnvKey.DB_TYPE) or "sqlite").strip().lower()
 
-DB_PATH: Optional[str] = os.getenv("DB_PATH") or None
+DB_PATH: Optional[str] = env_get(EnvKey.DB_PATH) or None
 DB_PATH_ERROR: Optional[str] = None
 
 if DB_TYPE not in _SUPPORTED_DB_TYPES:

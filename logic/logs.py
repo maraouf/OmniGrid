@@ -36,6 +36,7 @@ import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional, TextIO
+from logic.env_keys import EnvKey, env_get
 from logic.settings_keys import Settings
 
 # How many lines to retain in-memory. 2000 at ~150 bytes/line is ~300 KB —
@@ -51,7 +52,7 @@ _installed = False
 # Persistent log directory. Override with LOG_DIR env if your deploy
 # doesn't bind ``/app/data``. The ``data/logs`` subdir is created on
 # first write so a fresh deploy doesn't need any pre-provisioning.
-LOG_DIR = os.environ.get("LOG_DIR", "/app/data/logs")
+LOG_DIR = env_get(EnvKey.LOG_DIR, "/app/data/logs")
 
 # Log filename matches ``omnigrid-YYYY-MM-DD.log`` so the date is
 # parseable by the prune sweeper without hitting filesystem mtime.

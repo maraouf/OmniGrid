@@ -52,7 +52,9 @@ from typing import Annotated, Any, Iterable, Optional, Set, cast
 # block authoritative (e.g. DB_PATH).
 from dotenv import load_dotenv
 
-load_dotenv(os.getenv("ENV_FILE_PATH", "/app/.env"))
+from logic.env_keys import EnvKey, env_get  # noqa: E402
+
+load_dotenv(env_get(EnvKey.ENV_FILE_PATH, "/app/.env"))
 
 # Install the stdout/stderr tee as early as possible so uvicorn's own
 # startup lines land in the in-memory buffer that powers Admin → Logs.
@@ -138,13 +140,13 @@ from logic.settings_keys import (  # noqa: E402
 )
 from logic import host_baseline as _host_baseline  # noqa: E402
 
-DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
-DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
+DOCKERHUB_USER = env_get(EnvKey.DOCKERHUB_USER)
+DOCKERHUB_TOKEN = env_get(EnvKey.DOCKERHUB_TOKEN)
 
 # Bootstrap-only env vars for seeding the first admin. Only consulted when
 # the users table is empty at startup — safe to leave set or unset afterward.
-BOOTSTRAP_ADMIN_USER = os.getenv("BOOTSTRAP_ADMIN_USER", "")
-BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+BOOTSTRAP_ADMIN_USER = env_get(EnvKey.BOOTSTRAP_ADMIN_USER)
+BOOTSTRAP_ADMIN_PASSWORD = env_get(EnvKey.BOOTSTRAP_ADMIN_PASSWORD)
 
 # Notification event names + per-event default state — single source of
 # truth lives in ``logic.ops`` so ``notify()`` and ``api_get_settings``
@@ -3451,6 +3453,9 @@ class SettingsIn(BaseModel):
     # stat-bar thresholds (frontend-consumed via /api/me).
     tuning_stat_bar_warn_pct: Optional[str] = None
     tuning_stat_bar_crit_pct: Optional[str] = None
+    # Stack-update convergence-poll window — see logic/ops.py:_await_stack_convergence.
+    tuning_stack_update_observe_timeout_seconds: Optional[str] = None
+    tuning_stack_update_observe_poll_seconds: Optional[str] = None
     # In-app notifications retention window (days). Drives the
     # prune_notifications schedule kind.
     tuning_notification_retention_days: Optional[str] = None

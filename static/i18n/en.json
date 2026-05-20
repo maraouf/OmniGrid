@@ -1989,6 +1989,14 @@
           "label": "Stat-bar critical threshold (percent)",
           "help": "Percent at which CPU / Memory / Disk bars flip from amber to red. Default 85 — the typical \"investigate before saturation\" signal. Lower (e.g. 75) for fleets where 80% sustained means a rebalance; raise (e.g. 95) for over-provisioned hosts where amber stays green-equivalent. Must be ≥ the warning threshold. Range 50..99. Resolved per render."
         },
+        "tuning_stack_update_observe_timeout_seconds": {
+          "label": "Stack-update convergence timeout (seconds)",
+          "help": "Maximum time to wait for Swarm-service rollouts to settle after Portainer accepts a stack update. Portainer's PUT returns in ~5s but the actual pull+recreate runs asynchronously on the docker daemon (30-60s+ for real changes); without this wait the op would mark \"done\" while the daemon is still rolling, and the SPA's Update button would revert too early. Default 300s (5 min) — covers a typical N-service rolling update on a home-lab daemon. Raise (e.g. 900) for large stacks or slow registries; lower (e.g. 120) only if you want false-positive timeouts traded against per-op latency. Range 30..1800. Resolved per op; takes effect on the next stack update."
+        },
+        "tuning_stack_update_observe_poll_seconds": {
+          "label": "Stack-update convergence poll cadence (seconds)",
+          "help": "How often to ask Portainer for the per-service UpdateStatus during the post-PUT convergence wait. Default 15s — light enough on Portainer + fast enough to land within ~30s of the actual rollout completing. Lower (e.g. 5) for snappier feedback at the cost of more Portainer requests; raise (e.g. 60) for very large fleets where the per-poll service-list cost is non-trivial. Range 5..120. Resolved per op."
+        },
         "tuning_ssh_default_port": {
           "label": "SSH default port",
           "help": "Default TCP port for the SSH terminal + run-command flows. Consumed when a curated host's `ssh.port` is unset. Default 22 (standard SSH). Range 1..65535. Live — takes effect on the next SSH invocation; no restart needed."

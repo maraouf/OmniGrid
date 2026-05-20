@@ -158,6 +158,8 @@ class Tunable(str, Enum):
     SSH_TERMINAL_CONNECT_TIMEOUT_SECONDS = "tuning_ssh_terminal_connect_timeout_seconds"
     SSH_TERMINAL_LOGIN_TIMEOUT_SECONDS = "tuning_ssh_terminal_login_timeout_seconds"
     SSH_WS_HEARTBEAT_SECONDS = "tuning_ssh_ws_heartbeat_seconds"
+    STACK_UPDATE_OBSERVE_POLL_SECONDS = "tuning_stack_update_observe_poll_seconds"
+    STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS = "tuning_stack_update_observe_timeout_seconds"
     STAT_BAR_CRIT_PCT = "tuning_stat_bar_crit_pct"
     STAT_BAR_WARN_PCT = "tuning_stat_bar_warn_pct"
     STATS_CACHE_TTL_SECONDS = "tuning_stats_cache_ttl_seconds"
@@ -816,6 +818,28 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # reading is still a crit.
     "tuning_stat_bar_warn_pct": ("STAT_BAR_WARN_PCT", 60, 30, 90),
     "tuning_stat_bar_crit_pct": ("STAT_BAR_CRIT_PCT", 85, 50, 99),
+    # Stack-update convergence-poll window. Portainer's
+    # `PUT /api/stacks/{id}` accepts the request in ~5s and returns
+    # success, but the actual `Prune + PullImage` runs ASYNCHRONOUSLY on
+    # the docker daemon (often 30-60s+ for real changes). Pre-fix
+    # `do_update_stack` called `op.done('success')` as soon as the PUT
+    # returned — the SPA's button reverted to "Update" while the daemon
+    # was still pulling. Post-fix: after the PUT returns, the op stays
+    # in the `running` state and polls Portainer's service list every
+    # `_observe_poll_seconds` (default 15s). For every service whose
+    # `com.docker.stack.namespace` label matches this stack, check
+    # `UpdateStatus.State`: while ANY shows `"updating"`, keep waiting.
+    # Two consecutive clean polls debounce against the brief gap between
+    # services rolling out one at a time. Cap at
+    # `_observe_timeout_seconds` (default 5 min) so a stuck rollback
+    # doesn't pin the op forever. After convergence (or timeout), THEN
+    # `op.done('success')`. Result: op lifetime tracks actual update
+    # duration, the SPA's existing busy-state machinery stays correct
+    # without further frontend changes.
+    "tuning_stack_update_observe_timeout_seconds":
+        ("STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS", 300, 30, 1800),
+    "tuning_stack_update_observe_poll_seconds":
+        ("STACK_UPDATE_OBSERVE_POLL_SECONDS", 15, 5, 120),
     # In-app notifications retention window (days). The
     # `prune_notifications` schedule kind reads this to delete rows from
     # the `notifications` table older than `now - days * 86400`. Default

@@ -1506,6 +1506,11 @@ function app() {
       // stat-bar warn / crit thresholds (frontend-consumed).
       'tuning_stat_bar_warn_pct',
       'tuning_stat_bar_crit_pct',
+      // Stack-update convergence-poll window — keeps the busy-state
+      // honest by waiting for Swarm-service UpdateStatus to settle
+      // after Portainer accepts the PUT.
+      'tuning_stack_update_observe_timeout_seconds',
+      'tuning_stack_update_observe_poll_seconds',
       // In-app notifications retention — rendered inline in Admin →
       // Notifications next to the per-medium / per-event toggles
       // (was in the generic Process tunables form previously, but

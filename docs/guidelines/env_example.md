@@ -306,6 +306,18 @@ RATE_LIMIT_LOCKOUT_SECONDS=900
 STAT_BAR_WARN_PCT=60
 STAT_BAR_CRIT_PCT=85
 
+# Stack-update convergence-poll window. Portainer's `PUT /api/stacks/{id}`
+# accepts the request in ~5s and returns 200, but the actual pull + recreate
+# runs ASYNCHRONOUSLY on the docker daemon (often 30-60s+ for real image
+# changes). Pre-fix `do_update_stack` called `op.done('success')` as soon as
+# the PUT returned — the SPA's Update button reverted to "Update" while the
+# daemon was still rolling. Post-fix the op stays in `running` state and
+# polls Portainer's service list every `_POLL_SECONDS` until every service
+# in this stack's namespace settles (UpdateStatus.State != "updating" for
+# two consecutive polls), or `_TIMEOUT_SECONDS` fires. Then `op.done()`.
+STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS=300
+STACK_UPDATE_OBSERVE_POLL_SECONDS=15
+
 # In-app notifications page size for the Notifications popup. Default 25;
 # range 5..200. Surfaced via /api/me's `client_config.notifications_page_size`
 # so a Save in Admin → Config takes effect on the next round-trip.
@@ -645,6 +657,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `RATE_LIMIT_LOCKOUT_SECONDS`      | Runtime     | `900`                | Login rate-limit lockout duration.                                               |
 | `STAT_BAR_WARN_PCT`               | Runtime     | `60`                 | Stat-bar amber-threshold percentage (Hosts view CPU/Mem/Disk bars). Range 30..90; must be ≤ `STAT_BAR_CRIT_PCT`. |
 | `STAT_BAR_CRIT_PCT`               | Runtime     | `85`                 | Stat-bar red-threshold percentage. Range 50..99.                                 |
+| `STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS` | Runtime | `300`                | Maximum time `do_update_stack` waits for Swarm-service rollouts to settle after Portainer accepts the PUT. Range 30..1800. |
+| `STACK_UPDATE_OBSERVE_POLL_SECONDS`    | Runtime | `15`                 | Polling cadence for the post-PUT service-list check. Range 5..120.               |
 | `NOTIFICATION_PAGE_SIZE`          | Runtime     | `25`                 | In-app notifications popup page size. Range 5..200. Surfaced via `client_config.notifications_page_size`. |
 | `HOSTS_IDLE_FILL_INTERVAL_SECONDS` | Runtime    | `3`                  | Idle-time progressive fill cadence for the Hosts view (0 = disabled). Range 0..30. |
 | `SWARM_AUTOHEAL_COOLDOWN_MINUTES` | Runtime     | `30`                 | Cool-down (minutes) between consecutive `swarm_agent_health` `restart` actions. Persisted across container restarts via `swarm_autoheal_last_restart_ts`. Range 1..1440. |

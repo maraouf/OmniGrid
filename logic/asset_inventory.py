@@ -26,6 +26,8 @@ from typing import Any, Optional
 
 import httpx
 
+from logic.env_keys import EnvKey, env_get
+
 from logic import errors as _err
 from logic.tuning import Tunable, tuning_int as _tuning_int
 
@@ -56,7 +58,7 @@ def _fetch_timeout_seconds() -> float:
 # OR when its dirname is empty (e.g. someone set `DB_PATH=omnigrid.db`
 # with no leading directory — uncommon but possible).
 def _default_cache_path() -> str:
-    db_path = os.environ.get("DB_PATH", "/app/data/omnigrid.db")
+    db_path = env_get(EnvKey.DB_PATH, "/app/data/omnigrid.db")
     data_dir = os.path.dirname(db_path) or "/app/data"
     return os.path.join(data_dir, "asset_inventory.json")
 
