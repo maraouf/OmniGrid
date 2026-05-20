@@ -1328,6 +1328,14 @@ def _is_medium_enabled(medium: str) -> bool:
     return get_setting_bool(notify_medium_key(medium), default=default_on)
 
 
+# Public aliases for cross-module use. main.py's per-medium Test
+# endpoint fires the Apprise dispatcher directly; the SPA's per-event
+# resolved-map block consults `is_medium_enabled` to decide which
+# columns to surface in Profile → Notifications.
+notify_medium_apprise = _notify_medium_apprise
+is_medium_enabled = _is_medium_enabled
+
+
 async def notify(
     title: str, body: str, status: str = "info", *,
     event: Optional[str] = None,
@@ -1840,7 +1848,6 @@ async def do_update_container(op: Operation, container_id: str) -> None:
             except (httpx.HTTPError, OSError) as _e:
                 op.log(f"Pre-recreate inspect failed ({type(_e).__name__}: {_e}) — digest comparison disabled", "warning")
         recreate_endpoint_error: Optional[str] = None
-        recreate_response_body: str = ""
         recreate_response_full: str = ""
         # The container ID the FALLBACK should inspect. Defaults to the
         # original `container_id`; reassigned to the new ID once we parse

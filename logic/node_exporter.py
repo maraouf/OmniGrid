@@ -780,3 +780,8 @@ async def probe_node(
         print(f"[node_exporter] disk counter parse failed: {e}")
     stats["exporter_error"] = None
     return stats
+
+
+# Public alias for cross-module use (main.py's debug endpoint canonicalises
+# the operator-supplied URL the same way `probe_node` does).
+normalise_ne_url = _normalise_ne_url

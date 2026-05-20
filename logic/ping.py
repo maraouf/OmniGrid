@@ -59,6 +59,9 @@ from logic.tuning import Tunable as _Tunable
 _unreachable_cooldown = _Cooldown(
     seconds_fn=lambda: _tuning.tuning_int(_Tunable.PING_COOLDOWN_SECONDS)
 )
+# Public alias for cross-module use (main.py's resume endpoint walks the
+# cooldown's internal map to clear per-host entries).
+unreachable_cooldown = _unreachable_cooldown
 
 # Tracks consecutive-failure count per (host, port) so the cooldown
 # only arms on the SECOND timeout, not the first. A single transient

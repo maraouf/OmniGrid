@@ -116,6 +116,9 @@ from logic.settings_keys import Settings
 _auth_cooldown_timer = Cooldown(
     seconds_fn=lambda: _tuning.tuning_int(_Tunable.AUTH_FAILURE_COOLDOWN_SECONDS)
 )
+# Public alias for cross-module use (main.py's resume-sampling endpoint
+# walks the cooldown's internal map to clear per-host entries).
+auth_cooldown_timer = _auth_cooldown_timer
 
 
 def _in_cooldown(host_id: str, user: str) -> Optional[float]:

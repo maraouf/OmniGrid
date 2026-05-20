@@ -101,6 +101,9 @@ from logic.cooldown import Cooldown as _Cooldown
 _unreachable_cooldown = _Cooldown(
     seconds_fn=lambda: _tuning.tuning_int(_Tunable.SNMP_UNREACHABLE_COOLDOWN_SECONDS)
 )
+# Public alias for cross-module use (main.py's resume endpoint walks the
+# cooldown's internal map to clear per-host entries).
+unreachable_cooldown = _unreachable_cooldown
 
 # module-level SnmpEngine singleton. pysnmp HLAPI engines carry
 # per-engine state (USM key cache, message-id state); allocating one
@@ -647,6 +650,11 @@ def _arm_cooldown(host: str, port: int) -> None:
 
 def _clear_cooldown(host: str, port: int) -> None:
     _unreachable_cooldown.clear(host, port)
+
+
+# Public alias for cross-module use (main.py's `/api/snmp/test` endpoint
+# clears the cool-down when the operator-initiated probe succeeds).
+clear_cooldown = _clear_cooldown
 
 
 def _build_auth_data(
@@ -1951,6 +1959,9 @@ def _detect_primary_vendor(sys_descr: str) -> Optional[str]:
 # special ``"auto"`` value (operator-facing) is translated to None
 # before reaching probe_snmp.
 _VALID_VENDOR_KEYS: frozenset[str] = frozenset(_VENDOR_SIGNATURES.keys())
+# Public alias for cross-module use (main.py's per-host SNMP vendor
+# validator + /api/me's `snmp_vendor_keys` block both consume this set).
+VALID_VENDOR_KEYS = _VALID_VENDOR_KEYS
 
 
 async def probe_snmp(
