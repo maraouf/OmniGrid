@@ -1785,12 +1785,22 @@ def _retag_compose_to_latest(
         """Tolerance ladder — exact, then either-side suffix match
         with `/` boundary so `foo/server` matches `ghcr.io/foo/server`
         AND `goauthentik/server` matches `ghcr.io/goauthentik/server`,
-        but `foo/server` doesn't accidentally match `foo/server-extra`."""
-        if compose_repo == target:
+        but `foo/server` doesn't accidentally match `foo/server-extra`.
+
+        Normalises both sides (strip whitespace, casefold) before
+        comparison — Docker registries are case-insensitive per the
+        OCI spec, and trailing-whitespace drift from YAML quoting /
+        SPA-side string handling has historically caused false
+        no-match outcomes."""
+        a = (compose_repo or "").strip().casefold()
+        b = (target or "").strip().casefold()
+        if not a or not b:
+            return False
+        if a == b:
             return True
-        if compose_repo.endswith("/" + target):
+        if a.endswith("/" + b):
             return True
-        if target.endswith("/" + compose_repo):
+        if b.endswith("/" + a):
             return True
         return False
 
@@ -2057,6 +2067,18 @@ async def do_update_stack(
                     content, target_image_repo, new_tag=new_tag, env_map=env_map,
                 )
                 if not replacements:
+                    # Diagnostic: log the EXACT bytes of target +
+                    # every captured repo so any invisible-mismatch
+                    # cases (trailing whitespace, case drift, unicode
+                    # lookalike) surface in the History op log rather
+                    # than being silently rejected by _repo_matches.
+                    op.log(
+                        f"Retag matcher diagnostic — target_image_repo={target_image_repo!r}, "
+                        f"repos_found={[repr(r) for r in repos_found]}, "
+                        f"already_at_target={already_at_target}, "
+                        f"env_updates={env_updates}",
+                        "warning",
+                    )
                     # Idempotent success path — the compose ALREADY
                     # tags the target image at the requested version.
                     # Log + skip the Portainer PUT (which would still

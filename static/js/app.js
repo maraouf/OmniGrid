@@ -38417,7 +38417,7 @@ function app() {
           ? `/api/update/stack/${item.stack_id}/retag-latest`
           : `/api/update/container/${item.raw_id || item.id}/retag-latest`;
         const body = isStackPath
-          ? { image_repo: imageRepo, tag: newTag }
+          ? { image_repo: (imageRepo || '').trim(), tag: newTag }
           : { tag: newTag };
         const r = await fetch(url, {
           method: 'POST',
