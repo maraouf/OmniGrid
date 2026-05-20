@@ -1,133 +1,134 @@
-      <!-- Settings-as-Code (Config Backup) — admin sub-tab.
-           Surface for the JSON snapshot of every operator-tunable
-           knob (settings KV + schedules + ai_memory). Three sections:
-           Export / Import (top, side-by-side on wide viewports), Saved
-           snapshots table (with retention input inline in the header).
-           The matching schedule kind `config_backup` runs the same
-           save_snapshot_to_disk helper on a cadence the operator
-           picks in Admin → Schedules. -->
-      <div x-show="adminTab==='config_backup'" class="space-y-4">
+<!-- Settings-as-Code (Config Backup) — admin sub-tab.
+     Surface for the JSON snapshot of every operator-tunable
+     knob (settings KV + schedules + ai_memory). Three sections:
+     Export / Import (top, side-by-side on wide viewports), Saved
+     snapshots table (with retention input inline in the header).
+     The matching schedule kind `config_backup` runs the same
+     save_snapshot_to_disk helper on a cadence the operator
+     picks in Admin → Schedules. -->
+<!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
+<div x-show="adminTab==='config_backup'" class="space-y-4">
 
-        <!-- Export + Import — side-by-side on lg+ viewports, stack on
-             narrow. Same width / chrome so they read as siblings. -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <!-- Export + Import — side-by-side on lg+ viewports, stack on
+       narrow. Same width / chrome so they read as siblings. -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-          <!-- Export -->
-          <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-            <div class="flex items-center gap-2 mb-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
-              </svg>
-              <h3 class="font-semibold fs-md" x-text="t('admin.config_backup.export_title')"></h3>
-            </div>
-            <p class="fs-xs text-[var(--text-faint)] mb-3"
-               x-html="t('admin.config_backup.export_desc')"></p>
-            <div class="flex items-center gap-2 flex-wrap">
-              <button type="button" @click="downloadConfigBackup()"
-                      :disabled="configBackupBusy"
-                      class="btn btn-primary fs-sm inline-flex items-center gap-1.5"
-                      :class="configBackupBusy && 'opacity-60'">
-                <svg width="13" height="13" class="text-[currentColor]" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
-                </svg>
-                <span x-text="t('admin.config_backup.download_button')"></span>
-              </button>
-              <button type="button" @click="saveConfigBackupToDisk()"
-                      :disabled="configBackupBusy"
-                      class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
-                      :class="configBackupBusy && 'opacity-60'">
-                <svg width="13" height="13" class="text-[currentColor]" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-save"/>
-                </svg>
-                <span x-text="t('admin.config_backup.save_to_disk_button')"></span>
-              </button>
-            </div>
-            <p class="fs-2xs text-[var(--text-faint)] mt-3 leading-snug"
-               x-text="t('admin.config_backup.secret_note')"></p>
-          </section>
+    <!-- Export -->
+    <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+      <div class="flex items-center gap-2 mb-2">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
+        </svg>
+        <h3 class="font-semibold fs-md" x-text="t('admin.config_backup.export_title')"></h3>
+      </div>
+      <p class="fs-xs text-[var(--text-faint)] mb-3"
+         x-html="t('admin.config_backup.export_desc')"></p>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button type="button" @click="downloadConfigBackup()"
+                :disabled="configBackupBusy"
+                class="btn btn-primary fs-sm inline-flex items-center gap-1.5"
+                :class="configBackupBusy && 'opacity-60'">
+          <svg width="13" height="13" class="text-[currentColor]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
+          </svg>
+          <span x-text="t('admin.config_backup.download_button')"></span>
+        </button>
+        <button type="button" @click="saveConfigBackupToDisk()"
+                :disabled="configBackupBusy"
+                class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
+                :class="configBackupBusy && 'opacity-60'">
+          <svg width="13" height="13" class="text-[currentColor]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-save"/>
+          </svg>
+          <span x-text="t('admin.config_backup.save_to_disk_button')"></span>
+        </button>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mt-3 leading-snug"
+         x-text="t('admin.config_backup.secret_note')"></p>
+    </section>
 
-          <!-- Import -->
-          <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-            <div class="flex items-center gap-2 mb-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-upload"/>
-              </svg>
-              <h3 class="font-semibold fs-md" x-text="t('admin.config_backup.import_title')"></h3>
-            </div>
-            <p class="fs-xs text-[var(--text-faint)] mb-3"
-               x-html="t('admin.config_backup.import_desc')"></p>
-            <div class="flex items-center gap-2 flex-wrap">
-              <label class="btn btn-soft fs-sm inline-flex items-center gap-1.5 cursor-pointer"
-                     :class="configBackupBusy && 'opacity-60 pointer-events-none'">
-                <svg width="13" height="13" class="text-[currentColor]" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-upload"/>
-                </svg>
-                <span x-text="t('admin.config_backup.upload_button')"></span>
-                <input type="file" accept=".json,application/json"
-                       class="hidden" @change="importConfigBackupFile($event)">
-              </label>
-            </div>
-            <p class="fs-2xs text-[var(--warning)] mt-3 leading-snug"
-               x-text="t('admin.config_backup.import_warning')"></p>
-          </section>
-        </div>
+    <!-- Import -->
+    <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+      <div class="flex items-center gap-2 mb-2">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-upload"/>
+        </svg>
+        <h3 class="font-semibold fs-md" x-text="t('admin.config_backup.import_title')"></h3>
+      </div>
+      <p class="fs-xs text-[var(--text-faint)] mb-3"
+         x-html="t('admin.config_backup.import_desc')"></p>
+      <div class="flex items-center gap-2 flex-wrap">
+        <label class="btn btn-soft fs-sm inline-flex items-center gap-1.5 cursor-pointer"
+               :class="configBackupBusy && 'opacity-60 pointer-events-none'">
+          <svg width="13" height="13" class="text-[currentColor]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-upload"/>
+          </svg>
+          <span x-text="t('admin.config_backup.upload_button')"></span>
+          <input type="file" accept=".json,application/json"
+                 class="hidden" @change="importConfigBackupFile($event)">
+        </label>
+      </div>
+      <p class="fs-2xs text-[var(--warning)] mt-3 leading-snug"
+         x-text="t('admin.config_backup.import_warning')"></p>
+    </section>
+  </div>
 
-        <!-- Saved snapshots — header carries the retention input inline
-             so the operator sees the cap right next to what's being
-             capped. Matches Admin → Backups' "Backup Now + retention"
-             pairing pattern (retention sits inside the create card). -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+  <!-- Saved snapshots — header carries the retention input inline
+       so the operator sees the cap right next to what's being
+       capped. Matches Admin → Backups' "Backup Now + retention"
+       pairing pattern (retention sits inside the create card). -->
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
 
-          <!-- Header: title + refresh button + saved-count chip -->
-          <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
-            <div class="flex items-center gap-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-folder"/>
-              </svg>
-              <h3 class="font-semibold fs-md" x-text="t('admin.config_backup.saved_title')"></h3>
-              <span class="pill pill-muted fs-2xs"
-                    x-show="configBackupSaved.length"
-                    x-text="configBackupSaved.length"></span>
-            </div>
-            <button type="button"
-                    @click="_runWithBusy('config_backup_saved', () => loadConfigBackupSaved())"
-                    :disabled="configBackupBusy || _loadBusy.config_backup_saved === true"
-                    :title="t('actions.reload')"
-                    :aria-label="t('actions.reload')"
-                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.config_backup_saved === true ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-              </svg>
-              <span x-text="t('actions.reload')"></span>
-            </button>
-          </div>
-          <p class="fs-xs text-[var(--text-faint)] mb-3"
-             x-text="t('admin.config_backup.saved_desc')"></p>
+    <!-- Header: title + refresh button + saved-count chip -->
+    <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
+      <div class="flex items-center gap-2">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-folder"/>
+        </svg>
+        <h3 class="font-semibold fs-md" x-text="t('admin.config_backup.saved_title')"></h3>
+        <span class="pill pill-muted fs-2xs"
+              x-show="configBackupSaved.length"
+              x-text="configBackupSaved.length"></span>
+      </div>
+      <button type="button"
+              @click="_runWithBusy('config_backup_saved', () => loadConfigBackupSaved())"
+              :disabled="configBackupBusy || _loadBusy.config_backup_saved === true"
+              :title="t('actions.reload')"
+              :aria-label="t('actions.reload')"
+              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="_loadBusy.config_backup_saved === true ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+        </svg>
+        <span x-text="t('actions.reload')"></span>
+      </button>
+    </div>
+    <p class="fs-xs text-[var(--text-faint)] mb-3"
+       x-text="t('admin.config_backup.saved_desc')"></p>
 
-          <!-- Retention tunable — full Admin → Config style row:
-               label + input + bounds chips + effective value PLUS the
-               long-form help paragraph (drawn from the same i18n key
-               family used by Admin → Config) AND a section-owned Save
-               button with dirty/undirty pulse. Single-tunable section
-               so the Save handler is a degenerate `saveConfigBackupSection`. -->
-          <div x-show="tuningLoaded"
-               class="mb-4 pb-4 border-b border-[var(--border)]">
-            <!-- Canonical layout: label → help → textbox+bounds.
-                 Matches the AI / Asset Inventory / Portainer pattern. -->
-            <label class="block fs-xs font-medium mb-1"
-                   x-text="t('admin.config.fields.tuning_config_backup_retention_count.label')"></label>
-            <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-               x-text="t('admin.config.fields.tuning_config_backup_retention_count.help')"></p>
-            <div class="flex flex-wrap items-center gap-2 mb-3">
-              <input type="number"
-                     x-model="tuningForm['tuning_config_backup_retention_count']"
-                     :placeholder="tuningPlaceholder('tuning_config_backup_retention_count')"
-                     :min="(tuningEffective['tuning_config_backup_retention_count'] || {}).min"
-                     :max="(tuningEffective['tuning_config_backup_retention_count'] || {}).max"
-                     :disabled="!isAdmin() || tuningSaving || configBackupBusy"
-                     class="w-44 mono fs-sm py-1">
-              <div class="bounds-chips" role="group"
-                   :aria-label="t('admin.config.bounds.group_label')">
+    <!-- Retention tunable — full Admin → Config style row:
+         label + input + bounds chips + effective value PLUS the
+         long-form help paragraph (drawn from the same i18n key
+         family used by Admin → Config) AND a section-owned Save
+         button with dirty/undirty pulse. Single-tunable section
+         so the Save handler is a degenerate `saveConfigBackupSection`. -->
+    <div x-show="tuningLoaded"
+         class="mb-4 pb-4 border-b border-[var(--border)]">
+      <!-- Canonical layout: label → help → textbox+bounds.
+           Matches the AI / Asset Inventory / Portainer pattern. -->
+      <label class="block fs-xs font-medium mb-1"
+             x-text="t('admin.config.fields.tuning_config_backup_retention_count.label')"></label>
+      <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+         x-text="t('admin.config.fields.tuning_config_backup_retention_count.help')"></p>
+      <div class="flex flex-wrap items-center gap-2 mb-3">
+        <input type="number"
+               x-model="tuningForm['tuning_config_backup_retention_count']"
+               :placeholder="tuningPlaceholder('tuning_config_backup_retention_count')"
+               :min="(tuningEffective['tuning_config_backup_retention_count'] || {}).min"
+               :max="(tuningEffective['tuning_config_backup_retention_count'] || {}).max"
+               :disabled="!isAdmin() || tuningSaving || configBackupBusy"
+               class="w-44 mono fs-sm py-1">
+        <div class="bounds-chips" role="group"
+             :aria-label="t('admin.config.bounds.group_label')">
                 <span class="bounds-chip bounds-chip--min"
                       :title="t('admin.config.bounds.min_title')">
                   <svg width="11" height="11" class="text-[currentColor]" aria-hidden="true">
@@ -135,129 +136,129 @@
                   </svg>
                   <span x-text="(tuningEffective['tuning_config_backup_retention_count'] || {}).min"></span>
                 </span>
-                <span class="bounds-chip bounds-chip--max"
-                      :title="t('admin.config.bounds.max_title')">
+          <span class="bounds-chip bounds-chip--max"
+                :title="t('admin.config.bounds.max_title')">
                   <svg width="11" height="11" class="text-[currentColor]" aria-hidden="true">
                     <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
                   </svg>
                   <span x-text="(tuningEffective['tuning_config_backup_retention_count'] || {}).max"></span>
                 </span>
-                <span class="bounds-chip bounds-chip--default"
-                      :title="t('admin.config.bounds.default_title')">
+          <span class="bounds-chip bounds-chip--default"
+                :title="t('admin.config.bounds.default_title')">
                   <svg width="11" height="11" class="text-[currentColor]" aria-hidden="true">
                     <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
                   </svg>
                   <span x-text="(tuningEffective['tuning_config_backup_retention_count'] || {}).default"></span>
                 </span>
-              </div>
-              <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                    x-text="tuningEffectiveLabel('tuning_config_backup_retention_count')"></span>
-            </div>
-            <!-- Section-owned Save button — dirty/undirty pulse via
-                 `configBackupSectionDirty()`. Disabled when not dirty
-                 OR when the row is busy (existing `configBackupBusy`
-                 from the export / save-to-disk flow). -->
-            <div class="flex items-center gap-3 flex-wrap">
-              <button type="button"
-                      @click="saveConfigBackupSection()"
-                      :disabled="configBackupBusy || !configBackupSectionDirty() || !isAdmin()"
-                      :class="configBackupSectionDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                      class="btn btn-primary fs-sm"
-                      x-text="configBackupBusy ? t('actions.saving') : t('actions.save_changes')"></button>
-              <span x-show="configBackupSectionDirty()"
-                    class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
-                    :title="t('common.unsaved_title')">
+        </div>
+        <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+              x-text="tuningEffectiveLabel('tuning_config_backup_retention_count')"></span>
+      </div>
+      <!-- Section-owned Save button — dirty/undirty pulse via
+           `configBackupSectionDirty()`. Disabled when not dirty
+           OR when the row is busy (existing `configBackupBusy`
+           from the export / save-to-disk flow). -->
+      <div class="flex items-center gap-3 flex-wrap">
+        <button type="button"
+                @click="saveConfigBackupSection()"
+                :disabled="configBackupBusy || !configBackupSectionDirty() || !isAdmin()"
+                :class="configBackupSectionDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                class="btn btn-primary fs-sm"
+                x-text="configBackupBusy ? t('actions.saving') : t('actions.save_changes')"></button>
+        <span x-show="configBackupSectionDirty()"
+              class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
+              :title="t('common.unsaved_title')">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
                 <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
               </span>
-            </div>
-          </div>
-
-          <!-- Loading indicator — parity with Users / Schedules /
-               Backups / Logs tables. Shows the spinner BEFORE the
-               first load resolves so the empty-state copy doesn't
-               flash on initial paint. -->
-          <div x-show="!snapshotsLoaded" class="loading-state">
-            <span class="spin-lg" aria-hidden="true"></span>
-            <span x-text="t('loading.section')"></span>
-          </div>
-
-          <!-- Empty state (only after loading completes). -->
-          <div x-show="snapshotsLoaded && !configBackupSaved.length"
-               class="text-center py-8 px-4 fs-sm text-[var(--text-dim)] italic">
-            <svg width="32" height="32" class="text-[var(--text-faint)] mx-auto mb-2" aria-hidden="true">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-folder"/>
-            </svg>
-            <div x-text="t('admin.config_backup.saved_empty')"></div>
-          </div>
-
-          <!-- Saved snapshots table — column shape and value styling
-               matches Admin → Backups for cross-tab consistency:
-               thead chrome on a `--surface-2` band, value cells in
-               `mono fs-xs text-[var(--text-dim)]`, plus a "Produced
-               by" column carrying the snapshot's baked-in app_version. -->
-          <div x-show="snapshotsLoaded && configBackupSaved.length" class="overflow-x-auto scrollbar">
-            <table class="w-full fs-sm">
-              <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
-                <tr>
-                  <th class="text-start px-4 py-2" x-text="t('columns.name')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.size')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.created')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.produced_by')"></th>
-                  <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="f in configBackupSaved" :key="f.name">
-                  <tr class="border-t border-[var(--border)]">
-                    <td class="px-4 py-2 mono fs-xs" x-text="f.name"></td>
-                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtBytes(f.size)"></td>
-                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtDate(f.mtime)"></td>
-                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="f.version || '—'"></td>
-                    <td class="px-4 py-2 text-end">
-                      <!-- Action-button row — same pattern as Admin →
-                           Users (`.user-action-btn` 26×26 icon-only
-                           buttons + `.user-action-sep` divider before
-                           the destructive action). Operator-flagged to
-                           unify cross-tab; all admin tables now share
-                           the icon-row affordance. -->
-                      <div class="inline-flex items-center gap-0.5 justify-end user-actions">
-                        <a :href="'/api/admin/config-backup/saved/' + encodeURIComponent(f.name)"
-                           download
-                           class="user-action-btn"
-                           :title="t('actions.download')"
-                           :aria-label="t('actions.download')">
-                          <svg width="14" height="14" aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
-                          </svg>
-                        </a>
-                        <button type="button"
-                                @click="restoreConfigBackupSaved(f.name)"
-                                :disabled="configBackupBusy"
-                                class="user-action-btn"
-                                :title="t('actions.restore')"
-                                :aria-label="t('actions.restore')">
-                          <svg width="14" height="14" aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-ccw"/>
-                          </svg>
-                        </button>
-                        <span class="user-action-sep"></span>
-                        <button type="button"
-                                @click="deleteConfigBackupSaved(f.name)"
-                                :disabled="configBackupBusy"
-                                class="user-action-btn user-action-btn--danger"
-                                :title="t('actions.delete')"
-                                :aria-label="t('actions.delete')">
-                          <svg width="14" height="14" aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
-                          </svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
-          </div>
-        </section>
       </div>
+    </div>
+
+    <!-- Loading indicator — parity with Users / Schedules /
+         Backups / Logs tables. Shows the spinner BEFORE the
+         first load resolves so the empty-state copy doesn't
+         flash on initial paint. -->
+    <div x-show="!snapshotsLoaded" class="loading-state">
+      <span class="spin-lg" aria-hidden="true"></span>
+      <span x-text="t('loading.section')"></span>
+    </div>
+
+    <!-- Empty state (only after loading completes). -->
+    <div x-show="snapshotsLoaded && !configBackupSaved.length"
+         class="text-center py-8 px-4 fs-sm text-[var(--text-dim)] italic">
+      <svg width="32" height="32" class="text-[var(--text-faint)] mx-auto mb-2" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-folder"/>
+      </svg>
+      <div x-text="t('admin.config_backup.saved_empty')"></div>
+    </div>
+
+    <!-- Saved snapshots table — column shape and value styling
+         matches Admin → Backups for cross-tab consistency:
+         thead chrome on a `--surface-2` band, value cells in
+         `mono fs-xs text-[var(--text-dim)]`, plus a "Produced
+         by" column carrying the snapshot's baked-in app_version. -->
+    <div x-show="snapshotsLoaded && configBackupSaved.length" class="overflow-x-auto scrollbar">
+      <table class="w-full fs-sm">
+        <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+        <tr>
+          <th class="text-start px-4 py-2" x-text="t('columns.name')"></th>
+          <th class="text-start px-4 py-2" x-text="t('columns.size')"></th>
+          <th class="text-start px-4 py-2" x-text="t('columns.created')"></th>
+          <th class="text-start px-4 py-2" x-text="t('columns.produced_by')"></th>
+          <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
+        </tr>
+        </thead>
+        <tbody>
+        <template x-for="f in configBackupSaved" :key="f.name">
+          <tr class="border-t border-[var(--border)]">
+            <td class="px-4 py-2 mono fs-xs" x-text="f.name"></td>
+            <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtBytes(f.size)"></td>
+            <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtDate(f.mtime)"></td>
+            <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="f.version || '—'"></td>
+            <td class="px-4 py-2 text-end">
+              <!-- Action-button row — same pattern as Admin →
+                   Users (`.user-action-btn` 26×26 icon-only
+                   buttons + `.user-action-sep` divider before
+                   the destructive action). Operator-flagged to
+                   unify cross-tab; all admin tables now share
+                   the icon-row affordance. -->
+              <div class="inline-flex items-center gap-0.5 justify-end user-actions">
+                <a :href="'/api/admin/config-backup/saved/' + encodeURIComponent(f.name)"
+                   download
+                   class="user-action-btn"
+                   :title="t('actions.download')"
+                   :aria-label="t('actions.download')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
+                  </svg>
+                </a>
+                <button type="button"
+                        @click="restoreConfigBackupSaved(f.name)"
+                        :disabled="configBackupBusy"
+                        class="user-action-btn"
+                        :title="t('actions.restore')"
+                        :aria-label="t('actions.restore')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-ccw"/>
+                  </svg>
+                </button>
+                <span class="user-action-sep"></span>
+                <button type="button"
+                        @click="deleteConfigBackupSaved(f.name)"
+                        :disabled="configBackupBusy"
+                        class="user-action-btn user-action-btn--danger"
+                        :title="t('actions.delete')"
+                        :aria-label="t('actions.delete')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+                  </svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+        </template>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>

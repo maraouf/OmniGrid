@@ -1,15 +1,18 @@
-      <section x-show="settingsSection === 'language'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-info"/></svg>
-          <h3 class="font-semibold fs-md" x-text="t('settings.language.title')"></h3>
-        </div>
-        <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('settings.language.description')"></p>
-        <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.language.label')"></label>
-        <select :value="lang" @change="setLang($event.target.value)"
-                class="fs-sm min-w-[200px]">
-          <template x-for="l in availableLanguages" :key="l.code">
-            <option :value="l.code" x-text="l.name + ' (' + l.code + ')'"></option>
-          </template>
-        </select>
-      </section>
+<!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
+<section x-show="settingsSection === 'language'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+  <div class="flex items-center gap-2 mb-2">
+    <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-info"/>
+    </svg>
+    <h3 class="font-semibold fs-md" x-text="t('settings.language.title')"></h3>
+  </div>
+  <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('settings.language.description')"></p>
+  <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.language.label')"></label>
+  <select :value="lang" @change="setLang($event.target.value)"
+          class="fs-sm min-w-[200px]">
+    <template x-for="l in availableLanguages" :key="l.code">
+      <option :value="l.code" x-text="l.name + ' (' + l.code + ')'"></option>
+    </template>
+  </select>
+</section>
 

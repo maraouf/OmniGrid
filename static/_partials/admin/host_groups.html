@@ -1,452 +1,497 @@
-      <section x-show="adminTab==='host_groups'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <!-- Spacing matches the standardised admin-tab pattern
-             : `mb-2` on title row, no top-margin on
-             the description paragraphs, `mb-3` on the last
-             paragraph for separation from the editor below. -->
-        <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
-          <h3 class="font-semibold fs-md" x-text="t('admin_hosts.groups.heading')"></h3>
-        </div>
-        <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug max-w-[720px]"
-           x-text="t('admin_hosts.groups.intro')"></p>
-        <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
-           x-text="t('admin_hosts.groups.nesting_hint')"></p>
+<!--suppress HtmlUnknownAttribute -->
+<section x-show="adminTab==='host_groups'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+  <!-- Spacing matches the standardised admin-tab pattern
+       : `mb-2` on title row, no top-margin on
+       the description paragraphs, `mb-3` on the last
+       paragraph for separation from the editor below. -->
+  <div class="flex items-center gap-2 mb-2">
+    <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+    </svg>
+    <h3 class="font-semibold fs-md" x-text="t('admin_hosts.groups.heading')"></h3>
+  </div>
+  <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug max-w-[720px]"
+     x-text="t('admin_hosts.groups.intro')"></p>
+  <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
+     x-text="t('admin_hosts.groups.nesting_hint')"></p>
 
-        <div x-show="(hostGroups || []).length === 0"
-             class="fs-sm text-[var(--text-faint)] italic mb-3"
-             x-text="t('admin_hosts.groups.empty')"></div>
+  <div x-show="(hostGroups || []).length === 0"
+       class="fs-sm text-[var(--text-faint)] italic mb-3"
+       x-text="t('admin_hosts.groups.empty')"></div>
 
-        <!-- Bulk-toggle bar — collapse / expand the children of every
-             top-level group at once. Saves the operator from clicking
-             through every parent's chevron when the editor list grows
-             past ~5 parents. Only renders when there's at least one
-             top-level group with children to toggle. -->
-        <!-- Bulk collapse / expand strip — merged parents + children
-             onto one row so the operator's "open / close everything"
-             affordances live together. Parents bulk operates on the
-             parent-self collapse axis (hides each top-level group's
-             full edit form, leaving only the compact summary line);
-             children bulk operates on the children-collapse axis
-             (hides each parent's sub-group rows). The two halves are
-             independently controllable and independently visible —
-             the parents bulk only renders when a top-level group
-             exists, the children bulk only when at least one parent
-             has children. `flex-wrap` lets the row break to two lines
-             on narrow viewports without needing a separate strip. -->
-        <div x-show="(hostGroups || []).filter(g => g && !g.parent_name && (g.name || '').trim()).length > 0
+  <!-- Bulk-toggle bar — collapse / expand the children of every
+       top-level group at once. Saves the operator from clicking
+       through every parent's chevron when the editor list grows
+       past ~5 parents. Only renders when there's at least one
+       top-level group with children to toggle. -->
+  <!-- Bulk collapse / expand strip — merged parents + children
+       onto one row so the operator's "open / close everything"
+       affordances live together. Parents bulk operates on the
+       parent-self collapse axis (hides each top-level group's
+       full edit form, leaving only the compact summary line);
+       children bulk operates on the children-collapse axis
+       (hides each parent's sub-group rows). The two halves are
+       independently controllable and independently visible —
+       the parents bulk only renders when a top-level group
+       exists, the children bulk only when at least one parent
+       has children. `flex-wrap` lets the row break to two lines
+       on narrow viewports without needing a separate strip. -->
+  <div x-show="(hostGroups || []).filter(g => g && !g.parent_name && (g.name || '').trim()).length > 0
                      || (hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
-             class="flex items-center gap-2 mb-3 flex-wrap">
-          <button type="button"
-                  x-show="(hostGroups || []).filter(g => g && !g.parent_name && (g.name || '').trim()).length > 0"
-                  @click="collapseAllHostGroupParents()"
-                  class="host-group-chip host-group-chip--neutral"
-                  :title="t('admin_hosts.groups.collapse_all_parents_title')">
-            <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
-            <span x-text="t('admin_hosts.groups.collapse_all_parents')"></span>
-          </button>
-          <button type="button"
-                  x-show="(hostGroups || []).filter(g => g && !g.parent_name && (g.name || '').trim()).length > 0"
-                  @click="expandAllHostGroupParents()"
-                  class="host-group-chip host-group-chip--neutral"
-                  :title="t('admin_hosts.groups.expand_all_parents_title')">
-            <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" style="transform: rotate(90deg);"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-            <span x-text="t('admin_hosts.groups.expand_all_parents')"></span>
-          </button>
-          <button type="button"
-                  x-show="(hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
-                  @click="collapseAllHostGroupChildren()"
-                  class="host-group-chip host-group-chip--neutral"
-                  :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group\'s sub-rows'">
-            <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
-            <span x-text="t('admin_hosts.groups.collapse_all') || 'Collapse all children'"></span>
-          </button>
-          <button type="button"
-                  x-show="(hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
-                  @click="expandAllHostGroupChildren()"
-                  class="host-group-chip host-group-chip--neutral"
-                  :title="t('admin_hosts.groups.expand_all_title') || 'Show every parent group\'s sub-rows'">
-            <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" style="transform: rotate(90deg);"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-            <span x-text="t('admin_hosts.groups.expand_all') || 'Expand all children'"></span>
-          </button>
-        </div>
+       class="flex items-center gap-2 mb-3 flex-wrap">
+    <button type="button"
+            x-show="(hostGroups || []).filter(g => g && !g.parent_name && (g.name || '').trim()).length > 0"
+            @click="collapseAllHostGroupParents()"
+            class="host-group-chip host-group-chip--neutral"
+            :title="t('admin_hosts.groups.collapse_all_parents_title')">
+      <svg width="10" height="10" stroke-width="2.4" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/>
+      </svg>
+      <span x-text="t('admin_hosts.groups.collapse_all_parents')"></span>
+    </button>
+    <button type="button"
+            x-show="(hostGroups || []).filter(g => g && !g.parent_name && (g.name || '').trim()).length > 0"
+            @click="expandAllHostGroupParents()"
+            class="host-group-chip host-group-chip--neutral"
+            :title="t('admin_hosts.groups.expand_all_parents_title')">
+      <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" style="transform: rotate(90deg);">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+      </svg>
+      <span x-text="t('admin_hosts.groups.expand_all_parents')"></span>
+    </button>
+    <button type="button"
+            x-show="(hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
+            @click="collapseAllHostGroupChildren()"
+            class="host-group-chip host-group-chip--neutral"
+            :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group\'s sub-rows'">
+      <svg width="10" height="10" stroke-width="2.4" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/>
+      </svg>
+      <span x-text="t('admin_hosts.groups.collapse_all') || 'Collapse all children'"></span>
+    </button>
+    <button type="button"
+            x-show="(hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
+            @click="expandAllHostGroupChildren()"
+            class="host-group-chip host-group-chip--neutral"
+            :title="t('admin_hosts.groups.expand_all_title') || 'Show every parent group\'s sub-rows'">
+      <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" style="transform: rotate(90deg);">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+      </svg>
+      <span x-text="t('admin_hosts.groups.expand_all') || 'Expand all children'"></span>
+    </button>
+  </div>
 
-        <div class="space-y-2 hosts-config-page-bottom-pad">
-          <template x-for="{g, origIdx, listIdx} in pagedGroupsForEditor()" :key="'g' + origIdx">
-            <div class="host-group-card border rounded-md p-3 transition-colors"
-                 :data-host-group-card="origIdx"
-                 :class="g.parent_name
+  <div class="space-y-2 hosts-config-page-bottom-pad">
+    <template x-for="{g, origIdx, listIdx} in pagedGroupsForEditor()" :key="'g' + origIdx">
+      <div class="host-group-card border rounded-md p-3 transition-colors"
+           :data-host-group-card="origIdx"
+           :class="g.parent_name
                           ? 'host-group-card--sub bg-[var(--surface)] ms-6 border-[var(--border)]'
                           : 'host-group-card--top bg-[var(--surface-2)] border-[var(--border-bright)]'">
-              <!-- Children-collapse toggle + add-sub-group button on
-                   top-level groups. The toggle hides every sub-group
-                   row under this parent so the editor stays compact
-                   when adding new items further down the page (state
-                   persists by parent name in localStorage). The "+"
-                   button creates a new sub-group with `parent_name`
-                   already set to this parent — the operator skips
-                   the parent dropdown entirely. Both render on every
-                   top-level row (the toggle is hidden when there are
-                   no children yet, but the "+" stays visible). -->
-              <div x-show="!g.parent_name && (g.name || '').trim()"
-                   class="flex items-center gap-2 mb-2 -mt-1 flex-wrap">
-                <!-- Parent-self collapse — hides the parent group's
-                     own edit form (number / name / parent / range)
-                     and shows a compact summary line below. Distinct
-                     from the children-collapse toggle to its right
-                     which only hides the parent's sub-rows. -->
-                <button type="button"
-                        @click="toggleHostGroupParentCollapsed(g.name)"
-                        class="host-group-chip host-group-chip--neutral"
-                        :title="t('admin_hosts.groups.parent_toggle_title')">
-                  <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" :style="!isHostGroupParentCollapsed(g.name) ? 'transform: rotate(90deg)' : ''"><use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-chevron-right'"/></svg>
-                  <span x-text="isHostGroupParentCollapsed(g.name)
+        <!-- Children-collapse toggle + add-sub-group button on
+             top-level groups. The toggle hides every sub-group
+             row under this parent so the editor stays compact
+             when adding new items further down the page (state
+             persists by parent name in localStorage). The "+"
+             button creates a new sub-group with `parent_name`
+             already set to this parent — the operator skips
+             the parent dropdown entirely. Both render on every
+             top-level row (the toggle is hidden when there are
+             no children yet, but the "+" stays visible). -->
+        <div x-show="!g.parent_name && (g.name || '').trim()"
+             class="flex items-center gap-2 mb-2 -mt-1 flex-wrap">
+          <!-- Parent-self collapse — hides the parent group's
+               own edit form (number / name / parent / range)
+               and shows a compact summary line below. Distinct
+               from the children-collapse toggle to its right
+               which only hides the parent's sub-rows. -->
+          <button type="button"
+                  @click="toggleHostGroupParentCollapsed(g.name)"
+                  class="host-group-chip host-group-chip--neutral"
+                  :title="t('admin_hosts.groups.parent_toggle_title')">
+            <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" :style="!isHostGroupParentCollapsed(g.name) ? 'transform: rotate(90deg)' : ''">
+              <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-chevron-right'"/>
+            </svg>
+            <span x-text="isHostGroupParentCollapsed(g.name)
                                   ? t('admin_hosts.groups.parent_show')
                                   : t('admin_hosts.groups.parent_hide')"></span>
-                </button>
-                <button type="button"
-                        x-show="hostGroupChildCount(g.name) > 0"
-                        @click="toggleHostGroupChildrenCollapsed(g.name)"
-                        class="host-group-chip host-group-chip--neutral"
-                        :title="t('admin_hosts.groups.children_toggle_title')">
-                  <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" :style="!isHostGroupChildrenCollapsed(g.name) ? 'transform: rotate(90deg)' : ''"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-                  <span x-text="(isHostGroupChildrenCollapsed(g.name)
+          </button>
+          <button type="button"
+                  x-show="hostGroupChildCount(g.name) > 0"
+                  @click="toggleHostGroupChildrenCollapsed(g.name)"
+                  class="host-group-chip host-group-chip--neutral"
+                  :title="t('admin_hosts.groups.children_toggle_title')">
+            <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" :style="!isHostGroupChildrenCollapsed(g.name) ? 'transform: rotate(90deg)' : ''">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+            </svg>
+            <span x-text="(isHostGroupChildrenCollapsed(g.name)
                                   ? t('admin_hosts.groups.children_show')
                                   : t('admin_hosts.groups.children_hide'))
                                 + ' (' + hostGroupChildCount(g.name) + ')'"></span>
-                </button>
-                <button type="button"
-                        x-show="isAdmin()"
-                        @click="addHostSubGroup(g.name)"
-                        class="host-group-chip host-group-chip--success"
-                        :title="t('admin_hosts.groups.add_subgroup_title', { parent: g.name })">
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-                       stroke="currentColor" stroke-width="2.6"
-                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <line x1="12" y1="5" x2="12" y2="19"/>
-                    <line x1="5" y1="12" x2="19" y2="12"/>
-                  </svg>
-                  <span x-text="t('admin_hosts.groups.add_subgroup')"></span>
-                </button>
-                <!-- Live preview of how the group will render in the
-                     Hosts view: "<number> <name>" when number is set,
-                     plain "<name>" otherwise. Operator can confirm the
-                     prefix before saving. -->
-                <span x-show="(g.name || '').trim()"
-                      class="host-group-chip host-group-chip--preview ms-auto"
-                      :title="t('admin_hosts.groups.preview_title') || 'Preview — how this group will render in the Hosts view'">
+          </button>
+          <button type="button"
+                  x-show="isAdmin()"
+                  @click="addHostSubGroup(g.name)"
+                  class="host-group-chip host-group-chip--success"
+                  :title="t('admin_hosts.groups.add_subgroup_title', { parent: g.name })">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2.6"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            <span x-text="t('admin_hosts.groups.add_subgroup')"></span>
+          </button>
+          <!-- Live preview of how the group will render in the
+               Hosts view: "<number> <name>" when number is set,
+               plain "<name>" otherwise. Operator can confirm the
+               prefix before saving. -->
+          <span x-show="(g.name || '').trim()"
+                class="host-group-chip host-group-chip--preview ms-auto"
+                :title="t('admin_hosts.groups.preview_title') || 'Preview — how this group will render in the Hosts view'">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="3"/>
                     <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/>
                   </svg>
                   <span x-text="hostGroupHeading(g)"></span>
                 </span>
-              </div>
-              <!-- Compact summary line when the parent is collapsed.
-                   Shows number / name / range start-end on one line so
-                   the operator can identify the group at a glance
-                   without expanding the form. -->
-              <div x-show="!g.parent_name && isHostGroupParentCollapsed(g.name)"
-                   class="fs-sm text-[var(--text-dim)] mono py-1 px-2 -mt-1"
-                   x-text="hostGroupCollapsedSummary(g)"></div>
-              <!-- Row 1: name, parent picker, range, controls.
-                   Wrapped in `x-show` for top-level groups so the
-                   parent-collapse toggle above can hide the entire
-                   edit form. Sub-groups (`g.parent_name` truthy) always
-                   render their form regardless of the parent's collapse
-                   state — collapsing a parent doesn't hide its kids,
-                   that's a separate toggle.
-                   Text inputs use `x-model.lazy` so the bound model
-                   only commits on blur — typing into 22+ group cards
-                   was sluggish because every keystroke re-ran
-                   `sortedGroupsForEditor()` (which walks all groups
-                   and rebuilds the rendered array) plus per-row
-                   `hostGroupChildCount` / `topLevelGroupNames` calls.
-                   With `.lazy`, the DOM input stays responsive; the
-                   @input handler still fires for the dirty-flag flip
-                   and inline-error clear (both cheap) so save-button
-                   feedback is unchanged. The expensive reactive
-                   cascade only runs once when the operator tabs away. -->
-              <div x-show="!!g.parent_name || !isHostGroupParentCollapsed(g.name)"
-                   class="grid grid-cols-1 md:grid-cols-[90px_2fr_1.3fr_100px_100px_auto] gap-3 items-end">
-                <!-- Number first — operator's preferred Tab order is
-                     NUMBER → NAME → PARENT → RANGE (digits typed first
-                     so the prefix appears before the readable name in
-                     the Hosts view). The `?` icon keeps the verbose
-                     "optional / must be unique" rule out of the form
-                     chrome. -->
-                <div>
-                  <label class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1 flex items-center gap-1 whitespace-nowrap">
-                    <span x-text="t('admin_hosts.groups.number_label_short') || t('admin_hosts.groups.number_label')"></span>
-                    <span class="host-group-help-icon"
-                          :title="t('admin_hosts.groups.number_hint')"
-                          aria-hidden="true">?</span>
-                  </label>
-                  <input type="number" x-model.lazy.number="g.number"
-                         :disabled="isReadonly()"
-                         @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_number')"
-                         class="w-full mono fs-sm py-1.5"
-                         :class="hasFieldError('group_' + origIdx + '_number') ? 'field-invalid' : ''"
-                         min="1" step="1"
-                         :placeholder="t('admin_hosts.groups.number_placeholder')">
-                  <div x-show="hasFieldError('group_' + origIdx + '_number')"
-                       class="field-error-msg"
-                       x-text="fieldError('group_' + origIdx + '_number')"></div>
-                </div>
-                <div>
-                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                         x-text="t('admin_hosts.groups.name_label')"></label>
-                  <input type="text" x-model.lazy="g.name"
-                         :disabled="isReadonly()"
-                         @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_name')"
-                         class="w-full fs-md py-1.5"
-                         :class="hasFieldError('group_' + origIdx + '_name') ? 'field-invalid' : ''"
-                         :placeholder="t('admin_hosts.groups.name_placeholder')">
-                  <div x-show="hasFieldError('group_' + origIdx + '_name')"
-                       class="field-error-msg"
-                       x-text="fieldError('group_' + origIdx + '_name')"></div>
-                </div>
-                <div>
-                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                         x-text="t('admin_hosts.groups.parent_label')"></label>
-                  <select x-model="g.parent_name"
-                          :disabled="isReadonly()"
-                          @change="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_parent')"
-                          class="w-full fs-sm py-1.5"
-                          :class="hasFieldError('group_' + origIdx + '_parent') ? 'field-invalid' : ''">
-                    <option value="" x-text="t('admin_hosts.groups.parent_none')"></option>
-                    <template x-for="p in topLevelGroupNames(origIdx)" :key="p">
-                      <option :value="p" x-text="p"></option>
-                    </template>
-                  </select>
-                  <div x-show="hasFieldError('group_' + origIdx + '_parent')"
-                       class="field-error-msg"
-                       x-text="fieldError('group_' + origIdx + '_parent')"></div>
-                </div>
-                <div>
-                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                         x-text="t('admin_hosts.groups.range_start_label')"></label>
-                  <input type="number" x-model.lazy.number="g.range_start"
-                         :disabled="isReadonly()"
-                         @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_range')"
-                         class="w-full mono fs-md py-1.5"
-                         :class="hasFieldError('group_' + origIdx + '_range') ? 'field-invalid' : ''"
-                         min="0" step="1">
-                </div>
-                <div>
-                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                         x-text="t('admin_hosts.groups.range_end_label')"></label>
-                  <input type="number" x-model.lazy.number="g.range_end"
-                         :disabled="isReadonly()"
-                         @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_range')"
-                         class="w-full mono fs-md py-1.5"
-                         :class="hasFieldError('group_' + origIdx + '_range') ? 'field-invalid' : ''"
-                         min="0" step="1">
-                </div>
-                <div x-show="hasFieldError('group_' + origIdx + '_range')"
-                     class="field-error-msg col-span-2 md:col-span-5"
-                     x-text="fieldError('group_' + origIdx + '_range')"></div>
-                <!-- Row controls (move ↑ / ↓ / delete ✕) — visually
-                     pinned to the right of row 1, but `tabindex="-1"`
-                     keeps them OUT of the natural Tab order so the
-                     operator can fill in NUMBER → NAME → PARENT →
-                     RANGE START → RANGE END → IP RANGE → SSH user →
-                     ... uninterrupted. The buttons stay mouse-
-                     clickable; keyboard users reach them via the
-                     `Move up / Move down / Remove` accesskeys
-                     (`title` attributes already describe them). -->
-                <div class="flex items-center gap-1 pb-1.5">
-                  <button type="button" x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, -1)"
-                          tabindex="-1"
-                          :disabled="listIdx === 0"
-                          class="btn btn-ghost fs-sm px-2"
-                          :class="listIdx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
-                          :title="t('admin_hosts.groups.move_up_title')">
-                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/></svg>
-                  </button>
-                  <button type="button" x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, +1)"
-                          tabindex="-1"
-                          :disabled="listIdx === sortedGroupsForEditor().length - 1"
-                          class="btn btn-ghost fs-sm px-2"
-                          :class="listIdx === sortedGroupsForEditor().length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
-                          :title="t('admin_hosts.groups.move_down_title')">
-                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
-                  </button>
-                  <button type="button" x-show="isAdmin()" @click="removeHostGroup(origIdx)"
-                          tabindex="-1"
-                          class="btn btn-ghost fs-sm text-danger px-2"
-                          :title="t('admin_hosts.groups.remove_title')"
-                          :aria-label="t('admin_hosts.groups.remove_title') || 'Remove group'">✕</button>
-                </div>
-              </div>
-              <!-- Row 2: IP range only (NUMBER moved to row 1 first
-                   column so the natural Tab order is NUMBER → NAME →
-                   PARENT → RANGE). Hidden when the parent is
-                   collapsed (top-level groups only). -->
-              <div x-show="!!g.parent_name || !isHostGroupParentCollapsed(g.name)"
-                   class="mt-2">
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1 whitespace-nowrap"
-                       x-text="t('admin_hosts.groups.ip_range_label')"></label>
-                <input type="text" x-model.lazy="g.ip_range"
+        </div>
+        <!-- Compact summary line when the parent is collapsed.
+             Shows number / name / range start-end on one line so
+             the operator can identify the group at a glance
+             without expanding the form. -->
+        <div x-show="!g.parent_name && isHostGroupParentCollapsed(g.name)"
+             class="fs-sm text-[var(--text-dim)] mono py-1 px-2 -mt-1"
+             x-text="hostGroupCollapsedSummary(g)"></div>
+        <!-- Row 1: name, parent picker, range, controls.
+             Wrapped in `x-show` for top-level groups so the
+             parent-collapse toggle above can hide the entire
+             edit form. Sub-groups (`g.parent_name` truthy) always
+             render their form regardless of the parent's collapse
+             state — collapsing a parent doesn't hide its kids,
+             that's a separate toggle.
+             Text inputs use `x-model.lazy` so the bound model
+             only commits on blur — typing into 22+ group cards
+             was sluggish because every keystroke re-ran
+             `sortedGroupsForEditor()` (which walks all groups
+             and rebuilds the rendered array) plus per-row
+             `hostGroupChildCount` / `topLevelGroupNames` calls.
+             With `.lazy`, the DOM input stays responsive; the
+             @input handler still fires for the dirty-flag flip
+             and inline-error clear (both cheap) so save-button
+             feedback is unchanged. The expensive reactive
+             cascade only runs once when the operator tabs away. -->
+        <div x-show="!!g.parent_name || !isHostGroupParentCollapsed(g.name)"
+             class="grid grid-cols-1 md:grid-cols-[90px_2fr_1.3fr_100px_100px_auto] gap-3 items-end">
+          <!-- Number first — operator's preferred Tab order is
+               NUMBER → NAME → PARENT → RANGE (digits typed first
+               so the prefix appears before the readable name in
+               the Hosts view). The `?` icon keeps the verbose
+               "optional / must be unique" rule out of the form
+               chrome. -->
+          <div>
+            <label class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1 flex items-center gap-1 whitespace-nowrap">
+              <span x-text="t('admin_hosts.groups.number_label_short') || t('admin_hosts.groups.number_label')"></span>
+              <span class="host-group-help-icon"
+                    :title="t('admin_hosts.groups.number_hint')"
+                    aria-hidden="true">?</span>
+            </label>
+            <label>
+              <input type="number" x-model.lazy.number="g.number"
+                     :disabled="isReadonly()"
+                     @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_number')"
+                     class="w-full mono fs-sm py-1.5"
+                     :class="hasFieldError('group_' + origIdx + '_number') ? 'field-invalid' : ''"
+                     min="1" step="1"
+                     :placeholder="t('admin_hosts.groups.number_placeholder')">
+            </label>
+            <div x-show="hasFieldError('group_' + origIdx + '_number')"
+                 class="field-error-msg"
+                 x-text="fieldError('group_' + origIdx + '_number')"></div>
+          </div>
+          <div>
+            <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_hosts.groups.name_label')"></label>
+            <label>
+              <input type="text" x-model.lazy="g.name"
+                     :disabled="isReadonly()"
+                     @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_name')"
+                     class="w-full fs-md py-1.5"
+                     :class="hasFieldError('group_' + origIdx + '_name') ? 'field-invalid' : ''"
+                     :placeholder="t('admin_hosts.groups.name_placeholder')">
+            </label>
+            <div x-show="hasFieldError('group_' + origIdx + '_name')"
+                 class="field-error-msg"
+                 x-text="fieldError('group_' + origIdx + '_name')"></div>
+          </div>
+          <div>
+            <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_hosts.groups.parent_label')"></label>
+            <label>
+              <select x-model="g.parent_name"
+                      :disabled="isReadonly()"
+                      @change="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_parent')"
+                      class="w-full fs-sm py-1.5"
+                      :class="hasFieldError('group_' + origIdx + '_parent') ? 'field-invalid' : ''">
+                <option value="" x-text="t('admin_hosts.groups.parent_none')"></option>
+                <template x-for="p in topLevelGroupNames(origIdx)" :key="p">
+                  <option :value="p" x-text="p"></option>
+                </template>
+              </select>
+            </label>
+            <div x-show="hasFieldError('group_' + origIdx + '_parent')"
+                 class="field-error-msg"
+                 x-text="fieldError('group_' + origIdx + '_parent')"></div>
+          </div>
+          <div>
+            <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_hosts.groups.range_start_label')"></label>
+            <label>
+              <input type="number" x-model.lazy.number="g.range_start"
+                     :disabled="isReadonly()"
+                     @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_range')"
+                     class="w-full mono fs-md py-1.5"
+                     :class="hasFieldError('group_' + origIdx + '_range') ? 'field-invalid' : ''"
+                     min="0" step="1">
+            </label>
+          </div>
+          <div>
+            <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_hosts.groups.range_end_label')"></label>
+            <label>
+              <input type="number" x-model.lazy.number="g.range_end"
+                     :disabled="isReadonly()"
+                     @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_range')"
+                     class="w-full mono fs-md py-1.5"
+                     :class="hasFieldError('group_' + origIdx + '_range') ? 'field-invalid' : ''"
+                     min="0" step="1">
+            </label>
+          </div>
+          <div x-show="hasFieldError('group_' + origIdx + '_range')"
+               class="field-error-msg col-span-2 md:col-span-5"
+               x-text="fieldError('group_' + origIdx + '_range')"></div>
+          <!-- Row controls (move ↑ / ↓ / delete ✕) — visually
+               pinned to the right of row 1, but `tabindex="-1"`
+               keeps them OUT of the natural Tab order so the
+               operator can fill in NUMBER → NAME → PARENT →
+               RANGE START → RANGE END → IP RANGE → SSH user →
+               ... uninterrupted. The buttons stay mouse-
+               clickable; keyboard users reach them via the
+               `Move up / Move down / Remove` accesskeys
+               (`title` attributes already describe them). -->
+          <div class="flex items-center gap-1 pb-1.5">
+            <button type="button" x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, -1)"
+                    tabindex="-1"
+                    :disabled="listIdx === 0"
+                    class="btn btn-ghost fs-sm px-2"
+                    :class="listIdx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
+                    :title="t('admin_hosts.groups.move_up_title')">
+              <svg width="11" height="11" stroke-width="2.4" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/>
+              </svg>
+            </button>
+            <button type="button" x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, +1)"
+                    tabindex="-1"
+                    :disabled="listIdx === sortedGroupsForEditor().length - 1"
+                    class="btn btn-ghost fs-sm px-2"
+                    :class="listIdx === sortedGroupsForEditor().length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
+                    :title="t('admin_hosts.groups.move_down_title')">
+              <svg width="11" height="11" stroke-width="2.4" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/>
+              </svg>
+            </button>
+            <button type="button" x-show="isAdmin()" @click="removeHostGroup(origIdx)"
+                    tabindex="-1"
+                    class="btn btn-ghost fs-sm text-danger px-2"
+                    :title="t('admin_hosts.groups.remove_title')"
+                    :aria-label="t('admin_hosts.groups.remove_title') || 'Remove group'">✕
+            </button>
+          </div>
+        </div>
+        <!-- Row 2: IP range only (NUMBER moved to row 1 first
+             column so the natural Tab order is NUMBER → NAME →
+             PARENT → RANGE). Hidden when the parent is
+             collapsed (top-level groups only). -->
+        <div x-show="!!g.parent_name || !isHostGroupParentCollapsed(g.name)"
+             class="mt-2">
+          <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1 whitespace-nowrap"
+                 x-text="t('admin_hosts.groups.ip_range_label')"></label>
+          <label>
+            <input type="text" x-model.lazy="g.ip_range"
+                   :disabled="isReadonly()"
+                   @input="markHostGroupDirty()"
+                   class="w-full mono fs-sm py-1.5"
+                   :placeholder="t('admin_hosts.groups.ip_range_placeholder')">
+          </label>
+        </div>
+        <!-- Row 3: SSH credentials (user / port / password).
+             Optional. Resolves at runtime in this priority
+             order: per-host → per-sub-group → per-main-group →
+             global default. Password is write-only — server
+             returns a `password_set` flag instead of the value.
+             Hidden when the parent is collapsed. -->
+        <div x-show="!!g.parent_name || !isHostGroupParentCollapsed(g.name)"
+             class="mt-3 pt-3 border-t border-dashed border-[var(--border)]">
+          <div class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-2"
+               x-text="t('admin_hosts.groups.ssh_heading')"></div>
+          <div class="grid grid-cols-1 md:grid-cols-[2fr_120px_2fr] gap-3 items-end">
+            <div>
+              <label class="block fs-2xs text-[var(--text-faint)] mb-1"
+                     x-text="t('admin_hosts.groups.ssh_user_label')"></label>
+              <label>
+                <input type="text" x-model.lazy="g.ssh.user"
                        :disabled="isReadonly()"
                        @input="markHostGroupDirty()"
                        class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_hosts.groups.ip_range_placeholder')">
-              </div>
-              <!-- Row 3: SSH credentials (user / port / password).
-                   Optional. Resolves at runtime in this priority
-                   order: per-host → per-sub-group → per-main-group →
-                   global default. Password is write-only — server
-                   returns a `password_set` flag instead of the value.
-                   Hidden when the parent is collapsed. -->
-              <div x-show="!!g.parent_name || !isHostGroupParentCollapsed(g.name)"
-                   class="mt-3 pt-3 border-t border-dashed border-[var(--border)]">
-                <div class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-2"
-                     x-text="t('admin_hosts.groups.ssh_heading')"></div>
-                <div class="grid grid-cols-1 md:grid-cols-[2fr_120px_2fr] gap-3 items-end">
-                  <div>
-                    <label class="block fs-2xs text-[var(--text-faint)] mb-1"
-                           x-text="t('admin_hosts.groups.ssh_user_label')"></label>
-                    <input type="text" x-model.lazy="g.ssh.user"
-                           :disabled="isReadonly()"
-                           @input="markHostGroupDirty()"
-                           class="w-full mono fs-sm py-1.5"
-                           :placeholder="t('admin_hosts.groups.ssh_user_placeholder')">
-                  </div>
-                  <div>
-                    <label class="block fs-2xs text-[var(--text-faint)] mb-1"
-                           x-text="t('admin_hosts.groups.ssh_port_label')"></label>
-                    <input type="number" x-model.lazy.number="g.ssh.port"
-                           :disabled="isReadonly()"
-                           @input="markHostGroupDirty()"
-                           class="w-full mono fs-sm py-1.5"
-                           min="1" max="65535" placeholder="22">
-                  </div>
-                  <div>
-                    <label class="block fs-2xs text-[var(--text-faint)] mb-1">
-                      <span x-text="t('admin_hosts.groups.ssh_password_label')"></span>
-                    </label>
-                    <span x-show="g.ssh && g.ssh.password_set"
-                          class="block fs-xs text-[var(--success)] mb-1"
-                          x-text="t('settings.secret_input.saved_hint')"></span>
-                    <div class="flex items-center gap-2">
-                      <input type="password" x-model="g.ssh.password"
-                             autocomplete="new-password"
-                             :disabled="isReadonly()"
-                             @input="markHostGroupDirty()"
-                             class="flex-1 mono fs-sm py-1.5"
-                             :placeholder="(g.ssh && g.ssh.password_set) ? t('settings.secret_input.placeholder_keep') : t('admin_hosts.groups.ssh_password_placeholder')"
-                             autocomplete="new-password">
-                      <button type="button"
-                              x-show="isAdmin() && g.ssh && g.ssh.password_set"
-                              @click="g.ssh.clear_password = !g.ssh.clear_password; markHostGroupDirty()"
-                              class="btn btn-ghost fs-xs"
-                              :class="g.ssh && g.ssh.clear_password ? 'ring-2 ring-[var(--warning)]' : ''"
-                              :title="t('admin_hosts.groups.ssh_clear_title')"
-                              x-text="(g.ssh && g.ssh.clear_password) ? t('admin_hosts.groups.ssh_clear_armed') : t('admin_hosts.groups.ssh_clear_label')"></button>
-                    </div>
-                  </div>
-                </div>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1.5"
-                   x-text="t('admin_hosts.groups.ssh_hint')"></p>
+                       :placeholder="t('admin_hosts.groups.ssh_user_placeholder')">
+              </label>
+            </div>
+            <div>
+              <label class="block fs-2xs text-[var(--text-faint)] mb-1"
+                     x-text="t('admin_hosts.groups.ssh_port_label')"></label>
+              <label>
+                <input type="number" x-model.lazy.number="g.ssh.port"
+                       :disabled="isReadonly()"
+                       @input="markHostGroupDirty()"
+                       class="w-full mono fs-sm py-1.5"
+                       min="1" max="65535" placeholder="22">
+              </label>
+            </div>
+            <div>
+              <label class="block fs-2xs text-[var(--text-faint)] mb-1">
+                <span x-text="t('admin_hosts.groups.ssh_password_label')"></span>
+              </label>
+              <span x-show="g.ssh && g.ssh.password_set"
+                    class="block fs-xs text-[var(--success)] mb-1"
+                    x-text="t('settings.secret_input.saved_hint')"></span>
+              <div class="flex items-center gap-2">
+                <label>
+                  <input type="password" x-model="g.ssh.password"
+                         :disabled="isReadonly()"
+                         @input="markHostGroupDirty()"
+                         class="flex-1 mono fs-sm py-1.5"
+                         :placeholder="(g.ssh && g.ssh.password_set) ? t('settings.secret_input.placeholder_keep') : t('admin_hosts.groups.ssh_password_placeholder')"
+                         autocomplete="new-password">
+                </label>
+                <button type="button"
+                        x-show="isAdmin() && g.ssh && g.ssh.password_set"
+                        @click="g.ssh.clear_password = !g.ssh.clear_password; markHostGroupDirty()"
+                        class="btn btn-ghost fs-xs"
+                        :class="g.ssh && g.ssh.clear_password ? 'ring-2 ring-[var(--warning)]' : ''"
+                        :title="t('admin_hosts.groups.ssh_clear_title')"
+                        x-text="(g.ssh && g.ssh.clear_password) ? t('admin_hosts.groups.ssh_clear_armed') : t('admin_hosts.groups.ssh_clear_label')"></button>
               </div>
             </div>
-          </template>
-        </div>
-
-        <!-- Pagination controls — only render when the list
-             spans more than one page. Mirrors the Hosts editor block
-             at line 3866 so the two surfaces feel uniform. The full
-             group list stays in memory; only the rendered slice is
-             windowed, so dirty tracking + parent/child cross-page
-             relationships are unaffected. -->
-        <div x-show="sortedGroupsForEditor().length > hostGroupsPerPage"
-             class="flex items-center justify-between gap-3 flex-wrap mt-3 pt-3 border-t border-[var(--border)] fs-xs">
-          <div class="flex items-center gap-2 text-[var(--text-dim)]">
-            <span x-text="t('pagination.page_n_of_m', { page: Math.min(hostGroupsPage, hostGroupsTotalPages()), total: hostGroupsTotalPages() })"></span>
-            <span class="text-[var(--text-faint)]"
-                  x-text="'· ' + sortedGroupsForEditor().length + ' total'"></span>
           </div>
-          <div class="flex items-center gap-1.5">
-            <button type="button" @click="hostGroupsGoToPage(1)"
-                    :disabled="hostGroupsPage <= 1"
-                    :class="hostGroupsPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
-                    class="btn btn-ghost fs-xs px-2"
-                    :title="t('pagination.first_page_title')">«</button>
-            <button type="button" @click="hostGroupsPrevPage()"
-                    :disabled="hostGroupsPage <= 1"
-                    :class="hostGroupsPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
-                    class="btn btn-soft fs-xs px-2.5">‹ Prev</button>
-            <input type="number" min="1" :max="hostGroupsTotalPages()"
-                   :value="Math.min(hostGroupsPage, hostGroupsTotalPages())"
-                   @change="hostGroupsGoToPage($event.target.value)"
-                   class="w-14 text-center fs-xs py-1"
-                   :title="t('pagination.jump_to_page_title')">
-            <button type="button" @click="hostGroupsNextPage()"
-                    :disabled="hostGroupsPage >= hostGroupsTotalPages()"
-                    :class="hostGroupsPage >= hostGroupsTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
-                    class="btn btn-soft fs-xs px-2.5">Next ›</button>
-            <button type="button" @click="hostGroupsGoToPage(hostGroupsTotalPages())"
-                    :disabled="hostGroupsPage >= hostGroupsTotalPages()"
-                    :class="hostGroupsPage >= hostGroupsTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
-                    class="btn btn-ghost fs-xs px-2"
-                    :title="t('pagination.last_page_title')">»</button>
-            <select :value="hostGroupsPerPage"
-                    @change="hostGroupsSetPerPage($event.target.value)"
-                    class="fs-xs py-1 ms-2"
-                    :title="t('pagination.rows_per_page_title')">
-              <option value="10">10 / page</option>
-              <option value="25">25 / page</option>
-              <option value="50">50 / page</option>
-              <option value="100">100 / page</option>
-              <option value="200">200 / page</option>
-            </select>
-          </div>
+          <p class="fs-2xs text-[var(--text-faint)] mt-1.5"
+             x-text="t('admin_hosts.groups.ssh_hint')"></p>
         </div>
+      </div>
+    </template>
+  </div>
 
-        <!-- Sticky action bar — same pattern as
-             `.hosts-config-actionbar` so the two admin surfaces
-             behave identically. Add / Collapse-all / Save / count /
-             scroll-to-top with the existing dirty-ring pattern. -->
-        <div class="hosts-config-actionbar flex items-center gap-2 flex-wrap">
-          <button type="button" x-show="isAdmin()" @click="addHostGroup()"
-                  class="btn btn-soft fs-sm"
-                  x-text="t('admin_hosts.groups.add')"></button>
-          <button type="button" x-show="isAdmin() && (hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
-                  @click="collapseAllHostGroupChildren()"
-                  class="btn btn-soft fs-sm"
-                  :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group\'s sub-rows'"
-                  x-text="t('admin_hosts.groups.collapse_all') || 'Collapse all'"></button>
-          <button type="button" x-show="isAdmin()" @click="saveHostGroups()"
-                  class="btn btn-primary fs-sm"
-                  :disabled="hostGroupsSaving"
-                  :class="hostGroupsDirty ? 'ring-2 ring-[var(--warning)]' : ''">
-            <span x-show="!hostGroupsSaving" x-text="t('actions.save')"></span>
-            <span x-show="hostGroupsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-          </button>
-          <!-- Row count — matches the host editor's "138 hosts" hint. -->
-          <span class="fs-xs text-[var(--text-faint)] mono"
-                x-show="(hostGroups || []).length > 0">
+  <!-- Pagination controls — only render when the list
+       spans more than one page. Mirrors the Hosts editor block
+       at line 3866 so the two surfaces feel uniform. The full
+       group list stays in memory; only the rendered slice is
+       windowed, so dirty tracking + parent/child cross-page
+       relationships are unaffected. -->
+  <div x-show="sortedGroupsForEditor().length > hostGroupsPerPage"
+       class="flex items-center justify-between gap-3 flex-wrap mt-3 pt-3 border-t border-[var(--border)] fs-xs">
+    <div class="flex items-center gap-2 text-[var(--text-dim)]">
+      <span x-text="t('pagination.page_n_of_m', { page: Math.min(hostGroupsPage, hostGroupsTotalPages()), total: hostGroupsTotalPages() })"></span>
+      <span class="text-[var(--text-faint)]"
+            x-text="'· ' + sortedGroupsForEditor().length + ' total'"></span>
+    </div>
+    <div class="flex items-center gap-1.5">
+      <button type="button" @click="hostGroupsGoToPage(1)"
+              :disabled="hostGroupsPage <= 1"
+              :class="hostGroupsPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
+              class="btn btn-ghost fs-xs px-2"
+              :title="t('pagination.first_page_title')">«
+      </button>
+      <button type="button" @click="hostGroupsPrevPage()"
+              :disabled="hostGroupsPage <= 1"
+              :class="hostGroupsPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
+              class="btn btn-soft fs-xs px-2.5">‹ Prev
+      </button>
+      <label>
+        <input type="number" min="1" :max="hostGroupsTotalPages()"
+               :value="Math.min(hostGroupsPage, hostGroupsTotalPages())"
+               @change="hostGroupsGoToPage($event.target.value)"
+               class="w-14 text-center fs-xs py-1"
+               :title="t('pagination.jump_to_page_title')">
+      </label>
+      <button type="button" @click="hostGroupsNextPage()"
+              :disabled="hostGroupsPage >= hostGroupsTotalPages()"
+              :class="hostGroupsPage >= hostGroupsTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
+              class="btn btn-soft fs-xs px-2.5">Next ›
+      </button>
+      <button type="button" @click="hostGroupsGoToPage(hostGroupsTotalPages())"
+              :disabled="hostGroupsPage >= hostGroupsTotalPages()"
+              :class="hostGroupsPage >= hostGroupsTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
+              class="btn btn-ghost fs-xs px-2"
+              :title="t('pagination.last_page_title')">»
+      </button>
+      <label>
+        <select :value="hostGroupsPerPage"
+                @change="hostGroupsSetPerPage($event.target.value)"
+                class="fs-xs py-1 ms-2"
+                :title="t('pagination.rows_per_page_title')">
+          <option value="10">10 / page</option>
+          <option value="25">25 / page</option>
+          <option value="50">50 / page</option>
+          <option value="100">100 / page</option>
+          <option value="200">200 / page</option>
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <!-- Sticky action bar — same pattern as
+       `.hosts-config-actionbar` so the two admin surfaces
+       behave identically. Add / Collapse-all / Save / count /
+       scroll-to-top with the existing dirty-ring pattern. -->
+  <div class="hosts-config-actionbar flex items-center gap-2 flex-wrap">
+    <button type="button" x-show="isAdmin()" @click="addHostGroup()"
+            class="btn btn-soft fs-sm"
+            x-text="t('admin_hosts.groups.add')"></button>
+    <button type="button" x-show="isAdmin() && (hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
+            @click="collapseAllHostGroupChildren()"
+            class="btn btn-soft fs-sm"
+            :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group\'s sub-rows'"
+            x-text="t('admin_hosts.groups.collapse_all') || 'Collapse all'"></button>
+    <button type="button" x-show="isAdmin()" @click="saveHostGroups()"
+            class="btn btn-primary fs-sm"
+            :disabled="hostGroupsSaving"
+            :class="hostGroupsDirty ? 'ring-2 ring-[var(--warning)]' : ''">
+      <span x-show="!hostGroupsSaving" x-text="t('actions.save')"></span>
+      <span x-show="hostGroupsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+    </button>
+    <!-- Row count — matches the host editor's "138 hosts" hint. -->
+    <span class="fs-xs text-[var(--text-faint)] mono"
+          x-show="(hostGroups || []).length > 0">
             <span x-text="(hostGroups || []).length"></span>
             <span x-text="(hostGroups || []).length === 1
                           ? (t('admin_hosts.groups.count_one') || 'group')
                           : (t('admin_hosts.groups.count_many') || 'groups')"></span>
           </span>
-          <span x-show="hostGroupsDirty"
-                class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
+    <span x-show="hostGroupsDirty"
+          class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('admin_hosts.groups.unsaved')"></span>
           </span>
-          <span class="ms-auto"></span>
-          <button type="button" x-show="(hostGroups || []).length > 5"
-                  @click="scrollToHostGroupsTop()"
-                  class="btn btn-soft fs-xs"
-                  :title="t('hosts_actions.top_title')"
-                  x-text="t('hosts_actions.top')"></button>
-        </div>
-      </section>
+    <span class="ms-auto"></span>
+    <button type="button" x-show="(hostGroups || []).length > 5"
+            @click="scrollToHostGroupsTop()"
+            class="btn btn-soft fs-xs"
+            :title="t('hosts_actions.top_title')"
+            x-text="t('hosts_actions.top')"></button>
+  </div>
+</section>
 
-      <!-- ASSET INVENTORY TAB — two auth modes:
-           OAuth2 client_credentials (legacy) OR a static lifetime
-           token POSTed to services.php. Manual refresh only — the
-           cache at /app/data/asset_inventory.json is the source of
-           truth that the host drawer reads. -->
+<!-- ASSET INVENTORY TAB — two auth modes:
+     OAuth2 client_credentials (legacy) OR a static lifetime
+     token POSTed to services.php. Manual refresh only — the
+     cache at /app/data/asset_inventory.json is the source of
+     truth that the host drawer reads. -->
