@@ -520,6 +520,18 @@ async def _lifespan(_app: FastAPI):
         _host_baseline_sampler.host_baseline_sampler_loop(),
         name="host-baseline-sampler",
     )
+    # HTTP / TLS / DNS health probe — seventh host-stats provider.
+    # Active per-URL TCP / TLS-cert / DNS sampler. Dormant when
+    # ``"http_probe"`` isn't in ``host_stats_source`` OR the master
+    # ``http_probe_enabled`` setting is false — same dormant-but-
+    # ticking shape as the other lifespan samplers so a runtime toggle
+    # lands without restart. Same lifespan-only + skip-don't-synthesize
+    # discipline as the other samplers.
+    from logic import host_http_sampler as _host_http_sampler
+    host_http_sampler = asyncio.create_task(
+        _host_http_sampler.host_http_sampler_loop(),
+        name="host-http-sampler",
+    )
     # Persistent-log pruner — sweeps /app/data/logs/ once per
     # hour, deletes any omnigrid-YYYY-MM-DD.log older than the
     # operator-tunable retention window.
@@ -539,7 +551,7 @@ async def _lifespan(_app: FastAPI):
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (telegram_listener, log_pruner, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
+        for task in (telegram_listener, log_pruner, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
             task.cancel()
             try:
                 await task
@@ -1104,6 +1116,30 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_ping_samples_host_ts
             ON ping_samples(host_id, ts DESC);
+
+        -- HTTP / TLS-cert / DNS health probe (seventh host-stats provider).
+        -- ONE row per (host_id, url, ts). Written by
+        -- logic/host_http_sampler.py at
+        -- tuning_http_probe_sample_interval_seconds cadence (default
+        -- 0 = inherit global stats interval). Pruned to
+        -- tuning_stats_history_days. Composite primary key allows
+        -- multiple URLs per host per tick (operator monitoring
+        -- several services on one host).
+        CREATE TABLE IF NOT EXISTS host_http_samples (
+            ts                   INTEGER NOT NULL,
+            host_id              TEXT    NOT NULL,
+            url                  TEXT    NOT NULL,
+            status_code          INTEGER,
+            status_ok            INTEGER NOT NULL,
+            content_match_ok     INTEGER NOT NULL,
+            tls_expires_in_days  INTEGER,
+            dns_resolved         INTEGER NOT NULL,
+            latency_ms           INTEGER,
+            error                TEXT,
+            PRIMARY KEY (ts, host_id, url)
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_http_samples_host_ts
+            ON host_http_samples(host_id, ts DESC);
 
         -- Port-scan provider results. ONE ROW PER OPEN PORT per scan;
         -- closed-port rows would balloon the table on multi-host scans.
@@ -3116,6 +3152,15 @@ class SettingsIn(BaseModel):
     snmp_v3_auth_key: Optional[str] = None
     snmp_v3_priv_key: Optional[str] = None
     snmp_aliases: Optional[dict] = None
+    # HTTP / TLS-cert / DNS health probe — seventh host-stats provider.
+    # Master toggle (plain setting, legacy shape matching the other
+    # providers) + alias map (Docker hostname → probe URL when the
+    # curated row's ``url`` field isn't the right probe target — same
+    # use case as ``webmin_aliases`` / ``snmp_aliases``). Per-host
+    # opt-in via ``hosts_config[].http_probe = {enabled, urls?,
+    # content_match?, accepted_status_codes?, verify_tls?}``.
+    http_probe_enabled: Optional[bool] = None
+    http_probe_aliases: Optional[str] = None  # CSV: "docker_host=probe_url,..."
     # Per-provider chip color — operator-customisable hex colour
     # for the per-host provider chip rendered in the Hosts view + the
     # drawer's "Enabled agents" card. Each value is a 7-char `#RRGGBB`
@@ -3128,6 +3173,7 @@ class SettingsIn(BaseModel):
     provider_color_webmin: Optional[str] = None
     provider_color_ping: Optional[str] = None
     provider_color_snmp: Optional[str] = None
+    provider_color_http_probe: Optional[str] = None
     # Scheduler timezone — IANA name (e.g. "Africa/Cairo"). When set,
     # daily/weekly/monthly schedule anchors are computed in THIS zone
     # instead of the container's localtime. Containers default to UTC;
@@ -3450,6 +3496,18 @@ class SettingsIn(BaseModel):
     tuning_webmin_probe_timeout_seconds: Optional[str] = None
     tuning_node_exporter_failure_pause_rounds: Optional[str] = None
     tuning_ping_failure_pause_rounds: Optional[str] = None
+    # HTTP probe tunables — seventh provider. Operator-tunable per-call
+    # wall-clock + sampler concurrency + per-tick cadence + per-(host)
+    # auto-pause threshold + DNS sub-probe wall-clock + TLS cert
+    # warning days + per-host success / failure cache TTLs.
+    tuning_http_probe_timeout_seconds: Optional[str] = None
+    tuning_http_probe_concurrency: Optional[str] = None
+    tuning_http_probe_sample_interval_seconds: Optional[str] = None
+    tuning_http_probe_failure_pause_rounds: Optional[str] = None
+    tuning_http_probe_dns_timeout_seconds: Optional[str] = None
+    tuning_http_probe_cert_warning_days: Optional[str] = None
+    tuning_http_probe_host_cache_ttl_seconds: Optional[str] = None
+    tuning_http_probe_host_fail_cache_ttl_seconds: Optional[str] = None
     # stat-bar thresholds (frontend-consumed via /api/me).
     tuning_stat_bar_warn_pct: Optional[str] = None
     tuning_stat_bar_crit_pct: Optional[str] = None
@@ -3958,6 +4016,15 @@ async def api_get_settings(request: Request):
                 "_SNMP_IMPORT_ERROR", "",
             ))(),
         },
+        # HTTP / TLS / DNS probe — seventh host-stats provider.
+        # ``aliases`` is a CSV string (not JSON) because the value is
+        # simpler than the other aliases maps + the operator types it
+        # directly in the UI textarea rather than an editor — keeping
+        # it CSV avoids the JSON-escape round-trip.
+        "http_probe": {
+            "enabled": get_setting_bool(Settings.HTTP_PROBE_ENABLED),
+            "aliases": get_setting(Settings.HTTP_PROBE_ALIASES) or "",
+        },
         # Per-provider chip colour overrides. Empty string means
         # "use the SPA's built-in default" — the SPA's `providerColor()`
         # helper falls back to the same default constant. Round-tripped
@@ -3968,6 +4035,7 @@ async def api_get_settings(request: Request):
         "provider_color_webmin": get_setting(Settings.PROVIDER_COLOR_WEBMIN) or "",
         "provider_color_ping": get_setting(Settings.PROVIDER_COLOR_PING) or "",
         "provider_color_snmp": get_setting(Settings.PROVIDER_COLOR_SNMP) or "",
+        "provider_color_http_probe": get_setting(Settings.PROVIDER_COLOR_HTTP_PROBE) or "",
         # SSH console — global defaults (Admin → SSH). Secrets
         # redacted per CLAUDE.md's ``_set`` flag contract: the browser
         # learns only whether a private key / passphrase has been set.
@@ -4277,7 +4345,7 @@ async def _api_set_settings_inner(s, request, _portainer):
         raw = (s.host_stats_source or "").strip()
         parts = {t.strip().lower() for t in raw.split(",") if t.strip()}
         parts.discard("none")
-        valid = {"beszel", "node_exporter", "pulse", "webmin", "ping", "snmp"}
+        valid = {"beszel", "node_exporter", "pulse", "webmin", "ping", "snmp", "http_probe"}
         unknown = parts - valid
         if unknown:
             raise HTTPException(
@@ -4363,6 +4431,35 @@ async def _api_set_settings_inner(s, request, _portainer):
         set_setting(Settings.PING_DEFAULT_PORT, str(p))
     if s.ping_use_icmp is not None:
         set_setting(Settings.PING_USE_ICMP, "true" if s.ping_use_icmp else "false")
+    # HTTP / TLS / DNS probe — seventh host-stats provider. Master
+    # toggle plus alias CSV ("docker_host=probe_url,...") for hosts
+    # where the curated row's ``url`` field isn't the right probe
+    # target. Alias values normalised: rstrip trailing slash, dedupe
+    # by key (last-write-wins), keep input order otherwise.
+    if s.http_probe_enabled is not None:
+        set_setting(Settings.HTTP_PROBE_ENABLED, "true" if s.http_probe_enabled else "false")
+    if s.http_probe_aliases is not None:
+        raw = (s.http_probe_aliases or "").strip()
+        if raw:
+            pairs: list[str] = []
+            seen_keys: set[str] = set()
+            for token in raw.split(","):
+                token = token.strip()
+                if not token or "=" not in token:
+                    continue
+                k, _, v = token.partition("=")
+                k = k.strip()
+                v = v.strip().rstrip("/")
+                if not k or not v:
+                    continue
+                if k in seen_keys:
+                    # last-write-wins — replace the prior entry
+                    pairs = [p for p in pairs if not p.startswith(k + "=")]
+                seen_keys.add(k)
+                pairs.append(f"{k}={v}")
+            set_setting(Settings.HTTP_PROBE_ALIASES, ",".join(pairs))
+        else:
+            set_setting(Settings.HTTP_PROBE_ALIASES, "")
     # Port-scan provider — master toggle + global defaults. Per-host
     # overrides live on `hosts_config[].port_scan` and persist via the
     # existing `hosts_config` setting; no separate aliases store.
@@ -4456,6 +4553,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             "provider_color_beszel", "provider_color_pulse",
             "provider_color_node_exporter", "provider_color_webmin",
             "provider_color_ping", "provider_color_snmp",
+            "provider_color_http_probe",
     ):
         _val = getattr(s, _field, None)
         if _val is None:
@@ -5137,6 +5235,11 @@ async def _api_set_settings_inner(s, request, _portainer):
         "snmp_default_community", "snmp_default_version", "snmp_default_port",
         "snmp_v3_user", "snmp_v3_auth_key", "snmp_v3_priv_key",
         "snmp_aliases",
+        # HTTP / TLS / DNS probe. Master toggle + aliases live here;
+        # per-host config (urls / content_match / accepted codes /
+        # verify_tls) is on `hosts_config[].http_probe` and rides the
+        # generic hosts_config cache-invalidation path.
+        "http_probe_enabled", "http_probe_aliases",
     }
     if _host_provider_fields & set(s.model_dump(exclude_unset=True).keys()):
         invalidate_host_provider_cache()
@@ -9352,6 +9455,15 @@ _webmin_host_fail_cache: dict[str, tuple[float, dict]] = {}
 _snmp_host_cache: dict[tuple[Any, frozenset[str] | None], tuple[float, dict]] = {}
 _snmp_host_fail_cache: dict[tuple[Any, frozenset[str] | None], tuple[float, dict]] = {}
 
+# Per-host HTTP probe result cache — same pattern as the Webmin / SNMP
+# pairs but single-dict with a `had_data` flag in the tuple driving
+# which TTL to apply (success vs failure). The cached value is the
+# subset of `host_http_*` fields the helper stamped, so a hit reuses
+# them without re-running the SELECT. TTLs operator-tunable via
+# `tuning_http_probe_host_cache_ttl_seconds` (default 30s) +
+# `tuning_http_probe_host_fail_cache_ttl_seconds` (default 5s).
+_http_probe_host_cache: dict[str, tuple[float, dict, bool]] = {}
+
 
 def invalidate_host_provider_cache() -> None:
     """Drop the cached provider state + per-host Webmin results.
@@ -9376,6 +9488,8 @@ def invalidate_host_provider_cache() -> None:
     # port without waiting out the 30s TTL.
     _snmp_host_cache.clear()
     _snmp_host_fail_cache.clear()
+    # HTTP probe per-host cache — same invalidation contract.
+    _http_probe_host_cache.clear()
 
 
 def _compute_host_provider_cache_key() -> tuple[set[str], tuple]:
@@ -10503,6 +10617,67 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     if _t > 0 and _u > 0:
         merged["host_disk_percent"] = round(min(100.0, (_u / _t) * 100.0), 2)
 
+    # HTTP / TLS / DNS probe — seventh host-stats provider. Reads
+    # persisted samples from `host_http_samples` via the shared helper
+    # so this endpoint AND `/api/hosts/list` (skeleton) surface the
+    # same on-disk state without duplicating the SELECT. No live probe
+    # here — the lifespan sampler owns the wire calls; this endpoint
+    # just stamps the latest persisted result onto the merged dict.
+    # Per-host enable gate AND master toggle: the row's
+    # `http_probe.enabled` must be True AND `http_probe_enabled` master
+    # setting must be on. When neither is set, skip entirely so the
+    # merged dict doesn't carry stale fields from a previous enrolment.
+    # Per-host in-memory cache mirrors the Webmin / SNMP pattern: a
+    # success TTL avoids re-running the SELECT on every fan-out call,
+    # a shorter failure TTL keeps recovery snappy. Reads via
+    # `tuning_int` per-call so an Admin → Config edit lands without
+    # restart.
+    try:
+        _raw_http = h.get("http_probe")
+        _http_cfg: dict = _raw_http if isinstance(_raw_http, dict) else {}
+        _http_master = get_setting_bool(Settings.HTTP_PROBE_ENABLED)
+        if (
+            "http_probe" in active
+            and _http_master
+            and _http_cfg.get("enabled") is True
+            and not _is_provider_paused(h["id"], "http_probe")
+        ):
+            from logic.host_http_sampler import populate_host_http_merge
+            now_http = time.time()
+            http_success_ttl = tuning.tuning_int(Tunable.HTTP_PROBE_HOST_CACHE_TTL_SECONDS)
+            http_fail_ttl = tuning.tuning_int(Tunable.HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS)
+            cache_key = h["id"]
+            cached = _http_probe_host_cache.get(cache_key)
+            cached_fields: dict = {}
+            if cached and (now_http - cached[0]) < (http_success_ttl if cached[2] else http_fail_ttl):
+                cached_fields = cached[1]
+            else:
+                pre_keys = {
+                    k: merged.get(k) for k in (
+                        "host_http_status_ok", "host_http_status_code",
+                        "host_http_content_match_ok", "host_http_tls_expires_in_days",
+                        "host_http_tls_subject", "host_http_dns_resolved",
+                        "host_http_latency_ms", "host_http_error",
+                        "host_http_url_count_total", "host_http_url_count_ok",
+                        "host_http_urls", "host_http_ts",
+                    )
+                }
+                populate_host_http_merge(h["id"], merged)
+                post = {k: merged.get(k) for k in pre_keys}
+                # Cache the just-stamped fields so the next fan-out call
+                # reuses them. `had_data` flag drives the TTL choice
+                # (success = longer reuse, failure = shorter recovery).
+                had_data = bool(merged.get("host_http_url_count_total"))
+                _http_probe_host_cache[cache_key] = (now_http, post, had_data)
+                cached_fields = post
+            for k, v in cached_fields.items():
+                if v is not None:
+                    merged[k] = v
+            if merged.get("host_http_url_count_total"):
+                providers_hit.append("http_probe")
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts] http_probe merge failed for {h.get('id')!r}: {e}")
+
     # Snapshot fallback — when a provider went down mid-session,
     # fill missing host_* fields from the previous gather's persisted
     # snapshot and tag them in `_stale_fields` so the SPA can dim those
@@ -11266,6 +11441,34 @@ def _shape_host_api_row(
         # the chip in that case. `_merge_one_host` is the only writer
         # and it always stamps a dict, so no defensive coerce needed.
         "drift": s.get("drift") or {},
+        # HTTP / TLS / DNS probe — seventh host-stats provider. Per-host
+        # opt-in flag + the resolved URL list are surfaced so the SPA's
+        # `providerStates(h)` helper can decide whether to render the
+        # http_probe chip + `_hostsConfiguredForProvider('http_probe')`
+        # gates the toolbar filter visibility. The probe-result fields
+        # (`host_http_*`) are stamped by `populate_host_http_merge` AND
+        # surfaced here so the drawer card has the data without a
+        # parallel lookup.
+        "http_probe_enabled": bool((h.get("http_probe") or {}).get("enabled", False)),
+        "http_probe_urls": list((h.get("http_probe") or {}).get("urls") or []),
+        # Latest sample roll-up. Renders the drawer card + the chip
+        # state. None / empty when no sample has landed yet (cold-load
+        # before the first tick); the snapshot fallback restores these
+        # via `_stale_fields` markers if available.
+        "host_http_status_ok": s.get("host_http_status_ok"),
+        "host_http_status_code": s.get("host_http_status_code"),
+        "host_http_content_match_ok": s.get("host_http_content_match_ok"),
+        "host_http_tls_expires_in_days": s.get("host_http_tls_expires_in_days"),
+        "host_http_tls_subject": s.get("host_http_tls_subject") or "",
+        "host_http_tls_issuer": s.get("host_http_tls_issuer") or "",
+        "host_http_dns_resolved": s.get("host_http_dns_resolved"),
+        "host_http_dns_error": s.get("host_http_dns_error") or "",
+        "host_http_latency_ms": s.get("host_http_latency_ms"),
+        "host_http_error": s.get("host_http_error") or "",
+        "host_http_url_count_total": int(s.get("host_http_url_count_total") or 0),
+        "host_http_url_count_ok": int(s.get("host_http_url_count_ok") or 0),
+        "host_http_urls": list(s.get("host_http_urls") or []),
+        "host_http_ts": int(s.get("host_http_ts") or 0),
     }
 
 
@@ -11659,6 +11862,17 @@ async def api_hosts_list(force: bool = False):
         # path eventually populated detected_ports via _merge_one_host
         # but the list endpoint is the SPA's primary skeleton paint.
         _populate_detected_ports(h["id"], merged)
+        # HTTP probe — populate the merged dict from `host_http_samples`
+        # so the skeleton row surfaces the latest probe outcome (status
+        # codes, TLS expiry warning, etc.) without waiting for the
+        # per-host fan-out. Same shared-helper pattern as detected_ports
+        # above: ONE SELECT in the helper, called from both the list
+        # endpoint AND `_merge_one_host`.
+        try:
+            from logic.host_http_sampler import populate_host_http_merge as _http_populate
+            _http_populate(h["id"], merged)
+        except Exception as e:  # noqa: BLE001
+            print(f"[hosts/list] http_probe populate failed for {h.get('id')!r}: {e}")
         # Providers list is empty for snapshot-only rows — the SPA's
         # stale-rendering pipeline cues off `_stale_fields` not the
         # providers list. The next `/api/hosts/one/{id}` refresh
@@ -11855,6 +12069,13 @@ def _load_hosts_config() -> list[dict]:
             # any unset key falls through to the global default. {} =
             # "no override" (the common case).
             "snmp": _clean_host_snmp(h.get("snmp")),
+            # Per-host HTTP probe opt-in. Default OFF — operator opts
+            # in per host (mirrors ping.enabled / snmp.enabled). Carries
+            # an optional URL override list, content-match string,
+            # accepted-status-codes set, and verify_tls flag. {} = "no
+            # per-host config" (and the master toggle is OFF or no URLs
+            # to probe).
+            "http_probe": _clean_host_http_probe(h.get("http_probe")),
             # Per-host port-scan override sub-dict. Optional `enabled`
             # / `ports` / `timeout_s` / `concurrency` — any unset key
             # falls through to the global default. {} = "use globals
@@ -12132,6 +12353,66 @@ def _clean_host_snmp(raw: Any) -> dict:
     return out
 
 
+def _clean_host_http_probe(raw: Any) -> dict:
+    """Normalise the per-host ``http_probe`` sub-dict.
+
+    Accepts ``enabled`` (bool, default False), ``urls`` (list-of-str or
+    textarea content), ``content_match`` (str ≤ 256 chars, DoS guard),
+    ``accepted_status_codes`` (CSV / list), and ``verify_tls`` (bool,
+    default True). Unknown keys are dropped; malformed types collapse
+    to defaults. Empty input → empty dict (= "no per-host config" /
+    inherit-from-curated-url chain).
+
+    URLs MUST start with ``http://`` or ``https://``; non-http(s)
+    schemes are dropped silently. Each URL is whitespace-trimmed
+    and the list deduped via ``parse_urls_textarea``.
+
+    Status codes accept either a CSV string (``"200,301,302"``) OR a
+    list / int. Codes outside 100..599 are dropped. Empty list →
+    backend falls back to the 2xx default range.
+
+    Mirrors ``_clean_host_ping`` / ``_clean_host_snmp``'s opt-in
+    pattern: persist ``enabled: True`` only when the operator
+    explicitly ticked the box; omit the key otherwise so the row
+    JSON stays tight.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    if bool(raw.get("enabled")):
+        out["enabled"] = True
+    # URLs — accept list OR newline / comma-separated string. Reject
+    # anything that doesn't parse as http(s).
+    raw_urls = raw.get("urls")
+    if raw_urls is not None:
+        from logic.http_probe import parse_urls_textarea as _parse_urls
+        parsed = _parse_urls(raw_urls)
+        kept: list[str] = []
+        for u in parsed:
+            ul = u.strip().lower()
+            if ul.startswith("http://") or ul.startswith("https://"):
+                kept.append(u.strip())
+        if kept:
+            out["urls"] = kept
+    content_match = raw.get("content_match")
+    if isinstance(content_match, str):
+        s = content_match.strip()
+        if s and len(s) <= 256:
+            out["content_match"] = s
+    raw_codes = raw.get("accepted_status_codes")
+    if raw_codes is not None and raw_codes != "":
+        from logic.http_probe import parse_status_codes_csv as _parse_codes
+        codes = _parse_codes(raw_codes)
+        if codes:
+            out["accepted_status_codes"] = codes
+    if "verify_tls" in raw:
+        # Explicit boolean coercion so a literal ``false`` is preserved;
+        # missing key (or other falsy form) collapses to the default
+        # (True) at the consumer site.
+        out["verify_tls"] = bool(raw.get("verify_tls"))
+    return out
+
+
 def _clean_vendors_input(raw: Any) -> Optional[set[str]]:
     """Normalise an SNMP ``vendors`` list to the canonical lowercase set.
 
@@ -12290,6 +12571,12 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             # Per-host SNMP target alias + per-row override block.
             "snmp_name": (h.get("snmp_name") or "").strip(),
             "snmp": _clean_host_snmp(h.get("snmp")),
+            # Per-host HTTP probe override block — see
+            # `_clean_host_http_probe` for the shape contract. {} when
+            # no override is set (the common case — operator opts in
+            # by checking the per-host enable box AND relying on the
+            # curated `url` / `services[].url` chain).
+            "http_probe": _clean_host_http_probe(h.get("http_probe")),
             "enabled": bool(h.get("enabled", True)),
         }
         # host-level enable gates every per-provider enable.
@@ -12298,7 +12585,7 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
         # to drop so a malformed POST (or a future caller bypassing the
         # SPA) can't persist `enabled: true` on any provider sub-dict.
         if not seen[hid]["enabled"]:
-            for _provider_key in ("ssh", "ping", "snmp"):
+            for _provider_key in ("ssh", "ping", "snmp", "http_probe"):
                 _sub = seen[hid].get(_provider_key)
                 if isinstance(_sub, dict):
                     _sub.pop("enabled", None)
@@ -12729,6 +13016,15 @@ async def api_hosts_provider_resume(
             print(f"[hosts] provider/webmin/resume cooldown clear failed: {e}")
         _webmin_host_cache.pop(host_id, None)
         _webmin_host_fail_cache.pop(host_id, None)
+    elif provider == "http_probe":
+        # HTTP probe has no auth-cooldown timer (the probe targets are
+        # operator-curated URLs, not credentialed APIs — 401 / 403
+        # are just status outcomes, not lockout signals). The only
+        # state to bust is the per-host success / failure cache so the
+        # next probe in `_merge_one_host` reaches `populate_host_http_merge`
+        # immediately rather than serving up to
+        # `tuning_http_probe_host_cache_ttl_seconds` of stale data.
+        _http_probe_host_cache.pop(host_id, None)
     elif provider == "ping":
         # Ping cool-down keyed `(host_clean, port_int)` per-host. Walk
         # the timer's `_armed` map and drop any entry whose first key
@@ -13192,11 +13488,47 @@ async def api_hosts_discover(_u: AdminUser):
     except ValueError:
         snmp_names = []
 
+    # HTTP probe discovery — there's no provider-side enumeration to
+    # query. Surface every URL we know about across the curated host
+    # list (top-level ``url`` + every ``services[].url``) so the Admin
+    # → Hosts editor's per-row URL textarea can autocomplete from URLs
+    # the operator has already mapped on OTHER rows. Plus the alias
+    # CSV's values (for `http_probe_aliases`).
+    http_probe_urls: list[str] = []
+    try:
+        curated_hosts_for_disc = _load_hosts_config()
+        url_set: set[str] = set()
+        for h_row in curated_hosts_for_disc:
+            top_url = (h_row.get("url") or "").strip()
+            if top_url:
+                url_set.add(top_url)
+            svcs = h_row.get("services")
+            if isinstance(svcs, list):
+                for svc in svcs:
+                    if isinstance(svc, dict):
+                        u = (svc.get("url") or "").strip()
+                        if u:
+                            url_set.add(u)
+        # Aliases CSV — extract every probe URL the operator has set
+        # as an alias target so it shows up in the autocomplete.
+        alias_csv = (get_setting(Settings.HTTP_PROBE_ALIASES) or "").strip()
+        for token in alias_csv.split(","):
+            token = token.strip()
+            if "=" in token:
+                _, _, v = token.partition("=")
+                v = v.strip()
+                if v:
+                    url_set.add(v)
+        http_probe_urls = sorted(url_set, key=str.lower)
+    except (ValueError, TypeError) as e:
+        errors["http_probe"] = f"discovery error: {e}"
+
     return {
         "beszel": beszel_names,
         "pulse": pulse_names,
         "webmin": webmin_names,
         "snmp": snmp_names,
+        "http_probe": http_probe_urls,
         "errors": errors,
     }
 
@@ -17012,6 +17344,22 @@ class PingTestIn(BaseModel):
     timeout_seconds: Optional[float] = None
 
 
+class HttpProbeTestIn(BaseModel):
+    """Body for the one-shot HTTP / TLS / DNS probe test endpoint.
+
+    ``url`` is mandatory — every other field is optional and falls
+    back to the tunable defaults / curated row's ``http_probe``
+    config when blank. ``accepted_status_codes`` accepts CSV
+    ("200,301,302") or a list.
+    """
+    url: str
+    timeout: Optional[float] = None
+    dns_timeout: Optional[float] = None
+    content_match: Optional[str] = None
+    accepted_status_codes: Optional[str] = None  # CSV or single code
+    verify_tls: Optional[bool] = None
+
+
 class PortScanIn(BaseModel):
     """Optional override knobs for a one-shot port scan. Empty body
     is fine — the endpoint resolves every value from the host's
@@ -17816,6 +18164,46 @@ async def api_ping_test(
         "host": target,
         "port": int(port),
         "transport": transport,
+        **result,
+    })
+
+
+@app.post("/api/http-probe/test")
+async def api_http_probe_test(
+    body: HttpProbeTestIn,
+    _admin: AdminUser,
+):
+    """One-shot HTTP / TLS / DNS probe against an arbitrary URL.
+
+    Used by the "Test connection" button in the Admin → Host stats
+    HTTP probe section + the per-host editor's row-level test.
+    Always live — bypasses the persisted-cache lookup. Does NOT
+    write to ``host_http_samples`` so test-clicks don't pollute the
+    chart series. No history row (consistent with the other
+    one-shot test endpoints).
+    """
+    from logic import http_probe as _http_probe
+    url = (body.url or "").strip()
+    if not url:
+        raise HTTPException(400, "url required")
+    timeout = float(body.timeout) if body.timeout is not None \
+        else float(tuning.tuning_int(Tunable.HTTP_PROBE_TIMEOUT_SECONDS))
+    dns_timeout = float(body.dns_timeout) if body.dns_timeout is not None \
+        else float(tuning.tuning_int(Tunable.HTTP_PROBE_DNS_TIMEOUT_SECONDS))
+    accepted = _http_probe.parse_status_codes_csv(body.accepted_status_codes)
+    verify_tls = True if body.verify_tls is None else bool(body.verify_tls)
+    content_match = (body.content_match or "").strip() or None
+    result = await _http_probe.probe_http_health(
+        url,
+        timeout=timeout,
+        dns_timeout=dns_timeout,
+        content_match=content_match,
+        accepted_status_codes=accepted,
+        verify_tls=verify_tls,
+    )
+    return _stamp_test_success("http_probe", {
+        "ok": bool(result.get("ok")),
+        "url": url,
         **result,
     })
 
@@ -19857,6 +20245,11 @@ async def api_me(request: Request):
             # (30..90 / 50..99).
             "stat_bar_warn_pct": tuning.tuning_int(Tunable.STAT_BAR_WARN_PCT),
             "stat_bar_crit_pct": tuning.tuning_int(Tunable.STAT_BAR_CRIT_PCT),
+            # HTTP-probe TLS cert expiry warning threshold (days). SPA's
+            # drawer card paints the expiry pill amber when remaining-
+            # days < this; red when ≤ 0. Per-call read so an Admin →
+            # Host stats save lands on the next drawer render.
+            "http_probe_cert_warning_days": tuning.tuning_int(Tunable.HTTP_PROBE_CERT_WARNING_DAYS),
             # Notifications panel page size — SPA reads this as the
             # initial value of `notificationsLimit`. Operator-tunable
             # via Admin → Notifications. Range 5..200 enforced at

@@ -32,6 +32,7 @@
             ['webmin',        t('settings.host_stats.source_webmin')],
             ['ping',          t('settings.host_stats.source_ping')],
             ['snmp',          t('settings.host_stats.source_snmp')],
+            ['http_probe',    t('settings.host_stats.source_http_probe')],
           ]" :key="tab[0]">
       <button type="button" @click="setHostStatsTab(tab[0])"
               role="tab"
@@ -1161,6 +1162,155 @@
               <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
               <span x-text="t('common.unsaved')"></span>
             </span>
+    </div>
+  </div>
+
+  <!-- HTTP / TLS / DNS health probe — seventh host-stats provider.
+       Active per-URL TCP / TLS / DNS check. Targets the operator's
+       existing curated URLs (top-level url + every services[].url)
+       so the provider auto-covers the fleet on day one with zero
+       per-monitor configuration. Per-host opt-in via Admin → Hosts. -->
+  <div x-show="hostStatsTab === 'http_probe'" class="space-y-3" role="tabpanel" id="provider-tabpanel-http_probe" aria-labelledby="provider-tab-http_probe" :class="!hasHostStatsSource('http_probe') ? 'opacity-60' : ''">
+    <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+      <label class="inline-flex items-center gap-2 fs-sm font-medium">
+        <input type="checkbox" :disabled="isReadonly()"
+               :checked="hasHostStatsSource('http_probe')"
+               @change="toggleHostStatsSource('http_probe', $event.target.checked)">
+        <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_http_probe') })"></span>
+      </label>
+      <span class="chip"
+            :class="hasHostStatsSource('http_probe') ? 'pill-ok' : 'pill-muted'"
+            x-text="hasHostStatsSource('http_probe') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+    </div>
+    <p class="fs-xs text-[var(--text-faint)] mb-1"
+       x-text="t('settings.host_stats.http_probe.section_desc')"></p>
+    <div>
+      <p class="fs-xs text-[var(--text-faint)] mb-1"
+         x-text="t('settings.host_stats.http_probe.enabled_hint')"></p>
+      <label class="flex items-center gap-2 fs-sm">
+        <input type="checkbox" x-model="settings.http_probe_enabled"
+               :disabled="isReadonly() || !hasHostStatsSource('http_probe')">
+        <span x-text="t('settings.host_stats.http_probe.enabled_label')"></span>
+      </label>
+    </div>
+    <div>
+      <label class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('settings.host_stats.http_probe.aliases_label')"></label>
+      <input x-model="settings.http_probe_aliases" type="text"
+             :disabled="isReadonly() || !hasHostStatsSource('http_probe') || !settings.http_probe_enabled"
+             class="w-full mono fs-xs"
+             :placeholder="t('settings.host_stats.http_probe.aliases_placeholder')">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('settings.host_stats.http_probe.aliases_hint')"></p>
+    </div>
+    <!-- Test-connection row. Operator types a URL; the test fires
+         POST /api/http-probe/test against it and stamps
+         _httpProbeLastPassedTest on success so the Save button
+         unlocks per the Test-before-Save gate pattern. -->
+    <div class="flex items-end gap-2 flex-wrap">
+      <div class="flex-1 min-w-[260px]">
+        <label class="block fs-xs text-[var(--text-faint)] mb-1"
+               x-text="t('settings.host_stats.http_probe.test_url_label')"></label>
+        <input x-model="httpProbeTestUrl" type="text"
+               :disabled="isReadonly() || !hasHostStatsSource('http_probe') || !settings.http_probe_enabled"
+               class="w-full mono fs-xs"
+               :placeholder="t('settings.host_stats.http_probe.test_url_placeholder')">
+      </div>
+      <button type="button" x-show="isAdmin()" @click="testHttpProbe()"
+              :disabled="(httpProbeTestResult && httpProbeTestResult.pending) || !hasHostStatsSource('http_probe') || !settings.http_probe_enabled || !httpProbeTestUrl"
+              class="btn btn-ghost fs-sm inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="(httpProbeTestResult && httpProbeTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
+        </svg>
+        <span x-text="(httpProbeTestResult && httpProbeTestResult.pending) ? t('settings.host_stats.http_probe.testing') : t('settings.host_stats.http_probe.test_button')"></span>
+      </button>
+    </div>
+    <div x-show="httpProbeTestResult && !httpProbeTestResult.pending" class="mt-1">
+      <p x-show="httpProbeTestResult && httpProbeTestResult.ok"
+         class="fs-xs text-[var(--success)] mono"
+         x-text="t('settings.host_stats.http_probe.test_result_ok', {
+                   url: httpProbeTestResult && httpProbeTestResult.url,
+                   status: (httpProbeTestResult && httpProbeTestResult.status_code) || '?',
+                   latency_ms: (httpProbeTestResult && httpProbeTestResult.latency_ms) || '?'
+                 })"></p>
+      <p x-show="httpProbeTestResult && !httpProbeTestResult.ok"
+         class="fs-xs text-[var(--danger)] mono"
+         x-text="t('settings.host_stats.http_probe.test_result_fail', {
+                   url: (httpProbeTestResult && httpProbeTestResult.url) || '',
+                   error: (httpProbeTestResult && httpProbeTestResult.error) || ''
+                 })"></p>
+    </div>
+    <!-- Per-provider tunables — bounds-chips renderer iterates the
+         _perProviderTuneKeys.http_probe array so adding a knob to
+         that array surfaces a row here automatically. -->
+    <div x-show="hasHostStatsSource('http_probe')" class="space-y-3 pt-3 border-t border-dashed border-[var(--border)]">
+      <template x-for="key in (_perProviderTuneKeys && _perProviderTuneKeys.http_probe) || []" :key="key">
+        <div class="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-2 md:gap-3 items-start">
+          <label class="block fs-xs text-[var(--text-faint)] mb-1 md:mb-0"
+                 :for="'tune-' + key"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <div class="flex flex-col gap-1">
+            <input :id="'tune-' + key"
+                   type="number"
+                   :min="(tuningEffective[key] && tuningEffective[key].min) || ''"
+                   :max="(tuningEffective[key] && tuningEffective[key].max) || ''"
+                   x-model="tuningForm[key]"
+                   :placeholder="(tuningEffective[key] && tuningEffective[key].placeholder) || ''"
+                   :disabled="isReadonly() || !settings.http_probe_enabled"
+                   class="mono fs-xs w-full md:w-40">
+            <p class="fs-2xs text-[var(--text-faint)]"
+               x-text="t('admin.config.fields.' + key + '.help')"></p>
+          </div>
+        </div>
+      </template>
+    </div>
+    <!-- Chip colour picker (matches the SNMP / Ping pattern). -->
+    <div x-show="hasHostStatsSource('http_probe')" class="flex items-center gap-2 flex-wrap pt-3 border-t border-dashed border-[var(--border)]">
+      <label class="fs-xs text-[var(--text-faint)] inline-flex items-center gap-1.5">
+        <span x-text="t('settings.host_stats.chip_color_label')"></span>
+      </label>
+      <input type="color" x-model="settings.provider_color_http_probe"
+             :disabled="isReadonly() || !settings.http_probe_enabled"
+             class="h-7 w-8 cursor-pointer border-0 p-0 bg-transparent">
+      <input type="text" x-model="settings.provider_color_http_probe"
+             @blur="settings.provider_color_http_probe = normalizeHexColor(settings.provider_color_http_probe)"
+             :disabled="isReadonly() || !settings.http_probe_enabled"
+             :placeholder="t('settings.host_stats.chip_color_placeholder')"
+             pattern="^#[0-9a-fA-F]{6}$"
+             class="mono fs-2xs w-28">
+      <button type="button"
+              :disabled="isReadonly() || !settings.http_probe_enabled"
+              x-show="settings.provider_color_http_probe"
+              @click="settings.provider_color_http_probe = ''"
+              class="btn btn-ghost fs-2xs"
+              x-text="t('settings.host_stats.chip_color_reset')"></button>
+      <span class="chip pill-custom fs-2xs"
+            :style="providerChipStyle('http_probe')"
+            x-text="t('settings.host_stats.chip_color_preview')"></span>
+      <p class="basis-full fs-2xs text-[var(--text-faint)]"
+         x-text="t('settings.host_stats.chip_color_hint')"></p>
+    </div>
+    <!-- Section-owned Save row. Test-before-Save gate: when master
+         enable is ON, Save is disabled until a probe against the
+         current form values passes. Dirty cue stays tied purely to
+         httpProbeSectionDirty() — NEVER gated on canSaveHttpProbeSection()
+         per the canonical pattern. -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+      <button type="button"
+              @click="saveHttpProbeSection()"
+              :disabled="isReadonly() || hostStatsSaving || !canSaveHttpProbeSection()"
+              :title="!canSaveHttpProbeSection() ? t('settings.host_stats.http_probe.save_requires_test') : ''"
+              :class="httpProbeSectionDirty() ? 'btn-dirty' : ''"
+              class="btn btn-primary fs-sm"
+              x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
+      <span x-show="httpProbeSectionDirty() && !hostStatsSaving"
+            class="fs-xs text-[var(--warning)] inline-flex items-center gap-1">
+              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
+              <span x-text="t('common.unsaved')"></span>
+            </span>
+      <span x-show="!canSaveHttpProbeSection() && !hostStatsSaving"
+            class="fs-xs text-[var(--text-faint)]"
+            x-text="t('settings.host_stats.http_probe.save_unverified_hint')"></span>
     </div>
   </div>
 

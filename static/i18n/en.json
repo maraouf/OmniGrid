@@ -1065,6 +1065,31 @@
         "test_target_label": "Pick an SNMP-mapped host",
         "test_no_hosts": "Add an SNMP target alias on at least one curated host to enable the test."
       },
+      "source_http_probe": "HTTP / TLS / DNS",
+      "http_probe": {
+        "section_title": "HTTP / TLS-cert / DNS health probe",
+        "section_desc": "Seventh host-stats provider. Probes the operator's existing curated URLs (top-level url + every services[].url, or an explicit per-host http_probe.urls override) for HTTP status, TLS-cert expiry, and DNS resolution. No agents, no credentials — just operator-curated URLs. Per-host opt-in via Admin → Hosts (the http_probe.enabled checkbox on each row). The probe surfaces three independent sub-checks per URL so the drawer card can pinpoint which layer broke.",
+        "enabled_label": "Enable HTTP probe",
+        "enabled_hint": "Master toggle. When OFF the sampler stays alive but skips every probe — flip ON and add per-host config under Admin → Hosts.",
+        "aliases_label": "Per-host probe URL aliases (CSV)",
+        "aliases_hint": "Optional CSV of docker_host=probe_url pairs for hosts where the curated row's url field isn't the right probe target. Example: web01=https://web01.example.com,web02=https://web02.example.com. Per-host config under Admin → Hosts wins over these aliases.",
+        "aliases_placeholder": "web01=https://web01.example.com,web02=https://web02.example.com",
+        "test_url_label": "Test URL",
+        "test_url_placeholder": "https://example.com",
+        "test_button": "Test connection",
+        "test_no_url": "Enter a URL to test against.",
+        "testing": "Testing…",
+        "test_result_ok": "✓ {url} healthy (status {status} · latency {latency_ms} ms)",
+        "test_result_fail": "✗ {url} unhealthy: {error}",
+        "tls_expires_in": "TLS expires in {days} days",
+        "tls_expired": "TLS expired {days} days ago",
+        "tls_subject_label": "Subject",
+        "tls_issuer_label": "Issuer",
+        "dns_resolved_label": "DNS resolved",
+        "dns_failed_label": "DNS failed",
+        "save_requires_test": "Run a successful Test connection before saving.",
+        "save_unverified_hint": "Save unlocks once the test against the current values passes."
+      },
       "source_port_scan": "Port Scan",
       "port_scan": {
         "section_title": "Port Scan",
@@ -1888,6 +1913,38 @@
         "tuning_ping_cooldown_seconds": {
           "label": "Ping cool-down on consecutive timeouts (seconds)",
           "help": "After TWO consecutive timeout-batches against the same host:port, the probe arms a cool-down — subsequent ticks skip that pair until the cool-down expires. Cuts wire traffic against permanently-unreachable hosts without removing them from the chart entirely. Default 300 seconds (5 minutes). Lower for fast-recovery detection; raise to suppress probes against a host that's been down for hours. Range 30..3600."
+        },
+        "tuning_http_probe_timeout_seconds": {
+          "label": "HTTP probe per-URL timeout (seconds)",
+          "help": "Caps EACH HTTP GET attempt AND (separately) the TLS handshake against ONE URL. Default 8 seconds — comfortably above typical reverse-proxy latency, tight enough to keep a wedged backend from starving the sampler tick. Lower (2-3s) for fast-fail on a LAN-only fleet; raise (15-30s) for slow upstream services reached over a WAN. Range 1..60. Takes effect on the next sampler tick."
+        },
+        "tuning_http_probe_concurrency": {
+          "label": "HTTP probe concurrency",
+          "help": "Maximum parallel HTTP / TLS probes the sampler runs in one tick. Each URL consumes a socket; large fleets with many URLs per host want this higher (parallelise faster) but trading off against the outbound socket budget. Default 8. Range 1..32."
+        },
+        "tuning_http_probe_sample_interval_seconds": {
+          "label": "HTTP probe sampler interval (seconds)",
+          "help": "Cadence at which the lifespan `host_http_sampler` probes every curated HTTP-probe-enabled host. 0 = use the global `tuning_stats_sample_interval_seconds` (default 300s — same inherit semantics as Beszel / Pulse / NE / SNMP / Ping). Distinct knob so operators monitoring TLS cert expiry (which moves on a daily-to-monthly cadence) can throttle HTTP probing down without affecting other samplers. Range 0..3600. Default 0 (= inherit)."
+        },
+        "tuning_http_probe_failure_pause_rounds": {
+          "label": "HTTP probe auto-pause threshold (rounds)",
+          "help": "After this many consecutive sampler rounds where EVERY URL on a host failed, the (http_probe, host) pair is marked auto-paused — subsequent probes are SKIPPED entirely until the operator clicks Resume on the HTTP probe chip in the host drawer. A 'round' = 'every URL for this host failed'. Mixed success across URLs keeps the host out of the failed bucket. Default 5 = ~25 min of total-failure at the default 5-min cadence before the chip goes amber. Set 0 to disable auto-pause. Range 0..100."
+        },
+        "tuning_http_probe_dns_timeout_seconds": {
+          "label": "HTTP probe DNS sub-probe timeout (seconds)",
+          "help": "Caps `socket.getaddrinfo` for the DNS sub-probe (run in a thread executor so a slow resolver can't stall the sampler). Default 5 seconds — enough for cross-WAN resolver lookups. Lower for fast-fail on internal-DNS-only deployments; raise on flaky DNS upstreams. Range 1..30."
+        },
+        "tuning_http_probe_cert_warning_days": {
+          "label": "TLS cert expiry warning (days)",
+          "help": "The drawer card paints the expiry pill amber when a URL's TLS certificate has fewer than this many days remaining; red when expired. Default 14 — gives operators ~2 weeks lead time to renew before the cert breaks production. Lower for shorter notice (less amber pollution); raise for longer-horizon visibility. Range 1..365."
+        },
+        "tuning_http_probe_host_cache_ttl_seconds": {
+          "label": "HTTP probe per-host success cache TTL (seconds)",
+          "help": "How long a successful HTTP probe outcome is reused by the per-host detail endpoint before re-probing. Burst refreshes (SPA fan-out, drawer reopens) within the window skip the probe and reuse the last known-good result. Default 30s. Lower for live-feeling drawer reopens; raise to cut probe load on a large fleet. Range 0..600 (0 = disable cache entirely). Pairs with the failure-cache TTL — a fresh failure on a previously-cached success drops the success entry immediately."
+        },
+        "tuning_http_probe_host_fail_cache_ttl_seconds": {
+          "label": "HTTP probe per-host failure cache TTL (seconds)",
+          "help": "How long a failed HTTP probe is cached so a SPA fan-out burst doesn't re-burn the timeout × N parallel calls on an unreachable URL. Default 5s — tight enough that recovery is felt within one Hosts-tab refresh cycle, long enough to dedupe a fan-out burst. Operators wanting fastest possible recovery detection can drop to 1s. Range 0..600."
         },
         "tuning_snmp_probe_timeout_seconds": {
           "label": "SNMP per-OID timeout (seconds)",
@@ -3519,6 +3576,25 @@
       "status_timed_sleeping": "Timed sleeping",
       "status_unknown": "Unknown"
     },
+    "http_probe": {
+      "heading": "HTTP / TLS / DNS",
+      "urls_summary": "{ok}/{total} URLs healthy",
+      "last_updated": "{age}",
+      "last_updated_title": "Time since the last sampler tick wrote this row.",
+      "dns_label": "DNS",
+      "dns_resolved": "Resolved",
+      "dns_failed": "Failed",
+      "tls_label": "TLS",
+      "tls_expires_in": "expires in {days}d",
+      "tls_expired": "expired {days}d ago",
+      "tls_subject": "Subject",
+      "tls_issuer": "Issuer",
+      "latency_label": "Latency",
+      "resume": "Resume",
+      "resume_aria": "Resume HTTP probe for this host",
+      "resume_title": "Clear the auto-pause marker so the sampler probes this host again on the next tick.",
+      "paused_hint": "Auto-paused after {failures} consecutive total-failure rounds."
+    },
     "server_health": {
       "heading": "Server health",
       "fans": "Fans",
@@ -3944,8 +4020,22 @@
       "ping_transport_label": "Ping transport",
       "ping_transport_default": "(global default)",
       "ping_transport_tcp": "TCP-connect",
-      "ping_transport_icmp": "ICMP echo"
+      "ping_transport_icmp": "ICMP echo",
+      "http_probe_enabled_label": "Enable HTTP probe for this host",
+      "http_probe_enabled_hint": "When on, the lifespan sampler probes the curated URLs below (or every services[].url + the top-level url field when the list is empty) for HTTP status, TLS-cert expiry, and DNS resolution."
     },
+    "http_probe_section_label": "HTTP / TLS / DNS",
+    "http_probe_urls_label": "Probe URLs (one per line)",
+    "http_probe_urls_hint": "Override the auto-derived list. Leave blank to probe the top-level URL + every services[].url on this row. One URL per line; each MUST start with http:// or https://.",
+    "http_probe_urls_placeholder": "https://service1.example.com\nhttps://service2.example.com:8443/health",
+    "http_probe_content_match_label": "Content-match string (optional)",
+    "http_probe_content_match_hint": "Substring searched in the response body — when set, the URL only counts as healthy when this string appears in the body. Useful when the operator wants to guard against \"HTTP 200 but landing page redirected to login\". Max 256 chars.",
+    "http_probe_content_match_placeholder": "Welcome",
+    "http_probe_status_codes_label": "Accepted status codes (CSV)",
+    "http_probe_status_codes_hint": "Comma-separated list of HTTP status codes that count as healthy. Leave blank for the default (any 2xx). Useful when the operator wants to gate on a specific redirect (\"301,302\") or accept an anonymous-401 from a locked-down API. Codes outside 100..599 are dropped.",
+    "http_probe_status_codes_placeholder": "200, 301, 302",
+    "http_probe_verify_tls_label": "Verify TLS cert",
+    "http_probe_verify_tls_hint": "Turn off when the target serves a self-signed cert. The cert is still parsed for expiry tracking either way.",
     "groups": {
       "heading": "Host groups",
       "intro": "Collect hosts into collapsible sections in the Hosts view by matching their Custom # against a numeric range. Example: \"ISP Routers\" covers 1–4, \"Gateways\" covers 5–8. Hosts that don't fall into any range land in the \"Ungrouped\" bucket at the bottom.",
