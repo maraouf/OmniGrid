@@ -1,363 +1,396 @@
-      <div x-show="statsTab==='dashboard'" class="space-y-4">
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
-                 :aria-busy="_loadBusy.stats_overview === true ? 'true' : 'false'">
-          <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
-            <div>
-              <div class="flex items-center gap-2 mb-2">
-                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layout-dashboard"/></svg>
-                <h3 class="font-semibold fs-md" x-text="t('stats.dashboard.title')"></h3>
-              </div>
-              <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.dashboard.hint')"></p>
-            </div>
-            <button type="button"
-                    @click="_runWithBusy('stats_overview', () => loadStatsOverview())"
-                    :disabled="_loadBusy.stats_overview === true"
-                    :title="t('actions.reload')"
-                    :aria-label="t('actions.reload')"
-                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.stats_overview === true ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-              </svg>
-              <span x-text="t('actions.reload')"></span>
-            </button>
-          </div>
-          <div x-show="!statsOverviewLoaded" class="loading-state">
-            <span class="spin-lg" aria-hidden="true"></span>
-            <span x-text="t('loading.section')"></span>
-          </div>
-          <div x-show="statsOverviewLoaded"
-               class="p-5 grid gap-3"
-               style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))">
+<!--suppress HtmlUnknownAttribute, HtmlUnknownTag -->
+<div x-show="statsTab==='dashboard'" class="space-y-4">
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
+           :aria-busy="_loadBusy.stats_overview === true ? 'true' : 'false'">
+    <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layout-dashboard"/>
+          </svg>
+          <h3 class="font-semibold fs-md" x-text="t('stats.dashboard.title')"></h3>
+        </div>
+        <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.dashboard.hint')"></p>
+      </div>
+      <button type="button"
+              @click="_runWithBusy('stats_overview', () => loadStatsOverview())"
+              :disabled="_loadBusy.stats_overview === true"
+              :title="t('actions.reload')"
+              :aria-label="t('actions.reload')"
+              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="_loadBusy.stats_overview === true ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+        </svg>
+        <span x-text="t('actions.reload')"></span>
+      </button>
+    </div>
+    <div x-show="!statsOverviewLoaded" class="loading-state">
+      <span class="spin-lg" aria-hidden="true"></span>
+      <span x-text="t('loading.section')"></span>
+    </div>
+    <div x-show="statsOverviewLoaded"
+         class="p-5 grid gap-3"
+         style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
 
-            <!-- Users -->
-            <button type="button"
-               @click="view='admin'; openAdminTab('users')"
-               class="stats-card"
-               :aria-label="t('stats.cards.users.label') + ': '
+      <!-- Users -->
+      <button type="button"
+              @click="view='admin'; openAdminTab('users')"
+              class="stats-card"
+              :aria-label="t('stats.cards.users.label') + ': '
                             + t('stats.cards.users.sub', {
                                 active:   (statsOverview.users && statsOverview.users.active) || 0,
                                 disabled: Math.max(0, ((statsOverview.users && statsOverview.users.total) || 0) - ((statsOverview.users && statsOverview.users.active) || 0)),
                                 admins:   (statsOverview.users && statsOverview.users.admins) || 0
                               }).replace(/ · /g, ', ')">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-users"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.users.label')"></div>
-                <!-- Operator-flagged: render as `active/total` slash-
-                     format (same shape as Hosts / Schedules tiles) so
-                     the disabled count is visible at a glance instead
-                     of buried in the sub line. Sub now carries the
-                     admin-count tail only. -->
-                <div class="stats-card-value"
-                     x-text="((statsOverview.users && statsOverview.users.active) || 0) + '/' + ((statsOverview.users && statsOverview.users.total) || 0)"></div>
-                <!-- Sub-line mirrors Providers' "{enabled} enabled · {disabled} disabled"
-                     pattern so the operator reads the slash-format value's
-                     decomposition at a glance (e.g. "2/3" → "2 active · 1 disabled · 1 admin"). -->
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
-                     x-text="t('stats.cards.users.sub', {
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-users"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.users.label')"></div>
+          <!-- Operator-flagged: render as `active/total` slash-
+               format (same shape as Hosts / Schedules tiles) so
+               the disabled count is visible at a glance instead
+               of buried in the sub line. Sub now carries the
+               admin-count tail only. -->
+          <div class="stats-card-value"
+               x-text="((statsOverview.users && statsOverview.users.active) || 0) + '/' + ((statsOverview.users && statsOverview.users.total) || 0)"></div>
+          <!-- Sub-line mirrors Providers' "{enabled} enabled · {disabled} disabled"
+               pattern so the operator reads the slash-format value's
+               decomposition at a glance (e.g. "2/3" → "2 active · 1 disabled · 1 admin"). -->
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+               x-text="t('stats.cards.users.sub', {
                        active: (statsOverview.users && statsOverview.users.active) || 0,
                        disabled: Math.max(0, ((statsOverview.users && statsOverview.users.total) || 0) - ((statsOverview.users && statsOverview.users.active) || 0)),
                        admins: (statsOverview.users && statsOverview.users.admins) || 0
                      })"></div>
-              </div>
-            </button>
+        </div>
+      </button>
 
-            <!-- Sessions -->
-            <button type="button"
-               @click="view='admin'; openAdminTab('sessions')"
-               class="stats-card"
-               :aria-label="t('stats.cards.sessions.label') + ': '
+      <!-- Sessions -->
+      <button type="button"
+              @click="view='admin'; openAdminTab('sessions')"
+              class="stats-card"
+              :aria-label="t('stats.cards.sessions.label') + ': '
                             + ((statsOverview.sessions && statsOverview.sessions.total) || 0)
                             + ' — ' + t('stats.cards.sessions.sub')">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-monitor"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.sessions.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.sessions && statsOverview.sessions.total) || 0"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.sessions.sub')"></div>
-              </div>
-            </button>
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-monitor"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.sessions.label')"></div>
+          <div class="stats-card-value" x-text="(statsOverview.sessions && statsOverview.sessions.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.sessions.sub')"></div>
+        </div>
+      </button>
 
-            <!-- Providers (enabled / disabled split) -->
-            <button type="button"
-               @click="view='admin'; openAdminTab('host_stats')"
-               class="stats-card"
-               :aria-label="t('stats.cards.providers.label') + ': '
+      <!-- Providers (enabled / disabled split) -->
+      <button type="button"
+              @click="view='admin'; openAdminTab('host_stats')"
+              class="stats-card"
+              :aria-label="t('stats.cards.providers.label') + ': '
                             + t('stats.cards.providers.sub', {
                                 enabled:  ((statsOverview.providers && statsOverview.providers.enabled)  || []).length,
                                 disabled: ((statsOverview.providers && statsOverview.providers.disabled) || []).length
                               }).replace(/ · /g, ', ')">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.providers.label')"></div>
-                <div class="stats-card-value" x-text="((statsOverview.providers && statsOverview.providers.enabled) || []).length + ' / ' + ((statsOverview.providers && statsOverview.providers.total) || 0)"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
-                     x-text="t('stats.cards.providers.sub', {
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.providers.label')"></div>
+          <div class="stats-card-value" x-text="((statsOverview.providers && statsOverview.providers.enabled) || []).length + ' / ' + ((statsOverview.providers && statsOverview.providers.total) || 0)"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+               x-text="t('stats.cards.providers.sub', {
                        enabled: ((statsOverview.providers && statsOverview.providers.enabled) || []).length,
                        disabled: ((statsOverview.providers && statsOverview.providers.disabled) || []).length
                      })"></div>
-                <div class="flex flex-wrap gap-1 mt-1.5">
-                  <template x-for="p in ((statsOverview.providers && statsOverview.providers.enabled) || [])" :key="'on:'+p">
-                    <span class="chip pill-ok fs-3xs" x-text="p"></span>
-                  </template>
-                  <template x-for="p in ((statsOverview.providers && statsOverview.providers.disabled) || [])" :key="'off:'+p">
-                    <span class="chip pill-muted fs-3xs" x-text="p"></span>
-                  </template>
-                </div>
-              </div>
-            </button>
+          <div class="flex flex-wrap gap-1 mt-1.5">
+            <template x-for="p in ((statsOverview.providers && statsOverview.providers.enabled) || [])" :key="'on:'+p">
+              <span class="chip pill-ok fs-3xs" x-text="p"></span>
+            </template>
+            <template x-for="p in ((statsOverview.providers && statsOverview.providers.disabled) || [])" :key="'off:'+p">
+              <span class="chip pill-muted fs-3xs" x-text="p"></span>
+            </template>
+          </div>
+        </div>
+      </button>
 
-            <!-- Hosts -->
-            <button type="button"
-               @click="view='admin'; openAdminTab('hosts')"
-               class="stats-card"
-               :aria-label="t('stats.cards.hosts.label') + ': '
+      <!-- Hosts -->
+      <button type="button"
+              @click="view='admin'; openAdminTab('hosts')"
+              class="stats-card"
+              :aria-label="t('stats.cards.hosts.label') + ': '
                             + ((statsOverview.hosts && statsOverview.hosts.total) || 0)
                             + ' — ' + t('stats.cards.hosts.sub', {
                               enabled: (statsOverview.hosts && statsOverview.hosts.enabled) || 0
                             })">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.hosts.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.hosts && statsOverview.hosts.total) || 0"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
-                     x-text="t('stats.cards.hosts.sub', {
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.hosts.label')"></div>
+          <div class="stats-card-value" x-text="(statsOverview.hosts && statsOverview.hosts.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+               x-text="t('stats.cards.hosts.sub', {
                        enabled: (statsOverview.hosts && statsOverview.hosts.enabled) || 0
                      })"></div>
-              </div>
-            </button>
+        </div>
+      </button>
 
-            <!-- Problem hosts — surfaces ONLY when problemHostCount > 0
-                 (operators on a healthy fleet don't see the tile).
-                 Click jumps to the Hosts view AND arms the problem-
-                 hosts filter chip so the list narrows to the
-                 actionable rows in one click. Same status set
-                 (down / paused / unknown) the Telegram AI context's
-                 `problem_hosts` block carries. Pill-error background
-                 + alert-triangle icon so the tile reads as a triage
-                 affordance at a glance. -->
-            <button type="button"
-               x-show="problemHostCount() > 0"
-               @click="view='hosts'; hostsProblemFilter = true; try { sessionStorage.setItem('hostsProblemFilter', '1'); } catch (_) {}"
-               class="stats-card"
-               style="border-color: var(--pill-error-br); background: var(--pill-error-bg);"
-               :aria-label="t('stats.cards.problem_hosts.label') + ': '
+      <!-- Problem hosts — surfaces ONLY when problemHostCount > 0
+           (operators on a healthy fleet don't see the tile).
+           Click jumps to the Hosts view AND arms the problem-
+           hosts filter chip so the list narrows to the
+           actionable rows in one click. Same status set
+           (down / paused / unknown) the Telegram AI context's
+           `problem_hosts` block carries. Pill-error background
+           + alert-triangle icon so the tile reads as a triage
+           affordance at a glance. -->
+      <button type="button"
+              x-show="problemHostCount() > 0"
+              @click="view='hosts'; hostsProblemFilter = true; try { sessionStorage.setItem('hostsProblemFilter', '1'); } catch (_) {}"
+              class="stats-card"
+              style="border-color: var(--pill-error-br); background: var(--pill-error-bg);"
+              :aria-label="t('stats.cards.problem_hosts.label') + ': '
                             + problemHostCount()
                             + ' — ' + t('stats.cards.problem_hosts.sub')">
-              <div class="stats-card-icon" style="color: var(--pill-error-fg);">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.problem_hosts.label')"></div>
-                <div class="stats-card-value" x-text="problemHostCount()"></div>
-                <div class="stats-card-sub fs-3xs" x-text="t('stats.cards.problem_hosts.sub')"></div>
-              </div>
-            </button>
+        <div class="stats-card-icon" style="color: var(--pill-error-fg);">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.problem_hosts.label')"></div>
+          <div class="stats-card-value" x-text="problemHostCount()"></div>
+          <div class="stats-card-sub fs-3xs" x-text="t('stats.cards.problem_hosts.sub')"></div>
+        </div>
+      </button>
 
-            <!-- Host groups -->
-            <button type="button"
-               @click="view='admin'; openAdminTab('host_groups')"
-               class="stats-card"
-               :aria-label="t('stats.cards.host_groups.label') + ': '
+      <!-- Host groups -->
+      <button type="button"
+              @click="view='admin'; openAdminTab('host_groups')"
+              class="stats-card"
+              :aria-label="t('stats.cards.host_groups.label') + ': '
                             + ((statsOverview.host_groups && statsOverview.host_groups.total) || 0)
                             + ' — ' + t('stats.cards.host_groups.sub')">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.host_groups.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.host_groups && statsOverview.host_groups.total) || 0"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.host_groups.sub')"></div>
-              </div>
-            </button>
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.host_groups.label')"></div>
+          <div class="stats-card-value" x-text="(statsOverview.host_groups && statsOverview.host_groups.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.host_groups.sub')"></div>
+        </div>
+      </button>
 
-            <!-- Assets -->
-            <button type="button"
-               @click="view='admin'; openAdminTab('assets')"
-               class="stats-card"
-               :aria-label="t('stats.cards.assets.label') + ': '
+      <!-- Assets -->
+      <button type="button"
+              @click="view='admin'; openAdminTab('assets')"
+              class="stats-card"
+              :aria-label="t('stats.cards.assets.label') + ': '
                             + ((statsOverview.assets && statsOverview.assets.total) || 0)
                             + ' — ' + t('stats.cards.assets.sub')">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-package"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.assets.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.assets && statsOverview.assets.total) || 0"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.assets.sub')"></div>
-              </div>
-            </button>
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-package"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.assets.label')"></div>
+          <div class="stats-card-value" x-text="(statsOverview.assets && statsOverview.assets.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.assets.sub')"></div>
+        </div>
+      </button>
 
-            <!-- Nodes -->
-            <button type="button"
-               @click="view='nodes'"
-               class="stats-card"
-               :aria-label="t('stats.cards.nodes.label') + ': '
+      <!-- Nodes -->
+      <button type="button"
+              @click="view='nodes'"
+              class="stats-card"
+              :aria-label="t('stats.cards.nodes.label') + ': '
                             + ((statsOverview.nodes && statsOverview.nodes.total) || 0)
                             + ' — ' + t('stats.cards.nodes.sub')">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cpu"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.nodes.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.nodes && statsOverview.nodes.total) || 0"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.nodes.sub')"></div>
-              </div>
-            </button>
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cpu"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.nodes.label')"></div>
+          <div class="stats-card-value" x-text="(statsOverview.nodes && statsOverview.nodes.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.nodes.sub')"></div>
+        </div>
+      </button>
 
-            <!-- Stacks -->
-            <button type="button"
-               @click="view='stacks'"
-               class="stats-card"
-               :aria-label="t('stats.cards.stacks.label') + ': '
+      <!-- Stacks -->
+      <button type="button"
+              @click="view='stacks'"
+              class="stats-card"
+              :aria-label="t('stats.cards.stacks.label') + ': '
                             + ((statsOverview.stacks && statsOverview.stacks.total) || 0)
                             + ' — ' + t('stats.cards.stacks.sub')">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.stacks.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.stacks && statsOverview.stacks.total) || 0"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.stacks.sub')"></div>
-              </div>
-            </button>
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.stacks.label')"></div>
+          <div class="stats-card-value" x-text="(statsOverview.stacks && statsOverview.stacks.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.stacks.sub')"></div>
+        </div>
+      </button>
 
-            <!-- Services -->
-            <button type="button"
-               @click="view='services'"
-               class="stats-card"
-               :aria-label="t('stats.cards.services.label') + ': '
+      <!-- Services -->
+      <button type="button"
+              @click="view='services'"
+              class="stats-card"
+              :aria-label="t('stats.cards.services.label') + ': '
                             + ((statsOverview.services && statsOverview.services.total) || 0)
                             + ' — ' + t('stats.cards.services.sub')">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-box"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.services.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.services && statsOverview.services.total) || 0"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.services.sub')"></div>
-              </div>
-            </button>
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-box"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.services.label')"></div>
+          <div class="stats-card-value" x-text="(statsOverview.services && statsOverview.services.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.services.sub')"></div>
+        </div>
+      </button>
 
-            <!-- Containers (replicas of services + standalone containers) -->
-            <button type="button"
-               @click="view='stacks'"
-               class="stats-card"
-               :aria-label="t('stats.cards.containers.label') + ': '
+      <!-- Containers (replicas of services + standalone containers) -->
+      <button type="button"
+              @click="view='stacks'"
+              class="stats-card"
+              :aria-label="t('stats.cards.containers.label') + ': '
                             + ((statsOverview.containers && statsOverview.containers.total) || 0)
                             + ' — ' + t('stats.cards.containers.sub', {
                               replicas: (statsOverview.containers && statsOverview.containers.replicas) || 0,
                               standalone: (statsOverview.containers && statsOverview.containers.standalone) || 0
                             }).replace(/ · /g, ', ')">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.containers.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.containers && statsOverview.containers.total) || 0"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
-                     x-text="t('stats.cards.containers.sub', {
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.containers.label')"></div>
+          <div class="stats-card-value" x-text="(statsOverview.containers && statsOverview.containers.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+               x-text="t('stats.cards.containers.sub', {
                        replicas: (statsOverview.containers && statsOverview.containers.replicas) || 0,
                        standalone: (statsOverview.containers && statsOverview.containers.standalone) || 0
                      })"></div>
-              </div>
-            </button>
+        </div>
+      </button>
 
-            <!-- Schedules -->
-            <button type="button"
-               @click="view='admin'; openAdminTab('schedules')"
-               class="stats-card"
-               :aria-label="t('stats.cards.schedules.label') + ': '
+      <!-- Schedules -->
+      <button type="button"
+              @click="view='admin'; openAdminTab('schedules')"
+              class="stats-card"
+              :aria-label="t('stats.cards.schedules.label') + ': '
                             + (((statsOverview.schedules && statsOverview.schedules.enabled) || 0) + '/' + ((statsOverview.schedules && statsOverview.schedules.total) || 0))
                             + ' — ' + t('stats.cards.schedules.sub', {
                               enabled: (statsOverview.schedules && statsOverview.schedules.enabled) || 0,
                               disabled: Math.max(0, ((statsOverview.schedules && statsOverview.schedules.total) || 0) - ((statsOverview.schedules && statsOverview.schedules.enabled) || 0))
                             }).replace(/ · /g, ', ')">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-calendar"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.schedules.label')"></div>
-                <!-- Operator-flagged: render as `enabled/total` slash-
-                     format so the disabled count is visible at a
-                     glance (e.g. `7/7` when every schedule is
-                     enabled). Sub-line carries the descriptive
-                     "cron-style background jobs" tail only. -->
-                <div class="stats-card-value"
-                     x-text="((statsOverview.schedules && statsOverview.schedules.enabled) || 0) + '/' + ((statsOverview.schedules && statsOverview.schedules.total) || 0)"></div>
-                <!-- Sub-line mirrors Providers' "{enabled} enabled · {disabled} disabled"
-                     pattern so the operator reads the slash-format value's
-                     decomposition at a glance (e.g. "7/7" → "7 enabled · 0 disabled"). -->
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
-                     x-text="t('stats.cards.schedules.sub', {
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-calendar"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.schedules.label')"></div>
+          <!-- Operator-flagged: render as `enabled/total` slash-
+               format so the disabled count is visible at a
+               glance (e.g. `7/7` when every schedule is
+               enabled). Sub-line carries the descriptive
+               "cron-style background jobs" tail only. -->
+          <div class="stats-card-value"
+               x-text="((statsOverview.schedules && statsOverview.schedules.enabled) || 0) + '/' + ((statsOverview.schedules && statsOverview.schedules.total) || 0)"></div>
+          <!-- Sub-line mirrors Providers' "{enabled} enabled · {disabled} disabled"
+               pattern so the operator reads the slash-format value's
+               decomposition at a glance (e.g. "7/7" → "7 enabled · 0 disabled"). -->
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+               x-text="t('stats.cards.schedules.sub', {
                        enabled: (statsOverview.schedules && statsOverview.schedules.enabled) || 0,
                        disabled: Math.max(0, ((statsOverview.schedules && statsOverview.schedules.total) || 0) - ((statsOverview.schedules && statsOverview.schedules.enabled) || 0))
                      })"></div>
-              </div>
-            </button>
+        </div>
+      </button>
 
-            <!-- Backups -->
-            <button type="button"
-               @click="view='admin'; openAdminTab('backups')"
-               class="stats-card"
-               :aria-label="t('stats.cards.backups.label') + ': '
+      <!-- Backups -->
+      <button type="button"
+              @click="view='admin'; openAdminTab('backups')"
+              class="stats-card"
+              :aria-label="t('stats.cards.backups.label') + ': '
                             + ((statsOverview.backups && statsOverview.backups.total) || 0)
                             + ' — ' + t('stats.cards.backups.sub')">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.backups.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.backups && statsOverview.backups.total) || 0"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.backups.sub')"></div>
-              </div>
-            </button>
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.backups.label')"></div>
+          <div class="stats-card-value" x-text="(statsOverview.backups && statsOverview.backups.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.backups.sub')"></div>
+        </div>
+      </button>
 
-            <!-- Config backups -->
-            <button type="button"
-               @click="view='admin'; openAdminTab('config_backup')"
-               class="stats-card"
-               :aria-label="t('stats.cards.config_backups.label') + ': '
+      <!-- Config backups -->
+      <button type="button"
+              @click="view='admin'; openAdminTab('config_backup')"
+              class="stats-card"
+              :aria-label="t('stats.cards.config_backups.label') + ': '
                             + ((statsOverview.config_backups && statsOverview.config_backups.total) || 0)
                             + ' — ' + t('stats.cards.config_backups.sub')">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-save"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.config_backups.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.config_backups && statsOverview.config_backups.total) || 0"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.config_backups.sub')"></div>
-              </div>
-            </button>
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-save"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.config_backups.label')"></div>
+          <div class="stats-card-value" x-text="(statsOverview.config_backups && statsOverview.config_backups.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.config_backups.sub')"></div>
+        </div>
+      </button>
 
-            <!-- Tunables -->
-            <button type="button"
-               @click="view='admin'; openAdminTab('config')"
-               class="stats-card"
-               :aria-label="t('stats.cards.tunables.label') + ': '
+      <!-- Tunables -->
+      <button type="button"
+              @click="view='admin'; openAdminTab('config')"
+              class="stats-card"
+              :aria-label="t('stats.cards.tunables.label') + ': '
                             + ((statsOverview.tunables && statsOverview.tunables.total) || 0)
                             + ' — ' + t('stats.cards.tunables.sub', {
                               overridden: (statsOverview.tunables && statsOverview.tunables.overridden) || 0
                             })">
-              <div class="stats-card-icon">
-                <svg width="20" height="20" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
-              </div>
-              <div class="stats-card-body">
-                <div class="stats-card-label" x-text="t('stats.cards.tunables.label')"></div>
-                <div class="stats-card-value" x-text="(statsOverview.tunables && statsOverview.tunables.total) || 0"></div>
-                <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
-                     x-text="t('stats.cards.tunables.sub', {
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.tunables.label')"></div>
+          <div class="stats-card-value" x-text="(statsOverview.tunables && statsOverview.tunables.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+               x-text="t('stats.cards.tunables.sub', {
                        overridden: (statsOverview.tunables && statsOverview.tunables.overridden) || 0
                      })"></div>
-              </div>
-            </button>
+        </div>
+      </button>
 
-          </div>
-        </section>
-      </div>
+    </div>
+  </section>
+</div>

@@ -1,28 +1,31 @@
-      <section x-show="adminTab==='host_stats'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/></svg>
-          <h3 class="font-semibold fs-md" x-text="t('settings.host_stats.title')"></h3>
-        </div>
-        <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('settings.host_stats.desc')"></p>
-        <!-- provider TABS replace the prior flat list of source
-             checkboxes + sequential config blocks. Each tab is one
-             provider's full config in isolation; the master enable
-             toggle for that provider lives at the top of its tab body
-             (see the per-tab "Enable" rows below). Tab strip mirrors
-             the Admin tabs (`adminTab`) and Logs sub-tabs (`logsTab`)
-             shape — `hostStatsTab` reactive state, persisted to
-             `localStorage.hostStatsTab`. Adding a sixth provider
-             (SNMP) is one line on this strip + one new tab
-             body below. -->
-        <!-- Provider tab strip — blue-pill active state matching the
-             Admin → Notifications tabs. Pre-fix the active tab carried
-             only a bottom-border accent + tinted text; operator-feedback
-             preferred the higher-contrast pill style. Active tab fills
-             with --primary + reads in --text-on-primary; inactive tabs
-             keep the muted text + hover-on-surface-2 affordance. -->
-        <div class="flex flex-wrap items-center gap-1 mb-4 pb-2 border-b border-[var(--border)] overflow-x-auto overflow-y-hidden scrollbar"
-             role="tablist" aria-orientation="horizontal" :aria-label="t('settings.host_stats.tablist_label')">
-          <template x-for="tab in [
+<!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
+<section x-show="adminTab==='host_stats'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+  <div class="flex items-center gap-2 mb-2">
+    <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
+    </svg>
+    <h3 class="font-semibold fs-md" x-text="t('settings.host_stats.title')"></h3>
+  </div>
+  <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('settings.host_stats.desc')"></p>
+  <!-- provider TABS replace the prior flat list of source
+       checkboxes + sequential config blocks. Each tab is one
+       provider's full config in isolation; the master enable
+       toggle for that provider lives at the top of its tab body
+       (see the per-tab "Enable" rows below). Tab strip mirrors
+       the Admin tabs (`adminTab`) and Logs sub-tabs (`logsTab`)
+       shape — `hostStatsTab` reactive state, persisted to
+       `localStorage.hostStatsTab`. Adding a sixth provider
+       (SNMP) is one line on this strip + one new tab
+       body below. -->
+  <!-- Provider tab strip — blue-pill active state matching the
+       Admin → Notifications tabs. Pre-fix the active tab carried
+       only a bottom-border accent + tinted text; operator-feedback
+       preferred the higher-contrast pill style. Active tab fills
+       with --primary + reads in --text-on-primary; inactive tabs
+       keep the muted text + hover-on-surface-2 affordance. -->
+  <div class="flex flex-wrap items-center gap-1 mb-4 pb-2 border-b border-[var(--border)] overflow-x-auto overflow-y-hidden scrollbar"
+       role="tablist" aria-orientation="horizontal" :aria-label="t('settings.host_stats.tablist_label')">
+    <template x-for="tab in [
             ['node_exporter', t('settings.host_stats.source_node_exporter')],
             ['beszel',        t('settings.host_stats.source_beszel')],
             ['pulse',         t('settings.host_stats.source_pulse')],
@@ -30,1165 +33,1177 @@
             ['ping',          t('settings.host_stats.source_ping')],
             ['snmp',          t('settings.host_stats.source_snmp')],
           ]" :key="tab[0]">
-            <button type="button" @click="setHostStatsTab(tab[0])"
-                    role="tab"
-                    :id="'provider-tab-' + tab[0]"
-                    :aria-selected="hostStatsTab === tab[0] ? 'true' : 'false'"
-                    :aria-controls="'provider-tabpanel-' + tab[0]"
-                    :tabindex="hostStatsTab === tab[0] ? 0 : -1"
-                    @keydown.right.prevent="cycleHostStatsTab(1)"
-                    @keydown.left.prevent="cycleHostStatsTab(-1)"
-                    @keydown.home.prevent="setHostStatsTab(HOST_STATS_TAB_ORDER[0])"
-                    @keydown.end.prevent="setHostStatsTab(HOST_STATS_TAB_ORDER[HOST_STATS_TAB_ORDER.length - 1])"
-                    :class="hostStatsTab === tab[0]
+      <button type="button" @click="setHostStatsTab(tab[0])"
+              role="tab"
+              :id="'provider-tab-' + tab[0]"
+              :aria-selected="hostStatsTab === tab[0] ? 'true' : 'false'"
+              :aria-controls="'provider-tabpanel-' + tab[0]"
+              :tabindex="hostStatsTab === tab[0] ? 0 : -1"
+              @keydown.right.prevent="cycleHostStatsTab(1)"
+              @keydown.left.prevent="cycleHostStatsTab(-1)"
+              @keydown.home.prevent="setHostStatsTab(HOST_STATS_TAB_ORDER[0])"
+              @keydown.end.prevent="setHostStatsTab(HOST_STATS_TAB_ORDER[HOST_STATS_TAB_ORDER.length - 1])"
+              :class="hostStatsTab === tab[0]
                       ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
                       : 'text-[var(--text-dim)] hover:bg-[var(--surface-2)]'"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded fs-xs font-medium whitespace-nowrap">
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded fs-xs font-medium whitespace-nowrap">
               <span class="w-1.5 h-1.5 rounded-full"
                     :class="hasHostStatsSource(tab[0]) ? 'dot-on' : 'dot-off'"
                     :title="hasHostStatsSource(tab[0]) ? t('settings.host_stats.tab_active_dot') : t('settings.host_stats.tab_inactive_dot')"></span>
-              <!-- Colored brand icon (matches Notifications tab
-                   strip for visual consistency across master-toggled
-                   admin tabs). Drops the mask-image / mono treatment
-                   in favour of the canonical SVG so each provider's
-                   brand identity reads at a glance. -->
-              <img width="14" height="14" alt="" aria-hidden="true"
-                   :src="'/img/icons/' + providerIconSlug(tab[0]) + '.svg?v=__APP_VERSION__'">
-              <span x-text="tab[1]"></span>
-            </button>
-          </template>
-        </div>
-        <!-- Per-provider config blocks — visible always, inputs
-             disabled when the matching toggle in the source-list above
-             is off. Wrapper div carries `opacity-60` so the off state
-             reads as "saved but inactive" instead of disappearing.
-             Operator can audit configured values for a disabled
-             provider without flipping it back on. -->
-        <div x-show="hostStatsTab === 'node_exporter'" class="space-y-3" role="tabpanel" id="provider-tabpanel-node_exporter" aria-labelledby="provider-tab-node_exporter" :class="!hasHostStatsSource('node_exporter') ? 'opacity-60' : ''">
-          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
-            <label class="inline-flex items-center gap-2 fs-sm font-medium">
-              <input type="checkbox" :disabled="isReadonly()"
-                     :checked="hasHostStatsSource('node_exporter')"
-                     @change="toggleHostStatsSource('node_exporter', $event.target.checked)">
-              <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_node_exporter') })"></span>
-            </label>
-            <span class="chip"
-                  :class="hasHostStatsSource('node_exporter') ? 'pill-ok' : 'pill-muted'"
-                  x-text="hasHostStatsSource('node_exporter') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
-          </div>
-          <div>
-            <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                   x-text="t('settings.host_stats.url_label')"></label>
-            <input x-model="settings.node_exporter_url_template" type="text"
-                   :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
-                   class="w-full mono fs-xs"
-                   :placeholder="t('settings.host_stats.url_placeholder')">
-            <p class="fs-2xs text-[var(--text-faint)] mt-1"
-               x-text="t('settings.host_stats.url_hint')"></p>
-          </div>
-          <div>
-            <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                   x-text="t('settings.host_stats.overrides_label')"></label>
-            <textarea x-model="settings.node_exporter_overrides_json"
-                      :disabled="isReadonly() || !hasHostStatsSource('node_exporter')" rows="5"
-                      class="w-full mono fs-xs"
-                      :placeholder='`{\n  "host-id": "http://192.X.X.X:9100/metrics"\n}`'></textarea>
-            <p class="fs-2xs text-[var(--text-faint)] mt-1"
-               x-text="t('settings.host_stats.overrides_hint')"></p>
-          </div>
+        <!-- Colored brand icon (matches Notifications tab
+             strip for visual consistency across master-toggled
+             admin tabs). Drops the mask-image / mono treatment
+             in favour of the canonical SVG so each provider's
+             brand identity reads at a glance. -->
+        <img width="14" height="14" alt="" aria-hidden="true"
+             :src="'/img/icons/' + providerIconSlug(tab[0]) + '.svg?v=__APP_VERSION__'">
+        <span x-text="tab[1]"></span>
+      </button>
+    </template>
+  </div>
+  <!-- Per-provider config blocks — visible always, inputs
+       disabled when the matching toggle in the source-list above
+       is off. Wrapper div carries `opacity-60` so the off state
+       reads as "saved but inactive" instead of disappearing.
+       Operator can audit configured values for a disabled
+       provider without flipping it back on. -->
+  <div x-show="hostStatsTab === 'node_exporter'" class="space-y-3" role="tabpanel" id="provider-tabpanel-node_exporter" aria-labelledby="provider-tab-node_exporter" :class="!hasHostStatsSource('node_exporter') ? 'opacity-60' : ''">
+    <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+      <label class="inline-flex items-center gap-2 fs-sm font-medium">
+        <input type="checkbox" :disabled="isReadonly()"
+               :checked="hasHostStatsSource('node_exporter')"
+               @change="toggleHostStatsSource('node_exporter', $event.target.checked)">
+        <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_node_exporter') })"></span>
+      </label>
+      <span class="chip"
+            :class="hasHostStatsSource('node_exporter') ? 'pill-ok' : 'pill-muted'"
+            x-text="hasHostStatsSource('node_exporter') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+    </div>
+    <div>
+      <label class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('settings.host_stats.url_label')"></label>
+      <input x-model="settings.node_exporter_url_template" type="text"
+             :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
+             class="w-full mono fs-xs"
+             :placeholder="t('settings.host_stats.url_placeholder')">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('settings.host_stats.url_hint')"></p>
+    </div>
+    <div>
+      <label class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('settings.host_stats.overrides_label')"></label>
+      <textarea x-model="settings.node_exporter_overrides_json"
+                :disabled="isReadonly() || !hasHostStatsSource('node_exporter')" rows="5"
+                class="w-full mono fs-xs"
+                :placeholder='`{\n  "host-id": "http://192.X.X.X:9100/metrics"\n}`'></textarea>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('settings.host_stats.overrides_hint')"></p>
+    </div>
 
-          <!-- NE provider tunables — canonical header pattern (icon +
-               h3 + intro paragraph) matching every other admin tab
-               (Portainer / AI / SSH / Logs / Asset Inventory /
-               Notifications). All edits commit through the NE-section
-               Save alongside the URL template + per-host overrides. -->
-          <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-               x-show="tuningLoaded">
-            <div class="flex items-center gap-2 mb-1">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
-              <h3 class="font-semibold fs-sm"
-                  x-text="t('settings.host_stats.tunables_heading_node_exporter')"></h3>
-            </div>
-            <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-               x-text="t('settings.host_stats.tunables_intro_node_exporter')"></p>
-            <template x-for="key in _perProviderTuneKeys.node_exporter" :key="key">
-              <div class="space-y-1">
-                <label class="block fs-xs font-medium"
-                       x-text="t('admin.config.fields.' + key + '.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-                   x-text="t('admin.config.fields.' + key + '.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm[key]"
-                         :placeholder="tuningPlaceholder(key)"
-                         :min="(tuningEffective[key] || {}).min"
-                         :max="(tuningEffective[key] || {}).max"
-                         :disabled="tuneKnobDisabled('node_exporter')"
-                         class="w-32 mono fs-sm">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+    <!-- NE provider tunables — canonical header pattern (icon +
+         h3 + intro paragraph) matching every other admin tab
+         (Portainer / AI / SSH / Logs / Asset Inventory /
+         Notifications). All edits commit through the NE-section
+         Save alongside the URL template + per-host overrides. -->
+    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
+         x-show="tuningLoaded">
+      <div class="flex items-center gap-2 mb-1">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
+        <h3 class="font-semibold fs-sm"
+            x-text="t('settings.host_stats.tunables_heading_node_exporter')"></h3>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+         x-text="t('settings.host_stats.tunables_intro_node_exporter')"></p>
+      <template x-for="key in _perProviderTuneKeys.node_exporter" :key="key">
+        <div class="space-y-1">
+          <label class="block fs-xs font-medium"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+             x-text="t('admin.config.fields.' + key + '.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm[key]"
+                   :placeholder="tuningPlaceholder(key)"
+                   :min="(tuningEffective[key] || {}).min"
+                   :max="(tuningEffective[key] || {}).max"
+                   :disabled="tuneKnobDisabled('node_exporter')"
+                   class="w-32 mono fs-sm">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                        x-text="tuningEffectiveLabel(key)"></span>
-                </div>
-              </div>
-            </template>
+            </div>
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-          <!-- Per-provider chip colour — operator-customisable
-               override that flows into the row-chip + drawer-chip
-               render via `providerChipStyle`. Empty means "use the
-               built-in default colour" (a distinct hue per provider). -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
-            <label class="fs-xs flex items-center gap-2">
-              <span x-text="t('settings.host_stats.chip_color_label')"></span>
-              <input type="color"
-                     :value="settings.provider_color_node_exporter || providerColor('node_exporter')"
-                     @input="settings.provider_color_node_exporter = $event.target.value"
-                     :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
-                     class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
-              <input type="text" x-model="settings.provider_color_node_exporter"
-                     @input="settings.provider_color_node_exporter = normalizeHexColor($event.target.value)"
-                     :placeholder="providerColor('node_exporter')"
-                     :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
-                     pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
-                     class="w-24 mono fs-xs uppercase">
-            </label>
-            <button type="button"
-                    x-show="settings.provider_color_node_exporter"
-                    @click="settings.provider_color_node_exporter = ''"
-                    class="btn btn-ghost fs-2xs"
-                    x-text="t('settings.host_stats.chip_color_reset')"></button>
-            <span class="chip pill-custom fs-2xs"
-                  :style="providerChipStyle('node_exporter')"
-                  x-text="t('settings.host_stats.chip_color_preview')"></span>
-            <p class="basis-full fs-2xs text-[var(--text-faint)]"
-               x-text="t('settings.host_stats.chip_color_hint')"></p>
-          </div>
-          <!-- Section-owned Save at the END of the sub-tab. Posts only
-               NE's plain settings + the NE probe-timeout tunable. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
-            <button type="button"
-                    @click="saveNeSection()"
-                    :disabled="isReadonly() || hostStatsSaving"
-                    :class="neSectionDirty() ? 'btn-dirty' : ''"
-                    class="btn btn-primary fs-sm"
-                    x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
-            <span x-show="neSectionDirty() && !hostStatsSaving"
-                  class="fs-xs text-[var(--warning)] inline-flex items-center gap-1">
+        </div>
+      </template>
+    </div>
+    <!-- Per-provider chip colour — operator-customisable
+         override that flows into the row-chip + drawer-chip
+         render via `providerChipStyle`. Empty means "use the
+         built-in default colour" (a distinct hue per provider). -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+      <label class="fs-xs flex items-center gap-2">
+        <span x-text="t('settings.host_stats.chip_color_label')"></span>
+        <input type="color"
+               :value="settings.provider_color_node_exporter || providerColor('node_exporter')"
+               @input="settings.provider_color_node_exporter = $event.target.value"
+               :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
+               class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+        <input type="text" x-model="settings.provider_color_node_exporter"
+               @input="settings.provider_color_node_exporter = normalizeHexColor($event.target.value)"
+               :placeholder="providerColor('node_exporter')"
+               :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
+               pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
+               class="w-24 mono fs-xs uppercase">
+      </label>
+      <button type="button"
+              x-show="settings.provider_color_node_exporter"
+              @click="settings.provider_color_node_exporter = ''"
+              class="btn btn-ghost fs-2xs"
+              x-text="t('settings.host_stats.chip_color_reset')"></button>
+      <span class="chip pill-custom fs-2xs"
+            :style="providerChipStyle('node_exporter')"
+            x-text="t('settings.host_stats.chip_color_preview')"></span>
+      <p class="basis-full fs-2xs text-[var(--text-faint)]"
+         x-text="t('settings.host_stats.chip_color_hint')"></p>
+    </div>
+    <!-- Section-owned Save at the END of the sub-tab. Posts only
+         NE's plain settings + the NE probe-timeout tunable. -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+      <button type="button"
+              @click="saveNeSection()"
+              :disabled="isReadonly() || hostStatsSaving"
+              :class="neSectionDirty() ? 'btn-dirty' : ''"
+              class="btn btn-primary fs-sm"
+              x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
+      <span x-show="neSectionDirty() && !hostStatsSaving"
+            class="fs-xs text-[var(--warning)] inline-flex items-center gap-1">
               <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
               <span x-text="t('common.unsaved')"></span>
             </span>
-          </div>
-        </div>
-        <div x-show="hostStatsTab === 'beszel'" class="space-y-3" role="tabpanel" id="provider-tabpanel-beszel" aria-labelledby="provider-tab-beszel" :class="!hasHostStatsSource('beszel') ? 'opacity-60' : ''">
-          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
-            <label class="inline-flex items-center gap-2 fs-sm font-medium">
-              <input type="checkbox" :disabled="isReadonly()"
-                     :checked="hasHostStatsSource('beszel')"
-                     @change="toggleHostStatsSource('beszel', $event.target.checked)">
-              <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_beszel') })"></span>
-            </label>
-            <span class="chip"
-                  :class="hasHostStatsSource('beszel') ? 'pill-ok' : 'pill-muted'"
-                  x-text="hasHostStatsSource('beszel') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
-          </div>
-          <div>
-            <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                   x-text="t('settings.host_stats.beszel_url_label')"></label>
-            <input x-model="settings.beszel_hub_url" type="url"
-                   :disabled="isReadonly() || !hasHostStatsSource('beszel')"
-                   class="w-full mono fs-xs"
-                   :placeholder="t('settings.host_stats.beszel_url_placeholder')">
-            <p class="fs-2xs text-[var(--text-faint)] mt-1"
-               x-text="t('settings.host_stats.beszel_url_hint')"></p>
-          </div>
-          <div>
-            <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                   x-text="t('settings.host_stats.beszel_identity_label')"></label>
-            <input x-model="settings.beszel_identity" type="text"
-                   :disabled="isReadonly() || !hasHostStatsSource('beszel')"
-                   class="w-full fs-xs"
-                   :placeholder="t('settings.host_stats.beszel_identity_placeholder')">
-          </div>
-          <div>
-            <label class="block fs-xs text-[var(--text-faint)] mb-1">
-              <span x-text="t('settings.host_stats.beszel_password_label')"></span>
-            </label>
-            <span x-show="settings.beszel_password_set" class="block fs-xs text-[var(--success)] mb-1"
-                  x-text="t('settings.secret_input.saved_hint')"></span>
-            <div class="secret-input-row">
-              <input x-model="settings.beszel_password" type="password"
-                     autocomplete="new-password"
-                     :disabled="isReadonly() || !hasHostStatsSource('beszel')"
-                     class="w-full fs-xs"
-                     :placeholder="settings.beszel_password_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.beszel_password_placeholder')">
-              <button type="button"
-                      x-show="settings.beszel_password_set && isAdmin()"
-                      @click="clearBeszelPassword()"
-                      :disabled="!hasHostStatsSource('beszel')"
-                      class="btn btn-ghost fs-xs secret-input-clear"
-                      x-text="t('settings.host_stats.clear_secret_label')"></button>
-            </div>
-          </div>
-          <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)]">
-            <input type="checkbox" x-model="settings.beszel_verify_tls"
-                   :disabled="isReadonly() || !hasHostStatsSource('beszel')">
-            <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
-          </label>
-          <!-- Test button + last-connected label + result chip all on
-               one row to match the Portainer / OIDC layout. Operators
-               wanted the "Last connected: X ago" hint inline next to
-               the button, not on a separate line below. flex-wrap
-               handles narrow viewports. -->
-          <div class="flex items-center gap-2 flex-wrap">
-            <button type="button" x-show="isAdmin()" @click="testBeszelConnection()"
-                    :disabled="(beszelTestResult && beszelTestResult.pending) || !hasHostStatsSource('beszel')"
-                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="(beszelTestResult && beszelTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-              </svg>
-              <span x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></span>
-            </button>
-            <span x-show="lastTestSuccessLabel('beszel')"
-                  class="fs-xs text-[var(--text-faint)]"
-                  x-text="lastTestSuccessLabel('beszel')"></span>
-          </div>
-          <!-- Test result chip — full-width below the action row,
-               matching Portainer's pattern. Three-state colour box:
-               yellow while pending, green on ok, red on error. -->
-          <div x-show="beszelTestResult" class="fs-sm rounded-md px-3 py-2"
-               :class="beszelTestResult && beszelTestResult.pending
+    </div>
+  </div>
+  <div x-show="hostStatsTab === 'beszel'" class="space-y-3" role="tabpanel" id="provider-tabpanel-beszel" aria-labelledby="provider-tab-beszel" :class="!hasHostStatsSource('beszel') ? 'opacity-60' : ''">
+    <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+      <label class="inline-flex items-center gap-2 fs-sm font-medium">
+        <input type="checkbox" :disabled="isReadonly()"
+               :checked="hasHostStatsSource('beszel')"
+               @change="toggleHostStatsSource('beszel', $event.target.checked)">
+        <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_beszel') })"></span>
+      </label>
+      <span class="chip"
+            :class="hasHostStatsSource('beszel') ? 'pill-ok' : 'pill-muted'"
+            x-text="hasHostStatsSource('beszel') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+    </div>
+    <div>
+      <label class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('settings.host_stats.beszel_url_label')"></label>
+      <input x-model="settings.beszel_hub_url" type="url"
+             :disabled="isReadonly() || !hasHostStatsSource('beszel')"
+             class="w-full mono fs-xs"
+             :placeholder="t('settings.host_stats.beszel_url_placeholder')">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('settings.host_stats.beszel_url_hint')"></p>
+    </div>
+    <div>
+      <label class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('settings.host_stats.beszel_identity_label')"></label>
+      <input x-model="settings.beszel_identity" type="text"
+             :disabled="isReadonly() || !hasHostStatsSource('beszel')"
+             class="w-full fs-xs"
+             :placeholder="t('settings.host_stats.beszel_identity_placeholder')">
+    </div>
+    <div>
+      <label class="block fs-xs text-[var(--text-faint)] mb-1">
+        <span x-text="t('settings.host_stats.beszel_password_label')"></span>
+      </label>
+      <span x-show="settings.beszel_password_set" class="block fs-xs text-[var(--success)] mb-1"
+            x-text="t('settings.secret_input.saved_hint')"></span>
+      <div class="secret-input-row">
+        <input x-model="settings.beszel_password" type="password"
+               autocomplete="new-password"
+               :disabled="isReadonly() || !hasHostStatsSource('beszel')"
+               class="w-full fs-xs"
+               :placeholder="settings.beszel_password_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.beszel_password_placeholder')">
+        <button type="button"
+                x-show="settings.beszel_password_set && isAdmin()"
+                @click="clearBeszelPassword()"
+                :disabled="!hasHostStatsSource('beszel')"
+                class="btn btn-ghost fs-xs secret-input-clear"
+                x-text="t('settings.host_stats.clear_secret_label')"></button>
+      </div>
+    </div>
+    <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)]">
+      <input type="checkbox" x-model="settings.beszel_verify_tls"
+             :disabled="isReadonly() || !hasHostStatsSource('beszel')">
+      <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
+    </label>
+    <!-- Test button + last-connected label + result chip all on
+         one row to match the Portainer / OIDC layout. Operators
+         wanted the "Last connected: X ago" hint inline next to
+         the button, not on a separate line below. flex-wrap
+         handles narrow viewports. -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <button type="button" x-show="isAdmin()" @click="testBeszelConnection()"
+              :disabled="(beszelTestResult && beszelTestResult.pending) || !hasHostStatsSource('beszel')"
+              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="(beszelTestResult && beszelTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+        </svg>
+        <span x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></span>
+      </button>
+      <span x-show="lastTestSuccessLabel('beszel')"
+            class="fs-xs text-[var(--text-faint)]"
+            x-text="lastTestSuccessLabel('beszel')"></span>
+    </div>
+    <!-- Test result chip — full-width below the action row,
+         matching Portainer's pattern. Three-state colour box:
+         yellow while pending, green on ok, red on error. -->
+    <div x-show="beszelTestResult" class="fs-sm rounded-md px-3 py-2"
+         :class="beszelTestResult && beszelTestResult.pending
                        ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
                        : (beszelTestResult && beszelTestResult.ok
                          ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
                          : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-               x-text="beszelTestResult && beszelTestResult.pending
+         x-text="beszelTestResult && beszelTestResult.pending
                        ? t('actions.testing')
                        : (beszelTestResult ? ((beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult.detail || '')) : '')"></div>
-          <p class="fs-2xs text-[var(--text-faint)]"
-             x-text="t('settings.host_stats.beszel_naming_hint')"></p>
-          <!-- Beszel provider tunables — canonical header pattern
-               (icon + h3 + intro paragraph) matching every other admin
-               tab (AI / Asset Inventory / Portainer / Notifications /
-               NE / SSH). Covers probe timeout, sampler interval (0 =
-               inherit global), and the auto-pause threshold. All edits
-               commit through the Beszel section's Save button. -->
-          <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-               x-show="tuningLoaded">
-            <div class="flex items-center gap-2 mb-1">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
-              <h3 class="font-semibold fs-sm"
-                  x-text="t('settings.host_stats.tunables_heading_beszel')"></h3>
-            </div>
-            <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-               x-text="t('settings.host_stats.tunables_intro_beszel')"></p>
-            <template x-for="key in _perProviderTuneKeys.beszel" :key="key">
-              <div class="space-y-1">
-                <label class="block fs-xs font-medium"
-                       x-text="t('admin.config.fields.' + key + '.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-                   x-text="t('admin.config.fields.' + key + '.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm[key]"
-                         :placeholder="tuningPlaceholder(key)"
-                         :min="(tuningEffective[key] || {}).min"
-                         :max="(tuningEffective[key] || {}).max"
-                         :disabled="tuneKnobDisabled('beszel')"
-                         class="w-32 mono fs-sm">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+    <p class="fs-2xs text-[var(--text-faint)]"
+       x-text="t('settings.host_stats.beszel_naming_hint')"></p>
+    <!-- Beszel provider tunables — canonical header pattern
+         (icon + h3 + intro paragraph) matching every other admin
+         tab (AI / Asset Inventory / Portainer / Notifications /
+         NE / SSH). Covers probe timeout, sampler interval (0 =
+         inherit global), and the auto-pause threshold. All edits
+         commit through the Beszel section's Save button. -->
+    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
+         x-show="tuningLoaded">
+      <div class="flex items-center gap-2 mb-1">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
+        <h3 class="font-semibold fs-sm"
+            x-text="t('settings.host_stats.tunables_heading_beszel')"></h3>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+         x-text="t('settings.host_stats.tunables_intro_beszel')"></p>
+      <template x-for="key in _perProviderTuneKeys.beszel" :key="key">
+        <div class="space-y-1">
+          <label class="block fs-xs font-medium"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+             x-text="t('admin.config.fields.' + key + '.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm[key]"
+                   :placeholder="tuningPlaceholder(key)"
+                   :min="(tuningEffective[key] || {}).min"
+                   :max="(tuningEffective[key] || {}).max"
+                   :disabled="tuneKnobDisabled('beszel')"
+                   class="w-32 mono fs-sm">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                        x-text="tuningEffectiveLabel(key)"></span>
-                </div>
-              </div>
-            </template>
-          </div>
-          <!-- Per-provider chip colour. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
-            <label class="fs-xs flex items-center gap-2">
-              <span x-text="t('settings.host_stats.chip_color_label')"></span>
-              <input type="color"
-                     :value="settings.provider_color_beszel || providerColor('beszel')"
-                     @input="settings.provider_color_beszel = $event.target.value"
-                     :disabled="isReadonly() || !hasHostStatsSource('beszel')"
-                     class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
-              <input type="text" x-model="settings.provider_color_beszel"
-                     @input="settings.provider_color_beszel = normalizeHexColor($event.target.value)"
-                     :placeholder="providerColor('beszel')"
-                     :disabled="isReadonly() || !hasHostStatsSource('beszel')"
-                     pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
-                     class="w-24 mono fs-xs uppercase">
-            </label>
-            <button type="button"
-                    x-show="settings.provider_color_beszel"
-                    @click="settings.provider_color_beszel = ''"
-                    class="btn btn-ghost fs-2xs"
-                    x-text="t('settings.host_stats.chip_color_reset')"></button>
-            <span class="chip pill-custom fs-2xs"
-                  :style="providerChipStyle('beszel')"
-                  x-text="t('settings.host_stats.chip_color_preview')"></span>
-            <p class="basis-full fs-2xs text-[var(--text-faint)]"
-               x-text="t('settings.host_stats.chip_color_hint')"></p>
+            </div>
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
         </div>
+      </template>
+    </div>
+    <!-- Per-provider chip colour. -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+      <label class="fs-xs flex items-center gap-2">
+        <span x-text="t('settings.host_stats.chip_color_label')"></span>
+        <input type="color"
+               :value="settings.provider_color_beszel || providerColor('beszel')"
+               @input="settings.provider_color_beszel = $event.target.value"
+               :disabled="isReadonly() || !hasHostStatsSource('beszel')"
+               class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+        <input type="text" x-model="settings.provider_color_beszel"
+               @input="settings.provider_color_beszel = normalizeHexColor($event.target.value)"
+               :placeholder="providerColor('beszel')"
+               :disabled="isReadonly() || !hasHostStatsSource('beszel')"
+               pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
+               class="w-24 mono fs-xs uppercase">
+      </label>
+      <button type="button"
+              x-show="settings.provider_color_beszel"
+              @click="settings.provider_color_beszel = ''"
+              class="btn btn-ghost fs-2xs"
+              x-text="t('settings.host_stats.chip_color_reset')"></button>
+      <span class="chip pill-custom fs-2xs"
+            :style="providerChipStyle('beszel')"
+            x-text="t('settings.host_stats.chip_color_preview')"></span>
+      <p class="basis-full fs-2xs text-[var(--text-faint)]"
+         x-text="t('settings.host_stats.chip_color_hint')"></p>
+    </div>
+  </div>
 
-        <!-- Pulse config — third provider. PVE-only, so it pairs well
-             with Beszel (cross-platform) + node-exporter (Linux detail).
-             Token is write-only like Beszel's password. -->
-        <div x-show="hostStatsTab === 'pulse'" class="space-y-3" role="tabpanel" id="provider-tabpanel-pulse" aria-labelledby="provider-tab-pulse" :class="!hasHostStatsSource('pulse') ? 'opacity-60' : ''">
-          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
-            <label class="inline-flex items-center gap-2 fs-sm font-medium">
-              <input type="checkbox" :disabled="isReadonly()"
-                     :checked="hasHostStatsSource('pulse')"
-                     @change="toggleHostStatsSource('pulse', $event.target.checked)">
-              <span x-text="t('settings.host_stats.tab_enable_label', { provider: 'Pulse' })"></span>
-            </label>
-            <span class="chip"
-                  :class="hasHostStatsSource('pulse') ? 'pill-ok' : 'pill-muted'"
-                  x-text="hasHostStatsSource('pulse') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
-          </div>
-          <div>
-            <label class="block fs-xs text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.pulse_url_label')"></label>
-            <input x-model="settings.pulse_url" type="url"
-                   :disabled="isReadonly() || !hasHostStatsSource('pulse')"
-                   class="w-full mono fs-xs"
-                   :placeholder="t('settings.host_stats.pulse_url_placeholder')">
-            <p class="fs-2xs text-[var(--text-faint)] mt-1"
-               x-html="t('settings.host_stats.pulse_url_hint_html', { URL_PLACEHOLDER: '{URL}' })"></p>
-          </div>
-          <div>
-            <label class="block fs-xs text-[var(--text-faint)] mb-1">
-              <span x-text="t('settings.host_stats.pulse_token_label')"></span>
-            </label>
-            <span x-show="settings.pulse_token_set" class="block fs-xs text-[var(--success)] mb-1"
-                  x-text="t('settings.secret_input.saved_hint')"></span>
-            <div class="secret-input-row">
-              <input x-model="settings.pulse_token" type="password"
-                     autocomplete="new-password"
-                     :disabled="isReadonly() || !hasHostStatsSource('pulse')"
-                     class="w-full fs-xs"
-                     :placeholder="settings.pulse_token_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.pulse_token_placeholder')">
-              <button type="button"
-                      x-show="settings.pulse_token_set && isAdmin()"
-                      @click="clearPulseToken()"
-                      :disabled="!hasHostStatsSource('pulse')"
-                      class="btn btn-ghost fs-xs secret-input-clear"
-                      x-text="t('settings.host_stats.clear_secret_label')"></button>
-            </div>
-          </div>
-          <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)]">
-            <input type="checkbox" x-model="settings.pulse_verify_tls"
-                   :disabled="isReadonly() || !hasHostStatsSource('pulse')">
-            <span x-text="t('settings.host_stats.pulse_verify_tls')"></span>
-          </label>
-          <!-- Test button + last-connected label + result chip all on
-               one row (matches Beszel / Webmin / Portainer / OIDC). -->
-          <div class="flex items-center gap-2 flex-wrap">
-            <button type="button" x-show="isAdmin()" @click="testPulseConnection()"
-                    :disabled="(pulseTestResult && pulseTestResult.pending) || !hasHostStatsSource('pulse')"
-                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="(pulseTestResult && pulseTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-              </svg>
-              <span x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></span>
-            </button>
-            <span x-show="lastTestSuccessLabel('pulse')"
-                  class="fs-xs text-[var(--text-faint)]"
-                  x-text="lastTestSuccessLabel('pulse')"></span>
-          </div>
-          <div x-show="pulseTestResult" class="fs-sm rounded-md px-3 py-2"
-               :class="pulseTestResult && pulseTestResult.pending
+  <!-- Pulse config — third provider. PVE-only, so it pairs well
+       with Beszel (cross-platform) + node-exporter (Linux detail).
+       Token is write-only like Beszel's password. -->
+  <div x-show="hostStatsTab === 'pulse'" class="space-y-3" role="tabpanel" id="provider-tabpanel-pulse" aria-labelledby="provider-tab-pulse" :class="!hasHostStatsSource('pulse') ? 'opacity-60' : ''">
+    <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+      <label class="inline-flex items-center gap-2 fs-sm font-medium">
+        <input type="checkbox" :disabled="isReadonly()"
+               :checked="hasHostStatsSource('pulse')"
+               @change="toggleHostStatsSource('pulse', $event.target.checked)">
+        <span x-text="t('settings.host_stats.tab_enable_label', { provider: 'Pulse' })"></span>
+      </label>
+      <span class="chip"
+            :class="hasHostStatsSource('pulse') ? 'pill-ok' : 'pill-muted'"
+            x-text="hasHostStatsSource('pulse') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+    </div>
+    <div>
+      <label class="block fs-xs text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.pulse_url_label')"></label>
+      <input x-model="settings.pulse_url" type="url"
+             :disabled="isReadonly() || !hasHostStatsSource('pulse')"
+             class="w-full mono fs-xs"
+             :placeholder="t('settings.host_stats.pulse_url_placeholder')">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-html="t('settings.host_stats.pulse_url_hint_html', { URL_PLACEHOLDER: '{URL}' })"></p>
+    </div>
+    <div>
+      <label class="block fs-xs text-[var(--text-faint)] mb-1">
+        <span x-text="t('settings.host_stats.pulse_token_label')"></span>
+      </label>
+      <span x-show="settings.pulse_token_set" class="block fs-xs text-[var(--success)] mb-1"
+            x-text="t('settings.secret_input.saved_hint')"></span>
+      <div class="secret-input-row">
+        <input x-model="settings.pulse_token" type="password"
+               autocomplete="new-password"
+               :disabled="isReadonly() || !hasHostStatsSource('pulse')"
+               class="w-full fs-xs"
+               :placeholder="settings.pulse_token_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.pulse_token_placeholder')">
+        <button type="button"
+                x-show="settings.pulse_token_set && isAdmin()"
+                @click="clearPulseToken()"
+                :disabled="!hasHostStatsSource('pulse')"
+                class="btn btn-ghost fs-xs secret-input-clear"
+                x-text="t('settings.host_stats.clear_secret_label')"></button>
+      </div>
+    </div>
+    <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)]">
+      <input type="checkbox" x-model="settings.pulse_verify_tls"
+             :disabled="isReadonly() || !hasHostStatsSource('pulse')">
+      <span x-text="t('settings.host_stats.pulse_verify_tls')"></span>
+    </label>
+    <!-- Test button + last-connected label + result chip all on
+         one row (matches Beszel / Webmin / Portainer / OIDC). -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <button type="button" x-show="isAdmin()" @click="testPulseConnection()"
+              :disabled="(pulseTestResult && pulseTestResult.pending) || !hasHostStatsSource('pulse')"
+              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="(pulseTestResult && pulseTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+        </svg>
+        <span x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></span>
+      </button>
+      <span x-show="lastTestSuccessLabel('pulse')"
+            class="fs-xs text-[var(--text-faint)]"
+            x-text="lastTestSuccessLabel('pulse')"></span>
+    </div>
+    <div x-show="pulseTestResult" class="fs-sm rounded-md px-3 py-2"
+         :class="pulseTestResult && pulseTestResult.pending
                        ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
                        : (pulseTestResult && pulseTestResult.ok
                          ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
                          : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-               x-text="pulseTestResult && pulseTestResult.pending
+         x-text="pulseTestResult && pulseTestResult.pending
                        ? t('actions.testing')
                        : (pulseTestResult ? ((pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult.detail || '')) : '')"></div>
-          <p class="fs-2xs text-[var(--text-faint)]" x-text="t('settings.host_stats.pulse_aliases_hint')"></p>
-          <!-- Pulse provider tunables — canonical header pattern
-               (icon + h3 + intro paragraph) matching every other admin
-               tab (AI / Asset Inventory / Portainer / Notifications /
-               NE / SSH / Beszel). Covers probe timeout, sampler
-               interval (0 = inherit global), and the auto-pause
-               threshold. All edits commit through the Pulse section's
-               Save button. -->
-          <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-               x-show="tuningLoaded">
-            <div class="flex items-center gap-2 mb-1">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
-              <h3 class="font-semibold fs-sm"
-                  x-text="t('settings.host_stats.tunables_heading_pulse')"></h3>
-            </div>
-            <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-               x-text="t('settings.host_stats.tunables_intro_pulse')"></p>
-            <template x-for="key in _perProviderTuneKeys.pulse" :key="key">
-              <div class="space-y-1">
-                <label class="block fs-xs font-medium"
-                       x-text="t('admin.config.fields.' + key + '.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-                   x-text="t('admin.config.fields.' + key + '.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm[key]"
-                         :placeholder="tuningPlaceholder(key)"
-                         :min="(tuningEffective[key] || {}).min"
-                         :max="(tuningEffective[key] || {}).max"
-                         :disabled="tuneKnobDisabled('pulse')"
-                         class="w-32 mono fs-sm">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+    <p class="fs-2xs text-[var(--text-faint)]" x-text="t('settings.host_stats.pulse_aliases_hint')"></p>
+    <!-- Pulse provider tunables — canonical header pattern
+         (icon + h3 + intro paragraph) matching every other admin
+         tab (AI / Asset Inventory / Portainer / Notifications /
+         NE / SSH / Beszel). Covers probe timeout, sampler
+         interval (0 = inherit global), and the auto-pause
+         threshold. All edits commit through the Pulse section's
+         Save button. -->
+    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
+         x-show="tuningLoaded">
+      <div class="flex items-center gap-2 mb-1">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
+        <h3 class="font-semibold fs-sm"
+            x-text="t('settings.host_stats.tunables_heading_pulse')"></h3>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+         x-text="t('settings.host_stats.tunables_intro_pulse')"></p>
+      <template x-for="key in _perProviderTuneKeys.pulse" :key="key">
+        <div class="space-y-1">
+          <label class="block fs-xs font-medium"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+             x-text="t('admin.config.fields.' + key + '.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm[key]"
+                   :placeholder="tuningPlaceholder(key)"
+                   :min="(tuningEffective[key] || {}).min"
+                   :max="(tuningEffective[key] || {}).max"
+                   :disabled="tuneKnobDisabled('pulse')"
+                   class="w-32 mono fs-sm">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                        x-text="tuningEffectiveLabel(key)"></span>
-                </div>
-              </div>
-            </template>
-          </div>
-          <!-- Per-provider chip colour. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
-            <label class="fs-xs flex items-center gap-2">
-              <span x-text="t('settings.host_stats.chip_color_label')"></span>
-              <input type="color"
-                     :value="settings.provider_color_pulse || providerColor('pulse')"
-                     @input="settings.provider_color_pulse = $event.target.value"
-                     :disabled="isReadonly() || !hasHostStatsSource('pulse')"
-                     class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
-              <input type="text" x-model="settings.provider_color_pulse"
-                     @input="settings.provider_color_pulse = normalizeHexColor($event.target.value)"
-                     :placeholder="providerColor('pulse')"
-                     :disabled="isReadonly() || !hasHostStatsSource('pulse')"
-                     pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
-                     class="w-24 mono fs-xs uppercase">
-            </label>
-            <button type="button"
-                    x-show="settings.provider_color_pulse"
-                    @click="settings.provider_color_pulse = ''"
-                    class="btn btn-ghost fs-2xs"
-                    x-text="t('settings.host_stats.chip_color_reset')"></button>
-            <span class="chip pill-custom fs-2xs"
-                  :style="providerChipStyle('pulse')"
-                  x-text="t('settings.host_stats.chip_color_preview')"></span>
-            <p class="basis-full fs-2xs text-[var(--text-faint)]"
-               x-text="t('settings.host_stats.chip_color_hint')"></p>
+            </div>
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
         </div>
+      </template>
+    </div>
+    <!-- Per-provider chip colour. -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+      <label class="fs-xs flex items-center gap-2">
+        <span x-text="t('settings.host_stats.chip_color_label')"></span>
+        <input type="color"
+               :value="settings.provider_color_pulse || providerColor('pulse')"
+               @input="settings.provider_color_pulse = $event.target.value"
+               :disabled="isReadonly() || !hasHostStatsSource('pulse')"
+               class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+        <input type="text" x-model="settings.provider_color_pulse"
+               @input="settings.provider_color_pulse = normalizeHexColor($event.target.value)"
+               :placeholder="providerColor('pulse')"
+               :disabled="isReadonly() || !hasHostStatsSource('pulse')"
+               pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
+               class="w-24 mono fs-xs uppercase">
+      </label>
+      <button type="button"
+              x-show="settings.provider_color_pulse"
+              @click="settings.provider_color_pulse = ''"
+              class="btn btn-ghost fs-2xs"
+              x-text="t('settings.host_stats.chip_color_reset')"></button>
+      <span class="chip pill-custom fs-2xs"
+            :style="providerChipStyle('pulse')"
+            x-text="t('settings.host_stats.chip_color_preview')"></span>
+      <p class="basis-full fs-2xs text-[var(--text-faint)]"
+         x-text="t('settings.host_stats.chip_color_hint')"></p>
+    </div>
+  </div>
 
-        <!-- Webmin config — fourth provider. Each target host runs its
-             own Miniserv instance, so unlike Pulse / Beszel the URL is
-             per-host (edited in the Hosts tab's webmin_aliases map).
-             These fields carry the SHARED credentials that probe every
-             Webmin endpoint. Password is write-only like the others. -->
-        <div x-show="hostStatsTab === 'webmin'" class="space-y-3" role="tabpanel" id="provider-tabpanel-webmin" aria-labelledby="provider-tab-webmin" :class="!hasHostStatsSource('webmin') ? 'opacity-60' : ''">
-          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
-            <label class="inline-flex items-center gap-2 fs-sm font-medium">
-              <input type="checkbox" :disabled="isReadonly()"
-                     :checked="hasHostStatsSource('webmin')"
-                     @change="toggleHostStatsSource('webmin', $event.target.checked)">
-              <span x-text="t('settings.host_stats.tab_enable_label', { provider: 'Webmin' })"></span>
-            </label>
-            <span class="chip"
-                  :class="hasHostStatsSource('webmin') ? 'pill-ok' : 'pill-muted'"
-                  x-text="hasHostStatsSource('webmin') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
-          </div>
-          <div>
-            <label class="block fs-xs text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.webmin_user_label')"></label>
-            <input x-model="settings.webmin_user" type="text"
-                   :disabled="isReadonly() || !hasHostStatsSource('webmin')"
-                   class="w-full fs-xs"
-                   :placeholder="t('settings.host_stats.webmin_user_placeholder')">
-            <p class="fs-2xs text-[var(--text-faint)] mt-1"
-               x-html="t('settings.host_stats.webmin_user_hint_html')"></p>
-          </div>
-          <div>
-            <label class="block fs-xs text-[var(--text-faint)] mb-1">
-              <span x-text="t('settings.host_stats.webmin_password_label')"></span>
-            </label>
-            <span x-show="settings.webmin_password_set" class="block fs-xs text-[var(--success)] mb-1"
-                  x-text="t('settings.secret_input.saved_hint')"></span>
-            <div class="secret-input-row">
-              <input x-model="settings.webmin_password" type="password"
-                     autocomplete="new-password"
-                     :disabled="isReadonly() || !hasHostStatsSource('webmin')"
-                     class="w-full fs-xs"
-                     :placeholder="settings.webmin_password_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.webmin_password_placeholder')">
-              <button type="button"
-                      x-show="settings.webmin_password_set && isAdmin()"
-                      @click="clearWebminPassword()"
-                      :disabled="!hasHostStatsSource('webmin')"
-                      class="btn btn-ghost fs-xs secret-input-clear"
-                      x-text="t('settings.host_stats.clear_secret_label')"></button>
-            </div>
-          </div>
-          <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)]">
-            <input type="checkbox" x-model="settings.webmin_verify_tls"
-                   :disabled="isReadonly() || !hasHostStatsSource('webmin')">
-            <span x-text="t('settings.host_stats.webmin_verify_tls_label')"></span>
-          </label>
-          <div class="flex items-center gap-2 flex-wrap">
-            <button type="button" x-show="isAdmin()" @click="testWebminConnection()"
-                    :disabled="(webminTestResult && webminTestResult.pending) || !hasHostStatsSource('webmin')"
-                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="(webminTestResult && webminTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-              </svg>
-              <span x-text="(webminTestResult && webminTestResult.pending) ? t('settings.host_stats.webmin_testing') : t('settings.host_stats.webmin_test_button')"></span>
-            </button>
-            <input x-model="webminTestUrl" type="url" class="flex-1 fs-xs mono"
-                   :placeholder="t('admin_hosts.row.webmin_url_placeholder')">
-            <span x-show="lastTestSuccessLabel('webmin')"
-                  class="fs-xs text-[var(--text-faint)]"
-                  x-text="lastTestSuccessLabel('webmin')"></span>
-          </div>
-          <div x-show="webminTestResult" class="fs-sm rounded-md px-3 py-2"
-               :class="webminTestResult && webminTestResult.pending
+  <!-- Webmin config — fourth provider. Each target host runs its
+       own Miniserv instance, so unlike Pulse / Beszel the URL is
+       per-host (edited in the Hosts tab's webmin_aliases map).
+       These fields carry the SHARED credentials that probe every
+       Webmin endpoint. Password is write-only like the others. -->
+  <div x-show="hostStatsTab === 'webmin'" class="space-y-3" role="tabpanel" id="provider-tabpanel-webmin" aria-labelledby="provider-tab-webmin" :class="!hasHostStatsSource('webmin') ? 'opacity-60' : ''">
+    <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+      <label class="inline-flex items-center gap-2 fs-sm font-medium">
+        <input type="checkbox" :disabled="isReadonly()"
+               :checked="hasHostStatsSource('webmin')"
+               @change="toggleHostStatsSource('webmin', $event.target.checked)">
+        <span x-text="t('settings.host_stats.tab_enable_label', { provider: 'Webmin' })"></span>
+      </label>
+      <span class="chip"
+            :class="hasHostStatsSource('webmin') ? 'pill-ok' : 'pill-muted'"
+            x-text="hasHostStatsSource('webmin') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+    </div>
+    <div>
+      <label class="block fs-xs text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.webmin_user_label')"></label>
+      <input x-model="settings.webmin_user" type="text"
+             :disabled="isReadonly() || !hasHostStatsSource('webmin')"
+             class="w-full fs-xs"
+             :placeholder="t('settings.host_stats.webmin_user_placeholder')">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-html="t('settings.host_stats.webmin_user_hint_html')"></p>
+    </div>
+    <div>
+      <label class="block fs-xs text-[var(--text-faint)] mb-1">
+        <span x-text="t('settings.host_stats.webmin_password_label')"></span>
+      </label>
+      <span x-show="settings.webmin_password_set" class="block fs-xs text-[var(--success)] mb-1"
+            x-text="t('settings.secret_input.saved_hint')"></span>
+      <div class="secret-input-row">
+        <input x-model="settings.webmin_password" type="password"
+               autocomplete="new-password"
+               :disabled="isReadonly() || !hasHostStatsSource('webmin')"
+               class="w-full fs-xs"
+               :placeholder="settings.webmin_password_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.webmin_password_placeholder')">
+        <button type="button"
+                x-show="settings.webmin_password_set && isAdmin()"
+                @click="clearWebminPassword()"
+                :disabled="!hasHostStatsSource('webmin')"
+                class="btn btn-ghost fs-xs secret-input-clear"
+                x-text="t('settings.host_stats.clear_secret_label')"></button>
+      </div>
+    </div>
+    <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)]">
+      <input type="checkbox" x-model="settings.webmin_verify_tls"
+             :disabled="isReadonly() || !hasHostStatsSource('webmin')">
+      <span x-text="t('settings.host_stats.webmin_verify_tls_label')"></span>
+    </label>
+    <div class="flex items-center gap-2 flex-wrap">
+      <button type="button" x-show="isAdmin()" @click="testWebminConnection()"
+              :disabled="(webminTestResult && webminTestResult.pending) || !hasHostStatsSource('webmin')"
+              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="(webminTestResult && webminTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+        </svg>
+        <span x-text="(webminTestResult && webminTestResult.pending) ? t('settings.host_stats.webmin_testing') : t('settings.host_stats.webmin_test_button')"></span>
+      </button>
+      <input x-model="webminTestUrl" type="url" class="flex-1 fs-xs mono"
+             :placeholder="t('admin_hosts.row.webmin_url_placeholder')">
+      <span x-show="lastTestSuccessLabel('webmin')"
+            class="fs-xs text-[var(--text-faint)]"
+            x-text="lastTestSuccessLabel('webmin')"></span>
+    </div>
+    <div x-show="webminTestResult" class="fs-sm rounded-md px-3 py-2"
+         :class="webminTestResult && webminTestResult.pending
                        ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
                        : (webminTestResult && webminTestResult.ok
                          ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
                          : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-               x-text="webminTestResult && webminTestResult.pending
+         x-text="webminTestResult && webminTestResult.pending
                        ? t('actions.testing')
                        : (webminTestResult ? ((webminTestResult.ok ? '✓ ' : '✗ ') + (webminTestResult.detail || '')) : '')"></div>
-          <p class="fs-2xs text-[var(--text-faint)]"
-             x-html="t('settings.host_stats.webmin_aliases_hint_html')"></p>
+    <p class="fs-2xs text-[var(--text-faint)]"
+       x-html="t('settings.host_stats.webmin_aliases_hint_html')"></p>
 
-          <!-- Webmin provider tunables — canonical header pattern
-               (icon + h3 + intro paragraph) matching every other admin
-               tab (AI / Asset Inventory / Portainer / Notifications /
-               NE / SSH / Beszel / Pulse / Ping). Covers probe budget,
-               sampler budget, per-host probe timeout, per-host success
-               + failure cache TTLs, and per-(provider, host) auto-pause
-               threshold. All edits commit through the Webmin section's
-               Save button. -->
-          <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-               x-show="tuningLoaded">
-            <div class="flex items-center gap-2 mb-1">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
-              <h3 class="font-semibold fs-sm"
-                  x-text="t('settings.host_stats.tunables_heading_webmin')"></h3>
-            </div>
-            <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-               x-text="t('settings.host_stats.tunables_intro_webmin')"></p>
-            <template x-for="key in _perProviderTuneKeys.webmin" :key="key">
-              <div class="space-y-1">
-                <label class="block fs-xs font-medium"
-                       x-text="t('admin.config.fields.' + key + '.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-                   x-text="t('admin.config.fields.' + key + '.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm[key]"
-                         :placeholder="tuningPlaceholder(key)"
-                         :min="(tuningEffective[key] || {}).min"
-                         :max="(tuningEffective[key] || {}).max"
-                         :disabled="tuneKnobDisabled('webmin')"
-                         class="w-32 mono fs-sm">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+    <!-- Webmin provider tunables — canonical header pattern
+         (icon + h3 + intro paragraph) matching every other admin
+         tab (AI / Asset Inventory / Portainer / Notifications /
+         NE / SSH / Beszel / Pulse / Ping). Covers probe budget,
+         sampler budget, per-host probe timeout, per-host success
+         + failure cache TTLs, and per-(provider, host) auto-pause
+         threshold. All edits commit through the Webmin section's
+         Save button. -->
+    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
+         x-show="tuningLoaded">
+      <div class="flex items-center gap-2 mb-1">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
+        <h3 class="font-semibold fs-sm"
+            x-text="t('settings.host_stats.tunables_heading_webmin')"></h3>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+         x-text="t('settings.host_stats.tunables_intro_webmin')"></p>
+      <template x-for="key in _perProviderTuneKeys.webmin" :key="key">
+        <div class="space-y-1">
+          <label class="block fs-xs font-medium"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+             x-text="t('admin.config.fields.' + key + '.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm[key]"
+                   :placeholder="tuningPlaceholder(key)"
+                   :min="(tuningEffective[key] || {}).min"
+                   :max="(tuningEffective[key] || {}).max"
+                   :disabled="tuneKnobDisabled('webmin')"
+                   class="w-32 mono fs-sm">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                        x-text="tuningEffectiveLabel(key)"></span>
-                </div>
-              </div>
-            </template>
+            </div>
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-          <!-- Per-provider chip colour. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
-            <label class="fs-xs flex items-center gap-2">
-              <span x-text="t('settings.host_stats.chip_color_label')"></span>
-              <input type="color"
-                     :value="settings.provider_color_webmin || providerColor('webmin')"
-                     @input="settings.provider_color_webmin = $event.target.value"
-                     :disabled="isReadonly() || !hasHostStatsSource('webmin')"
-                     class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
-              <input type="text" x-model="settings.provider_color_webmin"
-                     @input="settings.provider_color_webmin = normalizeHexColor($event.target.value)"
-                     :placeholder="providerColor('webmin')"
-                     :disabled="isReadonly() || !hasHostStatsSource('webmin')"
-                     pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
-                     class="w-24 mono fs-xs uppercase">
-            </label>
-            <button type="button"
-                    x-show="settings.provider_color_webmin"
-                    @click="settings.provider_color_webmin = ''"
-                    class="btn btn-ghost fs-2xs"
-                    x-text="t('settings.host_stats.chip_color_reset')"></button>
-            <span class="chip pill-custom fs-2xs"
-                  :style="providerChipStyle('webmin')"
-                  x-text="t('settings.host_stats.chip_color_preview')"></span>
-            <p class="basis-full fs-2xs text-[var(--text-faint)]"
-               x-text="t('settings.host_stats.chip_color_hint')"></p>
-          </div>
-          <!-- Section-owned Save at the END of the sub-tab. Posts only
-               Webmin's plain settings + the four Webmin tunables. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
-            <button type="button"
-                    @click="saveWebminSection()"
-                    :disabled="isReadonly() || hostStatsSaving"
-                    :class="webminSectionDirty() ? 'btn-dirty' : ''"
-                    class="btn btn-primary fs-sm"
-                    x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
-            <span x-show="webminSectionDirty() && !hostStatsSaving"
-                  class="fs-xs text-[var(--warning)] inline-flex items-center gap-1">
+        </div>
+      </template>
+    </div>
+    <!-- Per-provider chip colour. -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+      <label class="fs-xs flex items-center gap-2">
+        <span x-text="t('settings.host_stats.chip_color_label')"></span>
+        <input type="color"
+               :value="settings.provider_color_webmin || providerColor('webmin')"
+               @input="settings.provider_color_webmin = $event.target.value"
+               :disabled="isReadonly() || !hasHostStatsSource('webmin')"
+               class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+        <input type="text" x-model="settings.provider_color_webmin"
+               @input="settings.provider_color_webmin = normalizeHexColor($event.target.value)"
+               :placeholder="providerColor('webmin')"
+               :disabled="isReadonly() || !hasHostStatsSource('webmin')"
+               pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
+               class="w-24 mono fs-xs uppercase">
+      </label>
+      <button type="button"
+              x-show="settings.provider_color_webmin"
+              @click="settings.provider_color_webmin = ''"
+              class="btn btn-ghost fs-2xs"
+              x-text="t('settings.host_stats.chip_color_reset')"></button>
+      <span class="chip pill-custom fs-2xs"
+            :style="providerChipStyle('webmin')"
+            x-text="t('settings.host_stats.chip_color_preview')"></span>
+      <p class="basis-full fs-2xs text-[var(--text-faint)]"
+         x-text="t('settings.host_stats.chip_color_hint')"></p>
+    </div>
+    <!-- Section-owned Save at the END of the sub-tab. Posts only
+         Webmin's plain settings + the four Webmin tunables. -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+      <button type="button"
+              @click="saveWebminSection()"
+              :disabled="isReadonly() || hostStatsSaving"
+              :class="webminSectionDirty() ? 'btn-dirty' : ''"
+              class="btn btn-primary fs-sm"
+              x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
+      <span x-show="webminSectionDirty() && !hostStatsSaving"
+            class="fs-xs text-[var(--warning)] inline-flex items-center gap-1">
               <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
               <span x-text="t('common.unsaved')"></span>
             </span>
-          </div>
-        </div>
+    </div>
+  </div>
 
-        <!-- Ping — fifth provider. No credentials, no aliases.
-             Defaults flow into per-host config; per-host overrides win.
-             Per-host opt-in still gates probing, so this block is the
-             "globals" panel. -->
-        <div x-show="hostStatsTab === 'ping'" class="space-y-3" role="tabpanel" id="provider-tabpanel-ping" aria-labelledby="provider-tab-ping" :class="!hasHostStatsSource('ping') ? 'opacity-60' : ''">
-          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
-            <label class="inline-flex items-center gap-2 fs-sm font-medium">
-              <input type="checkbox" :disabled="isReadonly()"
-                     :checked="hasHostStatsSource('ping')"
-                     @change="toggleHostStatsSource('ping', $event.target.checked)">
-              <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_ping') })"></span>
-            </label>
-            <span class="chip"
-                  :class="hasHostStatsSource('ping') ? 'pill-ok' : 'pill-muted'"
-                  x-text="hasHostStatsSource('ping') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
-          </div>
-          <p class="fs-2xs text-[var(--text-faint)] mt-1"
-             x-text="t('settings.host_stats.ping.section_desc')"></p>
-          <!-- Default TCP port — single row, full width so the input
-               doesn't share a row with the ICMP toggle (operator-
-               flagged: the ICMP hint reads as belonging to the port
-               input when they sit side-by-side). -->
-          <div>
-            <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                   x-text="t('settings.host_stats.ping.default_port_label')"></label>
-            <input x-model="settings.ping_default_port" type="number" min="1" max="65535"
-                   :disabled="isReadonly() || !hasHostStatsSource('ping')"
-                   class="w-full mono fs-xs"
-                   placeholder="443">
-            <p class="fs-2xs text-[var(--text-faint)] mt-1"
-               x-text="t('settings.host_stats.ping.default_port_hint')"></p>
-          </div>
-          <!-- ICMP-echo preference — on its own row (operator request)
-               so the "Prefer raw ICMP echo when possible" caption is
-               unambiguously about the toggle, not the port above.
-               Help text BEFORE the checkbox (operator-canonical
-               pattern matching every other admin section). -->
-          <div class="mt-3">
-            <p class="fs-2xs text-[var(--text-faint)] mb-1"
-               x-text="t('settings.host_stats.ping.use_icmp_hint')"></p>
-            <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)]">
-              <input type="checkbox" x-model="settings.ping_use_icmp"
-                     :disabled="isReadonly() || !hasHostStatsSource('ping') || !settings.ping_has_icmp_support">
-              <span x-text="t('settings.host_stats.ping.use_icmp_label')"></span>
-            </label>
-            <p x-show="!settings.ping_has_icmp_support"
-               class="fs-2xs text-[var(--warning)] mt-1"
-               x-text="t('settings.host_stats.ping.icmp_unavailable')"></p>
-          </div>
-          <!-- Test button — picks an opted-in host and fires a one-shot
-               live probe via /api/ping/test. -->
-          <div class="flex items-center gap-2 flex-wrap">
-            <button type="button" x-show="isAdmin()" @click="testPingConnection()"
-                    :disabled="(pingTestResult && pingTestResult.pending) || !hasHostStatsSource('ping') || !pingTestHostId"
-                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="(pingTestResult && pingTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-              </svg>
-              <span x-text="(pingTestResult && pingTestResult.pending) ? t('settings.host_stats.ping.test_running') : t('settings.host_stats.ping.test_button')"></span>
-            </button>
-            <select x-model="pingTestHostId"
-                    :disabled="isReadonly() || !hasHostStatsSource('ping')"
-                    class="fs-xs mono">
-              <option value="" x-text="t('settings.host_stats.ping.test_target_label')"></option>
-              <template x-for="opt in pingEnabledHosts()" :key="opt.id">
-                <option :value="opt.id" x-text="opt.label"></option>
-              </template>
-            </select>
-            <!-- Result chip moved out of the action row — see the
-                 full-width div directly below the closing `</div>` of
-                 this flex row to match the Portainer pattern. -->
-            <span x-show="hasHostStatsSource('ping') && !pingEnabledHosts().length"
-                  class="fs-2xs text-[var(--text-faint)] italic"
-                  x-text="t('settings.host_stats.ping.test_no_hosts')"></span>
-            <span x-show="lastTestSuccessLabel('ping')"
-                  class="fs-xs text-[var(--text-faint)]"
-                  x-text="lastTestSuccessLabel('ping')"></span>
-          </div>
-          <div x-show="pingTestResult" class="fs-sm rounded-md px-3 py-2"
-               :class="pingTestResult && pingTestResult.pending
+  <!-- Ping — fifth provider. No credentials, no aliases.
+       Defaults flow into per-host config; per-host overrides win.
+       Per-host opt-in still gates probing, so this block is the
+       "globals" panel. -->
+  <div x-show="hostStatsTab === 'ping'" class="space-y-3" role="tabpanel" id="provider-tabpanel-ping" aria-labelledby="provider-tab-ping" :class="!hasHostStatsSource('ping') ? 'opacity-60' : ''">
+    <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+      <label class="inline-flex items-center gap-2 fs-sm font-medium">
+        <input type="checkbox" :disabled="isReadonly()"
+               :checked="hasHostStatsSource('ping')"
+               @change="toggleHostStatsSource('ping', $event.target.checked)">
+        <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_ping') })"></span>
+      </label>
+      <span class="chip"
+            :class="hasHostStatsSource('ping') ? 'pill-ok' : 'pill-muted'"
+            x-text="hasHostStatsSource('ping') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+    </div>
+    <p class="fs-2xs text-[var(--text-faint)] mt-1"
+       x-text="t('settings.host_stats.ping.section_desc')"></p>
+    <!-- Default TCP port — single row, full width so the input
+         doesn't share a row with the ICMP toggle (operator-
+         flagged: the ICMP hint reads as belonging to the port
+         input when they sit side-by-side). -->
+    <div>
+      <label class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('settings.host_stats.ping.default_port_label')"></label>
+      <input x-model="settings.ping_default_port" type="number" min="1" max="65535"
+             :disabled="isReadonly() || !hasHostStatsSource('ping')"
+             class="w-full mono fs-xs"
+             placeholder="443">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('settings.host_stats.ping.default_port_hint')"></p>
+    </div>
+    <!-- ICMP-echo preference — on its own row (operator request)
+         so the "Prefer raw ICMP echo when possible" caption is
+         unambiguously about the toggle, not the port above.
+         Help text BEFORE the checkbox (operator-canonical
+         pattern matching every other admin section). -->
+    <div class="mt-3">
+      <p class="fs-2xs text-[var(--text-faint)] mb-1"
+         x-text="t('settings.host_stats.ping.use_icmp_hint')"></p>
+      <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)]">
+        <input type="checkbox" x-model="settings.ping_use_icmp"
+               :disabled="isReadonly() || !hasHostStatsSource('ping') || !settings.ping_has_icmp_support">
+        <span x-text="t('settings.host_stats.ping.use_icmp_label')"></span>
+      </label>
+      <p x-show="!settings.ping_has_icmp_support"
+         class="fs-2xs text-[var(--warning)] mt-1"
+         x-text="t('settings.host_stats.ping.icmp_unavailable')"></p>
+    </div>
+    <!-- Test button — picks an opted-in host and fires a one-shot
+         live probe via /api/ping/test. -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <button type="button" x-show="isAdmin()" @click="testPingConnection()"
+              :disabled="(pingTestResult && pingTestResult.pending) || !hasHostStatsSource('ping') || !pingTestHostId"
+              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="(pingTestResult && pingTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+        </svg>
+        <span x-text="(pingTestResult && pingTestResult.pending) ? t('settings.host_stats.ping.test_running') : t('settings.host_stats.ping.test_button')"></span>
+      </button>
+      <select x-model="pingTestHostId"
+              :disabled="isReadonly() || !hasHostStatsSource('ping')"
+              class="fs-xs mono">
+        <option value="" x-text="t('settings.host_stats.ping.test_target_label')"></option>
+        <template x-for="opt in pingEnabledHosts()" :key="opt.id">
+          <option :value="opt.id" x-text="opt.label"></option>
+        </template>
+      </select>
+      <!-- Result chip moved out of the action row — see the
+           full-width div directly below the closing `</div>` of
+           this flex row to match the Portainer pattern. -->
+      <span x-show="hasHostStatsSource('ping') && !pingEnabledHosts().length"
+            class="fs-2xs text-[var(--text-faint)] italic"
+            x-text="t('settings.host_stats.ping.test_no_hosts')"></span>
+      <span x-show="lastTestSuccessLabel('ping')"
+            class="fs-xs text-[var(--text-faint)]"
+            x-text="lastTestSuccessLabel('ping')"></span>
+    </div>
+    <div x-show="pingTestResult" class="fs-sm rounded-md px-3 py-2"
+         :class="pingTestResult && pingTestResult.pending
                        ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
                        : (pingTestResult && pingTestResult.ok
                          ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
                          : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-               x-text="pingTestResult && pingTestResult.pending
+         x-text="pingTestResult && pingTestResult.pending
                        ? t('actions.testing')
                        : (pingTestResult ? ((pingTestResult.ok ? '✓ ' : '✗ ') + (pingTestResult.detail || '')) : '')"></div>
-          <!-- Ping provider tunables — canonical header pattern
-               (icon + h3 + intro paragraph) matching every other admin
-               tab (AI / Asset Inventory / Portainer / Notifications /
-               NE / SSH / Beszel / Pulse). Covers sampler interval, fan-
-               out concurrency, probe timeout, cooldown, ICMP packet
-               spacing, and per-(provider, host) auto-pause threshold.
-               All edits commit through the Ping section's Save button. -->
-          <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-               x-show="tuningLoaded">
-            <div class="flex items-center gap-2 mb-1">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
-              <h3 class="font-semibold fs-sm"
-                  x-text="t('settings.host_stats.tunables_heading_ping')"></h3>
-            </div>
-            <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-               x-text="t('settings.host_stats.tunables_intro_ping')"></p>
-            <template x-for="key in _perProviderTuneKeys.ping" :key="key">
-              <div class="space-y-1">
-                <label class="block fs-xs font-medium"
-                       x-text="t('admin.config.fields.' + key + '.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-                   x-text="t('admin.config.fields.' + key + '.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm[key]"
-                         :placeholder="tuningPlaceholder(key)"
-                         :min="(tuningEffective[key] || {}).min"
-                         :max="(tuningEffective[key] || {}).max"
-                         :disabled="tuneKnobDisabled('ping')"
-                         class="w-32 mono fs-sm">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+    <!-- Ping provider tunables — canonical header pattern
+         (icon + h3 + intro paragraph) matching every other admin
+         tab (AI / Asset Inventory / Portainer / Notifications /
+         NE / SSH / Beszel / Pulse). Covers sampler interval, fan-
+         out concurrency, probe timeout, cooldown, ICMP packet
+         spacing, and per-(provider, host) auto-pause threshold.
+         All edits commit through the Ping section's Save button. -->
+    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
+         x-show="tuningLoaded">
+      <div class="flex items-center gap-2 mb-1">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
+        <h3 class="font-semibold fs-sm"
+            x-text="t('settings.host_stats.tunables_heading_ping')"></h3>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+         x-text="t('settings.host_stats.tunables_intro_ping')"></p>
+      <template x-for="key in _perProviderTuneKeys.ping" :key="key">
+        <div class="space-y-1">
+          <label class="block fs-xs font-medium"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+             x-text="t('admin.config.fields.' + key + '.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm[key]"
+                   :placeholder="tuningPlaceholder(key)"
+                   :min="(tuningEffective[key] || {}).min"
+                   :max="(tuningEffective[key] || {}).max"
+                   :disabled="tuneKnobDisabled('ping')"
+                   class="w-32 mono fs-sm">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                        x-text="tuningEffectiveLabel(key)"></span>
-                </div>
-              </div>
-            </template>
+            </div>
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-          <!-- Per-provider chip colour. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
-            <label class="fs-xs flex items-center gap-2">
-              <span x-text="t('settings.host_stats.chip_color_label')"></span>
-              <input type="color"
-                     :value="settings.provider_color_ping || providerColor('ping')"
-                     @input="settings.provider_color_ping = $event.target.value"
-                     :disabled="isReadonly() || !hasHostStatsSource('ping')"
-                     class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
-              <input type="text" x-model="settings.provider_color_ping"
-                     @input="settings.provider_color_ping = normalizeHexColor($event.target.value)"
-                     :placeholder="providerColor('ping')"
-                     :disabled="isReadonly() || !hasHostStatsSource('ping')"
-                     pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
-                     class="w-24 mono fs-xs uppercase">
-            </label>
-            <button type="button"
-                    x-show="settings.provider_color_ping"
-                    @click="settings.provider_color_ping = ''"
-                    class="btn btn-ghost fs-2xs"
-                    x-text="t('settings.host_stats.chip_color_reset')"></button>
-            <span class="chip pill-custom fs-2xs"
-                  :style="providerChipStyle('ping')"
-                  x-text="t('settings.host_stats.chip_color_preview')"></span>
-            <p class="basis-full fs-2xs text-[var(--text-faint)]"
-               x-text="t('settings.host_stats.chip_color_hint')"></p>
-          </div>
-          <!-- Section-owned Save at the END of the sub-tab. Posts only
-               Ping's plain settings + the five Ping tunables. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
-            <button type="button"
-                    @click="savePingSection()"
-                    :disabled="isReadonly() || hostStatsSaving"
-                    :class="pingSectionDirty() ? 'btn-dirty' : ''"
-                    class="btn btn-primary fs-sm"
-                    x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
-            <span x-show="pingSectionDirty() && !hostStatsSaving"
-                  class="fs-xs text-[var(--warning)] inline-flex items-center gap-1">
+        </div>
+      </template>
+    </div>
+    <!-- Per-provider chip colour. -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+      <label class="fs-xs flex items-center gap-2">
+        <span x-text="t('settings.host_stats.chip_color_label')"></span>
+        <input type="color"
+               :value="settings.provider_color_ping || providerColor('ping')"
+               @input="settings.provider_color_ping = $event.target.value"
+               :disabled="isReadonly() || !hasHostStatsSource('ping')"
+               class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+        <input type="text" x-model="settings.provider_color_ping"
+               @input="settings.provider_color_ping = normalizeHexColor($event.target.value)"
+               :placeholder="providerColor('ping')"
+               :disabled="isReadonly() || !hasHostStatsSource('ping')"
+               pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
+               class="w-24 mono fs-xs uppercase">
+      </label>
+      <button type="button"
+              x-show="settings.provider_color_ping"
+              @click="settings.provider_color_ping = ''"
+              class="btn btn-ghost fs-2xs"
+              x-text="t('settings.host_stats.chip_color_reset')"></button>
+      <span class="chip pill-custom fs-2xs"
+            :style="providerChipStyle('ping')"
+            x-text="t('settings.host_stats.chip_color_preview')"></span>
+      <p class="basis-full fs-2xs text-[var(--text-faint)]"
+         x-text="t('settings.host_stats.chip_color_hint')"></p>
+    </div>
+    <!-- Section-owned Save at the END of the sub-tab. Posts only
+         Ping's plain settings + the five Ping tunables. -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+      <button type="button"
+              @click="savePingSection()"
+              :disabled="isReadonly() || hostStatsSaving"
+              :class="pingSectionDirty() ? 'btn-dirty' : ''"
+              class="btn btn-primary fs-sm"
+              x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
+      <span x-show="pingSectionDirty() && !hostStatsSaving"
+            class="fs-xs text-[var(--warning)] inline-flex items-center gap-1">
               <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
               <span x-text="t('common.unsaved')"></span>
             </span>
-          </div>
+    </div>
+  </div>
+  <!-- SNMP provider. Sixth host-stats provider for
+       managed switches / routers / printers / UPSes / managed APs
+       that speak SNMP v2c/v3 but don't run unix-style agents.
+       Mirrors the Webmin tab structure (per-host probe with a
+       per-host alias map) plus a v3-only sub-block for USM
+       credentials. -->
+  <div x-show="hostStatsTab === 'snmp'" class="space-y-3" role="tabpanel" id="provider-tabpanel-snmp" aria-labelledby="provider-tab-snmp" :class="!hasHostStatsSource('snmp') ? 'opacity-60' : ''">
+    <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+      <label class="inline-flex items-center gap-2 fs-sm font-medium">
+        <input type="checkbox" :disabled="isReadonly() || !settings.snmp_has_snmp_support"
+               :checked="hasHostStatsSource('snmp')"
+               @change="toggleHostStatsSource('snmp', $event.target.checked)">
+        <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_snmp') })"></span>
+      </label>
+      <span class="chip"
+            :class="hasHostStatsSource('snmp') ? 'pill-ok' : 'pill-muted'"
+            x-text="hasHostStatsSource('snmp') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+    </div>
+    <!-- when pysnmp doesn't import cleanly the SPA shows
+         BOTH the generic "package not installed" hint AND the
+         actual ImportError text from the server. Operators don't
+         have to grep server logs to figure out which symbol or
+         module path is missing — the inline error pinpoints it.
+         import_error stays empty when the import succeeds. The
+         import-error line uses the same `--warning` (orange)
+         token as the unavailable hint so the diagnostic
+         reads as a unified warning block rather than a two-tone
+         muted-then-bright surface. -->
+    <div x-show="!settings.snmp_has_snmp_support" class="space-y-1">
+      <p class="fs-2xs text-[var(--warning)]"
+         x-text="t('settings.host_stats.snmp.unavailable')"></p>
+      <p x-show="settings.snmp_import_error"
+         class="fs-2xs mono text-[var(--warning)] break-all"
+         x-text="t('settings.host_stats.snmp.import_error_label', { error: settings.snmp_import_error })"></p>
+    </div>
+    <p class="fs-2xs text-[var(--text-faint)]"
+       x-text="t('settings.host_stats.snmp.section_desc')"></p>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+      <div>
+        <label class="block fs-xs text-[var(--text-faint)] mb-1"
+               x-text="t('settings.host_stats.snmp.community_label')"></label>
+        <input x-model="settings.snmp_default_community" type="text"
+               :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+               class="w-full mono fs-xs"
+               placeholder="public">
+      </div>
+      <div>
+        <label class="block fs-xs text-[var(--text-faint)] mb-1"
+               x-text="t('settings.host_stats.snmp.version_label')"></label>
+        <select x-model="settings.snmp_default_version"
+                :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                class="w-full fs-xs">
+          <option value="v2c">v2c</option>
+          <option value="v3">v3 (USM)</option>
+        </select>
+      </div>
+      <div>
+        <label class="block fs-xs text-[var(--text-faint)] mb-1"
+               x-text="t('settings.host_stats.snmp.port_label')"></label>
+        <input x-model="settings.snmp_default_port" type="number" min="1" max="65535"
+               :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+               class="w-full mono fs-xs"
+               placeholder="161">
+      </div>
+    </div>
+    <p class="fs-2xs text-[var(--text-faint)]"
+       x-text="t('settings.host_stats.snmp.community_hint')"></p>
+
+    <!-- v3 USM block — only visible when version=v3. -->
+    <div x-show="settings.snmp_default_version === 'v3'"
+         class="space-y-2 pt-3 mt-2 border-t border-dashed border-[var(--border)]">
+      <h4 class="font-semibold fs-sm"
+          x-text="t('settings.host_stats.snmp.v3_section_title')"></h4>
+      <p class="fs-2xs text-[var(--text-faint)]"
+         x-text="t('settings.host_stats.snmp.v3_section_hint')"></p>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div>
+          <label class="block fs-xs text-[var(--text-faint)] mb-1"
+                 x-text="t('settings.host_stats.snmp.v3_user_label')"></label>
+          <input x-model="settings.snmp_v3_user" type="text"
+                 :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                 class="w-full fs-xs"
+                 :placeholder="t('settings.host_stats.snmp.v3_user_placeholder')">
         </div>
-        <!-- SNMP provider. Sixth host-stats provider for
-             managed switches / routers / printers / UPSes / managed APs
-             that speak SNMP v2c/v3 but don't run unix-style agents.
-             Mirrors the Webmin tab structure (per-host probe with a
-             per-host alias map) plus a v3-only sub-block for USM
-             credentials. -->
-        <div x-show="hostStatsTab === 'snmp'" class="space-y-3" role="tabpanel" id="provider-tabpanel-snmp" aria-labelledby="provider-tab-snmp" :class="!hasHostStatsSource('snmp') ? 'opacity-60' : ''">
-          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
-            <label class="inline-flex items-center gap-2 fs-sm font-medium">
-              <input type="checkbox" :disabled="isReadonly() || !settings.snmp_has_snmp_support"
-                     :checked="hasHostStatsSource('snmp')"
-                     @change="toggleHostStatsSource('snmp', $event.target.checked)">
-              <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_snmp') })"></span>
-            </label>
-            <span class="chip"
-                  :class="hasHostStatsSource('snmp') ? 'pill-ok' : 'pill-muted'"
-                  x-text="hasHostStatsSource('snmp') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
-          </div>
-          <!-- when pysnmp doesn't import cleanly the SPA shows
-               BOTH the generic "package not installed" hint AND the
-               actual ImportError text from the server. Operators don't
-               have to grep server logs to figure out which symbol or
-               module path is missing — the inline error pinpoints it.
-               import_error stays empty when the import succeeds. The
-               import-error line uses the same `--warning` (orange)
-               token as the unavailable hint so the diagnostic
-               reads as a unified warning block rather than a two-tone
-               muted-then-bright surface. -->
-          <div x-show="!settings.snmp_has_snmp_support" class="space-y-1">
-            <p class="fs-2xs text-[var(--warning)]"
-               x-text="t('settings.host_stats.snmp.unavailable')"></p>
-            <p x-show="settings.snmp_import_error"
-               class="fs-2xs mono text-[var(--warning)] break-all"
-               x-text="t('settings.host_stats.snmp.import_error_label', { error: settings.snmp_import_error })"></p>
-          </div>
-          <p class="fs-2xs text-[var(--text-faint)]"
-             x-text="t('settings.host_stats.snmp.section_desc')"></p>
+        <div>
+          <label class="block fs-xs text-[var(--text-faint)] mb-1">
+            <span x-text="t('settings.host_stats.snmp.v3_auth_key_label')"></span>
+          </label>
+          <span x-show="settings.snmp_v3_auth_key_set" class="block fs-xs text-[var(--success)] mb-1"
+                x-text="t('settings.secret_input.saved_hint')"></span>
+          <input x-model="settings.snmp_v3_auth_key" type="password"
+                 autocomplete="new-password"
+                 :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                 class="w-full fs-xs"
+                 :placeholder="settings.snmp_v3_auth_key_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.snmp.v3_auth_key_placeholder')">
+        </div>
+        <div>
+          <label class="block fs-xs text-[var(--text-faint)] mb-1">
+            <span x-text="t('settings.host_stats.snmp.v3_priv_key_label')"></span>
+          </label>
+          <span x-show="settings.snmp_v3_priv_key_set" class="block fs-xs text-[var(--success)] mb-1"
+                x-text="t('settings.secret_input.saved_hint')"></span>
+          <input x-model="settings.snmp_v3_priv_key" type="password"
+                 autocomplete="new-password"
+                 :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                 class="w-full fs-xs"
+                 :placeholder="settings.snmp_v3_priv_key_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.snmp.v3_priv_key_placeholder')">
+        </div>
+      </div>
+    </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <div>
-              <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                     x-text="t('settings.host_stats.snmp.community_label')"></label>
-              <input x-model="settings.snmp_default_community" type="text"
-                     :disabled="isReadonly() || !hasHostStatsSource('snmp')"
-                     class="w-full mono fs-xs"
-                     placeholder="public">
-            </div>
-            <div>
-              <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                     x-text="t('settings.host_stats.snmp.version_label')"></label>
-              <select x-model="settings.snmp_default_version"
-                      :disabled="isReadonly() || !hasHostStatsSource('snmp')"
-                      class="w-full fs-xs">
-                <option value="v2c">v2c</option>
-                <option value="v3">v3 (USM)</option>
-              </select>
-            </div>
-            <div>
-              <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                     x-text="t('settings.host_stats.snmp.port_label')"></label>
-              <input x-model="settings.snmp_default_port" type="number" min="1" max="65535"
-                     :disabled="isReadonly() || !hasHostStatsSource('snmp')"
-                     class="w-full mono fs-xs"
-                     placeholder="161">
-            </div>
-          </div>
-          <p class="fs-2xs text-[var(--text-faint)]"
-             x-text="t('settings.host_stats.snmp.community_hint')"></p>
+    <!-- Per-host alias map (Docker hostname → SNMP target IP/host).
+         Same JSON-textarea contract as node_exporter_overrides. -->
+    <div>
+      <label class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('settings.host_stats.snmp.aliases_label')"></label>
+      <textarea x-model="settings.snmp_aliases_json"
+                :disabled="isReadonly() || !hasHostStatsSource('snmp')" rows="5"
+                class="w-full mono fs-xs"
+                :placeholder='`{\n  "switch01": "192.X.X.10",\n  "ups01": "192.X.X.50"\n}`'></textarea>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('settings.host_stats.snmp.aliases_hint')"></p>
+    </div>
 
-          <!-- v3 USM block — only visible when version=v3. -->
-          <div x-show="settings.snmp_default_version === 'v3'"
-               class="space-y-2 pt-3 mt-2 border-t border-dashed border-[var(--border)]">
-            <h4 class="font-semibold fs-sm"
-                x-text="t('settings.host_stats.snmp.v3_section_title')"></h4>
-            <p class="fs-2xs text-[var(--text-faint)]"
-               x-text="t('settings.host_stats.snmp.v3_section_hint')"></p>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-              <div>
-                <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                       x-text="t('settings.host_stats.snmp.v3_user_label')"></label>
-                <input x-model="settings.snmp_v3_user" type="text"
-                       :disabled="isReadonly() || !hasHostStatsSource('snmp')"
-                       class="w-full fs-xs"
-                       :placeholder="t('settings.host_stats.snmp.v3_user_placeholder')">
-              </div>
-              <div>
-                <label class="block fs-xs text-[var(--text-faint)] mb-1">
-                  <span x-text="t('settings.host_stats.snmp.v3_auth_key_label')"></span>
-                </label>
-                <span x-show="settings.snmp_v3_auth_key_set" class="block fs-xs text-[var(--success)] mb-1"
-                      x-text="t('settings.secret_input.saved_hint')"></span>
-                <input x-model="settings.snmp_v3_auth_key" type="password"
-                       autocomplete="new-password"
-                       :disabled="isReadonly() || !hasHostStatsSource('snmp')"
-                       class="w-full fs-xs"
-                       :placeholder="settings.snmp_v3_auth_key_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.snmp.v3_auth_key_placeholder')">
-              </div>
-              <div>
-                <label class="block fs-xs text-[var(--text-faint)] mb-1">
-                  <span x-text="t('settings.host_stats.snmp.v3_priv_key_label')"></span>
-                </label>
-                <span x-show="settings.snmp_v3_priv_key_set" class="block fs-xs text-[var(--success)] mb-1"
-                      x-text="t('settings.secret_input.saved_hint')"></span>
-                <input x-model="settings.snmp_v3_priv_key" type="password"
-                       autocomplete="new-password"
-                       :disabled="isReadonly() || !hasHostStatsSource('snmp')"
-                       class="w-full fs-xs"
-                       :placeholder="settings.snmp_v3_priv_key_set ? t('settings.secret_input.placeholder_keep') : t('settings.host_stats.snmp.v3_priv_key_placeholder')">
-              </div>
-            </div>
-          </div>
-
-          <!-- Per-host alias map (Docker hostname → SNMP target IP/host).
-               Same JSON-textarea contract as node_exporter_overrides. -->
-          <div>
-            <label class="block fs-xs text-[var(--text-faint)] mb-1"
-                   x-text="t('settings.host_stats.snmp.aliases_label')"></label>
-            <textarea x-model="settings.snmp_aliases_json"
-                      :disabled="isReadonly() || !hasHostStatsSource('snmp')" rows="5"
-                      class="w-full mono fs-xs"
-                      :placeholder='`{\n  "switch01": "192.X.X.10",\n  "ups01": "192.X.X.50"\n}`'></textarea>
-            <p class="fs-2xs text-[var(--text-faint)] mt-1"
-               x-text="t('settings.host_stats.snmp.aliases_hint')"></p>
-          </div>
-
-          <!-- Test button + result chip — UX unified with the Ping
-               test. Picker shows curated hosts that have an
-               `snmp_name` mapped; testSnmpConnection resolves the
-               row's target + overrides client-side and submits to
-               /api/snmp/test, falling back to global defaults
-               server-side for fields the row doesn't override. -->
-          <div class="flex items-center gap-2 flex-wrap">
-            <button type="button" x-show="isAdmin()" @click="testSnmpConnection()"
-                    :disabled="(snmpTestResult && snmpTestResult.pending) || !hasHostStatsSource('snmp') || !snmpTestHostId"
-                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="(snmpTestResult && snmpTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-              </svg>
-              <span x-text="(snmpTestResult && snmpTestResult.pending) ? t('settings.host_stats.snmp.testing') : t('settings.host_stats.snmp.test_button')"></span>
-            </button>
-            <select x-model="snmpTestHostId"
-                    :disabled="isReadonly() || !hasHostStatsSource('snmp')"
-                    class="fs-xs mono">
-              <option value="" x-text="t('settings.host_stats.snmp.test_target_label')"></option>
-              <template x-for="opt in snmpEnabledHosts()" :key="opt.id">
-                <option :value="opt.id" x-text="opt.label"></option>
-              </template>
-            </select>
-            <span x-show="hasHostStatsSource('snmp') && !snmpEnabledHosts().length"
-                  class="fs-2xs text-[var(--text-faint)] italic"
-                  x-text="t('settings.host_stats.snmp.test_no_hosts')"></span>
-            <span x-show="lastTestSuccessLabel('snmp')"
-                  class="fs-xs text-[var(--text-faint)]"
-                  x-text="lastTestSuccessLabel('snmp')"></span>
-          </div>
-          <div x-show="snmpTestResult" class="fs-sm rounded-md px-3 py-2"
-               :class="snmpTestResult && snmpTestResult.pending
+    <!-- Test button + result chip — UX unified with the Ping
+         test. Picker shows curated hosts that have an
+         `snmp_name` mapped; testSnmpConnection resolves the
+         row's target + overrides client-side and submits to
+         /api/snmp/test, falling back to global defaults
+         server-side for fields the row doesn't override. -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <button type="button" x-show="isAdmin()" @click="testSnmpConnection()"
+              :disabled="(snmpTestResult && snmpTestResult.pending) || !hasHostStatsSource('snmp') || !snmpTestHostId"
+              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="(snmpTestResult && snmpTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+        </svg>
+        <span x-text="(snmpTestResult && snmpTestResult.pending) ? t('settings.host_stats.snmp.testing') : t('settings.host_stats.snmp.test_button')"></span>
+      </button>
+      <select x-model="snmpTestHostId"
+              :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+              class="fs-xs mono">
+        <option value="" x-text="t('settings.host_stats.snmp.test_target_label')"></option>
+        <template x-for="opt in snmpEnabledHosts()" :key="opt.id">
+          <option :value="opt.id" x-text="opt.label"></option>
+        </template>
+      </select>
+      <span x-show="hasHostStatsSource('snmp') && !snmpEnabledHosts().length"
+            class="fs-2xs text-[var(--text-faint)] italic"
+            x-text="t('settings.host_stats.snmp.test_no_hosts')"></span>
+      <span x-show="lastTestSuccessLabel('snmp')"
+            class="fs-xs text-[var(--text-faint)]"
+            x-text="lastTestSuccessLabel('snmp')"></span>
+    </div>
+    <div x-show="snmpTestResult" class="fs-sm rounded-md px-3 py-2"
+         :class="snmpTestResult && snmpTestResult.pending
                        ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
                        : (snmpTestResult && snmpTestResult.ok
                          ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
                          : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-               x-text="snmpTestResult && snmpTestResult.pending
+         x-text="snmpTestResult && snmpTestResult.pending
                        ? t('actions.testing')
                        : (snmpTestResult ? ((snmpTestResult.ok ? '✓ ' : '✗ ') + (snmpTestResult.detail || '')) : '')"></div>
 
-          <!-- SNMP provider tunables — canonical header pattern
-               (icon + h3 + intro paragraph) matching every other admin
-               tab (AI / Asset Inventory / Portainer / Notifications /
-               NE / SSH / Beszel / Pulse / Ping / Webmin). Covers probe
-               timeout, wall-clock budget, fan-out concurrency, per-
-               host walk concurrency, sample interval, per-host success
-               + failure cache TTLs, unreachable cooldown, and per-
-               (provider, host) auto-pause threshold. All edits commit
-               through the SNMP section's Save button. -->
-          <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-               x-show="tuningLoaded">
-            <div class="flex items-center gap-2 mb-1">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
-              <h3 class="font-semibold fs-sm"
-                  x-text="t('settings.host_stats.tunables_heading_snmp')"></h3>
-            </div>
-            <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-               x-text="t('settings.host_stats.tunables_intro_snmp')"></p>
-            <template x-for="key in _perProviderTuneKeys.snmp" :key="key">
-              <div class="space-y-1">
-                <label class="block fs-xs font-medium"
-                       x-text="t('admin.config.fields.' + key + '.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-                   x-text="t('admin.config.fields.' + key + '.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm[key]"
-                         :placeholder="tuningPlaceholder(key)"
-                         :min="(tuningEffective[key] || {}).min"
-                         :max="(tuningEffective[key] || {}).max"
-                         :disabled="tuneKnobDisabled('snmp')"
-                         class="w-32 mono fs-sm">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+    <!-- SNMP provider tunables — canonical header pattern
+         (icon + h3 + intro paragraph) matching every other admin
+         tab (AI / Asset Inventory / Portainer / Notifications /
+         NE / SSH / Beszel / Pulse / Ping / Webmin). Covers probe
+         timeout, wall-clock budget, fan-out concurrency, per-
+         host walk concurrency, sample interval, per-host success
+         + failure cache TTLs, unreachable cooldown, and per-
+         (provider, host) auto-pause threshold. All edits commit
+         through the SNMP section's Save button. -->
+    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
+         x-show="tuningLoaded">
+      <div class="flex items-center gap-2 mb-1">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
+        <h3 class="font-semibold fs-sm"
+            x-text="t('settings.host_stats.tunables_heading_snmp')"></h3>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+         x-text="t('settings.host_stats.tunables_intro_snmp')"></p>
+      <template x-for="key in _perProviderTuneKeys.snmp" :key="key">
+        <div class="space-y-1">
+          <label class="block fs-xs font-medium"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+             x-text="t('admin.config.fields.' + key + '.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm[key]"
+                   :placeholder="tuningPlaceholder(key)"
+                   :min="(tuningEffective[key] || {}).min"
+                   :max="(tuningEffective[key] || {}).max"
+                   :disabled="tuneKnobDisabled('snmp')"
+                   class="w-32 mono fs-sm">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                        x-text="tuningEffectiveLabel(key)"></span>
-                </div>
-              </div>
-            </template>
+            </div>
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
+        </div>
+      </template>
+    </div>
 
-          <!-- Per-provider chip colour. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
-            <label class="fs-xs flex items-center gap-2">
-              <span x-text="t('settings.host_stats.chip_color_label')"></span>
-              <input type="color"
-                     :value="settings.provider_color_snmp || providerColor('snmp')"
-                     @input="settings.provider_color_snmp = $event.target.value"
-                     :disabled="isReadonly() || !hasHostStatsSource('snmp')"
-                     class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
-              <input type="text" x-model="settings.provider_color_snmp"
-                     @input="settings.provider_color_snmp = normalizeHexColor($event.target.value)"
-                     :placeholder="providerColor('snmp')"
-                     :disabled="isReadonly() || !hasHostStatsSource('snmp')"
-                     pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
-                     class="w-24 mono fs-xs uppercase">
-            </label>
-            <button type="button"
-                    x-show="settings.provider_color_snmp"
-                    @click="settings.provider_color_snmp = ''"
-                    class="btn btn-ghost fs-2xs"
-                    x-text="t('settings.host_stats.chip_color_reset')"></button>
-            <span class="chip pill-custom fs-2xs"
-                  :style="providerChipStyle('snmp')"
-                  x-text="t('settings.host_stats.chip_color_preview')"></span>
-            <p class="basis-full fs-2xs text-[var(--text-faint)]"
-               x-text="t('settings.host_stats.chip_color_hint')"></p>
-          </div>
-          <!-- Section-owned Save at the END of the sub-tab. Posts only
-               SNMP's plain settings + every SNMP tunable rendered
-               above. -->
-          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
-            <button type="button"
-                    @click="saveSnmpSection()"
-                    :disabled="isReadonly() || hostStatsSaving"
-                    :class="snmpSectionDirty() ? 'btn-dirty' : ''"
-                    class="btn btn-primary fs-sm"
-                    x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
-            <span x-show="snmpSectionDirty() && !hostStatsSaving"
-                  class="fs-xs text-[var(--warning)] inline-flex items-center gap-1">
+    <!-- Per-provider chip colour. -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+      <label class="fs-xs flex items-center gap-2">
+        <span x-text="t('settings.host_stats.chip_color_label')"></span>
+        <input type="color"
+               :value="settings.provider_color_snmp || providerColor('snmp')"
+               @input="settings.provider_color_snmp = $event.target.value"
+               :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+               class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+        <input type="text" x-model="settings.provider_color_snmp"
+               @input="settings.provider_color_snmp = normalizeHexColor($event.target.value)"
+               :placeholder="providerColor('snmp')"
+               :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+               pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
+               class="w-24 mono fs-xs uppercase">
+      </label>
+      <button type="button"
+              x-show="settings.provider_color_snmp"
+              @click="settings.provider_color_snmp = ''"
+              class="btn btn-ghost fs-2xs"
+              x-text="t('settings.host_stats.chip_color_reset')"></button>
+      <span class="chip pill-custom fs-2xs"
+            :style="providerChipStyle('snmp')"
+            x-text="t('settings.host_stats.chip_color_preview')"></span>
+      <p class="basis-full fs-2xs text-[var(--text-faint)]"
+         x-text="t('settings.host_stats.chip_color_hint')"></p>
+    </div>
+    <!-- Section-owned Save at the END of the sub-tab. Posts only
+         SNMP's plain settings + every SNMP tunable rendered
+         above. -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+      <button type="button"
+              @click="saveSnmpSection()"
+              :disabled="isReadonly() || hostStatsSaving"
+              :class="snmpSectionDirty() ? 'btn-dirty' : ''"
+              class="btn btn-primary fs-sm"
+              x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
+      <span x-show="snmpSectionDirty() && !hostStatsSaving"
+            class="fs-xs text-[var(--warning)] inline-flex items-center gap-1">
               <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
               <span x-text="t('common.unsaved')"></span>
             </span>
-          </div>
-        </div>
+    </div>
+  </div>
 
-        <!-- Port Scan was previously rendered here as a 7th provider
-             tab, but it isn't a continuous-telemetry source like the
-             other six — it's an on-demand action surface (operator
-             clicks "Scan ports" in the host drawer or asks the AI
-             palette). Lifted to its own admin sub-tab AFTER SSH so
-             the two action-style admin surfaces sit together. The
-             four settings (`port_scan_enabled` master toggle +
-             default ports / timeout / concurrency) still live on
-             the same `settings` payload that this tab's Save row
-             commits, so dirty-tracking + saveHostStats() round-trip
-             unchanged. See `static/_partials/admin/port_scan.html`. -->
+  <!-- Port Scan was previously rendered here as a 7th provider
+       tab, but it isn't a continuous-telemetry source like the
+       other six — it's an on-demand action surface (operator
+       clicks "Scan ports" in the host drawer or asks the AI
+       palette). Lifted to its own admin sub-tab AFTER SSH so
+       the two action-style admin surfaces sit together. The
+       four settings (`port_scan_enabled` master toggle +
+       default ports / timeout / concurrency) still live on
+       the same `settings` payload that this tab's Save row
+       commits, so dirty-tracking + saveHostStats() round-trip
+       unchanged. See `static/_partials/admin/port_scan.html`. -->
 
-        <!-- Global Save row — kept ONLY for sub-tabs that don't yet
-             own their section save (Beszel, Pulse). NE / Webmin / Ping
-             / SNMP each render their own Save at the end of their
-             sub-tab; rendering this global Save under those tabs gave
-             two Save buttons and confused users. Hidden via
-             `hostStatsTab` membership in the section-owned set so the
-             expected behaviour ("one Save button at the end of the
-             tab I'm on") holds across every sub-tab. -->
-        <div x-show="hostStatsTab === 'beszel' || hostStatsTab === 'pulse'"
-             class="mt-4 flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
-          <button type="button" x-show="isAdmin()" @click="saveHostStats()"
-                  :disabled="hostStatsSaving"
-                  :class="hostStatsDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                  class="btn btn-primary fs-sm">
-            <span x-show="!hostStatsSaving" x-text="t('actions.save')"></span>
-            <span x-show="hostStatsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-          </button>
-          <span x-show="hostStatsDirty()"
-                class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
-                :title="t('hosts_actions.host_stats_unsaved_title')">
+  <!-- Global Save row — kept ONLY for sub-tabs that don't yet
+       own their section save (Beszel, Pulse). NE / Webmin / Ping
+       / SNMP each render their own Save at the end of their
+       sub-tab; rendering this global Save under those tabs gave
+       two Save buttons and confused users. Hidden via
+       `hostStatsTab` membership in the section-owned set so the
+       expected behaviour ("one Save button at the end of the
+       tab I'm on") holds across every sub-tab. -->
+  <div x-show="hostStatsTab === 'beszel' || hostStatsTab === 'pulse'"
+       class="mt-4 flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
+    <button type="button" x-show="isAdmin()" @click="saveHostStats()"
+            :disabled="hostStatsSaving"
+            :class="hostStatsDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+            class="btn btn-primary fs-sm">
+      <span x-show="!hostStatsSaving" x-text="t('actions.save')"></span>
+      <span x-show="hostStatsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+    </button>
+    <span x-show="hostStatsDirty()"
+          class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
+          :title="t('hosts_actions.host_stats_unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
-        </div>
-      </section>
+  </div>
+</section>
 
-      <!-- HOSTS TAB — curated host list editor. Cards instead of a
-           table so inputs have room to breathe. Each card edits one
-           host: basic row on top (ID / Label / enabled / delete),
-           provider-specific fields expand below in a 3-col grid so
-           each input gets a sensible minimum width. -->
+<!-- HOSTS TAB — curated host list editor. Cards instead of a
+     table so inputs have room to breathe. Each card edits one
+     host: basic row on top (ID / Label / enabled / delete),
+     provider-specific fields expand below in a 3-col grid so
+     each input gets a sensible minimum width. -->
