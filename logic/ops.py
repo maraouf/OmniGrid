@@ -1670,11 +1670,59 @@ async def notify_with_retry(
 # Write ops. Each follows the same pattern: try/except/finally with
 # persist_history + cache invalidation in finally.
 # ---------------------------------------------------------------------
+def _resolve_compose_var(image_expr: str, env_map: dict[str, str]) -> Optional[str]:
+    """Resolve a single compose image expression that may carry one or
+    more ``${VAR}`` references against an env-map.
+
+    Supports the canonical Compose variable shapes:
+      - ``$VAR`` — bare reference
+      - ``${VAR}`` — braced reference
+      - ``${VAR:-default}`` / ``${VAR-default}`` — fallback to default
+        when VAR is unset / empty
+      - ``${VAR:?error}`` / ``${VAR?error}`` — required (error if
+        missing); we resolve to '' (fail-safe) on missing rather than
+        raising so the retag matcher just doesn't match this line.
+
+    Returns the fully-resolved literal (e.g. ``ghcr.io/goauthentik/
+    server:2026.2.2``) or ``None`` when ANY referenced variable is
+    missing from `env_map`. Pure string substitution — does NOT do
+    nested resolution (compose itself doesn't either).
+    """
+    import re as _re
+    if "$" not in image_expr:
+        return image_expr
+    pattern = _re.compile(
+        r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)"
+        r"(?::?[-?](?P<default>[^}]*))?}"
+        r"|(?P<bare>[A-Za-z_][A-Za-z0-9_]*))"
+    )
+    missing = False
+
+    def _sub(m: "_re.Match[str]") -> str:
+        nonlocal missing
+        name = m.group("braced") or m.group("bare")
+        default = m.group("default")
+        if name in env_map and env_map[name] != "":
+            return env_map[name]
+        if default is not None:
+            return default
+        # `${VAR:?error}` and bare unset → caller treats this image as
+        # unresolvable.
+        missing = True
+        return ""
+
+    resolved = pattern.sub(_sub, image_expr)
+    if missing:
+        return None
+    return resolved
+
+
 def _retag_compose_to_latest(
     content: str,
     target_image_repo: Optional[str] = None,
     new_tag: str = "latest",
-) -> tuple[str, list[tuple[str, str]], list[str]]:
+    env_map: Optional[dict[str, str]] = None,
+) -> tuple[str, list[tuple[str, str]], list[str], dict[str, str]]:
     """Rewrite every ``image: <repo>:<tag>`` line in a compose file to
     ``image: <repo>:<new_tag>``. Returns
     ``(new_content, replacements, repos_found)`` where ``replacements``
@@ -1707,12 +1755,26 @@ def _retag_compose_to_latest(
     """
     import re as _re
     nt = (new_tag or "latest").strip() or "latest"
-    pattern = _re.compile(
-        r"""(?P<indent>^\s*)image\s*:\s*(?P<quote>['"]?)(?P<repo>[^:'"@\s]+(?::[0-9]+)?(?:/[^:'"@\s]+)*)(?::(?P<tag>[^@'"\s]+))?(?:@sha256:[0-9a-f]+)?(?P=quote)\s*$""",
+    env_map_local = dict(env_map or {})
+    # Two-pattern strategy: the legacy literal-image regex covers
+    # `image: <repo>:<tag>` lines; a SECOND pattern catches lines
+    # whose image expression contains compose-variable references
+    # (`image: ${VAR}` / `image: ${VAR}:tag` / `image: ${VAR:-default}`).
+    # Both fire — literal lines stay handled by the rewrite path; the
+    # var-bearing lines route to `env_updates` instead so the caller
+    # can patch the stack's Env array (compose body stays unchanged
+    # because `${VAR}` still resolves correctly post-update).
+    literal_pattern = _re.compile(
+        r"""(?P<indent>^\s*)image\s*:\s*(?P<quote>['"]?)(?P<repo>[^:'"@\s${}]+(?::[0-9]+)?(?:/[^:'"@\s${}]+)*)(?::(?P<tag>[^@'"\s]+))?(?:@sha256:[0-9a-f]+)?(?P=quote)\s*$""",
+        _re.MULTILINE,
+    )
+    var_pattern = _re.compile(
+        r"""(?P<indent>^\s*)image\s*:\s*(?P<quote>['"]?)(?P<expr>(?:\$\{[^}]+}|\$[A-Za-z_][A-Za-z0-9_]*|[^'"@\s]+)+)(?P=quote)\s*$""",
         _re.MULTILINE,
     )
     replacements: list[tuple[str, str]] = []
     repos_found: list[str] = []
+    env_updates: dict[str, str] = {}
 
     def _repo_matches(compose_repo: str, target: str) -> bool:
         """Tolerance ladder — exact, then either-side suffix match
@@ -1727,7 +1789,24 @@ def _retag_compose_to_latest(
             return True
         return False
 
-    def _repl(m: "_re.Match[str]") -> str:
+    def _split_repo_tag(expr: str) -> tuple[str, str]:
+        """Split a literal `repo[:tag][@digest]` into (repo, tag).
+        Strips any `@sha256:...` suffix. Returns ('', '') on parse
+        failure so the caller can skip cleanly."""
+        # Strip digest first
+        if "@" in expr:
+            expr = expr.split("@", 1)[0]
+        # The tag is everything after the LAST `:` unless that colon
+        # is inside a registry-port spec (heuristic: numeric port
+        # immediately after the last colon AND another `/` follows
+        # before the tag).
+        last_colon = expr.rfind(":")
+        last_slash = expr.rfind("/")
+        if last_colon > last_slash:
+            return expr[:last_colon], expr[last_colon + 1:]
+        return expr, ""
+
+    def _literal_repl(m: "_re.Match[str]") -> str:
         indent = m.group("indent")
         quote = m.group("quote") or ""
         repo = m.group("repo")
@@ -1743,8 +1822,88 @@ def _retag_compose_to_latest(
         replacements.append((old_image, new_image))
         return f"{indent}image: {quote}{new_image}{quote}"
 
-    new_content = pattern.sub(_repl, content)
-    return new_content, replacements, repos_found
+    def _var_repl(m: "_re.Match[str]") -> str:
+        """Handle image lines with ${VAR} references. We DON'T rewrite
+        the compose line itself — `${VAR}` references continue to
+        work post-update because we update the Env value instead.
+        Tracks every (var_name, new_value) pair in env_updates."""
+        full_match = m.group()
+        expr = m.group("expr")
+        if "$" not in expr:
+            # Falls into literal regex's domain — skip.
+            return full_match
+        # Find every `${VAR}` / `$VAR` token in the expression and
+        # try to resolve. The compose-var resolver handles defaults
+        # (`${VAR:-x}`) and required (`${VAR:?err}`) shapes.
+        resolved = _resolve_compose_var(expr, env_map_local)
+        if resolved is None or not resolved:
+            repos_found.append(expr)
+            return full_match
+        # Split resolved image into repo + old_tag
+        repo, old_tag = _split_repo_tag(resolved)
+        if not repo:
+            repos_found.append(expr)
+            return full_match
+        repos_found.append(repo)
+        if target_image_repo and not _repo_matches(repo, target_image_repo):
+            return full_match
+        if old_tag == nt and "@sha256:" not in resolved:
+            return full_match
+        # Strategy 1: when the entire image value comes from ONE env
+        # var (most common — `image: ${AUTHENTIK_IMAGE}`), update that
+        # var's value end-to-end.
+        # Strategy 2: when the env var carries just the repo and the
+        # tag is literal in the compose (`image: ${REPO}:2026.2.2`),
+        # rewrite the compose line's tag and leave the env var alone.
+        # Strategy 3: when tag itself is also var-driven
+        # (`image: ${REPO}:${TAG}`), update the TAG var's value.
+        bare_var_re = _re.compile(
+            r"^\$\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)(?::?[-?][^}]*)?}$"
+            r"|^\$(?P<bare>[A-Za-z_][A-Za-z0-9_]*)$"
+        )
+        whole_match = bare_var_re.match(expr)
+        if whole_match:
+            # Strategy 1 — the WHOLE expression is a single var ref.
+            var_name = whole_match.group("braced") or whole_match.group("bare")
+            new_value = f"{repo}:{nt}"
+            env_updates[var_name] = new_value
+            replacements.append((resolved, new_value))
+            return full_match
+        # Look for `${REPO_VAR}:${TAG_VAR}` shape.
+        repo_tag_var_re = _re.compile(
+            r"^\$\{(?P<repo_var>[A-Za-z_][A-Za-z0-9_]*)}:\$\{(?P<tag_var>[A-Za-z_][A-Za-z0-9_]*)}$"
+        )
+        rt_match = repo_tag_var_re.match(expr)
+        if rt_match:
+            tag_var = rt_match.group("tag_var")
+            env_updates[tag_var] = nt
+            replacements.append((resolved, f"{repo}:{nt}"))
+            return full_match
+        # Strategy 2 — `${REPO_VAR}:literal_tag` shape: rewrite the
+        # compose line's tag literal.
+        repo_var_literal_tag_re = _re.compile(
+            r"^(?P<var_part>\$\{[A-Za-z_][A-Za-z0-9_]*}|\$[A-Za-z_][A-Za-z0-9_]*):(?P<lit_tag>[^@'\"\s]+)$"
+        )
+        rvlt_match = repo_var_literal_tag_re.match(expr)
+        if rvlt_match:
+            var_part = rvlt_match.group("var_part")
+            new_expr = f"{var_part}:{nt}"
+            quote = m.group("quote") or ""
+            indent = m.group("indent")
+            replacements.append((resolved, f"{repo}:{nt}"))
+            return f"{indent}image: {quote}{new_expr}{quote}"
+        # Fallback — un-handled compose-var shape (e.g. multiple
+        # vars interleaved with literals beyond the patterns above).
+        # Leave alone but log the resolved value into repos_found so
+        # the operator sees a diagnostic.
+        return full_match
+
+    # Apply literal pattern first — its restrictive repo class
+    # (excludes `$`, `{`, `}`) prevents it from accidentally chewing
+    # var-bearing lines. The var pattern then picks up what was left.
+    new_content = literal_pattern.sub(_literal_repl, content)
+    new_content = var_pattern.sub(_var_repl, new_content)
+    return new_content, replacements, repos_found, env_updates
 
 
 async def _await_stack_convergence(
@@ -1869,9 +2028,20 @@ async def do_update_stack(
                 raise RuntimeError(f"Can't fetch compose file (external stack?): {e}")
             op.log("Fetched compose file from Portainer")
             content = file_data["StackFileContent"]
+            # Build env_map from stack.Env so the retag matcher can
+            # resolve `${VAR}` references in image lines (Authentik's
+            # canonical compose uses `image: ${AUTHENTIK_IMAGE}`).
+            stack_env: list = stack.get("Env") or []
+            env_map: dict[str, str] = {}
+            for ev in stack_env:
+                if isinstance(ev, dict):
+                    name = (ev.get("name") or "").strip()
+                    val = ev.get("value") or ""
+                    if name:
+                        env_map[name] = str(val)
             if retag_to_latest:
-                content, replacements, repos_found = _retag_compose_to_latest(
-                    content, target_image_repo, new_tag=new_tag,
+                content, replacements, repos_found, env_updates = _retag_compose_to_latest(
+                    content, target_image_repo, new_tag=new_tag, env_map=env_map,
                 )
                 if not replacements:
                     # Surface the actual repos we DID find so the
@@ -1893,9 +2063,22 @@ async def do_update_stack(
                     )
                 for old, new in replacements:
                     op.log(f"Retagged {old} → {new}")
+                # Apply env-var updates returned by the matcher in
+                # place on the stack's Env array. The compose body's
+                # `${VAR}` reference stays as-is — the value the
+                # variable resolves to is what we're changing.
+                if env_updates:
+                    for ev in stack_env:
+                        if not isinstance(ev, dict):
+                            continue
+                        name = (ev.get("name") or "").strip()
+                        if name in env_updates:
+                            old_val = ev.get("value") or ""
+                            ev["value"] = env_updates[name]
+                            op.log(f"Updated stack env {name}: {old_val} → {ev['value']}")
             body = {
                 "StackFileContent": content,
-                "Env": stack.get("Env") or [],
+                "Env": stack_env,
                 "Prune": True,
                 "PullImage": True,
             }
