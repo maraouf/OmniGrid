@@ -37874,7 +37874,21 @@ function app() {
       if (!item.stack_id && !item.raw_id) {
         return false;
       }
-      if (item.type === 'service' || item.type === 'orphan') {
+      // Orphans (Swarm task containers left behind on a previous task
+      // replacement) can't be retagged — they're meant to be removed,
+      // not rolled forward.
+      if (item.type === 'orphan') {
+        return false;
+      }
+      // Swarm services qualify ONLY when they belong to a Portainer-
+      // managed stack (stack_id present). The `submitRetagPopover`
+      // wiring routes those to the existing `/api/update/stack/{id}/
+      // retag-latest` endpoint with `image_repo` set to the service's
+      // own image so the compose-file mutation touches just THAT line,
+      // not every image in the stack. Services without stack_id (rare
+      // — Swarm services deployed outside Portainer) stay ineligible
+      // because the backend has no compose file to mutate.
+      if (item.type === 'service' && !item.stack_id) {
         return false;
       }
       return true;
