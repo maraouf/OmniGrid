@@ -119,6 +119,10 @@ def _safe_path(name: str) -> str:
     return os.path.join(CONFIG_BACKUP_DIR, clean_name)
 
 
+# Public alias for cross-module use (main.py's download-snapshot endpoint
+# routes the operator-typed name through the path-traversal guard).
+safe_path = _safe_path
+
 # ----- Secret redaction -----------------------------------------------------
 
 # Suffixes mark settings rows whose value is a credential. The export

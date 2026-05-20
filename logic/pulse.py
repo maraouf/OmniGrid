@@ -1102,3 +1102,8 @@ def lookup(pulse_hosts: dict, needle: str) -> Optional[dict]:
     print(f"[pulse] lookup: MISS needle={needle!r} normalised={key!r} "
           f"known_keys={sorted(pulse_hosts.keys())}")
     return None
+
+
+# Public alias for cross-module use (main.py's debug endpoint reaches
+# for the raw state envelope to dump alongside the matched record).
+fetch_state = _fetch_state

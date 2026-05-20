@@ -932,6 +932,14 @@ def _node_matches(node: dict, constraints: list[str]) -> bool:
     return True
 
 
+# Public aliases for cross-module use. main.py reaches for these to compute
+# service desired-replica counts (`_node_matches` / `_node_attr`) and for the
+# snapshot-eligibility predicate (`_is_snapshot_key`); the underscore-prefixed
+# names stay as the canonical in-module declarations.
+node_attr = _node_attr
+node_matches = _node_matches
+is_snapshot_key = _is_snapshot_key
+
 _default_schedules_seeded = False
 
 

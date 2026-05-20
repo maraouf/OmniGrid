@@ -1448,3 +1448,10 @@ def lookup(systems_map: dict[str, dict], needle: str) -> Optional[dict]:
     ``_merge_one_host``'s direct ``state["beszel_map"].get(...)``.
     """
     return _lookup_host_tolerant(systems_map, needle)
+
+
+# Public aliases for cross-module use (main.py's debug endpoint reaches
+# for the low-level PB helpers to dump raw + matched records).
+get_token = _get_token
+fetch_systems = _fetch_systems
+fetch_latest_stats = _fetch_latest_stats

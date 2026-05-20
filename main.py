@@ -52,7 +52,7 @@ from typing import Annotated, Any, Iterable, Optional, Set, cast
 # block authoritative (e.g. DB_PATH).
 from dotenv import load_dotenv
 
-load_dotenv(os.getenv("ENV_FILE_PATH", "/app/.env"), override=False)
+load_dotenv(os.getenv("ENV_FILE_PATH", "/app/.env"))
 
 # Install the stdout/stderr tee as early as possible so uvicorn's own
 # startup lines land in the in-memory buffer that powers Admin → Logs.
@@ -1411,8 +1411,8 @@ _gather = _gather_mod.gather
 # `_tag_of` already aliased above from `registry.tag_of`; redundant
 # re-assignment here was lint-flagged "Redeclared '_tag_of' defined
 # above without usage" — dropped, the upstream alias is canonical.
-_node_attr = _gather_mod._node_attr
-_node_matches = _gather_mod._node_matches
+_node_attr = _gather_mod.node_attr
+_node_matches = _gather_mod.node_matches
 
 # ============================================================================
 # Operations moved to logic/ops.py. Shim aliases for the class + module
@@ -2476,7 +2476,7 @@ async def api_prune_node(
         raise HTTPException(status_code=400, detail=f"Unknown node: {hostname}")
     op = new_op(
         "prune_node", hostname, hostname,
-        target_stack=None, actor=_actor_from(request),
+        actor=_actor_from(request),
     )
     bg.add_task(_do_prune_node, op, hostname)
     return {"op_id": op.id}
@@ -3654,13 +3654,13 @@ async def api_get_settings(request: Request):
         "notify_event_prune_success": get_setting_bool(Settings.NOTIFY_EVENT_PRUNE_SUCCESS, True),
         "notify_event_prune_failure": get_setting_bool(Settings.NOTIFY_EVENT_PRUNE_FAILURE, True),
         # Security event — default OFF (login spam is noisy; opt-in).
-        "notify_event_user_login": get_setting_bool(Settings.NOTIFY_EVENT_USER_LOGIN, False),
+        "notify_event_user_login": get_setting_bool(Settings.NOTIFY_EVENT_USER_LOGIN),
         # System event — fires when host_metrics_sampler auto-
         # pauses a host after the failure window. Default ON.
         "notify_event_host_paused": get_setting_bool(Settings.NOTIFY_EVENT_HOST_PAUSED, True),
         # Port-scan provider — default OFF so first-run scanner doesn't
         # flood. Operators flip on after triaging the initial baseline.
-        "notify_event_port_scan_new_port": get_setting_bool(Settings.NOTIFY_EVENT_PORT_SCAN_NEW_PORT, False),
+        "notify_event_port_scan_new_port": get_setting_bool(Settings.NOTIFY_EVENT_PORT_SCAN_NEW_PORT),
         # TOTP audit-row INSERT failure — warn when audit trail missing.
         "notify_event_totp_audit_log_failed": get_setting_bool(Settings.NOTIFY_EVENT_TOTP_AUDIT_LOG_FAILED, True),
         # Drawer auto-fix — VXLAN overlay cleanup outcomes.
@@ -3689,7 +3689,7 @@ async def api_get_settings(request: Request):
         # Telegram Bot API base URL — blank = fall back to upstream
         # default (https://api.telegram.org). Surfaced for the admin
         # form so self-hosted Bot API gateways are operator-tunable.
-        "telegram_api_base": get_setting(Settings.TELEGRAM_API_BASE, ""),
+        "telegram_api_base": get_setting(Settings.TELEGRAM_API_BASE),
         # Write-only: surface only a `_set` flag, never the raw token.
         "telegram_bot_token_set": bool((get_setting(Settings.TELEGRAM_BOT_TOKEN) or "").strip()),
         # Diagnostics block — surfaces "what's missing for the listener
@@ -3703,15 +3703,15 @@ async def api_get_settings(request: Request):
         "telegram_diagnostics": {
             "bot_token_configured": bool((get_setting(Settings.TELEGRAM_BOT_TOKEN) or "").strip()),
             "chat_id_configured": bool((get_setting(Settings.TELEGRAM_CHAT_ID) or "").strip()),
-            "listener_enabled": get_setting_bool(Settings.TELEGRAM_LISTENER_ENABLED, False),
+            "listener_enabled": get_setting_bool(Settings.TELEGRAM_LISTENER_ENABLED),
             "notify_medium_enabled": get_setting_bool(
                 Settings.NOTIFY_MEDIUM_TELEGRAM,
                 _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("telegram", False),
             ),
         },
         # Phase 2 — inbound command listener config.
-        "telegram_listener_enabled": get_setting_bool(Settings.TELEGRAM_LISTENER_ENABLED, False),
-        "telegram_allow_destructive": get_setting_bool(Settings.TELEGRAM_ALLOW_DESTRUCTIVE, False),
+        "telegram_listener_enabled": get_setting_bool(Settings.TELEGRAM_LISTENER_ENABLED),
+        "telegram_allow_destructive": get_setting_bool(Settings.TELEGRAM_ALLOW_DESTRUCTIVE),
         "telegram_authorized_user_ids": get_setting(Settings.TELEGRAM_AUTHORIZED_USER_IDS),
         # TOTP / 2FA policy. Five fields driving the multi-step
         # login flow + Profile enrolment guards + Admin -> Users action
@@ -3893,9 +3893,9 @@ async def api_get_settings(request: Request):
         # to disable the ICMP toggle with a hint when the package is
         # missing.
         "ping": {
-            "enabled": get_setting_bool(Settings.PING_ENABLED, False),
+            "enabled": get_setting_bool(Settings.PING_ENABLED),
             "default_port": tuning.tuning_int(Tunable.PING_DEFAULT_PORT),
-            "use_icmp": get_setting_bool(Settings.PING_USE_ICMP, False),
+            "use_icmp": get_setting_bool(Settings.PING_USE_ICMP),
             "has_icmp_support": (lambda: __import__("logic.ping", fromlist=["has_icmp_support"]).has_icmp_support())(),
         },
         # Port-scan provider — on-demand TCP scanner. Defaults are
@@ -3905,7 +3905,7 @@ async def api_get_settings(request: Request):
         # falls back to `port_scanner.DEFAULT_PORTS` when given an
         # empty list.
         "port_scan": {
-            "enabled": get_setting_bool(Settings.PORT_SCAN_ENABLED, False),
+            "enabled": get_setting_bool(Settings.PORT_SCAN_ENABLED),
             "default_ports": get_setting(Settings.PORT_SCAN_DEFAULT_PORTS) or "",
             # Per-port timeout + concurrency now flow through TUNABLES
             # (tuning_port_scan_default_timeout_seconds /
@@ -5203,7 +5203,7 @@ def _resolve_ai_fallback_chain(active: str) -> tuple[bool, list[str], dict[str, 
         previously-tested provider that the operator later disabled
         shouldn't surface a confusing "skipping due to..." log line).
     """
-    enabled = get_setting_bool(Settings.AI_FALLBACK_ENABLED, False)
+    enabled = get_setting_bool(Settings.AI_FALLBACK_ENABLED)
     raw_order = (get_setting(Settings.AI_FALLBACK_ORDER) or "").strip()
     try:
         # AI fallback-chain depth is now a TUNABLE (DB > env > default
@@ -5220,7 +5220,7 @@ def _resolve_ai_fallback_chain(active: str) -> tuple[bool, list[str], dict[str, 
     # from it get skipped at the chain-walk step.
     creds: dict[str, dict] = {}
     for name in _ai_supported_providers():
-        if not get_setting_bool(ai_provider_enabled_key(name), False):
+        if not get_setting_bool(ai_provider_enabled_key(name)):
             continue
         api_key = (get_setting(ai_provider_api_key_key(name)) or "").strip()
         if not api_key:
@@ -5259,7 +5259,7 @@ async def api_admin_stats_overview(
     curated-host total, and the cached asset-inventory size. Designed
     to be a single fast call so the dashboard paints in one fetch.
     """
-    from logic.host_metrics_sampler import _PROVIDER_PREFIXES
+    from logic.host_metrics_sampler import PROVIDER_PREFIXES as _PROVIDER_PREFIXES
     out: dict = {
         "users": {"total": 0, "active": 0, "admins": 0},
         "sessions": {"total": 0},
@@ -5918,7 +5918,7 @@ async def api_admin_stats_incidents(
     # buckets match the operator's locale (consistent with every other
     # date-aware UI in the app).
     try:
-        from logic.schedules import _scheduler_tz as _stz
+        from logic.schedules import scheduler_tz as _stz
         tz = _stz()
     except (ImportError, AttributeError, ValueError):
         tz = None
@@ -6035,7 +6035,7 @@ async def api_admin_stats_ai_cost(
     import time as _time
     from datetime import datetime as _dt
     try:
-        from logic.schedules import _scheduler_tz as _stz
+        from logic.schedules import scheduler_tz as _stz
         tz = _stz()
     except (ImportError, AttributeError, ValueError):
         tz = None
@@ -7054,7 +7054,7 @@ async def api_ai_palette(
     # records the call. Behaviour is unchanged; the strings + parsing
     # rules are reusable from any future AI-backed feature.
     from logic import ai as _ai
-    if not get_setting_bool(Settings.AI_ENABLED, False):
+    if not get_setting_bool(Settings.AI_ENABLED):
         return {"ok": False, "status": 0, "provider": "",
                 "detail": "AI integration is disabled. Enable it in Admin → AI Integration first.",
                 "response_time_ms": 0}
@@ -7063,7 +7063,7 @@ async def api_ai_palette(
         return {"ok": False, "status": 0, "provider": active,
                 "detail": "No active AI provider is selected. Pick one in Admin → AI Integration.",
                 "response_time_ms": 0}
-    if not get_setting_bool(ai_provider_enabled_key(active), False):
+    if not get_setting_bool(ai_provider_enabled_key(active)):
         return {"ok": False, "status": 0, "provider": active,
                 "detail": f"Active provider '{active}' is not enabled. Enable it in Admin → AI Integration.",
                 "response_time_ms": 0}
@@ -7736,14 +7736,14 @@ async def api_ai_host_filter(
     # the active provider → calls `ask_provider` → parses the DSL
     # response → records the call.
     from logic import ai as _ai
-    if not get_setting_bool(Settings.AI_ENABLED, False):
+    if not get_setting_bool(Settings.AI_ENABLED):
         return {"ok": False, "detail": "AI integration is disabled. Enable it in Admin → AI Integration first.",
                 "dsl": "", "explanation": "", "response_time_ms": 0}
     active = (get_setting(Settings.AI_ACTIVE_PROVIDER) or "").strip().lower()
     if active not in _ai.SUPPORTED_PROVIDERS:
         return {"ok": False, "detail": "No active AI provider is selected. Pick one in Admin → AI Integration.",
                 "dsl": "", "explanation": "", "response_time_ms": 0}
-    if not get_setting_bool(ai_provider_enabled_key(active), False):
+    if not get_setting_bool(ai_provider_enabled_key(active)):
         return {"ok": False, "detail": f"Active provider '{active}' is not enabled. Enable it in Admin → AI Integration.",
                 "dsl": "", "explanation": "", "response_time_ms": 0}
     # api_key / base_url are resolved via `_resolve_ai_fallback_chain`
@@ -7774,7 +7774,6 @@ async def api_ai_host_filter(
         prompt=_ai.build_host_filter_user_prompt(query, ctx),
         system_prompt=_ai.HOST_FILTER_SYSTEM_PROMPT,
         max_tokens=max_toks,
-        timeout=30.0,
         fallback_enabled=fb_enabled,
         max_depth=fb_max_depth,
     )
@@ -7915,8 +7914,8 @@ def _shape_notify_template_row(event: str) -> dict:
     :func:`api_admin_notify_templates_set` (single-event response).
     """
     title_key, body_key = _ops_mod.template_setting_keys(event)
-    raw_title = (get_setting(title_key, "") or "")
-    raw_body = (get_setting(body_key, "") or "")
+    raw_title = (get_setting(title_key) or "")
+    raw_body = (get_setting(body_key) or "")
     default_title = _ops_mod.template_default(event, "title")
     default_body = _ops_mod.template_default(event, "body")
     return {
@@ -8574,9 +8573,9 @@ async def api_snmp_test(
         port = int(_resolve_field(body, "port", "snmp_default_port", "161") or "161")
     except (TypeError, ValueError):
         port = 161
-    v3_user = _resolve_field(body, "v3_user", "snmp_v3_user", "")
-    v3_auth = _resolve_field(body, "v3_auth_key", "snmp_v3_auth_key", "")
-    v3_priv = _resolve_field(body, "v3_priv_key", "snmp_v3_priv_key", "")
+    v3_user = _resolve_field(body, "v3_user", "snmp_v3_user")
+    v3_auth = _resolve_field(body, "v3_auth_key", "snmp_v3_auth_key")
+    v3_priv = _resolve_field(body, "v3_priv_key", "snmp_v3_priv_key")
     # Per-host walk_concurrency override — Test connection respects
     # the same per-host knob as the sampler / debug paths so the
     # operator's smoke test runs at the SAME concurrency the live
@@ -8640,7 +8639,7 @@ async def api_snmp_test(
     # response doesn't reset the throttle by accident.
     if result.get("hosts") and not result.get("error"):
         try:
-            _snmp._clear_cooldown(host, port)
+            _snmp.clear_cooldown(host, port)
         except (AttributeError, KeyError):
             pass
     # Diagnostics surface for operators retesting after a per-host
@@ -8781,7 +8780,7 @@ async def api_asset_inventory_test(
         def _bound(from_body, setting_key):
             raw = from_body
             if raw is None or str(raw).strip() == "":
-                raw = get_setting(setting_key, "") or ""
+                raw = get_setting(setting_key) or ""
             s = str(raw).strip()
             try:
                 return int(s) if s else None
@@ -9173,7 +9172,7 @@ async def api_hosts(force: bool = False):
     if enabled_hosts:
         merge_results = await asyncio.gather(*(
             _merge_one_host(h, state, force=force) for h in enabled_hosts
-        ), return_exceptions=False)
+        ))
     else:
         merge_results = []
 
@@ -9260,7 +9259,6 @@ async def api_hosts(force: bool = False):
         hosts.append(
             _shape_host_api_row(
                 h, s, entry["_providers"],
-                any_provider_enabled=True,
                 active=active,
             )
         )
@@ -9424,7 +9422,7 @@ def _compute_host_provider_cache_key() -> tuple[set[str], tuple]:
         get_setting(Settings.SNMP_V3_PRIV_KEY) or "",
         get_setting(Settings.SNMP_ALIASES) or "",
     ))
-    cred_hash = hashlib.sha256(cred_blob.encode("utf-8")).hexdigest()[:16]
+    cred_hash = hashlib.sha256(cred_blob.encode()).hexdigest()[:16]
     return active_set, (tuple(sorted(active_set)), cred_hash)
 
 
@@ -10544,7 +10542,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     try:
         from logic.gather import (
             save_host_snapshots as _save_snaps,
-            _is_snapshot_key as _snap_key,
+            is_snapshot_key as _snap_key,
         )
         from logic.merge import is_meaningful as _is_mean
         stale_set = set(merged.get("_stale_fields") or [])
@@ -11328,7 +11326,7 @@ def _failure_state_for_host(host_id: str) -> dict:
 # site (or thread `round_threshold=` through the existing
 # `_record_failure` site), (6) add an i18n entry under
 # `admin.config.fields`.
-from logic.host_metrics_sampler import _PROVIDER_PREFIXES as _PROVIDER_AUTO_PAUSE_NAMES  # noqa: E402
+from logic.host_metrics_sampler import PROVIDER_PREFIXES as _PROVIDER_AUTO_PAUSE_NAMES  # noqa: E402
 
 # Short-TTL cache for the full-table scans behind
 # `_provider_pause_state_for_host`. Rebuilt once per cache window;
@@ -12134,7 +12132,7 @@ def _clean_vendors_input(raw: Any) -> Optional[set[str]]:
     """
     if not isinstance(raw, list) or not raw:
         return None
-    from logic.snmp import _VALID_VENDOR_KEYS
+    from logic.snmp import VALID_VENDOR_KEYS as _VALID_VENDOR_KEYS
     cleaned = {
         str(v).strip().lower() for v in raw
         if isinstance(v, str) and str(v).strip().lower() in _VALID_VENDOR_KEYS
@@ -12150,7 +12148,7 @@ def _snmp_vendor_keys_sorted() -> list[str]:
     Admin → Hosts editor on the next /api/me round-trip without
     touching the frontend.
     """
-    from logic.snmp import _VALID_VENDOR_KEYS
+    from logic.snmp import VALID_VENDOR_KEYS as _VALID_VENDOR_KEYS
     return sorted(_VALID_VENDOR_KEYS)
 
 
@@ -12338,8 +12336,8 @@ async def api_hosts_config_set(
     # the cache TTL after a save would still see the OLD mapping and
     # could record a failure for a provider the operator just removed.
     try:
-        from logic.host_metrics_sampler import _invalidate_host_provider_config_cache
-        _invalidate_host_provider_config_cache()
+        from logic.host_metrics_sampler import invalidate_host_provider_config_cache
+        invalidate_host_provider_config_cache()
     except Exception as e:
         print(f"[hosts] host_provider_config cache invalidate failed: {e}")
     # Audit row — full-replace of the curated host list is the single
@@ -12536,12 +12534,12 @@ async def api_hosts_resume_sampling(
         # Cooldown.clear(*key) takes the same key tuple as arm/remaining
         # so we walk and clear known (host_id, *) pairs. Implementation
         # detail: Cooldown stores keys as a tuple in `._timers`.
-        timers = getattr(_ssh._auth_cooldown_timer, "_armed", None)
+        timers = getattr(_ssh.auth_cooldown_timer, "_armed", None)
         if timers is not None:
             doomed = [k for k in list(timers.keys())
                       if isinstance(k, tuple) and k and k[0] == (host_id or "")]
             for k in doomed:
-                _ssh._auth_cooldown_timer.clear(*k)
+                _ssh.auth_cooldown_timer.clear(*k)
                 cooldown_cleared.append(f"ssh:{k}")
     except Exception as e:
         print(f"[hosts] resume-sampling: ssh cooldown clear failed: {e}")
@@ -12567,12 +12565,12 @@ async def api_hosts_resume_sampling(
                         candidates.add(aliased)
             except (json.JSONDecodeError, ValueError, AttributeError):
                 pass
-        timers = getattr(_webmin._auth_cooldown_timer, "_armed", None)
+        timers = getattr(_webmin.auth_cooldown_timer, "_armed", None)
         if timers is not None and candidates:
             doomed = [k for k in list(timers.keys())
                       if isinstance(k, tuple) and k and k[0] in candidates]
             for k in doomed:
-                _webmin._auth_cooldown_timer.clear(*k)
+                _webmin.auth_cooldown_timer.clear(*k)
                 cooldown_cleared.append(f"webmin:{k}")
     except Exception as e:
         print(f"[hosts] resume-sampling: webmin cooldown clear failed: {e}")
@@ -12658,7 +12656,7 @@ async def api_hosts_provider_resume(
     if provider == "snmp":
         try:
             from logic import snmp as _snmp
-            timers = getattr(_snmp._unreachable_cooldown, "_armed", None)
+            timers = getattr(_snmp.unreachable_cooldown, "_armed", None)
             if timers is not None:
                 # Resolve the SNMP target the same way `_merge_one_host`
                 # does: alias map > row's snmp_name. Whichever matches
@@ -12677,7 +12675,7 @@ async def api_hosts_provider_resume(
                 doomed = [k for k in list(timers.keys())
                           if isinstance(k, tuple) and k and k[0] in candidates]
                 for k in doomed:
-                    _snmp._unreachable_cooldown.clear(*k)
+                    _snmp.unreachable_cooldown.clear(*k)
                     cooldown_cleared.append(f"snmp:{k}")
         except Exception as e:
             print(f"[hosts] provider/snmp/resume cooldown clear failed: {e}")
@@ -12707,12 +12705,12 @@ async def api_hosts_provider_resume(
                             candidates.add(aliased)
                 except (json.JSONDecodeError, ValueError, AttributeError):
                     pass
-            timers = getattr(_webmin._auth_cooldown_timer, "_armed", None)
+            timers = getattr(_webmin.auth_cooldown_timer, "_armed", None)
             if timers is not None and candidates:
                 doomed = [k for k in list(timers.keys())
                           if isinstance(k, tuple) and k and k[0] in candidates]
                 for k in doomed:
-                    _webmin._auth_cooldown_timer.clear(*k)
+                    _webmin.auth_cooldown_timer.clear(*k)
                     cooldown_cleared.append(f"webmin:{k}")
         except Exception as e:
             print(f"[hosts] provider/webmin/resume cooldown clear failed: {e}")
@@ -12725,7 +12723,7 @@ async def api_hosts_provider_resume(
         # any per-host ping config).
         try:
             from logic import ping as _ping
-            timers = getattr(_ping._unreachable_cooldown, "_armed", None)
+            timers = getattr(_ping.unreachable_cooldown, "_armed", None)
             if timers is not None:
                 # Resolve candidate targets — `host_id` matches what
                 # the sampler passes, but operators may also configure
@@ -12739,7 +12737,7 @@ async def api_hosts_provider_resume(
                 doomed = [k for k in list(timers.keys())
                           if isinstance(k, tuple) and k and k[0] in candidates]
                 for k in doomed:
-                    _ping._unreachable_cooldown.clear(*k)
+                    _ping.unreachable_cooldown.clear(*k)
                     cooldown_cleared.append(f"ping:{k}")
         except Exception as e:
             print(f"[hosts] provider/ping/resume cooldown clear failed: {e}")
@@ -13148,7 +13146,7 @@ async def api_hosts_discover(_u: AdminUser):
             _webmin.probe_webmin(u, wm_user, wm_pass, verify_tls=verify,
                                  timeout=8.0)
             for u in wm_urls
-        ), return_exceptions=False)
+        ))
         seen: set[str] = set()
         failed = 0
         for r in wm_results:
@@ -13729,17 +13727,17 @@ async def api_hosts_debug(
         if hub_url and ident and passw:
             try:
                 async with httpx.AsyncClient(verify=verify, timeout=8.0) as client:
-                    token = await _beszel._get_token(client, hub_url, ident, passw)
+                    token = await _beszel.get_token(client, hub_url, ident, passw)
                     try:
-                        records = await _beszel._fetch_systems(client, hub_url, token)
+                        records = await _beszel.fetch_systems(client, hub_url, token)
                     except PermissionError:
-                        token = await _beszel._get_token(
+                        token = await _beszel.get_token(
                             client, hub_url, ident, passw, force_refresh=True,
                         )
-                        records = await _beszel._fetch_systems(client, hub_url, token)
+                        records = await _beszel.fetch_systems(client, hub_url, token)
                     latest_stats: dict = {}
                     try:
-                        latest_stats = await _beszel._fetch_latest_stats(
+                        latest_stats = await _beszel.fetch_latest_stats(
                             client, hub_url, token,
                         )
                     except Exception as e:
@@ -13789,7 +13787,7 @@ async def api_hosts_debug(
         if pulse_url and pulse_tok:
             try:
                 async with httpx.AsyncClient(verify=verify, timeout=8.0) as client:
-                    state = await _pulse._fetch_state(client, pulse_url, pulse_tok)
+                    state = await _pulse.fetch_state(client, pulse_url, pulse_tok)
                 probe = await _pulse.probe_pulse(
                     pulse_url, pulse_tok, verify_tls=verify,
                 )
@@ -13848,7 +13846,7 @@ async def api_hosts_debug(
         # Normalise the operator-supplied URL the same way probe_node()
         # does so the "Raw" debug dump shows real metric text, not the
         # HTML landing page that bare host:port returns.
-        url_canonical = _ne._normalise_ne_url(url_input)
+        url_canonical = _ne.normalise_ne_url(url_input)
         # operator-tunable NE probe timeout.
         _ne_timeout = tuning.tuning_int(Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS)
         try:
@@ -13872,13 +13870,13 @@ async def api_hosts_debug(
                 # is empty but the exporter returns non-zero rx/tx
                 # totals, the sampler hasn't run yet (first 5-min tick)
                 # or every delta has been rejected by sanity bounds.
-                "recent_net_samples": _host_net_sampler.last_samples(record["id"], limit=5),
+                "recent_net_samples": _host_net_sampler.last_samples(record["id"]),
                 # Last 5 host_metrics_samples rows for this host. The
                 # sampler writes one row per STATS_SAMPLE_INTERVAL
                 # (default 5 min) when NE returns meaningful gauges or
                 # sane-bounded counter deltas; see
                 # logic.host_metrics_sampler._compute_row.
-                "recent_metrics_samples": _host_metrics_sampler.last_samples(record["id"], limit=5),
+                "recent_metrics_samples": _host_metrics_sampler.last_samples(record["id"]),
             }
             providers_normalized["node_exporter"] = stats
         except Exception as e:
@@ -13931,7 +13929,7 @@ async def api_hosts_debug(
         try:
             from logic import ping_sampler as _ping_sampler_dbg
             from logic import ping as _ping_dbg
-            samples = _ping_sampler_dbg.last_samples(record["id"], limit=5) or []
+            samples = _ping_sampler_dbg.last_samples(record["id"]) or []
             # Replicate the sampler's target-resolution chain so the
             # debug surface shows the same `host` the probe is using.
             ping_cfg = (record.get("ping") or {}) if isinstance(record.get("ping"), dict) else {}
@@ -14752,7 +14750,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
                         # EOF — shell exited.
                         break
                     if isinstance(chunk, str):
-                        chunk = chunk.encode("utf-8", errors="replace")
+                        chunk = chunk.encode(errors="replace")
                     bytes_out += len(chunk)
                     await websocket.send_bytes(chunk)
             except (asyncio.CancelledError, asyncssh.DisconnectError,
@@ -14800,7 +14798,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
                             # Optional text-mode stdin (some clients
                             # prefer encoding via JSON). Keys "data".
                             data_s = (ctl or {}).get("data") or ""
-                            data_b = data_s.encode("utf-8", errors="replace")
+                            data_b = data_s.encode(errors="replace")
                             bytes_in += len(data_b)
                             try:
                                 proc.stdin.write(data_b)
@@ -14868,7 +14866,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
         except (RuntimeError, OSError, WebSocketDisconnect):
             pass
         try:
-            await websocket.close(code=1000, reason="shell exited")
+            await websocket.close(reason="shell exited")
         except (RuntimeError, OSError, WebSocketDisconnect):
             pass
     except WebSocketDisconnect:
@@ -17414,7 +17412,6 @@ async def _run_port_scan_async(
                             f"scan and not in this host's curated services. "
                             f"Promote to curated in the host drawer if expected."
                         ),
-                        "info",
                         event="port_scan_new_port",
                         actor_username=actor,
                         target_kind="host",
@@ -17497,7 +17494,7 @@ async def api_hosts_port_scan(
     handler (or its 30 s polling fallback).
     """
     hid = (host_id or "").strip()
-    if not get_setting_bool(Settings.PORT_SCAN_ENABLED, False):
+    if not get_setting_bool(Settings.PORT_SCAN_ENABLED):
         print(f"[port_scan] skipped host_id={hid!r} — provider disabled (master toggle off)")
         raise HTTPException(
             status_code=400,
@@ -17771,7 +17768,7 @@ async def api_ping_test(
     pcfg: dict = _raw_pcfg if isinstance(_raw_pcfg, dict) else {}
     default_port = tuning.tuning_int(Tunable.PING_DEFAULT_PORT) or 443
     port = body.port if body.port is not None else (pcfg.get("port") or default_port)
-    use_icmp_global = get_setting_bool(Settings.PING_USE_ICMP, False)
+    use_icmp_global = get_setting_bool(Settings.PING_USE_ICMP)
     transport = (body.transport or pcfg.get("transport") or "").strip().lower()
     if transport not in ("tcp", "icmp"):
         transport = "icmp" if use_icmp_global else "tcp"
@@ -17782,7 +17779,7 @@ async def api_ping_test(
         transport = "tcp"
     result = await _ping_mod.probe_ping(
         target, port=int(port), transport=transport,
-        timeout_seconds=timeout, count=3,
+        timeout_seconds=timeout,
     )
     return _stamp_test_success("ping", {
         "ok": bool(result.get("alive")),
@@ -17863,7 +17860,7 @@ async def api_apprise_test(_admin: AdminUser):
     combined `/api/notify-test` route stays for back-compat. Result
     shape matches the Telegram probe contract so the SPA can render
     the inline result chip identically across channels."""
-    result = await _ops_mod._notify_medium_apprise(
+    result = await _ops_mod.notify_medium_apprise(
         title="🔔 OmniGrid test",
         body="Apprise channel test — if you see this, the integration is wired correctly.",
         severity="success",
@@ -17941,7 +17938,6 @@ async def api_notify_send(
         medium=medium,
         title=title,
         body=msg,
-        status="info",
         actor_username=actor,
         metadata={"source": "api_notify_send"},
     )
@@ -19110,7 +19106,6 @@ async def api_local_login(
         auth.touch_last_login(c, u.id)
         cookie_value, expires_at = auth.create_session(
             c, u.id, ip, request.headers.get("user-agent"),
-            auth_method="password",
         )
         # Audit-trail row — first-class forensic record of the sign-in
         # (the Apprise notification above is a SEPARATE side-channel
@@ -19133,7 +19128,6 @@ async def api_local_login(
     asyncio.create_task(notify_with_retry(
         f"🔓 {u.username} signed in",
         f"via local from {ip}",
-        "info",
         event="user_login",
         actor_username=u.username,
         target_kind="user", target_id=u.username,
@@ -19263,7 +19257,6 @@ async def api_local_login_totp(
         await notify(
             f"🔓 {u.username} signed in",
             f"via local (2FA) from {ip}",
-            "info",
             event="user_login",
             actor_username=u.username,
             target_kind="user", target_id=u.username,
@@ -19300,7 +19293,7 @@ async def api_local_login_totp_setup_confirm(
     if not totp.verify_code(secret_plain, code):
         auth.rate_limit_record_failure(ip)
         raise HTTPException(status_code=401, detail="Invalid code.")
-    backup_plain = totp.generate_backup_codes(10)
+    backup_plain = totp.generate_backup_codes()
     encrypted_secret = totp.encrypt_secret(secret_plain)
     encrypted_codes_json = totp.encrypt_backup_codes(backup_plain)
     with db_conn() as c:
@@ -19340,7 +19333,6 @@ async def api_local_login_totp_setup_confirm(
         await notify(
             f"🔓 {u.username} signed in",
             f"via local (2FA enrolled) from {ip}",
-            "info",
             event="user_login",
             actor_username=u.username,
             target_kind="user", target_id=u.username,
@@ -19619,7 +19611,6 @@ async def api_local_login_webauthn_finish(
         await notify(
             f"🔓 {u.username} signed in",
             f"via local (passkey) from {ip}",
-            "info",
             event="user_login",
             actor_username=u.username,
             target_kind="user", target_id=u.username,
@@ -19879,7 +19870,7 @@ async def api_me(request: Request):
             # global-default surface pattern above.
             "ping": {
                 "default_port": tuning.tuning_int(Tunable.PING_DEFAULT_PORT),
-                "use_icmp": get_setting_bool(Settings.PING_USE_ICMP, False),
+                "use_icmp": get_setting_bool(Settings.PING_USE_ICMP),
             },
             # Per-host drift baseline metric roster — single source of
             # truth for the SPA's drift-chip rendering. Backend's
@@ -19896,7 +19887,7 @@ async def api_me(request: Request):
             # `me.client_config.ai.enabled === true` AND
             # `me.client_config.ai.active_provider` being non-empty.
             "ai": {
-                "enabled": get_setting_bool(Settings.AI_ENABLED, False),
+                "enabled": get_setting_bool(Settings.AI_ENABLED),
                 "active_provider": (get_setting(Settings.AI_ACTIVE_PROVIDER) or "").strip().lower(),
                 "max_tokens": tuning.tuning_int(Tunable.AI_MAX_TOKENS),
                 # Canonical provider list — the SPA's `aiProviderNames`
@@ -20007,7 +19998,7 @@ async def api_me(request: Request):
         # can render one Profile→Notifications column per available
         # medium without a separate /api/notify-mediums round-trip.
         from logic.ops import NOTIFY_MEDIUMS as _OPS_MEDIUMS
-        from logic.ops import _is_medium_enabled as _ops_medium_enabled
+        from logic.ops import is_medium_enabled as _ops_medium_enabled
         notify_mediums = [
             {"name": m, "enabled": bool(_ops_medium_enabled(m))}
             for m in _OPS_MEDIUMS.keys()
@@ -20344,7 +20335,7 @@ async def api_me_notify_prefs(
     # Per-medium roster echoed back so the SPA can re-render the grid
     # without a separate /api/me round-trip.
     from logic.ops import NOTIFY_MEDIUMS as _OPS_MEDIUMS
-    from logic.ops import _is_medium_enabled as _ops_medium_enabled
+    from logic.ops import is_medium_enabled as _ops_medium_enabled
     notify_mediums = [
         {"name": m, "enabled": bool(_ops_medium_enabled(m))}
         for m in _OPS_MEDIUMS.keys()
@@ -20733,7 +20724,7 @@ async def api_me_totp_enroll_confirm(
         raise HTTPException(400, "Missing or malformed secret.")
     if not totp.verify_code(body.secret, body.code):
         raise HTTPException(401, "Invalid verification code.")
-    backup_plain = totp.generate_backup_codes(10)
+    backup_plain = totp.generate_backup_codes()
     encrypted_secret = totp.encrypt_secret(body.secret)
     encrypted_codes_json = totp.encrypt_backup_codes(backup_plain)
     with db_conn() as c:
@@ -20772,7 +20763,7 @@ async def api_me_totp_regenerate_codes(
         state = auth.get_user_totp_state(c, user.id)
         if not state["enabled"]:
             raise HTTPException(400, "Two-factor authentication is not enabled.")
-        backup_plain = totp.generate_backup_codes(10)
+        backup_plain = totp.generate_backup_codes()
         encrypted = totp.encrypt_backup_codes(backup_plain)
         auth.update_user_totp_backup_codes(c, user.id, encrypted)
         try:
@@ -21000,7 +20991,7 @@ async def api_me_webauthn_register_start(
     # WebAuthn user-handle: 1..64 bytes, opaque to the RP. Use the
     # numeric user id as a left-padded 4-byte blob -- stable per user,
     # never leaks PII.
-    user_handle = f"omnigrid-user-{user.id}".encode("utf-8")
+    user_handle = f"omnigrid-user-{user.id}".encode()
     options, raw_challenge = webauthn_h.make_registration_options(
         rp_id=rp_id,
         rp_name=rp_name,
@@ -21595,7 +21586,7 @@ async def api_download_backup(
 ):
     """Stream a named backup zip to the operator."""
     try:
-        path = backups._backup_path(name)
+        path = backups.backup_path(name)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid backup name")
     if not os.path.exists(path):
@@ -21789,7 +21780,7 @@ async def api_config_backup_download_saved(
 ):
     """Download a previously-saved snapshot file."""
     try:
-        full = config_export._safe_path(name)
+        full = config_export.safe_path(name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not os.path.isfile(full):
@@ -22196,7 +22187,7 @@ def _expand_includes(body: str, path: str) -> tuple[str, tuple]:
             return ""
         try:
             mt = os.stat(candidate).st_mtime_ns
-            with open(candidate, "r", encoding="utf-8") as f:
+            with open(candidate, encoding="utf-8") as f:
                 content = f.read()
         except OSError:
             sig.append((rel, 0))
@@ -22278,7 +22269,7 @@ def _render_shell(path: str) -> Response:
         else:
             cached = None
     if cached is None:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             raw = f.read()
         body, sig = _expand_includes(raw, path)
         _SHELL_CACHE[path] = (sig, body)

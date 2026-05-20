@@ -104,6 +104,10 @@ def _scheduler_tz():
 
 _tz_warn_logged = False
 
+# Public alias for cross-module use (main.py resolves the scheduler tz
+# in two date-aware endpoints).
+scheduler_tz = _scheduler_tz
+
 
 def scheduler_tz_state() -> dict:
     """Structured snapshot of the scheduler-timezone resolution.

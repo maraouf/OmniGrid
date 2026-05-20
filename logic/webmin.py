@@ -93,6 +93,9 @@ from logic.tuning import Tunable as _Tunable
 _auth_cooldown_timer = _Cooldown(
     seconds_fn=lambda: _tuning.tuning_int(_Tunable.AUTH_FAILURE_COOLDOWN_SECONDS)
 )
+# Public alias for cross-module use (main.py's resume-sampling endpoint
+# walks the cooldown's internal map to clear per-host entries).
+auth_cooldown_timer = _auth_cooldown_timer
 
 # Threat model for the URL parameter: ``base_url`` is operator-set
 # via the admin-only ``/api/settings`` endpoint (require_admin gate +

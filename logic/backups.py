@@ -93,6 +93,11 @@ def _backup_path(name: str) -> str:
     return full
 
 
+# Public alias for cross-module use (main.py's download-backup endpoint
+# resolves the operator-typed name through the path-traversal guard).
+backup_path = _backup_path
+
+
 def _snapshot_db_to(path: str) -> None:
     """Consistent DB snapshot via SQLite's online .backup() API."""
     if DB_PATH is None:

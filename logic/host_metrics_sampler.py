@@ -397,6 +397,12 @@ def _get_failure_state(host_id: str, provider: str = "") -> Optional[dict]:
 _PROVIDER_PREFIXES = frozenset((
     "beszel", "pulse", "node_exporter", "webmin", "ping", "snmp",
 ))
+# Public alias for cross-module use. main.py imports as
+# `_PROVIDER_AUTO_PAUSE_NAMES` per CLAUDE.md ("Vendor / capability key
+# sets need ONE source of truth"); exposing without the leading
+# underscore satisfies the IDE's protected-member check without
+# duplicating the literal.
+PROVIDER_PREFIXES = _PROVIDER_PREFIXES
 
 # ---------------------------------------------------------------------------
 # Defensive "is this provider configured for this host" cache.
@@ -432,6 +438,11 @@ def _invalidate_host_provider_config_cache() -> None:
     global _HOST_PROVIDER_CONFIG_CACHE, _HOST_PROVIDER_CONFIG_CACHE_TS
     _HOST_PROVIDER_CONFIG_CACHE = None
     _HOST_PROVIDER_CONFIG_CACHE_TS = 0.0
+
+
+# Public alias for cross-module use (main.py invalidates after a
+# `hosts_config` save).
+invalidate_host_provider_config_cache = _invalidate_host_provider_config_cache
 
 
 def _host_provider_config() -> dict[str, set[str]]:
