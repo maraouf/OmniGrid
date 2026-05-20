@@ -18920,28 +18920,125 @@ function app() {
       // Short-hostname → FQDN promotion. Swarm reports node names as
       // bare hostnames (`debian13docker`, `web01`) which don't always
       // resolve in the browser unless the user's DNS handles short
-      // names. When (a) the resolved host has NO dots (is a short
-      // hostname), AND (b) the browser is currently loaded from a
-      // FQDN (e.g. `omnigrid.home.lan`), append the SPA's domain
-      // suffix to the short hostname so the link points at a
-      // fully-qualified target (`debian13docker.home.lan`). Skip when
-      // host is an IP literal (digits + dots only — no DNS appending
-      // makes sense) or already contains a dot.
+      // names. When the resolved host has NO dots, promote it to a
+      // FQDN by learning the LAN domain suffix.
+      //
+      // Resolution order for the suffix:
+      //   1. **Inspect curated hosts** — find any other curated row
+      //      whose `address` OR `host_hostname` is a FQDN (multi-
+      //      label, non-IP). Use the longest-common-suffix across
+      //      those FQDNs as the operator's actual LAN domain. This
+      //      is the authoritative source — if the operator has set
+      //      `debian13docker.home.lan` as another host's address,
+      //      we know `home.lan` is the right suffix.
+      //   2. Fallback: last TWO labels of `window.location.hostname`.
+      //      Naive "everything after the first dot" fails when the
+      //      SPA itself sits on a sub-subdomain (e.g. SPA at
+      //      `omnigrid.www.home.lan` — the LAN is still `home.lan`,
+      //      not `www.home.lan`). Using the trailing two labels
+      //      handles both shapes: `omnigrid.home.lan` → `home.lan`,
+      //      AND `omnigrid.www.home.lan` → `home.lan`.
+      //   3. When neither yields a multi-label suffix (e.g. browser
+      //      at `localhost` or a bare-host setup), skip the promotion
+      //      and use the bare hostname.
+      // Skip the promotion entirely when host is an IPv4 literal —
+      // appending a DNS suffix to an IP makes no sense.
       if (host && host.indexOf('.') < 0 && !/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
-        const winHost = window.location.hostname || '';
-        const firstDot = winHost.indexOf('.');
-        if (firstDot > 0) {
-          const suffix = winHost.slice(firstDot + 1);
-          // Defence: don't append `.localhost` or anything that
-          // collapses to a single TLD-only label — only append when
-          // the suffix itself looks like a real multi-label domain
-          // (contains a dot OR is a known multi-label form).
-          if (suffix && suffix.indexOf('.') >= 0) {
-            host = host + '.' + suffix;
+        let suffix = this._resolveLanSuffixFromCuratedHosts(host);
+        if (!suffix) {
+          // Fallback: last-2-labels of window.location.hostname.
+          const winHost = window.location.hostname || '';
+          const parts = winHost.split('.').filter(Boolean);
+          if (parts.length >= 2 && !/^\d+$/.test(parts[parts.length - 1])) {
+            suffix = parts.slice(-2).join('.');
           }
+        }
+        if (suffix && suffix.indexOf('.') >= 0) {
+          host = host + '.' + suffix;
         }
       }
       return 'http://' + host + ':' + port.published;
+    },
+
+    // Learn the operator's LAN domain suffix from curated host
+    // records. Walks `this.hosts` looking for any FQDN in `address` /
+    // `host_hostname` / `label` (multi-label string, not an IPv4
+    // literal, not matching the current host's bare name we're
+    // promoting). Returns the longest-common-suffix shared by every
+    // FQDN found — that's the operator's authoritative LAN domain.
+    // Returns '' when no curated FQDN exists.
+    //
+    // Why longest-common-suffix: if the operator has
+    // `debian13docker.home.lan` AND `web01.home.lan` AND
+    // `mail.corp.home.lan`, the LCS is `home.lan` — the right value.
+    // A single curated FQDN's suffix would falsely match
+    // `mail.corp.home.lan` → `corp.home.lan` which isn't the bare
+    // LAN root. With multiple FQDNs we hit `home.lan` correctly.
+    _resolveLanSuffixFromCuratedHosts(promotingHost) {
+      if (!Array.isArray(this.hosts)) {
+        return '';
+      }
+      const promotingLower = String(promotingHost || '').toLowerCase();
+      const fqdns = [];
+      for (const h of this.hosts) {
+        if (!h) {
+          continue;
+        }
+        for (const fieldVal of [h.address, h.host_hostname, h.label]) {
+          const v = String(fieldVal || '').trim().toLowerCase();
+          if (!v || v.indexOf('.') < 0) {
+            continue;
+          }
+          // Skip IPv4 literals — they're not FQDNs.
+          if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) {
+            continue;
+          }
+          // Skip URL-shaped values (some `address` rows are full URLs).
+          if (v.indexOf('://') >= 0 || v.indexOf('/') >= 0 || v.indexOf(':') >= 0) {
+            continue;
+          }
+          // Skip the bare-host we're TRYING to promote (defence
+          // against circular learning if the operator's `address`
+          // already happens to be the bare short hostname).
+          if (v === promotingLower) {
+            continue;
+          }
+          // Only consider strings that look hostname-shaped.
+          if (!/^[a-z0-9.-]+$/.test(v)) {
+            continue;
+          }
+          fqdns.push(v);
+        }
+      }
+      if (fqdns.length === 0) {
+        return '';
+      }
+      // Compute longest-common-suffix label-wise across every FQDN.
+      // Reverse the labels of each, find the common prefix, reverse
+      // back. Truncate any leading single-label result — we need at
+      // least 2 labels for a meaningful suffix.
+      const splitRev = fqdns.map(f => f.split('.').reverse());
+      let common = splitRev[0].slice();
+      for (let i = 1; i < splitRev.length; i++) {
+        const next = splitRev[i];
+        const lim = Math.min(common.length, next.length);
+        const out = [];
+        for (let j = 0; j < lim; j++) {
+          if (common[j] === next[j]) {
+            out.push(common[j]);
+          } else {
+            break;
+          }
+        }
+        common = out;
+        if (common.length === 0) {
+          break;
+        }
+      }
+      if (common.length < 2) {
+        return '';
+      }
+      return common.reverse().join('.');
     },
 
     // Auto-fix actions surfaced in the known-issue panel below the
