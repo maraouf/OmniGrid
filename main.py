@@ -10982,6 +10982,14 @@ def _shape_host_api_row(
         # `providerStates(h)` and `hostHasAgent(h)` can decide whether
         # to render the SNMP chip + count this host as having an agent.
         "snmp_name": h.get("snmp_name") or "",
+        # Webmin target alias. Surfaced on the API row so the SPA's
+        # toolbar `hostsProviderState('webmin')` can gate on
+        # "configured for Webmin" rather than "Webmin probe succeeded",
+        # which would hide the chip during a hub outage and lose
+        # visibility on the real failure. Aligns Webmin with the
+        # other `<provider>_name` fields that have always been on the
+        # row shape.
+        "webmin_name": h.get("webmin_name") or "",
         # Per-host SNMP opt-in flag. The bug: the SPA's
         # SNMP chip iterators were gating on `h.snmp_name` alone, so a
         # host with snmp_name set but `snmp.enabled === false` STILL
@@ -14966,7 +14974,6 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
     if not series or hours <= 2 or len(series) <= target_points:
         return series
     bucket_s = max(60, int((hours * 3600) / target_points))
-    half = bucket_s // 2
 
     # Discover field-kind by scanning the WHOLE series for the first
     # non-empty value per key. Pre-fix this only looked at sample[0] —
@@ -15036,8 +15043,23 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
             b = {"scalar_sum": {}, "scalar_n": {},
                  "dict_sum": {}, "dict_n": {},
                  "list_sum": {}, "list_n": {},
-                 "other_last": {}}
+                 "other_last": {},
+                 # Track the LATEST raw ts that landed in this bucket so
+                 # the emitted point lands at "newest sample inside the
+                 # bucket" rather than the bucket center. Without this,
+                 # a 24h window's last bucket (12 min wide) emits at ts
+                 # = center = ~6 min in the past, and `chartFreshness`
+                 # on the SPA reads the chart as 6m stale even though
+                 # the most recent raw sample is ~30s old. Centre-emit
+                 # was confusing because the same data appears "fresher"
+                 # under a narrower window (less bucketing) than under a
+                 # wider one. Tail-emit makes "Last sample Xm ago" track
+                 # the actual freshest data regardless of range / bucket
+                 # width.
+                 "last_ts": 0}
             buckets[bts] = b
+        if ts > b["last_ts"]:
+            b["last_ts"] = ts
         for k, kind in kinds.items():
             v = r.get(k)
             if v is None:
@@ -15105,9 +15127,12 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
             ]
         for k, v in b["other_last"].items():
             row[k] = v
-        mid = bts + half
-        row["t"] = mid
-        row["ts"] = mid
+        # Emit at the latest raw ts inside the bucket (NOT bucket
+        # center) so the chart's tail = age of the freshest sample.
+        # See the bucket-init comment above for the why.
+        emit_ts = b["last_ts"] or bts
+        row["t"] = emit_ts
+        row["ts"] = emit_ts
         out.append(row)
     return out
 
