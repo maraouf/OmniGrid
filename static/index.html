@@ -2109,7 +2109,7 @@
                    "All" is a clear-all rather than a separate filter. -->
               <span x-show="hostsProviderFilter && hostsProviderFilter.size > 0" class="ms-1">↻</span>
             </button>
-            <template x-for="p in ['beszel','pulse','node_exporter','webmin','ping','snmp']" :key="p">
+            <template x-for="p in ['beszel','pulse','node_exporter','webmin','ping','snmp','http_probe']" :key="p">
               <button type="button"
                       x-show="hostsProviderState(p).visible"
                       @click="toggleHostsProviderFilter(p)"
@@ -5123,6 +5123,145 @@
                   </dd>
                 </template>
               </dl>
+            </section>
+
+            <!-- HTTP / TLS / DNS probe card — seventh host-stats provider.
+                     Renders when at least one URL has a probe result OR a
+                     snapshot-stale value is present. Per-URL status pills
+                     surface every URL in the operator's curated list +
+                     the TLS expiry warning + the DNS resolution check.
+                     Live or stale on any single field is enough so a
+                     brief outage doesn't blank the card. -->
+            <section x-show="h.host_http_status_ok !== undefined
+                                 || (Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0)
+                                 || isStaleField(h, 'host_http_status_ok')
+                                 || isStaleField(h, 'host_http_tls_expires_in_days')"
+                     class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+              <h4 class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-3 flex items-center gap-2 flex-wrap">
+                <span x-text="t('host_drawer.http_probe.heading')"></span>
+                <!-- N/M URLs healthy rollup chip. Hidden when there
+                     are no URLs (the gate above would suppress the
+                     whole card in that case anyway). -->
+                <span x-show="(h.host_http_url_count_total || 0) > 0"
+                      class="chip fs-2xs"
+                      :class="(h.host_http_url_count_ok === h.host_http_url_count_total) ? 'pill-ok' : ((h.host_http_url_count_ok > 0) ? 'pill-warning' : 'pill-error')"
+                      :title="isStaleField(h, 'host_http_url_count_total') ? staleAge(h) : ''"
+                      x-text="t('host_drawer.http_probe.urls_summary', { ok: h.host_http_url_count_ok || 0, total: h.host_http_url_count_total || 0 })"></span>
+                <!-- Updated-when freshness label — mirrors the
+                     host-drawer chart freshness convention. Hidden
+                     until a sample has landed. -->
+                <span x-show="h.host_http_ts && h.host_http_ts > 0"
+                      class="fs-3xs italic text-[var(--text-faint)] ms-auto"
+                      :title="t('host_drawer.http_probe.last_updated_title')"
+                      x-text="t('host_drawer.http_probe.last_updated', { age: fmtSecondsAgoLabel(Math.max(0, (Date.now() / 1000) - (h.host_http_ts || 0))) })"></span>
+              </h4>
+              <dl class="drawer-dl fs-sm">
+                <!-- DNS resolution outcome. Two-state chip + optional
+                     dns_error tooltip when the lookup failed. -->
+                <template x-if="h.host_http_dns_resolved !== undefined && h.host_http_dns_resolved !== null">
+                  <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.http_probe.dns_label')"></dt>
+                </template>
+                <template x-if="h.host_http_dns_resolved !== undefined && h.host_http_dns_resolved !== null">
+                  <dd class="text-end">
+                    <span class="chip fs-2xs"
+                          :class="[h.host_http_dns_resolved ? 'pill-ok' : 'pill-error', isStaleField(h, 'host_http_dns_resolved') ? 'stale' : '']"
+                          :title="isStaleField(h, 'host_http_dns_resolved') ? staleAge(h) : (h.host_http_dns_error || '')"
+                          x-text="h.host_http_dns_resolved ? t('host_drawer.http_probe.dns_resolved') : t('host_drawer.http_probe.dns_failed')"></span>
+                  </dd>
+                </template>
+                <!-- TLS cert expiry — three-state pill (green > warn,
+                     amber within warn window, red expired). Threshold
+                     from /api/me's client_config so the value is
+                     operator-tunable via Admin → Config. -->
+                <template x-if="typeof h.host_http_tls_expires_in_days === 'number'">
+                  <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.http_probe.tls_label')"></dt>
+                </template>
+                <template x-if="typeof h.host_http_tls_expires_in_days === 'number'">
+                  <dd class="text-end">
+                    <span class="chip fs-2xs"
+                          :class="[httpProbeTlsPillClass(h.host_http_tls_expires_in_days), isStaleField(h, 'host_http_tls_expires_in_days') ? 'stale' : '']"
+                          :title="isStaleField(h, 'host_http_tls_expires_in_days') ? staleAge(h) : ''"
+                          x-text="(h.host_http_tls_expires_in_days >= 0)
+                                  ? t('host_drawer.http_probe.tls_expires_in', { days: h.host_http_tls_expires_in_days })
+                                  : t('host_drawer.http_probe.tls_expired', { days: Math.abs(h.host_http_tls_expires_in_days) })"></span>
+                  </dd>
+                </template>
+                <!-- TLS subject / issuer rows — populated only when
+                     the cert was successfully parsed AND the sampler
+                     captured the RDN. Hidden when blank. -->
+                <template x-if="h.host_http_tls_subject">
+                  <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.http_probe.tls_subject')"></dt>
+                </template>
+                <template x-if="h.host_http_tls_subject">
+                  <dd class="text-end mono fs-xs"
+                      :class="isStaleField(h, 'host_http_tls_subject') ? 'stale' : ''"
+                      :title="isStaleField(h, 'host_http_tls_subject') ? staleAge(h) : ''"
+                      x-text="h.host_http_tls_subject"></dd>
+                </template>
+                <template x-if="h.host_http_tls_issuer">
+                  <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.http_probe.tls_issuer')"></dt>
+                </template>
+                <template x-if="h.host_http_tls_issuer">
+                  <dd class="text-end mono fs-xs"
+                      :class="isStaleField(h, 'host_http_tls_issuer') ? 'stale' : ''"
+                      :title="isStaleField(h, 'host_http_tls_issuer') ? staleAge(h) : ''"
+                      x-text="h.host_http_tls_issuer"></dd>
+                </template>
+                <!-- Latency — primary URL's response time. -->
+                <template x-if="typeof h.host_http_latency_ms === 'number'">
+                  <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.http_probe.latency_label')"></dt>
+                </template>
+                <template x-if="typeof h.host_http_latency_ms === 'number'">
+                  <dd class="text-end mono"
+                      :class="isStaleField(h, 'host_http_latency_ms') ? 'stale' : ''"
+                      :title="isStaleField(h, 'host_http_latency_ms') ? staleAge(h) : ''"
+                      x-text="h.host_http_latency_ms + ' ms'"></dd>
+                </template>
+              </dl>
+              <!-- Per-URL status strip — one row per probed URL with
+                   a status-code chip + the URL itself. Renders below
+                   the rollup dl when there's more than one URL OR the
+                   single URL has a non-OK status. Operator drills into
+                   this when the rollup chip flips to amber / red and
+                   wants to know which URL is broken. -->
+              <template x-if="Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0">
+                <ul class="mt-3 space-y-1.5 fs-xs">
+                  <template x-for="u in (h.host_http_urls || [])" :key="u.url">
+                    <li class="flex items-center gap-2 flex-wrap">
+                      <span class="chip fs-3xs"
+                            :class="(u.status_ok && u.content_match_ok) ? 'pill-ok' : 'pill-error'"
+                            x-text="(u.status_code !== null && u.status_code !== undefined) ? String(u.status_code) : '—'"></span>
+                      <span class="mono text-[var(--text-dim)] break-all" x-text="u.url"></span>
+                      <span x-show="u.error"
+                            class="fs-3xs text-[var(--danger)] ms-auto"
+                            x-text="u.error"></span>
+                    </li>
+                  </template>
+                </ul>
+              </template>
+              <!-- Resume button — visible only when http_probe is in the
+                   auto-paused state for THIS host. Mirrors the SNMP /
+                   Webmin / Ping resume affordance pattern. -->
+              <div x-show="h.provider_pause_state && h.provider_pause_state.http_probe && h.provider_pause_state.http_probe.paused"
+                   class="mt-3 flex items-center gap-2 flex-wrap">
+                <button type="button"
+                        @click="resumeProvider(h, 'http_probe')"
+                        :disabled="!!(providerResumeBusy && providerResumeBusy[h.id + ':http_probe'])"
+                        class="btn btn-soft fs-xs"
+                        :aria-label="t('host_drawer.http_probe.resume_aria')"
+                        :title="t('host_drawer.http_probe.resume_title')">
+                  <span x-show="!(providerResumeBusy && providerResumeBusy[h.id + ':http_probe'])"
+                        x-text="t('host_drawer.http_probe.resume')"></span>
+                  <span x-show="!!(providerResumeBusy && providerResumeBusy[h.id + ':http_probe'])"
+                        class="flex items-center gap-1">
+                    <span class="spin"></span>
+                    <span x-text="t('actions.working')"></span>
+                  </span>
+                </button>
+                <span class="fs-3xs text-[var(--text-faint)]"
+                      x-show="h.provider_pause_state && h.provider_pause_state.http_probe"
+                      x-text="t('host_drawer.http_probe.paused_hint', { failures: (h.provider_pause_state.http_probe.consecutive_failures || 0) })"></span>
+              </div>
             </section>
 
             <!-- SERVER HEALTH — DELL-RAC-MIB grids.
