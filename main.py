@@ -257,9 +257,12 @@ def _totp_required_for(role: str, policy: Optional[dict] = None) -> bool:
 
 
 @asynccontextmanager
-async def _lifespan(app: FastAPI):
-    # Lifespan-managed startup — per the single-replica rule in CLAUDE.md,
-    # long-running workers live here so they stay at one-per-process.
+async def _lifespan(_app: FastAPI):
+    """Lifespan-managed startup — per the single-replica rule in
+    CLAUDE.md, long-running workers live here so they stay at
+    one-per-process. The `_app` parameter is FastAPI's required
+    handler signature; the lifespan body uses module-level `app`
+    directly, so the parameter is unused-by-design."""
     from logic import db as _db_mod
     if _db_mod.DB_PATH_ERROR:
         # Keep the app alive so the config-error middleware can serve a
@@ -324,20 +327,24 @@ async def _lifespan(app: FastAPI):
     # before they're populated just means the first request after boot
     # gets fresh data instead of cached — fine.
     async def _seed_caches_bg():
+        """Background task: seed in-memory caches from persisted snapshots
+        so the first /api/items / /api/stats / /api/hosts after a
+        container restart returns prior data instantly while live
+        gathers run in parallel."""
         try:
-            from logic import stats as _stats_mod
-            n_stats = _stats_mod.seed_stats_cache_from_db()
+            from logic import stats as _stats_local
+            n_stats = _stats_local.seed_stats_cache_from_db()
             if n_stats:
                 print(f"[boot] seeded {n_stats} stats entries from stats_samples")
-        except Exception as e:
-            print(f"[boot] seed_stats_cache_from_db failed: {e}")
+        except (ImportError, OSError, RuntimeError) as boot_err:
+            print(f"[boot] seed_stats_cache_from_db failed: {boot_err}")
         try:
-            from logic import gather as _gather_mod
-            n_hosts = _gather_mod.seed_nodes_info_from_snapshots()
+            from logic import gather as _gather_local
+            n_hosts = _gather_local.seed_nodes_info_from_snapshots()
             if n_hosts:
                 print(f"[boot] seeded {n_hosts} host snapshots from host_snapshots")
-        except Exception as e:
-            print(f"[boot] seed_nodes_info_from_snapshots failed: {e}")
+        except (ImportError, OSError, RuntimeError) as boot_err:
+            print(f"[boot] seed_nodes_info_from_snapshots failed: {boot_err}")
         # Cross-restart items snapshot seed. Populate `_cache`
         # from `items_snapshot` so the FIRST `/api/items` after a
         # container restart returns the prior snapshot instantly while
@@ -347,12 +354,12 @@ async def _lifespan(app: FastAPI):
         # rather than clobbers. First-ever boot (empty table) returns 0
         # and falls through to the legacy block-on-gather behaviour.
         try:
-            from logic import gather as _gather_mod
-            n_items = _gather_mod.seed_items_cache_from_snapshot()
+            from logic import gather as _gather_local
+            n_items = _gather_local.seed_items_cache_from_snapshot()
             if n_items:
                 print(f"[boot] seeded {n_items} items from items_snapshot")
-        except Exception as e:
-            print(f"[boot] seed_items_cache_from_snapshot failed: {e}")
+        except (ImportError, OSError, RuntimeError) as boot_err:
+            print(f"[boot] seed_items_cache_from_snapshot failed: {boot_err}")
         # Orphan sweep on startup. Cleans stale `<provider>:<host_id>`
         # rows from `host_failure_state` + `host_provider_last_ok` where the
         # host has been deleted OR no longer has that provider configured.
@@ -367,8 +374,8 @@ async def _lifespan(app: FastAPI):
             if removed:
                 print(f"[boot] orphan sweep removed {removed} row(s) from "
                       f"host_failure_state / host_provider_last_ok")
-        except Exception as e:
-            print(f"[boot] orphan sweep failed: {e}")
+        except (sqlite3.Error, OSError, RuntimeError) as boot_err:
+            print(f"[boot] orphan sweep failed: {boot_err}")
         # Notification template audit — verify every event registered in
         # NOTIFY_EVENT_NAMES has a matching default in
         # NOTIFY_TEMPLATE_DEFAULTS. Drift surfaces as a WARN log line +
@@ -387,8 +394,8 @@ async def _lifespan(app: FastAPI):
                     f"missing_defaults={audit.get('missing_defaults') or []} "
                     f"unknown_defaults={audit.get('unknown_defaults') or []}"
                 )
-        except Exception as e:
-            print(f"[boot] notify template audit failed: {e}")
+        except (ImportError, AttributeError, RuntimeError) as boot_err:
+            print(f"[boot] notify template audit failed: {boot_err}")
 
         # Schedule-kind audit gate — same shape as the notify template
         # audit above. Walks `SCHEDULE_KINDS`, verifies every runner is
@@ -410,8 +417,8 @@ async def _lifespan(app: FastAPI):
                     f"name_mismatches={sched_audit.get('name_mismatches') or []} "
                     f"missing_docstrings={sched_audit.get('missing_docstrings') or []}"
                 )
-        except Exception as e:
-            print(f"[boot] schedule kinds audit failed: {e}")
+        except (ImportError, AttributeError, RuntimeError) as boot_err:
+            print(f"[boot] schedule kinds audit failed: {boot_err}")
 
         # First-boot helper — auto-create a default swarm_agent_health
         # schedule when Portainer is configured AND no equivalent row
@@ -437,8 +444,8 @@ async def _lifespan(app: FastAPI):
                     "[boot] swarm_agent_health bootstrap: "
                     "skipped — Portainer not configured (will retry on next boot)"
                 )
-        except Exception as e:  # noqa: BLE001
-            print(f"[boot] swarm_agent_health bootstrap failed: {e}")
+        except (sqlite3.Error, OSError, ImportError, RuntimeError) as boot_err:
+            print(f"[boot] swarm_agent_health bootstrap failed: {boot_err}")
 
     seed_task = asyncio.create_task(_seed_caches_bg(), name="boot-seed-caches")
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
@@ -639,6 +646,30 @@ metrics.register_events_collectors(
 # (history / ignores / settings / stats_samples) and delegates to module
 # schema hooks (auth.init_auth_schema) for module-owned tables.
 # ============================================================================
+
+# Canonical baseline AI memories. Seeded on every boot via init_db; the
+# duplicate-text guard there makes the operation idempotent. Source
+# 'system' (with actor 'bootstrap') distinguishes these from operator-
+# added or AI-emitted memories in the Admin → AI → Memory pane.
+# Each entry is a single string — the AI's palette user-prompt prepends
+# the full set so every conversation starts with this baseline knowledge.
+_AI_MEMORY_SEEDS: tuple[str, ...] = (
+    # Swarm task-ID suffix gotcha — the AI tried to drill into a service-
+    # named container (`tracearr_tracearr`) with docker_container_du and
+    # got 'No such container'. The actual container name carries a
+    # dynamic task-ID suffix (`tracearr_tracearr.1.glr5r6sv31fcz8e0p019m1sbm`)
+    # that has to be discovered via docker_ps_with_sizes first.
+    "When dealing with Docker Swarm containers, the running container name carries a "
+    "DYNAMIC TASK-ID SUFFIX (e.g. `tracearr_tracearr.1.glr5r6sv31fcz8e0p019m1sbm`), "
+    "NOT the bare service name (`tracearr_tracearr`). For docker_container_du and any "
+    "`docker exec`-style operation, ALWAYS resolve the full container name first via "
+    "`ssh_diag preset=docker_ps_with_sizes` (or a `docker ps` lookup) and use the EXACT "
+    "name from that output. Single-replica compose containers use `<stack>_<service>_1` "
+    "shape (no task ID); standalone containers carry whatever name was passed to "
+    "`docker run --name`.",
+)
+
+
 def init_db():
     with db_conn() as c:
         # Wrap the whole schema-create script in an explicit transaction
@@ -1315,6 +1346,29 @@ def init_db():
         from logic import migrations as _migrations
         _migrations.init_migrations_schema(c)
         _migrations.apply_pending(c)
+        # First-boot ai_memory seed — canonical lessons every deploy
+        # benefits from regardless of conversation history. Idempotent
+        # via the duplicate-text guard so re-running on existing
+        # databases doesn't accumulate duplicates. Source `system` so
+        # the Admin → AI → Memory pane can distinguish seeded baseline
+        # lessons from `ai`-emitted or `operator`-added ones.
+        for canonical_text in _AI_MEMORY_SEEDS:
+            try:
+                already = c.execute(
+                    "SELECT 1 FROM ai_memory WHERE text = ? LIMIT 1",
+                    (canonical_text,),
+                ).fetchone()
+                if already:
+                    continue
+                c.execute(
+                    "INSERT INTO ai_memory (ts, text, source, actor) "
+                    "VALUES (?, ?, 'system', 'bootstrap')",
+                    (int(time.time()), canonical_text),
+                )
+            except sqlite3.Error:
+                # Seed is best-effort — a one-off insert failure
+                # doesn't block init_db.
+                pass
 
 
 # ============================================================================
@@ -2370,9 +2424,8 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
         )
     finally:
         from logic.ops import persist_history
-        from logic import gather as _gather
         persist_history(op)
-        _gather.invalidate_cache()
+        _gather_mod.invalidate_cache()
 
 
 @app.post("/api/swarm/restart-agent")
@@ -2532,15 +2585,15 @@ async def api_events(request: Request):
             `:overflow` triggers).
             """
             try:
-                async for evt in _events.bus.subscribe():
+                async for sub_evt in _events.bus.subscribe():
                     try:
-                        queue.put_nowait(evt)
+                        queue.put_nowait(sub_evt)
                     except asyncio.QueueFull:
                         try:
                             queue.put_nowait({
                                 "type": ":local-overflow",
                                 "ts": time.time(),
-                                "payload": {"dropped_type": evt.get("type")},
+                                "payload": {"dropped_type": sub_evt.get("type")},
                             })
                         except asyncio.QueueFull:
                             # Even the overflow signal didn't fit —
@@ -4730,9 +4783,10 @@ async def _api_set_settings_inner(s, request, _portainer):
         #   anyway as a belt-and-braces).
         # Parent-child pairs are expected to overlap (sub is contained
         # in parent by construction) and are skipped.
-        def _is_parent_child(a: dict, b: dict) -> bool:
-            return (a["parent_name"] == b["name"]
-                    or b["parent_name"] == a["name"])
+        def _is_parent_child(grp_a: dict, grp_b: dict) -> bool:
+            """Whether two host-group dicts form a parent-child pair."""
+            return (grp_a["parent_name"] == grp_b["name"]
+                    or grp_b["parent_name"] == grp_a["name"])
 
         n = len(clean_groups)
         for i in range(n):
@@ -4791,7 +4845,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             gid_seen[gid] = g["name"]
 
         # Persist in order-field order so render iteration doesn't have to re-sort.
-        clean_groups.sort(key=lambda g: (g["order"], g["name"]))
+        clean_groups.sort(key=lambda grp_row: (grp_row["order"], grp_row["name"]))
         set_setting(Settings.HOST_GROUPS, json.dumps(clean_groups))
 
     # --- Asset inventory --------------------------------------------------
@@ -5067,7 +5121,6 @@ async def _api_set_settings_inner(s, request, _portainer):
     # X-OmniGrid-Client-Id header so this tab doesn't loop the event
     # back as a redundant /api/settings re-fetch.
     try:
-        from logic import events as _events
         _events.publish(
             "settings:updated",
             {"version": _settings_version_for_payload()},
@@ -5334,7 +5387,7 @@ async def api_admin_stats_overview(
             try:
                 if int(tuning_int(key)) != int(default):
                     overridden += 1
-            except Exception:
+            except (ValueError, TypeError, KeyError):
                 pass
         out["tunables"] = {"total": total, "overridden": overridden}
     except Exception as e:
@@ -5433,7 +5486,7 @@ async def api_admin_stats_database(
                         "bytes": int((r["bytes"] if hasattr(r, "keys") else r[1]) or 0),
                         "rows": cnt,
                     })
-            except Exception:
+            except sqlite3.Error:
                 # dbstat unavailable — approximate via row count.
                 table_rows = c.execute(
                     "SELECT name FROM sqlite_master "
@@ -5446,7 +5499,7 @@ async def api_admin_stats_database(
                         cnt = c.execute(
                             f"SELECT COUNT(*) FROM \"{tname}\""
                         ).fetchone()[0]
-                    except Exception:
+                    except sqlite3.Error:
                         cnt = 0
                     stats.append((tname, int(cnt or 0)))
                 stats.sort(key=lambda x: x[1], reverse=True)
@@ -5476,7 +5529,7 @@ async def api_admin_stats_database(
                         cnt = c.execute(
                             f"SELECT COUNT(*) FROM \"{tname}\""
                         ).fetchone()[0]
-                    except Exception:
+                    except sqlite3.Error:
                         cnt = 0
                     qstats.append({"table": tname, "rows": int(cnt or 0)})
                 qstats.sort(key=lambda x: x["rows"], reverse=True)
@@ -5565,7 +5618,7 @@ async def api_admin_stats_network(
         hours = 168
     try:
         cadence = max(60, int(_tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)))
-    except Exception:
+    except (ValueError, TypeError, KeyError):
         cadence = 300
     now_ts = int(_time.time())
     cutoff = now_ts - hours * 3600
@@ -5603,15 +5656,15 @@ async def api_admin_stats_network(
                 port = p.port or (443 if p.scheme == "https" else 80)
                 if host:
                     canonical_map[hid] = f"{host}:{port}"
-            except Exception:
+            except (ValueError, AttributeError, KeyError):
                 pass
-    except Exception as e:
-        out["canonical_map_error"] = str(e)
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as map_err:
+        out["canonical_map_error"] = str(map_err)
 
-    def _canonical(hid: str) -> str:
+    def _canonical(canon_hid: str) -> str:
         """Return canonical dedupe key — ne_url host:port if mapped,
         else fall back to the host_id itself (host stands alone)."""
-        return canonical_map.get(hid) or hid
+        return canonical_map.get(canon_hid) or canon_hid
 
     try:
         with db_conn() as c:
@@ -6995,9 +7048,10 @@ async def api_ai_palette(
         return {"ok": False, "status": 0, "provider": active,
                 "detail": f"Active provider '{active}' is not enabled. Enable it in Admin → AI Integration.",
                 "response_time_ms": 0}
-    api_key = (get_setting(ai_provider_api_key_key(active)) or "").strip()
+    # api_key / base_url are resolved via `_resolve_ai_fallback_chain`
+    # below into `provider_creds`; model is read direct because the
+    # endpoint stamps it on the recorded ai_jobs row.
     model = (get_setting(ai_provider_model_key(active)) or "").strip()
-    base_url = (get_setting(ai_provider_base_url_key(active)) or "").strip()
 
     query = (body.query or "").strip()
     if not query:
@@ -7020,7 +7074,8 @@ async def api_ai_palette(
     # most recent signals always survive trimming. Best-effort — a
     # missing / broken `logs` import skips the block silently.
     try:
-        from logic import logs as _logs
+        # `_logs` already at module level — local re-import would
+        # shadow it for no functional benefit.
         _log_hours = tuning.tuning_int(Tunable.AI_LOG_CONTEXT_HOURS)
         _log_limit = tuning.tuning_int(Tunable.AI_LOG_CONTEXT_LINES)
         _raw_logs = _logs.recent_lines_window(
@@ -7098,7 +7153,6 @@ async def api_ai_palette(
         prompt=_ai.build_palette_user_prompt(query, ctx, conversation=conversation),
         system_prompt=sys_prompt,
         max_tokens=max_toks,
-        timeout=30.0,
         fallback_enabled=fb_enabled,
         max_depth=fb_max_depth,
     )
@@ -7173,7 +7227,6 @@ async def api_ai_palette(
             prompt=second_round_prompt,
             system_prompt=sys_prompt,
             max_tokens=max_toks,
-            timeout=30.0,
             fallback_enabled=fb_enabled,
             max_depth=fb_max_depth,
         )
@@ -7532,7 +7585,7 @@ class AiMemoryIn(BaseModel):
 @app.post("/api/ai/memory")
 async def api_ai_memory_add(
     body: AiMemoryIn,
-    request: Request,
+    _request: Request,
     _admin: AdminUser,
 ):
     """Add a memory manually. Source defaults to 'operator' so admin
@@ -7574,7 +7627,7 @@ async def api_ai_memory_add(
 @app.delete("/api/ai/memory/{mem_id}")
 async def api_ai_memory_delete(
     mem_id: int,
-    request: Request,
+    _request: Request,
     _admin: AdminUser,
 ):
     """Delete one memory by id. Idempotent — already-gone returns ok."""
@@ -7609,7 +7662,7 @@ async def api_ai_memory_delete(
 @app.post("/api/ai/memory/forget")
 async def api_ai_memory_forget(
     body: AiMemoryIn,
-    request: Request,
+    _request: Request,
     _admin: AdminUser,
 ):
     """Delete every memory whose text MATCHES (exact) the provided
@@ -7674,9 +7727,10 @@ async def api_ai_host_filter(
     if not get_setting_bool(ai_provider_enabled_key(active), False):
         return {"ok": False, "detail": f"Active provider '{active}' is not enabled. Enable it in Admin → AI Integration.",
                 "dsl": "", "explanation": "", "response_time_ms": 0}
-    api_key = (get_setting(ai_provider_api_key_key(active)) or "").strip()
+    # api_key / base_url are resolved via `_resolve_ai_fallback_chain`
+    # below into `provider_creds`; model is read direct because the
+    # endpoint stamps it on the recorded ai_jobs row.
     model = (get_setting(ai_provider_model_key(active)) or "").strip()
-    base_url = (get_setting(ai_provider_base_url_key(active)) or "").strip()
 
     query = (body.query or "").strip()
     if not query:
@@ -9676,7 +9730,6 @@ def _publish_provider_probe_event(host_id: str, provider: str, kind: str,
     the probe path.
     """
     try:
-        from logic import events as _events
         payload: dict[str, Any] = {
             "host_id": host_id,
             "provider": provider,
@@ -10534,6 +10587,7 @@ def _provider_sample_intervals(host_id: str) -> dict:
     intervals are global, so the value is identical across hosts in
     this implementation.
     """
+    _ = host_id  # placeholder for future per-host override resolution
     from logic import tuning as _tuning
     out: dict[str, int] = {}
     global_iv = max(30, int(_tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)) or 300)
@@ -10704,6 +10758,46 @@ def _resolve_ping_target(h: dict) -> Optional[str]:
     return candidate or (h.get("id") or "")
 
 
+def _is_host_unconfigured(
+    active: Optional[Iterable[str]],
+    active_set: frozenset[str],
+    h: dict,
+    *,
+    ping_enabled: bool,
+    snmp_mapped: bool,
+    any_provider_enabled: bool,
+) -> bool:
+    """Decide whether a curated host has NO globally-enabled provider
+    mapped to one of its per-row fields. Extracted from the
+    `_shape_host_api_row` host-status fallthrough chain so the nested-
+    paren boolean expression doesn't trip PyCharm's continuation-indent
+    inspection.
+
+    Two branches: when caller supplies `active` (the canonical case),
+    each per-row field must align with a globally-enabled provider for
+    the field to count as "mapped". When `active is None` (legacy
+    callers), fall back to the whole-row OR-chain.
+    """
+    if active is not None:
+        return not (
+            ("beszel" in active_set and (h.get("beszel_name") or "").strip())
+            or ("pulse" in active_set and (h.get("pulse_name") or "").strip())
+            or ("webmin" in active_set and (h.get("webmin_name") or "").strip())
+            or ("node_exporter" in active_set and (h.get("ne_url") or "").strip())
+            or ("ping" in active_set and ping_enabled)
+            or ("snmp" in active_set and snmp_mapped)
+        )
+    # Legacy gate — back-compat callers see the whole-row OR-chain.
+    return (not any_provider_enabled) or not (
+        (h.get("beszel_name") or "").strip()
+        or (h.get("pulse_name") or "").strip()
+        or (h.get("webmin_name") or "").strip()
+        or (h.get("ne_url") or "").strip()
+        or ping_enabled
+        or snmp_mapped
+    )
+
+
 # noinspection PyTypeChecker,PyUnresolvedReferences
 def _shape_host_api_row(
     h: dict,
@@ -10835,30 +10929,11 @@ def _shape_host_api_row(
         # /api/hosts/one
         # response.
         host_status = "up"
-    elif (
-        # Refined gate (when caller supplied `active`): each per-row
-        # field must align with a globally-enabled provider for that
-        # field to count as "mapped". A stale `beszel_name` while
-        # Beszel is globally disabled NO LONGER trips this branch into
-        # `unknown` — the field-provider PAIR has to align. Legacy gate
-        # (when `active is None`) kept verbatim so back-compat callers
-        # see the old whole-row OR-chain.
-        (active is not None and not (
-            ("beszel"        in _active_set and (h.get("beszel_name") or "").strip())
-            or ("pulse"        in _active_set and (h.get("pulse_name") or "").strip())
-            or ("webmin"       in _active_set and (h.get("webmin_name") or "").strip())
-            or ("node_exporter" in _active_set and (h.get("ne_url") or "").strip())
-            or ("ping"         in _active_set and ping_enabled)
-            or ("snmp"         in _active_set and snmp_mapped)
-        ))
-        or (active is None and ((not any_provider_enabled) or not (
-            (h.get("beszel_name") or "").strip()
-            or (h.get("pulse_name") or "").strip()
-            or (h.get("webmin_name") or "").strip()
-            or (h.get("ne_url") or "").strip()
-            or ping_enabled
-            or snmp_mapped
-        )))
+    elif _is_host_unconfigured(
+        active, _active_set, h,
+        ping_enabled=ping_enabled,
+        snmp_mapped=snmp_mapped,
+        any_provider_enabled=any_provider_enabled,
     ):
         host_status = "unconfigured"
     else:
@@ -12657,7 +12732,6 @@ async def api_hosts_provider_resume(
     # SSE: surface the resume so the SPA's chip flips back to its
     # default state without waiting for the next poll cycle.
     try:
-        from logic import events as _events
         _events.publish(
             "host:failure_state_changed",
             {
@@ -14662,8 +14736,9 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
             except (asyncio.CancelledError, asyncssh.DisconnectError,
                     asyncssh.Error, BrokenPipeError, ConnectionResetError):
                 pass
-            except Exception as e:
-                print(f"[ssh] terminal upstream_to_ws error: {type(e).__name__}: {e}")
+            except (RuntimeError, OSError, ValueError) as upstream_err:
+                print(f"[ssh] terminal upstream_to_ws error: "
+                      f"{type(upstream_err).__name__}: {upstream_err}")
             finally:
                 stop_event.set()
 
@@ -14714,8 +14789,9 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
             except (asyncio.CancelledError, asyncssh.DisconnectError,
                     asyncssh.Error, BrokenPipeError, ConnectionResetError):
                 pass
-            except Exception as e:
-                print(f"[ssh] terminal ws_to_upstream error: {type(e).__name__}: {e}")
+            except (RuntimeError, OSError, ValueError) as ws_err:
+                print(f"[ssh] terminal ws_to_upstream error: "
+                      f"{type(ws_err).__name__}: {ws_err}")
             finally:
                 stop_event.set()
 
@@ -14735,7 +14811,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
                         # client can ignore. Keeps any L7 proxy from
                         # dropping the idle TCP socket.
                         await websocket.send_json({"type": "keepalive", "ts": time.time()})
-                    except Exception:
+                    except (RuntimeError, OSError, WebSocketDisconnect):
                         break
             except asyncio.CancelledError:
                 pass
@@ -14753,7 +14829,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
             for t in (t1, t2, t3):
                 try:
                     await t
-                except (asyncio.CancelledError, Exception):
+                except (asyncio.CancelledError, RuntimeError, OSError):
                     pass
 
         # Try to harvest the shell's exit code so the close frame can
@@ -14767,35 +14843,35 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
             final_error = f"shell exited with code {exit_code}"
         try:
             await websocket.send_json({"type": "exit", "code": exit_code})
-        except Exception:
+        except (RuntimeError, OSError, WebSocketDisconnect):
             pass
         try:
             await websocket.close(code=1000, reason="shell exited")
-        except Exception:
+        except (RuntimeError, OSError, WebSocketDisconnect):
             pass
     except WebSocketDisconnect:
         # Normal browser-side close (tab closed / network blip). Not an
         # error; final_status stays "success".
         pass
-    except Exception as e:
+    except (asyncssh.Error, RuntimeError, OSError, ValueError) as sess_err:
         final_status = "failed"
-        final_error = f"{type(e).__name__}: {e}"
-        print(f"[ssh] terminal session ERROR host={host_id!r}: {e}")
+        final_error = f"{type(sess_err).__name__}: {sess_err}"
+        print(f"[ssh] terminal session ERROR host={host_id!r}: {sess_err}")
         try:
             await websocket.close(code=4500, reason="internal_error")
-        except Exception:
+        except (RuntimeError, OSError, WebSocketDisconnect):
             pass
     finally:
         # Always close the upstream SSH connection.
         if proc is not None:
             try:
                 proc.close()
-            except Exception:
+            except (RuntimeError, OSError, AttributeError):
                 pass
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
+            except (RuntimeError, OSError, AttributeError):
                 pass
             # Per-use read of the SSH conn-close timeout TUNABLE so a
             # Save in Admin → SSH takes effect on the next session
@@ -14882,30 +14958,32 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
     #   "other"  → last-in-bucket wins (kept for structural fields like
     #              list-of-dicts e.g. `gpus`, bool flags, strings)
     def _classify_key(series_local: list, key: str) -> str:
-        for r in series_local:
-            if not isinstance(r, dict):
+        """Walk series_local sample-by-sample looking for the first
+        non-null value at `key`; return one of scalar/dict/list/other."""
+        for sample in series_local:
+            if not isinstance(sample, dict):
                 continue
-            v = r.get(key)
-            if v is None:
+            val = sample.get(key)
+            if val is None:
                 continue
-            if isinstance(v, bool):
+            if isinstance(val, bool):
                 return "other"
-            if isinstance(v, (int, float)):
+            if isinstance(val, (int, float)):
                 return "scalar"
-            if isinstance(v, dict):
+            if isinstance(val, dict):
                 # Need at least ONE leaf to classify as dict-of-numerics.
                 # All values must be numeric.
-                if not v:
+                if not val:
                     continue  # empty dict — keep scanning for a populated tick
                 if all(isinstance(x, (int, float)) and not isinstance(x, bool)
-                       for x in v.values()):
+                       for x in val.values()):
                     return "dict"
                 return "other"
-            if isinstance(v, list):
-                if not v:
+            if isinstance(val, list):
+                if not val:
                     continue  # empty list — keep scanning
                 if all(isinstance(x, (int, float)) and not isinstance(x, bool)
-                       for x in v):
+                       for x in val):
                     return "list"
                 return "other"
             return "other"
@@ -15525,12 +15603,14 @@ async def api_hosts_disk_projection(
         # heuristic. Tie-break by sample count (more samples = more
         # signal). The previous source-priority list is the final
         # fallback when totals + counts are identical.
-        priority_order = {label: i for i, (_, label) in enumerate(sources)}
+        priority_order = {src_label: i for i, (_, src_label) in enumerate(sources)}
 
         def _rank(c_label_rows):
-            label, rs = c_label_rows
+            """Sort key for candidate (label, rows) tuples — bigger
+            latest total first, then more samples, then source-priority."""
+            rank_label, rs = c_label_rows
             latest_total = int(rs[-1][2] or 0)
-            return -latest_total, -len(rs), priority_order.get(label, 999)
+            return -latest_total, -len(rs), priority_order.get(rank_label, 999)
 
         candidates.sort(key=_rank)
         source_used, rows = candidates[0]
@@ -16173,11 +16253,11 @@ async def api_hosts_timeline(
                         "metadata": {"provider": provider},
                     })
                     counts["recoveries"] += 1
-    except Exception as e:
-        print(f"[hosts] timeline {hid!r} aggregation error: {e}")
+    except (sqlite3.Error, OSError, RuntimeError) as agg_err:
+        print(f"[hosts] timeline {hid!r} aggregation error: {agg_err}")
         # Partial result — return what we have so far rather than 500.
 
-    events.sort(key=lambda e: e["ts"], reverse=True)
+    events.sort(key=lambda evt_row: evt_row["ts"], reverse=True)
     if len(events) > lim:
         events = events[:lim]
 
@@ -16318,7 +16398,7 @@ class ReauthIn(BaseModel):
 @app.post("/api/admin/reauth")
 async def api_admin_reauth(
     body: ReauthIn,
-    request: Request,
+    _request: Request,
     u: AdminUser,
 ):
     """Mint a short-lived reauth token for the calling admin.
@@ -16538,7 +16618,6 @@ async def api_hosts_bulk_pause(
     # `host_ids` and triggers refreshHostRow per id (same effect,
     # single SSE write).
     try:
-        from logic import events as _events
         client_id = _request_client_id(request)
         if applied:
             _events.publish(
@@ -16625,7 +16704,6 @@ async def api_hosts_bulk_resume(
     # `host:bulk_action_applied` handler iterates and refreshes each
     # row in place.
     try:
-        from logic import events as _events
         client_id = _request_client_id(request)
         if applied:
             _events.publish(
@@ -16721,7 +16799,6 @@ async def api_hosts_bulk_snmp_vendors(
     # failure state) so the SPA handler does a `loadHosts(true)` for
     # this action variant rather than per-row refresh.
     try:
-        from logic import events as _events
         client_id = _request_client_id(request)
         if applied:
             _events.publish(
@@ -16836,7 +16913,6 @@ async def api_hosts_bulk_snmp_tunables(
     # Bulk SSE event — same shape as the snmp-vendors sister, edits
     # curated config not failure state.
     try:
-        from logic import events as _events
         client_id = _request_client_id(request)
         if applied:
             _events.publish(
@@ -16943,7 +17019,6 @@ async def _run_port_scan_async(
     happen at the end so the SPA picks up results without polling.
     """
     from logic import port_scanner as _ps
-    from logic import events as _events
     try:
         if udp_enabled:
             from logic import port_scanner_udp as _ps_udp
@@ -17807,7 +17882,7 @@ class _NotifySendIn(BaseModel):
 @app.post("/api/notify/send")
 async def api_notify_send(
     body_in: _NotifySendIn,
-    request: Request,
+    _request: Request,
     _admin: AdminUser,
 ):
     """Send a custom (operator-typed) notification through ONE specific
@@ -18220,19 +18295,25 @@ async def api_tabs_activity_heartbeat(
     # arrays of strings) so a malicious or buggy SPA payload can't
     # blow the registry up. Selection cap at 50 ids matches the SPA-
     # side cap so wire + storage agree.
-    filters_clean: Optional[dict] = None
-    if isinstance(body.filters, dict):
-        filters_clean = {}
-        for k, v in body.filters.items():
+    # Explicit `dict` type (not Optional) so pyright can narrow the
+    # in-loop writes. We emit None at the END when the caller passed
+    # nothing — pre-fix the Optional[dict] declaration made every
+    # `filters_clean[k] = v` raise a "Member 'None' of 'dict | None'"
+    # warning even inside the isinstance-guarded block.
+    filters_clean_dict: dict = {}
+    has_filters = isinstance(body.filters, dict)
+    if has_filters:
+        for k, v in body.filters.items():  # type: ignore[union-attr]
             if not isinstance(k, str) or len(k) > 64:
                 continue
             if isinstance(v, (bool, int, float)) or v is None:
-                filters_clean[k] = v
+                filters_clean_dict[k] = v
             elif isinstance(v, str) and len(v) <= 256:
-                filters_clean[k] = v
+                filters_clean_dict[k] = v
             elif isinstance(v, list) and len(v) <= 20:
                 # CSV-shaped list of short strings (provider names etc.)
-                filters_clean[k] = [str(x)[:64] for x in v if isinstance(x, (str, int, float))]
+                filters_clean_dict[k] = [str(x)[:64] for x in v if isinstance(x, (str, int, float))]
+    filters_clean: Optional[dict] = filters_clean_dict if has_filters else None
     selection_clean: Optional[list] = None
     if isinstance(body.selection, list):
         selection_clean = [str(x)[:128] for x in body.selection[:50] if isinstance(x, (str, int))]
@@ -20916,7 +20997,7 @@ async def api_me_webauthn_register_start(
 @app.post("/api/me/webauthn/register-finish")
 async def api_me_webauthn_register_finish(
     body: WebauthnRegisterFinishIn,
-    request: Request,
+    _request: Request,
     user: CurrentUser,
 ):
     """Verify the attestation + persist the new credential row.
@@ -21218,7 +21299,7 @@ async def api_reset_password(
 @app.post("/api/users/{user_id}/disable-totp")
 async def api_admin_disable_totp(
     user_id: int,
-    request: Request,
+    _request: Request,
     admin: AdminUser,
 ):
     """Admin override: clear a user's TOTP enrolment + lockout state.
@@ -22197,18 +22278,30 @@ for _view in _SPA_ROUTES:
 @app.get("/settings")
 @app.get("/settings/{section}")
 async def spa_settings_shell(section: str = ""):
+    """SPA shell route for /settings and /settings/<section> deep links.
+    Section is consumed client-side by `_applyRouteFromPath()`; this
+    handler only needs to return the master HTML."""
+    _ = section
     return _render_shell("static/index.html")
 
 
 @app.get("/admin")
 @app.get("/admin/{tab}")
 async def spa_admin_shell(tab: str = ""):
+    """SPA shell route for /admin and /admin/<tab> deep links.
+    Tab is consumed client-side; this handler only returns the master
+    HTML."""
+    _ = tab
     return _render_shell("static/index.html")
 
 
 @app.get("/stats")
 @app.get("/stats/{tab}")
 async def spa_stats_shell(tab: str = ""):
+    """SPA shell route for /stats and /stats/<tab> deep links.
+    Tab is consumed client-side; this handler only returns the master
+    HTML."""
+    _ = tab
     return _render_shell("static/index.html")
 
 

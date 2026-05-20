@@ -18917,6 +18917,30 @@ function app() {
       if (!host) {
         return '';
       }
+      // Short-hostname → FQDN promotion. Swarm reports node names as
+      // bare hostnames (`debian13docker`, `web01`) which don't always
+      // resolve in the browser unless the user's DNS handles short
+      // names. When (a) the resolved host has NO dots (is a short
+      // hostname), AND (b) the browser is currently loaded from a
+      // FQDN (e.g. `omnigrid.home.lan`), append the SPA's domain
+      // suffix to the short hostname so the link points at a
+      // fully-qualified target (`debian13docker.home.lan`). Skip when
+      // host is an IP literal (digits + dots only — no DNS appending
+      // makes sense) or already contains a dot.
+      if (host && host.indexOf('.') < 0 && !/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+        const winHost = window.location.hostname || '';
+        const firstDot = winHost.indexOf('.');
+        if (firstDot > 0) {
+          const suffix = winHost.slice(firstDot + 1);
+          // Defence: don't append `.localhost` or anything that
+          // collapses to a single TLD-only label — only append when
+          // the suffix itself looks like a real multi-label domain
+          // (contains a dot OR is a known multi-label form).
+          if (suffix && suffix.indexOf('.') >= 0) {
+            host = host + '.' + suffix;
+          }
+        }
+      }
       return 'http://' + host + ':' + port.published;
     },
 
