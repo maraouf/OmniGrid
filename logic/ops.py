@@ -1674,16 +1674,25 @@ def _retag_compose_to_latest(
     content: str,
     target_image_repo: Optional[str] = None,
     new_tag: str = "latest",
-) -> tuple[str, list[tuple[str, str]]]:
+) -> tuple[str, list[tuple[str, str]], list[str]]:
     """Rewrite every ``image: <repo>:<tag>`` line in a compose file to
-    ``image: <repo>:<new_tag>``. Returns ``(new_content, replacements)``
-    where ``replacements`` is a list of ``(old_image, new_image)`` pairs
-    in the order they appeared.
+    ``image: <repo>:<new_tag>``. Returns
+    ``(new_content, replacements, repos_found)`` where ``replacements``
+    is a list of ``(old_image, new_image)`` pairs in the order they
+    appeared, and ``repos_found`` is the list of every repo string the
+    matcher saw — useful for diagnosing "no match" errors (caller can
+    log it so operators see what repos were actually in the file).
 
     When ``target_image_repo`` is supplied (e.g. ``"ghcr.io/foo/bar"``),
-    only image lines whose repo MATCHES that prefix get retagged — every
-    other ``image:`` line is left untouched. Useful when a stack has
-    multiple services and the operator only wants to switch one.
+    matching is tolerant in this order:
+      1. Exact equality with the compose's repo.
+      2. Suffix match — `target_image_repo` ends the compose repo (so
+         `goauthentik/server` matches `ghcr.io/goauthentik/server`).
+      3. Suffix match the other way — the compose repo ends with the
+         target (registry-less compose entries match registry-prefixed
+         targets).
+    Match requires a ``/`` boundary so ``foo/server`` doesn't
+    accidentally match ``foo/server-extra``.
 
     ``new_tag`` defaults to ``"latest"`` for back-compat with the
     original "Switch to :latest" code paths; operators can pass any
@@ -1703,6 +1712,20 @@ def _retag_compose_to_latest(
         _re.MULTILINE,
     )
     replacements: list[tuple[str, str]] = []
+    repos_found: list[str] = []
+
+    def _repo_matches(compose_repo: str, target: str) -> bool:
+        """Tolerance ladder — exact, then either-side suffix match
+        with `/` boundary so `foo/server` matches `ghcr.io/foo/server`
+        AND `goauthentik/server` matches `ghcr.io/goauthentik/server`,
+        but `foo/server` doesn't accidentally match `foo/server-extra`."""
+        if compose_repo == target:
+            return True
+        if compose_repo.endswith("/" + target):
+            return True
+        if target.endswith("/" + compose_repo):
+            return True
+        return False
 
     def _repl(m: "_re.Match[str]") -> str:
         indent = m.group("indent")
@@ -1710,7 +1733,8 @@ def _retag_compose_to_latest(
         repo = m.group("repo")
         old_tag = m.group("tag") or ""
         full_match = m.group()
-        if target_image_repo and repo != target_image_repo:
+        repos_found.append(repo)
+        if target_image_repo and not _repo_matches(repo, target_image_repo):
             return full_match
         if old_tag == nt and "@sha256:" not in full_match:
             return full_match
@@ -1720,7 +1744,7 @@ def _retag_compose_to_latest(
         return f"{indent}image: {quote}{new_image}{quote}"
 
     new_content = pattern.sub(_repl, content)
-    return new_content, replacements
+    return new_content, replacements, repos_found
 
 
 async def _await_stack_convergence(
@@ -1846,13 +1870,26 @@ async def do_update_stack(
             op.log("Fetched compose file from Portainer")
             content = file_data["StackFileContent"]
             if retag_to_latest:
-                content, replacements = _retag_compose_to_latest(
+                content, replacements, repos_found = _retag_compose_to_latest(
                     content, target_image_repo, new_tag=new_tag,
                 )
                 if not replacements:
+                    # Surface the actual repos we DID find so the
+                    # operator can spot a registry-path mismatch
+                    # (e.g. compose uses `authentik/server` while the
+                    # target filter expects `ghcr.io/goauthentik/server`).
+                    # The matcher is suffix-tolerant — when this error
+                    # still fires, the compose's repo path doesn't
+                    # share even a tail-segment with the target.
+                    found_msg = (
+                        f"; compose contains image lines for: {', '.join(repos_found) or '(none)'}"
+                        if repos_found else "; compose has no image: lines at all"
+                    )
                     raise RuntimeError(
                         f"Retag to :{new_tag} requested but no image: lines matched"
-                        + (f" (repo filter: {target_image_repo})" if target_image_repo else "")
+                        + (f" (repo filter: {target_image_repo}" if target_image_repo else "")
+                        + (")" if target_image_repo else "")
+                        + found_msg
                     )
                 for old, new in replacements:
                     op.log(f"Retagged {old} → {new}")

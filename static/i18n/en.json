@@ -2769,6 +2769,7 @@
     "load_failed": "Load failed: {error}",
     "copy_title": "Copy notification text",
     "copied": "Copied to clipboard",
+    "ai_no_fallback_hint": "(Tip: configure a fallback provider in Admin → AI Integration → Fallback chain so the next provider can pick up when the primary times out.)",
     "settings_saved": "✓ Settings saved",
     "test_notification_sent": "✓ Test notification sent",
     "test_notification_failed": "Test failed — check Apprise URL",
