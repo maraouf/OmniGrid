@@ -228,6 +228,26 @@ const CURATED_REFRESH_FIELDS = new Set([
   // when the master toggle is off OR no scan has run. `last_port_scan_ts`
   // drives the "Last scanned X ago" label.
   'detected_ports', 'last_port_scan_ts',
+  // HTTP / TLS / DNS probe — seventh host-stats provider. Same
+  // overlay-explicit contract as the UPS / printer / dell-* fields:
+  // missing keys collapse to null so card gates behave predictably,
+  // and a recovered probe overwrites cleanly. `host_http_urls` is
+  // the per-URL detail array consumed by the drawer's HTTP card.
+  // `host_http_url_count_total` / `host_http_url_count_ok` drive
+  // the "N/M URLs healthy" rollup label.
+  'host_http_status_ok', 'host_http_status_code',
+  'host_http_content_match_ok', 'host_http_tls_expires_in_days',
+  'host_http_tls_subject', 'host_http_tls_issuer',
+  'host_http_dns_resolved', 'host_http_dns_error',
+  'host_http_latency_ms', 'host_http_error',
+  'host_http_url_count_total', 'host_http_url_count_ok',
+  'host_http_urls', 'host_http_ts',
+  // Per-host opt-in flag — same overlay contract as ping_enabled /
+  // snmp_enabled / ssh_enabled. Without this in the whitelist a fresh
+  // save that flips the box OFF leaves the in-place reconcile sticking
+  // on the stale `true` value, so the http_probe chip in
+  // providerStates(h) keeps rendering until a hard refresh.
+  'http_probe_enabled', 'http_probe_urls',
   // Drift-from-baseline classification — per-metric
   // {indicator, value, median, iqr, ...} dict keyed by cpu_pct /
   // mem_pct / disk_pct / ping_rtt_ms. Empty {} when the host has no
@@ -1405,6 +1425,16 @@ function app() {
         'tuning_ping_packet_interval_ms',
         'tuning_ping_failure_pause_rounds',
       ],
+      http_probe: [
+        'tuning_http_probe_timeout_seconds',
+        'tuning_http_probe_concurrency',
+        'tuning_http_probe_sample_interval_seconds',
+        'tuning_http_probe_failure_pause_rounds',
+        'tuning_http_probe_dns_timeout_seconds',
+        'tuning_http_probe_cert_warning_days',
+        'tuning_http_probe_host_cache_ttl_seconds',
+        'tuning_http_probe_host_fail_cache_ttl_seconds',
+      ],
     },
     relocatedTuningKeys: [
       'tuning_log_retention_days', // → Admin → Logs
@@ -1461,6 +1491,19 @@ function app() {
       'tuning_ping_probe_timeout_seconds',
       'tuning_ping_cooldown_seconds',
       'tuning_ping_packet_interval_ms',
+      // HTTP / TLS / DNS probe — seventh host-stats provider.
+      // Section-owned save via httpProbeSectionDirty() /
+      // saveHttpProbeSection(). Rendered in Settings → Host stats →
+      // HTTP probe; the consumer reads the values via tuning_int(...)
+      // per-call inside `logic/host_http_sampler.py`.
+      'tuning_http_probe_timeout_seconds',
+      'tuning_http_probe_concurrency',
+      'tuning_http_probe_sample_interval_seconds',
+      'tuning_http_probe_failure_pause_rounds',
+      'tuning_http_probe_dns_timeout_seconds',
+      'tuning_http_probe_cert_warning_days',
+      'tuning_http_probe_host_cache_ttl_seconds',
+      'tuning_http_probe_host_fail_cache_ttl_seconds',
       // SNMP provider tunables (rendered in Host stats → SNMP).
       'tuning_snmp_probe_timeout_seconds',
       'tuning_snmp_wall_clock_budget_seconds',
@@ -6203,6 +6246,185 @@ function app() {
       }
     },
 
+    // Settings → Host stats → HTTP probe sub-tab — section-owned save.
+    // Posts ONLY HTTP probe's plain settings + the 8 HTTP probe
+    // tunables. Mirrors the SNMP / Ping section-save pattern: proxies
+    // through `_perProviderTuneKeys.http_probe` so adding a new
+    // tunable to that array auto-extends the dirty + save scope.
+    _httpProbeSectionTuningKeys() {
+      return (this._perProviderTuneKeys && this._perProviderTuneKeys.http_probe) || [];
+    },
+    _httpProbeSectionPlainKeys() {
+      return [
+        'http_probe_enabled', 'http_probe_aliases',
+        'provider_color_http_probe',
+      ];
+    },
+    _httpProbeSnapshot() {
+      // Same snapshot shape used by the test-stamp + dirty check —
+      // canonicalises the form values so a re-Save without changes
+      // is a no-op.
+      const tune = {};
+      for (const k of this._httpProbeSectionTuningKeys()) {
+        tune[k] = (this.tuningForm || {})[k] == null ? '' : String((this.tuningForm || {})[k]).trim();
+      }
+      const plain = {};
+      for (const k of this._httpProbeSectionPlainKeys()) {
+        plain[k] = (this.settings || {})[k] == null ? '' : String((this.settings || {})[k]).trim();
+      }
+      return JSON.stringify({ tune, plain });
+    },
+    _httpProbeLastPassedTest: '',
+    canSaveHttpProbeSection() {
+      // Master toggle OFF → Save always unlocks (operator commits the
+      // off-state). Master toggle ON → require a prior passing test
+      // against the current snapshot.
+      if (!this.settings || !this.settings.http_probe_enabled) {
+        return true;
+      }
+      const stamp = this._httpProbeLastPassedTest || '';
+      if (!stamp) {
+        return false;
+      }
+      return stamp === this._httpProbeSnapshot();
+    },
+    httpProbeSectionDirty() {
+      try {
+        const baseline = this._tuningBaselineMap();
+        for (const k of this._httpProbeSectionTuningKeys()) {
+          const cur = (this.tuningForm || {})[k];
+          const curStr = (cur == null ? '' : String(cur).trim());
+          const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+          if (curStr !== baseStr) {
+            return true;
+          }
+        }
+      } catch (_) {}
+      let base = {};
+      try {
+        if (typeof this._hostStatsBaseline === 'string' && this._hostStatsBaseline) {
+          base = JSON.parse(this._hostStatsBaseline) || {};
+        }
+      } catch (_) { base = {}; }
+      try {
+        for (const k of this._httpProbeSectionPlainKeys()) {
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) {
+            return true;
+          }
+        }
+      } catch (_) {}
+      try {
+        const curSrc = String((this.settings || {}).host_stats_source || '');
+        const baseSrcStr = String(base.host_stats_source || '');
+        if (curSrc !== baseSrcStr) {
+          const curHas = curSrc.split(',').map(s => s.trim()).includes('http_probe');
+          const baseHas = baseSrcStr.split(',').map(s => s.trim()).includes('http_probe');
+          if (curHas !== baseHas) {
+            return true;
+          }
+        }
+      } catch (_) {}
+      return false;
+    },
+    async saveHttpProbeSection() {
+      if (this.hostStatsSaving) {
+        return;
+      }
+      for (const k of this._httpProbeSectionTuningKeys()) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) {
+          continue;
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = this.tuningEffective[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+          }), 'error');
+          return;
+        }
+      }
+      this.hostStatsSaving = true;
+      try {
+        const body = {};
+        for (const k of this._httpProbeSectionPlainKeys()) {
+          body[k] = this.settings[k] == null ? '' : this.settings[k];
+        }
+        const sources = new Set(
+          (this.settings.host_stats_source || '').split(',').map(s => s.trim()).filter(Boolean)
+        );
+        if (this.hasHostStatsSource('http_probe')) {
+          sources.add('http_probe');
+        }
+        else {
+          sources.delete('http_probe');
+        }
+        body.host_stats_source = [...sources].join(',');
+        for (const k of this._httpProbeSectionTuningKeys()) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        await Promise.all([this.loadSettings(), this.loadTuning()]);
+        this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+      } catch (e) {
+        this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+      } finally {
+        this.hostStatsSaving = false;
+      }
+    },
+    // One-shot HTTP probe test — fires POST /api/http-probe/test
+    // with the operator-supplied URL + the current form values.
+    // Stamps `_httpProbeLastPassedTest` on success so the Save
+    // gate can unlock.
+    httpProbeTestResult: null,
+    httpProbeTestUrl: '',
+    async testHttpProbe() {
+      const url = (this.httpProbeTestUrl || '').trim();
+      if (!url) {
+        this.showToast(this.t('settings.host_stats.http_probe.test_no_url') || 'Enter a URL to test', 'error');
+        return;
+      }
+      this.httpProbeTestResult = { pending: true };
+      try {
+        const r = await fetch('/api/http-probe/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        this.httpProbeTestResult = j;
+        if (j && j.ok) {
+          this._httpProbeLastPassedTest = this._httpProbeSnapshot();
+        }
+      } catch (e) {
+        this.httpProbeTestResult = { ok: false, error: String(e.message || e) };
+      }
+    },
+
     // Settings → Host stats → node-exporter sub-tab — section-owned save.
     // Posts ONLY NE's plain settings + the NE probe-timeout tunable.
     // Per the section-saves-its-own-tunables convention.
@@ -9236,6 +9458,12 @@ function app() {
           // hint so operators see the ROOT CAUSE without grepping
           // server logs.
           snmp_import_error:      (d.snmp && d.snmp.import_error) || '',
+          // HTTP / TLS / DNS probe — seventh host-stats provider.
+          // Master enable + alias CSV. Per-host overrides land on
+          // `hosts_config[].http_probe` and ride the curated-config
+          // round-trip.
+          http_probe_enabled: !!(d.http_probe && d.http_probe.enabled),
+          http_probe_aliases: (d.http_probe && d.http_probe.aliases) || '',
           // per-provider chip colour overrides. Empty string
           // means "use the SPA default" (see providerColor() helper).
           provider_color_beszel:        d.provider_color_beszel        || '',
@@ -9244,6 +9472,7 @@ function app() {
           provider_color_webmin:        d.provider_color_webmin        || '',
           provider_color_ping:          d.provider_color_ping          || '',
           provider_color_snmp:          d.provider_color_snmp          || '',
+          provider_color_http_probe:    d.provider_color_http_probe    || '',
           // Scheduler — IANA zone. Blank = container-local (legacy).
           scheduler_timezone: d.scheduler_timezone || '',
           // Open-Meteo upstream (weather widget). Blank = default.
@@ -16219,6 +16448,40 @@ function app() {
       }
       return 'pill-unknown';
     },
+    // HTTP probe TLS expiry pill class. Three-state: red when expired
+    // (negative days remaining), amber when within the operator-tunable
+    // warning window (`me.client_config.http_probe_cert_warning_days`,
+    // default 30 days), green otherwise. Mirrors `upsStatusPillClass`
+    // / `dellHealthPillClass` shape.
+    httpProbeTlsPillClass(daysRemaining) {
+      const d = Number(daysRemaining);
+      if (!Number.isFinite(d)) {
+        return 'pill-muted';
+      }
+      if (d < 0) {
+        return 'pill-error';
+      }
+      const warn = Number((this.me && this.me.client_config && this.me.client_config.http_probe_cert_warning_days) || 30);
+      if (d <= warn) {
+        return 'pill-warning';
+      }
+      return 'pill-ok';
+    },
+    // "X seconds / minutes / hours ago" — short relative-time label
+    // used by the HTTP probe card's freshness pill. Mirrors the
+    // `hosts_extra.metrics.last_updated_*` pattern from the chart
+    // freshness helper without forcing a callsite to know which unit
+    // to render.
+    fmtSecondsAgoLabel(deltaSeconds) {
+      const d = Math.max(0, Math.floor(Number(deltaSeconds) || 0));
+      if (d < 60) {
+        return this.t('hosts_extra.metrics.last_updated_seconds', { count: d });
+      }
+      if (d < 3600) {
+        return this.t('hosts_extra.metrics.last_updated_minutes', { count: Math.floor(d / 60) });
+      }
+      return this.t('hosts_extra.metrics.last_updated_hours', { count: Math.floor(d / 3600) });
+    },
     dellHealthLabel(status) {
       // i18n key family mirrors upsBatteryStatusLabel — unknown values
       // capitalise the raw string instead of crashing OR rendering the
@@ -17328,7 +17591,8 @@ function app() {
         webmin:        '#a78bfa',  // purple (distinct slot for the 4th provider)
         ping:          '#06b6d4',  // cyan   (distinct from amber + green; was conflating with exporter)
         snmp:          '#ec4899',  // pink   (sixth provider; distinct from the existing five)
-        port_scan:     '#8b5cf6',  // violet (seventh provider; matches the SVG icon's stroke colour)
+        port_scan:     '#8b5cf6',  // violet (port-scan on-demand provider)
+        http_probe:    '#fb923c',  // orange (seventh host-stats provider — HTTP / TLS / DNS health probe)
       };
       // Live admin-form value first (reactive on every keystroke / save).
       const live = ((this.settings || {})['provider_color_' + name] || '').trim();
@@ -17392,6 +17656,9 @@ function app() {
     providerIconSlug(name) {
       if (name === 'node_exporter') {
         return 'node-exporter';
+      }
+      if (name === 'http_probe') {
+        return 'http-probe';
       }
       return name;
     },
@@ -17523,6 +17790,18 @@ function app() {
                      && ((h.snmp_name && String(h.snmp_name).trim())
                          || (h.address && String(h.address).trim()))),
           null);
+      // HTTP probe — seventh host-stats provider. Per-host opt-in
+      // flag `http_probe_enabled === true` AND at least one URL to
+      // probe (operator-supplied list OR the curated top-level url
+      // OR any services[].url). Self-status mirrors Ping's "down on
+      // explicit false" pattern: `host_http_status_ok === false` is
+      // a real failure signal, every other value (null / undefined /
+      // true) is benign.
+      add('http_probe', !!(h.http_probe_enabled === true
+                           && ((Array.isArray(h.http_probe_urls) && h.http_probe_urls.length > 0)
+                               || (h.url && String(h.url).trim())
+                               || (Array.isArray(h.services) && h.services.length > 0))),
+          h.host_http_status_ok === false ? 'down' : null);
       return out;
     },
     // Stale-marker helpers for the UI.
@@ -25961,16 +26240,61 @@ function app() {
         });
         mode = replace ? 'replace' : 'merge';
       }
-      const norm = (h) => ({
-        id:          String(h.id || h.name || '').trim(),
-        label:       String(h.label || '').trim() || String(h.id || h.name || ''),
-        ne_url:      String(h.ne_url || '').trim(),
-        beszel_name: String(h.beszel_name || '').trim(),
-        pulse_name:  String(h.pulse_name || '').trim(),
-        url:         String(h.url || '').trim(),
-        icon:        String(h.icon || '').trim(),
-        enabled:     h.enabled !== false,
-      });
+      const norm = (h) => {
+        // HTTP probe sub-dict — preserve through import so a fleet-
+        // export → fleet-import round-trip retains the per-host
+        // enable + URL override + content_match + status codes +
+        // verify_tls. Treat the input forgivingly (accept array or
+        // CSV-string for status codes; arrays of strings for URLs).
+        let httpProbe;
+        if (h.http_probe && typeof h.http_probe === 'object') {
+          httpProbe = {};
+          if (h.http_probe.enabled === true) {
+            httpProbe.enabled = true;
+          }
+          if (Array.isArray(h.http_probe.urls)) {
+            const us = h.http_probe.urls
+              .map(u => String(u || '').trim())
+              .filter(u => /^https?:\/\//i.test(u));
+            if (us.length) {
+              httpProbe.urls = Array.from(new Set(us));
+            }
+          }
+          if (typeof h.http_probe.content_match === 'string') {
+            const cm = h.http_probe.content_match.trim();
+            if (cm) {
+              httpProbe.content_match = cm.slice(0, 256);
+            }
+          }
+          if (Array.isArray(h.http_probe.accepted_status_codes)) {
+            const cs = h.http_probe.accepted_status_codes
+              .map(c => parseInt(c, 10))
+              .filter(c => Number.isFinite(c) && c >= 100 && c <= 599);
+            if (cs.length) {
+              httpProbe.accepted_status_codes = Array.from(new Set(cs)).sort((a, b) => a - b);
+            }
+          } else if (typeof h.http_probe.accepted_status_codes === 'string' && h.http_probe.accepted_status_codes.trim()) {
+            httpProbe.accepted_status_codes = h.http_probe.accepted_status_codes.trim();
+          }
+          if (h.http_probe.verify_tls === false) {
+            httpProbe.verify_tls = false;
+          }
+        }
+        const out = {
+          id:          String(h.id || h.name || '').trim(),
+          label:       String(h.label || '').trim() || String(h.id || h.name || ''),
+          ne_url:      String(h.ne_url || '').trim(),
+          beszel_name: String(h.beszel_name || '').trim(),
+          pulse_name:  String(h.pulse_name || '').trim(),
+          url:         String(h.url || '').trim(),
+          icon:        String(h.icon || '').trim(),
+          enabled:     h.enabled !== false,
+        };
+        if (httpProbe && Object.keys(httpProbe).length) {
+          out.http_probe = httpProbe;
+        }
+        return out;
+      };
       const cleanIncoming = incoming.map(norm).filter(h => h.id);
       if (mode === 'replace') {
         this.hostsConfig = cleanIncoming;
@@ -27555,6 +27879,55 @@ function app() {
             snmpOut.exclude_mounts = cleanExcl;
           }
         }
+        // Per-host HTTP probe override. Same strip-blanks pattern as
+        // ssh / ping / snmp — every key falls back to the default when
+        // empty, so we only persist explicit overrides. URLs go in as
+        // an array of trimmed http(s) URLs; non-http(s) entries are
+        // dropped silently (mirrors backend `_clean_host_http_probe`).
+        const httpIn = h.http_probe || {};
+        const httpOut = {};
+        if (httpIn.enabled === true) {
+          httpOut.enabled = true;
+        }
+        if (Array.isArray(httpIn.urls)) {
+          const cleanUrls = [];
+          for (const u of httpIn.urls) {
+            const s = String(u || '').trim();
+            const sl = s.toLowerCase();
+            if (s && (sl.startsWith('http://') || sl.startsWith('https://'))) {
+              cleanUrls.push(s);
+            }
+          }
+          if (cleanUrls.length) {
+            // Dedupe inside the SPA so the backend doesn't have to.
+            httpOut.urls = Array.from(new Set(cleanUrls));
+          }
+        }
+        const cm = String(httpIn.content_match || '').trim();
+        if (cm && cm.length <= 256) {
+          httpOut.content_match = cm;
+        }
+        // accepted_status_codes: accept array (already parsed) OR CSV
+        // string. The backend's `parse_status_codes_csv` accepts both,
+        // so we just trim and pass through when non-empty.
+        if (Array.isArray(httpIn.accepted_status_codes)) {
+          const codes = httpIn.accepted_status_codes
+            .map(c => parseInt(c, 10))
+            .filter(c => Number.isFinite(c) && c >= 100 && c <= 599);
+          if (codes.length) {
+            httpOut.accepted_status_codes = Array.from(new Set(codes)).sort((a, b) => a - b);
+          }
+        } else if (typeof httpIn.accepted_status_codes === 'string' && httpIn.accepted_status_codes.trim()) {
+          // Operator typed a CSV — let backend parse.
+          httpOut.accepted_status_codes = httpIn.accepted_status_codes.trim();
+        }
+        // verify_tls: explicit boolean only when the operator unticked
+        // (defaults to true at the backend). Persisting `true`
+        // explicitly keeps the JSON tight without sacrificing the
+        // round-trip — a missing field reads as default-true downstream.
+        if (httpIn.verify_tls === false) {
+          httpOut.verify_tls = false;
+        }
         // host-level enable gates every per-provider enable.
         // A disabled host cannot have any provider enabled. Strip
         // each per-provider `enabled` flag here so reload comes back
@@ -27565,6 +27938,7 @@ function app() {
           delete sshOut.enabled;
           delete pingOut.enabled;
           delete snmpOut.enabled;
+          delete httpOut.enabled;
         }
         return {
           id:            (h.id || '').trim(),
@@ -27594,6 +27968,7 @@ function app() {
           address:       (h.address || '').trim(),
           ssh:           sshOut,
           ping:          pingOut,
+          http_probe:    httpOut,
           enabled:       h.enabled !== false,
         };
       });
@@ -29839,6 +30214,13 @@ function app() {
           // un-ticked save flips the chip off on the next refresh
           // instead of staying stuck on the previous `true` state.
           'snmp_name', 'snmp_enabled',
+          // HTTP probe per-host opt-in flag + resolved URL list.
+          // Same curated-overlay contract as snmp_enabled / ping_enabled
+          // — flowing through the skeleton path means the http_probe
+          // chip in providerStates(h) renders correctly off the first
+          // /api/hosts/list response before any /api/hosts/one/{id}
+          // call lands.
+          'http_probe_enabled', 'http_probe_urls',
         ];
         const incoming = Array.isArray(d.hosts) ? d.hosts : [];
         const incomingIds = new Set(incoming.map(h => h.id));

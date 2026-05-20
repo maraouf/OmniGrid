@@ -395,7 +395,7 @@ def _get_failure_state(host_id: str, provider: str = "") -> Optional[dict]:
 # keys, but the literal set is cheaper to read at module load and
 # the duplication risk is gone.
 _PROVIDER_PREFIXES = frozenset((
-    "beszel", "pulse", "node_exporter", "webmin", "ping", "snmp",
+    "beszel", "pulse", "node_exporter", "webmin", "ping", "snmp", "http_probe",
 ))
 # Public alias for cross-module use. main.py imports as
 # `_PROVIDER_AUTO_PAUSE_NAMES` per CLAUDE.md ("Vendor / capability key
