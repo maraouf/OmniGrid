@@ -639,7 +639,6 @@ metrics.register_events_collectors(
     dropped_count=_events.bus.dropped_count,
 )
 
-
 # ============================================================================
 # SQLite persistence — db_conn / get_setting / set_setting live in logic/db.py.
 # init_db() stays here as the boot orchestrator: it creates the core tables
@@ -671,6 +670,7 @@ _AI_MEMORY_SEEDS: tuple[str, ...] = (
 
 
 def init_db():
+    """Boot orchestrator — create all SQLite tables idempotently and apply pending migrations."""
     with db_conn() as c:
         # Wrap the whole schema-create script in an explicit transaction
         # so a power loss / hard kill mid-init can't leave a half-applied
@@ -1759,6 +1759,7 @@ async def api_items(force: bool = False):
 
 @app.get("/api/item/{raw_id}")
 async def api_item_detail(raw_id: str):
+    """Return the cached item record for `raw_id` (svc:* / ctn:* prefix accepted)."""
     for it in _cache["items"]:
         if it["raw_id"] == raw_id or it["raw_id"].startswith(raw_id):
             return it
@@ -1850,6 +1851,7 @@ async def api_update_stack(
     stack_id: int, bg: BackgroundTasks, request: Request,
     _admin: AdminUser,
 ):
+    """Trigger a stack pull + recreate via Portainer's stacks update endpoint."""
     name = f"stack-{stack_id}"
     for s in _cache["stacks"]:
         if s.get("stack_id") == stack_id:
@@ -1973,6 +1975,7 @@ async def api_update_container(
     container_id: str, bg: BackgroundTasks, request: Request,
     _admin: AdminUser,
 ):
+    """Trigger a single-container pull + recreate via Portainer's recreate endpoint."""
     name, stack = _item_context(container_id)
     op = new_op("update_container", container_id, name,
                 target_stack=stack, actor=_actor_from(request))
@@ -1985,6 +1988,7 @@ async def api_restart_service(
     service_id: str, bg: BackgroundTasks, request: Request,
     _admin: AdminUser,
 ):
+    """Force a Swarm service to roll its tasks (no image pull)."""
     name, stack = _item_context(service_id)
     op = new_op("restart_service", service_id, name,
                 target_stack=stack, actor=_actor_from(request))
@@ -1997,6 +2001,7 @@ async def api_restart_container(
     container_id: str, bg: BackgroundTasks, request: Request,
     _admin: AdminUser,
 ):
+    """Restart a standalone container via Portainer."""
     name, stack = _item_context(container_id)
     op = new_op("restart_container", container_id, name,
                 target_stack=stack, actor=_actor_from(request))
@@ -2009,6 +2014,7 @@ async def api_remove_container(
     container_id: str, bg: BackgroundTasks, request: Request,
     _admin: AdminUser,
 ):
+    """Force-remove a container (idempotent — 404 from upstream is success)."""
     name, stack = _item_context(container_id)
     op = new_op("remove_container", container_id, name,
                 target_stack=stack, actor=_actor_from(request))
@@ -2224,7 +2230,7 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
                         )
                         if not (net_check.get("Containers") or {}):
                             break
-                    except Exception:
+                    except (httpx.HTTPError, KeyError, AttributeError):
                         # network may already be gone (rare; another
                         # concurrent caller could have raced us). Treat
                         # as success and proceed.
@@ -2479,11 +2485,13 @@ async def api_prune_node(
 
 @app.get("/api/ops")
 async def api_ops():
+    """Return the in-memory op log (newest-first, capped at 50)."""
     return {"ops": [ops[oid].to_dict() for oid in ops_order if oid in ops]}
 
 
 @app.get("/api/ops/{op_id}")
 async def api_op(op_id: str):
+    """Return one operation by id, or 404."""
     op = ops.get(op_id)
     if not op:
         raise HTTPException(404, "Op not found")
@@ -2552,6 +2560,9 @@ async def api_events(request: Request):
     """
 
     async def event_stream():
+        """Per-connection event generator — yields a `hello` frame,
+        then forwards each `events.bus` message as an SSE `data:` line
+        until the consumer disconnects."""
         # ``hello`` lands as the first frame so the client can confirm
         # the upgrade succeeded BEFORE waiting for the first organic
         # event. Carries process-level diagnostics that the connection-
@@ -2764,6 +2775,7 @@ async def api_history(
     until: Optional[float] = None,
     target_kind: Optional[str] = None,
 ):
+    """Return paginated history rows with optional filters."""
     rows, total = _history_query(
         stack, op_type, status, actor, q, since, until,
         limit, offset=offset, with_total=True,
@@ -2788,6 +2800,7 @@ async def api_history_json_export(
     since: Optional[float] = None,
     until: Optional[float] = None,
 ):
+    """Stream history rows as a downloadable JSON file."""
     rows = _history_query(stack, op_type, status, actor, q, since, until, limit)
     return Response(
         content=json.dumps(rows, indent=2, default=str),
@@ -2807,6 +2820,7 @@ async def api_history_csv_export(
     since: Optional[float] = None,
     until: Optional[float] = None,
 ):
+    """Stream history rows as a downloadable CSV file."""
     import csv
     import io
 
@@ -2831,11 +2845,12 @@ async def api_history_csv_export(
 
 @app.delete("/api/history")
 async def api_history_clear(_admin: AdminUser):
+    """Truncate the history table (audit row written BEFORE the DELETE)."""
     with db_conn() as c:
         # Count first so the audit row can carry the size of the wipe.
         try:
             cleared_count = c.execute("SELECT COUNT(*) FROM history").fetchone()[0]
-        except Exception:
+        except sqlite3.Error:
             cleared_count = 0
         c.execute("DELETE FROM history")
         # Audit row written AFTER the bulk DELETE so it survives the
@@ -2873,6 +2888,7 @@ class IgnoreIn(BaseModel):
 
 @app.get("/api/ignores")
 async def api_ignores():
+    """Return the operator-curated ignore patterns."""
     with db_conn() as c:
         rows = c.execute("SELECT * FROM ignores ORDER BY created DESC").fetchall()
     return {"ignores": [dict(r) for r in rows]}
@@ -2883,6 +2899,7 @@ async def api_add_ignore(
     ig: IgnoreIn,
     _admin: AdminUser,
 ):
+    """Add a new ignore pattern (image substring or stack name)."""
     with db_conn() as c:
         c.execute(
             "INSERT OR REPLACE INTO ignores(pattern,kind,reason,created) VALUES (?,?,?,?)",
@@ -2912,6 +2929,7 @@ async def api_del_ignore(
     pattern: str,
     _admin: AdminUser,
 ):
+    """Delete an ignore pattern by (pattern, kind)."""
     with db_conn() as c:
         c.execute("DELETE FROM ignores WHERE pattern=?", (pattern,))
         _ops_mod.write_admin_audit(
@@ -3592,6 +3610,7 @@ async def api_get_settings_version(_u: AdminUser):
 
 @app.get("/api/settings")
 async def api_get_settings(request: Request):
+    """Return the full settings snapshot for the Admin / Settings forms."""
     from logic import portainer as _portainer
     from logic.db import get_settings_version
     with db_conn() as c:
@@ -4007,6 +4026,7 @@ async def api_set_settings(
     request: Request,
     _admin: AdminUser,
 ):
+    """Partial-update the settings KV; `None` fields keep their current value."""
     from logic import portainer as _portainer
     from logic.db import defer_settings_version_bump
     # Multi-field Saves call set_setting N times. Without the defer
@@ -5138,7 +5158,7 @@ def _settings_version_for_payload() -> int:
     try:
         from logic.db import get_settings_version
         return get_settings_version()
-    except Exception:
+    except (sqlite3.Error, OSError, ImportError):
         return 0
 
 
@@ -5901,7 +5921,7 @@ async def api_admin_stats_incidents(
     try:
         from logic.schedules import _scheduler_tz as _stz
         tz = _stz()
-    except Exception:
+    except (ImportError, AttributeError, ValueError):
         tz = None
     try:
         with db_conn() as c:
@@ -5959,7 +5979,7 @@ async def api_admin_stats_incidents(
             hour = dt.hour
             if 0 <= dow < 7 and 0 <= hour < 24 and kind == "paused":
                 out["heatmap"][dow][hour] += 1
-        except Exception:
+        except (ValueError, OSError, OverflowError, IndexError):
             pass
     # Pass 2 — finalise per-provider list with MTTR + sort.
     all_durations: list = []
@@ -6018,7 +6038,7 @@ async def api_admin_stats_ai_cost(
     try:
         from logic.schedules import _scheduler_tz as _stz
         tz = _stz()
-    except Exception:
+    except (ImportError, AttributeError, ValueError):
         tz = None
     now_ts = int(_time.time())
     now_dt = _dt.fromtimestamp(now_ts, tz=tz) if tz else _dt.fromtimestamp(now_ts)
@@ -6290,7 +6310,7 @@ async def api_admin_stats_samples(
                 cutoff_ts = int(c.execute(
                     f"SELECT strftime('%s', 'now', '{sel['sql_offset']}')"
                 ).fetchone()[0])
-            except Exception:
+            except (sqlite3.Error, ValueError, TypeError):
                 cutoff_ts = 0
             # Zero-fill the bucket-totals dict so empty windows still
             # render contiguous bars. Iterate from oldest → newest in
@@ -6339,7 +6359,7 @@ async def api_admin_stats_samples(
                             ).fetchone()
                             row["oldest_ts"] = int(r[0]) if r and r[0] is not None else None
                             row["newest_ts"] = int(r[1]) if r and r[1] is not None else None
-                        except Exception:
+                        except (sqlite3.Error, ValueError, TypeError):
                             pass
                         # DISTINCT host count when the host column
                         # exists. Some tables key on item_id (Portainer
@@ -6352,7 +6372,7 @@ async def api_admin_stats_samples(
                                 f'  FROM "{table}"'
                             ).fetchone()[0]
                             row["unique_hosts"] = int(uh or 0)
-                        except Exception:
+                        except (sqlite3.Error, ValueError, TypeError):
                             pass
                     out["grand_total"] += row["rows"]
                     out["tables"].append(row)
@@ -6379,22 +6399,22 @@ async def api_admin_stats_samples(
                                 n = r[1] if isinstance(r, (list, tuple)) else r["n"]
                                 if d:
                                     bucket_totals[d] = bucket_totals.get(d, 0) + int(n or 0)
-                        except Exception:
+                        except (sqlite3.Error, ValueError, TypeError):
                             # Table may lack the ts column or have a
                             # quirky type — skip the bucket query
                             # silently so the per-table summary still
                             # renders.
                             pass
-                except Exception as e:
+                except (sqlite3.Error, OSError) as tbl_err:
                     # Table doesn't exist on this deploy (e.g. fresh
                     # bootstrap, no schedules yet) — report it with
                     # row=0 so the SPA shows the canonical roster
                     # without dropping rows.
-                    row["error"] = str(e)
+                    row["error"] = str(tbl_err)
                     out["tables"].append(row)
-                    out["errors"].append({"table": table, "error": str(e)})
-    except Exception as e:
-        out["error"] = str(e)
+                    out["errors"].append({"table": table, "error": str(tbl_err)})
+    except (sqlite3.Error, OSError, RuntimeError) as samples_err:
+        out["error"] = str(samples_err)
     # Bucket-totals output: sorted ASC by bucket-key so the SPA
     # chart can plot left-to-right without re-sorting client-side.
     # Each entry is `{date: <bucket-key>, total: N}` — a single line
@@ -6504,7 +6524,7 @@ async def api_admin_stats_samples_by_host(
             try:
                 _kick_timeout = float(tuning.tuning_int(
                     Tunable.KICK_GATHER_TIMEOUT_SECONDS))
-            except Exception:
+            except (ValueError, TypeError, KeyError):
                 _kick_timeout = 30.0
             try:
                 await asyncio.wait_for(_gather(), timeout=_kick_timeout)
@@ -6536,7 +6556,7 @@ async def api_admin_stats_samples_by_host(
                     "webmin_name": None,
                     "_kind": itype,  # service / container / orphan
                 }
-        except Exception:
+        except (TypeError, KeyError, AttributeError):
             pass
     else:
         try:
@@ -6552,7 +6572,7 @@ async def api_admin_stats_samples_by_host(
                     "snmp_name": (h.get("snmp_name") or "").strip() or None,
                     "webmin_name": (h.get("webmin_name") or "").strip() or None,
                 }
-        except Exception:
+        except (TypeError, KeyError, AttributeError):
             pass
     try:
         with db_conn() as c:
@@ -7101,7 +7121,7 @@ async def api_ai_palette(
                 entry["text"] = _logs.redact_secrets(entry["text"])
         ctx["recent_logs"] = _raw_logs
         ctx["recent_logs_window_hours"] = _log_hours
-    except Exception:  # noqa: BLE001
+    except (OSError, ValueError, KeyError, AttributeError, ImportError):
         pass
 
     # AI output-token cap is now a TUNABLE (DB > env > default with
@@ -7181,7 +7201,7 @@ async def api_ai_palette(
         # AND ssh_diag's `actor_username` arg carry the right identity.
         try:
             ctx["actor"] = _admin.username or "ai_palette"
-        except Exception:
+        except (AttributeError, TypeError):
             ctx["actor"] = "ai_palette"
         # Pending-confirm collation — tools that require the SPA's
         # inline-confirm chip (currently ssh_diag) short-circuit
@@ -7276,7 +7296,7 @@ async def api_ai_palette(
                         try:
                             result_inline = await _ai.dispatch_palette_tool(call, ctx)
                             tool_results[name2] = result_inline
-                        except Exception:  # noqa: BLE001
+                        except (RuntimeError, ValueError, TypeError, KeyError, httpx.HTTPError):
                             pass
                 out["text"] = second_cleaned or second_text
                 if new_pending:
@@ -7830,6 +7850,7 @@ async def api_ai_host_filter(
 # ----------------------------------------------------------------------------
 @app.get("/api/admin/tuning")
 async def api_admin_tuning(_admin: AdminUser):
+    """Return per-tunable effective state (DB / env / default / resolved)."""
     return tuning.effective_state()
 
 
@@ -8162,11 +8183,13 @@ async def api_admin_notify_templates_test(
 # ----------------------------------------------------------------------------
 @app.get("/api/oidc/login")
 async def api_oidc_login(request: Request):
+    """Start the OIDC authorization-code + PKCE flow (redirects to IdP)."""
     return await oidc.login(request)
 
 
 @app.get("/api/oidc/callback")
 async def api_oidc_callback(request: Request):
+    """Complete OIDC callback: validate id_token, auto-provision user, mint session."""
     return await oidc.callback(request)
 
 
@@ -8264,7 +8287,7 @@ async def api_portainer_test(
             try:
                 data = r.json()
                 version = data.get("Version") or data.get("version") or ""
-            except Exception:
+            except (ValueError, KeyError, AttributeError):
                 pass
             # Endpoint probe — best-effort; only fails the test if the
             # specific id is missing. Non-200/404 responses surface as
@@ -8276,7 +8299,7 @@ async def api_portainer_test(
         if ep.status_code == 200:
             try:
                 name = ep.json().get("Name") or f"#{endpoint_id}"
-            except Exception:
+            except (ValueError, KeyError, AttributeError):
                 name = f"#{endpoint_id}"
             return _stamp_test_success("portainer", {
                 "ok": True, "status": 200,
@@ -8619,7 +8642,7 @@ async def api_snmp_test(
     if result.get("hosts") and not result.get("error"):
         try:
             _snmp._clear_cooldown(host, port)
-        except Exception:
+        except (AttributeError, KeyError):
             pass
     # Diagnostics surface for operators retesting after a per-host
     # walk_concurrency / wall_clock_budget edit — confirm the new value
@@ -8724,7 +8747,7 @@ async def api_asset_inventory_test(
     from logic import asset_inventory as _ai
     try:
         body = await request.json()
-    except Exception:
+    except (ValueError, json.JSONDecodeError):
         body = {}
     auth_mode = (body.get("auth_mode") or "").strip().lower() \
                 or (get_setting(Settings.ASSET_INVENTORY_AUTH_MODE) or "oauth2")
@@ -18390,6 +18413,7 @@ async def api_tabs_activity_list(request: Request):
 
 @app.get("/api/healthz")
 async def healthz():
+    """Liveness probe — returns 200 with the running version + uptime."""
     # Re-read VERSION.txt per request so operator edits on the server
     # (e.g. hand-bumping MAJOR/MINOR) show up without restarting the
     # container. File is tiny — a couple-microsecond stat+read each call.
@@ -18410,6 +18434,7 @@ async def healthz():
 
 @app.get("/api/version")
 async def api_version():
+    """Return the running OmniGrid version baked into the image at build time."""
     return {"version": read_version()}
 
 
@@ -18654,6 +18679,7 @@ async def api_logs(
     *,
     _admin: AdminUser,
 ):
+    """Return recent persistent-log lines filtered by severity / tag prefix."""
     # Clamp limit to a sane upper bound so a misconfigured client can't
     # pull the whole buffer repeatedly at poll rate.
     limit = max(1, min(int(limit), _logs.MAX_LINES))
@@ -18666,6 +18692,7 @@ async def api_logs(
 
 @app.delete("/api/logs")
 async def api_logs_clear(_admin: AdminUser):
+    """Truncate the in-memory log buffer (audit row written first)."""
     # Audit row BEFORE the clear so the forensic anchor survives even
     # the very destruction it records. Same pattern as DELETE /api/history.
     try:
@@ -18693,6 +18720,7 @@ async def api_logs_clear(_admin: AdminUser):
 # ----------------------------------------------------------------------------
 @app.get("/api/admin/logs/files")
 async def api_admin_logs_files(_admin: AdminUser):
+    """List the persistent log files on disk + the log directory."""
     return {"files": _logs.list_persistent_logs(), "log_dir": _logs.LOG_DIR}
 
 
@@ -18703,6 +18731,7 @@ async def api_admin_logs_file_view(
     *,
     _admin: AdminUser,
 ):
+    """Read one persistent-log file by name (path-traversal guarded)."""
     body = _logs.read_persistent_log(name, tail_lines=tail if tail > 0 else None)
     if body is None:
         return JSONResponse(status_code=404, content={"detail": "log file not found"})
@@ -18948,6 +18977,7 @@ async def api_local_login(
     username: str = Form(...),
     password: str = Form(...),
 ):
+    """Local-auth login: validate password + 2FA gate; mint session cookie on success."""
     ip = auth._client_ip(request)
     # check both the IP-only bucket AND the
     # (ip, username) bucket. The latter scopes lockout to the actual
@@ -19656,6 +19686,7 @@ async def api_change_password(
 
 @app.post("/api/local-auth/logout")
 async def api_local_logout(request: Request):
+    """Revoke the caller's session cookie + clear the browser cookie."""
     cookie = request.cookies.get(auth.COOKIE_NAME)
     actor = _actor_from(request)
     if cookie:
@@ -20536,6 +20567,7 @@ def _safe_avatar_path(name: str) -> Optional[str]:
 
 @app.delete("/api/me/avatar")
 async def api_clear_avatar(user: CurrentUser):
+    """Clear the caller's avatar (deletes the file on disk)."""
     with db_conn() as c:
         p = auth.get_user_profile(c, user.id)
     if p and p.get("avatar_path"):
@@ -21144,6 +21176,7 @@ class TokenCreate(BaseModel):
 
 @app.get("/api/users")
 async def api_list_users(_admin: AdminUser):
+    """Return every user row (admin-only)."""
     with db_conn() as c:
         return {"users": auth.list_users(c)}
 
@@ -21153,6 +21186,7 @@ async def api_create_user(
     u: UserCreate,
     _admin: AdminUser,
 ):
+    """Create a new user with the supplied role + password."""
     name = (u.username or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Username is required.")
@@ -21186,6 +21220,7 @@ async def api_update_user(
     p: UserPatch,
     admin: AdminUser,
 ):
+    """Patch one user's mutable fields (role / disabled / display name)."""
     with db_conn() as c:
         target = auth.get_user(c, user_id)
         if not target:
@@ -21226,6 +21261,7 @@ async def api_delete_user(
     user_id: int,
     admin: AdminUser,
 ):
+    """Delete a user by id — refuses to delete self or the last active admin."""
     if user_id == admin.id:
         raise HTTPException(status_code=400, detail="You can't delete yourself.")
     with db_conn() as c:
@@ -21441,6 +21477,7 @@ async def api_admin_totp_force(
 
 @app.get("/api/sessions")
 async def api_list_sessions(_admin: AdminUser):
+    """Return every active session across every user (admin-only)."""
     with db_conn() as c:
         return {"sessions": auth.list_sessions(c)}
 
@@ -21450,6 +21487,7 @@ async def api_revoke_session(
     token_id: str,
     admin: AdminUser,
 ):
+    """Revoke one session by token-id (admin-only)."""
     with db_conn() as c:
         auth.delete_session(c, token_id)
         _ops_mod.write_admin_audit(
@@ -21463,6 +21501,7 @@ async def api_revoke_session(
 
 @app.get("/api/tokens")
 async def api_list_tokens(_admin: AdminUser):
+    """List every API token (raw value never shown — hash-only at rest)."""
     with db_conn() as c:
         return {"tokens": auth.list_api_tokens(c)}
 
@@ -21472,6 +21511,7 @@ async def api_create_token(
     t: TokenCreate,
     admin: AdminUser,
 ):
+    """Mint a new API token. The raw token is returned EXACTLY ONCE on create."""
     name = (t.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name is required.")
@@ -21498,6 +21538,7 @@ async def api_delete_token(
     token_id: int,
     admin: AdminUser,
 ):
+    """Revoke an API token by id (idempotent — 404 is success)."""
     with db_conn() as c:
         auth.delete_api_token(c, token_id)
         _ops_mod.write_admin_audit(
@@ -21517,11 +21558,13 @@ async def api_delete_token(
 # ============================================================================
 @app.get("/api/backups")
 async def api_list_backups(_admin: AdminUser):
+    """List every SQLite + avatars snapshot in the backups directory."""
     return {"backups": backups.list_backups()}
 
 
 @app.post("/api/backups")
 async def api_create_backup(admin: AdminUser):
+    """Create a new SQLite + avatars snapshot via SQLite's online .backup() API."""
     result = backups.create_backup()
     # Retention — surfaced to the operator in the response so they can
     # see what got pruned without re-listing. Zero/empty setting means
@@ -21551,6 +21594,7 @@ async def api_create_backup(admin: AdminUser):
 async def api_download_backup(
     name: str, _admin: AdminUser,
 ):
+    """Stream a named backup zip to the operator."""
     try:
         path = backups._backup_path(name)
     except ValueError:
@@ -21564,6 +21608,7 @@ async def api_download_backup(
 async def api_delete_backup(
     name: str, admin: AdminUser,
 ):
+    """Delete a named backup file (idempotent — already-gone is success)."""
     try:
         backups.delete_backup(name)
     except ValueError:
@@ -21582,6 +21627,7 @@ async def api_delete_backup(
 async def api_restore_backup_named(
     name: str, admin: AdminUser,
 ):
+    """Restore the named backup over the live DB (audit-row written first)."""
     try:
         result = backups.restore_by_name(name)
     except ValueError as e:
@@ -21831,6 +21877,7 @@ class SchedulePatch(BaseModel):
 
 @app.get("/api/schedules")
 async def api_list_schedules(_admin: AdminUser):
+    """Return every schedule row + its next-fire timestamp."""
     with db_conn() as c:
         return {
             "schedules": schedules.list_schedules(c),
@@ -21844,6 +21891,7 @@ async def api_create_schedule(
     s: ScheduleIn,
     admin: AdminUser,
 ):
+    """Create a new schedule row (validates kind + cron / interval expression)."""
     name = (s.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name is required.")
@@ -21897,6 +21945,7 @@ async def api_update_schedule(
     p: SchedulePatch,
     admin: AdminUser,
 ):
+    """Patch one schedule's mutable fields by id."""
     # exclude_unset keeps explicit None values so "clear this field" works
     # via wire-level null (e.g. flipping back to interval mode by sending
     # {cadence_mode:"interval", run_at_hhmm:null, days_of_week:null,
@@ -21935,6 +21984,7 @@ async def api_delete_schedule(
     schedule_id: int,
     admin: AdminUser,
 ):
+    """Delete a schedule by id (idempotent — already-gone is success)."""
     with db_conn() as c:
         existing = schedules.get_schedule(c, schedule_id)
         if not existing:
@@ -22066,6 +22116,7 @@ async def api_schedule_queue(
 # listed in auth.FULLY_PUBLIC_PREFIXES so the middleware never gates it.
 @app.get("/login")
 async def login_page():
+    """Serve the login HTML shell (anonymous; redirects already-authed users)."""
     return _render_shell("static/login.html")
 
 
@@ -22081,6 +22132,7 @@ async def login_page():
 # rule.
 @app.get("/img/ui-sprite.svg")
 async def serve_ui_sprite():
+    """Serve the SVG sprite that ships every Lucide icon used by the SPA."""
     path = "static/img/ui-sprite.svg"
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="UI sprite not found")
@@ -22258,6 +22310,7 @@ def _render_shell(path: str) -> Response:
 # BEFORE the StaticFiles mount below (mount-order rule applies).
 @app.get("/")
 async def spa_shell():
+    """Serve the SPA master HTML for every non-/api path (catch-all route)."""
     return _render_shell("static/index.html")
 
 
@@ -22313,6 +22366,7 @@ async def spa_stats_shell(tab: str = ""):
 # sidesteps the trailing-slash foot-gun entirely.
 @app.get("/metrics")
 async def prometheus_metrics():
+    """Return the Prometheus exposition format for every registered metric."""
     return Response(
         content=metrics.generate_latest(metrics.REGISTRY),
         media_type=metrics.CONTENT_TYPE_LATEST,

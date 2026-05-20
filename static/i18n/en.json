@@ -3796,6 +3796,7 @@
     "section_ping": "Ping",
     "snmp_section_label": "SNMP",
     "ssh_section_label": "SSH",
+    "ssh_password_override_placeholder": "override for this host only",
     "snmp_wall_clock_budget_label": "Wall-clock budget (s)",
     "snmp_wall_clock_budget_hint": "Total wall-clock budget for ONE SNMP probe against THIS host (seconds). Blank = the global default (60s). Slow iDRAC chassis with the BIOS / virtual-disk / power-supply walks may need 90-120s; embedded snmpd's typically finish well under the default. Range 5..600s.",
     "snmp_vendors_label": "Vendor MIBs",
