@@ -30686,15 +30686,73 @@ function app() {
     hostsWithNoProviderCount() {
       return (this.hosts || []).filter(h => !this.hostHasAgent(h)).length;
     },
+    // Count of curated hosts whose CONFIG maps them to a given
+    // provider, regardless of whether the latest probe returned data.
+    // Used by `hostsProviderState` as the visibility gate so the chip
+    // surfaces an outage (red ✗) even when every probe is currently
+    // failing — but stays hidden when no curated row has been
+    // configured for the provider at all. Mapping predicates mirror
+    // `providerStates(h)` exactly so the toolbar chip and the per-row
+    // chip share one source of truth for "is this host configured
+    // for provider X".
+    _hostsConfiguredForProvider(name) {
+      const list = this.hosts || [];
+      const trim = (v) => (v && String(v).trim()) || '';
+      if (name === 'beszel') {
+        return list.filter(h => trim(h.beszel_name)).length;
+      }
+      if (name === 'pulse') {
+        return list.filter(h => trim(h.pulse_name)).length;
+      }
+      if (name === 'node_exporter') {
+        return list.filter(h => trim(h.ne_url)).length;
+      }
+      if (name === 'webmin') {
+        return list.filter(h => trim(h.webmin_name)).length;
+      }
+      if (name === 'ping') {
+        return list.filter(h => h.ping_enabled === true).length;
+      }
+      if (name === 'snmp') {
+        return list.filter(h => h.snmp_enabled === true
+                                && (trim(h.snmp_name) || trim(h.address))).length;
+      }
+      return 0;
+    },
     // Status chip for a provider in the Hosts toolbar. Combines
     // "enabled in settings" with "actually returned data for at least
     // one host" so operators spot misconfigs fast.
     hostsProviderState(name) {
       const active = (this.hostsActiveSources || []).includes(name);
       const err = (this.hostsProviderErrors || {})[name];
+      // matchCount = hosts where the probe successfully returned data
+      // (drives the ✓ N tooltip subtitle).
       const matchCount = (this.hosts || [])
         .filter(h => (h.providers || []).includes(name)).length;
+      // configuredCount = hosts whose curated config maps them to this
+      // provider, regardless of whether the latest probe succeeded.
+      // This is the load-bearing signal for chip visibility: "any host
+      // CARES about this provider" rather than "the provider is
+      // currently returning data". The former survives a transient
+      // hub outage so the red ✗ chip still surfaces; the latter would
+      // hide on every outage and silently lose the visibility the
+      // operator most needs.
+      const configuredCount = this._hostsConfiguredForProvider(name);
       if (!active && !err) {
+        return { visible: false, cls: '', icon: '', title: '', styled: false };
+      }
+      // Hide the chip entirely when no curated host has the provider
+      // mapped — that's noise on the toolbar regardless of error state.
+      // Operator-flagged: Webmin chip kept rendering as a red ✗ even
+      // when zero hosts had `webmin_name` set, because the backend
+      // stamps `provider_errors["webmin"] = "missing user / password"`
+      // whenever the CSV lists "webmin" without credentials. That
+      // error is about configuration absence, not about probe failures
+      // against active hosts — when no host is using the provider,
+      // the toolbar chip has nothing to report. Settings → Host stats
+      // is the right surface for setup-gap nagging; the toolbar chip
+      // is for "providers I care about" at a glance.
+      if (configuredCount === 0) {
         return { visible: false, cls: '', icon: '', title: '', styled: false };
       }
       // tooltip titles routed through i18n.
@@ -30704,17 +30762,6 @@ function app() {
           title: this.t('hosts_extra.provider_filter.title_error', { name, error: err }),
           styled: false,
         };
-      }
-      // Hide the chip entirely when the provider is globally enabled
-      // but no curated host has it mapped — that's noise on the
-      // toolbar. Operator-flagged: "Webmin not enabled in any host's
-      // providers, chip is displayed no matter what which doesn't make
-      // sense". The chip reappears the moment a curated host gets the
-      // matching `<provider>_name` field set. Errored state (above)
-      // still wins — we keep the ✗ visible when probes are failing so
-      // the operator sees the breakage even before any host matches.
-      if (matchCount === 0) {
-        return { visible: false, cls: '', icon: '', title: '', styled: false };
       }
       // Healthy state — use the operator-customised provider colour
       // via `pill-custom` + `providerChipStyle()`.

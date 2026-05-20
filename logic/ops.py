@@ -1821,6 +1821,12 @@ def _retag_compose_to_latest(
             return expr[:last_colon], expr[last_colon + 1:]
         return expr, ""
 
+    # Diagnostic capture — every _repo_matches call's input + outcome,
+    # so the caller can log a per-comparison decision trail when the
+    # outer replacement check finds nothing. Cleared every invocation
+    # because the function captures these in its closure.
+    match_trace: list[dict] = []
+
     def _literal_repl(m: "_re.Match[str]") -> str:
         indent = m.group("indent")
         quote = m.group("quote") or ""
@@ -1828,8 +1834,19 @@ def _retag_compose_to_latest(
         old_tag = m.group("tag") or ""
         full_match = m.group()
         repos_found.append(repo)
-        if target_image_repo and not _repo_matches(repo, target_image_repo):
-            return full_match
+        if target_image_repo:
+            matched = _repo_matches(repo, target_image_repo)
+            match_trace.append({
+                "src": "literal",
+                "repo": repo,
+                "repo_bytes": repo.encode().hex() if repo else "",
+                "target": target_image_repo,
+                "target_bytes": target_image_repo.encode().hex(),
+                "matched": matched,
+                "old_tag": old_tag,
+            })
+            if not matched:
+                return full_match
         if old_tag == nt and "@sha256:" not in full_match:
             # Idempotent no-op — the line already carries the target
             # tag (caller short-circuits as "already at target" rather
@@ -1926,6 +1943,10 @@ def _retag_compose_to_latest(
     # var-bearing lines. The var pattern then picks up what was left.
     new_content = literal_pattern.sub(_literal_repl, content)
     new_content = var_pattern.sub(_var_repl, new_content)
+    # Stash match_trace onto a function attribute so the caller can
+    # read it for diagnostic logging without changing the public
+    # return-tuple shape (callers in tests pin on the 5-tuple).
+    _retag_compose_to_latest._last_match_trace = match_trace  # type: ignore[attr-defined]
     return new_content, replacements, repos_found, env_updates, already_at_target
 
 
@@ -2074,11 +2095,25 @@ async def do_update_stack(
                     # than being silently rejected by _repo_matches.
                     op.log(
                         f"Retag matcher diagnostic — target_image_repo={target_image_repo!r}, "
+                        f"target_bytes={(target_image_repo or '').encode().hex()}, "
                         f"repos_found={[repr(r) for r in repos_found]}, "
                         f"already_at_target={already_at_target}, "
                         f"env_updates={env_updates}",
                         "warning",
                     )
+                    # Per-call decision trail — shows the actual
+                    # _repo_matches outcome for every line the regex
+                    # captured, with both sides as utf-8 hex so any
+                    # invisible-byte drift (NBSP, ZWSP, BOM, unicode
+                    # lookalikes) jumps out at the operator.
+                    trace = getattr(_retag_compose_to_latest, "_last_match_trace", [])
+                    for i, t in enumerate(trace):
+                        op.log(
+                            f"Retag trace[{i}] src={t.get('src')} matched={t.get('matched')} "
+                            f"repo={t.get('repo')!r} repo_bytes={t.get('repo_bytes')} "
+                            f"target_bytes={t.get('target_bytes')} old_tag={t.get('old_tag')!r}",
+                            "warning",
+                        )
                     # Idempotent success path — the compose ALREADY
                     # tags the target image at the requested version.
                     # Log + skip the Portainer PUT (which would still
