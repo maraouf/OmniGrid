@@ -1675,7 +1675,7 @@ def _is_auth_optional(path: str) -> bool:
     return any(path.startswith(p) for p in AUTH_OPTIONAL_API_PREFIXES)
 
 
-def _client_ip(request: Request) -> str:
+def client_ip(request: Request) -> str:
     """Resolve the client IP — left-most `X-Forwarded-For` entry when the
     reverse proxy (NPM) injected it, otherwise the direct socket peer.
     Returns "?" when neither is available (rare — only synthetic test
@@ -1689,6 +1689,11 @@ def _client_ip(request: Request) -> str:
     if client is None:
         return "?"
     return client.host
+
+
+# Back-compat alias for callers that import the underscore-prefixed
+# legacy name (`auth._client_ip`). New code uses `client_ip` directly.
+_client_ip = client_ip
 
 
 def _resolve_user(request: Request, db_conn_factory) -> tuple[Optional[User], Optional[tuple[str, int]]]:

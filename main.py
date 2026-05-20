@@ -15,7 +15,6 @@ Endpoints:
   GET  /api/healthz
   GET  /metrics                       - Prometheus scrape endpoint
 """
-# noinspection PyBroadException,PyProtectedMember,PyShadowingNames,PyArgumentEqualDefault,PyMissingOrEmptyDocstring,PyShadowingBuiltins,PyTypeChecker,PyUnusedLocal,PyRedundantParentheses,PyChainedComparisons,PyAugmentAssignment,PyDictCreation,PyPep8,PyPep8Naming,PySimplifyBooleanCheck,PyUnresolvedReferences
 # Module-wide suppression for the recurring project-pattern lint noise that
 # the operator validates and accepts: defensive broad-except guards (project
 # convention is to catch + log + continue at API-boundary sites so a single
@@ -6331,7 +6330,7 @@ async def api_admin_stats_samples(
                         ).fetchone()[0]
                         if anchor_key:
                             bucket_totals.setdefault(anchor_key, 0)
-            except Exception:
+            except (sqlite3.Error, ValueError, TypeError):
                 pass
             for table, provider, kind, ts_col, host_col in spec:
                 row: dict = {
@@ -8457,7 +8456,7 @@ async def api_telegram_links_list(
     to each linked account.
     """
     from logic import telegram_listener as _tg
-    mappings = _tg._load_mappings()
+    mappings = _tg.load_mappings()
     out: list[dict] = []
     for tg_id_str, entry in mappings.items():
         if not isinstance(entry, dict):
@@ -8469,7 +8468,7 @@ async def api_telegram_links_list(
             tg_id = int(tg_id_str)
         except (TypeError, ValueError):
             continue
-        role = _tg._lookup_user_role(username) or "unknown"
+        role = _tg.lookup_user_role(username) or "unknown"
         out.append({
             "telegram_user_id": tg_id,
             "username": username,
@@ -8490,13 +8489,13 @@ async def api_telegram_links_unlink(
     Returns ``{removed: <username> | null}``.
     """
     from logic import telegram_listener as _tg
-    mappings = _tg._load_mappings()
+    mappings = _tg.load_mappings()
     key = str(int(telegram_user_id))
     removed_entry = mappings.pop(key, None)
     removed_username = None
     if isinstance(removed_entry, dict):
         removed_username = removed_entry.get("username")
-        _tg._save_mappings(mappings)
+        _tg.save_mappings(mappings)
     return {"removed": removed_username}
 
 
@@ -10494,7 +10493,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                         f"({m_total:.1f} GiB total / {m_used:.1f} GiB used "
                         f"across {len(mounts)} mounts)"
                     )
-                except Exception:  # noqa: BLE001
+                except (ValueError, TypeError, AttributeError):
                     pass
     _t = merged.get("host_disk_total") or 0
     _u = merged.get("host_disk_used") or 0
@@ -10627,7 +10626,7 @@ def _provider_sample_intervals(host_id: str) -> dict:
     for name, key, floor in inheritors:
         try:
             raw = int(_tuning.tuning_int(key) or 0)
-        except Exception:
+        except (ValueError, TypeError, KeyError):
             raw = 0
         effective = max(floor, raw) if raw > 0 else global_iv
         out[name] = effective
@@ -10662,10 +10661,10 @@ def _provider_sample_counts(host_id: str) -> dict:
                 try:
                     row = c.execute(sql, (host_id,)).fetchone()
                     out[name] = int(row[0]) if row else 0
-                except Exception:
+                except (sqlite3.Error, ValueError, TypeError):
                     # Missing table on fresh deploy / sampler never ran.
                     out[name] = 0
-    except Exception:
+    except (sqlite3.Error, OSError):
         return {}
     return out
 
@@ -10730,7 +10729,7 @@ def _resolve_asset_for_host(cn) -> Optional[dict]:
         try:
             cache = _ai.load_cache()
             _asset_idx_cache["index"] = _ai.index_by_custom_number(cache.get("assets") or [])
-        except Exception:
+        except (OSError, ValueError, KeyError, AttributeError):
             _asset_idx_cache["index"] = {}
         _asset_idx_cache["mtime"] = mtime
     raw = _asset_idx_cache["index"].get(cn_int)
@@ -11278,7 +11277,7 @@ def _failure_state_for_host(host_id: str) -> dict:
                 (host_id,),
             )
             row = cur.fetchone()
-    except Exception:
+    except (sqlite3.Error, OSError):
         # Don't return falsy defaults — that would clobber a previously
         # paused row's marker on the wire. Empty dict means "no info,
         # frontend keep what you had". See.
@@ -11361,7 +11360,7 @@ def _build_provider_state_index() -> dict:
             ok_rows = c.execute(
                 "SELECT host_id, provider, last_ok_ts FROM host_provider_last_ok"
             ).fetchall()
-    except Exception:
+    except (sqlite3.Error, OSError):
         return by_host
     for row in fail_rows:
         hid = row[0] or ""
@@ -11490,7 +11489,7 @@ def _is_provider_paused(host_id: str, provider: str) -> bool:
                 "WHERE host_id = ? AND provider = ?",
                 (host_id, provider),
             ).fetchone()
-    except Exception:
+    except (sqlite3.Error, OSError):
         return False
     return bool(row and row[0])
 
@@ -11636,7 +11635,7 @@ async def api_hosts_list(force: bool = False):
             container = {h["id"]: merged}
             try:
                 _fallback(container, snapshots)
-            except Exception:
+            except (TypeError, KeyError, AttributeError):
                 pass
             merged = container[h["id"]]
         # Port-scan history fold-in — same call as `_merge_one_host`'s
@@ -11880,7 +11879,7 @@ def _clean_host_port_scan(raw: Any) -> dict:
             from logic.port_scanner import parse_port_csv as _pcsv
             if _pcsv(ports_raw):
                 out["ports"] = ports_raw.strip()
-        except Exception:  # noqa: BLE001
+        except (ImportError, ValueError, TypeError):
             pass
     try:
         t = raw.get("timeout_s")
@@ -12566,7 +12565,7 @@ async def api_hosts_resume_sampling(
                     aliased = (aliases.get(webmin_name) or "").strip().rstrip("/")
                     if aliased:
                         candidates.add(aliased)
-            except Exception:
+            except (json.JSONDecodeError, ValueError, AttributeError):
                 pass
         timers = getattr(_webmin._auth_cooldown_timer, "_armed", None)
         if timers is not None and candidates:
@@ -12667,7 +12666,7 @@ async def api_hosts_provider_resume(
                 aliases_raw = get_setting(Settings.SNMP_ALIASES) or ""
                 try:
                     aliases = json.loads(aliases_raw) if aliases_raw else {}
-                except Exception:
+                except (json.JSONDecodeError, ValueError):
                     aliases = {}
                 candidates: set[str] = set()
                 if isinstance(aliases, dict) and aliases.get(host_id):
@@ -12706,7 +12705,7 @@ async def api_hosts_provider_resume(
                         aliased = (aliases.get(webmin_name) or "").strip().rstrip("/")
                         if aliased:
                             candidates.add(aliased)
-                except Exception:
+                except (json.JSONDecodeError, ValueError, AttributeError):
                     pass
             timers = getattr(_webmin._auth_cooldown_timer, "_armed", None)
             if timers is not None and candidates:
@@ -12856,7 +12855,7 @@ async def api_hosts_test(
                 row = next((r for r in curated if r.get("id") == row_id), None)
                 if row:
                     snmp_target = (row.get("address") or "").strip()
-            except Exception:
+            except (json.JSONDecodeError, ValueError, OSError):
                 pass
     snmp_community = (body.get("snmp_community") or "").strip()
     snmp_version = (body.get("snmp_version") or "").strip().lower()
@@ -13206,7 +13205,7 @@ def _item_samples_in_window(item_id: str, since_hours: int) -> dict:
     # endpoint returns a sensible-shape payload instead of 500-ing.
     try:
         expected_interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
-    except Exception:
+    except (ValueError, TypeError, KeyError):
         expected_interval = 180
     out: dict[str, Any] = {
         "hours": int(max(1, since_hours)),
@@ -14230,7 +14229,7 @@ async def api_hosts_debug(
                                 gaps[mid] if len(gaps) % 2 == 1
                                 else (gaps[mid - 1] + gaps[mid]) // 2
                             )
-                    except Exception:
+                    except (IndexError, TypeError, ValueError):
                         gaps_median = None
                 samples_in_window[table] = {
                     "count": count,
@@ -14264,7 +14263,7 @@ async def api_hosts_debug(
     for key in _TUNABLES.keys():
         try:
             counters["tunables"][key] = _tuning_int(key)
-        except Exception:
+        except (ValueError, TypeError, KeyError):
             # Bounds-clamp / DB error; skip silently rather than
             # poisoning the whole tunables map for one bad knob.
             pass
@@ -14902,11 +14901,11 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
             # on tunable-resolver failure.
             try:
                 _ssh_close_to = float(tuning.tuning_int(Tunable.SSH_CLOSE_TIMEOUT_SECONDS))
-            except Exception:
+            except (ValueError, TypeError, KeyError):
                 _ssh_close_to = 5.0
             try:
                 await asyncio.wait_for(conn.wait_closed(), timeout=_ssh_close_to)
-            except Exception:
+            except (asyncio.TimeoutError, OSError, RuntimeError):
                 pass
         _ssh_terminal_audit_close(
             row_id=audit_row_id,
@@ -15171,7 +15170,7 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
         if not series:
             try:
                 curated = _load_hosts_config()
-            except Exception:
+            except (json.JSONDecodeError, ValueError, OSError):
                 curated = []
             row = next((r for r in curated if r.get("id") == hid), None)
             if row and (row.get("pulse_name") or "").strip():
@@ -16079,7 +16078,7 @@ async def api_hosts_timeline(
                     ).fetchall()
                     used = {r[0] for r in used_rows if r[0]}
                     name_candidates |= (extras & used)
-                except Exception:  # noqa: BLE001
+                except (sqlite3.Error, ValueError, TypeError):
                     name_candidates |= extras
             # ---- ops history ------------------------------------------
             # The placeholders literal is built from the constant `?`
@@ -16231,7 +16230,7 @@ async def api_hosts_timeline(
                         "FROM host_failure_state WHERE host_id = ?",
                         (hid,),
                     ).fetchall()
-                except Exception:
+                except (sqlite3.Error, ValueError, TypeError):
                     fail_rows = []
                 for r in fail_rows:
                     provider = (r["provider"] or "").strip() or "host"
@@ -16259,7 +16258,7 @@ async def api_hosts_timeline(
                         "FROM host_provider_last_ok WHERE host_id = ?",
                         (hid,),
                     ).fetchall()
-                except Exception:
+                except (sqlite3.Error, ValueError, TypeError):
                     ok_rows = []
                 for r in ok_rows:
                     provider = (r["provider"] or "").strip() or "host"
@@ -16499,7 +16498,7 @@ def _user_has_local_password(user_id: int) -> bool:
                 "SELECT password_hash FROM users WHERE id = ?",
                 (int(user_id),),
             ).fetchone()
-    except Exception:
+    except (sqlite3.Error, ValueError, TypeError):
         return False
     return bool(row and (row["password_hash"] or "").strip())
 
@@ -17230,7 +17229,7 @@ async def _run_port_scan_async(
                 "ports_open": 0,
                 "udp_open": len(partial_udp_open),
             }, client_id=client_id)
-        except Exception:  # noqa: BLE001
+        except (RuntimeError, OSError):
             pass
         return
     except Exception as e:  # noqa: BLE001
@@ -17244,7 +17243,7 @@ async def _run_port_scan_async(
                 "target": target,
                 "error": f"{type(e).__name__}: {e}",
             }, client_id=client_id)
-        except Exception:  # noqa: BLE001
+        except (RuntimeError, OSError):
             pass
         return
     duration_ms = scan.get("duration_ms") or int((time.time() - started) * 1000)
@@ -17302,7 +17301,7 @@ async def _run_port_scan_async(
                     (int(r["port"]), (r["protocol"] or "tcp"))
                     for r in prev_rows
                 }
-    except Exception:  # noqa: BLE001
+    except (sqlite3.Error, ValueError, TypeError, KeyError):
         prev_open_ports = set()
     _raw_curated_services_for_diff = h.get("services")
     curated_services_for_diff: list = _raw_curated_services_for_diff if isinstance(_raw_curated_services_for_diff, list) else []
@@ -17470,7 +17469,7 @@ async def _run_port_scan_async(
             # there IS no last scan.
             "is_first_scan": bool(is_first_scan),
         }, client_id=client_id)
-    except Exception:  # noqa: BLE001
+    except (RuntimeError, OSError):
         pass
 
 
@@ -18907,7 +18906,7 @@ def _request_rp_id(request: Request) -> str:
         if host:
             try:
                 request.state.rp_id = host
-            except Exception:
+            except (AttributeError, RuntimeError):
                 # `WebSocket` doesn't expose `state` like Request — the
                 # cache is best-effort; just skip when unavailable.
                 pass
@@ -18978,7 +18977,7 @@ async def api_local_login(
     password: str = Form(...),
 ):
     """Local-auth login: validate password + 2FA gate; mint session cookie on success."""
-    ip = auth._client_ip(request)
+    ip = auth.client_ip(request)
     # check both the IP-only bucket AND the
     # (ip, username) bucket. The latter scopes lockout to the actual
     # user being typo'd at, so a corporate-NAT'd office isn't
@@ -19156,7 +19155,7 @@ async def api_local_login_totp(
     stored secret, increments the per-user failure counter on miss,
     locks on threshold, and issues the og_session cookie on success.
     """
-    ip = auth._client_ip(request)
+    ip = auth.client_ip(request)
     auth.rate_limit_check(ip)
     challenge = _peek_totp_challenge(challenge_id)
     if not challenge or challenge.get("kind") != "totp_required":
@@ -19288,7 +19287,7 @@ async def api_local_login_totp_setup_confirm(
     issued in step 1, persists the secret + backup codes, then issues
     the cookie. Returns the 10 plaintext backup codes (one-time reveal).
     """
-    ip = auth._client_ip(request)
+    ip = auth.client_ip(request)
     auth.rate_limit_check(ip)
     challenge = _peek_totp_challenge(challenge_id)
     if not challenge or challenge.get("kind") != "totp_setup_required":
@@ -19399,7 +19398,7 @@ async def api_local_login_webauthn_start(
             status_code=403,
             detail=_err.message_for(_err.AUTH_PASSKEYS_DISABLED_BY_ADMIN),
         )
-    ip = auth._client_ip(request)
+    ip = auth.client_ip(request)
     auth.rate_limit_check(ip)
     challenge = _peek_totp_challenge(body.challenge_id)
     if not challenge or challenge.get("kind") != "totp_required":
@@ -19526,7 +19525,7 @@ async def api_local_login_webauthn_finish(
             status_code=503,
             detail="Passkey support is not available on this server.",
         )
-    ip = auth._client_ip(request)
+    ip = auth.client_ip(request)
     auth.rate_limit_check(ip)
     challenge = _peek_webauthn_login_challenge(body.challenge_id)
     if not challenge:
@@ -19665,7 +19664,7 @@ async def api_change_password(
     if new_password == current_password:
         raise HTTPException(status_code=400, detail="New password must differ from the current one.")
 
-    ip = auth._client_ip(request)
+    ip = auth.client_ip(request)
     auth.rate_limit_check(ip)
 
     with db_conn() as c:
@@ -19722,7 +19721,7 @@ async def api_local_bootstrap(
     to set BOOTSTRAP_ADMIN_* env vars. Self-disables as soon as any user
     exists — every subsequent call returns 403.
     """
-    ip = auth._client_ip(request)
+    ip = auth.client_ip(request)
     auth.rate_limit_check(ip)
     with db_conn() as c:
         if auth.count_users(c) > 0:
@@ -20041,7 +20040,7 @@ async def api_me(request: Request):
         # code" button OR the "Linked as ..." chip + Unlink button.
         try:
             from logic import telegram_listener as _tg_listener
-            _tg_mappings = _tg_listener._load_mappings()
+            _tg_mappings = _tg_listener.load_mappings()
             _tg_link_id: Optional[int] = None
             _tg_linked_at_ms: int = 0
             for _tg_id, _entry in _tg_mappings.items():
@@ -20184,7 +20183,7 @@ async def api_me_telegram_unlink(request: Request):
     if user.id < 0:
         raise HTTPException(400, "API tokens cannot manage Telegram links")
     from logic import telegram_listener as _tg_listener
-    mappings = _tg_listener._load_mappings()
+    mappings = _tg_listener.load_mappings()
     target_username = user.username
     removed: list[str] = []
     for tg_id, entry in list(mappings.items()):
@@ -20192,7 +20191,7 @@ async def api_me_telegram_unlink(request: Request):
             mappings.pop(tg_id, None)
             removed.append(tg_id)
     if removed:
-        _tg_listener._save_mappings(mappings)
+        _tg_listener.save_mappings(mappings)
     return {"removed": removed}
 
 
