@@ -93,6 +93,14 @@ class Tunable(str, Enum):
     HOST_SNAPSHOTS_CACHE_TTL_SECONDS = "tuning_host_snapshots_cache_ttl_seconds"
     HOSTS_IDLE_FILL_INTERVAL_SECONDS = "tuning_hosts_idle_fill_interval_seconds"
     HOSTS_PARALLEL_FETCH = "tuning_hosts_parallel_fetch"
+    HTTP_PROBE_CERT_WARNING_DAYS = "tuning_http_probe_cert_warning_days"
+    HTTP_PROBE_CONCURRENCY = "tuning_http_probe_concurrency"
+    HTTP_PROBE_DNS_TIMEOUT_SECONDS = "tuning_http_probe_dns_timeout_seconds"
+    HTTP_PROBE_FAILURE_PAUSE_ROUNDS = "tuning_http_probe_failure_pause_rounds"
+    HTTP_PROBE_HOST_CACHE_TTL_SECONDS = "tuning_http_probe_host_cache_ttl_seconds"
+    HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS = "tuning_http_probe_host_fail_cache_ttl_seconds"
+    HTTP_PROBE_SAMPLE_INTERVAL_SECONDS = "tuning_http_probe_sample_interval_seconds"
+    HTTP_PROBE_TIMEOUT_SECONDS = "tuning_http_probe_timeout_seconds"
     INCIDENTS_RETENTION_DAYS = "tuning_incidents_retention_days"
     KICK_GATHER_TIMEOUT_SECONDS = "tuning_kick_gather_timeout_seconds"
     LOAD_BUSY_MAX_SECONDS = "tuning_load_busy_max_seconds"
@@ -798,6 +806,53 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # the failure semantic is the same as Webmin: probe attempt that
     # raised OR returned exporter_error. 0 = disabled. Range 0..50.
     "tuning_node_exporter_failure_pause_rounds": ("NODE_EXPORTER_FAILURE_PAUSE_ROUNDS", 5, 0, 50),
+    # HTTP probe — seventh host-stats provider. Active per-URL TCP /
+    # TLS / DNS health check. Targets the operator's existing
+    # ``hosts_config[].url`` + ``services[].url`` (or an explicit
+    # per-host ``http_probe.urls`` override). All knobs operator-tunable
+    # so a fleet with slow upstreams / large URL fan-out can dial
+    # without redeploy.
+    # Per-URL HTTP wall-clock — caps the GET request AND (separately)
+    # the TLS handshake. Range 1..60. Default 8s — comfortably above
+    # typical reverse-proxy latency, tight enough to keep a wedged
+    # backend from starving the sampler tick.
+    "tuning_http_probe_timeout_seconds": ("HTTP_PROBE_TIMEOUT_SECONDS", 8, 1, 60),
+    # Per-URL probe concurrency cap inside one sampler tick. Each URL
+    # consumes a socket; large fleets with many URLs per host want
+    # this higher (parallelise faster) but trading off against the
+    # outbound socket budget. Range 1..32. Default 8.
+    "tuning_http_probe_concurrency": ("HTTP_PROBE_CONCURRENCY", 8, 1, 32),
+    # Sampler tick cadence. 0 = inherit ``tuning_stats_sample_interval_seconds``
+    # (same inherit semantics as the other per-provider knobs); >0
+    # overrides per-HTTP-probe. Operators monitoring TLS cert expiry
+    # don't need sub-minute cadence; the default falls through to
+    # the global 5-min cadence. Range 0..3600.
+    "tuning_http_probe_sample_interval_seconds": ("HTTP_PROBE_SAMPLE_INTERVAL_SECONDS", 0, 0, 3600),
+    # Per-(http_probe, host) auto-pause threshold. Same semantic as
+    # the SNMP / Webmin / NE auto-pause knobs: N consecutive failed
+    # sampler rounds → mark the (http_probe, host) row as paused;
+    # subsequent probes are SKIPPED entirely until the operator
+    # clears via POST /api/hosts/{id}/provider/http_probe/resume. A
+    # "round" = "every URL for this host failed". Mixed success
+    # across URLs keeps the host out of the failed bucket. 0 =
+    # disabled. Default 5. Range 0..100.
+    "tuning_http_probe_failure_pause_rounds": ("HTTP_PROBE_FAILURE_PAUSE_ROUNDS", 5, 0, 100),
+    # DNS sub-probe wall-clock (seconds). Caps ``socket.getaddrinfo``
+    # in a thread executor so a slow resolver can't stall the
+    # sampler. Range 1..30. Default 5.
+    "tuning_http_probe_dns_timeout_seconds": ("HTTP_PROBE_DNS_TIMEOUT_SECONDS", 5, 1, 30),
+    # TLS cert expiry warning threshold (days). The drawer card
+    # paints the expiry pill amber when ``tls_expires_in_days``
+    # falls below this number; red when ≤ 0 (expired). Range 1..365.
+    # Default 14 — gives operators ~2 weeks lead time for renewal.
+    "tuning_http_probe_cert_warning_days": ("HTTP_PROBE_CERT_WARNING_DAYS", 14, 1, 365),
+    # Per-host per-result caches. Mirrors the Webmin / SNMP pair
+    # so a burst of SPA fan-out (`/api/hosts/one/{id}` × N) doesn't
+    # re-probe every URL on every call. Success TTL covers "fresh
+    # data"; fail TTL is much shorter so recovery surfaces quickly.
+    # Range 0..600 (0 = disable the cache entirely).
+    "tuning_http_probe_host_cache_ttl_seconds": ("HTTP_PROBE_HOST_CACHE_TTL_SECONDS", 30, 0, 600),
+    "tuning_http_probe_host_fail_cache_ttl_seconds": ("HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS", 5, 0, 600),
     # Ping per-host auto-pause threshold. CAREFUL: ping is the
     # alive/down detection signal — `alive=False` is the actual DATA
     # the operator wants surfaced, not a fault condition. So this

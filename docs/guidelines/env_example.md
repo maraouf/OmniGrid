@@ -186,6 +186,36 @@ PING_CONCURRENCY=16
 PING_PROBE_TIMEOUT_SECONDS=2
 PING_COOLDOWN_SECONDS=300
 
+# HTTP / TLS-cert / DNS health probe — seventh host-stats provider.
+# Active per-URL TCP / TLS / DNS check. Targets the operator's
+# curated `hosts_config[].url` + `services[].url` (or an explicit
+# per-host `http_probe.urls` override). Per-host opt-in via the
+# `hosts_config[].http_probe.enabled` flag in Admin → Hosts. Master
+# toggle lives in the DB-backed `http_probe_enabled` setting.
+HTTP_PROBE_TIMEOUT_SECONDS=8
+HTTP_PROBE_CONCURRENCY=8
+# Sampler cadence — 0 = inherit STATS_SAMPLE_INTERVAL_SECONDS
+# (default 300s); >0 overrides per-HTTP-probe. Operators monitoring
+# TLS cert expiry don't need sub-minute cadence.
+HTTP_PROBE_SAMPLE_INTERVAL_SECONDS=0
+# Per-(http_probe, host) auto-pause threshold — N consecutive
+# rounds where EVERY URL on a host failed → mark the pair paused;
+# subsequent probes are SKIPPED until operator clicks Resume.
+# Mixed-success across URLs keeps the host out of the failed bucket.
+# 0 = disabled.
+HTTP_PROBE_FAILURE_PAUSE_ROUNDS=5
+# DNS sub-probe wall-clock. Caps `socket.getaddrinfo` in a thread
+# executor so a slow resolver can't stall the sampler.
+HTTP_PROBE_DNS_TIMEOUT_SECONDS=5
+# TLS cert expiry warning threshold (days). Drawer pill paints
+# amber when remaining-days < this; red when ≤ 0 (expired).
+HTTP_PROBE_CERT_WARNING_DAYS=14
+# Per-host probe-result caches — success / failure. Burst refreshes
+# inside the success window reuse the last good probe; failure
+# cache shorter so recovery surfaces quickly. 0 = disable cache.
+HTTP_PROBE_HOST_CACHE_TTL_SECONDS=30
+HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS=5
+
 # SNMP host-stats provider knobs. `SNMP_PROBE_TIMEOUT_SECONDS` is the
 # per-OID UDP timeout (fast-fail on truly dead hosts);
 # `SNMP_WALL_CLOCK_BUDGET_SECONDS` is the total budget for ONE probe
@@ -621,6 +651,14 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PING_CONCURRENCY`                | Runtime     | `16`                 | Ping sampler fan-out.                                                            |
 | `PING_PROBE_TIMEOUT_SECONDS`      | Runtime     | `2`                  | Per-probe timeout.                                                               |
 | `PING_COOLDOWN_SECONDS`           | Runtime     | `300`                | Per-(host, port) cool-down on consecutive ping failures.                         |
+| `HTTP_PROBE_TIMEOUT_SECONDS`      | Runtime     | `8`                  | HTTP / TLS probe per-URL wall-clock (caps GET request AND TLS handshake). Range 1..60.   |
+| `HTTP_PROBE_CONCURRENCY`          | Runtime     | `8`                  | Parallel HTTP / TLS probes per sampler tick. Range 1..32.                        |
+| `HTTP_PROBE_SAMPLE_INTERVAL_SECONDS` | Runtime  | `0`                  | HTTP probe sampler cadence in seconds. 0 = inherit `STATS_SAMPLE_INTERVAL_SECONDS`. Range 0..3600. |
+| `HTTP_PROBE_FAILURE_PAUSE_ROUNDS` | Runtime     | `5`                  | Per-(http_probe, host) auto-pause threshold. A "round" = "every URL for this host failed". 0 = disabled. Range 0..100. |
+| `HTTP_PROBE_DNS_TIMEOUT_SECONDS`  | Runtime     | `5`                  | DNS sub-probe wall-clock (caps `socket.getaddrinfo`). Range 1..30.               |
+| `HTTP_PROBE_CERT_WARNING_DAYS`    | Runtime     | `14`                 | TLS cert expiry warning threshold — drawer paints expiry pill amber under this many days, red when ≤ 0. Range 1..365. |
+| `HTTP_PROBE_HOST_CACHE_TTL_SECONDS` | Runtime   | `30`                 | Per-host HTTP probe success cache TTL. Range 0..600 (0 = disable cache).         |
+| `HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS` | Runtime | `5`               | Per-host HTTP probe failure cache TTL. Tight so recovery surfaces fast. Range 0..600. |
 | `SNMP_PROBE_TIMEOUT_SECONDS`      | Runtime     | `5`                  | Per-OID UDP timeout for SNMP queries (fast-fail on dead hosts).                  |
 | `SNMP_WALL_CLOCK_BUDGET_SECONDS`  | Runtime     | `60`                 | Total wall-clock budget for ONE probe against ONE host (~60 OIDs round-trip). Range 5..600. |
 | `SNMP_CONCURRENCY`                | Runtime     | `16`                 | SNMP probe fan-out cap (parallel hosts within one tick).                         |

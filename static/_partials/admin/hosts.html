@@ -876,6 +876,93 @@
                 <p class="fs-2xs text-[var(--text-faint)] mt-1"
                    x-text="t('admin_hosts.snmp_exclude_mounts_help')"></p>
               </div>
+
+              <!-- HTTP / TLS / DNS PROBE BLOCK — seventh host-stats
+                   provider. Per-host enable checkbox follows the same
+                   opt-in contract as ping.enabled / snmp.enabled: the
+                   row only probes when this box is on. URL list /
+                   content-match / status-codes / verify_tls are
+                   optional overrides — leaving them blank falls
+                   through to the auto-derived chain (top-level url +
+                   services[].url). -->
+              <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
+                <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold"
+                     x-text="t('admin_hosts.http_probe_section_label')"></div>
+                <label class="inline-flex items-center gap-2 fs-sm mb-3"
+                       :class="!row.enabled ? 'opacity-50' : ''">
+                  <input type="checkbox"
+                         :checked="!!(row.enabled && row.http_probe && row.http_probe.enabled === true)"
+                         @change="hostsConfig[idx].http_probe = Object.assign({}, hostsConfig[idx].http_probe || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
+                         :disabled="isReadonly() || !row.enabled">
+                  <span x-text="t('admin_hosts.provider.http_probe_enabled_label')"></span>
+                </label>
+                <p class="fs-2xs text-[var(--text-faint)] mb-3"
+                   x-show="row.enabled"
+                   x-text="t('admin_hosts.provider.http_probe_enabled_hint')"></p>
+                <div class="space-y-3"
+                     x-show="!!(row.enabled && row.http_probe && row.http_probe.enabled === true)">
+                  <!-- URLs textarea — operator-supplied override list.
+                       Multi-line, one URL per line. Empty falls through
+                       to the auto-derived chain (top-level url +
+                       services[].url). -->
+                  <div>
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                           x-text="t('admin_hosts.http_probe_urls_label')"></label>
+                    <textarea rows="3"
+                              :value="(row.http_probe && Array.isArray(row.http_probe.urls)) ? row.http_probe.urls.join('\n') : ''"
+                              @input="hostsConfig[idx].http_probe = Object.assign({}, hostsConfig[idx].http_probe || {}, { urls: $event.target.value.split('\n').map(s => s.trim()).filter(Boolean) }); markHostRowDirty(idx)"
+                              :disabled="isReadonly() || !row.enabled"
+                              class="w-full mono fs-xs py-1.5"
+                              :placeholder="t('admin_hosts.http_probe_urls_placeholder')"></textarea>
+                    <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                       x-text="t('admin_hosts.http_probe_urls_hint')"></p>
+                  </div>
+                  <!-- Content-match + accepted status codes — paired
+                       in a 2-col grid on desktop so the operator can
+                       eyeball both probe-shape knobs side-by-side. -->
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                             x-text="t('admin_hosts.http_probe_content_match_label')"></label>
+                      <input type="text"
+                             :value="(row.http_probe && row.http_probe.content_match) || ''"
+                             @input="hostsConfig[idx].http_probe = Object.assign({}, hostsConfig[idx].http_probe || {}, { content_match: $event.target.value || null }); markHostRowDirty(idx)"
+                             :disabled="isReadonly() || !row.enabled"
+                             maxlength="256"
+                             class="w-full mono fs-sm py-1.5"
+                             :placeholder="t('admin_hosts.http_probe_content_match_placeholder')">
+                      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                         x-text="t('admin_hosts.http_probe_content_match_hint')"></p>
+                    </div>
+                    <div>
+                      <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                             x-text="t('admin_hosts.http_probe_status_codes_label')"></label>
+                      <input type="text"
+                             :value="(row.http_probe && Array.isArray(row.http_probe.accepted_status_codes)) ? row.http_probe.accepted_status_codes.join(',') : ''"
+                             @input="hostsConfig[idx].http_probe = Object.assign({}, hostsConfig[idx].http_probe || {}, { accepted_status_codes: $event.target.value || null }); markHostRowDirty(idx)"
+                             :disabled="isReadonly() || !row.enabled"
+                             class="w-full mono fs-sm py-1.5"
+                             :placeholder="t('admin_hosts.http_probe_status_codes_placeholder')">
+                      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                         x-text="t('admin_hosts.http_probe_status_codes_hint')"></p>
+                    </div>
+                  </div>
+                  <!-- verify_tls toggle. Default ON (cert chain is
+                       verified); flip OFF for self-signed homelab
+                       targets. Either way the cert IS parsed so the
+                       expiry warning still surfaces. -->
+                  <label class="inline-flex items-center gap-2 fs-sm">
+                    <input type="checkbox"
+                           :checked="!(row.http_probe && row.http_probe.verify_tls === false)"
+                           @change="hostsConfig[idx].http_probe = Object.assign({}, hostsConfig[idx].http_probe || {}, { verify_tls: !!$event.target.checked }); markHostRowDirty(idx)"
+                           :disabled="isReadonly() || !row.enabled">
+                    <span x-text="t('admin_hosts.http_probe_verify_tls_label')"></span>
+                  </label>
+                  <p class="fs-2xs text-[var(--text-faint)] -mt-1"
+                     x-text="t('admin_hosts.http_probe_verify_tls_hint')"></p>
+                </div>
+              </div>
+
               <!-- Row 3 — test button + per-provider result line. The
                    result lists each probed provider with a tick or
                    cross and a short reason so the operator knows
@@ -894,7 +981,7 @@
                 </button>
                 <div x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].pending && !hostsTestResults[idx].error)"
                      class="flex flex-wrap gap-3 fs-xs flex-1">
-                  <template x-for="name in ['beszel','pulse','node_exporter','webmin','snmp','ping']" :key="name">
+                  <template x-for="name in ['beszel','pulse','node_exporter','webmin','snmp','ping','http_probe']" :key="name">
                     <div x-show="!!(hostsTestResults[idx] && hostsTestResults[idx][name] && !hostsTestResults[idx][name].skipped)"
                          class="flex items-center gap-1.5"
                          :class="(hostsTestResults[idx] && hostsTestResults[idx][name] && hostsTestResults[idx][name].ok) ? 'text-[var(--success)]' : 'text-[var(--danger)]'">
