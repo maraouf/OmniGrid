@@ -19,7 +19,6 @@ a transitional bootstrap for Portainer, and never for OIDC.
 import base64
 import hmac
 import hashlib
-import os
 import secrets
 import sqlite3
 import time
@@ -30,6 +29,8 @@ import bcrypt
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from logic.env_keys import EnvKey, env_get
+
 # ----------------------------------------------------------------------------
 # Config (read once at import)
 # ----------------------------------------------------------------------------
@@ -38,7 +39,7 @@ SESSION_SLIDE_WITHIN = 3600  # re-issue cookie if less than 1h left
 COOKIE_NAME = "og_session"
 CSRF_COOKIE = "og_csrf"
 
-SESSION_SECRET_ENV = os.getenv("SESSION_SECRET", "")
+SESSION_SECRET_ENV = env_get(EnvKey.SESSION_SECRET)
 # Auto-generate an ephemeral secret when one isn't provided so fresh installs
 # don't fail to start. Sessions won't survive process restarts in that case —
 # operators should set SESSION_SECRET explicitly in prod for persistence.

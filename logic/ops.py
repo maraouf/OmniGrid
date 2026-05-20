@@ -1723,6 +1723,100 @@ def _retag_compose_to_latest(
     return new_content, replacements
 
 
+async def _await_stack_convergence(
+    client: httpx.AsyncClient, stack: dict, op: "Operation",
+) -> None:
+    """Block until every Swarm service in this stack's namespace has
+    finished rolling out the new image, OR until the timeout fires.
+
+    Why: Portainer's ``PUT /api/stacks/{id}?Prune+PullImage`` accepts
+    the request in ~5s and returns 200, but the actual pull + recreate
+    runs asynchronously on the docker daemon (often 30-60s+ for real
+    image changes). Pre-fix ``do_update_stack`` called ``op.done()``
+    immediately after the PUT — the SPA's busy-state cleared while the
+    daemon was still rolling, operator's button reverted to "Update"
+    before the work was actually done.
+
+    Convergence signal: for every service whose
+    ``com.docker.stack.namespace`` label matches this stack's name,
+    check ``UpdateStatus.State``. While ANY shows ``"updating"``, keep
+    polling. Two consecutive clean polls debounce against the brief gap
+    between services in a multi-service stack rolling one at a time.
+
+    Polling cadence + timeout are operator-tunable via
+    ``tuning_stack_update_observe_poll_seconds`` (default 15s, range
+    5..120) and ``tuning_stack_update_observe_timeout_seconds``
+    (default 300s, range 30..1800). Defensive: a timeout WARN-logs but
+    still lets the caller stamp ``op.done("success")`` — Portainer
+    accepted the request, the rollback is a separate concern.
+    """
+    stack_name = (stack or {}).get("Name") or ""
+    if not stack_name:
+        op.log("Convergence wait: stack name missing — skipping poll", "warning")
+        return
+    try:
+        timeout_s = _tuning_int("tuning_stack_update_observe_timeout_seconds")
+        poll_s = _tuning_int("tuning_stack_update_observe_poll_seconds")
+    except (KeyError, ValueError, TypeError):
+        timeout_s, poll_s = 300, 15
+    eid = portainer.PORTAINER_ENDPOINT_ID
+    services_url = f"{portainer.PORTAINER_URL}/api/endpoints/{eid}/docker/services"
+    deadline = time.time() + timeout_s
+    clean_polls = 0
+    op.log(f"Waiting for stack convergence (timeout={timeout_s}s, poll={poll_s}s)…")
+    while time.time() < deadline:
+        try:
+            r = await client.get(services_url, headers=portainer.headers())
+            if r.status_code >= 400:
+                op.log(
+                    f"Convergence poll: HTTP {r.status_code} listing services — "
+                    f"falling back to time-only wait", "warning",
+                )
+                await asyncio.sleep(poll_s)
+                continue
+            services = r.json() or []
+        except (httpx.HTTPError, OSError, ValueError) as e:
+            op.log(f"Convergence poll: {type(e).__name__}: {e}", "warning")
+            await asyncio.sleep(poll_s)
+            continue
+        any_updating = False
+        in_stack_count = 0
+        for svc in services:
+            if not isinstance(svc, dict):
+                continue
+            spec = svc.get("Spec") or {}
+            labels = spec.get("Labels") or {}
+            ns = labels.get("com.docker.stack.namespace") or ""
+            if ns != stack_name:
+                continue
+            in_stack_count += 1
+            us = svc.get("UpdateStatus") or {}
+            state = (us.get("State") or "").strip().lower()
+            if state == "updating":
+                any_updating = True
+                break
+        if in_stack_count == 0:
+            # Stack has no Swarm services (compose-only stack, or
+            # external/stopped stack). Nothing to wait for —
+            # Portainer's PUT-side work is the entire op.
+            op.log("Convergence: no Swarm services in stack namespace — done")
+            return
+        if any_updating:
+            clean_polls = 0
+            await asyncio.sleep(poll_s)
+            continue
+        clean_polls += 1
+        if clean_polls >= 2:
+            op.log(f"Stack converged ({in_stack_count} service(s) idle)", "success")
+            return
+        await asyncio.sleep(poll_s)
+    op.log(
+        f"Convergence wait: hit {timeout_s}s timeout — marking op done; "
+        f"actual rollout may still be in progress",
+        "warning",
+    )
+
+
 async def do_update_stack(
     op: Operation,
     stack_id: int,
@@ -1777,6 +1871,14 @@ async def do_update_stack(
             if r.status_code >= 400:
                 raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
             op.log(f"Portainer accepted update (HTTP {r.status_code})", "success")
+            # Portainer's PUT returns "accepted" in ~5s but the actual
+            # `Prune + PullImage` runs ASYNC on the docker daemon (often
+            # 30-60s+). Without the poll below the op marks "done" while
+            # the daemon is still rolling — operator's SPA button reverts
+            # to "Update" while the stack is still mid-rollout. Wait for
+            # convergence by polling Swarm-service UpdateStatus on every
+            # service in this stack's namespace.
+            await _await_stack_convergence(client, stack, op)
         op.done("success")
         await notify(
             f"✅ Stack updated: {op.target_name}",

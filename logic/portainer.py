@@ -18,10 +18,11 @@ Call sites use ``portainer.registry_concurrency()`` /
 ``portainer.stats_concurrency()`` so each gather sees the current value
 without restart.
 """
-import os
 import sqlite3
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
+
+from logic.env_keys import EnvKey, env_get
 
 import httpx
 
@@ -79,10 +80,10 @@ def bootstrap_portainer_settings(conn: sqlite3.Connection) -> None:
     release" in docs/guidelines/env_example.md.
     """
     env_map = {
-        "portainer_url": os.getenv("PORTAINER_URL", "").rstrip("/"),
-        "portainer_api_key": os.getenv("PORTAINER_API_KEY", ""),
-        "portainer_endpoint_id": os.getenv("PORTAINER_ENDPOINT_ID", "1"),
-        "portainer_verify_tls": os.getenv("VERIFY_TLS", "true").lower() == "true",
+        "portainer_url": env_get(EnvKey.PORTAINER_URL).rstrip("/"),
+        "portainer_api_key": env_get(EnvKey.PORTAINER_API_KEY),
+        "portainer_endpoint_id": env_get(EnvKey.PORTAINER_ENDPOINT_ID, "1"),
+        "portainer_verify_tls": env_get(EnvKey.VERIFY_TLS, "true").lower() == "true",
     }
     for key in _PORTAINER_SETTING_KEYS:
         existing = conn.execute(

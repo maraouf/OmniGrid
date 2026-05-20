@@ -7,16 +7,16 @@ latency / error counters to ``logic.metrics``.
 No internal OmniGrid state beyond the token cache — safe to extract
 as a leaf module.
 """
-import os
 import time
 from typing import Optional
 
 import httpx
 
 from logic import metrics
+from logic.env_keys import EnvKey, env_get
 
-DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
-DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
+DOCKERHUB_USER = env_get(EnvKey.DOCKERHUB_USER)
+DOCKERHUB_TOKEN = env_get(EnvKey.DOCKERHUB_TOKEN)
 
 # Bounded set of registry-label values for `omnigrid_registry_errors_total`
 # and `omnigrid_registry_latency_seconds`. Without this
@@ -310,7 +310,7 @@ async def _fetch_github_latest_release(
         "Accept": "application/vnd.github+json",
         "User-Agent": "OmniGrid",
     }
-    gh_tok = os.getenv("GITHUB_TOKEN", "")
+    gh_tok = env_get(EnvKey.GITHUB_TOKEN)
     if gh_tok:
         h["Authorization"] = f"Bearer {gh_tok}"
     try:
@@ -353,7 +353,7 @@ async def _fetch_github_release_notes(
     # Operator-supplied GitHub token avoids the 60/hr anonymous rate
     # limit. Optional — anonymous calls work for public repos under
     # normal usage.
-    gh_tok = os.getenv("GITHUB_TOKEN", "")
+    gh_tok = env_get(EnvKey.GITHUB_TOKEN)
     if gh_tok:
         h["Authorization"] = f"Bearer {gh_tok}"
     for cand in candidates:
