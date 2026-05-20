@@ -845,6 +845,12 @@ def _load_mappings() -> dict[str, dict]:
     return out
 
 
+# Public alias — cross-module callers import `load_mappings`. The
+# leading-underscore form stays as the canonical definition for
+# back-compat with anything still importing `_load_mappings`.
+load_mappings = _load_mappings
+
+
 def _save_mappings(mappings: dict[str, dict]) -> None:
     """Persist the mapping dict back to settings. Quiet on failure.
     Always writes the new schema (``{username, linked_at_ms}`` per
@@ -884,6 +890,11 @@ def _save_mappings(mappings: dict[str, dict]) -> None:
         set_setting(Settings.TELEGRAM_USER_MAPPINGS, json.dumps(clean))
     except (TypeError, ValueError) as e:
         print(f"[telegram_listener] mapping save failed: {e}")
+
+
+# Public alias — cross-module callers import `save_mappings`. The
+# underscore form stays as the canonical definition for back-compat.
+save_mappings = _save_mappings
 
 
 def _lookup_omnigrid_user(telegram_user_id: object) -> Optional[str]:
@@ -985,6 +996,11 @@ def _lookup_user_role(username: str) -> Optional[str]:
     if not row:
         return None
     return row[0] if not hasattr(row, "keys") else row["role"]
+
+
+# Public alias — cross-module callers import `lookup_user_role`. The
+# underscore form stays as the canonical definition for back-compat.
+lookup_user_role = _lookup_user_role
 
 
 def _load_user_weather_pref(username: str) -> Optional[dict]:
