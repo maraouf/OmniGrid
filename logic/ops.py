@@ -1722,7 +1722,7 @@ def _retag_compose_to_latest(
     target_image_repo: Optional[str] = None,
     new_tag: str = "latest",
     env_map: Optional[dict[str, str]] = None,
-) -> tuple[str, list[tuple[str, str]], list[str], dict[str, str]]:
+) -> tuple[str, list[tuple[str, str]], list[str], dict[str, str], list[str]]:
     """Rewrite every ``image: <repo>:<tag>`` line in a compose file to
     ``image: <repo>:<new_tag>``. Returns
     ``(new_content, replacements, repos_found)`` where ``replacements``
@@ -1775,6 +1775,11 @@ def _retag_compose_to_latest(
     replacements: list[tuple[str, str]] = []
     repos_found: list[str] = []
     env_updates: dict[str, str] = {}
+    # Lines whose repo MATCHES the filter but whose tag is already
+    # the target — short-circuit as no-op (no replacement appended)
+    # but track separately so the caller can distinguish "no match"
+    # (real failure) from "already at target" (idempotent success).
+    already_at_target: list[str] = []
 
     def _repo_matches(compose_repo: str, target: str) -> bool:
         """Tolerance ladder — exact, then either-side suffix match
@@ -1816,6 +1821,12 @@ def _retag_compose_to_latest(
         if target_image_repo and not _repo_matches(repo, target_image_repo):
             return full_match
         if old_tag == nt and "@sha256:" not in full_match:
+            # Idempotent no-op — the line already carries the target
+            # tag (caller short-circuits as "already at target" rather
+            # than raising "no match"). Track separately so the empty-
+            # replacements check at the caller can distinguish real
+            # failures from idempotent re-runs.
+            already_at_target.append(f"{repo}:{old_tag}")
             return full_match
         old_image = repo + (f":{old_tag}" if old_tag else "")
         new_image = f"{repo}:{nt}"
@@ -1848,6 +1859,8 @@ def _retag_compose_to_latest(
         if target_image_repo and not _repo_matches(repo, target_image_repo):
             return full_match
         if old_tag == nt and "@sha256:" not in resolved:
+            # Idempotent no-op — see _literal_repl's same branch.
+            already_at_target.append(f"{repo}:{old_tag}")
             return full_match
         # Strategy 1: when the entire image value comes from ONE env
         # var (most common — `image: ${AUTHENTIK_IMAGE}`), update that
@@ -1903,7 +1916,7 @@ def _retag_compose_to_latest(
     # var-bearing lines. The var pattern then picks up what was left.
     new_content = literal_pattern.sub(_literal_repl, content)
     new_content = var_pattern.sub(_var_repl, new_content)
-    return new_content, replacements, repos_found, env_updates
+    return new_content, replacements, repos_found, env_updates, already_at_target
 
 
 async def _await_stack_convergence(
@@ -2040,10 +2053,33 @@ async def do_update_stack(
                     if name:
                         env_map[name] = str(val)
             if retag_to_latest:
-                content, replacements, repos_found, env_updates = _retag_compose_to_latest(
+                content, replacements, repos_found, env_updates, already_at_target = _retag_compose_to_latest(
                     content, target_image_repo, new_tag=new_tag, env_map=env_map,
                 )
                 if not replacements:
+                    # Idempotent success path — the compose ALREADY
+                    # tags the target image at the requested version.
+                    # Log + skip the Portainer PUT (which would still
+                    # be a Prune+PullImage cycle the operator didn't
+                    # ask for). The op stamps `success` outside this
+                    # block so the SPA shows a green tick + the History
+                    # row carries the "already at :<tag>" note.
+                    if already_at_target:
+                        for ai in already_at_target:
+                            op.log(f"Already at target: {ai} — no change needed")
+                        op.log(
+                            f"Retag to :{new_tag} skipped — every matching "
+                            f"image already at this tag ({len(already_at_target)} line(s))"
+                        )
+                        op.done("success")
+                        await notify(
+                            f"Stack '{stack['Name']}' already at :{new_tag}",
+                            "",
+                            event="stack_update_success",
+                            actor_username=op.actor,
+                            target_kind="stack", target_id=str(stack_id),
+                        )
+                        return
                     # Surface the actual repos we DID find so the
                     # operator can spot a registry-path mismatch
                     # (e.g. compose uses `authentik/server` while the

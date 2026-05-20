@@ -9088,7 +9088,16 @@ function app() {
         // keyed by `id` (the default); stacks have no id field so
         // we key on `name` (the operator-facing stack name is
         // unique within a Swarm).
-        this._reconcileById(this.items, d.items || []);
+        // Filter just-removed raw_ids out of the incoming items so a
+        // polled refresh that races ahead of the backend's cache
+        // invalidation can't re-introduce them. Suppression auto-
+        // clears 30s after the bulk-remove (see `_bulkRemoveItems`).
+        let incomingItems = d.items || [];
+        if (this._recentlyRemovedIds && this._recentlyRemovedIds.size) {
+          const supp = this._recentlyRemovedIds;
+          incomingItems = incomingItems.filter(it => !supp.has(it && it.raw_id));
+        }
+        this._reconcileById(this.items, incomingItems);
         this._reconcileById(this.stacks, d.stacks || [], 'name');
         this.nodes = d.nodes || {};
         // Per-node capacity + uptime proxy — see logic/gather.py's nodes_info.
@@ -38718,8 +38727,23 @@ function app() {
       // mutated in place" rule). This makes the topbar "Cleanup (N)"
       // count drop immediately so the button disappears without
       // waiting for the next gather refresh. The backend op completes
-      // asynchronously; if any of these removes ultimately fail, the
-      // next /api/items?force=true will reinstate the row.
+      // asynchronously; the natural pollOps → op-completed →
+      // _clearBusyFromOp flow + the existing 30s items poll picks up
+      // the eventual gather refresh after the per-op
+      // `gather.invalidate_cache()` fires backend-side.
+      //
+      // Stash the just-removed raw_ids on a short-lived suppression
+      // set so the natural items poll's in-place reconcile doesn't
+      // RE-ADD them if it races ahead of the backend's cache
+      // invalidation. Pre-fix calling refresh(true) immediately after
+      // the POSTs returned stale items (the backend's `_cache.items`
+      // still carried them until each remove op's finally-block fired
+      // `gather.invalidate_cache()`) — the in-place reconcile re-
+      // introduced the rows and the operator saw the topbar count
+      // bump back up, then had to click Cleanup again to trigger a
+      // second remove on the already-gone container (which the
+      // backend's idempotent 404→success path tolerated, but felt
+      // broken from the SPA).
       if (okIds.length && Array.isArray(this.items)) {
         const idSet = new Set(okIds);
         for (let idx = this.items.length - 1; idx >= 0; idx--) {
@@ -38727,15 +38751,26 @@ function app() {
             this.items.splice(idx, 1);
           }
         }
+        if (!this._recentlyRemovedIds) {
+          this._recentlyRemovedIds = new Set();
+        }
+        for (const rid of okIds) {
+          this._recentlyRemovedIds.add(rid);
+        }
+        // Clear the suppression after 30s — by then the backend's
+        // gather cache has been invalidated by every op's finally
+        // block + the next natural poll will return fresh items
+        // without the deleted rows.
+        setTimeout(() => {
+          if (!this._recentlyRemovedIds) {
+            return;
+          }
+          for (const rid of okIds) {
+            this._recentlyRemovedIds.delete(rid);
+          }
+        }, 30000);
       }
       this.pollOpsNow();
-      // Also kick a forced items refresh so any rows we couldn't
-      // splice locally (e.g. cache miss) get reconciled on the next
-      // poll cycle. `refresh(true)` bypasses the 900s items-cache TTL
-      // and pulls a fresh gather.
-      if (okCount > 0) {
-        this.refresh(true).catch(() => {});
-      }
       this.showToast(this.t('toasts.remove_result', { ok: okCount, fail }), fail ? 'error' : 'success');
     },
   };
