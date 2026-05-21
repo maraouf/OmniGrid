@@ -26647,6 +26647,18 @@ function app() {
       // address fallback.
       const snmpActive = !!(row.snmp && row.snmp.enabled === true)
         && !!((row.snmp_name || '').trim() || (row.address || '').trim());
+      // HTTP probe gating mirrors ping/snmp's explicit opt-in. Either
+      // the operator-set per-row `http_probe.urls` list OR the
+      // fallback chain (top-level `url` + `services[].url`) gives the
+      // probe a target. Without this branch, a host with ONLY
+      // http_probe configured reported "no provider mapping" and the
+      // Test button stayed disabled.
+      const httpProbeActive = !!(row.http_probe && row.http_probe.enabled === true)
+        && (
+          (Array.isArray(row.http_probe.urls) && row.http_probe.urls.some(u => (u || '').trim()))
+          || (row.url || '').trim()
+          || (Array.isArray(row.services) && row.services.some(s => (s && s.url || '').trim()))
+        );
       return !!(
         (row.beszel_name || '').trim() ||
         (row.pulse_name  || '').trim() ||
@@ -26654,7 +26666,8 @@ function app() {
         (row.webmin_name || '').trim() ||
         (row.webmin_url  || '').trim() ||
         snmpActive ||
-        (row.ping && row.ping.enabled)
+        (row.ping && row.ping.enabled) ||
+        httpProbeActive
       );
     },
     async testHostRow(idx) {
@@ -26715,6 +26728,14 @@ function app() {
             snmp_wall_clock_budget: snmp.wall_clock_budget || 0,
             snmp_vendors:          Array.isArray(snmp.vendors) ? snmp.vendors : [],
             ping_enabled: !!(row.ping && row.ping.enabled),
+            // HTTP probe — same per-row opt-in shape as ping/snmp.
+            // Backend resolves the URL list server-side (operator
+            // override → top-level url + services[].url fallback)
+            // so the SPA only forwards the enable flag + the optional
+            // override list when explicitly set.
+            http_probe_enabled: !!(row.http_probe && row.http_probe.enabled === true),
+            http_probe_urls: (row.http_probe && Array.isArray(row.http_probe.urls))
+              ? row.http_probe.urls : [],
             host_id:     (row.id          || '').trim(),
           }),
         });

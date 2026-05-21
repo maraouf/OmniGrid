@@ -5143,10 +5143,11 @@
                      the TLS expiry warning + the DNS resolution check.
                      Live or stale on any single field is enough so a
                      brief outage doesn't blank the card. -->
-            <section x-show="h.host_http_status_ok !== undefined
-                                 || (Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0)
-                                 || isStaleField(h, 'host_http_status_ok')
-                                 || isStaleField(h, 'host_http_tls_expires_in_days')"
+            <section x-show="(h.http_probe_enabled === true)
+                                 && ((Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0)
+                                     || (h.host_http_url_count_total || 0) > 0
+                                     || isStaleField(h, 'host_http_status_ok')
+                                     || isStaleField(h, 'host_http_tls_expires_in_days'))"
                      class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
               <h4 class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-3 flex items-center gap-2 flex-wrap">
                 <span x-text="t('host_drawer.http_probe.heading')"></span>
