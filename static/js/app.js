@@ -26736,6 +26736,14 @@ function app() {
             http_probe_enabled: !!(row.http_probe && row.http_probe.enabled === true),
             http_probe_urls: (row.http_probe && Array.isArray(row.http_probe.urls))
               ? row.http_probe.urls : [],
+            // Per-row TLS verification override — operator unticks
+            // this for self-signed homelab certs. Forwarded so the
+            // test path honours the same verify flag the sampler
+            // uses. Default true; explicit false opts into
+            // self-signed-cert acceptance.
+            http_probe_verify_tls: (row.http_probe
+                                    && row.http_probe.verify_tls === false)
+              ? false : true,
             host_id:     (row.id          || '').trim(),
           }),
         });
