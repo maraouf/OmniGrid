@@ -60,7 +60,7 @@ def _curated_webmin_hosts() -> list[dict]:
     `webmin_aliases` settings map) is set. Returns one row per enabled
     entry as `{id, url}`. Empty list when Webmin isn't a registered
     provider on the curated row. The JSON-parse + enabled-gate prelude
-    is delegated to :func:`logic.db.iter_curated_hosts` (DUP-001).
+    is delegated to :func:`logic.db.iter_curated_hosts`.
     """
     try:
         aliases = json.loads(get_setting(Settings.WEBMIN_ALIASES, "{}") or "{}")

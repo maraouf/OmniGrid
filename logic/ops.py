@@ -324,10 +324,10 @@ def write_admin_audit(
     write-routes covered by the CLAUDE.md "Admin write-actions
     audit-trail gap" rule (user / session / token / backup /
     config-backup / schedule / notification CRUD), AND by the
-    Telegram listener for command audit rows (DUP-003 consolidation —
-    pre-fix `logic.telegram_listener._audit_telegram` carried a
-    parallel INSERT helper; now a thin call site here with
-    `target_kind="telegram"` + structured `events_dict`).
+    Telegram listener for command audit rows — pre-helper the
+    listener's `_audit_telegram` carried a parallel INSERT helper;
+    now a thin call site here with `target_kind="telegram"` +
+    structured `events_dict`.
 
     Mirrors the TOTP audit pattern (`api_admin_user_disable_totp` /
     `api_admin_user_force_totp_set`) — calls `assert_op_type` for

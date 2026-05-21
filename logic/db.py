@@ -281,7 +281,7 @@ def iter_curated_hosts(*, require_enabled: bool = True) -> Iterator[dict]:
     Canonical generator over the ``hosts_config`` settings row, replacing
     the ~25-line `raw = get_setting → strip → json.loads → isinstance(list)
     → iterate → isinstance(dict) → id-empty-skip → enabled-gate` boilerplate
-    that was copy-pasted across 10+ sampler / consumer sites (DUP-001).
+    that was copy-pasted across 10+ sampler / consumer sites.
 
     Each yielded row is GUARANTEED to:
       - be a ``dict`` (non-dict rows are skipped silently);
@@ -333,7 +333,7 @@ def _walk_hosts_config() -> list[dict]:
 
     Back-compat wrapper around :func:`iter_curated_hosts` (kept because
     the four ``curated_*_hosts`` helpers below still consume a list).
-    Net behaviour change vs the pre-DUP-001 shape: rows without a
+    Net behaviour change vs the pre-helper shape: rows without a
     non-empty ``id`` are now filtered out here too (every downstream
     consumer rejected them anyway, so the gate just moved upstream).
 

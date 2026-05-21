@@ -223,7 +223,7 @@ async def send(
     thread_id: Optional[str] = None,
 ) -> dict:
     """Send one Telegram message via the Bot API — fans out to every
-    chat in the `telegram_chat_id` CSV (#0221) so a deploy serving
+    chat in the `telegram_chat_id` CSV so a deploy serving
     both a group AND 1:1 DMs delivers notifications to every audience.
 
     Returns ``{"ok": bool, "detail": str, "status": int}`` matching the

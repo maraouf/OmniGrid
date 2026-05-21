@@ -128,6 +128,14 @@ LOG_RETENTION_DAYS=7
 # exporting to an external store.
 NOTIFICATION_RETENTION_DAYS=90
 
+# Per-host incident audit retention (days). Drives the
+# host_metrics_sampler's hourly DELETE pass on `host_failure_events`
+# rows older than this window. Decoupled from `STATS_HISTORY_DAYS`
+# (which still drives the raw time-series sample tables) so the
+# incident audit window can outlast raw samples. 0 disables pruning
+# entirely (keep every incident forever). Range 0..3650.
+INCIDENTS_RETENTION_DAYS=90
+
 # Host-snapshots read-side cache TTL (seconds). The SPA fans out N
 # parallel /api/hosts/one/{id} per refresh; caching the snapshot-table
 # read collapses N reads into 1. Set 0 to disable.
@@ -293,14 +301,15 @@ BESZEL_PROBE_TIMEOUT_SECONDS=15
 # Beszel hub can throttle Beszel sampling independently. Range
 # 0..3600. Default 0 (inherit).
 BESZEL_SAMPLE_INTERVAL_SECONDS=0
-# Beszel per-host probe success cache TTL. Mirrors the Webmin pair —
-# successful per-host `_merge_one_host` Beszel reads cache for this
-# many seconds so SPA fan-out bursts skip the hub fetch. Default 30.
-BESZEL_HOST_CACHE_TTL_SECONDS=30
-# Beszel per-host failure cache TTL. Failed per-host Beszel reads
-# cache for this many seconds so a fan-out burst doesn't re-burn N
-# parallel hub fetches against an unreachable hub. Default 5.
-BESZEL_HOST_FAIL_CACHE_TTL_SECONDS=5
+# Pulse sampler tick cadence (seconds). 0 = inherit
+# `STATS_SAMPLE_INTERVAL_SECONDS`. Distinct knob exists so a fleet
+# with a noisy / large Pulse deployment can throttle Pulse sampling
+# independently from Beszel / NE / Webmin. Range 0..3600.
+PULSE_SAMPLE_INTERVAL_SECONDS=0
+# node-exporter sampler tick cadence (seconds). 0 = inherit
+# `STATS_SAMPLE_INTERVAL_SECONDS`. Per-host scrape — every curated
+# host with `ne_url` set is hit once per tick. Range 0..3600.
+NODE_EXPORTER_SAMPLE_INTERVAL_SECONDS=0
 # Per-fetch timeout for the Pulse `/api/state` hub call. Bounds the
 # sampler tick wall-clock and the synchronous probe path. Default 15s.
 PULSE_PROBE_TIMEOUT_SECONDS=15
@@ -422,6 +431,14 @@ AI_RETRY_ENABLED=1
 AI_RETRY_BACKOFF_MS=2000
 AI_RETRY_FIRST_ATTEMPT_MAX_MS=5000
 AI_FALLBACK_MAX_DEPTH=1
+# AI provider HTTP timeouts. Two tiers — standard (palette query,
+# host-filter translation, dashboard fetches) and extended (long-form
+# multi-tool conversations where the model thinks for longer between
+# tool dispatches). Bumped from a hardcoded constant so a slow
+# provider can be loosened without a redeploy. Range 2..120 (standard)
+# / 5..300 (extended).
+AI_HTTP_TIMEOUT_SECONDS=15
+AI_EXTENDED_HTTP_TIMEOUT_SECONDS=30
 
 # Telegram listener long-poll + outer HTTP timeout. Telegram holds the
 # `getUpdates` connection open this many seconds waiting for an update
@@ -481,6 +498,32 @@ ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS=15
 # / slow registries. Range 5..300.
 KICK_GATHER_TIMEOUT_SECONDS=30
 
+# Gather HTTP-client wall-clock — bounds every Portainer call made by
+# one `_gather()` cycle (services / containers / tasks / nodes / stacks
+# fan-out). Distinct from the kick timeout above (which bounds the
+# caller's wait); this one bounds the underlying httpx client. Raise
+# for slow Portainer hosts; lower to fail-fast on a stuck endpoint.
+# Range 5..600.
+GATHER_CLIENT_TIMEOUT_SECONDS=60
+
+# Per-orphan-task containers probe timeout. `_gather()` issues one
+# extra inspect per orphan to recover its image ref; default 3 s is
+# short by design (orphan probes happen serially after the main fan-out
+# and shouldn't blow the gather budget). Range 1..30.
+GATHER_ORPHAN_PROBE_TIMEOUT_SECONDS=3
+
+# OIDC discovery / token-exchange HTTP timeout. Bounds calls to the
+# IdP's `/.well-known/openid-configuration` (discovery cache load) and
+# `/token` (callback code-exchange). Range 2..120.
+OIDC_HTTP_TIMEOUT_SECONDS=15
+
+# `/api/items` cold-load busy-state cap (seconds). The SPA disables
+# the Update button on rows currently mid-op; this knob bounds the
+# longest stretch the SPA will wait for an op to settle before
+# unlocking the row. Defence-in-depth against a stuck op leaving the
+# row un-clickable. Range 5..600.
+LOAD_BUSY_MAX_SECONDS=30
+
 # Portainer write-op wall-clocks. Three tiers — short (container
 # restart / remove, default 120 s), medium (service-level + prune,
 # default 300 s), long (stack updates + image-pull-heavy paths,
@@ -518,6 +561,31 @@ CONFIG_BACKUP_RETENTION_COUNT=30
 # on long-lived sessions to cut traffic. Range 5..120.
 SSH_WS_HEARTBEAT_SECONDS=25
 
+# SSH terminal session timeouts. Both apply to the interactive xterm
+# modal AND the one-shot `/ssh/run` runner. CONNECT bounds the
+# `asyncssh.connect` wall-clock (TCP open + key exchange); LOGIN
+# bounds the auth + channel-open wall-clock; CLOSE bounds the
+# server-side `conn.close()` after the terminal disconnects so a
+# slow disconnect can't pin a worker forever. Range 5..120 (connect /
+# login) / 1..60 (close).
+SSH_TERMINAL_CONNECT_TIMEOUT_SECONDS=20
+SSH_TERMINAL_LOGIN_TIMEOUT_SECONDS=20
+SSH_CLOSE_TIMEOUT_SECONDS=5
+
+# Default destination ports for per-host SSH / SNMP / Ping when the
+# operator hasn't overridden them at the per-host or global-default
+# level. Range 1..65535. Match the standard well-known ports unless
+# your fleet runs on alternates.
+SSH_DEFAULT_PORT=22
+SNMP_DEFAULT_PORT=161
+PING_DEFAULT_PORT=443
+
+# Per-host ping packet interval (ms) between consecutive ICMP / TCP
+# probes within ONE round-trip-time measurement. Range 100..2000.
+# Lower for finer-grained RTT (more traffic to the target); raise
+# for spotty links where back-to-back probes confuse the upstream.
+PING_PACKET_INTERVAL_MS=200
+
 # Docker Hub auth — optional, avoids anonymous rate limits.
 # DOCKERHUB_USER=
 # DOCKERHUB_TOKEN=
@@ -545,7 +613,7 @@ OIDC. There are intentionally no `OIDC_*` env vars — the UI is the only source
 
 ## Host-stats providers (UI-managed, NO env vars)
 
-All six providers' credentials live in the `settings` table and are edited from
+All eight providers' credentials live in the `settings` table and are edited from
 Admin → Providers (renamed from "Host stats" earlier in 1.2.x). No env vars for any of them.
 The curated host list (`hosts_config`) is also DB-backed, managed from Admin → Hosts.
 
@@ -564,10 +632,18 @@ The curated host list (`hosts_config`) is also DB-backed, managed from Admin →
   `snmp_v3_user`, `snmp_v3_auth_key`, `snmp_v3_priv_key`, `snmp_aliases`. Per-host overrides via
   `hosts_config[].snmp = {enabled, community, version, port, v3_user, v3_auth_key, v3_priv_key}`.
   Optional `pysnmp` dep (in `requirements.txt`) — without it the master toggle disables itself.
+- **HTTP probe** — `http_probe_enabled`, `http_probe_aliases`. Per-host opt-in via
+  `hosts_config[].http_probe = {enabled, urls?, content_match?, accepted_status_codes?, verify_tls?}`.
+  Sub-probes per URL: HTTP GET + TLS handshake (cert expiry) + DNS resolution. Surfaces in
+  the drawer + per-row provider chip. Master toggle gated; one-shot `/api/http-probe/test`.
+- **Per-service reachability probe** — `service_probe_enabled`. Per-(curated `services[]`)
+  opt-in via `services[*].probe.enabled`. Distinct from the host-level HTTP probe — one
+  reachability chip per service entry on each curated host. Sampler-only (no synchronous
+  `/test` endpoint).
 
 Per-provider chip-colour customisation lives in
-`provider_color_{beszel, pulse, node_exporter, webmin, ping, snmp}` settings (`#RRGGBB` or blank
-for default).
+`provider_color_{beszel, pulse, node_exporter, webmin, ping, snmp, http_probe, service_probe}`
+settings (`#RRGGBB` or blank for default).
 
 ## Other UI-managed settings (NO env vars)
 
@@ -648,11 +724,14 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `OPS_POLL_INTERVAL_SECONDS`       | Runtime     | `2`                  | SPA's /api/ops poll cadence in seconds; multiplied × 1000 before delivery via `client_config.ops_poll_ms`. Renamed from the legacy `OPS_POLL_INTERVAL_MS` for admin-UI friendliness. |
 | `LOG_RETENTION_DAYS`              | Runtime     | `7`                  | Persistent-log retention.                                                        |
 | `NOTIFICATION_RETENTION_DAYS`     | Runtime     | `90`                 | In-app notifications retention. Drives the `prune_notifications` schedule kind. |
+| `INCIDENTS_RETENTION_DAYS`        | Runtime     | `90`                 | Per-host incident audit retention. Drives the hourly DELETE on `host_failure_events`. 0 disables pruning. Range 0..3650. |
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | Runtime    | `5`                  | host_snapshots read-cache TTL.                                                   |
 | `HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS` | Runtime | `24`           | Per-field stale grace cap (hours). Drops orphan host_* fields from snapshot when restored-stale longer than the cap. |
 | `HOSTS_PARALLEL_FETCH`            | Runtime     | `6`                  | SPA fan-out concurrency cap on `/api/hosts/one/{id}`.                            |
 | `AI_SIDEBAR_WIDTH_PX`             | Runtime     | `480`                | AI Assistant sidebar drawer width in pixels (320..720). Mobile ignores.          |
 | `AI_CONVERSATION_EXPORT_ENABLED`  | Runtime     | `1`                  | Show / hide the AI conversation export buttons (TXT + JSON) in the sidebar.     |
+| `AI_CONVERSATION_PERSIST_INTERVAL_MS` | Runtime | `2000`               | AI sidebar conversation auto-persist cadence (ms). Takes effect on next page load. Range 500..30000. |
+| `NOTIFICATIONS_POLL_INTERVAL_SECONDS` | Runtime | `30`                 | Notifications-popup poll fallback (seconds) when the SSE stream is down. Range 5..300. |
 | `PORT_SCAN_DEFAULT_TIMEOUT_SECONDS` | Runtime   | `2`                  | Per-port TCP-connect timeout for the port-scan provider (1..30).                 |
 | `PORT_SCAN_DEFAULT_CONCURRENCY`   | Runtime     | `32`                 | Parallel probe cap per scan (1..256).                                            |
 | `PORT_SCAN_MAX_SECONDS`           | Runtime     | `120`                | Outer wall-clock budget for a single port-scan request (30..1800).               |
@@ -690,8 +769,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `BESZEL_FAILURE_PAUSE_ROUNDS`     | Runtime     | `5`                  | Per-(beszel, host) auto-pause threshold. Hub-fetch-OK gate so a global hub outage doesn't cascade-pause every host. 0 = disabled. |
 | `BESZEL_PROBE_TIMEOUT_SECONDS`    | Runtime     | `15`                 | Wall-clock timeout for `probe_hub` (systems + system_stats + systemd_services). Range 1..120. |
 | `BESZEL_SAMPLE_INTERVAL_SECONDS`  | Runtime     | `0`                  | Beszel sampler tick cadence in seconds. 0 = inherit `STATS_SAMPLE_INTERVAL_SECONDS`. Range 0..3600. |
-| `BESZEL_HOST_CACHE_TTL_SECONDS`   | Runtime     | `30`                 | Per-host probe success cache TTL (mirrors Webmin). Range 0..300. |
-| `BESZEL_HOST_FAIL_CACHE_TTL_SECONDS` | Runtime  | `5`                  | Per-host probe failure cache TTL (mirrors Webmin). Range 0..300. |
+| `PULSE_SAMPLE_INTERVAL_SECONDS`   | Runtime     | `0`                  | Pulse sampler tick cadence in seconds. 0 = inherit `STATS_SAMPLE_INTERVAL_SECONDS`. Range 0..3600. |
+| `NODE_EXPORTER_SAMPLE_INTERVAL_SECONDS` | Runtime | `0`                | node-exporter sampler tick cadence in seconds. 0 = inherit `STATS_SAMPLE_INTERVAL_SECONDS`. Range 0..3600. |
 | `PULSE_FAILURE_PAUSE_ROUNDS`      | Runtime     | `5`                  | Per-(pulse, host) auto-pause threshold. Same hub-fetch-OK contract as Beszel. 0 = disabled. |
 | `PULSE_PROBE_TIMEOUT_SECONDS`     | Runtime     | `15`                 | Per-fetch timeout for Pulse `/api/state` hub probe. Bounds sampler tick wall-clock + sync probe path. Range 1..120. |
 | `WEBMIN_PROBE_TIMEOUT_SECONDS`    | Runtime     | `8`                  | Per-host probe timeout for the Webmin Miniserv sampler. Range 1..120. |
@@ -734,6 +813,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `AI_RETRY_BACKOFF_MS`             | Runtime     | `2000`               | Backoff (ms) before the AI retry attempt. Range 0..30000. |
 | `AI_RETRY_FIRST_ATTEMPT_MAX_MS`   | Runtime     | `5000`               | First-attempt-max-duration gate — retry only fires when the first attempt resolved in < this many ms. Range 100..60000. |
 | `AI_FALLBACK_MAX_DEPTH`           | Runtime     | `1`                  | AI provider fallback chain depth — number of backup providers tried on transient overload. Range 0..3 (0 disables the chain). |
+| `AI_HTTP_TIMEOUT_SECONDS`         | Runtime     | `15`                 | AI provider HTTP timeout — standard tier (palette / host-filter / dashboard fetches). Range 2..120. |
+| `AI_EXTENDED_HTTP_TIMEOUT_SECONDS`| Runtime     | `30`                 | AI provider HTTP timeout — extended tier (long-form multi-tool conversations). Range 5..300. |
 | `BACKUP_RETENTION_COUNT`          | Runtime     | `0`                  | Number of recent backup zips the `backup` schedule kind keeps after a successful create (0 = keep all). Range 0..1000. |
 | `CONFIG_BACKUP_RETENTION_COUNT`   | Runtime     | `30`                 | Number of `config_backup` snapshots retained under `/app/data/config_backups/`. 0 = unlimited. Range 0..1000. |
 | `TELEGRAM_LONG_POLL_TIMEOUT_SECONDS` | Runtime  | `25`                 | Telegram `getUpdates` long-poll timeout. Range 1..50 (Telegram server cap). |
@@ -749,11 +830,22 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS` | Runtime | `10`              | OAuth2 token-handshake timeout for the asset-inventory client. Range 2..120. |
 | `ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS` | Runtime | `15`              | Asset-list fetch timeout for the asset-inventory client. Range 2..300. |
 | `KICK_GATHER_TIMEOUT_SECONDS`     | Runtime     | `30`                 | Wall-clock cap for the cold-cache `_gather()` kick on drill-down endpoints. Range 5..300. |
+| `GATHER_CLIENT_TIMEOUT_SECONDS`   | Runtime     | `60`                 | Inner httpx client wall-clock for every Portainer call inside one `_gather()` cycle. Range 5..600. |
+| `GATHER_ORPHAN_PROBE_TIMEOUT_SECONDS` | Runtime | `3`                  | Per-orphan-task inspect timeout during gather. Short by design. Range 1..30. |
+| `OIDC_HTTP_TIMEOUT_SECONDS`       | Runtime     | `15`                 | OIDC discovery + token-exchange HTTP timeout. Range 2..120. |
+| `LOAD_BUSY_MAX_SECONDS`           | Runtime     | `30`                 | SPA row-level busy-state cap — bounds how long the Update button stays disabled on a stuck op. Range 5..600. |
 | `PORTAINER_OP_TIMEOUT_SHORT_SECONDS` | Runtime  | `120`                | Portainer write-op wall-clock — short tier (container restart / remove). Range 10..600. |
 | `PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS` | Runtime | `300`                | Portainer write-op wall-clock — medium tier (service-level + prune). Range 30..1800. |
 | `PORTAINER_OP_TIMEOUT_LONG_SECONDS` | Runtime   | `600`                | Portainer write-op wall-clock — long tier (stack update + image-pull-heavy paths). Range 60..3600. |
 | `HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS` | Runtime | `24`            | Per-field stale grace cap (hours) before snapshot-restored fields decay out of both the merged dict and the next saved snapshot. Range 1..720. |
 | `SSH_WS_HEARTBEAT_SECONDS`        | Runtime     | `25`                 | SSH terminal WebSocket server-ping cadence (seconds). Keeps the WSS connection alive past upstream proxy idle timers. Range 5..120. |
+| `SSH_TERMINAL_CONNECT_TIMEOUT_SECONDS` | Runtime | `20`                 | `asyncssh.connect` wall-clock — TCP open + key exchange. Range 5..120. |
+| `SSH_TERMINAL_LOGIN_TIMEOUT_SECONDS`   | Runtime | `20`                 | Per-session auth + channel-open wall-clock. Range 5..120. |
+| `SSH_CLOSE_TIMEOUT_SECONDS`       | Runtime     | `5`                  | Server-side SSH close wall-clock so a slow disconnect can't pin a worker. Range 1..60. |
+| `SSH_DEFAULT_PORT`                | Runtime     | `22`                 | Per-host SSH destination port when no per-host or global override is set. Range 1..65535. |
+| `SNMP_DEFAULT_PORT`               | Runtime     | `161`                | Per-host SNMP destination port when no per-host or global override is set. Range 1..65535. |
+| `PING_DEFAULT_PORT`               | Runtime     | `443`                | Per-host Ping destination port (TCP-connect probe) when no per-host or global override is set. Range 1..65535. |
+| `PING_PACKET_INTERVAL_MS`         | Runtime     | `200`                | Inter-probe gap (ms) within one ping RTT measurement. Range 100..2000. |
 | `DOCKERHUB_USER`                  | Optional    | unset                | Docker Hub auth (avoid anonymous rate limits).                                  |
 | `DOCKERHUB_TOKEN`                 | Optional    | unset                | Paired with `DOCKERHUB_USER`.                                                   |
 | `SESSION_SECRET`                  | Auth        | auto-generated       | HMAC key for session cookies. Set explicitly in prod.                           |

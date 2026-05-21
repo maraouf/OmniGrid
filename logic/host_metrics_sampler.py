@@ -466,7 +466,7 @@ def _host_provider_config() -> dict[str, set[str]]:
     out: dict[str, set[str]] = {}
     try:
         # JSON-parse + isinstance + enabled-gate + id-empty filtering is
-        # delegated to `iter_curated_hosts` (DUP-001). Per-provider field
+        # delegated to `iter_curated_hosts`. Per-provider field
         # filtering stays here because the SNMP gate is non-trivial
         # (snmp_name OR address AND snmp.enabled).
         for h in iter_curated_hosts():

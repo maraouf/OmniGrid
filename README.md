@@ -4,12 +4,12 @@
 
 # OmniGrid
 
-> Single-replica FastAPI + Alpine.js dashboard for Docker Swarm clusters **and the bare hosts that run them**. Portainer-native stack / service / container updates, multi-provider host telemetry (Beszel / Pulse / node-exporter / Webmin / Ping / SNMP), interactive SSH + audited one-shot runner, scheduler, OIDC + TOTP + passkey auth, Apprise notifications. 
+> Single-replica FastAPI + Alpine.js dashboard for Docker Swarm clusters **and the bare hosts that run them**. Portainer-native stack / service / container updates, multi-provider host telemetry (Beszel / Pulse / node-exporter / Webmin / Ping / SNMP / HTTP probe / per-service reachability), interactive SSH + audited one-shot runner, scheduler, OIDC + TOTP + passkey auth, Apprise + Telegram notifications.
 
 A Portainer-native operations dashboard for Docker Swarm clusters **and the bare hosts that run them**. One screen, four core capabilities:
 
 - **Updates** — scan every Swarm service, compare against remote registry digests (Docker Hub / GHCR / lscr.io / any v2 registry), one-click stack update, container recreate, service restart, orphan-task cleanup. All via the Portainer REST API — no direct Docker socket.
-- **Host telemetry** — live CPU / Memory / Disk / Disk I/O / Network / Load / Bandwidth time-series per curated host, sourced from Beszel, Pulse, node-exporter, Webmin, Ping (TCP/ICMP reachability + RTT), and/or SNMP (managed switches / routers / UPSes). Cross-provider fallback + per-host snapshots so a flaky agent doesn't blank the chart.
+- **Host telemetry** — live CPU / Memory / Disk / Disk I/O / Network / Load / Bandwidth time-series per curated host, sourced from any combination of Beszel, Pulse, node-exporter, Webmin, Ping (TCP/ICMP reachability + RTT), SNMP (managed switches / routers / UPSes), HTTP probe (per-URL TCP / TLS-cert / DNS health checks), and per-service reachability. Cross-provider fallback + per-host snapshots so a flaky agent doesn't blank the chart.
 - **Operations** — interactive xterm.js SSH terminal, admin-audited one-shot SSH runner with destructive-pattern guard, cron-like scheduled jobs (cache refresh / docker prune / SQLite + avatars backup / asset-inventory refresh), Apprise notifications, full audit log of every action.
 - **Auth** — local accounts + API tokens, optional Authentik OIDC SSO, TOTP + WebAuthn passkey 2FA, two roles (admin / read-only), CSRF-hardened, rate-limited login, session revocation, self-service password change.
 
@@ -37,7 +37,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ### Host telemetry & inventory
 - **Curated host list** — admin-defined inventory under Admin → Hosts; each row maps to one or more provider-specific identifiers PLUS a dedicated `address` field that's the canonical provider-independent probe target (port-scan, ping, SNMP, SSH all resolve to it before falling through to provider-specific aliases).
-- **Six monitoring providers** (any combination): Beszel Hub (Pocketbase), Pulse (Proxmox), Prometheus node-exporter (Linux + FreeBSD), Webmin / Miniserv, Ping (TCP-connect or ICMP echo for reachability + RTT), SNMP (v2c / v3 USM for managed switches / routers / UPSes / printers). Cross-provider fallback merges stats with a "most-specific wins" rule + per-host snapshots so a flaky agent doesn't blank the chart. Per-provider chip colour customisable in Settings → Providers.
+- **Eight monitoring providers** (any combination): Beszel Hub (Pocketbase), Pulse (Proxmox), Prometheus node-exporter (Linux + FreeBSD), Webmin / Miniserv, Ping (TCP-connect or ICMP echo for reachability + RTT), SNMP (v2c / v3 USM for managed switches / routers / UPSes / printers), HTTP probe (per-URL TCP + TLS-cert-expiry + DNS resolution), and a per-service reachability probe (one chip per curated `services[]` entry with `probe.enabled=true`). Cross-provider fallback merges stats with a "most-specific wins" rule + per-host snapshots so a flaky agent doesn't blank the chart. Per-provider chip colour customisable in Settings → Providers.
 - **Time-series charts** — CPU / Memory / Disk usage / Disk I/O (Linux + FreeBSD `node_devstat_*`) / Network In/Out / Bandwidth / Load 1m/5m/15m (rendered as % of cores) / Swap / Temperature (per-sensor lines from `stats.t`) / GPU Power / GPU Usage / GPU VRAM (NVIDIA / AMD via Beszel `stats.g`), with 1h / 6h / 24h / 7d range picker, dynamic unit chips that lock to one family (legend + Y-axis + chip stay aligned across magnitudes), permanently-flat charts auto-hide after a 1 h soak, and a live "Updated Xs ago" freshness label.
 - **Switch / managed-gear telemetry** (SNMP) — total throughput line chart, per-port throughput multi-line chart (top 5 by current rate, solid in / dashed out), per-port utilization line chart (% of link capacity from `ifHighSpeed`), uptime trend with reboot detection, hardware inventory rows from `entPhysicalTable` (model / serial / firmware), printer toner / ink supplies + lifetime page count headline + console message via Printer-MIB.
 - **Host drawer detail** — hardware (vendor / model / serial / OS / kernel / arch), network interfaces, mounted filesystems, package-update count, systemd service status, optional asset-inventory join (model / serial / location from a third-party asset API).
@@ -87,7 +87,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 ```
 
 - **`main.py`** — FastAPI backend (routes + lifespan + orchestration). Aggregates data from Portainer (services, tasks, nodes, stacks, containers), resolves remote digests in parallel, runs background update + prune + restart jobs, fires the in-app notification store + Apprise webhooks.
-- **`logic/`** — modular business logic: `gather`, `stats`, `ops`, `auth`, `oidc`, `registry`, `portainer`, `beszel`, `pulse`, `node_exporter`, `webmin`, `ping` / `ping_sampler`, `snmp`, `host_metrics_sampler`, `host_net_sampler`, `schedules`, `backups`, `asset_inventory`, `events` (SSE bus), `tuning` (TUNABLES + 3-tier resolver), `merge`, `cooldown`, `migrations`, `webauthn_helper`, `totp`.
+- **`logic/`** — modular business logic: `gather`, `stats`, `ops`, `auth`, `oidc`, `registry`, `portainer`, `beszel`, `pulse`, `node_exporter`, `webmin`, `ping` / `ping_sampler`, `snmp`, `http_probe` / `host_http_sampler`, `service_sampler`, `host_metrics_sampler`, `host_net_sampler`, `host_baseline` / `host_baseline_sampler`, `schedules`, `backups`, `asset_inventory`, `events` (SSE bus), `tuning` (TUNABLES + 3-tier resolver), `settings_keys` / `env_keys` (typed key registries), `merge`, `cooldown`, `migrations`, `webauthn_helper`, `totp`, `telegram_listener`, `notify_telegram`, `public_ip`, `config_export`, `datetime_fmt`, `i18n`.
 - **`static/index.html` + `static/js/app.js` + `static/css/style.css`** — single-page Alpine.js + Tailwind UI; no build step.
 - **`/opt/omnigrid/data/omnigrid.db`** — SQLite. Holds history, ignores, settings, users, sessions, API tokens, WebAuthn credentials, schedules, in-app notifications, host snapshots, per-(provider, host) failure state, and the time-series tables (`stats_samples`, `host_metrics_samples`, `host_net_samples`, `host_snmp_samples`, `host_snmp_iface_samples`, `host_snmp_temp_samples`, `ping_samples`).
 
@@ -242,6 +242,8 @@ POST                         /api/hosts/bulk/{snmp_vendors,snmp_tunables}  apply
 GET                          /api/hosts/{host_id}/snmp/history?hours=N           per-host SNMP samples (CPU / mem / disk / uptime)
 GET                          /api/hosts/{host_id}/snmp/iface_history?hours=N     per-interface throughput (top-5 by rate)
 GET                          /api/hosts/{host_id}/snmp/temp_history?hours=N      per-temperature-probe sensors
+GET                          /api/hosts/{host_id}/http-probe/history             per-host HTTP probe samples
+POST                         /api/hosts/{host_id}/http-probe/test                run one HTTP / TLS / DNS probe synchronously
 GET                          /api/hosts/{host_id}/disk-projection?days_ahead=N   linear-regression "days until full" with confidence band
 GET                          /api/hosts/{host_id}/triage                         similar-incident grouping for failures
 GET                          /api/hosts/{host_id}/timeline?hours=N               unified per-host event timeline
@@ -276,8 +278,12 @@ POST   /api/pulse/test
 POST   /api/webmin/test
 POST   /api/ping/test                      probe a single ping target (TCP or ICMP)
 POST   /api/snmp/test                      probe an SNMP v2c / v3 target
+POST   /api/http-probe/test                 probe one HTTP / TLS-cert / DNS target
 POST   /api/oidc/test                      probe issuer's discovery endpoint
-POST   /api/notify-test                    fire a test Apprise ping
+POST   /api/telegram/test                  fire a fixed test payload through Telegram ONLY
+POST   /api/apprise/test                   fire a fixed test payload through Apprise ONLY
+POST   /api/notify-test                    fire a test payload through every enabled medium
+POST   /api/notify/send                    operator-typed notification routed to ONE medium (admin)
 
 # Schedules / backups / SSH
 GET / POST / PATCH / DELETE  /api/schedules[/{id}]
