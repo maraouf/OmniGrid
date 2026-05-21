@@ -5272,10 +5272,21 @@ function app() {
         'snmp_default_port', 'snmp_v3_user',
         'snmp_v3_auth_key', 'snmp_v3_priv_key',
         'snmp_aliases_json',
+        // HTTP / TLS / DNS probe — master toggle + per-provider
+        // chip colour. Without these keys in the snapshot pick list,
+        // the baseline JSON omits them and `httpProbeSectionDirty()`
+        // compares `settings.http_probe_enabled` against
+        // `undefined` — the section reads as dirty forever even
+        // after a successful save.
+        'http_probe_enabled',
+        // Per-service reachability probe — master toggle. Same drift
+        // class fix as `http_probe_enabled`.
+        'service_probe_enabled',
         // per-provider chip colour overrides.
         'provider_color_beszel', 'provider_color_pulse',
         'provider_color_node_exporter', 'provider_color_webmin',
         'provider_color_ping', 'provider_color_snmp',
+        'provider_color_http_probe',
       ];
       const subset = {};
       for (const k of pick) {
