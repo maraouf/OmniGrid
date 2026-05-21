@@ -1,0 +1,21 @@
+<!--
+  Shared read-only host-health chip — consumed by BOTH the mobile-card
+  host header AND the desktop-table host row. The interactive variant
+  in the host drawer (a <button> with click-handler + aria-expanded
+  for the popover toggle) stays inline at its call site because the
+  shape diverges enough that wrapping both forms in one partial would
+  obscure the click-handler's context.
+
+  Surrounding Alpine scope MUST define:
+    - h : host row object (consumed via `healthScore(h)` +
+          `healthChipClass(...)` + `healthWorstAxis(h)` helpers).
+
+  Chip is hidden when `healthScore(h)` is null — host has no
+  contributing axes (paused / unreachable / unconfigured).
+-->
+<!--suppress HtmlUnknownAttribute -->
+<span x-show="healthScore(h) != null"
+      class="chip fs-3xs px-1.5 py-0 mono health-chip flex-shrink-0"
+      :class="healthChipClass(healthScore(h))"
+      :title="t('hosts_extra.health.chip_title', { score: healthScore(h), worst: (healthWorstAxis(h) ? healthWorstAxis(h).label : '—') })"
+      x-text="healthScore(h)"></span>

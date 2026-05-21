@@ -2443,11 +2443,7 @@
                   </span>
                         <!-- Health score chip — same shape as the desktop
                        row. Hidden when no axis is computable. -->
-                        <span x-show="healthScore(h) != null"
-                              class="chip fs-3xs px-1.5 py-0 mono health-chip flex-shrink-0"
-                              :class="healthChipClass(healthScore(h))"
-                              :title="t('hosts_extra.health.chip_title', { score: healthScore(h), worst: (healthWorstAxis(h) ? healthWorstAxis(h).label : '—') })"
-                              x-text="healthScore(h)"></span>
+                        <!-- INCLUDE: _components/host-health-chip.html -->
                         <!-- Permanent-fail + probe-timeout + stale badges
                        — priority order matches the desktop table:
                        paused (red) > probe_timeout (amber, transient
@@ -2737,11 +2733,7 @@
                          chip itself doesn't need its own click
                          handler because the row click already
                          routes there. -->
-                          <span x-show="healthScore(h) != null"
-                                class="chip fs-3xs px-1.5 py-0 mono health-chip flex-shrink-0"
-                                :class="healthChipClass(healthScore(h))"
-                                :title="t('hosts_extra.health.chip_title', { score: healthScore(h), worst: (healthWorstAxis(h) ? healthWorstAxis(h).label : '—') })"
-                                x-text="healthScore(h)"></span>
+                          <!-- INCLUDE: _components/host-health-chip.html -->
                           <!-- Badges wrapped in <span> so the `title`
                          attribute fires reliably as a hover tooltip
                          — Chrome / Firefox honour `title` on
