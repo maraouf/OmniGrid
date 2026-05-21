@@ -18023,6 +18023,22 @@ function app() {
           return;
         }
         if (!active.includes(name)) {
+          // Provider is mapped on this row but not in the
+          // `host_stats_source` CSV — the master toggle in Admin →
+          // Host stats is off, so the sampler isn't probing. Surface
+          // a muted chip per-row so the operator notices the gap
+          // (paired with the toolbar filter chip's warning surface
+          // for the same condition). Without this branch the row
+          // chip stayed hidden and a freshly-configured provider
+          // (URLs typed into the editor + per-host enabled but
+          // master toggle never flipped) looked like the chip was
+          // broken.
+          out.push({
+            name,
+            state: 'configured_inactive',
+            consecutive_failures: 0,
+            last_error: '',
+          });
           return;
         }
         // Per-(provider, host) auto-pause wins over every
@@ -31653,6 +31669,15 @@ function app() {
         return list.filter(h => h.snmp_enabled === true
                                 && (trim(h.snmp_name) || trim(h.address))).length;
       }
+      if (name === 'http_probe') {
+        // Mirrors `providerStates(h)`'s http_probe gate exactly so the
+        // toolbar chip's configured-count matches the per-row chip
+        // visibility. `http_probe_has_targets` is the backend-stamped
+        // boolean that resolves the same URL chain the sampler uses
+        // (http_probe.urls → row.url → row.services[].url).
+        return list.filter(h => h.http_probe_enabled === true
+                                && h.http_probe_has_targets).length;
+      }
       return 0;
     },
     // Status chip for a provider in the Hosts toolbar. Combines
@@ -31674,9 +31699,6 @@ function app() {
       // hide on every outage and silently lose the visibility the
       // operator most needs.
       const configuredCount = this._hostsConfiguredForProvider(name);
-      if (!active && !err) {
-        return { visible: false, cls: '', icon: '', title: '', styled: false };
-      }
       // Hide the chip entirely when no curated host has the provider
       // mapped — that's noise on the toolbar regardless of error state.
       // Operator-flagged: Webmin chip kept rendering as a red ✗ even
@@ -31690,6 +31712,26 @@ function app() {
       // is for "providers I care about" at a glance.
       if (configuredCount === 0) {
         return { visible: false, cls: '', icon: '', title: '', styled: false };
+      }
+      // Configured-but-not-active state — at least one host has the
+      // provider mapped in its curated config BUT the operator hasn't
+      // added the provider to `host_stats_source`. The provider's
+      // master toggle in Admin → Host stats is OFF, so the sampler
+      // never runs against it. Surface as a muted (amber) chip with
+      // a tooltip explaining the gap so the operator notices without
+      // having to remember which sub-tab to click. Without this
+      // branch the chip stayed hidden and a freshly-enrolled provider
+      // (e.g. http_probe with URLs configured per-host but the master
+      // toggle never flipped) looked like the per-row chip was
+      // broken.
+      if (!active && !err) {
+        return {
+          visible: true, cls: 'pill-warning', icon: '⚠',
+          title: this.t('hosts_extra.provider_filter.title_configured_inactive',
+                        { name, count: configuredCount })
+                 || (`${name} — ${configuredCount} host(s) mapped but provider not enabled in Admin → Host stats`),
+          styled: false,
+        };
       }
       // tooltip titles routed through i18n.
       if (err) {

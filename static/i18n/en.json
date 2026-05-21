@@ -3282,7 +3282,8 @@
       "title_error": "{name} error: {error}",
       "title_unmatched": "{name} is enabled but matched no host",
       "title_match_one": "{name} — 1 host",
-      "title_match_many": "{name} — {count} hosts"
+      "title_match_many": "{name} — {count} hosts",
+      "title_configured_inactive": "{name} — {count} host(s) mapped but provider not enabled in Admin → Host stats. Flip the master toggle and Save to start probing."
     },
     "host_count_one": "1 host",
     "host_count_many": "{count} hosts",
@@ -3308,6 +3309,7 @@
     "provider_failing": "{provider} is enabled and mapped for this host but returned no data (probe failed / agent paused / unreachable / auth error). Open the drawer's Debug panel for the provider's raw response.",
     "provider_paused": "{provider} auto-paused after {count} consecutive probe failures. Last error: {error}. Probes are stopped until you click Resume.",
     "provider_loading": "{provider} — fetching data…",
+    "provider_configured_inactive": "{provider} is mapped on this host but the provider isn't enabled in Admin → Host stats (`host_stats_source` CSV). Flip the master toggle in that section and Save to start probing.",
     "provider_resume": "Resume",
     "provider_resuming": "…",
     "provider_resume_title": "Clear the {provider} auto-pause for this host so probes start running again. The next failed probe will start a fresh failure counter.",
