@@ -62,13 +62,21 @@ from urllib.parse import urlparse
 
 import httpx
 
-# Accepted-status-codes default — any 2xx counts as "status_ok".
-# Caller can override via ``accepted_status_codes`` to gate on a
-# specific code (e.g. some hosts intentionally redirect → 301 / 302
-# and the operator wants to flag a 200 as suspicious, or a strictly-
-# locked-down API requires 401 from anonymous probes).
+# Accepted-status-codes default — any 2xx OR 3xx counts as "status_ok".
+# Broader than the original 2xx-only contract because many homelab
+# targets respond with 301 / 302 to a bare `/` (Nextcloud, GitLab,
+# Forgejo, common reverse-proxy welcome pages), and operators using
+# the default contract should see those as healthy rather than as
+# probe failures. The probe also enables ``follow_redirects=True``
+# on its httpx client so a redirect CHAIN lands on the final status
+# code — typically a 200 — which then counts under the default range
+# without any per-row override. Caller can override via
+# ``accepted_status_codes`` to gate on a specific code (e.g. some
+# hosts intentionally redirect and the operator wants to flag a 200
+# as suspicious, or a strictly-locked-down API requires 401 from
+# anonymous probes).
 _DEFAULT_ACCEPTED_CODES_LO = 200
-_DEFAULT_ACCEPTED_CODES_HI = 299
+_DEFAULT_ACCEPTED_CODES_HI = 399
 
 
 def _hostname_of(url: str) -> str:
@@ -198,6 +206,9 @@ async def _tls_probe(hostname: str, port: int, timeout_seconds: float, verify_tl
                 if not der_bytes:
                     out["tls_error"] = "tls: empty peer certificate"
                     return out
+                # `cryptography` is a hard-pinned dep (requirements.txt)
+                # and also pulled in transitively by PyJWT[crypto] +
+                # asyncssh — its import cannot fail at runtime.
                 try:
                     from cryptography import x509  # type: ignore
                     from cryptography.hazmat.backends import default_backend  # type: ignore
@@ -215,9 +226,6 @@ async def _tls_probe(hostname: str, port: int, timeout_seconds: float, verify_tl
                         out["tls_subject"] = subj[:200]
                     if iss:
                         out["tls_issuer"] = iss[:200]
-                    return out
-                except ImportError:
-                    out["tls_error"] = "tls: cryptography package unavailable for self-signed cert parse"
                     return out
                 except Exception as cert_err:  # noqa: BLE001
                     out["tls_error"] = f"tls: cert parse failed: {type(cert_err).__name__}: {str(cert_err)[:80]}"
@@ -350,9 +358,16 @@ async def probe_http_health(
     http_error: Optional[str] = None
     t0 = time.monotonic()
     try:
+        # ``follow_redirects=True`` so 301 / 302 chains land on the
+        # final response (typically a 200) — matches the broadened
+        # 200..399 default-accepted range and stops Nextcloud / GitLab /
+        # Forgejo style WWW redirects from showing as persistent
+        # "failing" status. ``status_code`` will still surface the
+        # final-hop code; intermediate 3xx chain is followed silently.
         async with httpx.AsyncClient(
             timeout=timeout,
             verify=verify_tls,
+            follow_redirects=True,
         ) as client:
             resp = await client.get(url_clean, headers={"User-Agent": "OmniGrid/http-probe"})
             status_code = resp.status_code

@@ -1985,14 +1985,6 @@
           "label": "Service probe auto-pause threshold (rounds)",
           "help": "After this many consecutive rounds where every service on a host failed, the (service_probe, host) pair is auto-paused. 0 disables auto-pause entirely. Default 5. Range 0..50."
         },
-        "tuning_service_probe_host_cache_ttl_seconds": {
-          "label": "Service probe per-host success cache TTL (seconds)",
-          "help": "How long a successful service probe outcome is reused by the per-host detail endpoint before re-probing. Default 30s. Range 0..600 (0 = disable cache)."
-        },
-        "tuning_service_probe_host_fail_cache_ttl_seconds": {
-          "label": "Service probe per-host failure cache TTL (seconds)",
-          "help": "How long a failed service probe is cached so a SPA fan-out burst doesn't re-burn the timeout × N. Default 5s. Range 0..600."
-        },
         "tuning_snmp_probe_timeout_seconds": {
           "label": "SNMP per-OID timeout (seconds)",
           "help": "pysnmp's per-OID UDP timeout — applied to EACH GET / GETBULK round-trip independently. Default 5 seconds — enough for slow embedded devices to ack a single packet without stalling the gather pipeline on a truly dead host. This is NOT the wall-clock budget for the whole probe; that's `SNMP wall-clock probe budget` below. Lower this for fast-fail behaviour on dead hosts; raise it on flaky high-RTT links. Range 1..60."

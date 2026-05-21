@@ -160,8 +160,6 @@ class Tunable(str, Enum):
     SNMP_WALL_CLOCK_BUDGET_SECONDS = "tuning_snmp_wall_clock_budget_seconds"
     SERVICE_PROBE_CONCURRENCY = "tuning_service_probe_concurrency"
     SERVICE_PROBE_FAILURE_PAUSE_ROUNDS = "tuning_service_probe_failure_pause_rounds"
-    SERVICE_PROBE_HOST_CACHE_TTL_SECONDS = "tuning_service_probe_host_cache_ttl_seconds"
-    SERVICE_PROBE_HOST_FAIL_CACHE_TTL_SECONDS = "tuning_service_probe_host_fail_cache_ttl_seconds"
     SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS = "tuning_service_probe_sample_interval_seconds"
     SERVICE_PROBE_TIMEOUT_SECONDS = "tuning_service_probe_timeout_seconds"
     SSE_HEARTBEAT_SECONDS = "tuning_sse_heartbeat_seconds"
@@ -868,8 +866,6 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_service_probe_concurrency": ("SERVICE_PROBE_CONCURRENCY", 16, 1, 64),
     "tuning_service_probe_timeout_seconds": ("SERVICE_PROBE_TIMEOUT_SECONDS", 5, 1, 30),
     "tuning_service_probe_failure_pause_rounds": ("SERVICE_PROBE_FAILURE_PAUSE_ROUNDS", 5, 0, 50),
-    "tuning_service_probe_host_cache_ttl_seconds": ("SERVICE_PROBE_HOST_CACHE_TTL_SECONDS", 30, 0, 600),
-    "tuning_service_probe_host_fail_cache_ttl_seconds": ("SERVICE_PROBE_HOST_FAIL_CACHE_TTL_SECONDS", 5, 0, 600),
     # Ping per-host auto-pause threshold. CAREFUL: ping is the
     # alive/down detection signal — `alive=False` is the actual DATA
     # the operator wants surfaced, not a fault condition. So this

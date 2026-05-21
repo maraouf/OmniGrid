@@ -55,7 +55,7 @@ import httpx
 from logic import events, gather, metrics, portainer
 from logic.db import db_conn, get_setting, get_setting_bool
 from logic.settings_keys import Settings, notify_event_key, notify_medium_key, notify_template_body_key, notify_template_title_key
-from logic.tuning import tuning_int as _tuning_int
+from logic.tuning import tuning_int as _tuning_int, Tunable as _Tunable
 
 
 def _portainer_op_timeout(tier: str) -> float:
@@ -69,6 +69,30 @@ def _portainer_op_timeout(tier: str) -> float:
         return float(_tuning_int(f"tuning_portainer_op_timeout_{tier}_seconds"))
     except (KeyError, ValueError, TypeError):
         return fallback
+
+
+def _truncate_for_log(text: Optional[str], n: int = 200) -> str:
+    """Truncate ``text`` to at most ``n`` chars for an operator-facing
+    log line. Returns an empty string for ``None`` / falsy input so the
+    caller can interpolate without a `or '(empty)'` dance at every
+    site. Appends an ellipsis marker (`…`) when truncation actually
+    happened so reviewers know the line was clipped.
+
+    Centralised so the three different cap sizes (200 / 300 / 500)
+    scattered across the recreate-response handler in
+    ``do_update_container`` stay readable + future log lines pick up
+    the same convention. ``n`` is the visible-chars cap including
+    the ellipsis marker (when added) so the log row stays under a
+    predictable width regardless of source length.
+    """
+    if not text:
+        return ""
+    s = str(text)
+    if len(s) <= n:
+        return s
+    # -1 for the ellipsis character so the visible-width budget is
+    # respected exactly.
+    return s[: max(0, n - 1)] + "…"
 
 
 MAX_OPS = 50
@@ -2019,8 +2043,8 @@ async def _await_stack_convergence(
         op.log("Convergence wait: stack name missing — skipping poll", "warning")
         return
     try:
-        timeout_s = _tuning_int("tuning_stack_update_observe_timeout_seconds")
-        poll_s = _tuning_int("tuning_stack_update_observe_poll_seconds")
+        timeout_s = _tuning_int(_Tunable.STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS)
+        poll_s = _tuning_int(_Tunable.STACK_UPDATE_OBSERVE_POLL_SECONDS)
     except (KeyError, ValueError, TypeError):
         timeout_s, poll_s = 300, 15
     eid = portainer.PORTAINER_ENDPOINT_ID
@@ -2045,6 +2069,13 @@ async def _await_stack_convergence(
             continue
         any_updating = False
         in_stack_count = 0
+        # Collect stuck-updating services for the WARN log line so
+        # operators can see WHICH service is still mid-rollout +
+        # Swarm's own status message (e.g. "task xxx failed to
+        # start", "image pull from registry failed"). Pre-fix the
+        # log only said "Waiting for stack convergence" with no
+        # service-level detail; reading Admin → Logs was guesswork.
+        stuck_services: list[tuple[str, str]] = []
         for svc in services:
             if not isinstance(svc, dict):
                 continue
@@ -2058,7 +2089,10 @@ async def _await_stack_convergence(
             state = (us.get("State") or "").strip().lower()
             if state == "updating":
                 any_updating = True
-                break
+                svc_name = (spec.get("Name") or "").strip()
+                svc_msg = (us.get("Message") or "").strip()
+                if svc_name:
+                    stuck_services.append((svc_name, svc_msg))
         if in_stack_count == 0:
             # Stack has no Swarm services (compose-only stack, or
             # external/stopped stack). Nothing to wait for —
@@ -2067,6 +2101,24 @@ async def _await_stack_convergence(
             return
         if any_updating:
             clean_polls = 0
+            # Surface the stuck services + Swarm's per-service status
+            # message so operators reading Admin → Logs see WHICH
+            # service is still rolling and WHY (when Swarm bothers to
+            # populate the Message field). Capped at first 3 to
+            # avoid log-line bloat on big stacks; the count is
+            # included so operators know there are more.
+            preview = stuck_services[:3]
+            extra = len(stuck_services) - len(preview)
+            preview_str = "; ".join(
+                f"{name}" + (f" ({msg[:80]})" if msg else "")
+                for name, msg in preview
+            )
+            tail = f" (+{extra} more)" if extra > 0 else ""
+            op.log(
+                f"Convergence poll: {len(stuck_services)} service(s) "
+                f"still updating: {preview_str}{tail}",
+                "warning",
+            )
             await asyncio.sleep(poll_s)
             continue
         clean_polls += 1
@@ -2331,13 +2383,24 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                 # chop the body mid-string and json.loads would raise). The
                 # 500-char copy is only for the operator-facing log lines.
                 recreate_response_full = r.text or ""
-                recreate_response_body = recreate_response_full[:500]
+                # Three log-line audiences: the in-handler clip (500
+                # chars — generous so the body survives a follow-up
+                # error-branch re-clip), the HTTP-error detail
+                # (300 chars), the success-log preview (200 chars).
+                # Centralised via `_truncate_for_log` so the convention
+                # stays consistent + new log lines pick up the same
+                # ellipsis-on-truncation marker.
+                recreate_response_body = _truncate_for_log(recreate_response_full, 500)
                 if r.status_code >= 400:
-                    recreate_endpoint_error = f"HTTP {r.status_code}: {recreate_response_body[:300]}"
+                    recreate_endpoint_error = (
+                        f"HTTP {r.status_code}: "
+                        f"{_truncate_for_log(recreate_response_body, 300)}"
+                    )
                 else:
                     op.log(
                         f"Portainer /recreate accepted (HTTP {r.status_code}); "
-                        f"response body: {recreate_response_body[:200] or '(empty)'}",
+                        f"response body: "
+                        f"{_truncate_for_log(recreate_response_body, 200) or '(empty)'}",
                         "success",
                     )
             except (httpx.HTTPError, OSError) as e:
@@ -2374,7 +2437,16 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                 # already-reaped old container so the inspect below 404'd.
                 _resp_json = _json_post.loads(recreate_response_full) if recreate_response_full else None
                 if isinstance(_resp_json, dict):
-                    new_container_id = (_resp_json.get("Id") or container_id).strip() or container_id
+                    # Defensive: ``Id`` is spec'd as a string but guard
+                    # against a future Portainer version returning a
+                    # non-string (the outer except catches ValueError /
+                    # TypeError, not AttributeError, so an unguarded
+                    # ``.strip()`` would propagate past the handler).
+                    _raw_id = _resp_json.get("Id")
+                    if isinstance(_raw_id, str) and _raw_id.strip():
+                        new_container_id = _raw_id.strip()
+                    else:
+                        new_container_id = container_id
             except (ValueError, TypeError) as _parse_err:
                 op.log(
                     f"Failed to parse /recreate response body as JSON "
@@ -2471,6 +2543,17 @@ async def _recreate_container_in_place(op: Operation, container_id: str) -> None
     Config + HostConfig + NetworkSettings.Networks from the inspect.
     Anonymous volumes are lost on remove — same as Portainer's own
     `/recreate` endpoint, no new risk.
+
+    Intentional: write-ops do NOT consult ``host_failure_state`` /
+    ``host_provider_last_ok``. The per-(provider, host) auto-pause
+    machinery is designed for sampler load-shedding (skip probing a
+    host whose providers are flapping), NOT for gating user-initiated
+    write actions. An operator who explicitly clicks Update on a
+    paused host is making an informed choice — likely TRYING to fix
+    the host's outage by recreating its container. Adding a
+    write-op gate here would block exactly the workflow the pause
+    indicator is meant to suggest. The Portainer write path is its
+    own load-balancing surface; we don't double-gate.
     """
     node = portainer.node_for_container(gather.get_cache(), container_id)
     op.log("[fallback] Inspecting container"
@@ -2506,7 +2589,7 @@ async def _recreate_container_in_place(op: Operation, container_id: str) -> None
             f"{portainer.PORTAINER_ENDPOINT_ID}"
             f"/docker/images/create?fromImage={target_image_ref}"
         )
-        op.log("[fallback] Pulling fresh image manifest…")
+        op.log(f"[fallback] Pulling fresh image manifest for {target_image_ref!r}…")
         r = await client.post(pull_url, headers=portainer.headers(agent_target=node))
         if r.status_code >= 400:
             raise RuntimeError(f"pull HTTP {r.status_code}: {r.text[:300]}")

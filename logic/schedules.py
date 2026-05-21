@@ -885,7 +885,15 @@ async def _run_prune_node(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
         "prune_node", hostname, hostname,
         actor=SCHEDULER_ACTOR,
     )
-    asyncio.create_task(_ops.do_prune_node(op, hostname))
+    # Lazy main import — avoids the circular dependency. Routes through
+    # `spawn_background_task` so the strong-ref + done-callback contract
+    # (see CLAUDE.md "Background-task lifecycle") protects the spawn
+    # from asyncio GC mid-execution.
+    import main as _main
+    _main.spawn_background_task(
+        _ops.do_prune_node(op, hostname),
+        label=f"schedule prune_node {hostname!r}",
+    )
     return op.id, _await_op_completion(op.id)
 
 
@@ -933,13 +941,24 @@ async def _run_prune_all_nodes(_params: dict) -> tuple[str, Awaitable[tuple[int,
 
     parent_id = "sched-" + secrets.token_hex(4)
     child_ops: list[_ops.Operation] = []
+    # Lazy main import — avoids the circular dependency. Routes every
+    # fan-out spawn through `spawn_background_task` so the strong-ref +
+    # done-callback contract (see CLAUDE.md "Background-task lifecycle")
+    # protects the per-host tasks from asyncio GC mid-execution. This
+    # matters MORE here than the single-node path: 5 nodes pruning
+    # concurrently means 5 tasks share the GC-collection risk surface
+    # under the bare-create_task shape.
+    import main as _main
     for host in hostnames:
         op = _ops.new_op(
             "prune_node", host, host,
             actor=SCHEDULER_ACTOR,
         )
         child_ops.append(op)
-        asyncio.create_task(_ops.do_prune_node(op, host))
+        _main.spawn_background_task(
+            _ops.do_prune_node(op, host),
+            label=f"schedule prune_all_nodes child {host!r}",
+        )
 
     async def waiter() -> tuple[int, str]:
         """Await every child prune-op in parallel; aggregate into
@@ -2385,7 +2404,13 @@ async def fire_schedule(schedule: dict) -> str:
         except (RuntimeError, ValueError, TypeError) as pub_err:
             print(f"[events] schedule:fired (end) publish failed: {pub_err}")
 
-    asyncio.create_task(_await_and_record())
+    # Lazy main import — strong-ref + done-callback contract via
+    # `spawn_background_task` (see CLAUDE.md "Background-task lifecycle").
+    import main as _main
+    _main.spawn_background_task(
+        _await_and_record(),
+        label=f"schedule waiter id={schedule.get('id')} kind={kind!r}",
+    )
     return op_id
 
 
