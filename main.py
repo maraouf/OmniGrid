@@ -13616,16 +13616,14 @@ async def api_hosts_test(
                     "detail": "no probe target (address blank)",
                 }
             else:
-                ping_port = 0
                 try:
                     ping_port = int(body.get("ping_port") or 0)
                 except (TypeError, ValueError):
                     ping_port = 0
                 r = await _ping_mod.probe_ping(
                     ping_target,
-                    port=ping_port or None,
-                    transport="tcp",
-                    timeout=3.0,
+                    port=(ping_port or 443),
+                    timeout_seconds=3.0,
                 )
                 if r.get("alive"):
                     rtt = r.get("rtt_ms")
@@ -13651,7 +13649,9 @@ async def api_hosts_test(
     # true`. Reuses probe_http_health (the sampler's own probe) so the
     # test's pass / fail criteria match production exactly. URL list
     # resolves server-side via the same operator-override → fallback
-    # chain the sampler uses.
+    # chain the sampler uses. `verify_tls` honours the row's per-host
+    # override (default True; operators set False for self-signed
+    # homelab certs) so the test matches the sampler exactly.
     http_probe_enabled = bool(body.get("http_probe_enabled"))
     if http_probe_enabled and "http_probe" in active_sources:
         try:
@@ -13660,28 +13660,48 @@ async def api_hosts_test(
             urls: list[str] = []
             if isinstance(urls_raw, list):
                 urls = [str(u).strip() for u in urls_raw if str(u or "").strip()]
+            # Per-row verify_tls override. Default True; explicit False
+            # opts into self-signed-cert acceptance for this host's
+            # probe path.
+            verify_tls_body = body.get("http_probe_verify_tls")
+            row_verify_tls = True if verify_tls_body is None else bool(verify_tls_body)
             # Fallback to top-level url + services[].url when no
             # operator override list was provided.
-            if not urls and row_id:
+            if (not urls or verify_tls_body is None) and row_id:
                 try:
                     curated_http = _load_hosts_config()
                     row_http = next((r for r in curated_http if r.get("id") == row_id), None)
                     if row_http:
-                        top_url = (row_http.get("url") or "").strip()
-                        if top_url:
-                            urls.append(top_url)
-                        svcs = row_http.get("services")
-                        if isinstance(svcs, list):
-                            for svc in svcs:
-                                if isinstance(svc, dict):
-                                    su = (svc.get("url") or "").strip()
-                                    if su:
-                                        urls.append(su)
+                        if not urls:
+                            top_url = (row_http.get("url") or "").strip()
+                            if top_url:
+                                urls.append(top_url)
+                            svcs = row_http.get("services")
+                            if isinstance(svcs, list):
+                                for svc in svcs:
+                                    if isinstance(svc, dict):
+                                        su = (svc.get("url") or "").strip()
+                                        if su:
+                                            urls.append(su)
+                        # If the SPA didn't send verify_tls, pull it
+                        # from the persisted row's http_probe sub-dict
+                        # so the test honours the stored setting.
+                        if verify_tls_body is None:
+                            persisted = (row_http.get("http_probe") or {})
+                            if isinstance(persisted, dict) and "verify_tls" in persisted:
+                                row_verify_tls = bool(persisted.get("verify_tls"))
                 except (json.JSONDecodeError, ValueError, OSError):
                     pass
-            # Dedupe while preserving order.
+            # Dedupe while preserving order. Explicit form avoids the
+            # `set.add() in a boolean expression` warning — add returns
+            # None which PyCharm flags as "function doesn't return".
             seen_urls: set[str] = set()
-            urls = [u for u in urls if not (u in seen_urls or seen_urls.add(u))]
+            deduped: list[str] = []
+            for u in urls:
+                if u not in seen_urls:
+                    seen_urls.add(u)
+                    deduped.append(u)
+            urls = deduped
             if not urls:
                 out["http_probe"] = {
                     "ok": False, "skipped": True,
@@ -13692,6 +13712,7 @@ async def api_hosts_test(
                 for u in urls[:8]:  # cap test fan-out at 8 URLs
                     rr = await _http_probe_mod.probe_http_health(
                         u, timeout=8.0, dns_timeout=5.0,
+                        verify_tls=row_verify_tls,
                     )
                     results.append(rr)
                 ok_count = sum(1 for rr in results if rr.get("ok"))
