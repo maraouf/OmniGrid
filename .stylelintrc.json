@@ -1,0 +1,50 @@
+{
+  "extends": "stylelint-config-standard",
+  "rules": {
+    "selector-class-pattern": null,
+    "selector-id-pattern": null,
+    "keyframes-name-pattern": null,
+    "custom-property-pattern": null,
+    "color-function-notation": null,
+    "alpha-value-notation": null,
+    "hue-degree-notation": null,
+    "no-descending-specificity": null,
+    "no-duplicate-selectors": null,
+    "declaration-block-no-redundant-longhand-properties": null,
+    "shorthand-property-no-redundant-values": null,
+    "property-no-vendor-prefix": null,
+    "value-no-vendor-prefix": null,
+    "selector-no-vendor-prefix": null,
+    "at-rule-no-vendor-prefix": null,
+    "media-feature-name-no-vendor-prefix": null,
+    "media-feature-range-notation": null,
+    "import-notation": null,
+    "comment-empty-line-before": null,
+    "rule-empty-line-before": null,
+    "declaration-empty-line-before": null,
+    "color-hex-length": null,
+    "number-max-precision": null,
+    "length-zero-no-unit": null,
+    "function-no-unknown": [
+      true,
+      { "ignoreFunctions": ["color-mix", "theme", "screen"] }
+    ],
+    "at-rule-no-unknown": [
+      true,
+      {
+        "ignoreAtRules": [
+          "tailwind",
+          "apply",
+          "variants",
+          "responsive",
+          "screen",
+          "layer"
+        ]
+      }
+    ]
+  },
+  "ignoreFiles": [
+    "node_modules/**/*.css",
+    "static/vendor/**/*.css"
+  ]
+}

@@ -9,7 +9,9 @@
   },
   "scripts": {
     "lint": "eslint static/",
-    "lint:fix": "eslint static/ --fix"
+    "lint:fix": "eslint static/ --fix",
+    "stylelint": "stylelint \"static/**/*.css\"",
+    "stylelint:fix": "stylelint \"static/**/*.css\" --fix"
   },
   "dependencies": {
     "@tailwindcss/browser": "*",
@@ -23,6 +25,8 @@
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "eslint": "^9.0.0",
-    "globals": "^15.0.0"
+    "globals": "^15.0.0",
+    "stylelint": "^16.0.0",
+    "stylelint-config-standard": "^36.0.0"
   }
 }

@@ -180,9 +180,48 @@ async def _tls_probe(hostname: str, port: int, timeout_seconds: float, verify_tl
                 out["tls_error"] = "tls: no ssl_object"
                 return out
             cert = ssl_obj.getpeercert()
+            # When verify_tls=False (CERT_NONE) Python doesn't parse
+            # the cert chain, so getpeercert() returns {} even though
+            # the cert IS on the wire. Fall back to the DER bytes via
+            # binary_form=True and parse with `cryptography.x509` to
+            # extract subject / issuer / expiry — that way self-signed
+            # homelab endpoints still surface the metadata operators
+            # care about (especially the expiry warning).
             if not cert:
-                out["tls_error"] = "tls: empty peercert"
-                return out
+                der_bytes: bytes = b""
+                try:
+                    raw_der = ssl_obj.getpeercert(binary_form=True)
+                    if isinstance(raw_der, bytes):
+                        der_bytes = raw_der
+                except (ValueError, OSError):
+                    der_bytes = b""
+                if not der_bytes:
+                    out["tls_error"] = "tls: empty peer certificate"
+                    return out
+                try:
+                    from cryptography import x509  # type: ignore
+                    from cryptography.hazmat.backends import default_backend  # type: ignore
+                    parsed = x509.load_der_x509_certificate(der_bytes, default_backend())
+                    try:
+                        not_after_dt = parsed.not_valid_after_utc
+                    except AttributeError:
+                        # cryptography < 42 — fall back to naive aware-stamp
+                        not_after_dt = parsed.not_valid_after.replace(tzinfo=timezone.utc)
+                    delta = not_after_dt - datetime.now(timezone.utc)
+                    out["tls_expires_in_days"] = int(delta.total_seconds() // 86400)
+                    subj = parsed.subject.rfc4514_string() if parsed.subject else ""
+                    iss = parsed.issuer.rfc4514_string() if parsed.issuer else ""
+                    if subj:
+                        out["tls_subject"] = subj[:200]
+                    if iss:
+                        out["tls_issuer"] = iss[:200]
+                    return out
+                except ImportError:
+                    out["tls_error"] = "tls: cryptography package unavailable for self-signed cert parse"
+                    return out
+                except Exception as cert_err:  # noqa: BLE001
+                    out["tls_error"] = f"tls: cert parse failed: {type(cert_err).__name__}: {str(cert_err)[:80]}"
+                    return out
             # `notAfter` is a string like "Aug 15 23:59:59 2026 GMT".
             # Python's ssl module uses this exact format universally.
             not_after = cert.get("notAfter")
