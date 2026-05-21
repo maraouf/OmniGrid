@@ -2521,6 +2521,27 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
     # stack item itself), and triple-firing the same do_update_stack
     # races against itself. Track every stack we've already spawned.
     spawned_stacks: set[int] = set()
+    # Bound /update all fan-out via a semaphore. Pre-bound this was
+    # unbounded — N=50 pending updates fanned out 50 parallel
+    # Portainer PUTs, overwhelming the daemon and starving operator-
+    # triggered updates. Each spawned op now goes through
+    # `_bounded_op_coro(coro)` which acquires the semaphore before
+    # firing the actual Portainer write. Cap is operator-tunable via
+    # `tuning_telegram_bulk_update_concurrency` (default 4, range
+    # 1..16). Per-call read so Admin → Config edits take effect on
+    # the next /update invocation without a listener restart.
+    from logic.tuning import Tunable, tuning_int
+    bulk_cap = max(1, tuning_int(Tunable.TELEGRAM_BULK_UPDATE_CONCURRENCY))
+    _bulk_sem = asyncio.Semaphore(bulk_cap)
+
+    async def _bounded_op_coro(coro):
+        """Acquire the bulk-update semaphore before awaiting the op
+        coroutine. Spawn sites wrap their `do_update_*(op, target)`
+        coro in this so the actual Portainer fan-out stays bounded
+        at the operator's chosen concurrency cap.
+        """
+        async with _bulk_sem:
+            await coro
     for i in targets:
         kind = i.get("type") or ""
         name = i.get("name") or ""
@@ -2547,10 +2568,13 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
                 )
                 # Lazy main import + `spawn_background_task` (see CLAUDE.md
                 # "Background-task lifecycle") — strong-ref + done-callback
-                # so the spawn survives asyncio GC mid-execution.
+                # so the spawn survives asyncio GC mid-execution. The
+                # coro is wrapped in `_bounded_op_coro` so the
+                # actual Portainer fan-out stays under the operator-
+                # tunable cap.
                 import main as _main
                 _main.spawn_background_task(
-                    do_update_stack(op, sid),
+                    _bounded_op_coro(do_update_stack(op, sid)),
                     label=f"telegram-update-stack-{sid}",
                 )
                 spawned += 1
@@ -2565,7 +2589,7 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
                 )
                 import main as _main
                 _main.spawn_background_task(
-                    do_update_container(op, str(raw_id)),
+                    _bounded_op_coro(do_update_container(op, str(raw_id))),
                     label=f"telegram-update-container-{str(raw_id)[:12]}",
                 )
                 spawned += 1
@@ -2598,7 +2622,7 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
                 )
                 import main as _main
                 _main.spawn_background_task(
-                    do_update_stack(op, sid),
+                    _bounded_op_coro(do_update_stack(op, sid)),
                     label=f"telegram-update-stack-from-service-{sid}",
                 )
                 spawned += 1
@@ -3008,22 +3032,58 @@ def _escape(s: str) -> str:
 # so unmapped senders can see at a glance which ones actually work
 # pre-link (operator-flagged: prior /help output had no distinction,
 # leading to "tried /host and got 🔒 Link your account first" confusion).
-_OPEN_COMMANDS: set[str] = {
-    "/link", "/help", "/start", "/whoami", "/myid",
-    "/version", "/ver", "/ip",
-}
+# Derived from `_COMMANDS[*].access == "open"` after the dict literal
+# is constructed below. Single source of truth — pre-derived this was a
+# hand-maintained set that could drift from the per-command metadata
+# (operator adding a new open command had to update BOTH places). The
+# helper `_open_command_names()` walks `_COMMANDS` lazily so the order
+# of declaration doesn't matter.
+def _open_command_names() -> set[str]:
+    """Return every `/cmd` name with `access == "open"`. Computed on
+    demand so the result tracks live `_COMMANDS` state if a future
+    test mutates it.
+    """
+    return {name for name, meta in _COMMANDS.items()
+            if (meta or {}).get("access") == "open"}
+
+
+# Backward-compat alias — every existing reference to `_OPEN_COMMANDS`
+# keeps working. New code SHOULD call `_open_command_names()` directly
+# OR consult `_command_access(name)` for finer-grained tier checks.
+# Initialised AFTER the `_COMMANDS` literal so the names exist.
 
 # `usage` is rendered HTML-escaped inside `<b>...</b>` — write it the
 # way you want it to read in Telegram, with literal `<target>` /
 # `<arg>` placeholders. `description` follows in plain text after the
 # em-dash separator. `hidden=True` keeps the entry off the /help menu
 # (used for aliases like `/start` → `_cmd_help`).
+#
+# Per-command auth tier:
+#   "access": "open"   → available before linking (mapping / discovery /
+#                        public-info surface). Published in the DEFAULT
+#                        setMyCommands scope so unmapped chats see only
+#                        these commands in the `/` autocomplete.
+#   "access": "linked" → requires a Telegram → OmniGrid user link
+#                        (`_lookup_omnigrid_user(sender_id)` non-None).
+#                        Published only in per-chat scopes for chats
+#                        listed in `telegram_chat_id`.
+#   "access": "admin"  → currently same wire behaviour as `linked` (the
+#                        Telegram API can't filter setMyCommands per
+#                        user role, only per chat). Future-proofs the
+#                        metadata so a future per-user-scope feature
+#                        can hide admin-only commands from non-admin
+#                        members of a shared chat.
+#
+# `_OPEN_COMMANDS` is derived from this metadata at module load so the
+# two never drift. New commands MUST declare `access` explicitly — a
+# missing key is treated as `"linked"` (the safest default).
 _COMMANDS: dict[str, dict[str, Any]] = {
     "/help": {
         "handler": _cmd_help,
         "usage": "/help",
         "description": "Show this command list",
         "category": "getting_started",
+        "access": "open",
     },
     "/start": {
         # Telegram clients send `/start` automatically when the user
@@ -3033,6 +3093,7 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "usage": "/start",
         "description": "Show the command list",
         "category": "getting_started",
+        "access": "open",
         "hidden": True,  # don't double up in /help (same handler as /help)
     },
     "/hosts": {
@@ -3040,48 +3101,61 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "usage": "/hosts",
         "description": "List curated hosts with their status",
         "category": "fleet",
+        "access": "linked",
     },
     "/host": {
         "handler": _cmd_host,
         "usage": "/host <target>",
         "description": "Show last-known stats for one host (CPU / memory / disk / uptime + extended provider stats: load, swap, bandwidth, temperatures, GPUs, containers, UPS). Cached readings only — no live probes.",
         "category": "fleet",
+        "access": "linked",
     },
     "/restart": {
         "handler": _cmd_restart,
         "usage": "/restart <target>",
         "description": "Restart a host via SSH (destructive — requires confirm)",
         "category": "ops",
+        "access": "admin",
     },
     "/cleanup": {
         "handler": _cmd_cleanup,
         "usage": "/cleanup [confirm]",
         "description": "List (or remove with `confirm`) stopped / failed / orphan containers — same surface as the SPA's topbar Cleanup button. SPA tabs auto-refresh as each removal lands.",
         "category": "ops",
+        "access": "linked",
     },
     "/update": {
         "handler": _cmd_update,
         "usage": "/update [all | <name>] [confirm]",
         "description": "List items with pending updates (no args), update ONE item by name, or `/update all` to pull-and-recreate every item flagged `update_available`. Same per-row update path the SPA uses; respects the destructive gate (`telegram_allow_destructive` or `confirm` suffix).",
         "category": "ops",
+        "access": "linked",
     },
     "/link": {
         "handler": _cmd_link,
         "usage": "/link <code>",
         "description": "Link your Telegram account to an OmniGrid user (code minted in Profile → Telegram)",
         "category": "account",
+        "access": "open",
     },
     "/unlink": {
         "handler": _cmd_unlink,
         "usage": "/unlink",
         "description": "Remove the Telegram → OmniGrid user link",
         "category": "account",
+        # `linked` (NOT `open`) — an unmapped user has no link to
+        # remove. Surfacing `/unlink` in the default-scope autocomplete
+        # would be noise on the first contact, and the bypass-gate
+        # for `_OPEN_COMMANDS` shouldn't let unmapped chats invoke
+        # `/unlink` against another user's link.
+        "access": "linked",
     },
     "/whoami": {
         "handler": _cmd_whoami,
         "usage": "/whoami",
         "description": "Show your access level &amp; ID (which OmniGrid user you're linked to)",
         "category": "account",
+        "access": "open",
     },
     "/myid": {
         # Alias for /whoami — the most common phrasing operators reach
@@ -3093,6 +3167,7 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "usage": "/myid",
         "description": "Show your access level &amp; ID (alias for /whoami)",
         "category": "account",
+        "access": "open",
         "hidden": True,
     },
     "/weather": {
@@ -3100,24 +3175,28 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "usage": "/weather",
         "description": "Show the weather for your saved location (set it in Profile → Weather)",
         "category": "info",
+        "access": "linked",
     },
     "/time": {
         "handler": _cmd_time,
         "usage": "/time",
         "description": "Show the local time at your saved weather location",
         "category": "info",
+        "access": "linked",
     },
     "/version": {
         "handler": _cmd_version,
         "usage": "/version",
         "description": "Show the running OmniGrid version",
         "category": "info",
+        "access": "open",
     },
     "/ip": {
         "handler": _cmd_ip,
         "usage": "/ip",
         "description": "Show the deployment's public IP + ISP / ASN / country (requires tuning_public_ip_enabled in Admin → Public IP)",
         "category": "info",
+        "access": "open",
     },
     "/ver": {
         # Alias for /version — same handler, hidden so the /help menu
@@ -3127,9 +3206,26 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "usage": "/ver",
         "description": "Show the running OmniGrid version (alias for /version)",
         "category": "info",
+        "access": "open",
         "hidden": True,
     },
 }
+
+
+def _command_access(name: str) -> str:
+    """Return the auth tier for a `/cmd` name. Missing key defaults to
+    `"linked"` — the safer fallback so a forgotten declaration doesn't
+    accidentally leak a new command into the unmapped-chat default scope.
+    """
+    meta = _COMMANDS.get(name) or {}
+    return str(meta.get("access") or "linked")
+
+
+# Initialised here (after `_COMMANDS` is fully constructed) so the
+# back-compat reference stays correct. Module-level snapshot — any
+# runtime mutation of `_COMMANDS` (tests, future plug-in) should
+# call `_open_command_names()` directly rather than reading this set.
+_OPEN_COMMANDS: set[str] = _open_command_names()
 
 # ----------------------------------------------------------------------------
 # AI fallback for non-`/` text
@@ -4590,9 +4686,23 @@ async def _register_telegram_commands(client: httpx.AsyncClient) -> None:
         # for the /help HTML render path; the
         # `setMyCommands` API expects plain text.
         raw_desc = (meta.get("description") or "").replace("&amp;", "&")
-        # Compact description: emoji prefix + plain description text
-        # capped at 240 chars to stay within Telegram's 256-char limit.
-        desc = f"{emoji} {raw_desc}"[:240].strip()
+        # Compact description: emoji prefix + plain description text.
+        # Telegram's hard limit is 256 BYTES on the description, not
+        # 256 chars — multi-byte UTF-8 (emoji, accented characters,
+        # CJK) could push a 250-char description past the byte cap
+        # silently. Pre-fix this used a 240-CHAR cap which conflated
+        # the two; an emoji-heavy operator-written description could
+        # exceed the byte limit. Truncate-by-bytes with a 240-byte
+        # budget (~16 bytes of headroom under the 256 limit) so we
+        # never split a multi-byte codepoint mid-sequence (the
+        # encode→slice→decode pattern keeps boundaries safe via
+        # `errors='ignore'`).
+        full = f"{emoji} {raw_desc}".strip()
+        encoded = full.encode("utf-8")
+        if len(encoded) > 240:
+            desc = encoded[:240].decode("utf-8", errors="ignore").strip()
+        else:
+            desc = full
         if not desc:
             desc = cmd_name
         commands_payload.append({

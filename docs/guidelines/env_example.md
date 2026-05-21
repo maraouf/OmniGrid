@@ -464,6 +464,17 @@ TELEGRAM_HTTP_TIMEOUT_SECONDS=35
 # effectively disable the limit on a private bot you trust.
 TELEGRAM_AI_CALLS_PER_MINUTE=6
 
+# `/update all` fan-out concurrency cap. When the operator types
+# `/update all confirm`, the dispatcher spawns a Portainer write-op
+# per item; pre-bound this was unbounded — N=50 pending updates
+# fanned out 50 parallel PUTs and overwhelmed the daemon. Each
+# spawned op now goes through a semaphore that bounds concurrent
+# rollouts. Default 4 balances rollout speed against Portainer load
+# on a single-manager Swarm. Range 1..16 — set to 1 for strictly
+# sequential rollouts (safe for small Pi deployments) or raise for
+# fast multi-node Swarms.
+TELEGRAM_BULK_UPDATE_CONCURRENCY=4
+
 # Host baseline sampler — controls the per-host drift detector. The
 # sampler recomputes a 30-day rolling baseline (median ± IQR) for CPU%
 # / Memory% / Disk% / Ping RTT once per `recompute_interval`. Baselines
@@ -825,6 +836,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `TELEGRAM_LONG_POLL_TIMEOUT_SECONDS` | Runtime  | `25`                 | Telegram `getUpdates` long-poll timeout. Range 1..50 (Telegram server cap). |
 | `TELEGRAM_HTTP_TIMEOUT_SECONDS`   | Runtime     | `35`                 | Outer HTTP timeout for the Telegram listener; should sit slightly above the long-poll value. Range 5..120. |
 | `TELEGRAM_AI_CALLS_PER_MINUTE`    | Runtime     | `6`                  | Per-Telegram-user rate limit for AI palette calls (rolling 60s bucket per user_id). Range 1..120. |
+| `TELEGRAM_BULK_UPDATE_CONCURRENCY`| Runtime     | `4`                  | `/update all` fan-out concurrency cap. Default 4 — sequential is 1, fast multi-node Swarms can raise to 16. Range 1..16. |
 | `HOST_BASELINE_RECOMPUTE_INTERVAL_SECONDS` | Runtime | `3600`        | Cadence for the host-baseline drift sampler. Range 60..86400. |
 | `HOST_BASELINE_FIRST_TICK_DELAY_SECONDS` | Runtime | `60`             | Delay before the first baseline pass after lifespan start. Range 5..600. |
 | `HOST_BASELINE_MIN_SAMPLES`       | Runtime     | `20`                 | Minimum sample count before a metric gets an IQR baseline (drift chip is hidden below this). Range 5..500. |

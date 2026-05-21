@@ -1469,6 +1469,7 @@ function app() {
       'tuning_telegram_long_poll_timeout_seconds',
       'tuning_telegram_http_timeout_seconds',
       'tuning_telegram_ai_calls_per_minute',
+      'tuning_telegram_bulk_update_concurrency',
       // Gather fan-out client timeout + orphan-probe per-call timeout —
       // also rendered in Admin → Portainer (gather talks to Portainer).
       'tuning_gather_client_timeout_seconds',
@@ -13483,6 +13484,7 @@ function app() {
           'tuning_telegram_long_poll_timeout_seconds',
           'tuning_telegram_http_timeout_seconds',
           'tuning_telegram_ai_calls_per_minute',
+          'tuning_telegram_bulk_update_concurrency',
         ]) {
           if (tf[k] != null && String(tf[k]).trim() !== '') {
             payload[k] = String(tf[k]).trim();
