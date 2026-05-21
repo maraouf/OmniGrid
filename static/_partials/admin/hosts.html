@@ -1001,6 +1001,14 @@
                         x-text="hostsTestResults[idx] && hostsTestResults[idx][name] ? hostsTestResults[idx][name].detail : ''"></span>
                 </div>
               </template>
+              <!-- All-skipped hint — every provider returned skipped
+                   (host has no provider mappings OR every mapped
+                   provider is gated off). Without this hint, the
+                   result block renders empty and the operator can't
+                   tell whether the test ran or silently failed. -->
+              <span x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].pending && !hostsTestResults[idx].error && ['beszel','pulse','node_exporter','webmin','snmp','ping','http_probe'].every(n => !hostsTestResults[idx][n] || hostsTestResults[idx][n].skipped))"
+                    class="fs-xs text-[var(--text-faint)] italic"
+                    x-text="t('admin_hosts.test.all_skipped') || 'No provider mapped on this row — nothing to test.'"></span>
             </div>
             <div x-show="hostsTestResults[idx] && hostsTestResults[idx].error"
                  class="fs-xs text-[var(--danger)]"

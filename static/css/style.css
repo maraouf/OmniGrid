@@ -25,6 +25,7 @@
    Poppins font — vendored under static/fonts/ for offline operation.
    Refresh with scripts/download_poppins.sh if Google ever changes the URLs.
    --------------------------------------------------------------------------- */
+/*noinspection CssUnknownTarget*/
 @font-face {
   font-family: 'Poppins';
   font-style: normal;
@@ -33,6 +34,7 @@
   src: url('/fonts/poppins-regular-400.woff2') format('woff2');
 }
 
+/*noinspection ALL*/
 @font-face {
   font-family: 'Poppins';
   font-style: normal;
@@ -41,6 +43,7 @@
   src: url('/fonts/poppins-medium-500.woff2') format('woff2');
 }
 
+/*noinspection ALL*/
 @font-face {
   font-family: 'Poppins';
   font-style: normal;
@@ -49,6 +52,7 @@
   src: url('/fonts/poppins-semibold-600.woff2') format('woff2');
 }
 
+/*noinspection ALL*/
 @font-face {
   font-family: 'Poppins';
   font-style: normal;
@@ -57,6 +61,7 @@
   src: url('/fonts/poppins-bold-700.woff2') format('woff2');
 }
 
+/*noinspection ALL*/
 @font-face {
   font-family: 'Poppins';
   font-style: italic;
@@ -955,6 +960,25 @@ button:disabled {
 
 .btn-warning:hover {
   filter: brightness(1.08);
+}
+
+/* `.btn-dirty` — amber ring + glow stamped onto a primary save button
+ * when its section has unsaved edits. Used by every host-stats
+ * section save (NE / Beszel / Pulse / Webmin / Ping / SNMP / HTTP
+ * probe) plus the AI / Notifications / Public IP / SSH section saves
+ * — every section that exposes a `<name>SectionDirty()` helper binds
+ * `:class="<name>SectionDirty() ? 'btn-dirty' : ''"`. Without this
+ * rule the dirty cue silently no-ops — caught when the operator
+ * reported the Save button never showed the yellow border on dirty.
+ * The ring uses the warning token so it tracks the theme. */
+.btn-dirty {
+  box-shadow: 0 0 0 2px var(--warning), 0 0 8px 0 var(--warning);
+  outline: 0;
+}
+
+.btn-dirty:focus-visible {
+  box-shadow: 0 0 0 2px var(--warning), 0 0 8px 0 var(--warning),
+  0 0 0 4px var(--primary-soft);
 }
 
 .btn-ghost {

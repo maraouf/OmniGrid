@@ -13355,6 +13355,15 @@ async def api_hosts_test(
         "node_exporter": {"ok": False, "skipped": True, "detail": "not set"},
         "webmin": {"ok": False, "skipped": True, "detail": "not set"},
         "snmp": {"ok": False, "skipped": True, "detail": "not set"},
+        # Ping + HTTP probe slots — the SPA's test-result render
+        # iterates a 7-element list ['beszel', ..., 'http_probe'].
+        # Slots that aren't initialised render as `undefined` and the
+        # x-show="!skipped" gate falls through to "hide" leaving the
+        # operator with an empty result block. Default both to skipped
+        # so the SPA can correctly render "not tested" + the actual
+        # probe blocks below override per body fields.
+        "ping": {"ok": False, "skipped": True, "detail": "not set"},
+        "http_probe": {"ok": False, "skipped": True, "detail": "not set"},
     }
 
     # Respect the global host_stats_source CSV — a provider disabled
