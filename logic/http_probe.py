@@ -62,21 +62,42 @@ from urllib.parse import urlparse
 
 import httpx
 
-# Accepted-status-codes default — any 2xx OR 3xx counts as "status_ok".
-# Broader than the original 2xx-only contract because many homelab
-# targets respond with 301 / 302 to a bare `/` (Nextcloud, GitLab,
-# Forgejo, common reverse-proxy welcome pages), and operators using
-# the default contract should see those as healthy rather than as
-# probe failures. The probe also enables ``follow_redirects=True``
-# on its httpx client so a redirect CHAIN lands on the final status
-# code — typically a 200 — which then counts under the default range
-# without any per-row override. Caller can override via
-# ``accepted_status_codes`` to gate on a specific code (e.g. some
-# hosts intentionally redirect and the operator wants to flag a 200
-# as suspicious, or a strictly-locked-down API requires 401 from
-# anonymous probes).
-_DEFAULT_ACCEPTED_CODES_LO = 200
-_DEFAULT_ACCEPTED_CODES_HI = 399
+# Accepted-status-codes default — any code inside the operator-tunable
+# `tuning_http_probe_default_accepted_lo_code` / `_hi_code` range
+# counts as "status_ok" when no per-row override is set. Default
+# 200..399 covers redirect-fronted endpoints (Nextcloud, GitLab,
+# Forgejo, common reverse-proxy welcome pages) — the homelab norm.
+# Operators on diagnostic deploys may broaden (e.g. 100..599 — "any
+# response = alive") OR tighten back to 200..299 from Admin → Config.
+# The probe also enables ``follow_redirects=True`` on its httpx client
+# so a redirect CHAIN lands on the final status code which then
+# counts under the default range without any per-row override.
+# Per-row ``accepted_status_codes`` CSV overrides this range exactly —
+# operators wanting to gate on a specific code (e.g. some hosts
+# intentionally redirect and the operator wants to flag a 200 as
+# suspicious, or a strictly-locked-down API requires 401 from
+# anonymous probes) set the CSV per-host. Per-use reads so Admin →
+# Config edits take effect on the next probe without a restart.
+_DEFAULT_ACCEPTED_CODES_FALLBACK_LO = 200
+_DEFAULT_ACCEPTED_CODES_FALLBACK_HI = 399
+
+
+def _default_accepted_codes_range() -> tuple[int, int]:
+    """Resolve the (lo, hi) range via TUNABLES with a defensive
+    fallback. Lazy-import the tuning module to avoid the
+    ``http_probe → tuning → ?`` circular-import risk at module load.
+    """
+    try:
+        from logic.tuning import tuning_int, Tunable
+        lo = tuning_int(Tunable.HTTP_PROBE_DEFAULT_ACCEPTED_LO_CODE)
+        hi = tuning_int(Tunable.HTTP_PROBE_DEFAULT_ACCEPTED_HI_CODE)
+        # Defensive: a misconfigured lo > hi would silently reject
+        # every status code. Swap to keep the range non-empty.
+        if lo > hi:
+            lo, hi = hi, lo
+        return lo, hi
+    except (KeyError, ValueError, TypeError, ImportError):
+        return _DEFAULT_ACCEPTED_CODES_FALLBACK_LO, _DEFAULT_ACCEPTED_CODES_FALLBACK_HI
 
 
 def _hostname_of(url: str) -> str:
@@ -287,14 +308,18 @@ async def _tls_probe(hostname: str, port: int, timeout_seconds: float, verify_tl
 
 
 def _status_in_accepted(status_code: int, accepted: Optional[Sequence[int]]) -> bool:
-    """Status check — explicit list when supplied, else default 2xx.
+    """Status check — explicit list when supplied, else operator-
+    tunable range via the ``HTTP_PROBE_DEFAULT_ACCEPTED_*_CODE``
+    TUNABLES (default 200..399).
 
     Accepted list is a sequence of ints; an empty / None list falls
-    through to the 2xx default. The default keeps the probe useful
-    out-of-the-box without per-host customisation.
+    through to the default range. Per-use read of the TUNABLES range
+    so Admin → Config edits take effect on the next probe without a
+    restart.
     """
     if not accepted:
-        return _DEFAULT_ACCEPTED_CODES_LO <= status_code <= _DEFAULT_ACCEPTED_CODES_HI
+        lo, hi = _default_accepted_codes_range()
+        return lo <= status_code <= hi
     try:
         return int(status_code) in {int(x) for x in accepted}
     except (TypeError, ValueError):

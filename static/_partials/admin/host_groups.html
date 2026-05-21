@@ -438,11 +438,11 @@
                 @change="hostGroupsSetPerPage($event.target.value)"
                 class="fs-xs py-1 ms-2"
                 :title="t('pagination.rows_per_page_title')">
-          <option value="10">10 / page</option>
-          <option value="25">25 / page</option>
-          <option value="50">50 / page</option>
-          <option value="100">100 / page</option>
-          <option value="200">200 / page</option>
+          <option value="10" x-text="t('pagination.per_page_option', { count: 10 })"></option>
+          <option value="25" x-text="t('pagination.per_page_option', { count: 25 })"></option>
+          <option value="50" x-text="t('pagination.per_page_option', { count: 50 })"></option>
+          <option value="100" x-text="t('pagination.per_page_option', { count: 100 })"></option>
+          <option value="200" x-text="t('pagination.per_page_option', { count: 200 })"></option>
         </select>
       </label>
     </div>

@@ -1434,6 +1434,8 @@ function app() {
         'tuning_http_probe_cert_warning_days',
         'tuning_http_probe_host_cache_ttl_seconds',
         'tuning_http_probe_host_fail_cache_ttl_seconds',
+        'tuning_http_probe_default_accepted_lo_code',
+        'tuning_http_probe_default_accepted_hi_code',
       ],
     },
     relocatedTuningKeys: [
@@ -1504,6 +1506,8 @@ function app() {
       'tuning_http_probe_cert_warning_days',
       'tuning_http_probe_host_cache_ttl_seconds',
       'tuning_http_probe_host_fail_cache_ttl_seconds',
+      'tuning_http_probe_default_accepted_lo_code',
+      'tuning_http_probe_default_accepted_hi_code',
       // SNMP provider tunables (rendered in Host stats → SNMP).
       'tuning_snmp_probe_timeout_seconds',
       'tuning_snmp_wall_clock_budget_seconds',
@@ -16791,6 +16795,50 @@ function app() {
       }
       return s.charAt(0).toUpperCase() + s.slice(1);
     },
+    // Stack-update convergence summary — pulls the latest "Convergence
+    // poll: N service(s) still updating: …" event line off a running
+    // op's event log and returns a tidy one-line summary string for
+    // the active-ops panel. Backend emits these lines from
+    // `logic/ops.py:_await_stack_convergence`; the SPA renders them
+    // inline so the operator sees rolling-update progress instead of
+    // staring at a 300s spinner. Returns '' when the op is NOT in a
+    // convergence wait (other op_types, or stack-update before any
+    // poll has logged), so the consumer can gate via `x-if`.
+    stackConvergenceSummary(op) {
+      if (!op || op.status !== 'running') {
+        return '';
+      }
+      if (op.op_type !== 'update_stack') {
+        return '';
+      }
+      const events = Array.isArray(op.events) ? op.events : [];
+      let latestPoll = '';
+      let latestWaiting = '';
+      // Walk newest → oldest. The convergence-poll line is what we
+      // most want; fall back to the "Waiting for stack convergence
+      // (timeout=…, poll=…)" line if no poll has fired yet so the
+      // operator at least sees "convergence wait started".
+      for (let i = events.length - 1; i >= 0; i--) {
+        const msg = String((events[i] || {}).msg || '');
+        if (!latestPoll && msg.startsWith('Convergence poll:')) {
+          latestPoll = msg;
+          break;
+        }
+        if (!latestWaiting && msg.startsWith('Waiting for stack convergence')) {
+          latestWaiting = msg;
+        }
+      }
+      if (latestPoll) {
+        // Strip the "Convergence poll: " prefix so the chip reads as
+        // a clean one-liner: "2 service(s) still updating: …". Keeps
+        // the operator's eye on the actionable part.
+        return latestPoll.replace(/^Convergence poll:\s*/, '');
+      }
+      if (latestWaiting) {
+        return this.t('active_ops.convergence_starting') || 'Waiting for stack convergence…';
+      }
+      return '';
+    },
     // ---------------------------------------------------------------
     // AI integration (Stage 1 foundation) — provider config + dashboard.
     // No actual AI calls are made yet; this is the surface that future
@@ -26767,8 +26815,31 @@ function app() {
             // so the SPA only forwards the enable flag + the optional
             // override list when explicitly set.
             http_probe_enabled: !!(row.http_probe && row.http_probe.enabled === true),
-            http_probe_urls: (row.http_probe && Array.isArray(row.http_probe.urls))
-              ? row.http_probe.urls : [],
+            // Resolve URLs from the in-flight textarea content first so
+            // the test reflects what the operator typed, NOT the
+            // last-saved array. Mirrors the save-time serialization in
+            // `saveHostsConfig` (split-on-newline → trim → drop
+            // non-http(s) → Set-dedup). When `urls_text` was never
+            // rendered (load-then-test without textarea interaction)
+            // fall back to the persisted `urls` array so a save-then-
+            // test round-trip stays correct.
+            http_probe_urls: (function () {
+              const hp = row.http_probe || {};
+              if (typeof hp.urls_text === 'string') {
+                const out = [];
+                const seen = new Set();
+                for (const raw of hp.urls_text.split(/\r?\n/)) {
+                  const s = String(raw || '').trim();
+                  const sl = s.toLowerCase();
+                  if (s && (sl.startsWith('http://') || sl.startsWith('https://')) && !seen.has(s)) {
+                    seen.add(s);
+                    out.push(s);
+                  }
+                }
+                return out;
+              }
+              return Array.isArray(hp.urls) ? hp.urls : [];
+            })(),
             // Per-row TLS verification override — operator unticks
             // this for self-signed homelab certs. Forwarded so the
             // test path honours the same verify flag the sampler

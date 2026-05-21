@@ -3541,6 +3541,25 @@
                   x-text="opStatusLabel(op.status)"></span>
             <span class="fs-3xs text-[var(--text-faint)]" x-text="t('common.seconds_short', { value: (op.duration || 0).toFixed(1) })"></span>
           </div>
+          <!-- Stack-update convergence progress summary — pulls the
+               latest "Convergence poll: N service(s) still updating: …"
+               event line off the op's event log and renders a tidy
+               one-line summary chip. Without it, the operator stares
+               at the SweetAlert confirm OR the Update button waiting
+               300s with no signal. Drives off the already-emitted
+               `_await_stack_convergence` op.log lines so no new
+               backend plumbing is needed. -->
+          <template x-if="op.status === 'running' && stackConvergenceSummary(op)">
+            <div class="mt-1.5 flex items-center gap-2 fs-2xs text-[var(--text-dim)]"
+                 :title="t('active_ops.convergence_summary_title')">
+              <span class="spin-md inline-flex" aria-hidden="true">
+                <svg width="11" height="11" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
+                </svg>
+              </span>
+              <span x-text="stackConvergenceSummary(op)"></span>
+            </div>
+          </template>
           <div class="mt-1.5 bg-[var(--bg)] rounded p-2 mono fs-2xs space-y-0.5 max-h-24 overflow-y-auto scrollbar border border-[var(--border)]">
             <template x-for="(ev,i) in op.events" :key="i">
               <div :class="ev.level==='error' ? 'text-[var(--danger)]' : ev.level==='success' ? 'text-[var(--success)]' : 'text-[var(--text-dim)]'"

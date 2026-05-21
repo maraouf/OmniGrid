@@ -4595,34 +4595,90 @@ async def _register_telegram_commands(client: httpx.AsyncClient) -> None:
         desc = f"{emoji} {raw_desc}"[:240].strip()
         if not desc:
             desc = cmd_name
-        commands_payload.append({"command": cmd_name, "description": desc})
+        commands_payload.append({
+            "command": cmd_name,
+            "description": desc,
+            "_is_open": name in _OPEN_COMMANDS,
+        })
     if not commands_payload:
         return
     # Telegram caps at 100 commands. We've got ~20 today; defensive
     # truncation in case the roster grows past that one day.
     commands_payload = commands_payload[:100]
-    try:
-        r = await client.post(
-            f"{_telegram_api_base()}/bot{token}/setMyCommands",
-            json={"commands": commands_payload},
-            timeout=10.0,
-        )
-        if r.status_code == 200 and (r.json() or {}).get("ok"):
+
+    # Per-scope strategy — solves the "/ autocomplete shows every
+    # command, most error with 'unauthorised'" UX wart. Two payloads:
+    #
+    #   DEFAULT scope (every chat without a more-specific override) →
+    #       open commands only (`_OPEN_COMMANDS` set). Unmapped users
+    #       see only the commands that actually work for them
+    #       (/help, /start, /link, /unlink, /version) instead of the
+    #       full roster that 4xx's on auth.
+    #
+    #   CHAT scope (every authorised chat from
+    #       `telegram_chat_id` CSV) → full roster. Authorised users
+    #       still see every command they can actually invoke.
+    #
+    # If the bot has NO authorised chat configured (fresh deploy)
+    # the chat-scope step is skipped and the default carries the full
+    # roster as a fallback — operator linking the first chat will
+    # see every command + the listener's per-loop register re-fires
+    # the proper per-scope split on the next iteration.
+    full_payload = [
+        {"command": c["command"], "description": c["description"]}
+        for c in commands_payload
+    ]
+    open_payload = [
+        {"command": c["command"], "description": c["description"]}
+        for c in commands_payload if c["_is_open"]
+    ]
+    authorized_chats = sorted(_authorized_chat_ids())
+    default_payload = open_payload if (authorized_chats and open_payload) else full_payload
+
+    api_base = _telegram_api_base()
+    set_url = f"{api_base}/bot{token}/setMyCommands"
+
+    async def _push(payload: list[dict], scope_obj: Optional[dict], label: str) -> bool:
+        body: dict = {"commands": payload}
+        if scope_obj is not None:
+            body["scope"] = scope_obj
+        try:
+            r = await client.post(set_url, json=body, timeout=10.0)
+            if r.status_code == 200 and (r.json() or {}).get("ok"):
+                print(
+                    f"[telegram_listener] setMyCommands OK ({label}) — "
+                    f"{len(payload)} commands registered"
+                )
+                return True
             print(
-                f"[telegram_listener] setMyCommands OK — "
-                f"{len(commands_payload)} commands registered"
-            )
-            _LAST_REGISTERED_TOKEN_HASH[0] = token_hash
-        else:
-            print(
-                f"[telegram_listener] setMyCommands failed: "
+                f"[telegram_listener] setMyCommands failed ({label}): "
                 f"HTTP {r.status_code} body={r.text[:200]}"
             )
-    except (asyncio.CancelledError, KeyboardInterrupt):
-        raise
-    # noinspection PyBroadException
-    except Exception as e:  # noqa: BLE001
-        print(f"[telegram_listener] setMyCommands exception: {e}")
+            return False
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        # noinspection PyBroadException
+        except Exception as exc:  # noqa: BLE001
+            print(f"[telegram_listener] setMyCommands exception ({label}): {exc}")
+            return False
+
+    default_ok = await _push(default_payload, None, "default")
+    chat_results = []
+    for chat_id in authorized_chats:
+        try:
+            chat_scope = {"type": "chat", "chat_id": int(chat_id)}
+        except (TypeError, ValueError):
+            # Telegram's chat scope requires an int chat_id. Channel
+            # IDs of the form `@channel_name` aren't supported here —
+            # skip rather than 400.
+            continue
+        chat_results.append(await _push(full_payload, chat_scope, f"chat={chat_id}"))
+
+    # Token-hash gate only re-fires when EITHER push fails — so a
+    # transient Telegram error doesn't lock the registration out for
+    # the rest of the process lifetime.
+    if default_ok and all(chat_results):
+        _LAST_REGISTERED_TOKEN_HASH[0] = token_hash
 
 
 async def listener_loop() -> None:

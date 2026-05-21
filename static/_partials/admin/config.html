@@ -24,8 +24,21 @@
     <div class="space-y-4" x-show="tuningLoaded">
       <template x-for="key in sortedTuningKeys()" :key="key">
         <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
-          <label class="block fs-sm font-medium mb-1"
-                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <label class="flex items-center gap-2 fs-sm font-medium mb-1 flex-wrap">
+            <span x-text="t('admin.config.fields.' + key + '.label')"></span>
+            <!-- Dead-tunable badge — surfaces when the audit shows the
+                 knob has no live consumer (BUG-003 drift class). The
+                 input still saves to the DB but the value silently
+                 no-ops at runtime; this badge tells the operator not
+                 to spend time tuning it. Resolved server-side via
+                 `effective_state()` → `unused: bool`; see CLAUDE.md
+                 "Dead-tunable drift class" for the canonical audit.
+                 -->
+            <span x-show="(tuningEffective[key] || {}).unused === true"
+                  class="chip fs-2xs pill-muted"
+                  :title="t('admin.config.unused_badge_title')"
+                  x-text="t('admin.config.unused_badge_label')"></span>
+          </label>
           <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
              x-text="t('admin.config.fields.' + key + '.help')"></p>
           <div class="flex flex-wrap items-center gap-2">
