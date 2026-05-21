@@ -3987,7 +3987,8 @@
     "test": {
       "no_eligible": "No enabled hosts with provider mappings to test.",
       "tested_n": "Tested {count} host(s) — see per-row results.",
-      "test_failed": "Test failed: {error}"
+      "test_failed": "Test failed: {error}",
+      "all_skipped": "No provider mapped on this row — nothing to test."
     },
     "load_failed_status": "Load hosts failed: HTTP {status}",
     "load_failed": "Load hosts failed: {error}",

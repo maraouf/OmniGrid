@@ -6125,14 +6125,9 @@ function app() {
     // Posts ONLY Ping's plain settings + the five Ping tunables.
     // Per the section-saves-its-own-tunables convention.
     _pingSectionTuningKeys() {
-      return [
-        'tuning_ping_interval_seconds',
-        'tuning_ping_concurrency',
-        'tuning_ping_probe_timeout_seconds',
-        'tuning_ping_cooldown_seconds',
-        'tuning_ping_packet_interval_ms',
-        'tuning_ping_failure_pause_rounds',
-      ];
+      // Proxy through the central `_perProviderTuneKeys.ping` map so
+      // adding a new tunable to the markup auto-extends dirty + save.
+      return (this._perProviderTuneKeys && this._perProviderTuneKeys.ping) || [];
     },
     _pingSectionPlainKeys() {
       return [
@@ -6680,9 +6675,12 @@ function app() {
     // Posts ONLY NE's plain settings + the NE probe-timeout tunable.
     // Per the section-saves-its-own-tunables convention.
     _neSectionTuningKeys() {
-      return [
-        'tuning_node_exporter_probe_timeout_seconds',
-      ];
+      // Proxy through the central `_perProviderTuneKeys.node_exporter`
+      // map so every NE tunable rendered in the sub-tab rides this
+      // section's Save handler + dirty cue. Pre-fix the hardcoded
+      // single-key list missed the sample_interval + failure_pause
+      // tunables — operator edits to those didn't trigger dirty.
+      return (this._perProviderTuneKeys && this._perProviderTuneKeys.node_exporter) || [];
     },
     _neSectionPlainKeys() {
       return [
@@ -6802,12 +6800,12 @@ function app() {
     // Posts ONLY Webmin's plain settings + the four Webmin tunables in
     // its own body. Per the section-saves-its-own-tunables convention.
     _webminSectionTuningKeys() {
-      return [
-        'tuning_webmin_probe_budget_seconds',
-        'tuning_webmin_host_cache_ttl_seconds',
-        'tuning_webmin_host_fail_cache_ttl_seconds',
-        'tuning_webmin_failure_pause_rounds',
-      ];
+      // Proxy through the central `_perProviderTuneKeys.webmin` map.
+      // Pre-fix the hardcoded list missed probe_timeout_seconds +
+      // sampler_budget_seconds, so operator edits to those didn't
+      // trigger dirty. Single-source via the central map prevents
+      // future tunable additions from drifting again.
+      return (this._perProviderTuneKeys && this._perProviderTuneKeys.webmin) || [];
     },
     _webminSectionPlainKeys() {
       // Plain settings the Webmin sub-tab owns. Tracked separately
