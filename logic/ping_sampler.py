@@ -36,6 +36,7 @@ from logic import ping as _ping
 from logic import tuning
 from logic.tuning import Tunable as _Tunable
 from logic.db import db_conn, get_setting_bool, active_host_stats_providers, iter_curated_hosts
+from logic.sampler_loop import lifespan_sampler_loop
 from logic.settings_keys import Settings
 
 
@@ -272,6 +273,34 @@ def _resolve_ping_interval() -> int:
     return max(10, global_iv or 300)
 
 
+async def _ping_tick(tick: int) -> None:
+    """Per-tick body — gate on the ``ping`` active-source check, fan
+    out probes across curated hosts, run the hourly retention prune.
+
+    Cancellation propagation is the helper's job; this body just
+    raises any ``CancelledError`` that comes out of ``gather``.
+    """
+    active = active_host_stats_providers()
+    if "ping" in active:
+        hosts = _curated_ping_hosts()
+        if hosts:
+            sem = asyncio.Semaphore(tuning.tuning_int(_Tunable.PING_CONCURRENCY))
+            await asyncio.gather(
+                *(_probe_one(h, sem) for h in hosts),
+                return_exceptions=True,
+            )
+    # Hourly retention prune — `tick % (3600 // interval) == 0` fires
+    # roughly once an hour regardless of cadence. Same shape as the
+    # pre-helper loop; interval resolved here so the prune cadence
+    # tracks the operator's current tunable.
+    interval = _resolve_ping_interval()
+    days = tuning.tuning_int(_Tunable.STATS_HISTORY_DAYS)
+    if tick % max(1, 3600 // interval) == 0:
+        n = _prune_old_samples()
+        if n:
+            print(f"[ping_sampler] pruned {n} rows older than {days}d")
+
+
 async def ping_sampler_loop() -> None:
     """Lifespan-managed sampler. One tick per
     ``tuning_ping_interval_seconds`` (DB > env > default). When set to
@@ -283,35 +312,12 @@ async def ping_sampler_loop() -> None:
     Dormant when ``"ping"`` isn't in ``host_stats_source`` — keeps
     ticking so the operator can flip ping on without restarting.
     """
-    interval = _resolve_ping_interval()
-    await asyncio.sleep(min(30, interval))
-    tick = 0
-    while True:
-        try:
-            active = active_host_stats_providers()
-            if "ping" not in active:
-                pass  # globally disabled
-            else:
-                hosts = _curated_ping_hosts()
-                if hosts:
-                    sem = asyncio.Semaphore(tuning.tuning_int(_Tunable.PING_CONCURRENCY))
-                    await asyncio.gather(
-                        *(_probe_one(h, sem) for h in hosts),
-                        return_exceptions=True,
-                    )
-            interval = _resolve_ping_interval()
-            days = tuning.tuning_int(_Tunable.STATS_HISTORY_DAYS)
-            if tick % max(1, 3600 // interval) == 0:
-                n = _prune_old_samples()
-                if n:
-                    print(f"[ping_sampler] pruned {n} rows older than {days}d")
-        except Exception as e:
-            print(f"[ping_sampler] tick error: {e}")
-        tick += 1
-        try:
-            await asyncio.sleep(interval)
-        except asyncio.CancelledError:
-            raise
+    await lifespan_sampler_loop(
+        "ping_sampler",
+        _ping_tick,
+        _resolve_ping_interval,
+        first_tick_delay=min(30, _resolve_ping_interval()),
+    )
 
 
 def recent_samples(host_id: str, since_ts: int, limit: int = 1000) -> list[dict]:

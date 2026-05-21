@@ -18,6 +18,7 @@ import time
 
 from logic import host_baseline as _baseline
 from logic.db import iter_curated_hosts
+from logic.sampler_loop import lifespan_sampler_loop
 from logic.tuning import Tunable, tuning_int as _tuning_int
 
 
@@ -46,44 +47,41 @@ def _curated_host_ids() -> list[str]:
     ]
 
 
+async def _baseline_tick(tick: int) -> None:
+    """Per-tick body — walk every curated host id and recompute its
+    baseline. Per-host failures are caught + logged so one bad host
+    doesn't fail the whole tick. ``CancelledError`` /
+    ``KeyboardInterrupt`` re-raise so the lifespan cancel propagates
+    cleanly through the helper's outer envelope.
+    """
+    hosts = _curated_host_ids()
+    start = time.time()
+    for hid in hosts:
+        try:
+            _baseline.compute_baselines(hid)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as exc:  # noqa: BLE001
+            print(f"[host_baseline_sampler] tick {tick} {hid!r} failed: {exc}")
+    elapsed = time.time() - start
+    print(
+        f"[host_baseline_sampler] tick {tick}: walked {len(hosts)} curated "
+        f"hosts in {elapsed:.2f}s"
+    )
+
+
 async def host_baseline_sampler_loop() -> None:
     """Lifespan-managed loop. Walks every curated host once per
-    `tuning_host_baseline_recompute_interval_seconds` and refreshes
+    ``tuning_host_baseline_recompute_interval_seconds`` and refreshes
     their baselines.
 
-    Cancellation: re-raises `asyncio.CancelledError` so the lifespan
-    cleanup completes promptly. Per-host failures don't fail the
-    whole tick — `compute_baselines` swallows + logs internally.
+    Cancellation + per-tick error handling live in the shared
+    :func:`lifespan_sampler_loop` envelope; the per-host failure
+    isolation stays inside :func:`_baseline_tick`.
     """
-    print("[host_baseline_sampler] lifespan started")
-    await asyncio.sleep(_first_tick_delay())
-    tick = 0
-    try:
-        while True:
-            tick += 1
-            try:
-                hosts = _curated_host_ids()
-                start = time.time()
-                for hid in hosts:
-                    try:
-                        _baseline.compute_baselines(hid)
-                    except (asyncio.CancelledError, KeyboardInterrupt):
-                        raise
-                    except Exception as e:
-                        print(f"[host_baseline_sampler] tick {tick} {hid!r} failed: {e}")
-                elapsed = time.time() - start
-                print(
-                    f"[host_baseline_sampler] tick {tick}: walked {len(hosts)} curated "
-                    f"hosts in {elapsed:.2f}s"
-                )
-            except (asyncio.CancelledError, KeyboardInterrupt):
-                raise
-            except Exception as e:  # noqa: BLE001
-                print(f"[host_baseline_sampler] tick {tick} error: {e}")
-            try:
-                await asyncio.sleep(_interval_seconds())
-            except asyncio.CancelledError:
-                raise
-    except asyncio.CancelledError:
-        print("[host_baseline_sampler] lifespan cancelled")
-        raise
+    await lifespan_sampler_loop(
+        "host_baseline_sampler",
+        _baseline_tick,
+        _interval_seconds,
+        first_tick_delay=_first_tick_delay(),
+    )

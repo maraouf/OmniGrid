@@ -2495,15 +2495,7 @@
                      `providerColor()`, per-provider customisable
                      under Settings → Providers. -->
                       <template x-for="p in providerStates(h)" :key="p.name">
-                  <span class="chip text-[9.5px] px-1 py-0"
-                        :class="p.state === 'failing' ? 'pill-error'
-                                : (p.state === 'paused' ? 'pill-muted'
-                                : (p.state === 'loading' ? 'pill-custom chip-loading' : 'pill-custom'))"
-                        :style="(p.state === 'failing' || p.state === 'paused') ? '' : providerChipStyle(p.name)"
-                        :title="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: p.name, count: p.consecutive_failures, error: p.last_error || '—' })
-                                : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: p.name })
-                                : (p.state === 'loading' ? t('hosts_extra.provider_loading', { provider: p.name }) || (p.name + ' — fetching…') : ''))"
-                        x-text="p.name === 'node_exporter' ? 'exporter' : p.name"></span>
+                        <!-- INCLUDE: _components/host-provider-chip.html -->
                       </template>
                     </div>
                   </div>
@@ -2813,15 +2805,7 @@
                          `providerColor()`, per-provider
                          customisable under Settings → Providers. -->
                           <template x-for="p in providerStates(h)" :key="p.name">
-                      <span class="chip text-[9.5px] px-1 py-0"
-                            :class="p.state === 'failing' ? 'pill-error'
-                                    : (p.state === 'paused' ? 'pill-muted'
-                                    : (p.state === 'loading' ? 'pill-custom chip-loading' : 'pill-custom'))"
-                            :style="(p.state === 'failing' || p.state === 'paused') ? '' : providerChipStyle(p.name)"
-                            :title="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: p.name, count: p.consecutive_failures, error: p.last_error || '—' })
-                                    : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: p.name })
-                                    : (p.state === 'loading' ? t('hosts_extra.provider_loading', { provider: p.name }) || (p.name + ' — fetching…') : ''))"
-                            x-text="p.name === 'node_exporter' ? 'exporter' : p.name"></span>
+                            <!-- INCLUDE: _components/host-provider-chip.html -->
                           </template>
                         </div>
                         <!-- Asset location — its OWN line under the title

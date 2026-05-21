@@ -134,18 +134,17 @@ async def _probe_one_host(host: dict, sem: asyncio.Semaphore) -> dict:
     failed bucket, mirroring the operator's mental model of "one
     URL down doesn't fault the whole host").
     """
-    # Per-(http_probe, host) auto-pause short-circuit.
-    try:
-        with db_conn() as c:
-            r = c.execute(
-                "SELECT paused FROM host_failure_state "
-                "WHERE host_id=? AND provider=?",
-                (host["id"], "http_probe"),
-            ).fetchone()
-        if r and r[0]:
-            return {"host_id": host["id"], "results": [], "any_ok": False, "all_ok": False, "skipped_paused": True}
-    except (sqlite3.Error, OSError):
-        pass  # DB blip — let the probe run
+    # Per-(http_probe, host) auto-pause short-circuit. Routed through
+    # the canonical `_is_provider_paused` helper in main.py (lazy
+    # import dodges the circular dependency at module load) so the
+    # SELECT shape stays single-sourced — pre-fix this was an inline
+    # SELECT here that could drift from the canonical implementation
+    # over time. The helper swallows DB errors internally and returns
+    # False on any failure, so a transient SQLite blip lets the probe
+    # run rather than starving the host.
+    import main as _main
+    if _main.is_provider_paused(host["id"], "http_probe"):
+        return {"host_id": host["id"], "results": [], "any_ok": False, "all_ok": False, "skipped_paused": True}
 
     timeout_s = float(tuning.tuning_int(_Tunable.HTTP_PROBE_TIMEOUT_SECONDS))
     dns_timeout_s = float(tuning.tuning_int(_Tunable.HTTP_PROBE_DNS_TIMEOUT_SECONDS))
@@ -196,6 +195,23 @@ async def _probe_one_host(host: dict, sem: asyncio.Semaphore) -> dict:
     }
 
 
+def _clamp200(s) -> Optional[str]:
+    """Truncate ``s`` to ≤ 200 chars OR return ``None`` for empty input.
+
+    Used by every TLS / error column that ``host_http_samples`` writes
+    (`tls_subject`, `tls_issuer`, `tls_error`, `error`) so the
+    truncation contract stays uniform — same cap, same empty-string-
+    to-NULL collapse — regardless of which call site produced the
+    value. Non-string inputs are coerced via ``str``; ``None`` short-
+    circuits to ``None``.
+    """
+    if s is None:
+        return None
+    text = str(s) if not isinstance(s, str) else s
+    truncated = text[:200]
+    return truncated or None
+
+
 def _persist_rows(host_id: str, results: list[dict], ts: int) -> int:
     """Bulk-insert per-URL results for one host. Returns rows written."""
     if not results:
@@ -219,12 +235,12 @@ def _persist_rows(host_id: str, results: list[dict], ts: int) -> int:
             1 if r.get("status_ok") else 0,
             1 if r.get("content_match_ok") else 0,
             r.get("tls_expires_in_days"),
-            (r.get("tls_subject") or "")[:200] or None,
-            (r.get("tls_issuer") or "")[:200] or None,
-            (r.get("tls_error") or "")[:200] or None,
+            _clamp200(r.get("tls_subject")),
+            _clamp200(r.get("tls_issuer")),
+            _clamp200(r.get("tls_error")),
             1 if r.get("dns_resolved") else 0,
             r.get("latency_ms"),
-            (r.get("error") or "")[:200] or None,
+            _clamp200(r.get("error")),
         ))
     if not rows:
         return 0

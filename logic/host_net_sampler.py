@@ -47,6 +47,7 @@ from logic import node_exporter as _ne
 from logic import tuning
 from logic.tuning import Tunable
 from logic.db import db_conn
+from logic.sampler_loop import lifespan_sampler_loop
 
 # Sanity bounds for accepting a counter delta as a valid rate.
 # - ``delta_seconds`` between 60s and 900s catches clock skew (negative or
@@ -215,6 +216,54 @@ def _prune_old_samples() -> int:
         return 0
 
 
+def _net_sampler_interval() -> int:
+    """Resolve the net-sampler tick interval — reuses the global stats
+    tunable so a NE-fallback chart stays in lockstep with the
+    Beszel-native path's cadence.
+    """
+    return tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
+
+
+async def _net_tick(tick: int) -> None:
+    """Per-tick body — gate on NE active, walk curated hosts, hourly
+    retention prune. CancelledError / KeyboardInterrupt propagate
+    via the helper.
+    """
+    active = _active_providers()
+    if "node_exporter" in active:
+        hosts = _load_curated_hosts()
+        if hosts:
+            # Outer AsyncClient timeout is the ceiling for any
+            # request that doesn't carry its own per-request override.
+            # `_probe_one` uses an explicit per-call timeout from the
+            # NE-probe TUNABLE; the outer ceiling is defence-in-depth
+            # at the SAME tunable + a 50% headroom so the outer never
+            # trips before the inner per-call cap. Defensive fallback
+            # to 15s on tunable resolver failure.
+            try:
+                _outer_to = float(tuning.tuning_int(
+                    Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS)) * 1.5
+            except (KeyError, ValueError, TypeError):
+                _outer_to = 15.0
+            async with httpx.AsyncClient(verify=False, timeout=_outer_to) as client:
+                # Sequential over hosts — NE probes are already cheap
+                # and this keeps the sampler's load on each host to at
+                # most one request per interval.
+                for host in hosts:
+                    try:
+                        await _probe_one(client, host)
+                    except (asyncio.CancelledError, KeyboardInterrupt):
+                        raise
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"[host_net_sampler] {host.get('id')!r} unexpected: {exc}")
+    interval = _net_sampler_interval()
+    days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
+    if tick % max(1, 3600 // interval) == 0:
+        n = _prune_old_samples()
+        if n:
+            print(f"[host_net_sampler] pruned {n} rows older than {days}d")
+
+
 async def host_net_sampler_loop() -> None:
     """Lifespan-managed sampler. One tick per
     ``tuning_stats_sample_interval_seconds`` (DB > env > default).
@@ -223,66 +272,20 @@ async def host_net_sampler_loop() -> None:
     by NE fallback samples the same way the Beszel-native path does.
     """
     # Clear the in-process counter cache before the first tick. The
-    # module-level dict survives a lifespan cancel/restart cycle (e.g.
-    # tests, future hot-reload), and a stale "previous counter" carried
-    # across the gap could yield an inflated rate on the first new
-    # sample. The sanity-bounds checks would catch most of these (Δs >
-    # 900 → skip), but a restart that lands inside the window would
-    # still write a wrong rate. Clearing here makes the first tick after
-    # any restart establish a fresh baseline. in the code review.
+    # module-level dict survives a lifespan cancel/restart cycle
+    # (tests, future hot-reload), and a stale "previous counter"
+    # carried across the gap could yield an inflated rate on the
+    # first new sample. The sanity-bounds checks would catch most of
+    # these (Δs > 900 → skip), but a restart inside the window would
+    # still write a wrong rate. Clearing here makes the first tick
+    # after any restart establish a fresh baseline.
     _last_counters.clear()
-    # Wait a beat so the DB tables are created + hosts_config is loaded
-    # before the first probe. Same pattern as stats_sampler_loop.
-    interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
-    await asyncio.sleep(min(60, interval))
-    tick = 0
-    while True:
-        try:
-            active = _active_providers()
-            if "node_exporter" not in active:
-                # Dormant when NE is disabled — but keep ticking so the
-                # user can enable it without restarting the app.
-                pass
-            else:
-                hosts = _load_curated_hosts()
-                if hosts:
-                    # Outer AsyncClient timeout is the ceiling for any
-                    # request that doesn't carry its own per-request
-                    # override. `_probe_one` calls `probe_node` with an
-                    # explicit per-call timeout (also read from the
-                    # NE-probe TUNABLE), so this ceiling is essentially
-                    # a defence-in-depth fallback. We deliberately set
-                    # it to the SAME tunable + a 50% headroom so the
-                    # outer never trips before the inner per-call cap.
-                    # Defensive fallback to 15s on tunable resolver
-                    # failure.
-                    try:
-                        _outer_to = float(tuning.tuning_int(
-                            Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS)) * 1.5
-                    except (KeyError, ValueError, TypeError):
-                        _outer_to = 15.0
-                    async with httpx.AsyncClient(verify=False, timeout=_outer_to) as client:
-                        # Sequential over hosts — NE probes are already
-                        # cheap and this keeps the sampler's load on each
-                        # host to at most one request per interval.
-                        for host in hosts:
-                            try:
-                                await _probe_one(client, host)
-                            except Exception as e:
-                                print(f"[host_net_sampler] {host.get('id')!r} unexpected: {e}")
-            interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
-            days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
-            if tick % max(1, 3600 // interval) == 0:
-                n = _prune_old_samples()
-                if n:
-                    print(f"[host_net_sampler] pruned {n} rows older than {days}d")
-        except Exception as e:
-            print(f"[host_net_sampler] tick error: {e}")
-        tick += 1
-        try:
-            await asyncio.sleep(interval)
-        except asyncio.CancelledError:
-            raise
+    await lifespan_sampler_loop(
+        "host_net_sampler",
+        _net_tick,
+        _net_sampler_interval,
+        first_tick_delay=min(60, _net_sampler_interval()),
+    )
 
 
 def recent_samples(host_id: str, since_ts: int) -> list[dict]:

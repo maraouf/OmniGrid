@@ -11828,6 +11828,14 @@ def _is_provider_paused(host_id: str, provider: str) -> bool:
     return bool(row and row[0])
 
 
+# Public alias so `logic/` modules can call this without tripping the
+# IDE's access-to-protected-member warning. Mirrors the
+# `spawn_background_task` re-export pattern — internal main.py call
+# sites keep the underscored name; cross-module callers use the
+# public alias.
+is_provider_paused = _is_provider_paused
+
+
 # noinspection PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/hosts/list")
 async def api_hosts_list(force: bool = False):
