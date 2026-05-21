@@ -12996,6 +12996,8 @@ function app() {
       tuning_node_exporter_sample_interval_seconds: 'tuning_stats_sample_interval_seconds',
       tuning_snmp_sample_interval_seconds:          'tuning_stats_sample_interval_seconds',
       tuning_ping_interval_seconds:                 'tuning_stats_sample_interval_seconds',
+      tuning_http_probe_sample_interval_seconds:    'tuning_stats_sample_interval_seconds',
+      tuning_service_probe_sample_interval_seconds: 'tuning_stats_sample_interval_seconds',
     },
     // Compose the "Effective: <X>" / "Inherited: <X>" label for one
     // tunable. Consults the LIVE form value first (so emptying / zeroing
