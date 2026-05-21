@@ -158,6 +158,12 @@ class Tunable(str, Enum):
     SNMP_WALK_CONCURRENCY_SYNOLOGY = "tuning_snmp_walk_concurrency_synology"
     SNMP_WALK_CONCURRENCY_UCD = "tuning_snmp_walk_concurrency_ucd"
     SNMP_WALL_CLOCK_BUDGET_SECONDS = "tuning_snmp_wall_clock_budget_seconds"
+    SERVICE_PROBE_CONCURRENCY = "tuning_service_probe_concurrency"
+    SERVICE_PROBE_FAILURE_PAUSE_ROUNDS = "tuning_service_probe_failure_pause_rounds"
+    SERVICE_PROBE_HOST_CACHE_TTL_SECONDS = "tuning_service_probe_host_cache_ttl_seconds"
+    SERVICE_PROBE_HOST_FAIL_CACHE_TTL_SECONDS = "tuning_service_probe_host_fail_cache_ttl_seconds"
+    SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS = "tuning_service_probe_sample_interval_seconds"
+    SERVICE_PROBE_TIMEOUT_SECONDS = "tuning_service_probe_timeout_seconds"
     SSE_HEARTBEAT_SECONDS = "tuning_sse_heartbeat_seconds"
     SSE_IDLE_THRESHOLD_SECONDS = "tuning_sse_idle_threshold_seconds"
     SSE_MAX_LIFETIME_SECONDS = "tuning_sse_max_lifetime_seconds"
@@ -853,6 +859,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Range 0..600 (0 = disable the cache entirely).
     "tuning_http_probe_host_cache_ttl_seconds": ("HTTP_PROBE_HOST_CACHE_TTL_SECONDS", 30, 0, 600),
     "tuning_http_probe_host_fail_cache_ttl_seconds": ("HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS", 5, 0, 600),
+    # ----- Per-service reachability probes (per-chip on the curated
+    # services[] list — distinct from the host-level HTTP probe).
+    # Master toggle lives at the plain `service_probe_enabled` setting;
+    # these knobs ONLY affect sampler runtime once that toggle is on
+    # AND at least one host has `services[].probe.enabled === true`.
+    "tuning_service_probe_sample_interval_seconds": ("SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS", 300, 0, 3600),
+    "tuning_service_probe_concurrency": ("SERVICE_PROBE_CONCURRENCY", 16, 1, 64),
+    "tuning_service_probe_timeout_seconds": ("SERVICE_PROBE_TIMEOUT_SECONDS", 5, 1, 30),
+    "tuning_service_probe_failure_pause_rounds": ("SERVICE_PROBE_FAILURE_PAUSE_ROUNDS", 5, 0, 50),
+    "tuning_service_probe_host_cache_ttl_seconds": ("SERVICE_PROBE_HOST_CACHE_TTL_SECONDS", 30, 0, 600),
+    "tuning_service_probe_host_fail_cache_ttl_seconds": ("SERVICE_PROBE_HOST_FAIL_CACHE_TTL_SECONDS", 5, 0, 600),
     # Ping per-host auto-pause threshold. CAREFUL: ping is the
     # alive/down detection signal — `alive=False` is the actual DATA
     # the operator wants surfaced, not a fault condition. So this

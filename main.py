@@ -532,6 +532,16 @@ async def _lifespan(_app: FastAPI):
         _host_http_sampler.host_http_sampler_loop(),
         name="host-http-sampler",
     )
+    # Per-service reachability sampler — walks every curated host's
+    # `services[]` for entries with `probe.enabled=true` and probes
+    # each via TCP-connect or HTTP. Dormant when the master
+    # `service_probe_enabled` toggle is off OR no service has opted in
+    # (per-tick gate so a runtime flip takes effect without restart).
+    from logic import service_sampler as _service_sampler
+    service_sampler = asyncio.create_task(
+        _service_sampler.service_sampler_loop(),
+        name="service-sampler",
+    )
     # Persistent-log pruner — sweeps /app/data/logs/ once per
     # hour, deletes any omnigrid-YYYY-MM-DD.log older than the
     # operator-tunable retention window.
@@ -551,7 +561,7 @@ async def _lifespan(_app: FastAPI):
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (telegram_listener, log_pruner, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
+        for task in (telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
             task.cancel()
             try:
                 await task
@@ -1133,6 +1143,9 @@ def init_db():
             status_ok            INTEGER NOT NULL,
             content_match_ok     INTEGER NOT NULL,
             tls_expires_in_days  INTEGER,
+            tls_subject          TEXT,
+            tls_issuer           TEXT,
+            tls_error            TEXT,
             dns_resolved         INTEGER NOT NULL,
             latency_ms           INTEGER,
             error                TEXT,
@@ -1140,6 +1153,30 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_http_samples_host_ts
             ON host_http_samples(host_id, ts DESC);
+
+        -- Per-service reachability probe results — one row per
+        -- (host_id, service_idx, ts). `service_idx` is the position
+        -- of the service in `hosts_config[host_id].services[]` at
+        -- sampler-tick time; we accept that an operator reorder will
+        -- mis-attribute pre-reorder rows because the alternative
+        -- (sliding-window UUID assignment on every service-list edit)
+        -- is much more complex. Operators don't reorder often; the
+        -- chart's freshness label highlights when the data is from
+        -- before the most recent edit so the operator can recompute.
+        -- `alive=1` is the success signal; `rtt_ms` populated only
+        -- on alive=1 ticks (skipped on failures per the skip-don't-
+        -- synthesize rule).
+        CREATE TABLE IF NOT EXISTS service_samples (
+            ts            INTEGER NOT NULL,
+            host_id       TEXT    NOT NULL,
+            service_idx   INTEGER NOT NULL,
+            alive         INTEGER NOT NULL,
+            rtt_ms        INTEGER,
+            error         TEXT,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_service_samples_host_ts
+            ON service_samples(host_id, ts DESC);
 
         -- Port-scan provider results. ONE ROW PER OPEN PORT per scan;
         -- closed-port rows would balloon the table on multi-host scans.
@@ -1358,6 +1395,16 @@ def init_db():
                 # phantom rows (dd-wrt's `/opt`) don't pollute history.
                 "ALTER TABLE host_snmp_samples ADD COLUMN disk_total INTEGER",
                 "ALTER TABLE host_snmp_samples ADD COLUMN disk_used INTEGER",
+                # HTTP probe — TLS certificate metadata + DNS / TLS
+                # error strings persisted alongside the numeric outcome
+                # so the drawer card can surface cert subject / issuer
+                # without cross-referencing an external monitor.
+                # tls_error carries the exception text when the TLS
+                # handshake failed (cert chain broken, hostname mismatch,
+                # expired). Idempotent additive adds.
+                "ALTER TABLE host_http_samples ADD COLUMN tls_subject TEXT",
+                "ALTER TABLE host_http_samples ADD COLUMN tls_issuer TEXT",
+                "ALTER TABLE host_http_samples ADD COLUMN tls_error TEXT",
         ):
             try:
                 c.execute(ddl)
@@ -3161,6 +3208,12 @@ class SettingsIn(BaseModel):
     # content_match?, accepted_status_codes?, verify_tls?}``.
     http_probe_enabled: Optional[bool] = None
     http_probe_aliases: Optional[str] = None  # CSV: "docker_host=probe_url,..."
+    # Per-service reachability probe master toggle — distinct from
+    # the host-level HTTP probe. Per-chip opt-in via
+    # ``hosts_config[].services[].probe = {enabled, type, port?, path?,
+    # expected_status?}``. Default OFF — the sampler stays dormant
+    # until the operator flips this AND opts at least one service in.
+    service_probe_enabled: Optional[bool] = None
     # Per-provider chip color — operator-customisable hex colour
     # for the per-host provider chip rendered in the Hosts view + the
     # drawer's "Enabled agents" card. Each value is a 7-char `#RRGGBB`
@@ -3626,6 +3679,14 @@ class SettingsIn(BaseModel):
     # Defaults OFF (NOTIFY_EVENT_DEFAULTS) so a freshly-enabled scanner
     # doesn't flood the operator with first-run notifications.
     notify_event_port_scan_new_port: Optional[str] = None
+    # HTTP probe — fires on the healthy → failing transition for a
+    # per-host HTTP / TLS / DNS probe. Defaults OFF (NOTIFY_EVENT_DEFAULTS)
+    # so a freshly-enabled probe doesn't flood the operator with first-
+    # run failures on hosts that happen to be intentionally down.
+    notify_event_http_probe_failure: Optional[str] = None
+    # Per-service reachability probe — fires on healthy → failing
+    # transitions for service-level chips. Defaults OFF.
+    notify_event_service_probe_failure: Optional[str] = None
     # TOTP audit-row INSERT failure — fires WARNING when the credential
     # change persisted but the audit row didn't (operator sees missing
     # History trail otherwise).
@@ -3724,6 +3785,9 @@ async def api_get_settings(request: Request):
         # Port-scan provider — default OFF so first-run scanner doesn't
         # flood. Operators flip on after triaging the initial baseline.
         "notify_event_port_scan_new_port": get_setting_bool(Settings.NOTIFY_EVENT_PORT_SCAN_NEW_PORT),
+        "notify_event_http_probe_failure": get_setting_bool(Settings.NOTIFY_EVENT_HTTP_PROBE_FAILURE),
+        "notify_event_service_probe_failure": get_setting_bool(Settings.NOTIFY_EVENT_SERVICE_PROBE_FAILURE),
+        "service_probe_enabled": get_setting_bool(Settings.SERVICE_PROBE_ENABLED),
         # TOTP audit-row INSERT failure — warn when audit trail missing.
         "notify_event_totp_audit_log_failed": get_setting_bool(Settings.NOTIFY_EVENT_TOTP_AUDIT_LOG_FAILED, True),
         # Drawer auto-fix — VXLAN overlay cleanup outcomes.
@@ -4438,6 +4502,8 @@ async def _api_set_settings_inner(s, request, _portainer):
     # by key (last-write-wins), keep input order otherwise.
     if s.http_probe_enabled is not None:
         set_setting(Settings.HTTP_PROBE_ENABLED, "true" if s.http_probe_enabled else "false")
+    if s.service_probe_enabled is not None:
+        set_setting(Settings.SERVICE_PROBE_ENABLED, "true" if s.service_probe_enabled else "false")
     if s.http_probe_aliases is not None:
         raw = (s.http_probe_aliases or "").strip()
         if raw:
@@ -5240,6 +5306,9 @@ async def _api_set_settings_inner(s, request, _portainer):
         # verify_tls) is on `hosts_config[].http_probe` and rides the
         # generic hosts_config cache-invalidation path.
         "http_probe_enabled", "http_probe_aliases",
+        # Per-service reachability probe. Master toggle lives here;
+        # per-chip config is on `hosts_config[].services[].probe`.
+        "service_probe_enabled",
     }
     if _host_provider_fields & set(s.model_dump(exclude_unset=True).keys()):
         invalidate_host_provider_cache()
@@ -10678,6 +10747,17 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     except Exception as e:  # noqa: BLE001
         print(f"[hosts] http_probe merge failed for {h.get('id')!r}: {e}")
 
+    # Per-service reachability probe — stamps `last_probe` on every
+    # `services[]` entry that has a recent sample. Gate on master
+    # toggle so the merged dict doesn't carry stale per-chip status
+    # when the operator has flipped the feature off globally.
+    try:
+        if get_setting_bool(Settings.SERVICE_PROBE_ENABLED):
+            from logic.service_sampler import populate_host_service_merge
+            populate_host_service_merge(h["id"], merged)
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts] service_probe merge failed for {h.get('id')!r}: {e}")
+
     # Snapshot fallback — when a provider went down mid-session,
     # fill missing host_* fields from the previous gather's persisted
     # snapshot and tag them in `_stale_fields` so the SPA can dim those
@@ -11873,6 +11953,14 @@ async def api_hosts_list(force: bool = False):
             _http_populate(h["id"], merged)
         except Exception as e:  # noqa: BLE001
             print(f"[hosts/list] http_probe populate failed for {h.get('id')!r}: {e}")
+        # Per-service reachability — stamp `last_probe` on services[]
+        # so the skeleton chips render with green / red dots without
+        # waiting for the per-host fan-out.
+        try:
+            from logic.service_sampler import populate_host_service_merge as _svc_populate
+            _svc_populate(h["id"], merged)
+        except Exception as e:  # noqa: BLE001
+            print(f"[hosts/list] service_probe populate failed for {h.get('id')!r}: {e}")
         # Providers list is empty for snapshot-only rows — the SPA's
         # stale-rendering pipeline cues off `_stale_fields` not the
         # providers list. The next `/api/hosts/one/{id}` refresh
@@ -12081,6 +12169,13 @@ def _load_hosts_config() -> list[dict]:
             # falls through to the global default. {} = "use globals
             # AND inherit the global enabled flag".
             "port_scan": _clean_host_port_scan(h.get("port_scan")),
+            # Per-row services[] list — operator's curated chip strip
+            # of service links + optional probe sub-dicts. Each entry
+            # carries {name?, url?, icon?, probe?: {enabled, type,
+            # port, path, expected_status}}. Validated via
+            # `_clean_host_services` to drop bad shapes; empty list
+            # when no services configured.
+            "services": _clean_host_services(h.get("services")),
             "enabled": bool(h.get("enabled", True)),
         })
     return clean
@@ -12413,6 +12508,85 @@ def _clean_host_http_probe(raw: Any) -> dict:
     return out
 
 
+def _clean_host_services(raw: Any) -> list[dict]:
+    """Normalise the per-host ``services[]`` list.
+
+    Each entry is one curated service chip the operator pinned to a
+    host. Schema:
+
+        {
+            "name": str,       # display label, max 64 chars
+            "url": str,        # optional clickable link, max 256 chars
+            "icon": str,       # optional icon slug, max 64 chars
+            "probe": {         # optional per-chip reachability probe
+                "enabled": bool,
+                "type": "tcp" | "http",       # default "tcp"
+                "port": int | None,            # 1..65535
+                "path": str,                   # http-only, "/" default
+                "expected_status": int,        # 100..599, 0 = 2xx default
+            }
+        }
+
+    Unknown keys drop; bad types collapse to defaults. Returns ``[]``
+    when input isn't a list or is empty.
+    """
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        cleaned: dict = {}
+        name = entry.get("name")
+        if isinstance(name, str) and name.strip():
+            cleaned["name"] = name.strip()[:64]
+        url = entry.get("url")
+        if isinstance(url, str) and url.strip():
+            cleaned["url"] = url.strip()[:256]
+        icon = entry.get("icon")
+        if isinstance(icon, str) and icon.strip():
+            cleaned["icon"] = icon.strip()[:64]
+        # Preserve every other operator-set field we don't actively
+        # validate (status, locked_fields[], asset_id, etc.) so service
+        # discovery + manual edits round-trip cleanly through save.
+        # Whitelist these explicit pass-through keys to avoid trash
+        # being persisted.
+        for k in ("status", "locked_fields", "asset_id", "label"):
+            if k in entry:
+                cleaned[k] = entry[k]
+        # Per-chip probe sub-dict.
+        probe = entry.get("probe")
+        if isinstance(probe, dict):
+            probe_out: dict = {}
+            if bool(probe.get("enabled")):
+                probe_out["enabled"] = True
+            probe_type = probe.get("type")
+            if isinstance(probe_type, str) and probe_type.strip().lower() in ("tcp", "http"):
+                probe_out["type"] = probe_type.strip().lower()
+            port = probe.get("port")
+            try:
+                pi = int(port) if port not in (None, "") else None
+                if pi is not None and 1 <= pi <= 65535:
+                    probe_out["port"] = pi
+            except (TypeError, ValueError):
+                pass
+            path = probe.get("path")
+            if isinstance(path, str) and path.strip():
+                probe_out["path"] = path.strip()[:256]
+            exp = probe.get("expected_status")
+            try:
+                ei = int(exp) if exp not in (None, "") else None
+                if ei is not None and 100 <= ei <= 599:
+                    probe_out["expected_status"] = ei
+            except (TypeError, ValueError):
+                pass
+            if probe_out:
+                cleaned["probe"] = probe_out
+        if cleaned:
+            out.append(cleaned)
+    return out
+
+
 def _clean_vendors_input(raw: Any) -> Optional[set[str]]:
     """Normalise an SNMP ``vendors`` list to the canonical lowercase set.
 
@@ -12577,6 +12751,10 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             # by checking the per-host enable box AND relying on the
             # curated `url` / `services[].url` chain).
             "http_probe": _clean_host_http_probe(h.get("http_probe")),
+            # Per-row services[] — preserved on save so the operator's
+            # curated chip strip survives a hosts_config write. See
+            # `_clean_host_services` for the validator + probe shape.
+            "services": _clean_host_services(h.get("services")),
             "enabled": bool(h.get("enabled", True)),
         }
         # host-level enable gates every per-provider enable.
@@ -15691,8 +15869,18 @@ async def api_hosts_ping_history(
             b = {"rtt_sum": 0.0, "rtt_n": 0,
                  "alive_n": 0, "total_n": 0,
                  "loss_sum": 0.0,
-                 "rtt_min_min": None, "rtt_max_max": None}
+                 "rtt_min_min": None, "rtt_max_max": None,
+                 # Track the latest raw ts that landed in this bucket
+                 # so the emitted point lands at "newest sample
+                 # inside the bucket" rather than the bucket midpoint.
+                 # chartFreshness(h) on the SPA walks every cache slot
+                 # picking MAX — midpoint-emit made the wider-window
+                 # Ping series read stale even when the latest raw
+                 # probe was seconds old.
+                 "last_ts": 0}
             buckets[bts] = b
+        if ts > b["last_ts"]:
+            b["last_ts"] = ts
         b["total_n"] += 1
         if r.get("alive"):
             b["alive_n"] += 1
@@ -15707,9 +15895,11 @@ async def api_hosts_ping_history(
         if rmax is not None:
             b["rtt_max_max"] = rmax if b["rtt_max_max"] is None else max(b["rtt_max_max"], rmax)
         b["loss_sum"] += float(r.get("loss_pct") or 0.0)
-    # Bucket midpoint timestamp = floor + half-bucket so the x-axis
-    # places each point in the centre of its window, not at the edge.
-    half = bucket_s // 2
+    # Bucket emit timestamp = latest raw ts inside the bucket so
+    # chartFreshness reflects the actual freshness of the source
+    # regardless of window. Falls back to bucket-start when the
+    # bucket somehow has no raw ts (shouldn't happen — every raw row
+    # contributes its ts to last_ts in the accumulator loop above).
     points = []
     for bts in sorted(buckets.keys()):
         b = buckets[bts]
@@ -15730,7 +15920,7 @@ async def api_hosts_ping_history(
         # reflects "average latency when reachable" across the window.
         alive_majority = b["alive_n"] * 2 > total
         points.append({
-            "ts": bts + half,
+            "ts": b["last_ts"] or bts,
             "alive": alive_majority,
             "rtt_ms": rtt_avg,
             "rtt_min_ms": b["rtt_min_min"],
@@ -15743,6 +15933,155 @@ async def api_hosts_ping_history(
             "_samples_in_bucket": total,
         })
     return {"points": points, "error": None, "bucket_seconds": bucket_s}
+
+
+@app.get("/api/hosts/{host_id}/http-probe/history")
+async def api_hosts_http_probe_history(
+    host_id: str, hours: int = 1,
+    *,
+    _admin: AdminUser,
+):
+    """HTTP / TLS / DNS probe time-series for one curated host.
+
+    Returns ``{series: [{t, url, latency_ms, status_ok,
+    tls_expires_in_days}, ...], collectors: {...}, error: None}``
+    bucketed via the standard `_bucket_drawer_series` helper so the
+    chart tail lands at the latest raw-sample timestamp inside each
+    bucket (the freshness-label contract — see CLAUDE.md). Window
+    clamped to 1..168 hours.
+
+    The ``series`` shape is a flat list of points (NOT a dict
+    keyed by URL) — each point carries the URL it came from so the
+    SPA can group client-side into one line per URL. Up to ~120
+    buckets per URL after bucketing; with N URLs per host the
+    response can grow to N×120 rows but the per-row payload is
+    tiny (5 fields) so this stays well under 100KB even for
+    pathological 20-URL hosts.
+
+    Empty ``series`` when the sampler hasn't written for this host
+    yet (newly enabled, master toggle off, no resolvable URLs).
+    """
+    from logic import host_http_sampler as _hp_sampler
+    h = max(1, min(168, int(hours or 1)))
+    hid = (host_id or "").strip()
+    if not hid:
+        return {"series": [], "collectors": {}, "error": "host_id required"}
+    since = int(time.time() - h * 3600)
+    # Raw row limit — at 5min cadence × ~10 URLs/host × 168h = ~20k
+    # rows. Cap at 20k so the SQL query stays cheap; bucketing collapses
+    # to ~120 per URL anyway.
+    raw_limit = max(500, h * 600)
+    try:
+        rows = _hp_sampler.recent_samples(hid, since, limit=raw_limit)
+    except Exception as e:  # noqa: BLE001
+        return {"series": [], "collectors": {}, "error": f"host_http_sampler: {e}"}
+    if not rows:
+        return {"series": [], "collectors": {}, "error": None}
+    # Group raw rows by URL so each URL's series can be independently
+    # bucketed — uniform density per line regardless of how many URLs
+    # the host probes.
+    by_url: dict[str, list] = {}
+    for r in rows:
+        url = r.get("url") or ""
+        if not url:
+            continue
+        by_url.setdefault(url, []).append({
+            "t": int(r.get("ts") or 0),
+            "url": url,
+            "latency_ms": r.get("latency_ms"),
+            "status_ok": bool(r.get("status_ok")),
+            "tls_expires_in_days": r.get("tls_expires_in_days"),
+        })
+    series_out: list[dict] = []
+    for url, pts in by_url.items():
+        # Each URL gets its own pass through `_bucket_drawer_series` so
+        # the bucketing handles per-URL density independently. The
+        # helper already emits each bucket's point at the latest raw-ts
+        # inside that bucket — the freshness-label contract holds.
+        bucketed = _bucket_drawer_series(pts, h)
+        series_out.extend(bucketed)
+    # Sort by ts ascending overall so consumers don't need to. URL
+    # grouping is preserved by the SPA via point.url, not by order.
+    series_out.sort(key=lambda p: p.get("t") or 0)
+    return {"series": series_out, "collectors": {"sample_count": len(rows), "urls": len(by_url)}, "error": None}
+
+
+@app.post("/api/hosts/{host_id}/http-probe/test")
+async def api_hosts_http_probe_test_row(
+    host_id: str,
+    _admin: AdminUser,
+):
+    """Per-row HTTP / TLS / DNS test — fires against THIS row's
+    configured URLs.
+
+    Backend resolves the URL list from `hosts_config[host_id]`
+    using the same chain the sampler uses
+    (``http_probe.urls`` override OR ``url + services[].url``
+    fallback). Probes each URL via :func:`probe_http_health` under
+    the existing :class:`Cooldown` protection so a misconfigured
+    host can't lock its auth out. Does NOT write to
+    ``host_http_samples`` — the test is a diagnostic affordance,
+    not a sampler tick.
+
+    Returns ``{results: [{url, ok, status_code, latency_ms,
+    tls_expires_in_days, error}, ...], elapsed_ms, error}``.
+    """
+    from logic import http_probe as _http_probe
+    from logic.host_http_sampler import _curated_http_probe_hosts as _curated
+    hid = (host_id or "").strip()
+    if not hid:
+        raise HTTPException(400, "host_id required")
+    # Find the curated row for this host via the sampler's shared
+    # URL-resolver helper. Keeps the sampler + manual-test paths in
+    # sync on resolution rules (override vs fallback) without
+    # duplicating the walk logic.
+    matching = [h for h in _curated() if h.get("id") == hid]
+    if not matching:
+        return {
+            "results": [],
+            "elapsed_ms": 0,
+            "error": "host has no HTTP probe URLs configured (enable http_probe + add URLs OR ensure url / services[].url is set)",
+        }
+    host_cfg = matching[0]
+    urls = list(host_cfg.get("urls") or [])
+    if not urls:
+        return {"results": [], "elapsed_ms": 0, "error": "no URLs resolved for this host"}
+    timeout = float(tuning.tuning_int(Tunable.HTTP_PROBE_TIMEOUT_SECONDS))
+    dns_timeout = float(tuning.tuning_int(Tunable.HTTP_PROBE_DNS_TIMEOUT_SECONDS))
+    content_match = host_cfg.get("content_match")
+    codes = host_cfg.get("accepted_status_codes") or []
+    verify_tls = bool(host_cfg.get("verify_tls", True))
+    started = time.monotonic()
+    # Probe each URL in parallel — same bounded shape the sampler uses.
+    sem = asyncio.Semaphore(max(1, tuning.tuning_int(Tunable.HTTP_PROBE_CONCURRENCY)))
+
+    async def _one(url: str) -> dict:
+        async with sem:
+            try:
+                r = await _http_probe.probe_http_health(
+                    url,
+                    timeout=timeout,
+                    dns_timeout=dns_timeout,
+                    content_match=content_match,
+                    accepted_status_codes=codes,
+                    verify_tls=verify_tls,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                r = {
+                    "ok": False,
+                    "status_code": None,
+                    "latency_ms": None,
+                    "tls_expires_in_days": None,
+                    "error": f"{type(e).__name__}: {str(e)[:120]}",
+                }
+            r["url"] = url
+            return r
+
+    results = await asyncio.gather(*(_one(u) for u in urls))
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    return {"results": results, "elapsed_ms": elapsed_ms, "error": None}
 
 
 @app.get("/api/hosts/{host_id}/beszel/services")
@@ -15833,7 +16172,7 @@ async def api_hosts_snmp_history(
                 # bucket key is `ts / bucket` integer-divided; we emit
                 # the bucket's MIN(ts) as the canonical timestamp.
                 rows = c.execute(
-                    "SELECT MIN(ts) AS ts, NULL AS cpu_per_core, "
+                    "SELECT MAX(ts) AS ts, NULL AS cpu_per_core, "
                     "AVG(cpu_used_pct) AS cpu_used_pct, "
                     "AVG(load_1m) AS load_1m, AVG(load_5m) AS load_5m, AVG(load_15m) AS load_15m, "
                     "AVG(mem_total) AS mem_total, AVG(mem_used) AS mem_used, "
@@ -16192,7 +16531,7 @@ async def api_hosts_snmp_iface_history(
                 # would mix samples across ifaces in the same time
                 # bucket).
                 rows = c.execute(
-                    "SELECT MIN(ts) AS ts, ifname, "
+                    "SELECT MAX(ts) AS ts, ifname, "
                     "MAX(in_bytes) AS in_bytes, MAX(out_bytes) AS out_bytes, "
                     "MAX(link_speed_mbps) AS link_speed_mbps "
                     "FROM host_snmp_iface_samples "
@@ -16274,7 +16613,7 @@ async def api_hosts_snmp_temp_history(
                 # the bucket — operator-renames are rare so consistency
                 # across the bucket is preserved.
                 rows = c.execute(
-                    "SELECT MIN(ts) AS ts, probe_idx, "
+                    "SELECT MAX(ts) AS ts, probe_idx, "
                     "MAX(probe_name) AS probe_name, AVG(value_c) AS value_c "
                     "FROM host_snmp_temp_samples "
                     "WHERE host_id=? AND ts >= ? "
