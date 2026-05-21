@@ -178,6 +178,14 @@
       "port_scan_new_port": {
         "title": "🔍 New open port on {name}",
         "body": "{message}"
+      },
+      "http_probe_failure": {
+        "title": "🌐 HTTP probe failed: {name}",
+        "body": "URL: {url}\nError: {error}"
+      },
+      "service_probe_failure": {
+        "title": "🔌 Service probe failed: {name}",
+        "body": "Service: {message}\nURL: {url}\nError: {error}"
       }
     }
   },
@@ -945,6 +953,8 @@
       "tunables_intro_webmin": "Operator-tunable knobs for the Webmin provider — outer probe budget (per-host wall-clock for the three-tier XML / JSON / HTML-scrape fallback), sampler tick budget, per-host probe timeout, per-host success + failure cache TTLs, and per-(provider, host) auto-pause threshold. All edits commit through the Webmin section's Save button.",
       "tunables_heading_snmp": "SNMP tunables",
       "tunables_intro_snmp": "Operator-tunable knobs for the SNMP provider — probe timeout, wall-clock budget per host, fan-out concurrency across hosts, per-host walk concurrency (vendor MIBs), sampler interval (0 = inherit global), per-host success + failure cache TTLs, unreachable cooldown, and per-(provider, host) auto-pause threshold. All edits commit through the SNMP section's Save button.",
+      "tunables_heading_http_probe": "HTTP / TLS / DNS tunables",
+      "tunables_intro_http_probe": "Operator-tunable knobs for the HTTP / TLS / DNS probe provider — per-URL probe timeout, fan-out concurrency across URLs, sampler interval (0 = inherit global), per-(provider, host) auto-pause threshold, DNS lookup timeout, TLS-cert expiry warning window (days), and per-host success + failure cache TTLs. All edits commit through the HTTP probe section's Save button.",
       "desc": "Configure the data sources OmniGrid uses to surface host telemetry, reachability, and update state. Pick any combination of: node-exporter (Prometheus :9100 scrape), Beszel (agent + Hub), Pulse (Proxmox VE / PBS / PMG), Webmin (Miniserv module probes), and Ping (TCP/ICMP reachability + RTT). Each provider contributes what it knows; the merge layer surfaces a unified view per host.",
       "source_label": "Data source",
       "source_none": "None (Docker-only)",
@@ -1039,7 +1049,7 @@
       "source_snmp": "SNMP",
       "snmp": {
         "section_title": "SNMP",
-        "section_desc": "Sixth host-stats provider. Reads CPU / memory / disk / uptime / interface counters from devices that speak SNMP v2c / v3 USM but not unix-style agents — managed switches, routers, UPSes, network printers, managed APs. Per-host probe (no central hub): each curated row maps to one SNMP target. Per-host overrides (community / version / port / v3 keys) live on Admin → Hosts; the values below are the global defaults.",
+        "section_desc": "Reads CPU / memory / disk / uptime / interface counters from devices that speak SNMP v2c / v3 USM but not unix-style agents — managed switches, routers, UPSes, network printers, managed APs. Per-host probe (no central hub): each curated row maps to one SNMP target. Per-host overrides (community / version / port / v3 keys) live on Admin → Hosts; the values below are the global defaults.",
         "unavailable": "pysnmp package not installed — SNMP probes are disabled until the dep is added to requirements.txt and the container restarts.",
         "import_error_label": "Server-side import error: {error}",
         "community_label": "Default community (v2c)",
@@ -1069,7 +1079,7 @@
       "source_http_probe": "HTTP / TLS / DNS",
       "http_probe": {
         "section_title": "HTTP / TLS-cert / DNS health probe",
-        "section_desc": "Seventh host-stats provider. Probes the operator's existing curated URLs (top-level url + every services[].url, or an explicit per-host http_probe.urls override) for HTTP status, TLS-cert expiry, and DNS resolution. No agents, no credentials — just operator-curated URLs. Per-host opt-in via Admin → Hosts (the http_probe.enabled checkbox on each row). The probe surfaces three independent sub-checks per URL so the drawer card can pinpoint which layer broke.",
+        "section_desc": "Probes the operator's existing curated URLs (top-level url + every services[].url, or an explicit per-host http_probe.urls override) for HTTP status, TLS-cert expiry, and DNS resolution. No agents, no credentials — just operator-curated URLs. Per-host opt-in via Admin → Hosts (the http_probe.enabled checkbox on each row). The probe surfaces three independent sub-checks per URL so the drawer card can pinpoint which layer broke.",
         "enabled_label": "Enable HTTP probe",
         "enabled_hint": "Master toggle. When OFF the sampler stays alive but skips every probe — flip ON and add per-host config under Admin → Hosts.",
         "aliases_label": "Per-host probe URL aliases (CSV)",
@@ -1560,6 +1570,8 @@
         "sampler_section": "Sampler events",
         "user_login": "User signed in",
         "host_paused": "Host sampling auto-paused",
+        "http_probe_failure": "HTTP probe failed",
+        "service_probe_failure": "Service probe failed",
         "enabled": "Enabled",
         "cat_count_title": "Events globally enabled in this category"
       }
@@ -1946,6 +1958,30 @@
         "tuning_http_probe_host_fail_cache_ttl_seconds": {
           "label": "HTTP probe per-host failure cache TTL (seconds)",
           "help": "How long a failed HTTP probe is cached so a SPA fan-out burst doesn't re-burn the timeout × N parallel calls on an unreachable URL. Default 5s — tight enough that recovery is felt within one Hosts-tab refresh cycle, long enough to dedupe a fan-out burst. Operators wanting fastest possible recovery detection can drop to 1s. Range 0..600."
+        },
+        "tuning_service_probe_sample_interval_seconds": {
+          "label": "Service probe sampler interval (seconds)",
+          "help": "Cadence at which the service sampler probes every opted-in services[] chip. 0 = inherit the global stats sampler cadence (default 300s — same shape as the HTTP probe). Raise for low-cost low-frequency probing on large fleets; lower for snappier per-chip status changes. Range 0..3600."
+        },
+        "tuning_service_probe_concurrency": {
+          "label": "Service probe concurrency",
+          "help": "Maximum parallel service probes per tick. Each probe consumes one socket. Default 16. Range 1..64."
+        },
+        "tuning_service_probe_timeout_seconds": {
+          "label": "Service probe per-target timeout (seconds)",
+          "help": "Caps EACH TCP connect OR HTTP request against ONE service. Default 5s — comfortably above typical LAN latency, tight enough to keep a wedged target from starving the tick. Range 1..30."
+        },
+        "tuning_service_probe_failure_pause_rounds": {
+          "label": "Service probe auto-pause threshold (rounds)",
+          "help": "After this many consecutive rounds where every service on a host failed, the (service_probe, host) pair is auto-paused. 0 disables auto-pause entirely. Default 5. Range 0..50."
+        },
+        "tuning_service_probe_host_cache_ttl_seconds": {
+          "label": "Service probe per-host success cache TTL (seconds)",
+          "help": "How long a successful service probe outcome is reused by the per-host detail endpoint before re-probing. Default 30s. Range 0..600 (0 = disable cache)."
+        },
+        "tuning_service_probe_host_fail_cache_ttl_seconds": {
+          "label": "Service probe per-host failure cache TTL (seconds)",
+          "help": "How long a failed service probe is cached so a SPA fan-out burst doesn't re-burn the timeout × N. Default 5s. Range 0..600."
         },
         "tuning_snmp_probe_timeout_seconds": {
           "label": "SNMP per-OID timeout (seconds)",
@@ -3594,7 +3630,20 @@
       "resume": "Resume",
       "resume_aria": "Resume HTTP probe for this host",
       "resume_title": "Clear the auto-pause marker so the sampler probes this host again on the next tick.",
-      "paused_hint": "Auto-paused after {failures} consecutive total-failure rounds."
+      "paused_hint": "Auto-paused after {failures} consecutive total-failure rounds.",
+      "cert_link_title": "Cert: {name} · issued by {issuer} · expires {expires}",
+      "cert_link_aria": "Open cert record for {name}",
+      "history_heading": "Latency history",
+      "history_no_data": "No latency samples in this window yet.",
+      "show_all": "Show {n} more",
+      "show_less": "Show fewer",
+      "row_test_button": "Test row",
+      "row_test_title": "Probe this host's configured URLs and surface the per-URL outcome inline.",
+      "row_test_aria": "Test HTTP probe URLs for this host",
+      "row_test_running": "Testing…",
+      "row_test_result_ok": "OK {status} · {latency_ms}ms",
+      "row_test_result_fail": "FAIL: {error}",
+      "row_test_no_urls": "No HTTP probe URLs configured on this row."
     },
     "server_health": {
       "heading": "Server health",

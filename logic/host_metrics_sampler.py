@@ -396,6 +396,10 @@ def _get_failure_state(host_id: str, provider: str = "") -> Optional[dict]:
 # the duplication risk is gone.
 _PROVIDER_PREFIXES = frozenset((
     "beszel", "pulse", "node_exporter", "webmin", "ping", "snmp", "http_probe",
+    # service_probe is per-chip on `services[]`, but the per-(host)
+    # auto-pause rollup uses the same `host_failure_state` row shape
+    # as the other providers — so it belongs in this set.
+    "service_probe",
 ))
 # Public alias for cross-module use. main.py imports as
 # `_PROVIDER_AUTO_PAUSE_NAMES` per CLAUDE.md ("Vendor / capability key

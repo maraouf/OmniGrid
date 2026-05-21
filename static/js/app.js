@@ -11437,6 +11437,8 @@ function app() {
       'notify_event_user_login',
       'notify_event_host_paused',
       'notify_event_port_scan_new_port',
+      'notify_event_http_probe_failure',
+      'notify_event_service_probe_failure',
       'notify_event_totp_audit_log_failed',
       'notify_event_overlay_cleanup_success',
       'notify_event_overlay_cleanup_failure',
@@ -11479,6 +11481,8 @@ function app() {
     ],
     notifySamplerEvents: [
       { label: 'host_paused', key: 'notify_event_host_paused' },
+      { label: 'http_probe_failure', key: 'notify_event_http_probe_failure' },
+      { label: 'service_probe_failure', key: 'notify_event_service_probe_failure' },
     ],
     // Flattened ops-event row list — every (group, kind) becomes one
     // row in the Profile→Notifications grid. Computed once-per-render
@@ -29690,10 +29694,114 @@ function app() {
           created_on:    String(a.CreatedOn || a.created_on || '').trim(),
           interfaces: ifaces,
           ports,
+          // Child cert assets — when the upstream asset DB tracks SSL /
+          // TLS certificates as their own Type rows linked back to this
+          // host (typically via a parent / parent_id / ParentID field
+          // pointing at a.ID), surface them so the drawer's TLS row can
+          // render a "renewal record" link next to the cert subject.
+          // Walks the full asset list looking for entries whose Type
+          // ShortName matches a cert-like signal AND whose parent field
+          // resolves to this host's asset id. Empty list when no certs
+          // are tracked upstream — the drawer's link gates on length > 0
+          // so an empty array is a clean no-op.
+          certs: this._certsForAsset(a, assets),
           _raw:      a,
         };
       }
       return null;
+    },
+    /** Walk the asset cache for cert children of one host asset.
+     *
+     * Cert rows are identified by Type.ShortName (case-insensitive) in
+     * the set {CERT, TLS, SSL} OR Type.Name matching /cert|ssl|tls/i,
+     * AND a parent reference matching the host asset's ID. The parent
+     * field's casing varies upstream; we walk every plausible key. The
+     * returned shape is `{name, issuer, expires_at, asset_id, link_url}` —
+     * `link_url` falls back to the cert asset's own ID-as-URL so the
+     * drawer can always link somewhere useful even when upstream
+     * doesn't surface a dedicated URL field.
+     */
+    _certsForAsset(hostAsset, allAssets) {
+      if (!hostAsset || !Array.isArray(allAssets) || !allAssets.length) {
+        return [];
+      }
+      const hostId = hostAsset.ID ?? hostAsset.id ?? null;
+      if (hostId == null) {
+        return [];
+      }
+      const out = [];
+      const isCertType = (t) => {
+        if (!t) {
+          return false;
+        }
+        if (typeof t === 'string') {
+          return /cert|ssl|tls/i.test(t);
+        }
+        if (typeof t === 'object') {
+          const short = String(t.ShortName || t.shortname || t.short || t.Code || '').trim().toUpperCase();
+          if (short === 'CERT' || short === 'TLS' || short === 'SSL') {
+            return true;
+          }
+          const name = String(t.Name || t.name || t.CalculatedName || '').trim();
+          return /cert|ssl|tls/i.test(name);
+        }
+        return false;
+      };
+      const matchParent = (row) => {
+        // Try every plausible parent-reference field shape.
+        const candidates = [
+          row.ParentID, row.parent_id, row.ParentId,
+          row.Parent, row.parent,
+          row.ParentAsset, row.parent_asset,
+        ];
+        for (const v of candidates) {
+          if (v == null) {
+            continue;
+          }
+          // Direct scalar match (parent id literal).
+          if (typeof v === 'number' || typeof v === 'string') {
+            if (String(v) === String(hostId)) {
+              return true;
+            }
+            continue;
+          }
+          // Nested object — pull the ID out of it.
+          if (typeof v === 'object') {
+            const inner = v.ID ?? v.id;
+            if (inner != null && String(inner) === String(hostId)) {
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+      for (const row of allAssets) {
+        if (!row || row === hostAsset) {
+          continue;
+        }
+        if (!isCertType(row.Type || row.type)) {
+          continue;
+        }
+        if (!matchParent(row)) {
+          continue;
+        }
+        const certId = row.ID ?? row.id ?? null;
+        const name = String(row.Name || row.name || row.CommonName || row.common_name || '').trim();
+        const issuer = String(row.Issuer || row.issuer || row.IssuedBy || row.issued_by || '').trim();
+        const expiresAt = String(row.ExpiresOn || row.expires_on || row.NotAfter || row.not_after || '').trim();
+        // Link URL — prefer an explicit field, fall back to the asset
+        // record's own URL alias. Drawer renders a chevron; without a
+        // URL the link still surfaces (best-effort).
+        const linkUrl = String(row.URL || row.Url || row.url || row.Link || row.link || '').trim();
+        out.push({
+          asset_id: certId,
+          name: name || (certId != null ? String(certId) : ''),
+          issuer,
+          expires_at: expiresAt,
+          link_url: linkUrl,
+        });
+      }
+      return out;
     },
     // Bracketed type prefix for the Hosts-view host title — renders
     // as "[VM]" / "[PHY]" / "[CT]" before the display label so
@@ -32825,6 +32933,17 @@ function app() {
             }
           }
         }
+        // HTTP probe latency — gated on http_probe_enabled OR a pre-
+        // existing cache entry (so a recently-disabled probe still
+        // surfaces the last collected window in the chart).
+        if (host.http_probe_enabled || (this.hostHttpProbeHistory && this.hostHttpProbeHistory[host.id])) {
+          const hh = this.hostHttpProbeHistory && this.hostHttpProbeHistory[host.id];
+          if (_seriesLen(hh, 'series') < 2 || _stale(hh)) {
+            if (typeof this.loadHostHttpProbeHistory === 'function') {
+              this.loadHostHttpProbeHistory(host.id, this.hostHistoryRange || 1);
+            }
+          }
+        }
       } catch (_) { /* best-effort; charts catch up via drawer-poll timer */ }
     },
     // Open the host drawer by id — looks up the host object from
@@ -33015,6 +33134,244 @@ function app() {
     // `host_snmp_samples` table written by the sampler. Same loading-
     // flag pattern as `hostHistory` so chart cards don't flicker on
     // range-picker clicks.
+    // HTTP probe latency history — per-host slot. Each entry is the
+    // shape returned by `GET /api/hosts/{id}/http-probe/history`:
+    //   { series: [{t, url, latency_ms, status_ok, tls_expires_in_days}, ...],
+    //     collectors: {sample_count, urls},
+    //     loadedAt: <epoch ms>, hours: <1|6|24|168>, error: <str|null> }
+    // Wired into `chartFreshness(h)` above so the drawer's "Last sample
+    // Xm ago" label includes the HTTP probe series alongside CPU / Mem /
+    // SNMP. UI render uses the per-URL grouping captured on each point.
+    hostHttpProbeHistory: {},
+    // Per-host "Show all" toggle state for the URL strip. Keyed on
+    // host id; default off means the collapsed cap applies.
+    httpProbeShowAll: {},
+    // Per-host row Test button — busy flag + last-result cache.
+    // Keyed on host id so multiple drawers (or arrow-key drawer nav)
+    // each carry their own state independently.
+    httpProbeRowTestBusy: {},
+    httpProbeRowTestResult: {},
+    /** Viewport-aware collapsed cap for the URL list. Mirrors the
+     * `effectiveCollapsedLimit()` pattern from the server-health
+     * dense-list rule: tighter cap below 480px so mobile cards
+     * stay compact.
+     */
+    _httpProbeUrlCap() {
+      const narrow = (typeof window !== 'undefined' && window.innerWidth && window.innerWidth < 480);
+      return narrow ? 3 : 8;
+    },
+    /** Sort URLs by status weight (failing → warning → ok) so the
+     * most actionable URL is always above the fold when the strip is
+     * collapsed. Stable secondary order by url so the layout doesn't
+     * jitter on every poll.
+     */
+    _httpProbeSortedUrls(h) {
+      if (!h || !Array.isArray(h.host_http_urls) || !h.host_http_urls.length) {
+        return [];
+      }
+      const arr = h.host_http_urls.slice();
+      arr.sort((a, b) => {
+        // weight: 0=ok (status_ok && content_match_ok); 1=warning
+        // (status_ok but content mismatch); 2=fail. Lower wins early.
+        const wa = (a.status_ok && a.content_match_ok) ? 0
+                  : (a.status_ok ? 1 : 2);
+        const wb = (b.status_ok && b.content_match_ok) ? 0
+                  : (b.status_ok ? 1 : 2);
+        // Sort failures FIRST in the rendered output — so weight=2
+        // comes before weight=0.
+        if (wa !== wb) {
+          return wb - wa;
+        }
+        return String(a.url || '').localeCompare(String(b.url || ''));
+      });
+      return arr;
+    },
+    httpProbeVisibleUrls(h) {
+      const all = this._httpProbeSortedUrls(h);
+      if (!all.length) {
+        return all;
+      }
+      if (h && h.id && this.httpProbeShowAll[h.id]) {
+        return all;
+      }
+      return all.slice(0, this._httpProbeUrlCap());
+    },
+    httpProbeHasMoreUrls(h) {
+      const all = this._httpProbeSortedUrls(h);
+      return all.length > this._httpProbeUrlCap();
+    },
+    httpProbeHiddenUrlCount(h) {
+      const all = this._httpProbeSortedUrls(h);
+      const cap = this._httpProbeUrlCap();
+      return Math.max(0, all.length - cap);
+    },
+    toggleHttpProbeShowAll(h) {
+      if (!h || !h.id) {
+        return;
+      }
+      this.httpProbeShowAll[h.id] = !this.httpProbeShowAll[h.id];
+    },
+    /** Inline SVG mini-chart for the HTTP probe latency series. One
+     * line per URL — points carry `t` (epoch s) and `latency_ms`. The
+     * x-axis maps the active window (1h / 6h / 24h / 7d); the y-axis
+     * auto-scales to the maximum observed latency. Skip points with
+     * latency_ms === null (probe failed) so the line renders as a real
+     * gap rather than a vertical drop.
+     *
+     * The output is a small `<svg>` blob — much simpler than the full
+     * `hostChart` helper (which carries axes / legends / tooltips), but
+     * sufficient for the "is the latency trend stable" question this
+     * card needs to answer.
+     */
+    renderHttpProbeLatencyMiniChart(h) {
+      try {
+        const entry = (h && this.hostHttpProbeHistory) ? this.hostHttpProbeHistory[h.id] : null;
+        if (!entry || !Array.isArray(entry.series) || !entry.series.length) {
+          return '';
+        }
+        const pts = entry.series.filter(p => p && p.latency_ms != null && p.latency_ms >= 0);
+        if (!pts.length) {
+          return '';
+        }
+        // Group by URL so each line is independent.
+        const byUrl = new Map();
+        for (const p of pts) {
+          const u = p.url || '';
+          if (!byUrl.has(u)) {
+            byUrl.set(u, []);
+          }
+          byUrl.get(u).push(p);
+        }
+        const urls = Array.from(byUrl.keys()).sort();
+        if (!urls.length) {
+          return '';
+        }
+        // Time range — fall back to min/max of points when window
+        // is short. SVG coords are 0..100 logical w, 0..40 h (compact).
+        let minT = Infinity;
+        let maxT = -Infinity;
+        let maxV = 0;
+        for (const p of pts) {
+          if (p.t < minT) { minT = p.t; }
+          if (p.t > maxT) { maxT = p.t; }
+          if (p.latency_ms > maxV) { maxV = p.latency_ms; }
+        }
+        if (!isFinite(minT) || !isFinite(maxT) || maxT === minT) {
+          return '';
+        }
+        if (maxV <= 0) { maxV = 1; }
+        const W = 100;
+        const H = 36;
+        // Deterministic per-URL hue via simple hash so colours stay
+        // stable across re-renders. CSS variables can't be used inline
+        // in SVG stroke= per the token discipline rule, but the SPA's
+        // provider-colour scheme already uses computed hex literals
+        // here; we hash to one of a small token palette.
+        const _hue = (s) => {
+          let h2 = 0;
+          for (let i = 0; i < s.length; i++) {
+            h2 = (h2 * 31 + s.charCodeAt(i)) >>> 0;
+          }
+          return h2 % 360;
+        };
+        const lines = [];
+        for (const url of urls) {
+          const series = byUrl.get(url).slice().sort((a, b) => a.t - b.t);
+          if (series.length < 2) {
+            continue;
+          }
+          let path = '';
+          for (let i = 0; i < series.length; i++) {
+            const s = series[i];
+            const x = ((s.t - minT) / (maxT - minT)) * W;
+            const y = H - ((s.latency_ms / maxV) * (H - 2)) - 1;
+            path += (i === 0 ? 'M' : ' L') + x.toFixed(2) + ',' + y.toFixed(2);
+          }
+          const hue = _hue(url);
+          lines.push('<path d="' + path + '" fill="none" stroke="hsl(' + hue + ', 65%, 55%)" stroke-width="1.2" vector-effect="non-scaling-stroke"/>');
+        }
+        if (!lines.length) {
+          return '';
+        }
+        const ariaLabel = this._logEscape(this.t('host_drawer.http_probe.history_heading') || 'Latency history');
+        return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" '
+             + 'width="100%" height="44" aria-label="' + ariaLabel + '" role="img">'
+             + lines.join('')
+             + '</svg>';
+      } catch (_) {
+        return '';
+      }
+    },
+    /** Per-row Test button handler — fires POST /api/hosts/{id}/http-probe/test
+     * and stamps the result into `httpProbeRowTestResult[host.id]` for
+     * inline display. Busy flag prevents double-firing. Failure path
+     * surfaces the error via the result cache so the operator sees
+     * what went wrong without needing to open the console.
+     */
+    async testHostHttpProbe(h) {
+      if (!h || !h.id || this.httpProbeRowTestBusy[h.id]) {
+        return;
+      }
+      this.httpProbeRowTestBusy[h.id] = true;
+      this.httpProbeRowTestResult[h.id] = { pending: true, results: [], error: null };
+      try {
+        const resp = await fetch('/api/hosts/' + encodeURIComponent(h.id) + '/http-probe/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        const j = await resp.json().catch(() => ({}));
+        this.httpProbeRowTestResult[h.id] = {
+          pending: false,
+          results: Array.isArray(j && j.results) ? j.results : [],
+          elapsed_ms: (j && j.elapsed_ms) || 0,
+          error: (j && j.error) || (!resp.ok ? ('HTTP ' + resp.status) : null),
+        };
+      } catch (e) {
+        this.httpProbeRowTestResult[h.id] = {
+          pending: false,
+          results: [],
+          error: String(e && e.message || e),
+        };
+      } finally {
+        this.httpProbeRowTestBusy[h.id] = false;
+      }
+    },
+    async loadHostHttpProbeHistory(hostId, hours) {
+      if (!hostId) {
+        return;
+      }
+      const hrs = Math.max(1, Math.min(168, Number(hours) || Number(this.hostHistoryRange) || 1));
+      try {
+        const resp = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/http-probe/history?hours=' + hrs);
+        if (!resp.ok) {
+          this.hostHttpProbeHistory[hostId] = {
+            series: [],
+            collectors: {},
+            loadedAt: Date.now(),
+            hours: hrs,
+            error: 'HTTP ' + resp.status,
+          };
+          return;
+        }
+        const j = await resp.json();
+        this.hostHttpProbeHistory[hostId] = {
+          series: Array.isArray(j && j.series) ? j.series : [],
+          collectors: (j && j.collectors) || {},
+          loadedAt: Date.now(),
+          hours: hrs,
+          error: (j && j.error) || null,
+        };
+      } catch (e) {
+        this.hostHttpProbeHistory[hostId] = {
+          series: [],
+          collectors: {},
+          loadedAt: Date.now(),
+          hours: hrs,
+          error: String(e && e.message || e),
+        };
+      }
+    },
     hostSnmpHistory: {},
     async loadHostSnmpHistory(hostId, hours) {
       if (!hostId) {
@@ -35105,6 +35462,12 @@ function app() {
             }
           }
         }
+        // HTTP probe latency history shares the host drawer's
+        // freshness label — every successful sampler tick advances
+        // the per-URL `series[].t` so the "Last sample Xm ago" hint
+        // also covers the HTTP / TLS / DNS chart.
+        const httpEntry = this.hostHttpProbeHistory && this.hostHttpProbeHistory[h.id];
+        collectFromSeries(httpEntry, 'series');
       } catch (_) { /* defensive */ }
       if (!maxTs) {
         return null;
@@ -35637,6 +36000,16 @@ function app() {
           }
           if (typeof this.loadHostSnmpTempHistory === 'function') {
             tasks.push(this.loadHostSnmpTempHistory(this.drawerHost.id, hrs));
+          }
+        }
+        // HTTP probe latency history — fires alongside the other
+        // per-host charts so the range picker drives every card
+        // uniformly. Gate on http_probe_enabled OR existing samples
+        // (a recently-disabled probe should still re-fetch one final
+        // window so the chart shows what was collected pre-disable).
+        if (this.drawerHost && (this.drawerHost.http_probe_enabled || (this.hostHttpProbeHistory && this.hostHttpProbeHistory[this.drawerHost.id]))) {
+          if (typeof this.loadHostHttpProbeHistory === 'function') {
+            tasks.push(this.loadHostHttpProbeHistory(this.drawerHost.id, hrs));
           }
         }
         // Also handle any legacy expanded rows (kept for back-compat —

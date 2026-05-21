@@ -156,7 +156,7 @@ async def _probe_one_host(host: dict, sem: asyncio.Semaphore) -> dict:
     async def _one(url: str) -> dict:
         async with sem:
             try:
-                r = await _http_probe.probe_http_health(
+                probe_result = await _http_probe.probe_http_health(
                     url,
                     timeout=timeout_s,
                     dns_timeout=dns_timeout_s,
@@ -168,7 +168,7 @@ async def _probe_one_host(host: dict, sem: asyncio.Semaphore) -> dict:
                 raise
             except Exception as e:  # noqa: BLE001
                 err = f"{type(e).__name__}: {str(e)[:120]}"
-                r = {
+                probe_result = {
                     "ok": False,
                     "status_code": None,
                     "status_ok": False,
@@ -181,8 +181,8 @@ async def _probe_one_host(host: dict, sem: asyncio.Semaphore) -> dict:
                     "latency_ms": None,
                     "error": err,
                 }
-            r["url"] = url
-            return r
+            probe_result["url"] = url
+            return probe_result
 
     results = await asyncio.gather(*(_one(u) for u in host["urls"]))
     any_ok = any(r.get("ok") for r in results)
@@ -205,12 +205,23 @@ def _persist_rows(host_id: str, results: list[dict], ts: int) -> int:
         url = (r.get("url") or "").strip()
         if not url:
             continue
+        # TLS metadata fields persisted alongside the numeric outcome
+        # so the drawer card can surface subject / issuer without
+        # cross-referencing an external monitor. tls_error carries the
+        # exception text when the TLS handshake itself failed (cert
+        # chain broken, hostname mismatch, etc.) — distinct from the
+        # outer `error` column which covers HTTP-layer failures. Both
+        # truncated to 200 chars to bound row size on pathological
+        # cert chains.
         rows.append((
             ts, host_id, url,
             r.get("status_code"),
             1 if r.get("status_ok") else 0,
             1 if r.get("content_match_ok") else 0,
             r.get("tls_expires_in_days"),
+            (r.get("tls_subject") or "")[:200] or None,
+            (r.get("tls_issuer") or "")[:200] or None,
+            (r.get("tls_error") or "")[:200] or None,
             1 if r.get("dns_resolved") else 0,
             r.get("latency_ms"),
             (r.get("error") or "")[:200] or None,
@@ -222,9 +233,10 @@ def _persist_rows(host_id: str, results: list[dict], ts: int) -> int:
             c.executemany(
                 "INSERT OR REPLACE INTO host_http_samples "
                 "(ts, host_id, url, status_code, status_ok, "
-                " content_match_ok, tls_expires_in_days, dns_resolved, "
-                " latency_ms, error) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " content_match_ok, tls_expires_in_days, "
+                " tls_subject, tls_issuer, tls_error, "
+                " dns_resolved, latency_ms, error) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
         return len(rows)
@@ -286,6 +298,22 @@ async def host_http_sampler_loop() -> None:
                     from logic.host_metrics_sampler import (
                         record_provider_outcome as _rec_outcome,
                     )
+                    # Pre-tick snapshot of currently-failing hosts so we
+                    # can detect the healthy → failing transition and
+                    # fire one notification per transition (NOT per
+                    # subsequent tick) per the security/info-events
+                    # convention. Cheap dict scan; the failure-state
+                    # table is small (one row per (provider, host)).
+                    previously_failing: set[str] = set()
+                    try:
+                        with db_conn() as c:
+                            for r in c.execute(
+                                "SELECT host_id FROM host_failure_state "
+                                "WHERE provider='http_probe' AND consecutive_failures > 0"
+                            ).fetchall():
+                                previously_failing.add(r[0])
+                    except (sqlite3.Error, OSError):
+                        pass  # transient — re-fires next tick are acceptable
                     for outcome in outcomes:
                         if isinstance(outcome, BaseException):
                             n_err += 1
@@ -297,7 +325,6 @@ async def host_http_sampler_loop() -> None:
                             continue
                         results = outcome.get("results") or []
                         any_ok = bool(outcome.get("any_ok"))
-                        all_ok = bool(outcome.get("all_ok"))
                         n_persisted += _persist_rows(host_id, results, ts)
                         if any_ok:
                             n_ok += 1
@@ -309,15 +336,42 @@ async def host_http_sampler_loop() -> None:
                         else:
                             n_err += 1
                             err_msg = ""
+                            failing_url = ""
                             for r in results:
                                 if r.get("error"):
                                     err_msg = str(r.get("error"))
+                                    failing_url = str(r.get("url") or "")
                                     break
                             await _rec_outcome(
                                 host_id, "http_probe", False,
                                 error=err_msg or "all URLs failed",
                                 round_threshold=pause_threshold,
                             )
+                            # Fire the `http_probe_failure` notification
+                            # on the healthy → failing transition only.
+                            # Subsequent ticks where the host stays
+                            # failing don't re-notify (operator gets ONE
+                            # alert per outage, not a tick-rate stream).
+                            if host_id not in previously_failing:
+                                try:
+                                    from logic.ops import notify as _notify
+                                    await _notify(
+                                        f"HTTP probe failed: {host_id}",
+                                        f"URL: {failing_url}\nError: {err_msg or 'all URLs failed'}",
+                                        "error",
+                                        event="http_probe_failure",
+                                        target_kind="host",
+                                        target_id=host_id,
+                                        target_name=host_id,
+                                        metadata={"url": failing_url, "host": host_id},
+                                    )
+                                except asyncio.CancelledError:
+                                    raise
+                                except Exception as notify_err:  # noqa: BLE001
+                                    print(
+                                        f"[http_probe_sampler] {host_id!r} "
+                                        f"http_probe_failure notify deferred: {notify_err}"
+                                    )
                     print(
                         f"[http_probe_sampler] tick: {len(hosts)} hosts / "
                         f"{n_queued} URLs / {n_persisted} rows / "
@@ -377,7 +431,8 @@ def latest_for_host(host_id: str) -> dict:
             # all of a host's URLs in one batch so they share a ts.
             rows = c.execute(
                 "SELECT url, status_code, status_ok, content_match_ok, "
-                "tls_expires_in_days, dns_resolved, latency_ms, error "
+                "tls_expires_in_days, tls_subject, tls_issuer, tls_error, "
+                "dns_resolved, latency_ms, error "
                 "FROM host_http_samples WHERE host_id=? AND ts=?",
                 (host_id, newest_ts),
             ).fetchall()
@@ -397,6 +452,9 @@ def latest_for_host(host_id: str) -> dict:
             "status_ok": bool(r["status_ok"]),
             "content_match_ok": bool(r["content_match_ok"]),
             "tls_expires_in_days": r["tls_expires_in_days"],
+            "tls_subject": r["tls_subject"],
+            "tls_issuer": r["tls_issuer"],
+            "tls_error": r["tls_error"],
             "dns_resolved": bool(r["dns_resolved"]),
             "latency_ms": r["latency_ms"],
             "error": r["error"],
@@ -460,7 +518,15 @@ def populate_host_http_merge(host_id: str, merged: dict) -> None:
     merged["host_http_status_code"] = primary.get("status_code")
     merged["host_http_content_match_ok"] = bool(primary.get("content_match_ok"))
     merged["host_http_tls_expires_in_days"] = latest.get("min_tls_expires_in_days")
+    # Surface TLS cert metadata + handshake error on the merged row.
+    # `tls_subject` / `tls_issuer` populated when the cert parse
+    # succeeded; `tls_error` populated when the TLS handshake failed
+    # (cert expired, hostname mismatch, broken chain). Drawer card
+    # binds to all three so operators can spot a soon-to-expire cert
+    # OR a misconfigured TLS endpoint at a glance.
     merged["host_http_tls_subject"] = primary.get("tls_subject") if isinstance(primary.get("tls_subject"), str) else None
+    merged["host_http_tls_issuer"] = primary.get("tls_issuer") if isinstance(primary.get("tls_issuer"), str) else None
+    merged["host_http_tls_error"] = primary.get("tls_error") if isinstance(primary.get("tls_error"), str) else None
     merged["host_http_dns_resolved"] = bool(primary.get("dns_resolved"))
     merged["host_http_latency_ms"] = primary.get("latency_ms")
     merged["host_http_error"] = primary.get("error") or None
@@ -481,7 +547,8 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 1000) -> list[dict]
         with db_conn() as c:
             rows = c.execute(
                 "SELECT ts, url, status_code, status_ok, content_match_ok, "
-                "tls_expires_in_days, dns_resolved, latency_ms, error "
+                "tls_expires_in_days, tls_subject, tls_issuer, tls_error, "
+                "dns_resolved, latency_ms, error "
                 "FROM host_http_samples WHERE host_id=? AND ts >= ? "
                 "ORDER BY ts ASC LIMIT ?",
                 (host_id, int(since_ts), int(limit)),
@@ -496,6 +563,9 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 1000) -> list[dict]
         "status_ok": bool(r["status_ok"]),
         "content_match_ok": bool(r["content_match_ok"]),
         "tls_expires_in_days": r["tls_expires_in_days"],
+        "tls_subject": r["tls_subject"],
+        "tls_issuer": r["tls_issuer"],
+        "tls_error": r["tls_error"],
         "dns_resolved": bool(r["dns_resolved"]),
         "latency_ms": r["latency_ms"],
         "error": r["error"],

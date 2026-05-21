@@ -406,6 +406,15 @@ NOTIFY_EVENT_NAMES = (
     # Default OFF so a freshly-enabled scanner doesn't flood the
     # operator with first-run notifications for every existing port.
     "port_scan_new_port",
+    # HTTP probe provider — fires when a per-host HTTP/TLS/DNS probe
+    # transitions healthy → failing. Default OFF so a freshly-enabled
+    # probe doesn't flood the operator with first-run failures.
+    "http_probe_failure",
+    # Per-service reachability probe — fires when a service-level
+    # probe (one per curated `services[]` chip with `probe.enabled`)
+    # transitions healthy → failing. Default OFF — service chips are
+    # noisier than host chips and operators opt in selectively.
+    "service_probe_failure",
     # TOTP audit-row INSERT failure — when an admin disables / force
     # -sets a user's TOTP enrolment but the audit-history row INSERT
     # fails (SQLite locked, FK violation, etc.). Defensive log +
@@ -422,7 +431,7 @@ NOTIFY_EVENT_NAMES = (
     "overlay_cleanup_failure",
 )
 NOTIFY_EVENT_DEFAULTS: dict[str, bool] = {
-    name: (False if name in ("user_login", "port_scan_new_port") else True)
+    name: (False if name in ("user_login", "port_scan_new_port", "http_probe_failure", "service_probe_failure") else True)
     for name in NOTIFY_EVENT_NAMES
 }
 
@@ -514,6 +523,9 @@ NOTIFY_PLACEHOLDERS = (
     "error",
     "message",
     "status",
+    # ``url`` is populated by HTTP-probe-class events so the body can
+    # name the failing URL inline. Empty for non-probe events.
+    "url",
 )
 
 # Sample placeholder values for the live-preview pane in the admin
@@ -528,6 +540,7 @@ NOTIFY_TEMPLATE_SAMPLES: dict = {
     "error": "HTTP 500: connection refused",
     "message": "Probe ran, 3 nodes flagged unhealthy",
     "status": "success",
+    "url": "https://example.com/health",
 }
 
 # Per-event hard-coded defaults. Each value mirrors the string the
@@ -635,6 +648,22 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
     "port_scan_new_port": {
         "title": "🔍 New open port on {name}",
         "body": "{message}",
+    },
+    # HTTP/TLS/DNS probe provider — fires on the healthy→failing
+    # transition for a per-host probe. ``{name}`` resolves to the
+    # host id; the body surfaces the failing URL + the probe error.
+    "http_probe_failure": {
+        "title": "🌐 HTTP probe failed: {name}",
+        "body": "URL: {url}\nError: {error}",
+    },
+    # Per-service reachability probe — one chip per curated
+    # `services[]` entry with `probe.enabled === true` on a host.
+    # ``{name}`` resolves to the host id, ``{url}`` to the service's
+    # URL (typically port:host or http(s) link), and ``{message}`` to
+    # the specific service name (e.g. "Plex :32400").
+    "service_probe_failure": {
+        "title": "🔌 Service probe failed: {name}",
+        "body": "Service: {message}\nURL: {url}\nError: {error}",
     },
     "totp_audit_log_failed": {
         "title": "TOTP audit-row missing for {name}",
@@ -773,6 +802,7 @@ def build_template_values(
     when: Optional[float] = None,
     message: Optional[str] = None,
     actor_username: Optional[str] = None,
+    url: Optional[str] = None,
 ) -> dict:
     """Build the placeholder->value dict consumed by
     :func:`render_template`. Every key in :data:`NOTIFY_PLACEHOLDERS`
@@ -821,6 +851,7 @@ def build_template_values(
         "error": err_str,
         "message": msg_str,
         "status": status or "",
+        "url": url or "",
     }
 
 
@@ -1456,6 +1487,12 @@ async def notify(
             message=legacy_body,
             status=status_token,
             actor_username=actor_username,
+            # `url` placeholder — populated by HTTP-probe-class events
+            # via `meta["url"]`. Empty for non-probe events; the
+            # SafeDict renderer leaves `{url}` verbatim if a template
+            # binds it on a non-URL event (visible to the operator so
+            # the typo / wrong-template situation is caught early).
+            url=(meta.get("url") or "") if isinstance(meta, dict) else "",
         )
         # Resolve and render. Empty resolver output falls through to
         # the legacy literal — never go silent on missing template.

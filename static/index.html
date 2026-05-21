@@ -5195,8 +5195,29 @@
                 <template x-if="h.host_http_tls_subject">
                   <dd class="text-end mono fs-xs"
                       :class="isStaleField(h, 'host_http_tls_subject') ? 'stale' : ''"
-                      :title="isStaleField(h, 'host_http_tls_subject') ? staleAge(h) : ''"
-                      x-text="h.host_http_tls_subject"></dd>
+                      :title="isStaleField(h, 'host_http_tls_subject') ? staleAge(h) : ''">
+                    <span x-text="h.host_http_tls_subject"></span>
+                    <!-- Asset-inventory cert correlation — when the
+                         host's asset record has linked cert child rows
+                         (Type.ShortName=CERT or similar), surface a
+                         chevron-link per cert so the operator can jump
+                         to the renewal record without context-switching
+                         to the asset UI. Hidden when no certs are
+                         tracked upstream for this host. -->
+                    <template x-for="cert in (assetForHost(h) && assetForHost(h).certs) || []" :key="cert.asset_id">
+                      <a :href="cert.link_url || '#'"
+                         :target="cert.link_url ? '_blank' : ''"
+                         rel="noopener"
+                         class="ms-2 fs-2xs inline-flex items-center gap-1 text-[var(--primary)] hover:underline"
+                         :title="t('host_drawer.http_probe.cert_link_title', { name: cert.name, issuer: cert.issuer || '—', expires: cert.expires_at || '—' })"
+                         :aria-label="t('host_drawer.http_probe.cert_link_aria', { name: cert.name })">
+                        <span x-text="cert.name"></span>
+                        <svg width="11" height="11" aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+                        </svg>
+                      </a>
+                    </template>
+                  </dd>
                 </template>
                 <template x-if="h.host_http_tls_issuer">
                   <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.http_probe.tls_issuer')"></dt>
@@ -5219,25 +5240,117 @@
                 </template>
               </dl>
               <!-- Per-URL status strip — one row per probed URL with
-                   a status-code chip + the URL itself. Renders below
-                   the rollup dl when there's more than one URL OR the
-                   single URL has a non-OK status. Operator drills into
-                   this when the rollup chip flips to amber / red and
-                   wants to know which URL is broken. -->
+                   a status-code chip + the URL itself. Collapsed by
+                   default beyond the row cap (8 on desktop, 3 on
+                   narrow) with a "Show N more" button — keeps the
+                   card compact for hosts probing 15+ URLs so the
+                   SERVER HEALTH card below doesn't get pushed out of
+                   view. Sorted failing → warning → ok so the most
+                   actionable URLs are above the fold. -->
               <template x-if="Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0">
-                <ul class="mt-3 space-y-1.5 fs-xs">
-                  <template x-for="u in (h.host_http_urls || [])" :key="u.url">
+                <div class="mt-3">
+                  <ul class="space-y-1.5 fs-xs">
+                    <template x-for="u in httpProbeVisibleUrls(h)" :key="u.url">
+                      <li class="flex items-center gap-2 flex-wrap">
+                        <span class="chip fs-3xs"
+                              :class="(u.status_ok && u.content_match_ok) ? 'pill-ok' : 'pill-error'"
+                              x-text="(u.status_code !== null && u.status_code !== undefined) ? String(u.status_code) : '—'"></span>
+                        <span class="mono text-[var(--text-dim)] break-all" x-text="u.url"></span>
+                        <span x-show="u.error"
+                              class="fs-3xs text-[var(--danger)] ms-auto"
+                              x-text="u.error"></span>
+                      </li>
+                    </template>
+                  </ul>
+                  <!-- Show-all toggle — only renders when the URL list
+                       overflows the collapsed cap. Button counts the
+                       hidden remainder so the operator knows what's
+                       below the fold without expanding to find out. -->
+                  <button type="button"
+                          x-show="httpProbeHasMoreUrls(h)"
+                          @click="toggleHttpProbeShowAll(h)"
+                          class="mt-2 btn btn-ghost fs-2xs"
+                          x-text="httpProbeShowAll[h.id]
+                                  ? t('host_drawer.http_probe.show_less')
+                                  : t('host_drawer.http_probe.show_all', { n: httpProbeHiddenUrlCount(h) })"></button>
+                </div>
+              </template>
+              <!-- Latency-history mini-chart — per-URL line for the
+                   probe's `latency_ms` series over the active range
+                   (1h / 6h / 24h / 7d via the host-drawer range
+                   picker). Lazily-loaded via `loadHostHttpProbeHistory`
+                   when the drawer mounts or the range picker fires.
+                   Renders nothing when there's no data yet — the
+                   probe may have just been enabled. -->
+              <template x-if="hostHttpProbeHistory && hostHttpProbeHistory[h.id]
+                              && Array.isArray((hostHttpProbeHistory[h.id] || {}).series)
+                              && (hostHttpProbeHistory[h.id].series.length > 0)">
+                <div class="mt-3 pt-3 border-t border-[var(--border)]">
+                  <div class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-2"
+                       x-text="t('host_drawer.http_probe.history_heading')"></div>
+                  <!-- SVG mini-chart — one line per URL, colour-mapped
+                       by URL hash. Lightweight inline render rather
+                       than the heavier `hostChart` helper because
+                       the per-URL series can have very different
+                       latency magnitudes; the y-axis auto-scales to
+                       the full series max. -->
+                  <div class="rounded border border-[var(--border)] bg-[var(--surface)] p-2"
+                       x-html="renderHttpProbeLatencyMiniChart(h)"></div>
+                </div>
+              </template>
+              <template x-if="hostHttpProbeHistory && hostHttpProbeHistory[h.id]
+                              && (!Array.isArray((hostHttpProbeHistory[h.id] || {}).series)
+                                  || ((hostHttpProbeHistory[h.id] || {}).series || []).length === 0)">
+                <div class="mt-3 pt-3 border-t border-[var(--border)] fs-xs italic text-[var(--text-faint)]"
+                     x-text="t('host_drawer.http_probe.history_no_data')"></div>
+              </template>
+              <!-- Per-row Test button — fires POST /api/hosts/{id}/http-probe/test
+                   against this row's resolved URLs and renders per-URL
+                   result chips inline. Operator drills in when a chip
+                   flips amber / red and wants an immediate live re-
+                   probe (no waiting for the next sampler tick). -->
+              <div class="mt-3 flex items-center gap-2 flex-wrap"
+                   x-show="isAdmin() && (h.http_probe_enabled || (Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0))">
+                <button type="button"
+                        @click="testHostHttpProbe(h)"
+                        :disabled="!!(httpProbeRowTestBusy && httpProbeRowTestBusy[h.id])"
+                        class="btn btn-soft fs-xs inline-flex items-center gap-1.5"
+                        :aria-label="t('host_drawer.http_probe.row_test_aria')"
+                        :title="t('host_drawer.http_probe.row_test_title')">
+                  <svg width="13" height="13"
+                       :class="(httpProbeRowTestBusy && httpProbeRowTestBusy[h.id]) ? 'spin-md' : ''"
+                       aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
+                  </svg>
+                  <span x-text="(httpProbeRowTestBusy && httpProbeRowTestBusy[h.id])
+                                ? t('host_drawer.http_probe.row_test_running')
+                                : t('host_drawer.http_probe.row_test_button')"></span>
+                </button>
+              </div>
+              <!-- Inline result chip strip — one chip per URL probed
+                   in the row test. Lives below the button so the
+                   operator sees pass / fail per URL without scroll. -->
+              <template x-if="httpProbeRowTestResult && httpProbeRowTestResult[h.id]
+                              && Array.isArray((httpProbeRowTestResult[h.id] || {}).results)
+                              && (httpProbeRowTestResult[h.id].results || []).length > 0">
+                <ul class="mt-2 space-y-1 fs-2xs">
+                  <template x-for="r in (httpProbeRowTestResult[h.id].results || [])" :key="r.url">
                     <li class="flex items-center gap-2 flex-wrap">
                       <span class="chip fs-3xs"
-                            :class="(u.status_ok && u.content_match_ok) ? 'pill-ok' : 'pill-error'"
-                            x-text="(u.status_code !== null && u.status_code !== undefined) ? String(u.status_code) : '—'"></span>
-                      <span class="mono text-[var(--text-dim)] break-all" x-text="u.url"></span>
-                      <span x-show="u.error"
-                            class="fs-3xs text-[var(--danger)] ms-auto"
-                            x-text="u.error"></span>
+                            :class="r.ok ? 'pill-ok' : 'pill-error'"
+                            x-text="r.ok
+                                    ? t('host_drawer.http_probe.row_test_result_ok', { status: r.status_code || '—', latency_ms: r.latency_ms || '?' })
+                                    : t('host_drawer.http_probe.row_test_result_fail', { error: (r.error || 'unknown').substring(0, 80) })"></span>
+                      <span class="mono text-[var(--text-dim)] break-all" x-text="r.url"></span>
                     </li>
                   </template>
                 </ul>
+              </template>
+              <template x-if="httpProbeRowTestResult && httpProbeRowTestResult[h.id]
+                              && (httpProbeRowTestResult[h.id] || {}).error
+                              && !(httpProbeRowTestResult[h.id].results || []).length">
+                <div class="mt-2 fs-2xs italic text-[var(--text-faint)]"
+                     x-text="t('host_drawer.http_probe.row_test_no_urls')"></div>
               </template>
               <!-- Resume button — visible only when http_probe is in the
                    auto-paused state for THIS host. Mirrors the SNMP /

@@ -216,6 +216,18 @@ HTTP_PROBE_CERT_WARNING_DAYS=14
 HTTP_PROBE_HOST_CACHE_TTL_SECONDS=30
 HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS=5
 
+# Per-service reachability probe — one chip per curated services[]
+# entry with `probe.enabled=true`. Distinct from the host-level
+# HTTP probe (which covers the whole row). Master toggle lives in
+# the DB-backed `service_probe_enabled` setting; these knobs only
+# affect runtime once that toggle is on.
+SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS=0
+SERVICE_PROBE_CONCURRENCY=16
+SERVICE_PROBE_TIMEOUT_SECONDS=5
+SERVICE_PROBE_FAILURE_PAUSE_ROUNDS=5
+SERVICE_PROBE_HOST_CACHE_TTL_SECONDS=30
+SERVICE_PROBE_HOST_FAIL_CACHE_TTL_SECONDS=5
+
 # SNMP host-stats provider knobs. `SNMP_PROBE_TIMEOUT_SECONDS` is the
 # per-OID UDP timeout (fast-fail on truly dead hosts);
 # `SNMP_WALL_CLOCK_BUDGET_SECONDS` is the total budget for ONE probe
@@ -659,6 +671,12 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `HTTP_PROBE_CERT_WARNING_DAYS`    | Runtime     | `14`                 | TLS cert expiry warning threshold — drawer paints expiry pill amber under this many days, red when ≤ 0. Range 1..365. |
 | `HTTP_PROBE_HOST_CACHE_TTL_SECONDS` | Runtime   | `30`                 | Per-host HTTP probe success cache TTL. Range 0..600 (0 = disable cache).         |
 | `HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS` | Runtime | `5`               | Per-host HTTP probe failure cache TTL. Tight so recovery surfaces fast. Range 0..600. |
+| `SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS` | Runtime | `0`              | Per-service probe sampler cadence. 0 = inherit `STATS_SAMPLE_INTERVAL_SECONDS`. Range 0..3600. |
+| `SERVICE_PROBE_CONCURRENCY`       | Runtime     | `16`                 | Parallel service probes per sampler tick. Range 1..64.                           |
+| `SERVICE_PROBE_TIMEOUT_SECONDS`   | Runtime     | `5`                  | Per-target TCP/HTTP probe timeout. Range 1..30.                                  |
+| `SERVICE_PROBE_FAILURE_PAUSE_ROUNDS` | Runtime  | `5`                  | Per-(service_probe, host) auto-pause threshold. 0 = disabled. Range 0..50.       |
+| `SERVICE_PROBE_HOST_CACHE_TTL_SECONDS` | Runtime | `30`               | Per-host service probe success cache TTL. Range 0..600 (0 = disable).            |
+| `SERVICE_PROBE_HOST_FAIL_CACHE_TTL_SECONDS` | Runtime | `5`           | Per-host service probe failure cache TTL. Range 0..600.                          |
 | `SNMP_PROBE_TIMEOUT_SECONDS`      | Runtime     | `5`                  | Per-OID UDP timeout for SNMP queries (fast-fail on dead hosts).                  |
 | `SNMP_WALL_CLOCK_BUDGET_SECONDS`  | Runtime     | `60`                 | Total wall-clock budget for ONE probe against ONE host (~60 OIDs round-trip). Range 5..600. |
 | `SNMP_CONCURRENCY`                | Runtime     | `16`                 | SNMP probe fan-out cap (parallel hosts within one tick).                         |
