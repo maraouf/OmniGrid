@@ -25,45 +25,45 @@
    Poppins font — vendored under static/fonts/ for offline operation.
    Refresh with scripts/download_poppins.sh if Google ever changes the URLs.
    --------------------------------------------------------------------------- */
-/*noinspection CssUnknownTarget*/
+/* noinspection CssUnknownTarget */
 @font-face {
-  font-family: 'Poppins';
+  font-family: Poppins;
   font-style: normal;
   font-weight: 400;
   font-display: swap;
   src: url('/fonts/poppins-regular-400.woff2') format('woff2');
 }
 
-/*noinspection ALL*/
+/* noinspection CssUnknownTarget */
 @font-face {
-  font-family: 'Poppins';
+  font-family: Poppins;
   font-style: normal;
   font-weight: 500;
   font-display: swap;
   src: url('/fonts/poppins-medium-500.woff2') format('woff2');
 }
 
-/*noinspection ALL*/
+/* noinspection CssUnknownTarget */
 @font-face {
-  font-family: 'Poppins';
+  font-family: Poppins;
   font-style: normal;
   font-weight: 600;
   font-display: swap;
   src: url('/fonts/poppins-semibold-600.woff2') format('woff2');
 }
 
-/*noinspection ALL*/
+/* noinspection CssUnknownTarget */
 @font-face {
-  font-family: 'Poppins';
+  font-family: Poppins;
   font-style: normal;
   font-weight: 700;
   font-display: swap;
   src: url('/fonts/poppins-bold-700.woff2') format('woff2');
 }
 
-/*noinspection ALL*/
+/* noinspection CssUnknownTarget */
 @font-face {
-  font-family: 'Poppins';
+  font-family: Poppins;
   font-style: italic;
   font-weight: 400;
   font-display: swap;
@@ -346,8 +346,8 @@
 
   /* Fonts — Poppins is vendored under /fonts/. Fallbacks cover the tiny
        window before the woff2 loads (font-display: swap). */
-  --font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: 'Poppins', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, sfmono-regular, menlo, consolas, monospace;
 
   /* Runtime-injected custom properties — set inline via :style on the
        element that needs them. Declared here so tooling (IDEs, linters)
@@ -429,7 +429,6 @@
        with the chart curves. */
   --chart-grid: #94a3b8;
   --border-bright: #cbd5e1;
-
   --text: #0f172a;
   --text-dim: #475569;
   /* slate-600 — readable mid-tone on the light
@@ -439,7 +438,6 @@
   --text-faint: #64748b;
   --text-on-primary: #ffffff;
   --text-on-warning: #1a0e00;
-
   --primary: #2563eb;
   --primary-hov: #1d4ed8;
   --primary-soft: rgba(37, 99, 235, .08);
@@ -447,7 +445,6 @@
   --warning: #d97706;
   --danger: #dc2626;
   --info: #4f46e5;
-
   --pill-update-bg: rgba(217, 119, 6, .10);
   --pill-update-br: rgba(217, 119, 6, .30);
   --pill-update-fg: #b45309;
@@ -487,13 +484,11 @@
   --pill-healthy-bg: rgba(22, 163, 74, .08);
   --pill-healthy-br: rgba(22, 163, 74, .30);
   --pill-healthy-fg: #15803d;
-
   --backdrop: rgba(15, 23, 42, .40);
   --backdrop-strong: rgba(15, 23, 42, .60);
   --row-hover: rgba(15, 23, 42, .03);
   --label-shadow: rgba(255, 255, 255, .6);
   --kbd-shadow: rgba(15, 23, 42, .12);
-
   --metric-cpu: #7c3aed;
   --metric-mem: #d97706;
   --metric-disk: #16a34a;
@@ -1030,6 +1025,34 @@ button:disabled {
   transition: background-color 0.12s, color 0.12s;
 }
 
+/* Admin → Hosts Test-providers result card. Renders below the
+ * Test button when results land. Per-provider chips use a 220px-min
+ * auto-fit grid so wide detail strings (e.g. SNMP timeout reasons)
+ * get their own row without truncating other providers. OK / fail
+ * status row gets a left-edge accent stripe in the corresponding
+ * token colour to make the outcome scannable at a glance. */
+.host-test-result {
+  animation: fadeIn 0.22s ease-out;
+}
+
+.host-test-row--ok {
+  border-inline-start: 3px solid var(--success);
+}
+
+.host-test-row--fail {
+  border-inline-start: 3px solid var(--danger);
+}
+
+.host-test-row--ok .host-test-icon {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.host-test-row--fail .host-test-icon {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .user-action-btn:hover:not(:disabled) {
   background: var(--row-hover);
   color: var(--text);
@@ -1081,7 +1104,7 @@ button:disabled {
   width: 11px;
   height: 11px;
   border-radius: var(--r-pill);
-  border: 2px solid currentColor;
+  border: 2px solid currentcolor;
   border-top-color: transparent;
   animation: spin .7s linear infinite;
   display: inline-block;
@@ -1586,7 +1609,7 @@ button:disabled {
  * moment the chip is deselected.
  * - `margin-inline-end` keeps RTL clean. */
 .chip.chip-active {
-  border-color: currentColor;
+  border-color: currentcolor;
   font-weight: 600;
 }
 
@@ -1596,7 +1619,7 @@ button:disabled {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: currentColor;
+  background: currentcolor;
   margin-inline-end: var(--s-2);
   vertical-align: middle;
   /* Pull the baseline up a hair so the dot visually centres against
@@ -1745,7 +1768,7 @@ button.health-chip:hover {
      * paper over with a 14px fallback. */
   width: var(--provider-icon-size);
   height: var(--provider-icon-size);
-  background-color: currentColor;
+  background-color: currentcolor;
   -webkit-mask-image: var(--provider-icon-url);
   mask-image: var(--provider-icon-url);
   -webkit-mask-size: contain;
@@ -2801,7 +2824,7 @@ details summary::-webkit-details-marker {
 
 .host-row-spark path {
   fill: none;
-  stroke: currentColor;
+  stroke: currentcolor;
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -3015,7 +3038,7 @@ details summary::-webkit-details-marker {
 
 .spark--host path.spark-area,
 .spark--full path.spark-area {
-  fill: currentColor;
+  fill: currentcolor;
   fill-opacity: 0.16;
   stroke: none;
 }
@@ -3133,7 +3156,7 @@ details summary::-webkit-details-marker {
 
 .host-chart-line {
   fill: none;
-  stroke: currentColor;
+  stroke: currentcolor;
   stroke-width: 1.5;
   stroke-linejoin: round;
   stroke-linecap: round;
@@ -3141,7 +3164,7 @@ details summary::-webkit-details-marker {
 }
 
 .host-chart-area {
-  fill: currentColor;
+  fill: currentcolor;
   fill-opacity: 0.14;
   stroke: none;
 }
@@ -3462,7 +3485,7 @@ details summary::-webkit-details-marker {
 
 .metric-line {
   fill: none;
-  stroke: currentColor;
+  stroke: currentcolor;
   stroke-width: 1.6;
   stroke-linejoin: round;
   stroke-linecap: round;
@@ -3470,7 +3493,7 @@ details summary::-webkit-details-marker {
 }
 
 .metric-area {
-  fill: currentColor;
+  fill: currentcolor;
   fill-opacity: 0.45;
   stroke: none;
 }
@@ -6100,7 +6123,7 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 }
 
 .swal2-icon {
-  border-color: currentColor !important;
+  border-color: currentcolor !important;
 }
 
 .swal2-icon.swal2-warning {
