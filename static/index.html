@@ -5313,8 +5313,23 @@
               <template x-if="hostHttpProbeHistory && hostHttpProbeHistory[h.id]
                               && (!Array.isArray((hostHttpProbeHistory[h.id] || {}).series)
                                   || ((hostHttpProbeHistory[h.id] || {}).series || []).length === 0)">
-                <div class="mt-3 pt-3 border-t border-[var(--border)] fs-xs italic text-[var(--text-faint)]"
-                     x-text="t('host_drawer.http_probe.history_no_data')"></div>
+                <div class="mt-3 pt-3 border-t border-[var(--border)] fs-xs text-[var(--text-faint)] space-y-1">
+                  <div class="italic" x-text="t('host_drawer.http_probe.history_no_data')"></div>
+                  <!-- Diagnostic hint — surface common reasons the
+                       series is empty so the operator can self-diagnose
+                       without opening Admin → Logs. The three checks
+                       cover the typical "I just enabled HTTP probe but
+                       see no data" friction paths. -->
+                  <ul class="list-disc list-inside fs-2xs mt-1">
+                    <li x-show="!hasHostStatsSource('http_probe')"
+                        class="text-[var(--warning)]"
+                        x-text="t('host_drawer.http_probe.no_data_hint_global_off') || 'HTTP probe is not enabled in Settings → Host stats — enable the master toggle to start collecting samples.'"></li>
+                    <li x-show="hasHostStatsSource('http_probe') && !(Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0)"
+                        x-text="t('host_drawer.http_probe.no_data_hint_no_urls') || 'No URLs resolved for this host — add URLs to http_probe.urls in Admin → Hosts, or set the top-level URL / services URLs.'"></li>
+                    <li x-show="hasHostStatsSource('http_probe') && (Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0)"
+                        x-text="t('host_drawer.http_probe.no_data_hint_waiting') || 'Probe configured — waiting for the next sampler tick to write the first sample.'"></li>
+                  </ul>
+                </div>
               </template>
               <!-- Per-row Test button — fires POST /api/hosts/{id}/http-probe/test
                    against this row's resolved URLs and renders per-URL
@@ -8245,6 +8260,20 @@
                         </header>
                         <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.snmp)"></pre>
                       </section>
+                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.http_probe)">
+                        <header class="host-debug-box-head">
+                          <span class="host-debug-label host-debug-label--http_probe" x-text="t('debug_panel.labels.raw_http_probe')"></span>
+                          <button type="button" class="host-debug-copy"
+                                  @click="copyDebugJson(hostsDebug[h.id].providers_raw?.http_probe, 'debug_panel.labels.raw_http_probe')"
+                                  :aria-label="copyAriaLabel('debug_panel.labels.raw_http_probe')"
+                                  :title="t('debug_panel.copy_title')">
+                            <svg width="12" height="12" aria-hidden="true">
+                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                            </svg>
+                          </button>
+                        </header>
+                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.http_probe)"></pre>
+                      </section>
                       <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].merged)">
                         <header class="host-debug-box-head">
                           <span class="host-debug-label host-debug-label--merged" x-text="t('debug_panel.labels.merged')"></span>
@@ -8358,6 +8387,20 @@
                           </button>
                         </header>
                         <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.snmp)"></pre>
+                      </section>
+                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.http_probe)">
+                        <header class="host-debug-box-head">
+                          <span class="host-debug-label host-debug-label--http_probe" x-text="t('debug_panel.labels.normalized_http_probe')"></span>
+                          <button type="button" class="host-debug-copy"
+                                  @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.http_probe, 'debug_panel.labels.normalized_http_probe')"
+                                  :aria-label="copyAriaLabel('debug_panel.labels.normalized_http_probe')"
+                                  :title="t('debug_panel.copy_title')">
+                            <svg width="12" height="12" aria-hidden="true">
+                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                            </svg>
+                          </button>
+                        </header>
+                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.http_probe)"></pre>
                       </section>
                       <!-- Asset inventory (raw upstream payload).
                                Sourced from the host's `asset` field
