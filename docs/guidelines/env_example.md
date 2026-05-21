@@ -233,8 +233,6 @@ SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS=0
 SERVICE_PROBE_CONCURRENCY=16
 SERVICE_PROBE_TIMEOUT_SECONDS=5
 SERVICE_PROBE_FAILURE_PAUSE_ROUNDS=5
-SERVICE_PROBE_HOST_CACHE_TTL_SECONDS=30
-SERVICE_PROBE_HOST_FAIL_CACHE_TTL_SECONDS=5
 
 # SNMP host-stats provider knobs. `SNMP_PROBE_TIMEOUT_SECONDS` is the
 # per-OID UDP timeout (fast-fail on truly dead hosts);
@@ -754,8 +752,6 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `SERVICE_PROBE_CONCURRENCY`       | Runtime     | `16`                 | Parallel service probes per sampler tick. Range 1..64.                           |
 | `SERVICE_PROBE_TIMEOUT_SECONDS`   | Runtime     | `5`                  | Per-target TCP/HTTP probe timeout. Range 1..30.                                  |
 | `SERVICE_PROBE_FAILURE_PAUSE_ROUNDS` | Runtime  | `5`                  | Per-(service_probe, host) auto-pause threshold. 0 = disabled. Range 0..50.       |
-| `SERVICE_PROBE_HOST_CACHE_TTL_SECONDS` | Runtime | `30`               | Per-host service probe success cache TTL. Range 0..600 (0 = disable).            |
-| `SERVICE_PROBE_HOST_FAIL_CACHE_TTL_SECONDS` | Runtime | `5`           | Per-host service probe failure cache TTL. Range 0..600.                          |
 | `SNMP_PROBE_TIMEOUT_SECONDS`      | Runtime     | `5`                  | Per-OID UDP timeout for SNMP queries (fast-fail on dead hosts).                  |
 | `SNMP_WALL_CLOCK_BUDGET_SECONDS`  | Runtime     | `60`                 | Total wall-clock budget for ONE probe against ONE host (~60 OIDs round-trip). Range 5..600. |
 | `SNMP_CONCURRENCY`                | Runtime     | `16`                 | SNMP probe fan-out cap (parallel hosts within one tick).                         |

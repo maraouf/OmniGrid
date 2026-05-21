@@ -1545,7 +1545,7 @@ _BACKGROUND_TASKS: set = set()
 # because the done_callback never fires. Without a cap a leaky
 # spawn site could grow the set unbounded over a long-running
 # deploy. Every spawn-from-handler today goes through
-# `_spawn_background_task`
+# `spawn_background_task`
 # which keeps the count bounded by the actual in-flight work, so
 # the cap is theoretical — but it's defence-in-depth for a future
 # regression. When the set hits the cap, drop the oldest tasks
@@ -1555,9 +1555,17 @@ _BACKGROUND_TASKS: set = set()
 # generous: even a fleet-wide port-scan + every host-stats refresh
 # in flight at once shouldn't approach this.
 _BACKGROUND_TASKS_CAP: int = 1000
+# Single-fire-per-window throttle for the cap-eviction WARN line.
+# Without this, a runaway-spawn site fires the WARN on EVERY new
+# spawn while the set is full — operators see thousands of identical
+# lines in Admin → Logs that drown out the actual signal. After the
+# first WARN, suppress for 60s, then re-fire if the cap is still
+# being hit (so a persistent leak STAYS visible without flooding).
+_BACKGROUND_TASKS_CAP_WARN_WINDOW_SECONDS: float = 60.0
+_background_tasks_cap_last_warn_ts: float = 0.0
 
 
-def _spawn_background_task(coro, *, label: str = ""):
+def spawn_background_task(coro, *, label: str = ""):
     """Wrap `asyncio.create_task` with a strong-reference + cleanup
     callback so spawned tasks aren't GC'd mid-execution.
 
@@ -1583,12 +1591,24 @@ def _spawn_background_task(coro, *, label: str = ""):
         try:
             stale = next(iter(_BACKGROUND_TASKS))
             _BACKGROUND_TASKS.discard(stale)
-            print(
-                f"[bg] WARNING — _BACKGROUND_TASKS at cap ({_BACKGROUND_TASKS_CAP}) "
-                f"— evicted oldest task; this signals a spawn-site leak "
-                f"or a never-completing task. Audit the [bg] log "
-                f"for tasks that spawned but never logged 'done'."
-            )
+            # Single-fire-per-window throttle — see the
+            # `_BACKGROUND_TASKS_CAP_WARN_WINDOW_SECONDS` constant
+            # block above for the rationale. The eviction itself
+            # still happens on every spawn while the cap is hit;
+            # only the WARN line is throttled.
+            global _background_tasks_cap_last_warn_ts
+            now_ts = time.time()
+            if (now_ts - _background_tasks_cap_last_warn_ts
+                    >= _BACKGROUND_TASKS_CAP_WARN_WINDOW_SECONDS):
+                _background_tasks_cap_last_warn_ts = now_ts
+                print(
+                    f"[bg] WARNING — _BACKGROUND_TASKS at cap ({_BACKGROUND_TASKS_CAP}) "
+                    f"— evicted oldest task; this signals a spawn-site leak "
+                    f"or a never-completing task. Audit the [bg] log "
+                    f"for tasks that spawned but never logged 'done'. "
+                    f"(suppressing further WARN lines for "
+                    f"{int(_BACKGROUND_TASKS_CAP_WARN_WINDOW_SECONDS)}s)"
+                )
         except StopIteration:
             pass
     task = asyncio.create_task(coro)
@@ -4417,7 +4437,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 detail=(
                     "host_stats_source must be a CSV of 'beszel' / "
                     "'node_exporter' / 'pulse' / 'webmin' / 'ping' / "
-                    "'snmp' "
+                    "'snmp' / 'http_probe' "
                     f"(or 'none'). Unknown: {sorted(unknown)}"
                 ),
             )
@@ -11877,7 +11897,7 @@ async def api_hosts_list(force: bool = False):
         # otherwise vanish silently.
         if force:
             try:
-                _spawn_background_task(
+                spawn_background_task(
                     _get_host_provider_state(force=force),
                     label="host_provider_state:refresh",
                 )
@@ -11906,7 +11926,7 @@ async def api_hosts_list(force: bool = False):
         # Strong-reference helper so a GC sweep can't eat the task
         # before the probe lands its `[hosts] ...` log lines.
         try:
-            _spawn_background_task(
+            spawn_background_task(
                 _get_host_provider_state(force=force),
                 label="host_provider_state:warm",
             )
@@ -18561,7 +18581,7 @@ async def api_hosts_port_scan(
         f"max_seconds={max_seconds} scan_id={scan_id}"
     )
     actor = getattr(_admin, "username", "ui") or "ui"
-    _spawn_background_task(
+    spawn_background_task(
         _run_port_scan_async(
             hid=hid,
             target=target,
@@ -20086,15 +20106,18 @@ async def api_local_login(
     # forget via the shared retry helper so a
     # transient Apprise blip doesn't drop the audit notification on
     # the floor.
-    asyncio.create_task(notify_with_retry(
-        f"🔓 {u.username} signed in",
-        f"via local from {ip}",
-        event="user_login",
-        actor_username=u.username,
-        target_kind="user", target_id=u.username,
-        metadata={"ip": ip, "method": "local"},
-        label=f"user_login (local) {u.username!r}",
-    ))
+    spawn_background_task(
+        notify_with_retry(
+            f"🔓 {u.username} signed in",
+            f"via local from {ip}",
+            event="user_login",
+            actor_username=u.username,
+            target_kind="user", target_id=u.username,
+            metadata={"ip": ip, "method": "local"},
+            label=f"user_login (local) {u.username!r}",
+        ),
+        label=f"user_login_notify {u.username!r}",
+    )
     return resp
 
 

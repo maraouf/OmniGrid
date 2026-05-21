@@ -2292,10 +2292,14 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
             # Fire-and-forget — each op publishes its own SSE events as
             # it progresses (op:created / op:updated / op:completed)
             # and invalidates the gather cache on completion, which is
-            # exactly what the SPA listens for.
-            asyncio.create_task(
+            # exactly what the SPA listens for. Lazy main import +
+            # `spawn_background_task` honours the strong-ref + done-
+            # callback contract (see CLAUDE.md "Background-task
+            # lifecycle") so the spawn survives asyncio GC.
+            import main as _main
+            _main.spawn_background_task(
                 _ops_mod.do_remove_container(op, raw_id),
-                name=f"telegram-cleanup-{raw_id[:12]}",
+                label=f"telegram-cleanup-{raw_id[:12]}",
             )
             spawned += 1
         # noinspection PyBroadException
@@ -2541,7 +2545,14 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
                     "update_stack", str(sid), name,
                     target_stack=name, actor=f"telegram:{actor_username}",
                 )
-                asyncio.create_task(do_update_stack(op, sid))
+                # Lazy main import + `spawn_background_task` (see CLAUDE.md
+                # "Background-task lifecycle") — strong-ref + done-callback
+                # so the spawn survives asyncio GC mid-execution.
+                import main as _main
+                _main.spawn_background_task(
+                    do_update_stack(op, sid),
+                    label=f"telegram-update-stack-{sid}",
+                )
                 spawned += 1
             elif kind == "container":
                 # Standalone (non-Swarm) container — direct recreate
@@ -2552,7 +2563,11 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
                     target_stack=stack_name or None,
                     actor=f"telegram:{actor_username}",
                 )
-                asyncio.create_task(do_update_container(op, str(raw_id)))
+                import main as _main
+                _main.spawn_background_task(
+                    do_update_container(op, str(raw_id)),
+                    label=f"telegram-update-container-{str(raw_id)[:12]}",
+                )
                 spawned += 1
             elif kind in ("service", "orphan"):
                 # Swarm services + orphan Swarm task containers can't
@@ -2581,7 +2596,11 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
                     target_stack=target_label,
                     actor=f"telegram:{actor_username}",
                 )
-                asyncio.create_task(do_update_stack(op, sid))
+                import main as _main
+                _main.spawn_background_task(
+                    do_update_stack(op, sid),
+                    label=f"telegram-update-stack-from-service-{sid}",
+                )
                 spawned += 1
             else:
                 # Unknown item type — skip rather than guess.

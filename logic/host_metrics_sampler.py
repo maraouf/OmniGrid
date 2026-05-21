@@ -657,17 +657,25 @@ async def _record_failure(
                     # logic.ops so login-event / scheduler / anomaly-watcher
                     # paths get the same semantics. `label` distinguishes
                     # this chain in Admin → Logs.
-                    asyncio.create_task(_notify_with_retry(
-                        title, body, "error",
-                        event="host_paused",
-                        target_kind="host", target_id=str(bare_host),
-                        metadata={
-                            "provider": provider or "",
-                            "consecutive_failures": int(new_fails),
-                            "paused_minutes": int(paused_minutes),
-                        },
-                        label=f"host_metrics_sampler {host_id!r}",
-                    ))
+                    # Lazy main import — avoids circular dependency at module
+                    # load. Routes through `spawn_background_task` so the
+                    # strong-ref + done-callback contract (see CLAUDE.md
+                    # "Background-task lifecycle") is honoured.
+                    import main as _main
+                    _main.spawn_background_task(
+                        _notify_with_retry(
+                            title, body, "error",
+                            event="host_paused",
+                            target_kind="host", target_id=str(bare_host),
+                            metadata={
+                                "provider": provider or "",
+                                "consecutive_failures": int(new_fails),
+                                "paused_minutes": int(paused_minutes),
+                            },
+                            label=f"host_metrics_sampler {host_id!r}",
+                        ),
+                        label=f"host_paused_notify {host_id!r}",
+                    )
                 # noinspection PyBroadException
                 except Exception as e:
                     print(f"[host_metrics_sampler] {host_id!r} notify dispatch failed: {e}")
@@ -716,7 +724,7 @@ async def record_provider_outcome(
         await record_provider_outcome(
             h["id"], "node_exporter", ok,
             error="" if ok else (stats.get("exporter_error") or "no response"),
-            round_threshold=tuning.tuning_int("tuning_node_exporter_failure_pause_rounds"),
+            round_threshold=tuning.tuning_int(Tunable.NODE_EXPORTER_FAILURE_PAUSE_ROUNDS),
         )
 
     On success: clears the failure-state row keyed `<provider>:<host_id>`

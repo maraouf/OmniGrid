@@ -28225,12 +28225,18 @@ function app() {
         // URLs source-of-truth: the textarea-bound `urls_text` string
         // (one URL per line — see the load-time hydration block above
         // for why the editor uses a virtual string field instead of
-        // round-tripping the array on every keystroke). Fall back to
-        // the persisted `urls` array on a load-then-save round-trip
-        // where the operator never opened the textarea — that path
-        // hits the legacy array shape directly without going through
-        // the textarea reactive scope.
-        const _httpUrlSource = (typeof httpIn.urls_text === 'string' && httpIn.urls_text.length)
+        // round-tripping the array on every keystroke). Gate on
+        // `typeof === 'string'` (NOT `.length > 0`) so that an
+        // operator who CLEARS the textarea (intent: "stop probing —
+        // I removed every URL") actually drops the persisted URLs
+        // on Save. Only fall back to the persisted `urls` array on
+        // a load-then-save round-trip where the textarea was never
+        // rendered (no string value at all) — that path hits the
+        // legacy array shape directly without going through the
+        // textarea reactive scope. The hydrate block above stamps
+        // `urls_text` from the array on first render, so the typeof
+        // gate works on load-then-clear-then-save flows.
+        const _httpUrlSource = (typeof httpIn.urls_text === 'string')
           ? httpIn.urls_text.split(/\r?\n/).map(s => s.trim())
           : (Array.isArray(httpIn.urls) ? httpIn.urls : []);
         const cleanUrls = [];
