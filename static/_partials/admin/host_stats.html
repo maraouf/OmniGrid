@@ -80,6 +80,8 @@
             :class="hasHostStatsSource('node_exporter') ? 'pill-ok' : 'pill-muted'"
             x-text="hasHostStatsSource('node_exporter') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
     </div>
+    <p class="fs-2xs text-[var(--text-faint)] mt-1"
+       x-text="t('settings.host_stats.section_desc_node_exporter')"></p>
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('settings.host_stats.url_label')"></label>
@@ -213,6 +215,8 @@
             :class="hasHostStatsSource('beszel') ? 'pill-ok' : 'pill-muted'"
             x-text="hasHostStatsSource('beszel') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
     </div>
+    <p class="fs-2xs text-[var(--text-faint)] mt-1"
+       x-text="t('settings.host_stats.section_desc_beszel')"></p>
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('settings.host_stats.beszel_url_label')"></label>
@@ -370,6 +374,23 @@
       <p class="basis-full fs-2xs text-[var(--text-faint)]"
          x-text="t('settings.host_stats.chip_color_hint')"></p>
     </div>
+    <!-- Beszel section save row. Section-owned per the canonical
+         convention: dirty cue + Save commits ONLY Beszel's plain
+         settings + the 3 Beszel tunables. Mirrors NE / Webmin / Ping
+         / SNMP / HTTP probe shape. -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+      <button type="button"
+              @click="saveBeszelSection()"
+              :disabled="isReadonly() || hostStatsSaving"
+              :class="beszelSectionDirty() ? 'btn-dirty' : ''"
+              class="btn btn-primary fs-sm"
+              x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
+      <span x-show="beszelSectionDirty() && !hostStatsSaving"
+            class="fs-xs text-[var(--warning)] inline-flex items-center gap-1">
+              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
+              <span x-text="t('common.unsaved')"></span>
+            </span>
+    </div>
   </div>
 
   <!-- Pulse config — third provider. PVE-only, so it pairs well
@@ -387,6 +408,8 @@
             :class="hasHostStatsSource('pulse') ? 'pill-ok' : 'pill-muted'"
             x-text="hasHostStatsSource('pulse') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
     </div>
+    <p class="fs-2xs text-[var(--text-faint)] mt-1"
+       x-text="t('settings.host_stats.section_desc_pulse')"></p>
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.pulse_url_label')"></label>
       <input x-model="settings.pulse_url" type="url"
@@ -529,6 +552,22 @@
       <p class="basis-full fs-2xs text-[var(--text-faint)]"
          x-text="t('settings.host_stats.chip_color_hint')"></p>
     </div>
+    <!-- Pulse section save row. Section-owned per the canonical
+         convention: posts ONLY Pulse's plain settings + the 3 Pulse
+         tunables. Token follows keep-current-if-blank. -->
+    <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
+      <button type="button"
+              @click="savePulseSection()"
+              :disabled="isReadonly() || hostStatsSaving"
+              :class="pulseSectionDirty() ? 'btn-dirty' : ''"
+              class="btn btn-primary fs-sm"
+              x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
+      <span x-show="pulseSectionDirty() && !hostStatsSaving"
+            class="fs-xs text-[var(--warning)] inline-flex items-center gap-1">
+              <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
+              <span x-text="t('common.unsaved')"></span>
+            </span>
+    </div>
   </div>
 
   <!-- Webmin config — fourth provider. Each target host runs its
@@ -548,6 +587,8 @@
             :class="hasHostStatsSource('webmin') ? 'pill-ok' : 'pill-muted'"
             x-text="hasHostStatsSource('webmin') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
     </div>
+    <p class="fs-2xs text-[var(--text-faint)] mt-1"
+       x-text="t('settings.host_stats.section_desc_webmin')"></p>
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.webmin_user_label')"></label>
       <input x-model="settings.webmin_user" type="text"
@@ -1193,16 +1234,11 @@
         <span x-text="t('settings.host_stats.http_probe.enabled_label')"></span>
       </label>
     </div>
-    <div>
-      <label class="block fs-xs text-[var(--text-faint)] mb-1"
-             x-text="t('settings.host_stats.http_probe.aliases_label')"></label>
-      <input x-model="settings.http_probe_aliases" type="text"
-             :disabled="isReadonly() || !hasHostStatsSource('http_probe') || !settings.http_probe_enabled"
-             class="w-full mono fs-xs"
-             :placeholder="t('settings.host_stats.http_probe.aliases_placeholder')">
-      <p class="fs-2xs text-[var(--text-faint)] mt-1"
-         x-text="t('settings.host_stats.http_probe.aliases_hint')"></p>
-    </div>
+    <!-- Global URL aliases removed — per-host override lives on each
+             row's `http_probe.urls` field in Admin → Hosts, which the
+             sampler already prefers over the curated `url` + services[]
+             fallback. Operator edits the URL list on the host that needs
+             it instead of maintaining a parallel CSV at the global level. -->
     <!-- Test-connection row. Operator types a URL; the test fires
          POST /api/http-probe/test against it and stamps
          _httpProbeLastPassedTest on success so the Save button
@@ -1301,7 +1337,9 @@
       <label class="fs-xs text-[var(--text-faint)] inline-flex items-center gap-1.5">
         <span x-text="t('settings.host_stats.chip_color_label')"></span>
       </label>
-      <input type="color" x-model="settings.provider_color_http_probe"
+      <input type="color"
+             :value="settings.provider_color_http_probe || providerColor('http_probe')"
+             @input="settings.provider_color_http_probe = $event.target.value"
              :disabled="isReadonly() || !settings.http_probe_enabled"
              class="h-7 w-8 cursor-pointer border-0 p-0 bg-transparent">
       <input type="text" x-model="settings.provider_color_http_probe"
@@ -1325,13 +1363,14 @@
     <!-- Section-owned Save row. Test-before-Save gate: when master
          enable is ON, Save is disabled until a probe against the
          current form values passes. Dirty cue stays tied purely to
-         httpProbeSectionDirty() — NEVER gated on canSaveHttpProbeSection()
-         per the canonical pattern. -->
+         httpProbeSectionDirty(). Save unlocks purely on dirty state —
+         no Test-before-Save gate here; per-host URLs live on each
+         Admin → Hosts row and the section's Test button is a one-shot
+         diagnostic, not a section-level config validator. -->
     <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
       <button type="button"
               @click="saveHttpProbeSection()"
-              :disabled="isReadonly() || hostStatsSaving || !canSaveHttpProbeSection()"
-              :title="!canSaveHttpProbeSection() ? t('settings.host_stats.http_probe.save_requires_test') : ''"
+              :disabled="isReadonly() || hostStatsSaving"
               :class="httpProbeSectionDirty() ? 'btn-dirty' : ''"
               class="btn btn-primary fs-sm"
               x-text="hostStatsSaving ? t('actions.saving') : t('actions.save')"></button>
@@ -1340,9 +1379,6 @@
               <span class="pulse-dot pulse-dot--warning" aria-hidden="true"></span>
               <span x-text="t('common.unsaved')"></span>
             </span>
-      <span x-show="!canSaveHttpProbeSection() && !hostStatsSaving"
-            class="fs-xs text-[var(--text-faint)]"
-            x-text="t('settings.host_stats.http_probe.save_unverified_hint')"></span>
     </div>
   </div>
 
@@ -1358,30 +1394,12 @@
        commits, so dirty-tracking + saveHostStats() round-trip
        unchanged. See `static/_partials/admin/port_scan.html`. -->
 
-  <!-- Global Save row — kept ONLY for sub-tabs that don't yet
-       own their section save (Beszel, Pulse). NE / Webmin / Ping
-       / SNMP each render their own Save at the end of their
-       sub-tab; rendering this global Save under those tabs gave
-       two Save buttons and confused users. Hidden via
-       `hostStatsTab` membership in the section-owned set so the
-       expected behaviour ("one Save button at the end of the
-       tab I'm on") holds across every sub-tab. -->
-  <div x-show="hostStatsTab === 'beszel' || hostStatsTab === 'pulse'"
-       class="mt-4 flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
-    <button type="button" x-show="isAdmin()" @click="saveHostStats()"
-            :disabled="hostStatsSaving"
-            :class="hostStatsDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-            class="btn btn-primary fs-sm">
-      <span x-show="!hostStatsSaving" x-text="t('actions.save')"></span>
-      <span x-show="hostStatsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-    </button>
-    <span x-show="hostStatsDirty()"
-          class="fs-xs text-[var(--warning)] flex items-center gap-1.5"
-          :title="t('hosts_actions.host_stats_unsaved_title')">
-            <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-            <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
-          </span>
-  </div>
+  <!-- Global Save row removed — every provider sub-tab now owns
+       its own section Save at the end of its block (NE / Beszel /
+       Pulse / Webmin / Ping / SNMP / HTTP probe). One Save button
+       per sub-tab is the consistent operator experience; the
+       legacy global Save fell back only for Beszel + Pulse which
+       hadn't been migrated yet. -->
 </section>
 
 <!-- HOSTS TAB — curated host list editor. Cards instead of a

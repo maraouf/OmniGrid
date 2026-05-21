@@ -152,7 +152,7 @@ def _curated_service_probe_targets() -> list[dict]:
                     port = 80
                 else:
                     continue
-            expected_status = _safe_int(probe_cfg.get("expected_status"), 0) or 0
+            expected_status = _safe_int(probe_cfg.get("expected_status"))
             out.append({
                 "host_id": hid,
                 "service_idx": idx,
@@ -201,7 +201,6 @@ async def _probe_http(url: str, expected_status: int, timeout: float) -> dict:
         async with httpx.AsyncClient(
             timeout=timeout,
             verify=False,  # operator opted into a probe; cert validity isn't the question
-            follow_redirects=False,
         ) as client:
             # Try HEAD first; fall back to GET on 405. Lots of services
             # don't implement HEAD.
@@ -209,9 +208,10 @@ async def _probe_http(url: str, expected_status: int, timeout: float) -> dict:
             if r.status_code == 405:
                 r = await client.get(url)
         rtt_ms = int((time.monotonic() - started) * 1000)
-        ok = (expected_status > 0
-              and r.status_code == expected_status) or \
-             (expected_status == 0 and 200 <= r.status_code < 400)
+        if expected_status:
+            ok = r.status_code == expected_status
+        else:
+            ok = 200 <= r.status_code < 400
         if ok:
             return {"alive": True, "rtt_ms": rtt_ms, "error": None}
         return {
@@ -295,21 +295,21 @@ async def service_sampler_loop() -> None:
                     except (sqlite3.Error, OSError):
                         pass
 
-                    async def _probe_target(target: dict) -> tuple[dict, dict]:
+                    async def _probe_target(tgt: dict) -> tuple[dict, dict]:
                         async with sem:
-                            if target["probe_type"] == "http" and target.get("url"):
-                                result = await _probe_http(
-                                    target["url"],
-                                    target["expected_status"],
+                            if tgt["probe_type"] == "http" and tgt.get("url"):
+                                probe_outcome = await _probe_http(
+                                    tgt["url"],
+                                    tgt["expected_status"],
                                     timeout_s,
                                 )
                             else:
-                                result = await _probe_tcp(
-                                    target["host"],
-                                    int(target["port"] or 0),
+                                probe_outcome = await _probe_tcp(
+                                    tgt["host"],
+                                    int(tgt["port"] or 0),
                                     timeout_s,
                                 )
-                            return target, result
+                            return tgt, probe_outcome
 
                     n_ok = 0
                     n_err = 0
@@ -376,10 +376,10 @@ async def service_sampler_loop() -> None:
                                 event="service_probe_failure",
                                 target_kind="host",
                                 target_id=target["host_id"],
-                                target_name=target["host_id"],
                                 metadata={
                                     "url": target.get("url") or "",
                                     "host": target["host_id"],
+                                    "service_name": target.get("service_name") or "",
                                 },
                             )
                         except asyncio.CancelledError:

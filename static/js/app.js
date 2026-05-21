@@ -6246,6 +6246,256 @@ function app() {
       }
     },
 
+    // Settings → Host stats → Beszel sub-tab — section-owned save.
+    // Mirrors the Ping section pattern (canonical reference). Plain
+    // keys cover the hub URL / identity / password-set semantics +
+    // verify_tls + the per-provider chip colour; password follows the
+    // keep-current-if-blank contract so the dirty check ignores
+    // unchanged empty inputs after a successful save.
+    _beszelSectionTuningKeys() {
+      return (this._perProviderTuneKeys && this._perProviderTuneKeys.beszel) || [];
+    },
+    _beszelSectionPlainKeys() {
+      return [
+        'beszel_hub_url', 'beszel_identity', 'beszel_verify_tls',
+        'provider_color_beszel',
+      ];
+    },
+    beszelSectionDirty() {
+      try {
+        const baseline = this._tuningBaselineMap();
+        for (const k of this._beszelSectionTuningKeys()) {
+          const cur = (this.tuningForm || {})[k];
+          const curStr = (cur == null ? '' : String(cur).trim());
+          const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+          if (curStr !== baseStr) return true;
+        }
+      } catch (_) {}
+      let base = {};
+      try {
+        if (typeof this._hostStatsBaseline === 'string' && this._hostStatsBaseline) {
+          base = JSON.parse(this._hostStatsBaseline) || {};
+        }
+      } catch (_) { base = {}; }
+      try {
+        for (const k of this._beszelSectionPlainKeys()) {
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) return true;
+        }
+        // Password — only dirty when the operator typed something.
+        // Empty + already-set means "keep current"; not dirty.
+        if (((this.settings || {}).beszel_password || '').trim() !== '') return true;
+      } catch (_) {}
+      try {
+        const curSrc = String((this.settings || {}).host_stats_source || '');
+        const baseSrcStr = String(base.host_stats_source || '');
+        if (curSrc !== baseSrcStr) {
+          const curHas = curSrc.split(',').map(s => s.trim()).includes('beszel');
+          const baseHas = baseSrcStr.split(',').map(s => s.trim()).includes('beszel');
+          if (curHas !== baseHas) return true;
+        }
+      } catch (_) {}
+      return false;
+    },
+    async saveBeszelSection() {
+      if (this.hostStatsSaving) return;
+      for (const k of this._beszelSectionTuningKeys()) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) continue;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = this.tuningEffective[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+          }), 'error');
+          return;
+        }
+      }
+      this.hostStatsSaving = true;
+      try {
+        const body = {};
+        body.beszel_hub_url = (this.settings.beszel_hub_url || '').trim();
+        body.beszel_identity = (this.settings.beszel_identity || '').trim();
+        body.beszel_verify_tls = !!this.settings.beszel_verify_tls;
+        // Password follows keep-current-if-blank: only POST when the
+        // operator has actually typed a new value. Empty + already-set
+        // is the "leave it alone" signal honoured by the backend.
+        if (this.settings.beszel_password) {
+          body.beszel_password = this.settings.beszel_password;
+        }
+        if (this.settings.provider_color_beszel) {
+          body.provider_color_beszel = this.settings.provider_color_beszel;
+        }
+        const sources = new Set(
+          (this.settings.host_stats_source || '').split(',').map(s => s.trim()).filter(Boolean)
+        );
+        if (this.hasHostStatsSource('beszel')) sources.add('beszel');
+        else sources.delete('beszel');
+        body.host_stats_source = [...sources].join(',');
+        for (const k of this._beszelSectionTuningKeys()) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        // Clear the typed-but-not-yet-saved password so the dirty cue
+        // resets after a successful save. Matches the global Save's
+        // post-save cleanup at line ~5569.
+        if (this.settings.beszel_password) {
+          this.settings.beszel_password_set = true;
+          this.settings.beszel_password = '';
+        }
+        await Promise.all([this.loadSettings(), this.loadTuning()]);
+        this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+      } catch (e) {
+        this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+      } finally {
+        this.hostStatsSaving = false;
+      }
+    },
+
+    // Settings → Host stats → Pulse sub-tab — section-owned save.
+    // Same shape as Beszel; the token field follows the keep-current-
+    // if-blank contract and Pulse-specific `pulse_aliases` is a JSON
+    // object (not a CSV) so it's stringified on POST and surfaced via
+    // the same /api/settings round-trip the global save uses.
+    _pulseSectionTuningKeys() {
+      return (this._perProviderTuneKeys && this._perProviderTuneKeys.pulse) || [];
+    },
+    _pulseSectionPlainKeys() {
+      return [
+        'pulse_url', 'pulse_verify_tls',
+        'provider_color_pulse',
+      ];
+    },
+    pulseSectionDirty() {
+      try {
+        const baseline = this._tuningBaselineMap();
+        for (const k of this._pulseSectionTuningKeys()) {
+          const cur = (this.tuningForm || {})[k];
+          const curStr = (cur == null ? '' : String(cur).trim());
+          const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+          if (curStr !== baseStr) return true;
+        }
+      } catch (_) {}
+      let base = {};
+      try {
+        if (typeof this._hostStatsBaseline === 'string' && this._hostStatsBaseline) {
+          base = JSON.parse(this._hostStatsBaseline) || {};
+        }
+      } catch (_) { base = {}; }
+      try {
+        for (const k of this._pulseSectionPlainKeys()) {
+          if (String((this.settings || {})[k] || '') !== String(base[k] || '')) return true;
+        }
+        if (((this.settings || {}).pulse_token || '').trim() !== '') return true;
+        // Aliases dict — compare via stringified JSON. Skip when both
+        // baseline and current are empty/missing.
+        const curAli = JSON.stringify((this.settings || {}).pulse_aliases || {});
+        const baseAli = JSON.stringify(base.pulse_aliases || {});
+        if (curAli !== baseAli) return true;
+      } catch (_) {}
+      try {
+        const curSrc = String((this.settings || {}).host_stats_source || '');
+        const baseSrcStr = String(base.host_stats_source || '');
+        if (curSrc !== baseSrcStr) {
+          const curHas = curSrc.split(',').map(s => s.trim()).includes('pulse');
+          const baseHas = baseSrcStr.split(',').map(s => s.trim()).includes('pulse');
+          if (curHas !== baseHas) return true;
+        }
+      } catch (_) {}
+      return false;
+    },
+    async savePulseSection() {
+      if (this.hostStatsSaving) return;
+      for (const k of this._pulseSectionTuningKeys()) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) continue;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = this.tuningEffective[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+          }), 'error');
+          return;
+        }
+      }
+      this.hostStatsSaving = true;
+      try {
+        const body = {};
+        body.pulse_url = (this.settings.pulse_url || '').trim();
+        body.pulse_verify_tls = !!this.settings.pulse_verify_tls;
+        if (this.settings.pulse_token) {
+          body.pulse_token = this.settings.pulse_token;
+        }
+        if (this.settings.pulse_aliases && typeof this.settings.pulse_aliases === 'object') {
+          body.pulse_aliases = JSON.stringify(this.settings.pulse_aliases);
+        }
+        if (this.settings.provider_color_pulse) {
+          body.provider_color_pulse = this.settings.provider_color_pulse;
+        }
+        const sources = new Set(
+          (this.settings.host_stats_source || '').split(',').map(s => s.trim()).filter(Boolean)
+        );
+        if (this.hasHostStatsSource('pulse')) sources.add('pulse');
+        else sources.delete('pulse');
+        body.host_stats_source = [...sources].join(',');
+        for (const k of this._pulseSectionTuningKeys()) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        if (this.settings.pulse_token) {
+          this.settings.pulse_token_set = true;
+          this.settings.pulse_token = '';
+        }
+        await Promise.all([this.loadSettings(), this.loadTuning()]);
+        this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+      } catch (e) {
+        this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+      } finally {
+        this.hostStatsSaving = false;
+      }
+    },
+
     // Settings → Host stats → HTTP probe sub-tab — section-owned save.
     // Posts ONLY HTTP probe's plain settings + the 8 HTTP probe
     // tunables. Mirrors the SNMP / Ping section-save pattern: proxies
@@ -6255,8 +6505,13 @@ function app() {
       return (this._perProviderTuneKeys && this._perProviderTuneKeys.http_probe) || [];
     },
     _httpProbeSectionPlainKeys() {
+      // Note: `http_probe_aliases` removed from the section's tracked
+      // keys — global aliases UI was redundant with the per-host
+      // `http_probe.urls` field on each Admin → Hosts row. The setting
+      // still round-trips through the backend for back-compat but the
+      // section's dirty / save snapshot no longer references it.
       return [
-        'http_probe_enabled', 'http_probe_aliases',
+        'http_probe_enabled',
         'provider_color_http_probe',
       ];
     },
@@ -6276,17 +6531,13 @@ function app() {
     },
     _httpProbeLastPassedTest: '',
     canSaveHttpProbeSection() {
-      // Master toggle OFF → Save always unlocks (operator commits the
-      // off-state). Master toggle ON → require a prior passing test
-      // against the current snapshot.
-      if (!this.settings || !this.settings.http_probe_enabled) {
-        return true;
-      }
-      const stamp = this._httpProbeLastPassedTest || '';
-      if (!stamp) {
-        return false;
-      }
-      return stamp === this._httpProbeSnapshot();
+      // No Test-before-Save gate at this section: per-host URLs live
+      // on the Admin → Hosts row's `http_probe.urls` field, and the
+      // Test button here is a one-shot diagnostic against an operator-
+      // typed URL — not a section-level config validation. Save
+      // unlocks purely on dirty state; the operator can flip the
+      // master toggle on/off and commit without proving a URL works.
+      return true;
     },
     httpProbeSectionDirty() {
       try {
@@ -30282,6 +30533,37 @@ function app() {
         this.hostsError = d.error || '';
         this.hostsProviderErrors = d.provider_errors || {};
         this.hostsActiveSources = Array.isArray(d.active) ? d.active : [];
+        // Defensive cleanup: drop stale provider entries from the
+        // session-persisted filter set when they're no longer active
+        // OR no longer configured on any host. Without this, a chip
+        // that's supposed to be hidden can leave its `chip-active`
+        // state lingering in sessionStorage from a previous tab
+        // session — invisible until the next paint pass, and
+        // operator-confusing if a downstream render mistakenly keeps
+        // the button visible while the filter set still references it.
+        try {
+          if (this.hostsProviderFilter && this.hostsProviderFilter.size) {
+            const active = new Set(this.hostsActiveSources || []);
+            const cleaned = new Set();
+            for (const name of this.hostsProviderFilter) {
+              if (!active.has(name)) continue;
+              if (this._hostsConfiguredForProvider
+                  && this._hostsConfiguredForProvider(name) === 0) continue;
+              cleaned.add(name);
+            }
+            if (cleaned.size !== this.hostsProviderFilter.size) {
+              this.hostsProviderFilter = cleaned;
+              if (typeof sessionStorage !== 'undefined') {
+                if (cleaned.size) {
+                  sessionStorage.setItem('hostsProviderFilter',
+                    [...cleaned].join(','));
+                } else {
+                  sessionStorage.removeItem('hostsProviderFilter');
+                }
+              }
+            }
+          }
+        } catch (_) { /* defensive — never block the poll on cleanup */ }
         // Background-refresh indicator. /api/hosts/list returns
         // `hub_probing: true` when it served snapshot rows instantly
         // and a fresh Beszel + Pulse hub probe is running in the

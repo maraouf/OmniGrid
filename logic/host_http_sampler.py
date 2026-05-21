@@ -362,7 +362,6 @@ async def host_http_sampler_loop() -> None:
                                         event="http_probe_failure",
                                         target_kind="host",
                                         target_id=host_id,
-                                        target_name=host_id,
                                         metadata={"url": failing_url, "host": host_id},
                                     )
                                 except asyncio.CancelledError:
@@ -570,3 +569,10 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 1000) -> list[dict]
         "latency_ms": r["latency_ms"],
         "error": r["error"],
     } for r in rows]
+
+
+# Public alias for cross-module use. Underscore-prefixed name is the
+# canonical in-module declaration; this single-line re-export keeps PyCharm
+# happy when main.py imports the helper for the on-demand /api/hosts/{id}/
+# http-probe/test endpoint.
+curated_http_probe_hosts = _curated_http_probe_hosts
