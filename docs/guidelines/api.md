@@ -194,8 +194,8 @@ type:
 | `stats:refreshed` | `gather_stats()` finished a cycle. | `{items, with_stats, with_size, ts}` — hint only; consumers refetch via `/api/stats`. |
 | `host:failure_state_changed` | Host sampler paused / cleared a host OR per-(provider, host) auto-pause flipped. | `{host_id, paused, consecutive_failures?, last_error?, cleared?, provider?}` — `provider` present for per-provider transitions (`snmp` / `webmin` / etc.). `host_id` is ALWAYS the bare id (the SPA's `/api/hosts/one/{id}` lookup needs the bare value, not the prefixed key the table stores). |
 | `host:history_appended` | A new row was inserted into `host_metrics_samples` for a curated host. | `{host_id, ts}` — hint only; consumers refetch the full window via `/api/hosts/history`. |
-| `host:provider_probing` | A per-host probe slice (SNMP / Webmin / node-exporter) just entered the wire — fires only on cache MISS so dict-lookup providers (Beszel / Pulse) and sampler-driven ones (Ping) don't emit. | `{host_id, provider, started_at}` — SPA tracks `_polling[provider]` per row so the matching chip pulses while ITS specific probe is in flight. |
-| `host:provider_done` | The matching `host:provider_probing` slice has completed (success OR failure). | `{host_id, provider, finished_at, duration_ms}` — SPA clears `_polling[provider]`; chip settles into its post-probe state. |
+| `host:provider_probing` | A per-host probe slice (SNMP / Webmin / node-exporter / HTTP probe) just entered the wire — fires only on cache MISS so dict-lookup providers (Beszel / Pulse) and sampler-driven ones (Ping / service_probe) don't emit. | `{host_id, provider, started_at}` — SPA tracks `_polling[provider]` per row so the matching chip pulses while ITS specific probe is in flight. |
+| `host:provider_done` | The matching `host:provider_probing` slice has completed (success OR failure). | `{host_id, provider, finished_at, duration_ms, outcome?}` — SPA clears `_polling[provider]`; chip settles into its post-probe state. |
 | `host:ping_sampled` | New ping sample landed in `ping_samples` for a curated host. | `{host_id, alive, rtt_ms, loss_pct, ts}` — hint only; consumers refetch via `/api/hosts/{id}/ping/history`. |
 | `schedule:fired` | A schedule started or finished (two events per fire). | `{schedule_id, name, kind, op_id, phase: "start"\|"end", duration?, status?}` |
 | `history:appended` | A new row was written to the `history` table. | `{id, ts, op_type, target_name, target_id, target_stack, status, duration, error, actor}` |
@@ -611,7 +611,9 @@ is keyed `<provider>:<host_id>`; clear ONE provider at a time:
 ```bash
 curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
   https://omnigrid.example.com/api/hosts/host01/provider/snmp/resume | jq
-# Provider must be one of: snmp / webmin / beszel / pulse / node_exporter / ping
+# Provider must be one of: snmp / webmin / beszel / pulse / node_exporter /
+# ping / http_probe / service_probe (the eight per-(provider, host)
+# auto-pause keys recorded by `record_provider_outcome`).
 ```
 
 ### Bulk host actions (admin-only)
@@ -740,6 +742,9 @@ endpoints surface deeper provider-specific detail used by the host drawer:
 | `GET`  | `/api/hosts/{id}/snmp/history?hours=N` | SNMP-derived host samples (CPU / memory / disk / uptime). |
 | `GET`  | `/api/hosts/{id}/snmp/iface_history?hours=N` | Per-interface throughput counters (top-5 by current rate). |
 | `GET`  | `/api/hosts/{id}/snmp/temp_history?hours=N` | Per-temperature-probe sensor readings (ENTITY-SENSOR-MIB). |
+| `GET`  | `/api/hosts/{id}/http-probe/history` | Per-host HTTP probe samples (status code + TLS expiry + DNS resolution + latency per URL). |
+| `POST` | `/api/hosts/{id}/http-probe/test` | Run one HTTP / TLS / DNS probe synchronously against the host's configured URLs. |
+| `GET`  | `/api/hosts/{id}/ping/history?hours=N` | Per-host Ping reachability + RTT samples. |
 | `GET`  | `/api/hosts/{id}/disk-projection?days_ahead=N` | Linear regression on `host_disk_used` across the configured window — projects "days until full" with a confidence band. |
 | `GET`  | `/api/hosts/{id}/triage` | Inline similar-incident grouping for host failures (read from `host_failure_events`). |
 | `GET`  | `/api/hosts/{id}/timeline?hours=N` | Unified per-host event timeline (state changes + sampler errors + bulk-action audit rows). |
@@ -784,11 +789,13 @@ for the full release workflow.
 
 Each integration has a `/test` endpoint that fires one synchronous probe with
 the given (or saved) credentials. Useful for CI-style health-checking your
-OmniGrid deploy. Seven integration probes today (six host-stats providers +
-OIDC):
+OmniGrid deploy. Eight integration probes today (Portainer + OIDC + six of
+the eight host-stats providers — Beszel / Pulse / Webmin / Ping / SNMP /
+HTTP probe; node-exporter and the per-service reachability probe are
+sampler-only with no synchronous `/test` endpoint):
 
 ```bash
-for E in portainer beszel pulse webmin ping snmp oidc; do
+for E in portainer beszel pulse webmin ping snmp http-probe oidc; do
   R=$(curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
     -H 'Content-Type: application/json' \
     -d '{}' \
@@ -799,11 +806,18 @@ done
 ```
 
 Sending an empty `{}` body falls back to the persisted settings — handy for
-nightly health checks. Send `{url, api_key, ...}` to test unsaved values. The
-asset-inventory token has its own probe at `POST /api/asset-inventory/test`,
-and each AI provider has its own probe at `POST /api/admin/ai/{provider}/test`
-(`provider` ∈ `claude` / `gemini` / `chatgpt` / `deepseek`) following the same
-shape.
+nightly health checks. Send `{url, api_key, ...}` to test unsaved values.
+
+Additional probe endpoints follow the same shape:
+
+- `POST /api/asset-inventory/test` — probe the upstream asset API token.
+- `POST /api/apprise/test` — fire a fixed test payload through the Apprise
+  medium ONLY (the broader `POST /api/notify-test` fans out to every enabled
+  medium).
+- `POST /api/telegram/test` — fire a fixed test payload through the Telegram
+  medium ONLY.
+- `POST /api/admin/ai/{provider}/test` — probe one AI provider's credentials
+  + chosen model. `provider` ∈ `claude` / `gemini` / `chatgpt` / `deepseek`.
 
 ## Error handling
 

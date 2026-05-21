@@ -52,7 +52,7 @@ def _curated_ping_hosts() -> list[dict]:
     Lives here rather than ``logic/db.py`` because the row shape is
     sampler-specific (inlined defaults from the global settings) and
     doesn't have other consumers. The JSON-parse + enabled-gate prelude
-    is delegated to :func:`logic.db.iter_curated_hosts` (DUP-001).
+    is delegated to :func:`logic.db.iter_curated_hosts`.
     """
     default_port = _resolve_default_port()
     use_icmp_global = get_setting_bool(Settings.PING_USE_ICMP)

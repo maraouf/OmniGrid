@@ -44,14 +44,13 @@ context for service-related questions.
 
 ### Beszel section tunables
 
-Four knobs live in **Settings → Host stats → Beszel**:
+Two knobs live in **Settings → Providers → Beszel**:
 
 | Env var | Default | Range | Purpose |
 | --- | --- | --- | --- |
 | `BESZEL_PROBE_TIMEOUT_SECONDS`        | `15`    | `1..120`  | Wall-clock timeout on each `probe_hub` (systems + system_stats + systemd_services). |
 | `BESZEL_SAMPLE_INTERVAL_SECONDS`      | `0`     | `0..3600` | Sampler tick cadence. `0` = inherit `STATS_SAMPLE_INTERVAL_SECONDS`. |
-| `BESZEL_HOST_CACHE_TTL_SECONDS`       | `30`    | `0..300`  | Per-host probe success cache TTL (mirrors Webmin). |
-| `BESZEL_HOST_FAIL_CACHE_TTL_SECONDS`  | `5`     | `0..300`  | Per-host probe failure cache TTL (mirrors Webmin). |
+| `BESZEL_FAILURE_PAUSE_ROUNDS`         | `5`     | `0..50`   | Per-(beszel, host) auto-pause threshold. `0` disables. Hub-fetch-OK gate so a global hub outage doesn't cascade-pause every host. |
 
 Each can also be set via the matching DB key `tuning_beszel_*` from
 Admin → Config; the DB value wins over the env var which wins over

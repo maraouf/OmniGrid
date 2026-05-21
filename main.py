@@ -11530,6 +11530,25 @@ def _shape_host_api_row(
         # parallel lookup.
         "http_probe_enabled": bool((h.get("http_probe") or {}).get("enabled", False)),
         "http_probe_urls": list((h.get("http_probe") or {}).get("urls") or []),
+        # Resolved boolean: does this host have ANY URL source the
+        # sampler would actually probe? Mirrors `host_http_sampler`'s
+        # URL-resolution chain (http_probe.urls → row.url → row.services[].url)
+        # so the SPA's `providerStates(h)` chip-gate can hide the
+        # http_probe chip cleanly when the operator enabled the toggle
+        # but didn't supply any URLs. Computed backend-side because the
+        # API row's `services` field carries the Beszel systemd-rollup
+        # OBJECT (see L11377 above), NOT the curated services array
+        # (`hosts_config[].services`) — `Array.isArray(h.services)` is
+        # always false on the SPA, so the chip-gate can't check the
+        # third URL source itself.
+        "http_probe_has_targets": (
+            bool((h.get("http_probe") or {}).get("urls"))
+            or bool((h.get("url") or "").strip())
+            or any(
+                isinstance(svc, dict) and (svc.get("url") or "").strip()
+                for svc in (h.get("services") if isinstance(h.get("services"), list) else [])
+            )
+        ),
         # Latest sample roll-up. Renders the drawer card + the chip
         # state. None / empty when no sample has landed yet (cold-load
         # before the first tick); the snapshot fallback restores these
@@ -18777,7 +18796,7 @@ async def api_notify_test(_admin: AdminUser):
     """Combined Test — fans out to EVERY enabled medium (app + apprise
     + telegram). Kept for back-compat with the legacy single-button UX;
     the Notifications admin tab now ALSO exposes per-channel Test
-    buttons (#0223) so operators can verify each channel independently."""
+    buttons so operators can verify each channel independently."""
     await notify("🔔 OmniGrid test", "Notifications are wired up correctly!", "success")
     # Audit row — test-fires of real notifications (Apprise / app medium)
     # are side-effects on subscribers; the audit trail surfaces who-fired-
@@ -18797,7 +18816,7 @@ async def api_notify_test(_admin: AdminUser):
 
 @app.post("/api/apprise/test")
 async def api_apprise_test(_admin: AdminUser):
-    """Per-channel Apprise Test — fires ONLY the Apprise medium (#0223).
+    """Per-channel Apprise Test — fires ONLY the Apprise medium.
     Per-channel siblings: `/api/telegram/test` (already exists). The
     combined `/api/notify-test` route stays for back-compat. Result
     shape matches the Telegram probe contract so the SPA can render

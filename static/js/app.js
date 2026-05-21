@@ -247,7 +247,7 @@ const CURATED_REFRESH_FIELDS = new Set([
   // save that flips the box OFF leaves the in-place reconcile sticking
   // on the stale `true` value, so the http_probe chip in
   // providerStates(h) keeps rendering until a hard refresh.
-  'http_probe_enabled', 'http_probe_urls',
+  'http_probe_enabled', 'http_probe_urls', 'http_probe_has_targets',
   // Drift-from-baseline classification — per-metric
   // {indicator, value, median, iqr, ...} dict keyed by cpu_pct /
   // mem_pct / disk_pct / ping_rtt_ms. Empty {} when the host has no
@@ -1084,10 +1084,10 @@ function app() {
     pulseTestResult: null,
     webminTestResult: null,
     telegramTestResult: null,
-    // Per-channel Apprise test result chip (#0223 — pre-fix there
-    // was only the shared `notifyTestResult` driving both channels;
-    // each channel now has its own inline chip via the dedicated
-    // /api/apprise/test endpoint).
+    // Per-channel Apprise test result chip — pre-fix there was only
+    // the shared `notifyTestResult` driving both channels; each channel
+    // now has its own inline chip via the dedicated /api/apprise/test
+    // endpoint.
     appriseTestResult: null,
     // Notifications page-level Save-row test result. `testNotify`
     // populates this from POST /api/notify-test response. Drives the
@@ -10610,7 +10610,7 @@ function app() {
     // dummy notification through every enabled medium and returns
     // per-medium ok / detail.
     async testApprise() {
-      // Per-channel Apprise probe (#0223) — fires ONLY the Apprise
+      // Per-channel Apprise probe — fires ONLY the Apprise
       // medium via the dedicated /api/apprise/test endpoint. Inline
       // result chip via `appriseTestResult` mirrors the canonical
       // Test pattern (Portainer / Beszel / Pulse / Webmin / Telegram).
@@ -13503,8 +13503,8 @@ function app() {
           _ts: Date.now(),
         };
         // Clear the stale Test chip so the merged-box helper renders
-        // ONLY the fresh Save success (operator-flagged #0222: stacked
-        // Test+Save chips read as redundant on the happy path).
+        // ONLY the fresh Save success — operator-flagged that stacked
+        // Test+Save chips read as redundant on the happy path.
         this.notifyTestResult = null;
       } catch (e) {
         this.providersSaveResult = {
@@ -18056,15 +18056,16 @@ function app() {
           null);
       // HTTP probe — seventh host-stats provider. Per-host opt-in
       // flag `http_probe_enabled === true` AND at least one URL to
-      // probe (operator-supplied list OR the curated top-level url
-      // OR any services[].url). Self-status mirrors Ping's "down on
-      // explicit false" pattern: `host_http_status_ok === false` is
-      // a real failure signal, every other value (null / undefined /
-      // true) is benign.
-      add('http_probe', !!(h.http_probe_enabled === true
-                           && ((Array.isArray(h.http_probe_urls) && h.http_probe_urls.length > 0)
-                               || (h.url && String(h.url).trim())
-                               || (Array.isArray(h.services) && h.services.length > 0))),
+      // probe. The has-targets boolean is computed BACKEND-side
+      // (`_shape_host_api_row`) from the same URL-resolution chain
+      // the sampler uses (http_probe.urls → row.url → row.services[].url)
+      // because the API row's `h.services` carries the Beszel systemd
+      // ROLLUP OBJECT (not the curated services list), so the SPA
+      // can't iterate it for the third URL source itself.
+      // Self-status mirrors Ping's "down on explicit false" pattern:
+      // `host_http_status_ok === false` is a real failure signal,
+      // every other value (null / undefined / true) is benign.
+      add('http_probe', !!(h.http_probe_enabled === true && h.http_probe_has_targets),
           h.host_http_status_ok === false ? 'down' : null);
       return out;
     },
@@ -19373,9 +19374,9 @@ function app() {
     //   2. First running placement's node from `item.placements` —
     //      this is where Swarm services live. Pre-fix this step was
     //      missing so services fell through to the Portainer URL
-    //      (user-flagged: a service on `debian13docker` linked to
+    //      (user-flagged: a service on a worker node linked to
     //      `portainer.example.com:9618` instead of
-    //      `debian13docker:<published>`).
+    //      `<worker-hostname>:<published>`).
     //   3. Any placement's node from `item.placements` (running pref
     //      first, but accept stopped placements as a last hint).
     //   4. Hostname extracted from the Portainer public URL — works
@@ -19475,7 +19476,7 @@ function app() {
         return '';
       }
       // Short-hostname → FQDN promotion. Swarm reports node names as
-      // bare hostnames (`debian13docker`, `web01`) which don't always
+      // bare hostnames (e.g. `worker01`, `web01`) which don't always
       // resolve in the browser unless the user's DNS handles short
       // names. When the resolved host has NO dots, promote it to a
       // FQDN by learning the LAN domain suffix.
@@ -19486,15 +19487,16 @@ function app() {
       //      label, non-IP). Use the longest-common-suffix across
       //      those FQDNs as the operator's actual LAN domain. This
       //      is the authoritative source — if the operator has set
-      //      `debian13docker.home.lan` as another host's address,
-      //      we know `home.lan` is the right suffix.
+      //      `worker01.example.lan` as another host's address,
+      //      we know `example.lan` is the right suffix.
       //   2. Fallback: last TWO labels of `window.location.hostname`.
       //      Naive "everything after the first dot" fails when the
       //      SPA itself sits on a sub-subdomain (e.g. SPA at
-      //      `omnigrid.www.home.lan` — the LAN is still `home.lan`,
-      //      not `www.home.lan`). Using the trailing two labels
-      //      handles both shapes: `omnigrid.home.lan` → `home.lan`,
-      //      AND `omnigrid.www.home.lan` → `home.lan`.
+      //      `omnigrid.www.example.lan` — the LAN is still
+      //      `example.lan`, not `www.example.lan`). Using the
+      //      trailing two labels handles both shapes:
+      //      `omnigrid.example.lan` → `example.lan`, AND
+      //      `omnigrid.www.example.lan` → `example.lan`.
       //   3. When neither yields a multi-label suffix (e.g. browser
       //      at `localhost` or a bare-host setup), skip the promotion
       //      and use the bare hostname.
@@ -19526,11 +19528,11 @@ function app() {
     // Returns '' when no curated FQDN exists.
     //
     // Why longest-common-suffix: if the operator has
-    // `debian13docker.home.lan` AND `web01.home.lan` AND
-    // `mail.corp.home.lan`, the LCS is `home.lan` — the right value.
-    // A single curated FQDN's suffix would falsely match
-    // `mail.corp.home.lan` → `corp.home.lan` which isn't the bare
-    // LAN root. With multiple FQDNs we hit `home.lan` correctly.
+    // `worker01.example.lan` AND `web01.example.lan` AND
+    // `mail.corp.example.lan`, the LCS is `example.lan` — the right
+    // value. A single curated FQDN's suffix would falsely match
+    // `mail.corp.example.lan` → `corp.example.lan` which isn't the
+    // bare LAN root. With multiple FQDNs we hit `example.lan` correctly.
     _resolveLanSuffixFromCuratedHosts(promotingHost) {
       if (!Array.isArray(this.hosts)) {
         return '';
@@ -26035,6 +26037,25 @@ function app() {
           if (typeof row.snmp.exclude_mounts_text !== 'string') {
             row.snmp.exclude_mounts_text = '';
           }
+          // Hydrate the per-host HTTP-probe URL textarea from the
+          // persisted `http_probe.urls` array. Same virtual-string-
+          // field pattern as `snmp.exclude_mounts_text` above. The
+          // old `:value="urls.join('\n')"` + `@input` round-trip ate
+          // every Enter key because `.split('\n').filter(Boolean)`
+          // dropped the trailing empty element of `"a\n"` → array
+          // `["a"]` → re-render → "a" (no newline) → cursor jump.
+          // Storing the raw textarea string here + parsing it on
+          // save lets Alpine's `x-model` handle DOM state natively
+          // without any per-keystroke round-trip.
+          if (!row.http_probe || typeof row.http_probe !== 'object') {
+            row.http_probe = {};
+          }
+          if (Array.isArray(row.http_probe.urls) && !row.http_probe.urls_text) {
+            row.http_probe.urls_text = row.http_probe.urls.join('\n');
+          }
+          if (typeof row.http_probe.urls_text !== 'string') {
+            row.http_probe.urls_text = '';
+          }
           // Stamp a stable per-row uid the first time we see this
           // row. Used as the x-for :key so DOM elements never tear
           // down + re-mount mid-typing (which loses input focus and
@@ -26401,6 +26422,10 @@ function app() {
             webmin_name: '',
             webmin_url:  '',
             snmp_name:   '',
+            // Init http_probe sub-dict so the per-host editor's
+            // textarea x-model binding doesn't read `urls_text` off
+            // undefined when this discovery-imported row is opened.
+            http_probe:  {},
             enabled:     true,
           };
         }
@@ -26554,8 +26579,16 @@ function app() {
           icon:        String(h.icon || '').trim(),
           enabled:     h.enabled !== false,
         };
+        // Always stamp `http_probe: {}` even when the import file
+        // carried no http_probe block — the per-host editor's textarea
+        // binds `x-model="row.http_probe.urls_text"` and crashes if the
+        // sub-dict is missing. Empty {} is functionally identical to
+        // missing for the save round-trip (saveHostsConfig only emits
+        // http_probe keys for explicit overrides).
         if (httpProbe && Object.keys(httpProbe).length) {
           out.http_probe = httpProbe;
+        } else {
+          out.http_probe = {};
         }
         return out;
       };
@@ -27025,6 +27058,13 @@ function app() {
         // probe this host. Empty object = use global defaults
         // (ping_default_port + ping_use_icmp).
         ping: {},
+        // Per-host HTTP-probe sub-dict. Default empty; loadHostsConfig
+        // hydration block defensively stamps `urls_text: ''` on every
+        // existing row, but fresh rows added here need the object so
+        // the textarea's `x-model="row.http_probe.urls_text"` doesn't
+        // read from `undefined.urls_text` when the operator ticks the
+        // http_probe enable checkbox.
+        http_probe: {},
         enabled: true,
         // Stable identity for x-for keying (matches the loadHostsConfig
         // hydration path).
@@ -28182,19 +28222,28 @@ function app() {
         if (httpIn.enabled === true) {
           httpOut.enabled = true;
         }
-        if (Array.isArray(httpIn.urls)) {
-          const cleanUrls = [];
-          for (const u of httpIn.urls) {
-            const s = String(u || '').trim();
-            const sl = s.toLowerCase();
-            if (s && (sl.startsWith('http://') || sl.startsWith('https://'))) {
-              cleanUrls.push(s);
-            }
+        // URLs source-of-truth: the textarea-bound `urls_text` string
+        // (one URL per line — see the load-time hydration block above
+        // for why the editor uses a virtual string field instead of
+        // round-tripping the array on every keystroke). Fall back to
+        // the persisted `urls` array on a load-then-save round-trip
+        // where the operator never opened the textarea — that path
+        // hits the legacy array shape directly without going through
+        // the textarea reactive scope.
+        const _httpUrlSource = (typeof httpIn.urls_text === 'string' && httpIn.urls_text.length)
+          ? httpIn.urls_text.split(/\r?\n/).map(s => s.trim())
+          : (Array.isArray(httpIn.urls) ? httpIn.urls : []);
+        const cleanUrls = [];
+        for (const u of _httpUrlSource) {
+          const s = String(u || '').trim();
+          const sl = s.toLowerCase();
+          if (s && (sl.startsWith('http://') || sl.startsWith('https://'))) {
+            cleanUrls.push(s);
           }
-          if (cleanUrls.length) {
-            // Dedupe inside the SPA so the backend doesn't have to.
-            httpOut.urls = Array.from(new Set(cleanUrls));
-          }
+        }
+        if (cleanUrls.length) {
+          // Dedupe inside the SPA so the backend doesn't have to.
+          httpOut.urls = Array.from(new Set(cleanUrls));
         }
         const cm = String(httpIn.content_match || '').trim();
         if (cm && cm.length <= 256) {
@@ -30648,7 +30697,7 @@ function app() {
           // chip in providerStates(h) renders correctly off the first
           // /api/hosts/list response before any /api/hosts/one/{id}
           // call lands.
-          'http_probe_enabled', 'http_probe_urls',
+          'http_probe_enabled', 'http_probe_urls', 'http_probe_has_targets',
         ];
         const incoming = Array.isArray(d.hosts) ? d.hosts : [];
         const incomingIds = new Set(incoming.map(h => h.id));
@@ -38772,7 +38821,7 @@ function app() {
         // the PREVIOUS image — already replaced by Swarm, scheduled
         // for /cleanup removal, NOT pending re-update. Exclude from
         // the update-available chip render to match the Telegram
-        // /update preview's contract (#0224).
+        // /update preview's contract.
         const updateChip = (((it.status || '') === 'update') && ((it.type || '') !== 'orphan'))
           ? ` <span class="blast-radius-chip blast-radius-chip--update">${esc(this.t('blast_radius.has_update') || 'update available')}</span>`
           : '';

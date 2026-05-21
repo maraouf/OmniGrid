@@ -157,7 +157,7 @@ def _telegram_http_timeout() -> int:
 def _resolved_token_and_chat() -> tuple[str, str]:
     """Pull bot-token + PRIMARY destination chat-id from the settings
     store. The "primary" chat is the FIRST entry in the CSV (`telegram_chat_id`
-    accepts a comma-separated list as of #0221 — see :func:`_authorized_chat_ids`
+    accepts a comma-separated list — see :func:`_authorized_chat_ids`
     for the full set). Outbound notification fan-out should use
     :func:`_outbound_chat_ids`; this helper is kept for back-compat with
     legacy single-chat callers that always wrote to the configured
@@ -307,7 +307,7 @@ def _is_authorized(update: dict) -> tuple[bool, str]:
     chat_id = (msg.get("chat") or {}).get("id")
     if chat_id is None:
         return False, "no chat.id in message"
-    # CSV-aware membership check (#0221) — `telegram_chat_id` accepts a
+    # CSV-aware membership check — `telegram_chat_id` accepts a
     # comma-separated list so a single bot can serve both a group AND
     # 1:1 DMs from operators. Single-value legacy setting parses as a
     # one-element set so deploys upgrade silently.
@@ -336,12 +336,11 @@ async def _telegram_post(
     log_label: str = "request",
     silent_failure: bool = False,
 ) -> tuple[bool, dict]:
-    """Shared POST skeleton for Telegram Bot API calls (DUP-002
-    consolidation — pre-fix `_send_reply` / `_edit_message` /
-    `_send_chat_action` each carried the same ~20-line shape
-    "build URL → POST → log on non-200 → re-raise cancellation
-    → swallow + log on broad exception" inline; that's ~60 LOC of
-    duplicate plumbing).
+    """Shared POST skeleton for Telegram Bot API calls. Pre-helper
+    `_send_reply` / `_edit_message` / `_send_chat_action` each
+    carried the same ~20-line shape "build URL → POST → log on
+    non-200 → re-raise cancellation → swallow + log on broad
+    exception" inline; that's ~60 LOC of duplicate plumbing.
 
     Per-method specifics (payload composition, body parsing, return
     type translation) stay at the call site — only the POST + error
@@ -637,9 +636,9 @@ async def _reply_no_match_or_candidates(
 
     Shared by ``_cmd_host`` / ``_cmd_restart`` (and any future command
     that takes a target arg) so the disambiguation copy + cap + footer
-    are defined once. Operator-flagged in the DUP-004 finding —
-    drift here used to require two-site edits (e.g. when the cap of
-    20 changed, or the "Narrow your target" copy was tweaked).
+    are defined once. Pre-helper drift here required two-site edits
+    (e.g. when the cap of 20 changed, or the "Narrow your target"
+    copy was tweaked).
 
     The candidates list is already ranked via ``_rank_candidates`` at
     the ``_resolve_target`` exit, so the first 20 are the most
@@ -1170,9 +1169,9 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
 
     # Render categories in declared order; an unknown category (typo
     # or new tag without a heading) renders last under "Other" so it
-    # surfaces visually instead of silently dropping. Operator-flagged
-    # (UX-ENH-001): groups containing ONLY `_OPEN_COMMANDS` entries
-    # render FIRST so unmapped first-time users see what they can
+    # surfaces visually instead of silently dropping. Groups
+    # containing ONLY `_OPEN_COMMANDS` entries render FIRST so
+    # unmapped first-time users see what they can
     # actually run before scrolling past the gated commands. Stable
     # secondary sort by the declared `cat_order` so the within-tier
     # ordering still respects the operator-curated category order.
@@ -1225,8 +1224,8 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
                 head = f"  {open_marker}<b>{usage}</b> <i>(aliases: {alias_text})</i>"
             else:
                 head = f"  {open_marker}<b>{usage}</b>"
-            # BUG-001 fix: some legacy `_COMMANDS` descriptions carry
-            # `&amp;` literally (e.g. `/whoami` / `/myid` stored
+            # Double-escape guard: some legacy `_COMMANDS` descriptions
+            # carry `&amp;` literally (e.g. `/whoami` / `/myid` stored
             # "level &amp; ID" pre-fix). Re-escaping them via `_escape`
             # produced `&amp;amp;` → visible as literal `&amp;` in
             # chat. Un-escape FIRST, then re-escape so the round-trip
@@ -1888,7 +1887,7 @@ async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     ``--build-arg VERSION=<X.Y.Z>``). Non-sensitive — works pre-link
     so unmapped operators can confirm which build they're talking to.
 
-    Augmented (UX-ENH-005) with the baked image's build time + a
+    Augmented with the baked image's build time + a
     short git SHA when available — operator scrolling Telegram for
     "is my deploy live yet?" gets the answer in one message without
     needing to also hit `/api/version`. Both fields are best-effort:
@@ -3153,8 +3152,8 @@ _MD_INLINE_CODE = _re.compile(r"(?<!`)`(?P<inner>[^`\n]+?)`(?!`)")
 _MD_BOLD_STAR = _re.compile(r"\*\*(?P<inner>[^\s*][^*\n]*?[^\s*]|\S)\*\*")
 _MD_BOLD_UNDER = _re.compile(r"__(?P<inner>[^\s_][^_\n]*?[^\s_]|\S)__")
 # Italic-star is tightened against two surface bugs:
-# (a) BUG-011 — `**bold **then *italic*** here` (asymmetric nested italic
-#     in bold) used to leak a stray `<i>*</i>` because the bold regex's
+# (a) asymmetric nested italic — `**bold **then *italic*** here` used
+#     to leak a stray `<i>*</i>` because the bold regex's
 #     forbid-`*`-in-inner makes it skip + italic matches the inner three
 #     asterisks the wrong way. The bold pre-pass at line below now runs
 #     a SECOND star-bold regex that allows nested italic specifically
@@ -3162,7 +3161,7 @@ _MD_BOLD_UNDER = _re.compile(r"__(?P<inner>[^\s_][^_\n]*?[^\s_]|\S)__")
 #     `*...*` is unwrapped first. Telegram's HTML parser also tolerates
 #     stray `*` chars now via `_telegram_safe_escape` so a residual
 #     unmatched `*` renders as literal.
-# (b) BUG-012 — `a*b*c` arithmetic-shorthand (no spaces) used to render
+# (b) arithmetic-shorthand — `a*b*c` (no spaces) used to render
 #     as `a<i>b</i>c`. The lookbehind+lookahead now require WHITESPACE
 #     OR START/END-OF-STRING around the asterisks (operators rarely
 #     type `*italic*` jammed against alphanum on both sides; markdown
@@ -4569,7 +4568,7 @@ async def _register_telegram_commands(client: httpx.AsyncClient) -> None:
         cat = meta.get("category") or "misc"
         emoji = _TELEGRAM_MENU_EMOJIS.get(cat, "🧩")
         # Strip any pre-escaped `&amp;` from descriptions stored
-        # for the /help HTML render path (BUG-001 lineage); the
+        # for the /help HTML render path; the
         # `setMyCommands` API expects plain text.
         raw_desc = (meta.get("description") or "").replace("&amp;", "&")
         # Compact description: emoji prefix + plain description text

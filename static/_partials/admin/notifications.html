@@ -1,764 +1,781 @@
-      <section x-show="adminTab==='notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <!-- Title row. Pill state mirrors whichever medium is most
-             visibly enabled (the in-app store is always on; Apprise +
-             Telegram show their own per-medium gate in their tabs). -->
-        <div class="flex items-start justify-between">
-          <div>
-            <div class="flex items-center gap-2 mb-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-bell"/></svg>
-              <h3 class="font-semibold fs-md" x-text="t('settings.notifications.title')"></h3>
-            </div>
-            <p class="fs-xs text-[var(--text-faint)] mb-3"
-               x-text="t('admin.notifications.tabs_intro')"></p>
-          </div>
-        </div>
+<!--suppress HtmlUnknownAttribute, HtmlUnknownTag, HtmlFormInputWithoutLabel -->
+<section x-show="adminTab==='notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+  <!-- Title row. Pill state mirrors whichever medium is most
+       visibly enabled (the in-app store is always on; Apprise +
+       Telegram show their own per-medium gate in their tabs). -->
+  <div class="flex items-start justify-between">
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-bell"/>
+        </svg>
+        <h3 class="font-semibold fs-md" x-text="t('settings.notifications.title')"></h3>
+      </div>
+      <p class="fs-xs text-[var(--text-faint)] mb-3"
+         x-text="t('admin.notifications.tabs_intro')"></p>
+    </div>
+  </div>
 
-        <!-- Provider-style tab strip. Mirrors the Settings → Host stats
-             provider tabs. Three tabs: In-app (the local store +
-             retention / page-size / poll tunables), Apprise (legacy
-             webhook + URL/tag), Telegram (Phase 1 send-only — bot
-             token + chat + topic). Per-event toggles live BELOW the
-             tabs because they're per-event globals (apply to whichever
-             channels are enabled). -->
-        <div class="flex flex-wrap items-center gap-1 mb-3 pb-2 border-b border-[var(--border)]"
-             role="tablist" aria-orientation="horizontal"
-             :aria-label="t('admin.notifications.tabs_label')">
-          <!-- Tab tuple shape: [name, label, icon_kind, icon_id].
-               `icon_kind === 'sprite'` → consume #icon-<id> from the
-               internal sprite (used for In-app's bell — no brand
-               identity to honour). `icon_kind === 'brand'` → render
-               `<img src="/img/icons/<id>.svg">` so the Apprise + Telegram
-               brand marks display in their canonical colours and shape. -->
-          <template x-for="tab in [
+  <!-- Provider-style tab strip. Mirrors the Settings → Host stats
+       provider tabs. Three tabs: In-app (the local store +
+       retention / page-size / poll tunables), Apprise (legacy
+       webhook + URL/tag), Telegram (Phase 1 send-only — bot
+       token + chat + topic). Per-event toggles live BELOW the
+       tabs because they're per-event globals (apply to whichever
+       channels are enabled). -->
+  <div class="flex flex-wrap items-center gap-1 mb-3 pb-2 border-b border-[var(--border)]"
+       role="tablist" aria-orientation="horizontal"
+       :aria-label="t('admin.notifications.tabs_label')">
+    <!-- Tab tuple shape: [name, label, icon_kind, icon_id].
+         `icon_kind === 'sprite'` → consume #icon-<id> from the
+         internal sprite (used for In-app's bell — no brand
+         identity to honour). `icon_kind === 'brand'` → render
+         `<img src="/img/icons/<id>.svg">` so the Apprise + Telegram
+         brand marks display in their canonical colours and shape. -->
+    <template x-for="tab in [
                      ['app',      t('admin.notifications.tab_app'),      'sprite', 'icon-bell'],
                      ['apprise',  t('admin.notifications.tab_apprise'),  'brand',  'apprise'],
                      ['telegram', t('admin.notifications.tab_telegram'), 'brand',  'telegram'],
                    ]" :key="tab[0]">
-            <button type="button"
-                    role="tab"
-                    :aria-selected="notificationsTab === tab[0]"
-                    :tabindex="notificationsTab === tab[0] ? 0 : -1"
-                    @click="setNotificationsTab(tab[0])"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded fs-xs font-medium"
-                    :class="notificationsTab === tab[0]
+      <button type="button"
+              role="tab"
+              :aria-selected="notificationsTab === tab[0]"
+              :tabindex="notificationsTab === tab[0] ? 0 : -1"
+              @click="setNotificationsTab(tab[0])"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded fs-xs font-medium"
+              :class="notificationsTab === tab[0]
                             ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
                             : 'text-[var(--text-dim)] hover:bg-[var(--surface-2)]'">
-              <template x-if="tab[2] === 'sprite'">
-                <svg width="12" height="12" aria-hidden="true">
-                  <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + tab[3]"/>
-                </svg>
-              </template>
-              <template x-if="tab[2] === 'brand'">
-                <img width="14" height="14" alt="" aria-hidden="true"
-                     :src="'/img/icons/' + tab[3] + '.svg?v=__APP_VERSION__'">
-              </template>
-              <span x-text="tab[1]"></span>
-            </button>
-          </template>
-        </div>
+        <template x-if="tab[2] === 'sprite'">
+          <svg width="12" height="12" aria-hidden="true">
+            <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + tab[3]"/>
+          </svg>
+        </template>
+        <template x-if="tab[2] === 'brand'">
+          <img width="14" height="14" alt="" aria-hidden="true"
+               :src="'/img/icons/' + tab[3] + '.svg?v=__APP_VERSION__'">
+        </template>
+        <span x-text="tab[1]"></span>
+      </button>
+    </template>
+  </div>
 
-        <!-- ========== TAB: In-app notifications ========== -->
-        <div x-show="notificationsTab === 'app'" role="tabpanel"
-             :class="!settings.notify_medium_app ? 'opacity-60' : ''">
-          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
-            <label class="inline-flex items-center gap-2 fs-sm font-medium">
-              <input type="checkbox" x-model="settings.notify_medium_app"
-                     :disabled="isReadonly()">
-              <span x-text="t('admin.notifications.medium_app_enable_label')"></span>
-            </label>
-            <span class="chip"
-                  :class="settings.notify_medium_app ? 'pill-ok' : 'pill-muted'"
-                  x-text="settings.notify_medium_app
+  <!-- ========== TAB: In-app notifications ========== -->
+  <div x-show="notificationsTab === 'app'" role="tabpanel"
+       :class="!settings.notify_medium_app ? 'opacity-60' : ''">
+    <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+      <label class="inline-flex items-center gap-2 fs-sm font-medium">
+        <input type="checkbox" x-model="settings.notify_medium_app"
+               :disabled="isReadonly()">
+        <span x-text="t('admin.notifications.medium_app_enable_label')"></span>
+      </label>
+      <span class="chip"
+            :class="settings.notify_medium_app ? 'pill-ok' : 'pill-muted'"
+            x-text="settings.notify_medium_app
                           ? t('admin_integrations.enabled_pill')
                           : t('admin_integrations.disabled_pill')"></span>
-          </div>
-          <p class="fs-2xs text-[var(--text-faint)] mt-2"
-             x-text="t('admin.notifications.tab_app_intro')"></p>
+    </div>
+    <p class="fs-2xs text-[var(--text-faint)] mt-2"
+       x-text="t('admin.notifications.tab_app_intro')"></p>
 
-          <!-- In-app tunables (retention / page size / poll cadence) —
-               these knobs ONLY affect the in-app notifications surface
-               (DB retention window, popup pagination, SPA poll cadence),
-               so they live inside the In-app tab body. -->
-          <div x-show="tuningLoaded"
-               class="mt-4 pt-3 border-t border-[var(--border)]">
-            <div class="flex items-center gap-2 mb-1">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
-              <h3 class="font-semibold fs-sm"
-                  x-text="t('admin.notifications.tunables_heading')"></h3>
-            </div>
-            <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
-               x-text="t('admin.notifications.tunables_intro')"></p>
-            <template x-for="key in ['tuning_notification_retention_days',
+    <!-- In-app tunables (retention / page size / poll cadence) —
+         these knobs ONLY affect the in-app notifications surface
+         (DB retention window, popup pagination, SPA poll cadence),
+         so they live inside the In-app tab body. -->
+    <div x-show="tuningLoaded"
+         class="mt-4 pt-3 border-t border-[var(--border)]">
+      <div class="flex items-center gap-2 mb-1">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
+        <h3 class="font-semibold fs-sm"
+            x-text="t('admin.notifications.tunables_heading')"></h3>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
+         x-text="t('admin.notifications.tunables_intro')"></p>
+      <template x-for="key in ['tuning_notification_retention_days',
                                       'tuning_notification_page_size',
                                       'tuning_notifications_poll_interval_seconds']"
-                      :key="key">
-              <div class="mt-3">
-                <label class="block fs-xs font-medium mb-1"
-                       x-text="t('admin.config.fields.' + key + '.label')"></label>
-                <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
-                   x-text="t('admin.config.fields.' + key + '.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm[key]"
-                         :placeholder="tuningPlaceholder(key)"
-                         :min="(tuningEffective[key] || {}).min"
-                         :max="(tuningEffective[key] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving"
-                         class="w-44 mono fs-sm py-1">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+                :key="key">
+        <div class="mt-3">
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
+             x-text="t('admin.config.fields.' + key + '.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm[key]"
+                   :placeholder="tuningPlaceholder(key)"
+                   :min="(tuningEffective[key] || {}).min"
+                   :max="(tuningEffective[key] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max"
-                          :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default"
-                          :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                        x-text="tuningEffectiveLabel(key)"></span>
-                </div>
-              </div>
-            </template>
+            </div>
+            <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
         </div>
+      </template>
+    </div>
+  </div>
 
-        <!-- ========== TAB: Apprise ========== -->
-        <div x-show="notificationsTab === 'apprise'" role="tabpanel"
-             :class="!settings.apprise_enabled ? 'opacity-60' : ''">
-          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
-            <label class="inline-flex items-center gap-2 fs-sm font-medium">
-              <input type="checkbox" x-model="settings.apprise_enabled"
-                     @change="markAppriseDirty()"
-                     :disabled="isReadonly()">
-              <span x-text="t('admin.notifications.medium_apprise_enable_label')"></span>
-            </label>
-            <span class="chip"
-                  :class="settings.apprise_enabled ? 'pill-ok' : 'pill-muted'"
-                  x-text="settings.apprise_enabled
+  <!-- ========== TAB: Apprise ========== -->
+  <div x-show="notificationsTab === 'apprise'" role="tabpanel"
+       :class="!settings.apprise_enabled ? 'opacity-60' : ''">
+    <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+      <label class="inline-flex items-center gap-2 fs-sm font-medium">
+        <input type="checkbox" x-model="settings.apprise_enabled"
+               @change="markAppriseDirty()"
+               :disabled="isReadonly()">
+        <span x-text="t('admin.notifications.medium_apprise_enable_label')"></span>
+      </label>
+      <span class="chip"
+            :class="settings.apprise_enabled ? 'pill-ok' : 'pill-muted'"
+            x-text="settings.apprise_enabled
                           ? t('admin_integrations.enabled_pill')
                           : t('admin_integrations.disabled_pill')"></span>
-          </div>
-          <p class="fs-xs text-[var(--text-faint)] mt-2 mb-2">
-            <span x-text="t('settings.notifications.url_format_prefix')"></span> <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
-            <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> <span x-html="t('settings.notifications.url_format_suffix')"></span>
-          </p>
-          <input x-model="settings.apprise_url" type="url"
-                 @input="markAppriseDirty()"
-                 :disabled="isReadonly() || !settings.apprise_enabled"
-                 :placeholder="t('settings.notifications.url_placeholder')" class="w-full">
-          <input x-model="settings.apprise_tag" type="text"
-                 @input="markAppriseDirty()"
-                 :disabled="isReadonly() || !settings.apprise_enabled"
-                 :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
-          <!-- Per-medium fan-out gate (independent of apprise_enabled).
-               Flipping this off silences Apprise on every event without
-               touching the URL/tag — flip back on to resume. Help text
-               BEFORE the checkbox (operator-canonical pattern). -->
-          <div class="mt-3">
-            <p class="fs-xs text-[var(--text-faint)] mb-1"
-               x-text="t('admin.notifications.medium_apprise_fanout_hint')"></p>
-            <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
-              <input type="checkbox" x-model="settings.notify_medium_apprise"
-                     :disabled="isReadonly() || !settings.apprise_enabled">
-              <span x-text="t('admin.notifications.medium_apprise_fanout_label')"></span>
-            </label>
-          </div>
-          <!-- Per-channel Test button (#0223). Fires ONLY Apprise via
-               /api/apprise/test — sibling per-channel Test on the
-               Telegram tab fires ONLY Telegram. Inline result chip
-               below the button. -->
-          <div class="flex items-center gap-3 mt-4" x-show="isAdmin()">
-            <button type="button" @click="testApprise()"
-                    :disabled="(appriseTestResult && appriseTestResult.pending) || !settings.apprise_enabled"
-                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="(appriseTestResult && appriseTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-              </svg>
-              <span x-show="!(appriseTestResult && appriseTestResult.pending)" x-text="t('actions.send_test')"></span>
-              <span x-show="appriseTestResult && appriseTestResult.pending" x-text="t('actions.testing')"></span>
-            </button>
-            <p class="fs-2xs text-[var(--text-faint)]"
-               x-show="lastTestSuccessLabel('apprise')">
-              ✓ <span x-text="lastTestSuccessLabel('apprise')"></span>
-            </p>
-          </div>
-          <div x-show="appriseTestResult && !appriseTestResult.pending" class="fs-sm rounded-md px-3 py-2 mt-2"
-               :class="appriseTestResult && appriseTestResult.ok
+    </div>
+    <p class="fs-xs text-[var(--text-faint)] mt-2 mb-2">
+      <span x-text="t('settings.notifications.url_format_prefix')"></span> <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
+      <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> <span x-html="t('settings.notifications.url_format_suffix')"></span>
+    </p>
+    <input x-model="settings.apprise_url" type="url"
+           @input="markAppriseDirty()"
+           :disabled="isReadonly() || !settings.apprise_enabled"
+           :placeholder="t('settings.notifications.url_placeholder')" class="w-full">
+    <input x-model="settings.apprise_tag" type="text"
+           @input="markAppriseDirty()"
+           :disabled="isReadonly() || !settings.apprise_enabled"
+           :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
+    <!-- Per-medium fan-out gate (independent of apprise_enabled).
+         Flipping this off silences Apprise on every event without
+         touching the URL/tag — flip back on to resume. Help text
+         BEFORE the checkbox (operator-canonical pattern). -->
+    <div class="mt-3">
+      <p class="fs-xs text-[var(--text-faint)] mb-1"
+         x-text="t('admin.notifications.medium_apprise_fanout_hint')"></p>
+      <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
+        <input type="checkbox" x-model="settings.notify_medium_apprise"
+               :disabled="isReadonly() || !settings.apprise_enabled">
+        <span x-text="t('admin.notifications.medium_apprise_fanout_label')"></span>
+      </label>
+    </div>
+    <!-- Per-channel Test button. Fires ONLY Apprise via
+         /api/apprise/test — sibling per-channel Test on the
+         Telegram tab fires ONLY Telegram. Inline result chip
+         below the button. -->
+    <div class="flex items-center gap-3 mt-4" x-show="isAdmin()">
+      <button type="button" @click="testApprise()"
+              :disabled="(appriseTestResult && appriseTestResult.pending) || !settings.apprise_enabled"
+              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="(appriseTestResult && appriseTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+        </svg>
+        <span x-show="!(appriseTestResult && appriseTestResult.pending)" x-text="t('actions.send_test')"></span>
+        <span x-show="appriseTestResult && appriseTestResult.pending" x-text="t('actions.testing')"></span>
+      </button>
+      <p class="fs-2xs text-[var(--text-faint)]"
+         x-show="lastTestSuccessLabel('apprise')">
+        ✓ <span x-text="lastTestSuccessLabel('apprise')"></span>
+      </p>
+    </div>
+    <div x-show="appriseTestResult && !appriseTestResult.pending" class="fs-sm rounded-md px-3 py-2 mt-2"
+         :class="appriseTestResult && appriseTestResult.ok
                        ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
                        : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'"
-               x-text="appriseTestResult ? ((appriseTestResult.ok ? '✓ ' : '✗ ') + (appriseTestResult.detail || '')) : ''"></div>
-        </div>
+         x-text="appriseTestResult ? ((appriseTestResult.ok ? '✓ ' : '✗ ') + (appriseTestResult.detail || '')) : ''"></div>
+  </div>
 
-        <!-- ========== TAB: Telegram ========== -->
-        <div x-show="notificationsTab === 'telegram'" role="tabpanel"
-             :class="!settings.notify_medium_telegram ? 'opacity-60' : ''">
-          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
-            <label class="inline-flex items-center gap-2 fs-sm font-medium">
-              <input type="checkbox" x-model="settings.notify_medium_telegram"
-                     :disabled="isReadonly()">
-              <span x-text="t('admin.notifications.medium_telegram_enable_label')"></span>
-            </label>
-            <span class="chip"
-                  :class="settings.notify_medium_telegram ? 'pill-ok' : 'pill-muted'"
-                  x-text="settings.notify_medium_telegram
+  <!-- ========== TAB: Telegram ========== -->
+  <div x-show="notificationsTab === 'telegram'" role="tabpanel"
+       :class="!settings.notify_medium_telegram ? 'opacity-60' : ''">
+    <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+      <label class="inline-flex items-center gap-2 fs-sm font-medium">
+        <input type="checkbox" x-model="settings.notify_medium_telegram"
+               :disabled="isReadonly()">
+        <span x-text="t('admin.notifications.medium_telegram_enable_label')"></span>
+      </label>
+      <span class="chip"
+            :class="settings.notify_medium_telegram ? 'pill-ok' : 'pill-muted'"
+            x-text="settings.notify_medium_telegram
                           ? t('admin_integrations.enabled_pill')
                           : t('admin_integrations.disabled_pill')"></span>
-          </div>
-          <p class="fs-xs text-[var(--text-faint)] mt-2 mb-3"
-             x-html="t('admin.notifications.tab_telegram_intro')"></p>
-          <!-- Bot token — write-only secret (`_set` flag pattern).
-               Empty input = keep current; any non-empty value overwrites. -->
-          <div class="mb-3">
-            <label class="block fs-xs font-medium mb-1"
-                   x-text="t('admin.notifications.telegram_bot_token_label')"></label>
-            <span x-show="settings.telegram_bot_token_set"
-                  class="block fs-xs text-[var(--success)] mb-1"
-                  x-text="t('settings.secret_input.saved_hint')"></span>
-            <input x-model="settings.telegram_bot_token" type="password"
-                   autocomplete="new-password"
-                   :disabled="isReadonly() || !settings.notify_medium_telegram"
-                   class="w-full mono fs-xs"
-                   :placeholder="settings.telegram_bot_token_set
+    </div>
+    <p class="fs-xs text-[var(--text-faint)] mt-2 mb-3"
+       x-html="t('admin.notifications.tab_telegram_intro')"></p>
+    <!-- Bot token — write-only secret (`_set` flag pattern).
+         Empty input = keep current; any non-empty value overwrites. -->
+    <div class="mb-3">
+      <label class="block fs-xs font-medium mb-1"
+             x-text="t('admin.notifications.telegram_bot_token_label')"></label>
+      <span x-show="settings.telegram_bot_token_set"
+            class="block fs-xs text-[var(--success)] mb-1"
+            x-text="t('settings.secret_input.saved_hint')"></span>
+      <input x-model="settings.telegram_bot_token" type="password"
+             autocomplete="new-password"
+             :disabled="isReadonly() || !settings.notify_medium_telegram"
+             class="w-full mono fs-xs"
+             :placeholder="settings.telegram_bot_token_set
                                   ? t('settings.secret_input.placeholder_keep')
                                   : t('admin.notifications.telegram_bot_token_placeholder')">
-            <p class="fs-2xs text-[var(--text-faint)] mt-1"
-               x-text="t('admin.notifications.telegram_bot_token_hint')"></p>
-          </div>
-          <!-- Chat ID — positive int for DMs, negative starting with
-               -100 for supergroups / channels. -->
-          <div class="mb-3">
-            <label class="block fs-xs font-medium mb-1"
-                   x-text="t('admin.notifications.telegram_chat_id_label')"></label>
-            <input x-model="settings.telegram_chat_id" type="text"
-                   :disabled="isReadonly() || !settings.notify_medium_telegram"
-                   class="w-full mono fs-xs"
-                   :placeholder="t('admin.notifications.telegram_chat_id_placeholder')">
-            <p class="fs-2xs text-[var(--text-faint)] mt-1"
-               x-text="t('admin.notifications.telegram_chat_id_hint')"></p>
-          </div>
-          <!-- Topic / message_thread_id — optional, supergroups only. -->
-          <div class="mb-3">
-            <label class="block fs-xs font-medium mb-1"
-                   x-text="t('admin.notifications.telegram_thread_id_label')"></label>
-            <input x-model="settings.telegram_thread_id" type="text"
-                   :disabled="isReadonly() || !settings.notify_medium_telegram"
-                   class="w-full mono fs-xs"
-                   :placeholder="t('admin.notifications.telegram_thread_id_placeholder')">
-            <p class="fs-2xs text-[var(--text-faint)] mt-1"
-               x-text="t('admin.notifications.telegram_thread_id_hint')"></p>
-          </div>
-          <label class="inline-flex items-center gap-2 fs-sm cursor-pointer mt-2 select-none">
-            <input type="checkbox" x-model="settings.telegram_verify_tls"
-                   :disabled="isReadonly() || !settings.notify_medium_telegram">
-            <span x-text="t('admin.notifications.telegram_verify_tls')"></span>
-          </label>
-          <!-- Telegram Bot API base URL — operator-tunable for self-
-               hosted Bot API gateways (tdlight / local TDLib) or proxy
-               endpoints. Blank = upstream default (https://api.telegram.org). -->
-          <div class="mt-4">
-            <label class="block fs-xs font-medium mb-1"
-                   x-text="t('admin.notifications.telegram_api_base_label')"></label>
-            <input x-model="settings.telegram_api_base" type="text"
-                   :disabled="isReadonly() || !settings.notify_medium_telegram"
-                   class="w-full mono fs-xs"
-                   :placeholder="t('admin.notifications.telegram_api_base_placeholder') || 'https://api.telegram.org'">
-            <p class="fs-2xs text-[var(--text-faint)] mt-1"
-               x-text="t('admin.notifications.telegram_api_base_hint')"></p>
-          </div>
-          <!-- Telegram listener long-poll + outer-HTTP timeouts —
-               TUNABLES (per-call reads so an edit takes effect on
-               the next listener iteration without restart). Canonical
-               single-column layout matching the Asset Inventory /
-               Public IP / Port Scan sections: label → help → input +
-               bounds-chips (min / max / default) + effective-label.
-               Side-by-side 2-col was a regression — bounds-chips
-               don't fit. -->
-          <div x-show="tuningLoaded" class="mt-4 space-y-3">
-            <template x-for="key in ['tuning_telegram_long_poll_timeout_seconds',
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('admin.notifications.telegram_bot_token_hint')"></p>
+    </div>
+    <!-- Chat ID — positive int for DMs, negative starting with
+         -100 for supergroups / channels. -->
+    <div class="mb-3">
+      <label class="block fs-xs font-medium mb-1"
+             x-text="t('admin.notifications.telegram_chat_id_label')"></label>
+      <input x-model="settings.telegram_chat_id" type="text"
+             :disabled="isReadonly() || !settings.notify_medium_telegram"
+             class="w-full mono fs-xs"
+             :placeholder="t('admin.notifications.telegram_chat_id_placeholder')">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('admin.notifications.telegram_chat_id_hint')"></p>
+    </div>
+    <!-- Topic / message_thread_id — optional, supergroups only. -->
+    <div class="mb-3">
+      <label class="block fs-xs font-medium mb-1"
+             x-text="t('admin.notifications.telegram_thread_id_label')"></label>
+      <input x-model="settings.telegram_thread_id" type="text"
+             :disabled="isReadonly() || !settings.notify_medium_telegram"
+             class="w-full mono fs-xs"
+             :placeholder="t('admin.notifications.telegram_thread_id_placeholder')">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('admin.notifications.telegram_thread_id_hint')"></p>
+    </div>
+    <label class="inline-flex items-center gap-2 fs-sm cursor-pointer mt-2 select-none">
+      <input type="checkbox" x-model="settings.telegram_verify_tls"
+             :disabled="isReadonly() || !settings.notify_medium_telegram">
+      <span x-text="t('admin.notifications.telegram_verify_tls')"></span>
+    </label>
+    <!-- Telegram Bot API base URL — operator-tunable for self-
+         hosted Bot API gateways (tdlight / local TDLib) or proxy
+         endpoints. Blank = upstream default (https://api.telegram.org). -->
+    <div class="mt-4">
+      <label class="block fs-xs font-medium mb-1"
+             x-text="t('admin.notifications.telegram_api_base_label')"></label>
+      <input x-model="settings.telegram_api_base" type="text"
+             :disabled="isReadonly() || !settings.notify_medium_telegram"
+             class="w-full mono fs-xs"
+             :placeholder="t('admin.notifications.telegram_api_base_placeholder')">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('admin.notifications.telegram_api_base_hint')"></p>
+    </div>
+    <!-- Telegram listener long-poll + outer-HTTP timeouts —
+         TUNABLES (per-call reads so an edit takes effect on
+         the next listener iteration without restart). Canonical
+         single-column layout matching the Asset Inventory /
+         Public IP / Port Scan sections: label → help → input +
+         bounds-chips (min / max / default) + effective-label.
+         Side-by-side 2-col was a regression — bounds-chips
+         don't fit. -->
+    <div x-show="tuningLoaded" class="mt-4 space-y-3">
+      <template x-for="key in ['tuning_telegram_long_poll_timeout_seconds',
                                       'tuning_telegram_http_timeout_seconds']"
-                      :key="key">
-              <div>
-                <label class="block fs-xs font-medium mb-1"
-                       x-text="t('admin.config.fields.' + key + '.label')"></label>
-                <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-                   x-text="t('admin.config.fields.' + key + '.help')"></p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <input type="number"
-                         x-model="tuningForm[key]"
-                         :placeholder="tuningPlaceholder(key)"
-                         :min="(tuningEffective[key] || {}).min"
-                         :max="(tuningEffective[key] || {}).max"
-                         :disabled="isReadonly() || !settings.notify_medium_telegram"
-                         class="w-44 mono fs-sm py-1">
-                  <div class="bounds-chips" role="group"
-                       :aria-label="t('admin.config.bounds.group_label')">
+                :key="key">
+        <div>
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.fields.' + key + '.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm[key]"
+                   :placeholder="tuningPlaceholder(key)"
+                   :min="(tuningEffective[key] || {}).min"
+                   :max="(tuningEffective[key] || {}).max"
+                   :disabled="isReadonly() || !settings.notify_medium_telegram"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true">
                         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
                       </svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true">
                         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
                       </svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-                    <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true">
                         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
                       </svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
-                  </div>
-                  <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                        x-text="tuningEffectiveLabel(key)"></span>
-                </div>
-              </div>
-            </template>
+            </div>
+            <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-          <!-- Per-channel Test button (#0223). Fires ONLY Telegram via
-               /api/telegram/test using the IN-FORM values (bot_token /
-               chat_id / thread_id) so the operator can verify NEW
-               creds before Save. Inline result chip below the button. -->
-          <div class="flex items-center gap-3 mt-4" x-show="isAdmin()">
-            <button type="button" @click="testTelegramConnection()"
-                    :disabled="(telegramTestResult && telegramTestResult.pending) || !settings.notify_medium_telegram"
-                    class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="(telegramTestResult && telegramTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-              </svg>
-              <span x-show="!(telegramTestResult && telegramTestResult.pending)" x-text="t('actions.send_test')"></span>
-              <span x-show="telegramTestResult && telegramTestResult.pending" x-text="t('actions.testing')"></span>
-            </button>
-            <p class="fs-2xs text-[var(--text-faint)]"
-               x-show="lastTestSuccessLabel('telegram')">
-              ✓ <span x-text="lastTestSuccessLabel('telegram')"></span>
-            </p>
-          </div>
-          <div x-show="telegramTestResult && !telegramTestResult.pending" class="fs-sm rounded-md px-3 py-2 mt-2"
-               :class="telegramTestResult && telegramTestResult.ok
+        </div>
+      </template>
+    </div>
+    <!-- Per-channel Test button. Fires ONLY Telegram via
+         /api/telegram/test using the IN-FORM values (bot_token /
+         chat_id / thread_id) so the operator can verify NEW
+         creds before Save. Inline result chip below the button. -->
+    <div class="flex items-center gap-3 mt-4" x-show="isAdmin()">
+      <button type="button" @click="testTelegramConnection()"
+              :disabled="(telegramTestResult && telegramTestResult.pending) || !settings.notify_medium_telegram"
+              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="(telegramTestResult && telegramTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+        </svg>
+        <span x-show="!(telegramTestResult && telegramTestResult.pending)" x-text="t('actions.send_test')"></span>
+        <span x-show="telegramTestResult && telegramTestResult.pending" x-text="t('actions.testing')"></span>
+      </button>
+      <p class="fs-2xs text-[var(--text-faint)]"
+         x-show="lastTestSuccessLabel('telegram')">
+        ✓ <span x-text="lastTestSuccessLabel('telegram')"></span>
+      </p>
+    </div>
+    <div x-show="telegramTestResult && !telegramTestResult.pending" class="fs-sm rounded-md px-3 py-2 mt-2"
+         :class="telegramTestResult && telegramTestResult.ok
                        ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
                        : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'"
-               x-text="telegramTestResult ? ((telegramTestResult.ok ? '✓ ' : '✗ ') + (telegramTestResult.detail || '')) : ''"></div>
+         x-text="telegramTestResult ? ((telegramTestResult.ok ? '✓ ' : '✗ ') + (telegramTestResult.detail || '')) : ''"></div>
 
-          <!-- Phase 2 — inbound command listener config. Long-poll loop
-               in logic/telegram_listener.py reads /restart and other
-               commands sent from the configured chat. Authorization
-               layered: (1) chat-id gate (commands from any other chat
-               are silently ignored); (2) optional CSV of authorized
-               user-id ints. /restart requires either the destructive
-               toggle ON or a typed `/restart confirm <target>`. -->
-          <div class="mt-5 pt-4 border-t border-[var(--border)]">
+    <!-- Phase 2 — inbound command listener config. Long-poll loop
+         in logic/telegram_listener.py reads /restart and other
+         commands sent from the configured chat. Authorization
+         layered: (1) chat-id gate (commands from any other chat
+         are silently ignored); (2) optional CSV of authorized
+         user-id ints. /restart requires either the destructive
+         toggle ON or a typed `/restart confirm <target>`. -->
+    <div class="mt-5 pt-4 border-t border-[var(--border)]">
+      <div class="flex items-center gap-2 mb-1">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-terminal"/>
+        </svg>
+        <h4 class="font-semibold fs-sm"
+            x-text="t('admin.notifications.telegram_listener_heading')"></h4>
+      </div>
+      <!-- `x-html` (not `x-text`) so the inline `<code>` /
+           `<target>` markup inside the i18n strings renders as
+           real HTML instead of raw `&lt;target&gt;` literals.
+           Safe because the i18n bundle is operator-trusted. -->
+      <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
+         x-html="t('admin.notifications.telegram_listener_intro')"></p>
+
+      <!-- Listener enabled toggle. Help text BEFORE the checkbox
+           (operator-canonical pattern — same as Authentication /
+           Public IP / Asset Inventory). -->
+      <p class="fs-2xs text-[var(--text-faint)] mb-1 leading-snug"
+         x-html="t('admin.notifications.telegram_listener_enable_hint')"></p>
+      <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer mb-3">
+        <input type="checkbox"
+               x-model="settings.telegram_listener_enabled"
+               :disabled="isReadonly() || !settings.notify_medium_telegram"
+               class="cursor-pointer">
+        <span x-text="t('admin.notifications.telegram_listener_enable_label')"></span>
+      </label>
+
+      <!-- Allow destructive commands toggle. `x-html` so the
+           inline `<code>` markup renders correctly. -->
+      <p class="fs-2xs text-[var(--text-faint)] mb-1 leading-snug"
+         x-html="t('admin.notifications.telegram_allow_destructive_hint')"></p>
+      <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer mb-3">
+        <input type="checkbox"
+               x-model="settings.telegram_allow_destructive"
+               :disabled="isReadonly() || !settings.telegram_listener_enabled"
+               class="cursor-pointer">
+        <span x-text="t('admin.notifications.telegram_allow_destructive_label')"></span>
+      </label>
+
+      <!-- Authorized user IDs (CSV). -->
+      <div class="mb-1">
+        <label class="block fs-xs font-medium mb-1"
+               x-text="t('admin.notifications.telegram_authorized_user_ids_label')"></label>
+        <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+           x-text="t('admin.notifications.telegram_authorized_user_ids_hint')"></p>
+        <input type="text"
+               x-model="settings.telegram_authorized_user_ids"
+               :disabled="isReadonly() || !settings.telegram_listener_enabled"
+               class="w-full mono fs-xs"
+               :placeholder="t('admin.notifications.telegram_authorized_user_ids_placeholder')">
+      </div>
+
+      <!-- Existing user↔Telegram links datatable. Lazy-loaded
+           the first time the Telegram tab opens via x-effect;
+           reload + drop-row on admin-side unlink. Row-action
+           button uses the canonical `user-action-btn` class
+           (same chrome as Users admin's row actions). -->
+      <div class="mt-5 pt-4 border-t border-[var(--border)]"
+           x-effect="if (notificationsTab === 'telegram' && !telegramLinksLoading && telegramLinks.length === 0 && !telegramLinksError) { loadTelegramLinks(); }">
+        <div class="flex items-start justify-between gap-2 mb-2 flex-wrap">
+          <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2 mb-1">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-terminal"/></svg>
+              <svg width="13" height="13" class="text-[var(--text-dim)]" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-users"/>
+              </svg>
               <h4 class="font-semibold fs-sm"
-                  x-text="t('admin.notifications.telegram_listener_heading')"></h4>
+                  x-text="t('admin.notifications.telegram_links_heading')"></h4>
             </div>
-            <!-- `x-html` (not `x-text`) so the inline `<code>` /
-                 `<target>` markup inside the i18n strings renders as
-                 real HTML instead of raw `&lt;target&gt;` literals.
-                 Safe because the i18n bundle is operator-trusted. -->
-            <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
-               x-html="t('admin.notifications.telegram_listener_intro')"></p>
+            <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+               x-text="t('admin.notifications.telegram_links_intro')"></p>
+          </div>
+          <!-- Refresh button floats RIGHT (ms-auto inside a
+               flex-wrap parent) so on wide viewports it sits in
+               the corner; on narrow viewports flex-wrap drops it
+               to the next line right-aligned. -->
+          <button type="button" @click="loadTelegramLinks()"
+                  :disabled="telegramLinksLoading"
+                  class="btn btn-soft fs-xs inline-flex items-center gap-1.5 ms-auto flex-shrink-0"
+                  :title="t('actions.refresh')">
+            <svg width="11" height="11" :class="telegramLinksLoading ? 'spin-md' : ''" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+            </svg>
+            <span x-text="t('actions.refresh')"></span>
+          </button>
+        </div>
 
-            <!-- Listener enabled toggle. Help text BEFORE the checkbox
-                 (operator-canonical pattern — same as Authentication /
-                 Public IP / Asset Inventory). -->
-            <p class="fs-2xs text-[var(--text-faint)] mb-1 leading-snug"
-               x-html="t('admin.notifications.telegram_listener_enable_hint')"></p>
-            <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer mb-3">
-              <input type="checkbox"
-                     x-model="settings.telegram_listener_enabled"
-                     :disabled="isReadonly() || !settings.notify_medium_telegram"
-                     class="cursor-pointer">
-              <span x-text="t('admin.notifications.telegram_listener_enable_label')"></span>
-            </label>
+        <div x-show="telegramLinksError"
+             class="fs-xs px-3 py-2 rounded mb-2 bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]"
+             x-text="telegramLinksError"></div>
 
-            <!-- Allow destructive commands toggle. `x-html` so the
-                 inline `<code>` markup renders correctly. -->
-            <p class="fs-2xs text-[var(--text-faint)] mb-1 leading-snug"
-               x-html="t('admin.notifications.telegram_allow_destructive_hint')"></p>
-            <label class="inline-flex items-center gap-2 fs-sm font-medium cursor-pointer mb-3">
-              <input type="checkbox"
-                     x-model="settings.telegram_allow_destructive"
-                     :disabled="isReadonly() || !settings.telegram_listener_enabled"
-                     class="cursor-pointer">
-              <span x-text="t('admin.notifications.telegram_allow_destructive_label')"></span>
-            </label>
+        <!-- Loading skeleton — visible until the first
+             `loadTelegramLinks` completion lands. Pre-fix the
+             empty-state message ("no links yet") flashed in the
+             gap between tab-open and the first fetch resolving;
+             mirrors the loading-gate pattern Users / Sessions /
+             Tokens admin tables use. -->
+        <div x-show="!telegramLinksLoaded"
+             class="loading-state flex items-center gap-2 py-3 fs-xs text-[var(--text-faint)]">
+          <span class="spin-lg" aria-hidden="true"></span>
+          <span x-text="t('actions.loading')"></span>
+        </div>
 
-            <!-- Authorized user IDs (CSV). -->
-            <div class="mb-1">
-              <label class="block fs-xs font-medium mb-1"
-                     x-text="t('admin.notifications.telegram_authorized_user_ids_label')"></label>
-              <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-                 x-text="t('admin.notifications.telegram_authorized_user_ids_hint')"></p>
-              <input type="text"
-                     x-model="settings.telegram_authorized_user_ids"
-                     :disabled="isReadonly() || !settings.telegram_listener_enabled"
-                     class="w-full mono fs-xs"
-                     :placeholder="t('admin.notifications.telegram_authorized_user_ids_placeholder')">
-            </div>
+        <div x-show="telegramLinksLoaded && telegramLinks.length === 0 && !telegramLinksError"
+             class="fs-xs text-[var(--text-faint)] italic py-3"
+             x-text="t('admin.notifications.telegram_links_empty')"></div>
 
-            <!-- Existing user↔Telegram links datatable. Lazy-loaded
-                 the first time the Telegram tab opens via x-effect;
-                 reload + drop-row on admin-side unlink. Row-action
-                 button uses the canonical `user-action-btn` class
-                 (same chrome as Users admin's row actions). -->
-            <div class="mt-5 pt-4 border-t border-[var(--border)]"
-                 x-effect="if (notificationsTab === 'telegram' && !telegramLinksLoading && telegramLinks.length === 0 && !telegramLinksError) { loadTelegramLinks(); }">
-              <div class="flex items-start justify-between gap-2 mb-2 flex-wrap">
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center gap-2 mb-1">
-                    <svg width="13" height="13" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-users"/></svg>
-                    <h4 class="font-semibold fs-sm"
-                        x-text="t('admin.notifications.telegram_links_heading')"></h4>
-                  </div>
-                  <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-                     x-text="t('admin.notifications.telegram_links_intro')"></p>
-                </div>
-                <!-- Refresh button floats RIGHT (ms-auto inside a
-                     flex-wrap parent) so on wide viewports it sits in
-                     the corner; on narrow viewports flex-wrap drops it
-                     to the next line right-aligned. -->
-                <button type="button" @click="loadTelegramLinks()"
-                        :disabled="telegramLinksLoading"
-                        class="btn btn-soft fs-xs inline-flex items-center gap-1.5 ms-auto flex-shrink-0"
-                        :title="t('actions.refresh')">
-                  <svg width="11" height="11" :class="telegramLinksLoading ? 'spin-md' : ''" aria-hidden="true">
-                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-                  </svg>
-                  <span x-text="t('actions.refresh')"></span>
-                </button>
-              </div>
-
-              <div x-show="telegramLinksError"
-                   class="fs-xs px-3 py-2 rounded mb-2 bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]"
-                   x-text="telegramLinksError"></div>
-
-              <!-- Loading skeleton — visible until the first
-                   `loadTelegramLinks` completion lands. Pre-fix the
-                   empty-state message ("no links yet") flashed in the
-                   gap between tab-open and the first fetch resolving;
-                   mirrors the loading-gate pattern Users / Sessions /
-                   Tokens admin tables use. -->
-              <div x-show="!telegramLinksLoaded"
-                   class="loading-state flex items-center gap-2 py-3 fs-xs text-[var(--text-faint)]">
-                <span class="spin-lg" aria-hidden="true"></span>
-                <span x-text="t('actions.loading')"></span>
-              </div>
-
-              <div x-show="telegramLinksLoaded && telegramLinks.length === 0 && !telegramLinksError"
-                   class="fs-xs text-[var(--text-faint)] italic py-3"
-                   x-text="t('admin.notifications.telegram_links_empty')"></div>
-
-              <table x-show="telegramLinksLoaded && telegramLinks.length > 0"
-                     class="w-full fs-xs">
-                <thead>
-                  <tr class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
-                    <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_user')"></th>
-                    <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_role')"></th>
-                    <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_tg_id')"></th>
-                    <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_linked_at')"></th>
-                    <th class="text-end px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_actions')"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <template x-for="row in telegramLinks" :key="row.telegram_user_id">
-                    <tr class="border-t border-[var(--border)]">
-                      <td class="px-2 py-1.5" x-text="row.username"></td>
-                      <td class="px-2 py-1.5">
+        <table x-show="telegramLinksLoaded && telegramLinks.length > 0"
+               class="w-full fs-xs">
+          <thead>
+          <tr class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+            <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_user')"></th>
+            <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_role')"></th>
+            <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_tg_id')"></th>
+            <th class="text-start px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_linked_at')"></th>
+            <th class="text-end px-2 py-1.5" x-text="t('admin.notifications.telegram_links_col_actions')"></th>
+          </tr>
+          </thead>
+          <tbody>
+          <template x-for="row in telegramLinks" :key="row.telegram_user_id">
+            <tr class="border-t border-[var(--border)]">
+              <td class="px-2 py-1.5" x-text="row.username"></td>
+              <td class="px-2 py-1.5">
                         <span class="chip"
                               :class="row.role === 'admin' ? 'pill-warning' : 'pill-muted'"
                               x-text="row.role"></span>
-                      </td>
-                      <td class="px-2 py-1.5 mono" x-text="row.telegram_user_id"></td>
-                      <!-- Linked-at column — fmtDate takes epoch
-                           SECONDS, the API returns milliseconds. Divide
-                           inline. Legacy rows (linked_at_ms === 0)
-                           render as "—" via fmtDate's null-guard. -->
-                      <td class="px-2 py-1.5 fs-2xs text-[var(--text-dim)]"
-                          x-text="row.linked_at_ms ? fmtDate(row.linked_at_ms / 1000) : '—'"></td>
-                      <td class="px-2 py-1.5 text-end">
-                        <button type="button"
-                                class="user-action-btn user-action-btn--danger"
-                                :disabled="!isAdmin()"
-                                :title="t('admin.notifications.telegram_links_unlink_button')"
-                                :aria-label="t('admin.notifications.telegram_links_unlink_button')"
-                                @click="adminUnlinkTelegramRow(row)">
-                          <svg width="14" height="14" aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
-                          </svg>
-                        </button>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+              </td>
+              <td class="px-2 py-1.5 mono" x-text="row.telegram_user_id"></td>
+              <!-- Linked-at column — fmtDate takes epoch
+                   SECONDS, the API returns milliseconds. Divide
+                   inline. Legacy rows (linked_at_ms === 0)
+                   render as "—" via fmtDate's null-guard. -->
+              <td class="px-2 py-1.5 fs-2xs text-[var(--text-dim)]"
+                  x-text="row.linked_at_ms ? fmtDate(row.linked_at_ms / 1000) : '—'"></td>
+              <td class="px-2 py-1.5 text-end">
+                <button type="button"
+                        class="user-action-btn user-action-btn--danger"
+                        :disabled="!isAdmin()"
+                        :title="t('admin.notifications.telegram_links_unlink_button')"
+                        :aria-label="t('admin.notifications.telegram_links_unlink_button')"
+                        @click="adminUnlinkTelegramRow(row)">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
+                  </svg>
+                </button>
+              </td>
+            </tr>
+          </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
-        <!-- Providers-section Save button — commits any change made in
-             the three provider tabs (In-app medium toggle + tunables /
-             Apprise master + URL + tag + fan-out / Telegram master +
-             credentials). Same handler + dirty source as the Save
-             button at the end of the per-event sibling section below;
-             either button commits the whole notifications surface. -->
-        <hr class="border-0 border-t border-[var(--border)] mt-5 mb-3">
-        <!-- Save row. Save is gated by `canSaveNotifications()` — if
-             Apprise or Telegram is enabled, a successful Test against
-             the CURRENT form values is required (same pattern as
-             Portainer / OIDC / Asset Inventory). #0223: the combined
-             page-level Test button was retired in favour of per-channel
-             Test buttons that live INSIDE each tab (Apprise / Telegram),
-             so the operator can verify each channel independently.
-             Scope hint operator-flagged the "Save"
-             button in this section looked identical to the "Save event
-             toggles" button below, so we spell out the scope inline +
-             use a descriptive button label ("Save channel configuration"). -->
-        <p class="fs-xs text-[var(--text-faint)] mb-2"
-           x-text="t('admin.notifications.providers_save_scope_hint')"></p>
-        <div class="flex items-center gap-3 flex-wrap" x-show="isAdmin()">
-          <button type="button" @click="saveProviders()"
-                  :disabled="settingsSaving || !canSaveNotifications() || !providersDirty()"
-                  :class="providersDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                  :title="!canSaveNotifications() ? t('admin.notifications.save_requires_test') : ''"
-                  class="btn btn-primary fs-sm">
-            <span x-show="!settingsSaving" x-text="t('admin.notifications.providers_save_button')"></span>
-            <span x-show="settingsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-          </button>
-          <span x-show="providersDirty()"
-                class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
+  <!-- Providers-section Save button — commits any change made in
+       the three provider tabs (In-app medium toggle + tunables /
+       Apprise master + URL + tag + fan-out / Telegram master +
+       credentials). Same handler + dirty source as the Save
+       button at the end of the per-event sibling section below;
+       either button commits the whole notifications surface. -->
+  <hr class="border-0 border-t border-[var(--border)] mt-5 mb-3">
+  <!-- Save row. Save is gated by `canSaveNotifications()` — if
+       Apprise or Telegram is enabled, a successful Test against
+       the CURRENT form values is required (same pattern as
+       Portainer / OIDC / Asset Inventory). The combined
+       page-level Test button was retired in favour of per-channel
+       Test buttons that live INSIDE each tab (Apprise / Telegram),
+       so the operator can verify each channel independently.
+       Scope hint operator-flagged the "Save"
+       button in this section looked identical to the "Save event
+       toggles" button below, so we spell out the scope inline +
+       use a descriptive button label ("Save channel configuration"). -->
+  <p class="fs-xs text-[var(--text-faint)] mb-2"
+     x-text="t('admin.notifications.providers_save_scope_hint')"></p>
+  <div class="flex items-center gap-3 flex-wrap" x-show="isAdmin()">
+    <button type="button" @click="saveProviders()"
+            :disabled="settingsSaving || !canSaveNotifications() || !providersDirty()"
+            :class="providersDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+            :title="!canSaveNotifications() ? t('admin.notifications.save_requires_test') : ''"
+            class="btn btn-primary fs-sm">
+      <span x-show="!settingsSaving" x-text="t('admin.notifications.providers_save_button')"></span>
+      <span x-show="settingsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+    </button>
+    <span x-show="providersDirty()"
+          class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
-        </div>
-        <div x-show="!canSaveNotifications() && (settings.apprise_enabled || settings.notify_medium_telegram)"
-             class="fs-xs text-[var(--text-faint)] mt-2"
-             x-text="t('admin.notifications.save_requires_test')"></div>
-        <!-- Save result chip — per-channel Test results live inline
-             inside each channel's tab via the dedicated chip blocks
-             on `appriseTestResult` / `telegramTestResult`; this chip
-             is reserved for the Providers Save outcome only. -->
-        <div x-show="providersSaveResult" class="fs-sm rounded-md px-3 py-2 mt-2"
-             :class="providersSaveResult && providersSaveResult.ok
+  </div>
+  <div x-show="!canSaveNotifications() && (settings.apprise_enabled || settings.notify_medium_telegram)"
+       class="fs-xs text-[var(--text-faint)] mt-2"
+       x-text="t('admin.notifications.save_requires_test')"></div>
+  <!-- Save result chip — per-channel Test results live inline
+       inside each channel's tab via the dedicated chip blocks
+       on `appriseTestResult` / `telegramTestResult`; this chip
+       is reserved for the Providers Save outcome only. -->
+  <div x-show="providersSaveResult" class="fs-sm rounded-md px-3 py-2 mt-2"
+       :class="providersSaveResult && providersSaveResult.ok
                      ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
                      : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'"
-             x-text="providersSaveResult ? ((providersSaveResult.ok ? '✓ ' : '✗ ') + (providersSaveResult.detail || '')) : ''"></div>
-      </section>
+       x-text="providersSaveResult ? ((providersSaveResult.ok ? '✓ ' : '✗ ') + (providersSaveResult.detail || '')) : ''"></div>
+</section>
 
-      <!-- ============== PER-EVENT NOTIFICATIONS — SIBLING SECTION
-           Stands alone as a top-level card outside the channel-
-           configuration section above so the operator sees it as a
-           DISTINCT concern (event routing vs channel setup). Its Save
-           button + dirty signal + result chip are INDEPENDENT from the
-           channel-configuration section above — they don't share
-           snapshots, don't share POSTs, and don't share success/error
-           chips. ============ -->
-      <section x-show="adminTab==='notifications'"
-               class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 mt-4">
-        <div class="flex items-center gap-2 mb-1">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/></svg>
-          <h3 class="font-semibold fs-md" x-text="t('admin.notifications.events.title')"></h3>
-        </div>
-        <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.notifications.events.subtitle')"></p>
+<!-- ============== PER-EVENT NOTIFICATIONS — SIBLING SECTION
+     Stands alone as a top-level card outside the channel-
+     configuration section above so the operator sees it as a
+     DISTINCT concern (event routing vs channel setup). Its Save
+     button + dirty signal + result chip are INDEPENDENT from the
+     channel-configuration section above — they don't share
+     snapshots, don't share POSTs, and don't share success/error
+     chips. ============ -->
+<section x-show="adminTab==='notifications'"
+         class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 mt-4">
+  <div class="flex items-center gap-2 mb-1">
+    <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
+    </svg>
+    <h3 class="font-semibold fs-md" x-text="t('admin.notifications.events.title')"></h3>
+  </div>
+  <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.notifications.events.subtitle')"></p>
 
-        <!-- Categorised event toggles — same `notifyCategories()`
-             source the Profile → Notifications page uses, so both
-             surfaces stay aligned and adding a new event in one
-             place auto-appears in the other. Admin keeps single-
-             toggle-per-event semantics (global enable / disable per
-             event); per-medium routing lives on the Profile page. -->
-        <div class="flex flex-col gap-2 mb-3">
-            <template x-for="cat in notifyCategories()" :key="'admin-cat-' + cat.id">
-              <section class="notify-category">
-                <button type="button"
-                        class="notify-category-header"
-                        @click="toggleNotifyCategoryExpanded('admin:' + cat.id)"
-                        :aria-expanded="isNotifyCategoryExpanded('admin:' + cat.id) ? 'true' : 'false'">
-                  <div class="flex flex-col min-w-0 flex-1">
+  <!-- Categorised event toggles — same `notifyCategories()`
+       source the Profile → Notifications page uses, so both
+       surfaces stay aligned and adding a new event in one
+       place auto-appears in the other. Admin keeps single-
+       toggle-per-event semantics (global enable / disable per
+       event); per-medium routing lives on the Profile page. -->
+  <div class="flex flex-col gap-2 mb-3">
+    <template x-for="cat in notifyCategories()" :key="'admin-cat-' + cat.id">
+      <section class="notify-category">
+        <button type="button"
+                class="notify-category-header"
+                @click="toggleNotifyCategoryExpanded('admin:' + cat.id)"
+                :aria-expanded="isNotifyCategoryExpanded('admin:' + cat.id) ? 'true' : 'false'">
+          <div class="flex flex-col min-w-0 flex-1">
                     <span class="fs-sm font-semibold text-[var(--text)]"
                           x-text="t(cat.label_key)"></span>
-                    <span class="fs-2xs text-[var(--text-faint)] truncate"
-                          x-text="t(cat.desc_key)"></span>
-                  </div>
-                  <span class="notify-cat-count"
-                        :title="t('admin.notifications.events.cat_count_title') || 'Events globally enabled in this category'">
+            <span class="fs-2xs text-[var(--text-faint)] truncate"
+                  x-text="t(cat.desc_key)"></span>
+          </div>
+          <span class="notify-cat-count"
+                :title="t('admin.notifications.events.cat_count_title') || 'Events globally enabled in this category'">
                     <span x-text="cat.rows.filter(r => settings[r.key]).length"></span>
                     <span class="text-[var(--text-faint)]" x-text="' / ' + cat.rows.length"></span>
                   </span>
-                  <svg width="11" height="11"
-                       class="text-[var(--text-faint)] flex-shrink-0 transition-transform"
-                       :class="isNotifyCategoryExpanded('admin:' + cat.id) ? 'rotate-180' : ''"
-                       aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
-                </button>
-                <div x-show="isNotifyCategoryExpanded('admin:' + cat.id)" x-cloak class="notify-category-body">
-                  <!-- Operations renders as paired groups (one
-                       operation header + indented success / failure
-                       sub-rows). Health + Security categories render
-                       flat (single toggle per event). Same shape +
-                       data source as the Profile-side grouping so a
-                       new operation added in `notifyEventGroups` lands
-                       on BOTH pages automatically. -->
-                  <template x-if="cat.groups">
-                    <template x-for="grp in notifyCategoryFilteredGroups(cat)" :key="'admin-grp-' + grp.label">
-                      <div>
-                        <div class="fs-xs font-semibold text-[var(--text)] uppercase tracking-wider pt-2 pb-1 mt-1"
-                             style="border-top: 1px solid var(--border);"
-                             x-text="t('admin.notifications.events.' + grp.label)"></div>
-                        <template x-for="kind in ['success', 'failure']" :key="'admin-grp-' + grp.label + '-' + kind">
-                          <div class="flex items-center justify-between gap-3 py-1 ps-3">
-                            <!-- Label group is clickable — opens the
-                                 template editor modal. The checkbox sits
-                                 in its own label so a click on it doesn't
-                                 propagate. Operator-stressed "stellar UI,
-                                 no clutter" — the row stays a single
-                                 visual unit; only the textual label
-                                 carries the open-modal affordance. -->
-                            <button type="button"
-                                    class="flex items-center gap-1.5 min-w-0 flex-1 text-start cursor-pointer notify-event-row-btn"
-                                    @click="openNotifyTemplateEditor(kind === 'success' ? grp.success_key.replace(/^notify_event_/, '') : grp.failure_key.replace(/^notify_event_/, ''))"
-                                    :title="t('admin.notify_templates.edit_button_title')">
-                              <span class="text-[var(--text-faint)]" aria-hidden="true">↳</span>
-                              <span class="fs-xs font-medium"
-                                    :class="kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
-                                    x-text="t('admin.notifications.events.' + kind)"></span>
-                              <svg width="11" height="11" class="text-[var(--text-faint)] flex-shrink-0 flip-rtl"
-                                   aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-                            </button>
-                            <label class="flex items-center gap-1.5 fs-xs cursor-pointer select-none flex-shrink-0">
-                              <input type="checkbox"
-                                     :checked="settings[kind === 'success' ? grp.success_key : grp.failure_key]"
-                                     @change="settings[kind === 'success' ? grp.success_key : grp.failure_key] = $event.target.checked"
-                                     :disabled="isReadonly() || !settings.apprise_enabled">
-                              <span class="text-[var(--text-dim)]"
-                                    x-text="t('admin.notifications.events.enabled')"></span>
-                            </label>
-                          </div>
-                        </template>
-                      </div>
-                    </template>
-                  </template>
-                  <template x-if="!cat.groups">
-                    <template x-for="row in cat.rows" :key="'admin-row-' + row.key">
-                      <div class="flex items-center justify-between gap-3 py-1">
-                        <button type="button"
-                                class="flex items-center gap-2 min-w-0 flex-1 text-start cursor-pointer notify-event-row-btn"
-                                @click="openNotifyTemplateEditor(row.key.replace(/^notify_event_/, ''))"
-                                :title="t('admin.notify_templates.edit_button_title')">
+          <svg width="11" height="11"
+               class="text-[var(--text-faint)] flex-shrink-0 transition-transform"
+               :class="isNotifyCategoryExpanded('admin:' + cat.id) ? 'rotate-180' : ''"
+               aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/>
+          </svg>
+        </button>
+        <div x-show="isNotifyCategoryExpanded('admin:' + cat.id)" x-cloak class="notify-category-body">
+          <!-- Operations renders as paired groups (one
+               operation header + indented success / failure
+               sub-rows). Health + Security categories render
+               flat (single toggle per event). Same shape +
+               data source as the Profile-side grouping so a
+               new operation added in `notifyEventGroups` lands
+               on BOTH pages automatically. -->
+          <template x-if="cat.groups">
+            <template x-for="grp in notifyCategoryFilteredGroups(cat)" :key="'admin-grp-' + grp.label">
+              <div>
+                <div class="fs-xs font-semibold text-[var(--text)] uppercase tracking-wider pt-2 pb-1 mt-1"
+                     style="border-top: 1px solid var(--border);"
+                     x-text="t('admin.notifications.events.' + grp.label)"></div>
+                <template x-for="kind in ['success', 'failure']" :key="'admin-grp-' + grp.label + '-' + kind">
+                  <div class="flex items-center justify-between gap-3 py-1 ps-3">
+                    <!-- Label group is clickable — opens the
+                         template editor modal. The checkbox sits
+                         in its own label so a click on it doesn't
+                         propagate. Operator-stressed "stellar UI,
+                         no clutter" — the row stays a single
+                         visual unit; only the textual label
+                         carries the open-modal affordance. -->
+                    <button type="button"
+                            class="flex items-center gap-1.5 min-w-0 flex-1 text-start cursor-pointer notify-event-row-btn"
+                            @click="openNotifyTemplateEditor(kind === 'success' ? grp.success_key.replace(/^notify_event_/, '') : grp.failure_key.replace(/^notify_event_/, ''))"
+                            :title="t('admin.notify_templates.edit_button_title')">
+                      <span class="text-[var(--text-faint)]" aria-hidden="true">↳</span>
+                      <span class="fs-xs font-medium"
+                            :class="kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
+                            x-text="t('admin.notifications.events.' + kind)"></span>
+                      <svg width="11" height="11" class="text-[var(--text-faint)] flex-shrink-0 flip-rtl"
+                           aria-hidden="true">
+                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+                      </svg>
+                    </button>
+                    <label class="flex items-center gap-1.5 fs-xs cursor-pointer select-none flex-shrink-0">
+                      <input type="checkbox"
+                             :checked="settings[kind === 'success' ? grp.success_key : grp.failure_key]"
+                             @change="settings[kind === 'success' ? grp.success_key : grp.failure_key] = $event.target.checked"
+                             :disabled="isReadonly() || !settings.apprise_enabled">
+                      <span class="text-[var(--text-dim)]"
+                            x-text="t('admin.notifications.events.enabled')"></span>
+                    </label>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </template>
+          <template x-if="!cat.groups">
+            <template x-for="row in cat.rows" :key="'admin-row-' + row.key">
+              <div class="flex items-center justify-between gap-3 py-1">
+                <button type="button"
+                        class="flex items-center gap-2 min-w-0 flex-1 text-start cursor-pointer notify-event-row-btn"
+                        @click="openNotifyTemplateEditor(row.key.replace(/^notify_event_/, ''))"
+                        :title="t('admin.notify_templates.edit_button_title')">
                           <span class="fs-sm text-[var(--text)] truncate"
                                 x-text="t('admin.notifications.events.' + row.label)"></span>
-                          <svg width="11" height="11" class="text-[var(--text-faint)] flex-shrink-0 flip-rtl"
-                               aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-                        </button>
-                        <label class="flex items-center gap-1.5 fs-xs cursor-pointer select-none flex-shrink-0">
-                          <input type="checkbox"
-                                 :checked="settings[row.key]"
-                                 @change="settings[row.key] = $event.target.checked"
-                                 :disabled="isReadonly() || !settings.apprise_enabled">
-                          <span class="text-[var(--text-dim)]"
-                                x-text="t('admin.notifications.events.enabled')"></span>
-                        </label>
-                      </div>
-                    </template>
-                  </template>
-                </div>
-              </section>
+                  <svg width="11" height="11" class="text-[var(--text-faint)] flex-shrink-0 flip-rtl"
+                       aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+                  </svg>
+                </button>
+                <label class="flex items-center gap-1.5 fs-xs cursor-pointer select-none flex-shrink-0">
+                  <input type="checkbox"
+                         :checked="settings[row.key]"
+                         @change="settings[row.key] = $event.target.checked"
+                         :disabled="isReadonly() || !settings.apprise_enabled">
+                  <span class="text-[var(--text-dim)]"
+                        x-text="t('admin.notifications.events.enabled')"></span>
+                </label>
+              </div>
             </template>
-          </div>
+          </template>
+        </div>
+      </section>
+    </template>
+  </div>
 
-          <!-- Visual separator between the per-event grid (events +
-               security row) and the bulk-action buttons (Enable all /
-               Disable all / Errors only). -->
-          <hr class="border-0 border-t border-[var(--border)] my-3">
+  <!-- Visual separator between the per-event grid (events +
+       security row) and the bulk-action buttons (Enable all /
+       Disable all / Errors only). -->
+  <hr class="border-0 border-t border-[var(--border)] my-3">
 
-          <div class="flex items-center gap-2 flex-wrap" x-show="isAdmin()">
-            <button type="button" @click="setAllNotifyEvents(true)"
-                    :disabled="isReadonly() || !settings.apprise_enabled"
-                    class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
-              <svg width="12" height="12" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/>
-              </svg>
-              <span x-text="t('admin.notifications.events.enable_all')"></span>
-            </button>
-            <button type="button" @click="setAllNotifyEvents(false)"
-                    :disabled="isReadonly() || !settings.apprise_enabled"
-                    class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
-              <svg width="12" height="12" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
-              </svg>
-              <span x-text="t('admin.notifications.events.disable_all')"></span>
-            </button>
-            <button type="button" @click="setNotifyEventsErrorsOnly()"
-                    :disabled="isReadonly() || !settings.apprise_enabled"
-                    class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
-              <svg width="12" height="12" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
-              </svg>
-              <span x-text="t('admin.notifications.events.errors_only')"></span>
-            </button>
-          </div>
-          <p class="fs-2xs text-[var(--text-faint)] mt-2" x-text="t('admin.notifications.events.test_always_sends')"></p>
+  <div class="flex items-center gap-2 flex-wrap" x-show="isAdmin()">
+    <button type="button" @click="setAllNotifyEvents(true)"
+            :disabled="isReadonly() || !settings.apprise_enabled"
+            class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
+      <svg width="12" height="12" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/>
+      </svg>
+      <span x-text="t('admin.notifications.events.enable_all')"></span>
+    </button>
+    <button type="button" @click="setAllNotifyEvents(false)"
+            :disabled="isReadonly() || !settings.apprise_enabled"
+            class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
+      <svg width="12" height="12" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+      </svg>
+      <span x-text="t('admin.notifications.events.disable_all')"></span>
+    </button>
+    <button type="button" @click="setNotifyEventsErrorsOnly()"
+            :disabled="isReadonly() || !settings.apprise_enabled"
+            class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
+      <svg width="12" height="12" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+      </svg>
+      <span x-text="t('admin.notifications.events.errors_only')"></span>
+    </button>
+  </div>
+  <p class="fs-2xs text-[var(--text-faint)] mt-2" x-text="t('admin.notifications.events.test_always_sends')"></p>
 
-        <!-- Save action moved BELOW the tunable cards so the page
-             flows top-to-bottom: per-medium → per-event → tunables →
-             Save. Pre-fix Save sat between the per-event grid and the
-             tunable cards, which made the operator scroll past the
-             Save button to find the retention / page-size dials —
-             counter-intuitive when the natural mental model is
-             "configure everything, then commit". -->
+  <!-- Save action moved BELOW the tunable cards so the page
+       flows top-to-bottom: per-medium → per-event → tunables →
+       Save. Pre-fix Save sat between the per-event grid and the
+       tunable cards, which made the operator scroll past the
+       Save button to find the retention / page-size dials —
+       counter-intuitive when the natural mental model is
+       "configure everything, then commit". -->
 
-        <!-- Page-level Save — flushes the apprise / events form AND
-             the notification-retention + page-size tunables in one
-             click. Sits AFTER the tunable cards so the natural top-
-             to-bottom config flow ends here. Dirty marker fires when
-             EITHER `appriseDirty()` (per-event toggles + per-medium
-             switches + the tunable inputs via `_appriseSnapshot`'s
-             new `notifTunables` slot) OR `tuningDirty()` (Process-
-             tunables form) is true. The two getters' coverage
-             overlaps for retention + page-size; both flipping the
-             same input is fine — the dirty cue still fires once. -->
-        <!-- Per-event Save row — strictly the notify_event_* toggles.
-             NO test gate (per-event toggles don't round-trip), own
-             dirty signal, own result chip. Scope hint
-             clarifies that this Save is independent of the channel-
-             configuration Save in the section above. -->
-        <p class="fs-xs text-[var(--text-faint)] mt-4 mb-2 pt-4 border-t border-[var(--border)]"
-           x-text="t('admin.notifications.per_event_save_scope_hint')"></p>
-        <div class="flex items-center gap-3 flex-wrap" x-show="isAdmin()">
-          <button type="button" @click="savePerEvent()"
-                  :disabled="settingsSaving || !perEventDirty()"
-                  :class="perEventDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                  class="btn btn-primary fs-sm">
-            <span x-show="!settingsSaving" x-text="t('admin.notifications.per_event_save_button')"></span>
-            <span x-show="settingsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-          </button>
-          <span x-show="perEventDirty()"
-                class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
+  <!-- Page-level Save — flushes the apprise / events form AND
+       the notification-retention + page-size tunables in one
+       click. Sits AFTER the tunable cards so the natural top-
+       to-bottom config flow ends here. Dirty marker fires when
+       EITHER `appriseDirty()` (per-event toggles + per-medium
+       switches + the tunable inputs via `_appriseSnapshot`'s
+       new `notifTunables` slot) OR `tuningDirty()` (Process-
+       tunables form) is true. The two getters' coverage
+       overlaps for retention + page-size; both flipping the
+       same input is fine — the dirty cue still fires once. -->
+  <!-- Per-event Save row — strictly the notify_event_* toggles.
+       NO test gate (per-event toggles don't round-trip), own
+       dirty signal, own result chip. Scope hint
+       clarifies that this Save is independent of the channel-
+       configuration Save in the section above. -->
+  <p class="fs-xs text-[var(--text-faint)] mt-4 mb-2 pt-4 border-t border-[var(--border)]"
+     x-text="t('admin.notifications.per_event_save_scope_hint')"></p>
+  <div class="flex items-center gap-3 flex-wrap" x-show="isAdmin()">
+    <button type="button" @click="savePerEvent()"
+            :disabled="settingsSaving || !perEventDirty()"
+            :class="perEventDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+            class="btn btn-primary fs-sm">
+      <span x-show="!settingsSaving" x-text="t('admin.notifications.per_event_save_button')"></span>
+      <span x-show="settingsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+    </button>
+    <span x-show="perEventDirty()"
+          class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
-        </div>
-        <!-- Per-event Save result chip — distinct from the providers
-             chip + the Test chip; saving per-event toggles will never
-             surface a "provider saved" or "Test fired" message. -->
-        <div x-show="perEventSaveResult" class="fs-sm rounded-md px-3 py-2 mt-2"
-             :class="perEventSaveResult && perEventSaveResult.ok
+  </div>
+  <!-- Per-event Save result chip — distinct from the providers
+       chip + the Test chip; saving per-event toggles will never
+       surface a "provider saved" or "Test fired" message. -->
+  <div x-show="perEventSaveResult" class="fs-sm rounded-md px-3 py-2 mt-2"
+       :class="perEventSaveResult && perEventSaveResult.ok
                      ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
                      : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'"
-             x-text="perEventSaveResult ? ((perEventSaveResult.ok ? '✓ ' : '✗ ') + (perEventSaveResult.detail || '')) : ''"></div>
-      </section>
+       x-text="perEventSaveResult ? ((perEventSaveResult.ok ? '✓ ' : '✗ ') + (perEventSaveResult.detail || '')) : ''"></div>
+</section>
 
-      <!-- GENERAL TAB — Open-Meteo (weather widget) lives here.
-           Future home for any other ambient/UI service settings that
-           don't belong under auth, hosts, scheduling, or notifications. -->
+<!-- GENERAL TAB — Open-Meteo (weather widget) lives here.
+     Future home for any other ambient/UI service settings that
+     don't belong under auth, hosts, scheduling, or notifications. -->

@@ -109,7 +109,7 @@ def _curated_pulse_hosts() -> list[dict]:
     Mirrors ``host_metrics_sampler._load_curated_hosts`` shape. Lives
     locally because the row-shape is sampler-specific (we need just
     ``id`` and ``pulse_name``). The JSON-parse + enabled-gate prelude
-    is delegated to :func:`logic.db.iter_curated_hosts` (DUP-001).
+    is delegated to :func:`logic.db.iter_curated_hosts`.
     """
     out: list[dict] = []
     for row in iter_curated_hosts():

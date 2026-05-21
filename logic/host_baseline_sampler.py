@@ -34,9 +34,9 @@ def _first_tick_delay() -> int:
 
 def _curated_host_ids() -> list[str]:
     """Resolve every curated host's id from `hosts_config`. Thin wrapper
-    around :func:`logic.db.iter_curated_hosts` (DUP-001 consolidation —
-    pre-fix this was 19 lines of duplicated JSON-parse + isinstance +
-    enabled-gate boilerplate). The baseline sampler walks ALL curated
+    around :func:`logic.db.iter_curated_hosts` — pre-helper this was
+    19 lines of duplicated JSON-parse + isinstance + enabled-gate
+    boilerplate. The baseline sampler walks ALL curated
     hosts regardless of provider — every per-provider sample table
     contributes to the unified baseline window."""
     return [

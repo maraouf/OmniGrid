@@ -562,13 +562,19 @@ What lives in `.env` (reference with inline docs: `docs/guidelines/env_example.m
 - `ENV_FILE_PATH` — override if `.env` isn't at `/app/.env`.
 
 NOT in `.env` (UI-only): every OIDC setting, every host-stats provider credential
-(Beszel / Pulse / node-exporter / Webmin / Ping / SNMP — the six providers shipped today), the
+(Beszel / Pulse / node-exporter / Webmin / Ping / SNMP / HTTP probe /
+per-service reachability probe — the eight providers shipped today), the
 weather proxy URL (`open_meteo_url`), all SSH runner settings (including `ssh_fqdn_suffix`,
 `ssh_custom_actions`, and the write-only key / password fields with their `clear_*` unset
-flags), and the scheduler timezone. There are no `OIDC_*`, `BESZEL_*`, `PULSE_*`, `WEBMIN_*`,
-`PING_*` (provider credentials — distinct from `PING_INTERVAL_SECONDS` etc. tunables), `SNMP_*`,
-or `SSH_*` env vars. Configure from Admin → Authentik OIDC / Admin → Portainer / Admin → Host
-stats / Admin → SSH after first admin login.
+flags), every Telegram setting (bot token, chat id, listener toggle), and the
+scheduler timezone. There are no `OIDC_*`, `BESZEL_*`, `PULSE_*`, `WEBMIN_*`,
+`PING_*` (provider credentials — distinct from `PING_INTERVAL_SECONDS` etc. tunables), `SNMP_*`
+(provider credentials — distinct from `SNMP_PROBE_TIMEOUT_SECONDS` etc.), `HTTP_PROBE_*`
+(provider credentials — distinct from `HTTP_PROBE_TIMEOUT_SECONDS` etc.),
+`SERVICE_PROBE_*` (same distinction), `TELEGRAM_*` (provider credentials —
+distinct from `TELEGRAM_LONG_POLL_TIMEOUT_SECONDS` etc.), or `SSH_*` env vars
+beyond the tunables. Configure from Admin → Authentik OIDC / Admin → Portainer /
+Admin → Providers / Admin → SSH / Admin → Notifications after first admin login.
 
 ## `SESSION_SECRET` rotation
 
