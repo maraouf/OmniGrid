@@ -223,6 +223,13 @@ HTTP_PROBE_CERT_WARNING_DAYS=14
 # cache shorter so recovery surfaces quickly. 0 = disable cache.
 HTTP_PROBE_HOST_CACHE_TTL_SECONDS=30
 HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS=5
+# Default-accepted-status-codes range (inclusive). When a per-host
+# `accepted_status_codes` CSV is set, this range is ignored and the
+# CSV wins exactly. Default 200..399 covers 2xx + 3xx (redirect-
+# fronted homelab norm). Tighten to 200..299 for strict 2xx-only;
+# widen toward 100..599 for diagnostic "any response = alive".
+HTTP_PROBE_DEFAULT_ACCEPTED_LO_CODE=200
+HTTP_PROBE_DEFAULT_ACCEPTED_HI_CODE=399
 
 # Per-service reachability probe — one chip per curated services[]
 # entry with `probe.enabled=true`. Distinct from the host-level
@@ -748,6 +755,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `HTTP_PROBE_CERT_WARNING_DAYS`    | Runtime     | `14`                 | TLS cert expiry warning threshold — drawer paints expiry pill amber under this many days, red when ≤ 0. Range 1..365. |
 | `HTTP_PROBE_HOST_CACHE_TTL_SECONDS` | Runtime   | `30`                 | Per-host HTTP probe success cache TTL. Range 0..600 (0 = disable cache).         |
 | `HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS` | Runtime | `5`               | Per-host HTTP probe failure cache TTL. Tight so recovery surfaces fast. Range 0..600. |
+| `HTTP_PROBE_DEFAULT_ACCEPTED_LO_CODE` | Runtime | `200`               | Default accepted-status-code range LOW bound (inclusive). Per-host CSV override wins exactly. Range 100..599. |
+| `HTTP_PROBE_DEFAULT_ACCEPTED_HI_CODE` | Runtime | `399`               | Default accepted-status-code range HIGH bound (inclusive). 399 covers 2xx + 3xx (homelab norm). Range 100..599. |
 | `SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS` | Runtime | `0`              | Per-service probe sampler cadence. 0 = inherit `STATS_SAMPLE_INTERVAL_SECONDS`. Range 0..3600. |
 | `SERVICE_PROBE_CONCURRENCY`       | Runtime     | `16`                 | Parallel service probes per sampler tick. Range 1..64.                           |
 | `SERVICE_PROBE_TIMEOUT_SECONDS`   | Runtime     | `5`                  | Per-target TCP/HTTP probe timeout. Range 1..30.                                  |

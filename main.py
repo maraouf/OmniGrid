@@ -3581,6 +3581,8 @@ class SettingsIn(BaseModel):
     tuning_http_probe_cert_warning_days: Optional[str] = None
     tuning_http_probe_host_cache_ttl_seconds: Optional[str] = None
     tuning_http_probe_host_fail_cache_ttl_seconds: Optional[str] = None
+    tuning_http_probe_default_accepted_lo_code: Optional[str] = None
+    tuning_http_probe_default_accepted_hi_code: Optional[str] = None
     # stat-bar thresholds (frontend-consumed via /api/me).
     tuning_stat_bar_warn_pct: Optional[str] = None
     tuning_stat_bar_crit_pct: Optional[str] = None

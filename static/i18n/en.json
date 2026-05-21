@@ -821,7 +821,9 @@
     "running": "{count} running"
   },
   "active_ops": {
-    "toggle_label": "Toggle active operations panel ({count} running)"
+    "toggle_label": "Toggle active operations panel ({count} running)",
+    "convergence_starting": "Waiting for stack convergence…",
+    "convergence_summary_title": "Live stack-rollout progress sourced from the op's event log. Updates every couple of seconds as Swarm rolls services."
   },
   "loading": {
     "resources": "Loading resources from Portainer…",
@@ -1629,6 +1631,8 @@
         "default_title": "Default value (used when both the DB override and the env var are blank)"
       },
       "effective_label": "Effective: {value}",
+      "unused_badge_label": "no live consumer",
+      "unused_badge_title": "This tunable is declared but no consumer reads it via `tuning_int(...)`. Editing the value persists to the DB but has no runtime effect. Likely a leftover from a removed feature or an incomplete wiring; safe to ignore.",
       "save": "Save",
       "saving": "Saving…",
       "unsaved": "Unsaved",
@@ -1968,6 +1972,14 @@
         "tuning_http_probe_host_fail_cache_ttl_seconds": {
           "label": "HTTP probe per-host failure cache TTL (seconds)",
           "help": "How long a failed HTTP probe is cached so a SPA fan-out burst doesn't re-burn the timeout × N parallel calls on an unreachable URL. Default 5s — tight enough that recovery is felt within one Hosts-tab refresh cycle, long enough to dedupe a fan-out burst. Operators wanting fastest possible recovery detection can drop to 1s. Range 0..600."
+        },
+        "tuning_http_probe_default_accepted_lo_code": {
+          "label": "HTTP probe default accepted-status LOW code",
+          "help": "Lower bound of the default accepted-status-code range (inclusive). When a per-host `accepted_status_codes` CSV is set, this range is ignored and the CSV wins exactly. Default 200 — together with the HI code of 399 means any 2xx or 3xx response counts as healthy. Operators on diagnostic-focused deploys can widen to 100 (accept 1xx informational) or even reuse the full HTTP space to score any response as alive. Tightening to 200 + HI 299 reverts to the original 2xx-only contract. Range 100..599. Per-use read so Admin → Config edits take effect on the next probe."
+        },
+        "tuning_http_probe_default_accepted_hi_code": {
+          "label": "HTTP probe default accepted-status HIGH code",
+          "help": "Upper bound of the default accepted-status-code range (inclusive). When a per-host `accepted_status_codes` CSV is set, this range is ignored and the CSV wins exactly. Default 399 covers redirect-fronted endpoints (Nextcloud / GitLab / Forgejo / WWW redirects — the homelab norm). Operators tracking diagnostic responses may raise to 499 (treat 4xx as alive); strict health-check deploys can drop to 299 (2xx-only). Range 100..599. If you accidentally set LO higher than HI the resolver will swap them so probes don't silently reject every code."
         },
         "tuning_service_probe_sample_interval_seconds": {
           "label": "Service probe sampler interval (seconds)",
@@ -4090,8 +4102,8 @@
     "http_probe_content_match_hint": "Substring searched in the response body — when set, the URL only counts as healthy when this string appears in the body. Useful when the operator wants to guard against \"HTTP 200 but landing page redirected to login\". Max 256 chars.",
     "http_probe_content_match_placeholder": "Welcome",
     "http_probe_status_codes_label": "Accepted status codes (CSV)",
-    "http_probe_status_codes_hint": "Comma-separated list of HTTP status codes that count as healthy. Leave blank for the default (any 2xx). Useful when the operator wants to gate on a specific redirect (\"301,302\") or accept an anonymous-401 from a locked-down API. Codes outside 100..599 are dropped.",
-    "http_probe_status_codes_placeholder": "200, 301, 302",
+    "http_probe_status_codes_hint": "Comma-separated list of HTTP status codes that count as healthy. Leave blank for the deployment default (Admin → Config → HTTP probe → default accepted-status range, 200..399 out of the box — covers 2xx + 3xx so redirect-fronted endpoints like Nextcloud / GitLab / Forgejo pass without per-row config). Use this field only when the per-host contract differs from the default: gate on a specific code (e.g. `200` to flag a 302 redirect as suspicious), accept a locked-down API's anonymous `401` (e.g. `200,401`), or accept the full diagnostic range (e.g. `200,301,302,401,403`). Codes outside 100..599 are dropped.",
+    "http_probe_status_codes_placeholder": "blank = default · or e.g. 200,301,302",
     "http_probe_verify_tls_label": "Verify TLS cert",
     "http_probe_verify_tls_hint": "Turn off when the target serves a self-signed cert. The cert is still parsed for expiry tracking either way.",
     "groups": {

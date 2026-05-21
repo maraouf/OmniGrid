@@ -8,8 +8,11 @@ without a restart — every consumer calls ``tuning_int(...)`` at the
 point of use rather than caching it at module import.
 """
 import os
+import re
 import sqlite3
 from enum import Enum
+from pathlib import Path
+from typing import Optional
 
 from logic.db import get_setting
 
@@ -95,6 +98,8 @@ class Tunable(str, Enum):
     HOSTS_PARALLEL_FETCH = "tuning_hosts_parallel_fetch"
     HTTP_PROBE_CERT_WARNING_DAYS = "tuning_http_probe_cert_warning_days"
     HTTP_PROBE_CONCURRENCY = "tuning_http_probe_concurrency"
+    HTTP_PROBE_DEFAULT_ACCEPTED_HI_CODE = "tuning_http_probe_default_accepted_hi_code"
+    HTTP_PROBE_DEFAULT_ACCEPTED_LO_CODE = "tuning_http_probe_default_accepted_lo_code"
     HTTP_PROBE_DNS_TIMEOUT_SECONDS = "tuning_http_probe_dns_timeout_seconds"
     HTTP_PROBE_FAILURE_PAUSE_ROUNDS = "tuning_http_probe_failure_pause_rounds"
     HTTP_PROBE_HOST_CACHE_TTL_SECONDS = "tuning_http_probe_host_cache_ttl_seconds"
@@ -857,6 +862,18 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Range 0..600 (0 = disable the cache entirely).
     "tuning_http_probe_host_cache_ttl_seconds": ("HTTP_PROBE_HOST_CACHE_TTL_SECONDS", 30, 0, 600),
     "tuning_http_probe_host_fail_cache_ttl_seconds": ("HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS", 5, 0, 600),
+    # Default-accepted-status-codes range. Operators on diagnostic-
+    # focused deploys may want to accept 4xx as "alive" (the host is
+    # responding to TCP + serving HTTP, even if the request is
+    # unauthorised / not-found at that path); operators on health-
+    # check-focused deploys may want to tighten back to 2xx-only.
+    # Default 200..399 covers redirect-fronted endpoints (Nextcloud /
+    # GitLab / Forgejo / WWW redirects — the homelab norm). LO bound
+    # 100..599 (the full HTTP status code space). When a per-host
+    # `accepted_status_codes` CSV is set, this range is ignored and
+    # the CSV wins exactly.
+    "tuning_http_probe_default_accepted_lo_code": ("HTTP_PROBE_DEFAULT_ACCEPTED_LO_CODE", 200, 100, 599),
+    "tuning_http_probe_default_accepted_hi_code": ("HTTP_PROBE_DEFAULT_ACCEPTED_HI_CODE", 399, 100, 599),
     # ----- Per-service reachability probes (per-chip on the curated
     # services[] list — distinct from the host-level HTTP probe).
     # Master toggle lives at the plain `service_probe_enabled` setting;
@@ -1192,11 +1209,109 @@ def stats_bucket_seconds_for_range(range_key: str) -> int:
     return STATS_BUCKET_SECONDS.get((range_key or "").strip().lower(), 86400)
 
 
+_UNUSED_KEY_CACHE: Optional[frozenset[str]] = None
+
+# Named regex groups so the "anonymous capturing group" inspection
+# stays clean — both regexes are consumed via ``m['key']`` /
+# ``m['name']`` rather than the positional ``m.group(1)`` form. Kept
+# at module scope so ``scripts/audit_tunables.py`` can import the
+# compiled objects directly and the catalogue stays single-sourced.
+_BARE_STR_RE = re.compile(r"\b_?tuning_int\s*\(\s*[\"'](?P<key>tuning_[a-z0-9_]+)[\"']")
+_ENUM_REF_RE = re.compile(r"\b_?tuning_int\s*\(\s*(?:_Tunable|Tunable)\.(?P<name>[A-Z][A-Z0-9_]+)\b")
+
+# Dynamic-key f-string patterns — keys consumed via f-string
+# interpolation that static grep can't see. Treated as consumed so
+# the audit doesn't surface false-positive dead-drift reports on them.
+# Single source of truth for both ``_unused_keys_scan`` (in-process
+# admin badge) and ``scripts/audit_tunables.py`` (offline CI tool).
+_DYNAMIC_KEY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tuning_portainer_op_timeout_", ("short_seconds", "medium_seconds", "long_seconds")),
+    ("tuning_snmp_walk_concurrency_", ("cisco", "dell", "printer", "synology", "ucd")),
+)
+
+
+def audit_dynamic_keys() -> set[str]:
+    """Expand the dynamic-key f-string catalogue to a flat key set.
+
+    Returns the union of every ``prefix + suffix`` combination in
+    ``_DYNAMIC_KEY_PATTERNS``. The audit-script + in-process scan
+    both consume this so the catalogue stays single-sourced.
+    """
+    out: set[str] = set()
+    for prefix, suffixes in _DYNAMIC_KEY_PATTERNS:
+        for suffix in suffixes:
+            out.add(prefix + suffix)
+    return out
+
+
+def audit_consumed_keys() -> set[str]:
+    """Scan ``main.py`` + ``logic/*.py`` for ``tuning_int(...)`` keys.
+
+    Returns every key the codebase actually reads — bare-string
+    literal arguments AND typed ``Tunable.X`` member references AND
+    the documented dynamic-key catalogue. Used by:
+
+    * ``_unused_keys_scan()`` (in-process — admin badge gate);
+    * ``scripts/audit_tunables.py`` (CI tool — exits non-zero on
+      bidirectional drift).
+
+    Reads each source file once via ``Path.read_text``; OSError is
+    swallowed per file so a stray unreadable file can't crash the
+    scan.
+    """
+    enum_members = {m.name: m.value for m in Tunable}
+    consumed: set[str] = audit_dynamic_keys()
+    root = Path(__file__).resolve().parent.parent
+    targets: list[Path] = [root / "main.py"]
+    targets.extend((root / "logic").glob("*.py"))
+    for path in targets:
+        try:
+            txt = path.read_text()
+        except OSError:
+            continue
+        for m in _BARE_STR_RE.finditer(txt):
+            consumed.add(m["key"])
+        for m in _ENUM_REF_RE.finditer(txt):
+            name = m["name"]
+            if name in enum_members:
+                consumed.add(enum_members[name])
+    return consumed
+
+
+def _unused_keys_scan() -> frozenset[str]:
+    """Compute the set of declared-but-not-consumed TUNABLE keys.
+
+    Bundled with the running app so the Admin → Config form can flag
+    a knob whose value silently no-ops (per BUG-003-class drift).
+    Shares the scan logic with ``scripts/audit_tunables.py`` via the
+    public ``audit_consumed_keys()`` helper above. Cached at
+    module-scope because the source layout is static at runtime; a
+    fresh deploy re-warms naturally.
+    """
+    global _UNUSED_KEY_CACHE
+    cached = _UNUSED_KEY_CACHE
+    if cached is not None:
+        return cached
+    consumed = audit_consumed_keys()
+    declared = set(TUNABLES.keys())
+    result = frozenset(declared - consumed)
+    _UNUSED_KEY_CACHE = result
+    return result
+
+
 def effective_state() -> dict:
     """Return current effective values + which tier each came from. Used by
     the GET endpoint so the UI can render placeholders showing the env
     fallback and the code default behind the DB override.
+
+    Each entry also carries ``unused: bool`` so the Admin → Config form
+    can render a grey "no live consumer" badge next to a knob whose
+    value would silently no-op. Pre-fix the operator had no way to
+    know which knobs were dead at runtime — the audit script
+    (``scripts/audit_tunables.py``) was the offline answer; this
+    surfaces the same signal directly in the UI.
     """
+    unused = _unused_keys_scan()
     out: dict = {}
     for k, (env_var, default, lo, hi) in TUNABLES.items():
         raw_db, env_raw = _read_raw_tunable(k, env_var)
@@ -1208,6 +1323,7 @@ def effective_state() -> dict:
             "min": lo,
             "max": hi,
             "env_var": env_var,
+            "unused": k in unused,
         }
     return out
 
