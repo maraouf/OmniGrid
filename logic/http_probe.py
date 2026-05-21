@@ -57,11 +57,10 @@ import socket
 import ssl
 import time
 from datetime import datetime, timezone
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 from urllib.parse import urlparse
 
 import httpx
-
 
 # Accepted-status-codes default — any 2xx counts as "status_ok".
 # Caller can override via ``accepted_status_codes`` to gate on a
@@ -93,8 +92,9 @@ def _port_of(url: str) -> int:
     """
     try:
         parsed = urlparse(url.strip())
-        if parsed.port:
-            return int(parsed.port)
+        port_val: Optional[int] = parsed.port
+        if port_val is not None and port_val > 0:
+            return port_val
         scheme = (parsed.scheme or "").lower()
         if scheme == "https":
             return 443
@@ -115,10 +115,12 @@ async def _dns_probe(hostname: str, timeout_seconds: float) -> tuple[bool, Optio
     if not hostname:
         return False, "no hostname"
     try:
+        # asyncio.to_thread is the modern (Py 3.9+) helper for
+        # dispatching a blocking call to the default thread executor.
+        # Cleaner than the loop.run_in_executor positional-args form
+        # whose generic *_Ts signature trips PyCharm's strict mode.
         await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(
-                None, socket.getaddrinfo, hostname, None,
-            ),
+            asyncio.to_thread(socket.getaddrinfo, hostname, None),
             timeout=timeout_seconds,
         )
         return True, None
@@ -151,7 +153,10 @@ async def _tls_probe(hostname: str, port: int, timeout_seconds: float, verify_tl
     can still be parsed even when verification fails, so the
     expires-in-days warning still surfaces.
     """
-    out = {
+    # Annotated permissive so the All-None initial values don't make
+    # PyCharm infer dict[str, None] and then warn on every str/int
+    # assignment downstream.
+    out: dict[str, Any] = {
         "tls_expires_in_days": None,
         "tls_subject": None,
         "tls_issuer": None,
@@ -193,6 +198,7 @@ async def _tls_probe(hostname: str, port: int, timeout_seconds: float, verify_tl
                     out["tls_expires_in_days"] = int(delta.total_seconds() // 86400)
                 except (ValueError, TypeError):
                     pass
+
             # subject + issuer are tuples-of-tuples of RDN pairs.
             # Flatten the most-common attrs (CN / O) into a readable
             # string. Format: "CN=...,O=...".
@@ -203,6 +209,7 @@ async def _tls_probe(hostname: str, port: int, timeout_seconds: float, verify_tl
                         if isinstance(pair, (list, tuple)) and len(pair) >= 2:
                             pairs.append(f"{pair[0]}={pair[1]}")
                 return ",".join(pairs)
+
             subject = _flatten_rdn(cert.get("subject"))
             issuer = _flatten_rdn(cert.get("issuer"))
             if subject:
@@ -307,15 +314,15 @@ async def probe_http_health(
         async with httpx.AsyncClient(
             timeout=timeout,
             verify=verify_tls,
-            follow_redirects=False,
         ) as client:
             resp = await client.get(url_clean, headers={"User-Agent": "OmniGrid/http-probe"})
-            status_code = int(resp.status_code)
+            status_code = resp.status_code
             latency_ms = int((time.monotonic() - t0) * 1000)
-            if (content_match or "").strip():
+            cm_local = (content_match or "").strip()
+            if cm_local:
                 try:
                     body_text = resp.text or ""
-                    content_match_ok = (content_match in body_text)
+                    content_match_ok = (cm_local in body_text)
                 except (ValueError, UnicodeDecodeError):
                     # Binary body / encoding failure — treat as
                     # "match not found" rather than blowing up.

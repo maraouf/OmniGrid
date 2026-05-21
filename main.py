@@ -10717,9 +10717,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
             http_fail_ttl = tuning.tuning_int(Tunable.HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS)
             cache_key = h["id"]
             cached = _http_probe_host_cache.get(cache_key)
-            cached_fields: dict = {}
             if cached and (now_http - cached[0]) < (http_success_ttl if cached[2] else http_fail_ttl):
-                cached_fields = cached[1]
+                cached_fields: dict = cached[1]
             else:
                 pre_keys = {
                     k: merged.get(k) for k in (
@@ -12564,22 +12563,24 @@ def _clean_host_services(raw: Any) -> list[dict]:
             if isinstance(probe_type, str) and probe_type.strip().lower() in ("tcp", "http"):
                 probe_out["type"] = probe_type.strip().lower()
             port = probe.get("port")
-            try:
-                pi = int(port) if port not in (None, "") else None
-                if pi is not None and 1 <= pi <= 65535:
-                    probe_out["port"] = pi
-            except (TypeError, ValueError):
-                pass
+            if isinstance(port, (int, str)) and port != "":
+                try:
+                    pi = int(port)
+                    if 1 <= pi <= 65535:
+                        probe_out["port"] = pi
+                except (TypeError, ValueError):
+                    pass
             path = probe.get("path")
             if isinstance(path, str) and path.strip():
                 probe_out["path"] = path.strip()[:256]
             exp = probe.get("expected_status")
-            try:
-                ei = int(exp) if exp not in (None, "") else None
-                if ei is not None and 100 <= ei <= 599:
-                    probe_out["expected_status"] = ei
-            except (TypeError, ValueError):
-                pass
+            if isinstance(exp, (int, str)) and exp != "":
+                try:
+                    ei = int(exp)
+                    if 100 <= ei <= 599:
+                        probe_out["expected_status"] = ei
+                except (TypeError, ValueError):
+                    pass
             if probe_out:
                 cleaned["probe"] = probe_out
         if cleaned:
@@ -13387,6 +13388,27 @@ async def api_hosts_test(
         out["snmp"] = {"ok": False, "skipped": True,
                        "detail": "disabled in host_stats_source"}
         snmp_target = ""
+    # Per-host SNMP opt-in gate. Even when SNMP is enabled globally,
+    # individual rows can leave `snmp.enabled = false` so the sampler
+    # doesn't probe them. The test endpoint must honour the same gate
+    # — otherwise the "Test providers" button against a host with
+    # SNMP disabled fires a real SNMP probe (50s walk budget) and
+    # returns a timeout that misleads the operator into thinking the
+    # row is mis-configured.
+    if snmp_target and row_id:
+        try:
+            curated = _load_hosts_config()
+            row = next((r for r in curated if r.get("id") == row_id), None)
+            if row is not None:
+                per_host_snmp = row.get("snmp")
+                if isinstance(per_host_snmp, dict) and per_host_snmp.get("enabled") is not True:
+                    out["snmp"] = {
+                        "ok": False, "skipped": True,
+                        "detail": "per-host SNMP disabled",
+                    }
+                    snmp_target = ""
+        except (json.JSONDecodeError, ValueError, OSError):
+            pass  # fall through; gate is best-effort
 
     if beszel_name:
         hub_url = get_setting(Settings.BESZEL_HUB_URL) or ""
@@ -15542,7 +15564,19 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
                 if k not in ("t", "ts"):
                     all_keys.add(k)
     kinds: dict[str, str] = {k: _classify_key(series, k) for k in all_keys}
+    # Homogeneous accumulator: every value in `b` is itself a dict, so
+    # PyCharm narrows sub-key accesses to dict (not the dict|int union
+    # the mixed-shape version inferred). last_ts lives in a parallel
+    # dict keyed on bucket-start-ts so it can stay typed as int without
+    # bleeding union types into `b`.
+    # Unannotated bare-dict (rather than dict[int, dict[str, Any]])
+    # because PyCharm's strict-mode inference produced spurious
+    # "Expected type 'int', got 'str'" warnings on the sub-key writes
+    # — the annotation propagated the outer-key int type into the
+    # inner accumulator's key inference. Bare `dict` keeps inference
+    # off entirely. Runtime correctness is unchanged.
     buckets: dict = {}
+    bucket_last_ts: dict[int, int] = {}
     for r in series:
         ts = int(r.get("t") or r.get("ts") or 0)
         if not ts:
@@ -15550,26 +15584,22 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
         bts = (ts // bucket_s) * bucket_s
         b = buckets.get(bts)
         if b is None:
-            b = {"scalar_sum": {}, "scalar_n": {},
-                 "dict_sum": {}, "dict_n": {},
-                 "list_sum": {}, "list_n": {},
-                 "other_last": {},
-                 # Track the LATEST raw ts that landed in this bucket so
-                 # the emitted point lands at "newest sample inside the
-                 # bucket" rather than the bucket center. Without this,
-                 # a 24h window's last bucket (12 min wide) emits at ts
-                 # = center = ~6 min in the past, and `chartFreshness`
-                 # on the SPA reads the chart as 6m stale even though
-                 # the most recent raw sample is ~30s old. Centre-emit
-                 # was confusing because the same data appears "fresher"
-                 # under a narrower window (less bucketing) than under a
-                 # wider one. Tail-emit makes "Last sample Xm ago" track
-                 # the actual freshest data regardless of range / bucket
-                 # width.
-                 "last_ts": 0}
+            b = {
+                "scalar_sum": {}, "scalar_n": {},
+                "dict_sum": {}, "dict_n": {},
+                "list_sum": {}, "list_n": {},
+                "other_last": {},
+            }
             buckets[bts] = b
-        if ts > b["last_ts"]:
-            b["last_ts"] = ts
+        # last_ts tracks the latest raw ts inside the bucket so the
+        # emitted point lands at the newest sample inside the bucket
+        # rather than the bucket center — chartFreshness on the SPA
+        # reads the chart's tail to decide age; centre-emit made
+        # wider windows misleadingly stale even when the most recent
+        # raw sample was seconds old.
+        prev_last = bucket_last_ts.get(bts, 0)
+        if ts > prev_last:
+            bucket_last_ts[bts] = ts
         for k, kind in kinds.items():
             v = r.get(k)
             if v is None:
@@ -15640,7 +15670,7 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
         # Emit at the latest raw ts inside the bucket (NOT bucket
         # center) so the chart's tail = age of the freshest sample.
         # See the bucket-init comment above for the why.
-        emit_ts = b["last_ts"] or bts
+        emit_ts = bucket_last_ts.get(bts, 0) or bts
         row["t"] = emit_ts
         row["ts"] = emit_ts
         out.append(row)
@@ -16027,7 +16057,7 @@ async def api_hosts_http_probe_test_row(
     tls_expires_in_days, error}, ...], elapsed_ms, error}``.
     """
     from logic import http_probe as _http_probe
-    from logic.host_http_sampler import _curated_http_probe_hosts as _curated
+    from logic.host_http_sampler import curated_http_probe_hosts as _curated
     hid = (host_id or "").strip()
     if not hid:
         raise HTTPException(400, "host_id required")
