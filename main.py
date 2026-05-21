@@ -13600,6 +13600,131 @@ async def api_hosts_test(
                 out["snmp"] = {"ok": False, "skipped": False,
                                "detail": "snmp responded with no parseable data"}
 
+    # Ping — fires when the row carries `ping.enabled = true`. Reuses
+    # the same probe_ping path the sampler runs, so "passes here" =
+    # "works for the live reachability chart".
+    ping_enabled = bool(body.get("ping_enabled"))
+    if ping_enabled and "ping" in active_sources:
+        try:
+            from logic import ping as _ping_mod
+            # Target chain mirrors the sampler: per-host `address` →
+            # bare host_id fallback. Skip when neither is set.
+            ping_target = (body.get("address") or row_id or "").strip()
+            if not ping_target:
+                out["ping"] = {
+                    "ok": False, "skipped": True,
+                    "detail": "no probe target (address blank)",
+                }
+            else:
+                ping_port = 0
+                try:
+                    ping_port = int(body.get("ping_port") or 0)
+                except (TypeError, ValueError):
+                    ping_port = 0
+                r = await _ping_mod.probe_ping(
+                    ping_target,
+                    port=ping_port or None,
+                    transport="tcp",
+                    timeout=3.0,
+                )
+                if r.get("alive"):
+                    rtt = r.get("rtt_ms")
+                    out["ping"] = {
+                        "ok": True, "skipped": False,
+                        "detail": f"alive · {rtt} ms" if rtt is not None else "alive",
+                    }
+                else:
+                    out["ping"] = {
+                        "ok": False, "skipped": False,
+                        "detail": str(r.get("error") or "unreachable")[:120],
+                    }
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            out["ping"] = {"ok": False, "skipped": False,
+                           "detail": f"{type(e).__name__}: {str(e)[:80]}"}
+    elif ping_enabled:
+        out["ping"] = {"ok": False, "skipped": True,
+                       "detail": "disabled in host_stats_source"}
+
+    # HTTP probe — fires when the row carries `http_probe.enabled =
+    # true`. Reuses probe_http_health (the sampler's own probe) so the
+    # test's pass / fail criteria match production exactly. URL list
+    # resolves server-side via the same operator-override → fallback
+    # chain the sampler uses.
+    http_probe_enabled = bool(body.get("http_probe_enabled"))
+    if http_probe_enabled and "http_probe" in active_sources:
+        try:
+            from logic import http_probe as _http_probe_mod
+            urls_raw = body.get("http_probe_urls") or []
+            urls: list[str] = []
+            if isinstance(urls_raw, list):
+                urls = [str(u).strip() for u in urls_raw if str(u or "").strip()]
+            # Fallback to top-level url + services[].url when no
+            # operator override list was provided.
+            if not urls and row_id:
+                try:
+                    curated_http = _load_hosts_config()
+                    row_http = next((r for r in curated_http if r.get("id") == row_id), None)
+                    if row_http:
+                        top_url = (row_http.get("url") or "").strip()
+                        if top_url:
+                            urls.append(top_url)
+                        svcs = row_http.get("services")
+                        if isinstance(svcs, list):
+                            for svc in svcs:
+                                if isinstance(svc, dict):
+                                    su = (svc.get("url") or "").strip()
+                                    if su:
+                                        urls.append(su)
+                except (json.JSONDecodeError, ValueError, OSError):
+                    pass
+            # Dedupe while preserving order.
+            seen_urls: set[str] = set()
+            urls = [u for u in urls if not (u in seen_urls or seen_urls.add(u))]
+            if not urls:
+                out["http_probe"] = {
+                    "ok": False, "skipped": True,
+                    "detail": "no probe URLs (set http_probe.urls or top-level url)",
+                }
+            else:
+                results = []
+                for u in urls[:8]:  # cap test fan-out at 8 URLs
+                    rr = await _http_probe_mod.probe_http_health(
+                        u, timeout=8.0, dns_timeout=5.0,
+                    )
+                    results.append(rr)
+                ok_count = sum(1 for rr in results if rr.get("ok"))
+                if ok_count == len(results):
+                    avg_lat = sum((rr.get("latency_ms") or 0) for rr in results) // max(1, len(results))
+                    out["http_probe"] = {
+                        "ok": True, "skipped": False,
+                        "detail": f"{ok_count}/{len(results)} URLs healthy · avg {avg_lat} ms",
+                    }
+                elif ok_count > 0:
+                    out["http_probe"] = {
+                        "ok": False, "skipped": False,
+                        "detail": f"{ok_count}/{len(results)} URLs healthy — partial",
+                    }
+                else:
+                    first_err = ""
+                    for rr in results:
+                        if rr.get("error"):
+                            first_err = str(rr.get("error"))[:100]
+                            break
+                    out["http_probe"] = {
+                        "ok": False, "skipped": False,
+                        "detail": first_err or f"0/{len(results)} URLs healthy",
+                    }
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            out["http_probe"] = {"ok": False, "skipped": False,
+                                 "detail": f"{type(e).__name__}: {str(e)[:80]}"}
+    elif http_probe_enabled:
+        out["http_probe"] = {"ok": False, "skipped": True,
+                             "detail": "disabled in host_stats_source"}
+
     return out
 
 
