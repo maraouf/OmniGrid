@@ -5503,11 +5503,23 @@ async def api_admin_stats_overview(
                 sub = h.get(key) or {}
                 if isinstance(sub, dict) and sub.get("enabled"):
                     per_host_enabled[key] = True
+        # Master-toggle-controlled providers — not part of the
+        # `host_stats_source` CSV, not per-host opt-in. Each owns its
+        # own boolean setting in the `settings` table. Pre-fix the
+        # Stats Dashboard providers card always reported them as
+        # `disabled` regardless of operator state because the loop
+        # below only consulted `csv_enabled` + `per_host_enabled`.
+        master_enabled: dict[str, bool] = {
+            "http_probe":    get_setting_bool(Settings.HTTP_PROBE_ENABLED),
+            "service_probe": get_setting_bool(Settings.SERVICE_PROBE_ENABLED),
+        }
         enabled_set: set[str] = set()
         for p in _PROVIDER_PREFIXES:
             if p in csv_enabled:
                 enabled_set.add(p)
             if p in per_host_enabled and per_host_enabled[p]:
+                enabled_set.add(p)
+            if master_enabled.get(p):
                 enabled_set.add(p)
         all_providers = sorted(_PROVIDER_PREFIXES)
         out["providers"] = {
