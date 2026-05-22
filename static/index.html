@@ -4865,8 +4865,8 @@
                        unit name (mono), last-change age. Sticky
                        header inside a scrollable cap (max 320px)
                        so a host with 100+ units stays compact. -->
-              <div x-show="hostBeszelServicesOpen[h.id] && (h.services || {}).total > 0"
-                   x-transition.opacity.duration.150ms
+              <template x-if="hostBeszelServicesOpen[h.id] && (h.services || {}).total > 0">
+              <div x-transition.opacity.duration.150ms
                    class="mt-2"
                    :data-host-section="'beszel-services-' + h.id">
                 <template x-if="hostsBeszelServicesLoading[h.id]">
@@ -4918,6 +4918,7 @@
                   </table>
                 </div>
               </div>
+              </template>
             </section>
 
             <!-- PORT SCAN — on-demand TCP-connect scanner.
@@ -4931,8 +4932,8 @@
                      curated-and-detected (green), detected-only (amber,
                      "unknown port"), curated-only (grey, "not listening
                      right now"). Admin-only — gated on me.role === 'admin'. -->
-            <section x-show="(((settings || {}).port_scan_enabled) && (((h.port_scan_cfg || h.port_scan || {}).enabled !== false))) || (h.detected_ports && h.detected_ports.length)"
-                     class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+            <template x-if="(((settings || {}).port_scan_enabled) && (((h.port_scan_cfg || h.port_scan || {}).enabled !== false))) || (h.detected_ports && h.detected_ports.length)">
+            <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
               <div class="flex items-center justify-between gap-2 mb-3">
                 <h4 class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] flex items-center gap-2">
                   <span x-text="t('host_drawer.port_scan.heading')"></span>
@@ -5034,6 +5035,7 @@
                 </div>
               </template>
             </section>
+            </template>
 
             <!-- UPS — APC PowerNet-MIB data. Rendered
                      ONLY when the host probed via SNMP returned PowerNet
@@ -5684,8 +5686,8 @@
                      its MAC (muted) and IPv4 / IPv6 addresses colour-
                      coded by family. Matches Beszel's own layout so
                      the operator's eye reads the two UIs the same way. -->
-            <section x-show="(h.network_ifaces || []).length > 0 || h.bandwidth"
-                     class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+            <template x-if="(h.network_ifaces || []).length > 0 || h.bandwidth">
+            <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
               <h4 class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.network.heading')"></h4>
               <div class="space-y-3">
                 <div x-show="h.bandwidth" class="flex items-center justify-between fs-sm">
@@ -5889,6 +5891,7 @@
                 </template>
               </div>
             </section>
+            </template>
 
             <!-- DISKS — always rendered when we have at least the
                      aggregate disk total from Beszel / Pulse / node-
@@ -5900,8 +5903,8 @@
                      container-mode Beszel agents (which skip ``efs``)
                      while still showing richer detail for full-host
                      agents. -->
-            <section x-show="h.disk_total > 0 || (h.mounts || []).length > 0"
-                     class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+            <template x-if="h.disk_total > 0 || (h.mounts || []).length > 0">
+            <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
               <h4 class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.disks.heading')"></h4>
               <div class="space-y-3">
                 <!-- Total usage row — single-colour aggregate bar.
@@ -5964,6 +5967,7 @@
                 </button>
               </div>
             </section>
+            </template>
 
             <!-- UPDATES — only rendered when Webmin reported
                      pending packages. Informational in Phase 1; a

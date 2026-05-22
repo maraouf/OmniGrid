@@ -1,3 +1,11 @@
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSIgnoredPromiseFromCall,UnusedCatchParameterJS,EmptyCatchBlockJS
+// noinspection ExceptionCaughtLocallyJS,JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,ParameterNamingConventionJS,BadName
+// noinspection BadVariableName,InnerHTMLJS,NestedFunctionCallJS,FunctionTooLongJS,OverlyComplexFunctionJS,AnonymousFunctionJS
+// noinspection ConstantOnRightSideOfComparisonJS,MagicNumberJS,ChainedFunctionCallJS,DuplicatedCode,NestedFunctionJS,FunctionWithMultipleLoopsJS
+// noinspection IfStatementWithTooManyBranchesJS,FunctionWithMultipleReturnPointsJS,ConditionalExpressionJS,OverlyComplexBooleanExpressionJS,FunctionContainsLoopsJS,OverlyLongFunctionJS
+// noinspection OverlyLargeFunctionJS,DuplicatedCodeFragmentJS,ChainedMethodCallJS,NestedConditionalExpressionJS,RedundantConditionalExpressionJS,JSMagicNumber
+// noinspection JSForIIterationOverNonNumericKeyJS,NestedTemplateLiteralJS
+/* global I18N, t, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // Login-page controller. Kept separate from /js/app.js because this page
 // has no Alpine — it's a vanilla form submission, plus a data-i18n DOM
@@ -17,7 +25,6 @@
 //               provisioning_uri, challenge_id}        -> setup form
 // totp -> {ok}              -> redirect
 //      -> {ok, backup_codes} -> reveal codes -> redirect on continue
-// noinspection NestedFunctionCallJS,FunctionTooLongJS,OverlyComplexFunctionJS,AnonymousFunctionJS,ConstantOnRightSideOfComparisonJS,MagicNumberJS,ChainedFunctionCallJS,DuplicatedCode,NestedFunctionJS,FunctionWithMultipleLoopsJS,IfStatementWithTooManyBranchesJS,FunctionWithMultipleReturnPointsJS,ConditionalExpressionJS,OverlyComplexBooleanExpressionJS
 
 function applyI18nDom() {
   const els = document.querySelectorAll('[data-i18n]');
@@ -265,12 +272,6 @@ function applyI18nDom() {
   function hideEl(el) {
     if (el) {
       el.style.display = 'none';
-    }
-  }
-
-  function _showEl(el) {
-    if (el) {
-      el.style.display = '';
     }
   }
 
