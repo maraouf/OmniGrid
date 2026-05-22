@@ -34,7 +34,20 @@ export default {
     {id: 'network', label: 'Network', icon: 'activity'},
     {id: 'ai_cost', label: 'AI Cost', icon: 'zap'},
   ],
-  statsTab: 'dashboard',
+  // Operator-selected sub-tab (Dashboard / Database / Samples /
+  // Incidents / Network / AI Cost). Persisted to
+  // `localStorage.statsTab` so the operator's last tab is restored
+  // on next visit. Validated against `statsSections[].id` so a
+  // stale localStorage value can't crash the binding.
+  statsTab: (() => {
+    try {
+      const v = (typeof localStorage !== 'undefined' && localStorage.getItem('statsTab')) || '';
+      if (['dashboard','database','samples','incidents','network','ai_cost'].includes(v)) {
+        return v;
+      }
+    } catch (_) { /* private mode — fall through */ }
+    return 'dashboard';
+  })(),
   statsOverview: {},
   statsOverviewLoaded: false,
   statsDatabase: {},
@@ -64,10 +77,31 @@ export default {
   },
   statsIncidents: {},
   statsIncidentsLoaded: false,
-  statsIncidentsHours: 168,
+  // Operator-selected range for the Incidents sub-tab (hours).
+  // Persisted to `localStorage.statsIncidentsHours` so the chosen
+  // window survives a reload. Default 168h (7d). Validated against
+  // the canonical {24, 168, 720} so a stale value can't display
+  // an unsupported window.
+  statsIncidentsHours: (() => {
+    try {
+      const v = +(typeof localStorage !== 'undefined' && localStorage.getItem('statsIncidentsHours'));
+      if ([24, 168, 720].includes(v)) {
+        return v;
+      }
+    } catch (_) { /* private mode */ }
+    return 168;
+  })(),
   statsNetwork: {},
   statsNetworkLoaded: false,
-  statsNetworkHours: 168,
+  statsNetworkHours: (() => {
+    try {
+      const v = +(typeof localStorage !== 'undefined' && localStorage.getItem('statsNetworkHours'));
+      if ([24, 168, 720].includes(v)) {
+        return v;
+      }
+    } catch (_) { /* private mode */ }
+    return 168;
+  })(),
 
   // -----------------------------------------------------------------
   // Nodes view — groups the fleet by which Swarm node each task /
@@ -208,9 +242,18 @@ export default {
   // the global stats range (rest of the Samples tab is all-time);
   // operator-flagged 2026-05-11 to add per-section range picker
   // matching the host-chart picker shape (1h / 24h / 7d / 30d).
-  // Persisted in-session only — defaults back to 90d on reload so
-  // the chart's wide-window default re-establishes itself.
-  statsSamplesRange: '90d',
+  // Persisted to `localStorage.statsSamplesRange` so the chart
+  // remembers the operator's range across reloads. Validated
+  // against the canonical {'1h','24h','7d','30d','90d','all'} set.
+  statsSamplesRange: (() => {
+    try {
+      const v = (typeof localStorage !== 'undefined' && localStorage.getItem('statsSamplesRange')) || '';
+      if (['1h','24h','7d','30d','90d','all'].includes(v)) {
+        return v;
+      }
+    } catch (_) { /* private mode */ }
+    return '90d';
+  })(),
   // Per-table breakdown sort state. Operator-flagged: every column
   // sortable, default by `rows` desc. Clicking the same column flips
   // direction; clicking a different column switches to it (default
@@ -252,6 +295,11 @@ export default {
     const r_arg = (range || this.statsSamplesRange || '90d').toString();
     this.statsSamplesRange = r_arg;
     try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('statsSamplesRange', r_arg);
+      }
+    } catch (_) { /* private mode — best-effort persist */ }
+    try {
       const r = await fetch('/api/admin/stats/samples?range=' + encodeURIComponent(r_arg));
       if (!r.ok) {
         return;
@@ -266,6 +314,11 @@ export default {
     const h = Number(hours) || this.statsIncidentsHours || 168;
     this.statsIncidentsHours = h;
     try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('statsIncidentsHours', String(h));
+      }
+    } catch (_) { /* private mode */ }
+    try {
       const r = await fetch('/api/admin/stats/incidents?hours=' + encodeURIComponent(h));
       if (!r.ok) {
         return;
@@ -279,6 +332,11 @@ export default {
   async loadStatsNetwork(hours) {
     const h = Number(hours) || this.statsNetworkHours || 168;
     this.statsNetworkHours = h;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('statsNetworkHours', String(h));
+      }
+    } catch (_) { /* private mode */ }
     try {
       const r = await fetch('/api/admin/stats/network?hours=' + encodeURIComponent(h));
       if (!r.ok) {

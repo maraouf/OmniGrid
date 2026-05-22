@@ -1,7 +1,9 @@
 // noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS,AnonymousFunctionJS,JSUnresolvedReference,JSIgnoredPromiseFromCall,ExceptionCaughtLocallyJS,OverlyComplexBooleanExpressionJS,ContinueStatementJS,RedundantIfStatementJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,EmptyCatchBlockJS,UnusedCatchParameterJS,IfStatementWithoutBlockJS
+// noinspection FunctionWithMoreThanThreeNegationsJS,NegatedIfStatementJS,BreakStatementJS,JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS
+// noinspection BadName,BadVariableName,JSAsyncFunctionMissingAwait,JSMissingAwait,JSUnfilteredForInLoop,PointlessBitwiseExpressionJS
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Hosts grid + per-host helpers — the rows + filters + sort
@@ -10,13 +12,6 @@
 import {CURATED_REFRESH_FIELDS} from './app-curated-fields.js?v=__APP_VERSION__';
 
 export default {
-  // True iff at least one REAL interface on this host has SNMP
-  // traffic counters. Drives the optional traffic block's x-show
-  // gate so non-SNMP hosts don't see an empty card.
-  hostHasIfaceTraffic(h) {
-    const ifaces = this.networkIfacesPartition(h).real || [];
-    return ifaces.some(i => this.hostIfaceHasTraffic(i));
-  },
   providerStates(h) {
     if (!h) {
       return [];
@@ -660,9 +655,13 @@ export default {
           const active = new Set(this.hostsActiveSources || []);
           const cleaned = new Set();
           for (const name of this.hostsProviderFilter) {
-            if (!active.has(name)) continue;
+            if (!active.has(name)) {
+              continue;
+            }
             if (this._hostsConfiguredForProvider
-              && this._hostsConfiguredForProvider(name) === 0) continue;
+              && this._hostsConfiguredForProvider(name) === 0) {
+              continue;
+            }
             cleaned.add(name);
           }
           if (cleaned.size !== this.hostsProviderFilter.size) {
@@ -1791,12 +1790,11 @@ export default {
     const medLabel = formatVal(m.median);
     const iqrLabel = formatVal(m.iqr);
     const titleKey = 'hosts_extra.drift.title_' + tone.replace('drift-', '');
-    const fallback = (ind === '▲' ? 'Above baseline'
+    let title = (ind === '▲' ? 'Above baseline'
         : ind === '▼' ? 'Below baseline'
           : 'Within baseline')
       + ` — current ${liveLabel}, median ${medLabel}, IQR ±${iqrLabel}`
       + ` (n=${m.sample_count || 0})`;
-    let title = fallback;
     if (typeof this.t === 'function') {
       const tr = this.t(titleKey, {
         live: liveLabel, median: medLabel, iqr: iqrLabel,
@@ -2046,8 +2044,13 @@ export default {
         this._bulkAppliedTimer = null;
       }, 5000);
       // Force a refresh so the row state reflects the change.
+      // Fire-and-forget — the bulk-applied toast has already been
+      // committed via setTimeout above and the caller doesn't need
+      // to wait on the reload before returning `data` to its caller.
+      // Explicit `.catch(() => {})` makes the ignored-promise
+      // intent clear AND silences IDE missing-await warnings.
       if (typeof this.loadHosts === 'function') {
-        this.loadHosts(true);
+        this.loadHosts(true).catch(() => undefined);
       }
       return data;
     } catch (e) {
