@@ -1,3 +1,4 @@
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Admin → Config — the tunables editor.
 //
 // Driven by the canonical `TUNABLES` registry in `logic/tuning.py`,

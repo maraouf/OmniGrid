@@ -2522,12 +2522,14 @@
                            :title="isStaleField(h, 'host_cpu_percent') ? staleAge(h) : ''">
                         <div class="fill"></div>
                       </div>
-                      <svg x-show="hostHasInlineSpark(h, 'cpu')" class="spark spark--host"
-                           :class="hostSparkClass(h, 'cpu')"
-                           viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                        <path class="spark-area" :d="hostInlineSparklineArea(h, 'cpu')"/>
-                        <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'cpu')"/>
-                      </svg>
+                      <template x-if="hostHasInlineSpark(h, 'cpu')">
+                        <svg class="spark spark--host"
+                             :class="hostSparkClass(h, 'cpu')"
+                             viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
+                          <path class="spark-area" :d="hostInlineSparklineArea(h, 'cpu')"/>
+                          <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'cpu')"/>
+                        </svg>
+                      </template>
                     </div>
                     <div class="host-mobile-card-metric" x-show="hostHasMemMetric(h)">
                       <span class="name" x-text="t('columns.memory')"></span>
@@ -2546,12 +2548,14 @@
                            :title="(isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? staleAge(h) : ''">
                         <div class="fill"></div>
                       </div>
-                      <svg x-show="hostHasInlineSpark(h, 'memory')" class="spark spark--host"
-                           :class="hostSparkClass(h, 'memory')"
-                           viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                        <path class="spark-area" :d="hostInlineSparklineArea(h, 'memory')"/>
-                        <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'memory')"/>
-                      </svg>
+                      <template x-if="hostHasInlineSpark(h, 'memory')">
+                        <svg class="spark spark--host"
+                             :class="hostSparkClass(h, 'memory')"
+                             viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
+                          <path class="spark-area" :d="hostInlineSparklineArea(h, 'memory')"/>
+                          <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'memory')"/>
+                        </svg>
+                      </template>
                     </div>
                     <div class="host-mobile-card-metric" x-show="hostHasDiskMetric(h)">
                       <span class="name" x-text="t('columns.disk')"></span>
@@ -2570,12 +2574,14 @@
                            :title="(isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? staleAge(h) : ''">
                         <div class="fill"></div>
                       </div>
-                      <svg x-show="hostHasInlineSpark(h, 'disk')" class="spark spark--host"
-                           :class="hostSparkClass(h, 'disk')"
-                           viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                        <path class="spark-area" :d="hostInlineSparklineArea(h, 'disk')"/>
-                        <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'disk')"/>
-                      </svg>
+                      <template x-if="hostHasInlineSpark(h, 'disk')">
+                        <svg class="spark spark--host"
+                             :class="hostSparkClass(h, 'disk')"
+                             viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
+                          <path class="spark-area" :d="hostInlineSparklineArea(h, 'disk')"/>
+                          <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'disk')"/>
+                        </svg>
+                      </template>
                     </div>
                   </div>
                 </div>
@@ -2882,12 +2888,14 @@
                                :title="t('columns.cpu') + ': ' + (h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ' cores)' : '') + (isStaleField(h, 'host_cpu_percent') ? ' — ' + staleAge(h) : '')">
                             <div class="fill"></div>
                           </div>
-                          <svg x-show="hostHasInlineSpark(h, 'cpu')" class="spark spark--host"
-                               :class="hostSparkClass(h, 'cpu')"
-                               viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                            <path class="spark-area" :d="hostInlineSparklineArea(h, 'cpu')"/>
-                            <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'cpu')"/>
-                          </svg>
+                          <template x-if="hostHasInlineSpark(h, 'cpu')">
+                            <svg class="spark spark--host"
+                                 :class="hostSparkClass(h, 'cpu')"
+                                 viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
+                              <path class="spark-area" :d="hostInlineSparklineArea(h, 'cpu')"/>
+                              <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'cpu')"/>
+                            </svg>
+                          </template>
                           <div class="fs-2xs mono mt-1">
                             <span x-text="(h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ')' : '')"></span>
                             <template x-if="hostDriftIndicator(h, 'cpu_pct')">
@@ -2915,12 +2923,14 @@
                                :title="t('columns.memory') + ': ' + ((h.mem_percent !== undefined && h.mem_percent !== null) ? Number(h.mem_percent) : memPercentOf(h)).toFixed(1) + '%' + (h.mem_total ? ' (' + fmtBytes(h.mem_used) + ' / ' + fmtBytes(h.mem_total) + ')' : '') + ((isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? ' — ' + staleAge(h) : '')">
                             <div class="fill"></div>
                           </div>
-                          <svg x-show="hostHasInlineSpark(h, 'memory')" class="spark spark--host"
-                               :class="hostSparkClass(h, 'memory')"
-                               viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                            <path class="spark-area" :d="hostInlineSparklineArea(h, 'memory')"/>
-                            <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'memory')"/>
-                          </svg>
+                          <template x-if="hostHasInlineSpark(h, 'memory')">
+                            <svg class="spark spark--host"
+                                 :class="hostSparkClass(h, 'memory')"
+                                 viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
+                              <path class="spark-area" :d="hostInlineSparklineArea(h, 'memory')"/>
+                              <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'memory')"/>
+                            </svg>
+                          </template>
                           <div class="fs-2xs mono mt-1">
                             <span x-text="((h.mem_percent !== undefined && h.mem_percent !== null) ? Number(h.mem_percent) : memPercentOf(h)).toFixed(1) + '%'"></span>
                             <span class="text-[var(--text-faint)]" x-show="h.mem_total"
@@ -2968,12 +2978,14 @@
                                :title="hostDiskBarTitle(h)">
                             <div class="fill"></div>
                           </div>
-                          <svg x-show="hostHasInlineSpark(h, 'disk')" class="spark spark--host"
-                               :class="hostSparkClass(h, 'disk')"
-                               viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                            <path class="spark-area" :d="hostInlineSparklineArea(h, 'disk')"/>
-                            <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'disk')"/>
-                          </svg>
+                          <template x-if="hostHasInlineSpark(h, 'disk')">
+                            <svg class="spark spark--host"
+                                 :class="hostSparkClass(h, 'disk')"
+                                 viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
+                              <path class="spark-area" :d="hostInlineSparklineArea(h, 'disk')"/>
+                              <path class="spark-line" fill="none" stroke="currentColor" :d="hostInlineSparkline(h, 'disk')"/>
+                            </svg>
+                          </template>
                           <div class="fs-2xs mono mt-1">
                             <span x-text="fmtPercentLabel(h.disk_percent || diskPercentOf(h))"></span>
                             <span class="text-[var(--text-faint)]" x-show="h.disk_total"
@@ -3864,8 +3876,8 @@
                    and a "Worst axis" callout so the operator can
                    instantly identify which dimension is dragging
                    the overall number down. -->
-          <div x-show="healthPopoverOpen && healthScore(h) != null"
-               class="health-breakdown-popover">
+          <template x-if="healthPopoverOpen && healthScore(h) != null">
+          <div class="health-breakdown-popover">
             <div class="flex items-center justify-between gap-3 mb-2">
               <div class="min-w-0">
                 <div class="fs-sm font-semibold text-[var(--text)]"
@@ -3898,6 +3910,7 @@
               </div>
             </template>
           </div>
+          </template>
           <!-- TIMELINE CARD — unified incident-triage view that
                    collapses History (filter by host) + Notifications
                    (filter by target) + provider auto-pause /
@@ -3933,7 +3946,8 @@
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/>
               </svg>
             </button>
-            <div x-show="timelineExpanded[h.id]" class="mt-3" x-cloak>
+            <template x-if="timelineExpanded[h.id]">
+            <div class="mt-3" x-cloak>
               <!-- Range picker. Same shape / cadence as the
                        Beszel-history picker. -->
               <div class="flex items-center gap-2 mb-3 fs-xs">
@@ -4083,6 +4097,7 @@
                    class="mt-3 fs-2xs text-[var(--text-faint)] italic"
                    x-text="t('host_drawer.triage.no_patterns')"></div>
             </div>
+            </template>
           </section>
           <!-- Drawer grid — shows whenever we have ANY data
                    worth displaying: live providers OR an asset
@@ -8077,23 +8092,24 @@
                 <span x-text="hostsDebugOpen[h.id] ? t('debug_panel.hide') : t('debug_panel.show')"></span>
                 <span class="host-debug-hint" x-show="!hostsDebugOpen[h.id]" x-text="t('debug_panel.hint')"></span>
               </button>
-              <div x-show="hostsDebugOpen[h.id]" class="host-debug-body"
-                   :data-host-section="'debug-' + h.id">
-                <template x-if="hostsDebugLoading[h.id]">
-                  <div class="host-debug-loading">
-                    <span class="spin-lg" aria-hidden="true"></span>
-                    <span x-text="t('debug_panel.probing')"></span>
-                  </div>
-                </template>
-                <template x-if="!hostsDebugLoading[h.id] && hostsDebug[h.id] && hostsDebug[h.id]._error">
-                  <div class="host-debug-error" x-text="t('debug_panel.error_prefix', { error: hostsDebug[h.id]._error })"></div>
-                </template>
-                <template x-if="!hostsDebugLoading[h.id] && hostsDebug[h.id] && !hostsDebug[h.id]._error">
-                  <div class="host-debug-content">
-                    <div class="host-debug-toolbar">
-                      <div class="host-debug-meta">
-                        <span x-text="t('debug_panel.active_providers')"></span>
-                        <template x-for="p in (hostsDebug[h.id].active_providers || [])" :key="p">
+              <template x-if="hostsDebugOpen[h.id]">
+                <div class="host-debug-body"
+                     :data-host-section="'debug-' + h.id">
+                  <template x-if="hostsDebugLoading[h.id]">
+                    <div class="host-debug-loading">
+                      <span class="spin-lg" aria-hidden="true"></span>
+                      <span x-text="t('debug_panel.probing')"></span>
+                    </div>
+                  </template>
+                  <template x-if="!hostsDebugLoading[h.id] && hostsDebug[h.id] && hostsDebug[h.id]._error">
+                    <div class="host-debug-error" x-text="t('debug_panel.error_prefix', { error: hostsDebug[h.id]._error })"></div>
+                  </template>
+                  <template x-if="!hostsDebugLoading[h.id] && hostsDebug[h.id] && !hostsDebug[h.id]._error">
+                    <div class="host-debug-content">
+                      <div class="host-debug-toolbar">
+                        <div class="host-debug-meta">
+                          <span x-text="t('debug_panel.active_providers')"></span>
+                          <template x-for="p in (hostsDebug[h.id].active_providers || [])" :key="p">
                               <span class="chip pill-custom"
                                     :style="providerChipStyle(p)"
                                     :title="p">
@@ -8102,399 +8118,400 @@
                                       aria-hidden="true"></span>
                                 <span x-text="p === 'node_exporter' ? 'exporter' : p"></span>
                               </span>
-                        </template>
-                        <template x-if="(hostsDebug[h.id].active_providers || []).length === 0">
-                          <span class="host-debug-tag host-debug-tag--warn" x-text="t('debug_panel.none')"></span>
-                        </template>
+                          </template>
+                          <template x-if="(hostsDebug[h.id].active_providers || []).length === 0">
+                            <span class="host-debug-tag host-debug-tag--warn" x-text="t('debug_panel.none')"></span>
+                          </template>
+                        </div>
+                        <!-- Copy ALL debug panes + Refresh grouped as one
+                                 flex child so the toolbar's space-between
+                                 places the meta strip on the left and the
+                                 action cluster on the right. Pre-fix the
+                                 toolbar had three children → space-between
+                                 pushed the middle (Copy all) to center,
+                                 which read visually as "centered, not
+                                 grouped with Refresh". Pre-Refresh source
+                                 order keeps the action row reading
+                                 left→right as "copy first, then refresh
+                                 if you need newer data". -->
+                        <div class="host-debug-toolbar-actions">
+                          <button type="button" class="btn btn-ghost fs-xs inline-flex items-center gap-1"
+                                  @click="copyAllDebug(h.id)"
+                                  :disabled="!hostsDebug[h.id]"
+                                  :title="t('debug_panel.copy_all_title')">
+                            <svg width="14" height="14" aria-hidden="true">
+                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                            </svg>
+                            <span x-text="t('debug_panel.copy_all')"></span>
+                          </button>
+                          <button type="button" class="btn btn-ghost fs-xs inline-flex items-center gap-1"
+                                  @click="loadHostDebug(h.id)"
+                                  :disabled="!!hostsDebugLoading[h.id]"
+                                  :title="t('debug_panel.refresh_title')">
+                            <svg width="14" height="14" aria-hidden="true"
+                                 :class="hostsDebugLoading[h.id] ? 'spin-md' : ''">
+                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/>
+                            </svg>
+                            <span x-text="t('debug_panel.refresh')"></span>
+                          </button>
+                        </div>
                       </div>
-                      <!-- Copy ALL debug panes + Refresh grouped as one
-                               flex child so the toolbar's space-between
-                               places the meta strip on the left and the
-                               action cluster on the right. Pre-fix the
-                               toolbar had three children → space-between
-                               pushed the middle (Copy all) to center,
-                               which read visually as "centered, not
-                               grouped with Refresh". Pre-Refresh source
-                               order keeps the action row reading
-                               left→right as "copy first, then refresh
-                               if you need newer data". -->
-                      <div class="host-debug-toolbar-actions">
-                        <button type="button" class="btn btn-ghost fs-xs inline-flex items-center gap-1"
-                                @click="copyAllDebug(h.id)"
-                                :disabled="!hostsDebug[h.id]"
-                                :title="t('debug_panel.copy_all_title')">
-                          <svg width="14" height="14" aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                          </svg>
-                          <span x-text="t('debug_panel.copy_all')"></span>
-                        </button>
-                        <button type="button" class="btn btn-ghost fs-xs inline-flex items-center gap-1"
-                                @click="loadHostDebug(h.id)"
-                                :disabled="!!hostsDebugLoading[h.id]"
-                                :title="t('debug_panel.refresh_title')">
-                          <svg width="14" height="14" aria-hidden="true"
-                               :class="hostsDebugLoading[h.id] ? 'spin-md' : ''">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/>
-                          </svg>
-                          <span x-text="t('debug_panel.refresh')"></span>
-                        </button>
-                      </div>
-                    </div>
-                    <!-- Five columns wrap to two rows on narrow
-                             viewports. Each block is independently
-                             scrollable so a huge raw dump doesn't push
-                             the others off-screen. -->
-                    <div class="host-debug-grid">
-                      <!-- Counters & state — moved to FIRST position. Operators investigating
-                               a host issue almost always want to see
-                               failure-state + per-provider pause status
-                               + sample row counts BEFORE waded through
-                               the raw provider JSON. The wide-column
-                               span keeps the failure_state object
-                               readable on its own row. -->
-                      <!-- Samples in window — dedicated table-shaped
-                               panel keyed off the chart range picker. Shows
-                               per-table sample counts within the SELECTED
-                               window (1h / 6h / 24h / 7d) plus the median
-                               gap between consecutive samples + the age
-                               of the newest sample. The diagnostic for
-                               "why is the past-hour chart cut?" — operator
-                               can see at a glance whether the sampler has
-                               been ticking on cadence (median_gap_s ≈
-                               sampler interval) or skipping (median_gap_s
-                               >> interval, count below expected). -->
-                      <section class="host-debug-box host-debug-box--wide"
-                               x-show="hostsDebug[h.id].counters
+                      <!-- Five columns wrap to two rows on narrow
+                               viewports. Each block is independently
+                               scrollable so a huge raw dump doesn't push
+                               the others off-screen. -->
+                      <div class="host-debug-grid">
+                        <!-- Counters & state — moved to FIRST position. Operators investigating
+                                 a host issue almost always want to see
+                                 failure-state + per-provider pause status
+                                 + sample row counts BEFORE waded through
+                                 the raw provider JSON. The wide-column
+                                 span keeps the failure_state object
+                                 readable on its own row. -->
+                        <!-- Samples in window — dedicated table-shaped
+                                 panel keyed off the chart range picker. Shows
+                                 per-table sample counts within the SELECTED
+                                 window (1h / 6h / 24h / 7d) plus the median
+                                 gap between consecutive samples + the age
+                                 of the newest sample. The diagnostic for
+                                 "why is the past-hour chart cut?" — operator
+                                 can see at a glance whether the sampler has
+                                 been ticking on cadence (median_gap_s ≈
+                                 sampler interval) or skipping (median_gap_s
+                                 >> interval, count below expected). -->
+                        <section class="host-debug-box host-debug-box--wide"
+                                 x-show="hostsDebug[h.id].counters
                                            && hostsDebug[h.id].counters.samples_in_window">
-                        <header class="host-debug-box-head">
+                          <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--rendered"
                                     x-text="t('debug_panel.labels.samples_in_window')"></span>
-                          <span class="host-debug-hint"
-                                x-text="t('debug_panel.hints.samples_in_window', { hours: (hostsDebug[h.id].counters.samples_in_window.hours || 1) })"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].counters.samples_in_window, 'debug_panel.labels.samples_in_window')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.samples_in_window')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].counters.samples_in_window)"></pre>
-                      </section>
-                      <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(hostsDebug[h.id].counters)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.counters')"></span>
-                          <span class="host-debug-hint" x-text="t('debug_panel.hints.counters')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].counters, 'debug_panel.labels.counters')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.counters')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].counters)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.pulse)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.raw_pulse')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_raw?.pulse, 'debug_panel.labels.raw_pulse')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.raw_pulse')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.pulse)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.beszel)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.raw_beszel')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_raw?.beszel, 'debug_panel.labels.raw_beszel')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.raw_beszel')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.beszel)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.node_exporter)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.raw_ne')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_raw?.node_exporter, 'debug_panel.labels.raw_ne')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.raw_ne')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.node_exporter)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.webmin)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.raw_webmin')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_raw?.webmin, 'debug_panel.labels.raw_webmin')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.raw_webmin')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.webmin)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.ping)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--ping" x-text="t('debug_panel.labels.raw_ping')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_raw?.ping, 'debug_panel.labels.raw_ping')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.raw_ping')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.ping)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.snmp)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--snmp" x-text="t('debug_panel.labels.raw_snmp')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_raw?.snmp, 'debug_panel.labels.raw_snmp')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.raw_snmp')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.snmp)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.http_probe)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--http_probe" x-text="t('debug_panel.labels.raw_http_probe')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_raw?.http_probe, 'debug_panel.labels.raw_http_probe')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.raw_http_probe')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.http_probe)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].merged)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--merged" x-text="t('debug_panel.labels.merged')"></span>
-                          <span class="host-debug-hint" x-text="t('debug_panel.hints.merged')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].merged, 'debug_panel.labels.merged')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.merged')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].merged)"></pre>
-                      </section>
-                      <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(hostsDebug[h.id].rendered)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.rendered')"></span>
-                          <span class="host-debug-hint" x-text="t('debug_panel.hints.rendered')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].rendered, 'debug_panel.labels.rendered')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.rendered')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].rendered)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.pulse)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.normalized_pulse')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.pulse, 'debug_panel.labels.normalized_pulse')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.normalized_pulse')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.pulse)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.beszel)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.normalized_beszel')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.beszel, 'debug_panel.labels.normalized_beszel')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.normalized_beszel')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.beszel)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.node_exporter)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.normalized_ne')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter, 'debug_panel.labels.normalized_ne')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.normalized_ne')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.webmin)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.normalized_webmin')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.webmin, 'debug_panel.labels.normalized_webmin')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.normalized_webmin')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.webmin)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.ping)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--ping" x-text="t('debug_panel.labels.normalized_ping')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.ping, 'debug_panel.labels.normalized_ping')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.normalized_ping')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.ping)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.snmp)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--snmp" x-text="t('debug_panel.labels.normalized_snmp')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.snmp, 'debug_panel.labels.normalized_snmp')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.normalized_snmp')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.snmp)"></pre>
-                      </section>
-                      <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.http_probe)">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--http_probe" x-text="t('debug_panel.labels.normalized_http_probe')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.http_probe, 'debug_panel.labels.normalized_http_probe')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.normalized_http_probe')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.http_probe)"></pre>
-                      </section>
-                      <!-- Asset inventory (raw upstream payload).
-                               Sourced from the host's `asset` field
-                               which is itself the compact shape; the
-                               operator wants the FULL upstream row
-                               for cross-referencing, so we read from
-                               the asset cache by custom_number. -->
-                      <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(rawAssetForHost(h))">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--merged">Asset (raw)</span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(rawAssetForHost(h), 'debug_panel.labels.asset_raw')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.asset_raw')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(rawAssetForHost(h))"></pre>
-                      </section>
-                      <!-- Asset inventory (compact shape — what
-                               the drawer actually renders). -->
-                      <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(assetForHost(h))">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--merged">Asset (shape)</span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(assetForHost(h), 'debug_panel.labels.asset_shape')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.asset_shape')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(assetForHost(h))"></pre>
-                      </section>
-                      <!-- Chart data — every cached time-series the
-                               drawer's chart cards bind to. Includes the
-                               main hostHistory series (CPU / Mem / Disk /
-                               Net / Load / Swap / Temps / GPUs as a
-                               unified shape per provider), ping latency
-                               history (separate `ping:<id>` namespace),
-                               SNMP host-level history, SNMP per-iface
-                               throughput history (one entry per iface),
-                               and SNMP per-temperature-probe history.
-                               Each leaf carries a small `summary` block
-                               (count / oldest_ts / newest_ts /
-                               newest_age_s) for at-a-glance triage PLUS
-                               the full points array so chart-shape bugs
-                               (missing field, wrong key, drift) are
-                               directly inspectable. Last in the grid
-                               because the points blob can be large
-                               (24h × 12 points/h × ~25 fields). -->
-                      <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(chartDataBundle(h))">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.chart_data')"></span>
-                          <span class="host-debug-hint" x-text="t('debug_panel.hints.chart_data')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copyDebugJson(chartDataBundle(h), 'debug_panel.labels.chart_data')"
-                                  :aria-label="copyAriaLabel('debug_panel.labels.chart_data')"
-                                  :title="t('debug_panel.copy_title')">
-                            <svg width="12" height="12" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                            </svg>
-                          </button>
-                        </header>
-                        <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(chartDataBundle(h))"></pre>
-                      </section>
+                            <span class="host-debug-hint"
+                                  x-text="t('debug_panel.hints.samples_in_window', { hours: (hostsDebug[h.id].counters.samples_in_window.hours || 1) })"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].counters.samples_in_window, 'debug_panel.labels.samples_in_window')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.samples_in_window')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].counters.samples_in_window)"></pre>
+                        </section>
+                        <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(hostsDebug[h.id].counters)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.counters')"></span>
+                            <span class="host-debug-hint" x-text="t('debug_panel.hints.counters')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].counters, 'debug_panel.labels.counters')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.counters')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].counters)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.pulse)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.raw_pulse')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_raw?.pulse, 'debug_panel.labels.raw_pulse')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.raw_pulse')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.pulse)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.beszel)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.raw_beszel')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_raw?.beszel, 'debug_panel.labels.raw_beszel')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.raw_beszel')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.beszel)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.node_exporter)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.raw_ne')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_raw?.node_exporter, 'debug_panel.labels.raw_ne')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.raw_ne')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.node_exporter)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.webmin)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.raw_webmin')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_raw?.webmin, 'debug_panel.labels.raw_webmin')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.raw_webmin')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.webmin)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.ping)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--ping" x-text="t('debug_panel.labels.raw_ping')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_raw?.ping, 'debug_panel.labels.raw_ping')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.raw_ping')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.ping)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.snmp)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--snmp" x-text="t('debug_panel.labels.raw_snmp')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_raw?.snmp, 'debug_panel.labels.raw_snmp')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.raw_snmp')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.snmp)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.http_probe)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--http_probe" x-text="t('debug_panel.labels.raw_http_probe')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_raw?.http_probe, 'debug_panel.labels.raw_http_probe')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.raw_http_probe')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.http_probe)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].merged)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--merged" x-text="t('debug_panel.labels.merged')"></span>
+                            <span class="host-debug-hint" x-text="t('debug_panel.hints.merged')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].merged, 'debug_panel.labels.merged')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.merged')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].merged)"></pre>
+                        </section>
+                        <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(hostsDebug[h.id].rendered)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.rendered')"></span>
+                            <span class="host-debug-hint" x-text="t('debug_panel.hints.rendered')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].rendered, 'debug_panel.labels.rendered')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.rendered')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].rendered)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.pulse)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.normalized_pulse')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.pulse, 'debug_panel.labels.normalized_pulse')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.normalized_pulse')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.pulse)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.beszel)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.normalized_beszel')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.beszel, 'debug_panel.labels.normalized_beszel')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.normalized_beszel')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.beszel)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.node_exporter)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.normalized_ne')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter, 'debug_panel.labels.normalized_ne')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.normalized_ne')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.webmin)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.normalized_webmin')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.webmin, 'debug_panel.labels.normalized_webmin')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.normalized_webmin')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.webmin)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.ping)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--ping" x-text="t('debug_panel.labels.normalized_ping')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.ping, 'debug_panel.labels.normalized_ping')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.normalized_ping')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.ping)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.snmp)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--snmp" x-text="t('debug_panel.labels.normalized_snmp')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.snmp, 'debug_panel.labels.normalized_snmp')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.normalized_snmp')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.snmp)"></pre>
+                        </section>
+                        <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.http_probe)">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--http_probe" x-text="t('debug_panel.labels.normalized_http_probe')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.http_probe, 'debug_panel.labels.normalized_http_probe')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.normalized_http_probe')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.http_probe)"></pre>
+                        </section>
+                        <!-- Asset inventory (raw upstream payload).
+                                 Sourced from the host's `asset` field
+                                 which is itself the compact shape; the
+                                 operator wants the FULL upstream row
+                                 for cross-referencing, so we read from
+                                 the asset cache by custom_number. -->
+                        <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(rawAssetForHost(h))">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--merged">Asset (raw)</span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(rawAssetForHost(h), 'debug_panel.labels.asset_raw')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.asset_raw')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(rawAssetForHost(h))"></pre>
+                        </section>
+                        <!-- Asset inventory (compact shape — what
+                                 the drawer actually renders). -->
+                        <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(assetForHost(h))">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--merged">Asset (shape)</span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(assetForHost(h), 'debug_panel.labels.asset_shape')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.asset_shape')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(assetForHost(h))"></pre>
+                        </section>
+                        <!-- Chart data — every cached time-series the
+                                 drawer's chart cards bind to. Includes the
+                                 main hostHistory series (CPU / Mem / Disk /
+                                 Net / Load / Swap / Temps / GPUs as a
+                                 unified shape per provider), ping latency
+                                 history (separate `ping:<id>` namespace),
+                                 SNMP host-level history, SNMP per-iface
+                                 throughput history (one entry per iface),
+                                 and SNMP per-temperature-probe history.
+                                 Each leaf carries a small `summary` block
+                                 (count / oldest_ts / newest_ts /
+                                 newest_age_s) for at-a-glance triage PLUS
+                                 the full points array so chart-shape bugs
+                                 (missing field, wrong key, drift) are
+                                 directly inspectable. Last in the grid
+                                 because the points blob can be large
+                                 (24h × 12 points/h × ~25 fields). -->
+                        <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(chartDataBundle(h))">
+                          <header class="host-debug-box-head">
+                            <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.chart_data')"></span>
+                            <span class="host-debug-hint" x-text="t('debug_panel.hints.chart_data')"></span>
+                            <button type="button" class="host-debug-copy"
+                                    @click="copyDebugJson(chartDataBundle(h), 'debug_panel.labels.chart_data')"
+                                    :aria-label="copyAriaLabel('debug_panel.labels.chart_data')"
+                                    :title="t('debug_panel.copy_title')">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                            </button>
+                          </header>
+                          <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(chartDataBundle(h))"></pre>
+                        </section>
+                      </div>
                     </div>
-                  </div>
-                </template>
-              </div>
+                  </template>
+                </div>
+              </template>
             </div>
           </template>
 
@@ -9488,7 +9505,8 @@
        modal below) rather than a top-level view. Click the avatar →
        Notifications to open; backdrop click or Esc closes. SSE keeps
        the list current while open; 30s polling fallback otherwise. -->
-  <div x-show="showNotificationsPopup" class="fixed inset-0 z-50 fade-in" x-cloak>
+  <template x-if="showNotificationsPopup">
+  <div class="fixed inset-0 z-50 fade-in" x-cloak>
     <div @click="showNotificationsPopup=false" class="absolute inset-0 backdrop-strong"></div>
     <div class="relative flex items-start justify-center p-4 h-full overflow-auto scrollbar"
          role="dialog" aria-modal="true" :aria-label="t('notifications.heading')"
@@ -9755,6 +9773,7 @@
       </div>
     </div>
   </div>
+  </template>
 
   <!-- ================== COMMAND PALETTE (Cmd-K / Ctrl-K) ================== -->
   <!-- Universal "go anywhere" search modal. Toggle from anywhere via
@@ -10425,7 +10444,8 @@
   </div>
 
   <!-- ================== HOTKEYS HELP MODAL ================== -->
-  <div x-show="showHotkeys" class="fixed inset-0 z-50 fade-in">
+  <template x-if="showHotkeys">
+  <div class="fixed inset-0 z-50 fade-in">
     <div @click="showHotkeys=false" class="absolute inset-0 backdrop-strong"></div>
     <div class="relative flex items-center justify-center p-4 h-full overflow-auto scrollbar"
          role="dialog" aria-modal="true" :aria-label="t('hotkeys.title')"
@@ -10476,6 +10496,7 @@
       </div>
     </div>
   </div>
+  </template>
 
   <!-- ================== INTERACTIVE SSH TERMINAL MODAL ==================
        Live PTY-backed shell. Browser <-WSS-> backend <-asyncssh-> target.

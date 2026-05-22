@@ -1,3 +1,4 @@
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Host Groups admin (Admin → Host Groups) — CRUD + tree
 // management for the curated-host grouping taxonomy.
 //

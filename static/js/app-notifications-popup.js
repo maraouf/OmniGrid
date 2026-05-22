@@ -1,3 +1,4 @@
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Notifications popup — the bell icon top-right + dropdown panel.
 //
 // Backed by the `notifications` table (in-app medium); rows are written

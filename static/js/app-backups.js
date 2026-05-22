@@ -1,3 +1,4 @@
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Backups + Config-Backup surfaces (Admin → Backups).
 //
 // Two related but distinct surfaces:
