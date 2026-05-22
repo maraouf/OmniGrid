@@ -3248,6 +3248,7 @@ class SettingsIn(BaseModel):
     provider_color_ping: Optional[str] = None
     provider_color_snmp: Optional[str] = None
     provider_color_http_probe: Optional[str] = None
+    provider_color_service_probe: Optional[str] = None
     # Scheduler timezone — IANA name (e.g. "Africa/Cairo"). When set,
     # daily/weekly/monthly schedule anchors are computed in THIS zone
     # instead of the container's localtime. Containers default to UTC;
@@ -4123,6 +4124,7 @@ async def api_get_settings(request: Request):
         "provider_color_ping": get_setting(Settings.PROVIDER_COLOR_PING) or "",
         "provider_color_snmp": get_setting(Settings.PROVIDER_COLOR_SNMP) or "",
         "provider_color_http_probe": get_setting(Settings.PROVIDER_COLOR_HTTP_PROBE) or "",
+        "provider_color_service_probe": get_setting(Settings.PROVIDER_COLOR_SERVICE_PROBE) or "",
         # SSH console — global defaults (Admin → SSH). Secrets
         # redacted per CLAUDE.md's ``_set`` flag contract: the browser
         # learns only whether a private key / passphrase has been set.
@@ -4432,7 +4434,7 @@ async def _api_set_settings_inner(s, request, _portainer):
         raw = (s.host_stats_source or "").strip()
         parts = {t.strip().lower() for t in raw.split(",") if t.strip()}
         parts.discard("none")
-        valid = {"beszel", "node_exporter", "pulse", "webmin", "ping", "snmp", "http_probe"}
+        valid = {"beszel", "node_exporter", "pulse", "webmin", "ping", "snmp", "http_probe", "service_probe"}
         unknown = parts - valid
         if unknown:
             raise HTTPException(
@@ -4642,7 +4644,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             "provider_color_beszel", "provider_color_pulse",
             "provider_color_node_exporter", "provider_color_webmin",
             "provider_color_ping", "provider_color_snmp",
-            "provider_color_http_probe",
+            "provider_color_http_probe", "provider_color_service_probe",
     ):
         _val = getattr(s, _field, None)
         if _val is None:

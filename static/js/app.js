@@ -10,9 +10,11 @@
 // noinspection OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures,JSValidateTypes,JSPotentiallyInvalidUsageOfThis
 // noinspection JSIgnoredPromiseFromCall,AnonymousCapturingGroupJS,AssignmentToFunctionParameterJS,JSIfStatementsCanBeSimplified,IfStatementSimplifyable,RedundantIfStatementJS
 // noinspection RegExpRedundantEscape,JSDeprecatedSymbols,VoidExpressionJS,JSVoidExpression,RedundantLocalVariableJS,JSPossiblyAssignedToNullVariable
+// noinspection JSObjectNullOrUndefined,JSReusedLocalVariable,RegExpRedundantNestingJS,RegExpUnnecessaryNonCapturingGroupJS,HtmlEmptyContent,HtmlEmptyTagsRecommendation,HtmlUnknownTag,OverlyComplexArithmeticExpressionJS,PointlessArithmeticExpressionJS
+// noinspection JSPossibleNullableReference,JSNullableReference,JSPossibleNullOrUndefinedAccess,LocalVariableReusedJS,JSDuplicatedDeclaration,JSReusedLocal,UnnecessaryReturnStatementJS,UnnecessarySemicolonJS
 
-/* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
-/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
+/* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode, BroadcastChannel, crypto */
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, maxstatements: false, -W069, -W018, -W030, -W083, -E016, -W071 */
 
 
 // Note: the JSHint-style `/* global Alpine, Swal, I18N, t */` directive
@@ -2791,7 +2793,7 @@ function app() {
     // implement ←/→ keyboard nav per the WAI-ARIA tablist authoring
     // pattern. New tabs added here automatically participate in
     // keyboard navigation.
-    HOST_STATS_TAB_ORDER: ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp', 'http_probe'],
+    HOST_STATS_TAB_ORDER: ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp', 'http_probe', 'service_probe'],
     // Cycle tabs by ±1, wrapping at both ends. Called from each tab
     // button's @keydown.left / @keydown.right handler. After the tab
     // switches we focus the newly-active button so the focus ring
@@ -2871,7 +2873,7 @@ function app() {
         'provider_color_beszel', 'provider_color_pulse',
         'provider_color_node_exporter', 'provider_color_webmin',
         'provider_color_ping', 'provider_color_snmp',
-        'provider_color_http_probe',
+        'provider_color_http_probe', 'provider_color_service_probe',
       ];
       const subset = {};
       for (const k of pick) {
@@ -3925,6 +3927,10 @@ function app() {
           // round-trip.
           http_probe_enabled: !!(d.http_probe && d.http_probe.enabled),
           http_probe_aliases: (d.http_probe && d.http_probe.aliases) || '',
+          // Service probe — eighth host-stats provider. Master toggle
+          // surfaced at the top level of `/api/settings` (not nested
+          // under a `service_probe` sub-object like http_probe is).
+          service_probe_enabled: !!d.service_probe_enabled,
           // per-provider chip colour overrides. Empty string
           // means "use the SPA default" (see providerColor() helper).
           provider_color_beszel: d.provider_color_beszel || '',
@@ -3934,6 +3940,7 @@ function app() {
           provider_color_ping: d.provider_color_ping || '',
           provider_color_snmp: d.provider_color_snmp || '',
           provider_color_http_probe: d.provider_color_http_probe || '',
+          provider_color_service_probe: d.provider_color_service_probe || '',
           // Scheduler — IANA zone. Blank = container-local (legacy).
           scheduler_timezone: d.scheduler_timezone || '',
           // Open-Meteo upstream (weather widget). Blank = default.
@@ -6131,6 +6138,7 @@ function app() {
         snmp: '#ec4899',  // pink   (sixth provider; distinct from the existing five)
         port_scan: '#8b5cf6',  // violet (port-scan on-demand provider)
         http_probe: '#fb923c',  // orange (seventh host-stats provider — HTTP / TLS / DNS health probe)
+        service_probe: '#14b8a6',  // teal (per-service reachability probe — distinct from http_probe's per-host orange)
       };
       // Live admin-form value first (reactive on every keystroke / save).
       const live = ((this.settings || {})['provider_color_' + name] || '').trim();
@@ -6166,6 +6174,9 @@ function app() {
       }
       if (name === 'http_probe') {
         return 'http-probe';
+      }
+      if (name === 'service_probe') {
+        return 'service-probe';
       }
       return name;
     },
@@ -13268,10 +13279,10 @@ function app() {
       // Markdown image refs (rare in release notes but worth handling
       // before the generic link rule so we don't keep `![alt]` orphans).
       // `![alt](url)` → `alt`.
-      out = out.replace(/!\[([^\]]*)\]\((?:https?:\/\/[^)]+)\)/g, '$1');
+      out = out.replace(/!\[([^\]]*)\]\(https?:\/\/[^)]+\)/g, '$1');
       // Markdown links: `[text](url)` → `text`. Empty text → drop the
       // whole thing (e.g. `[](url)` is just a wrapper around a URL).
-      out = out.replace(/\[([^\]]*)\]\((?:https?:\/\/[^)]+)\)/g, (m, txt) => {
+      out = out.replace(/\[([^\]]*)\]\(https?:\/\/[^)]+\)/g, (m, txt) => {
         return (txt || '').trim() || '';
       });
       // Bare URLs in prose (`https://example.com/x` standalone): drop

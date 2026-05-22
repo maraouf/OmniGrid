@@ -957,6 +957,8 @@
       "tunables_intro_snmp": "Operator-tunable knobs for the SNMP provider — probe timeout, wall-clock budget per host, fan-out concurrency across hosts, per-host walk concurrency (vendor MIBs), sampler interval (0 = inherit global), per-host success + failure cache TTLs, unreachable cooldown, and per-(provider, host) auto-pause threshold. All edits commit through the SNMP section's Save button.",
       "tunables_heading_http_probe": "HTTP / TLS / DNS tunables",
       "tunables_intro_http_probe": "Operator-tunable knobs for the HTTP / TLS / DNS probe provider — per-URL probe timeout, fan-out concurrency across URLs, sampler interval (0 = inherit global), per-(provider, host) auto-pause threshold, DNS lookup timeout, TLS-cert expiry warning window (days), and per-host success + failure cache TTLs. All edits commit through the HTTP probe section's Save button.",
+      "tunables_heading_service_probe": "Service probe tunables",
+      "tunables_intro_service_probe": "Operator-tunable knobs for the per-service reachability probe — sampler interval (0 = inherit global stats cadence), fan-out concurrency across service chips, per-probe timeout, and per-(provider, host) auto-pause threshold. All edits commit through the Service probe section's Save button.",
       "section_desc_node_exporter": "Scrapes Prometheus node-exporter on each host's :9100 (or per-host override) endpoint for CPU / memory / disk / network counters. Native Linux-style detail — distinct mounts, per-NIC interfaces, kernel + arch info. Per-host opt-in: set ne_url on the host in Admin → Hosts.",
       "section_desc_beszel": "Pocketbase-based monitoring hub (beszel.dev). Each agent reports CPU / memory / disk / network / temperatures / systemd services to a central Hub instance. One hub call returns every host's stats in a single round-trip. Per-host opt-in: set beszel_name on the host in Admin → Hosts.",
       "section_desc_pulse": "Proxmox VE / PBS / PMG monitoring (rcourtman/Pulse). One /api/state call returns every guest + node's stats. Per-host opt-in: set pulse_name on the host in Admin → Hosts.",
@@ -1112,6 +1114,13 @@
         "dns_failed_label": "DNS failed",
         "save_requires_test": "Run a successful Test connection before saving.",
         "save_unverified_hint": "Save unlocks once the test against the current values passes."
+      },
+      "source_service_probe": "Service probe",
+      "service_probe": {
+        "section_title": "Per-service reachability probe",
+        "section_desc": "Per-service-chip reachability sampler. Distinct from HTTP probe (which is per-HOST): this samples each opted-in services[].probe entry on every host individually and surfaces a green/red dot per chip. Per-chip probe config lives on each Admin → Hosts row's services[] (probe type, port, path, expected status). Master toggle here only — no global URL list.",
+        "enabled_label": "Enable service probe",
+        "enabled_hint": "Master toggle. When OFF the sampler stays dormant. When ON, every host's services[].probe entries with enabled=true get sampled at the cadence below."
       },
       "source_port_scan": "Port Scan",
       "port_scan": {

@@ -1191,6 +1191,144 @@ export default {
     }
   },
 
+  // Settings → Host stats → service-probe sub-tab — section-owned save.
+  // Service probe is the per-service-chip reachability sampler (distinct
+  // from http_probe which is per-host). Posts ONLY the master toggle +
+  // chip colour + the four service_probe tunables. Mirrors the http_probe
+  // section's shape: proxies through `_perProviderTuneKeys.service_probe`
+  // so adding a new tunable to that array auto-extends the dirty + save
+  // scope. No "Test connection" button here — probes are per-chip and
+  // configured on each Admin → Hosts row's `services[].probe = {...}`.
+  _serviceProbeSectionTuningKeys() {
+    return (this._perProviderTuneKeys && this._perProviderTuneKeys.service_probe) || [];
+  },
+  _serviceProbeSectionPlainKeys() {
+    return [
+      'service_probe_enabled',
+      'provider_color_service_probe',
+    ];
+  },
+  _serviceProbeSnapshot() {
+    const tune = {};
+    for (const k of this._serviceProbeSectionTuningKeys()) {
+      tune[k] = (this.tuningForm || {})[k] == null ? '' : String((this.tuningForm || {})[k]).trim();
+    }
+    const plain = {};
+    for (const k of this._serviceProbeSectionPlainKeys()) {
+      plain[k] = (this.settings || {})[k] == null ? '' : String((this.settings || {})[k]).trim();
+    }
+    return JSON.stringify({tune, plain});
+  },
+  serviceProbeSectionDirty() {
+    try {
+      const baseline = this._tuningBaselineMap();
+      for (const k of this._serviceProbeSectionTuningKeys()) {
+        const cur = (this.tuningForm || {})[k];
+        const curStr = (cur == null ? '' : String(cur).trim());
+        const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+        if (curStr !== baseStr) {
+          return true;
+        }
+      }
+    } catch (_) {
+    }
+    let base = {};
+    try {
+      if (typeof this._hostStatsBaseline === 'string' && this._hostStatsBaseline) {
+        base = JSON.parse(this._hostStatsBaseline) || {};
+      }
+    } catch (_) {
+      base = {};
+    }
+    try {
+      for (const k of this._serviceProbeSectionPlainKeys()) {
+        if (String((this.settings || {})[k] || '') !== String(base[k] || '')) {
+          return true;
+        }
+      }
+    } catch (_) {
+    }
+    try {
+      const curSrc = String((this.settings || {}).host_stats_source || '');
+      const baseSrcStr = String(base.host_stats_source || '');
+      if (curSrc !== baseSrcStr) {
+        const curHas = curSrc.split(',').map(s => s.trim()).includes('service_probe');
+        const baseHas = baseSrcStr.split(',').map(s => s.trim()).includes('service_probe');
+        if (curHas !== baseHas) {
+          return true;
+        }
+      }
+    } catch (_) {
+    }
+    return false;
+  },
+  async saveServiceProbeSection() {
+    if (this.hostStatsSaving) {
+      return;
+    }
+    for (const k of this._serviceProbeSectionTuningKeys()) {
+      const raw = (this.tuningForm || {})[k];
+      if (raw === '' || raw == null) {
+        continue;
+      }
+      const n = Number(raw);
+      if (!Number.isFinite(n) || !Number.isInteger(n)) {
+        this.showToast(this.t('admin.config.errors.must_be_int', {
+          field: this.t('admin.config.fields.' + k + '.label'),
+        }), 'error');
+        return;
+      }
+      const eff = this.tuningEffective[k] || {};
+      if (Number.isFinite(eff.min) && n < eff.min) {
+        this.showToast(this.t('admin.config.errors.below_min', {
+          field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+        }), 'error');
+        return;
+      }
+      if (Number.isFinite(eff.max) && n > eff.max) {
+        this.showToast(this.t('admin.config.errors.above_max', {
+          field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+        }), 'error');
+        return;
+      }
+    }
+    this.hostStatsSaving = true;
+    try {
+      const body = {};
+      for (const k of this._serviceProbeSectionPlainKeys()) {
+        body[k] = this.settings[k] == null ? '' : this.settings[k];
+      }
+      const sources = new Set(
+        (this.settings.host_stats_source || '').split(',').map(s => s.trim()).filter(Boolean)
+      );
+      if (this.hasHostStatsSource('service_probe')) {
+        sources.add('service_probe');
+      } else {
+        sources.delete('service_probe');
+      }
+      body.host_stats_source = [...sources].join(',');
+      for (const k of this._serviceProbeSectionTuningKeys()) {
+        const v = (this.tuningForm || {})[k];
+        body[k] = (v == null ? '' : String(v).trim());
+      }
+      const r = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || `HTTP ${r.status}`);
+      }
+      await Promise.all([this.loadSettings(), this.loadTuning()]);
+      this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+    } catch (e) {
+      this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+    } finally {
+      this.hostStatsSaving = false;
+    }
+  },
+
   // Settings → Host stats → node-exporter sub-tab — section-owned save.
   // Posts ONLY NE's plain settings + the NE probe-timeout tunable.
   // Per the section-saves-its-own-tunables convention.

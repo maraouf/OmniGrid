@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#14b8a6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="24" height="24">
+  <!-- Three stacked service rows — each a small box with a status dot.
+       Conveys "per-service reachability" (multiple chips per host) as
+       distinct from http-probe's single per-host globe motif. Brand-
+       context fill via the stroke colour; mask-image context picks up
+       the glyph alpha for the per-provider chip tint. -->
+  <rect x="4" y="4" width="16" height="4.5" rx="1"/>
+  <rect x="4" y="9.75" width="16" height="4.5" rx="1"/>
+  <rect x="4" y="15.5" width="16" height="4.5" rx="1"/>
+  <!-- Status dots inside each row — small filled circles indicating
+       per-service probe state. -->
+  <circle cx="7" cy="6.25" r="0.8" fill="#22c55e" stroke="none"/>
+  <circle cx="7" cy="12" r="0.8" fill="#22c55e" stroke="none"/>
+  <circle cx="7" cy="17.75" r="0.8" fill="#22c55e" stroke="none"/>
+</svg>

@@ -1,7 +1,13 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,NestedFunctionCallJS,AnonymousFunctionJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+// noinspection NegatedIfStatementJS,OverlyComplexBooleanExpressionJS,ContinueStatementJS,BreakStatementJS,ExceptionCaughtLocallyJS,PointlessBitwiseExpressionJS
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,XHTMLIncompatabilitiesJS,JSAccessInconsistentInXHTML,JSAsyncFunctionMissingAwait
+// noinspection JSMissingAwait,JSUnfilteredForInLoop,IfStatementWithoutBlockJS,NegatedConditionalExpressionJS,JSNegatedConditionalExpression
+// noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
+// noinspection JSValidateTypes,JSPotentiallyInvalidUsageOfThis,HtmlUnknownTag,OverlyComplexArithmeticExpressionJS,PointlessArithmeticExpressionJS
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Stats view (top-nav `stats` view) — aggregate metrics across the
@@ -42,10 +48,11 @@ export default {
   statsTab: (() => {
     try {
       const v = (typeof localStorage !== 'undefined' && localStorage.getItem('statsTab')) || '';
-      if (['dashboard','database','samples','incidents','network','ai_cost'].includes(v)) {
+      if (['dashboard', 'database', 'samples', 'incidents', 'network', 'ai_cost'].includes(v)) {
         return v;
       }
-    } catch (_) { /* private mode — fall through */ }
+    } catch (_) { /* private mode — fall through */
+    }
     return 'dashboard';
   })(),
   statsOverview: {},
@@ -88,7 +95,8 @@ export default {
       if ([24, 168, 720].includes(v)) {
         return v;
       }
-    } catch (_) { /* private mode */ }
+    } catch (_) { /* private mode */
+    }
     return 168;
   })(),
   statsNetwork: {},
@@ -99,7 +107,8 @@ export default {
       if ([24, 168, 720].includes(v)) {
         return v;
       }
-    } catch (_) { /* private mode */ }
+    } catch (_) { /* private mode */
+    }
     return 168;
   })(),
 
@@ -248,10 +257,11 @@ export default {
   statsSamplesRange: (() => {
     try {
       const v = (typeof localStorage !== 'undefined' && localStorage.getItem('statsSamplesRange')) || '';
-      if (['1h','24h','7d','30d','90d','all'].includes(v)) {
+      if (['1h', '24h', '7d', '30d', '90d', 'all'].includes(v)) {
         return v;
       }
-    } catch (_) { /* private mode */ }
+    } catch (_) { /* private mode */
+    }
     return '90d';
   })(),
   // Per-table breakdown sort state. Operator-flagged: every column
@@ -298,7 +308,8 @@ export default {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('statsSamplesRange', r_arg);
       }
-    } catch (_) { /* private mode — best-effort persist */ }
+    } catch (_) { /* private mode — best-effort persist */
+    }
     try {
       const r = await fetch('/api/admin/stats/samples?range=' + encodeURIComponent(r_arg));
       if (!r.ok) {
@@ -317,7 +328,8 @@ export default {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('statsIncidentsHours', String(h));
       }
-    } catch (_) { /* private mode */ }
+    } catch (_) { /* private mode */
+    }
     try {
       const r = await fetch('/api/admin/stats/incidents?hours=' + encodeURIComponent(h));
       if (!r.ok) {
@@ -336,7 +348,8 @@ export default {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('statsNetworkHours', String(h));
       }
-    } catch (_) { /* private mode */ }
+    } catch (_) { /* private mode */
+    }
     try {
       const r = await fetch('/api/admin/stats/network?hours=' + encodeURIComponent(h));
       if (!r.ok) {
