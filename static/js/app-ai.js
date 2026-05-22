@@ -45,7 +45,18 @@ export default {
   commandPaletteAiBulkBusy: false,
   statsAiCost: {},
   statsAiCostLoaded: false,
-  statsAiCostRange: '30d',
+  // Persisted to `localStorage.statsAiCostRange` so the operator's
+  // chosen window survives a reload. Validated against the canonical
+  // set in `loadStatsAiCost` below.
+  statsAiCostRange: (() => {
+    try {
+      const v = (typeof localStorage !== 'undefined' && localStorage.getItem('statsAiCostRange')) || '';
+      if (['1h','24h','7d','30d','90d'].includes(v)) {
+        return v;
+      }
+    } catch (_) { /* private mode */ }
+    return '30d';
+  })(),
   async loadStatsAiCost(range) {
     // Operator-selectable range applies to BOTH the response-time
     // trend chart AND the Top 10 expensive table — backend wires
@@ -54,6 +65,11 @@ export default {
     const validRanges = new Set(['1h', '24h', '7d', '30d', '90d']);
     const r0 = (range && validRanges.has(range)) ? range : (this.statsAiCostRange || '30d');
     this.statsAiCostRange = r0;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('statsAiCostRange', r0);
+      }
+    } catch (_) { /* private mode */ }
     try {
       const qs = '?range=' + encodeURIComponent(r0);
       const r = await fetch('/api/admin/stats/ai-cost' + qs);

@@ -1599,7 +1599,7 @@ def spawn_background_task(coro, *, label: str = ""):
             global _background_tasks_cap_last_warn_ts
             now_ts = time.time()
             if (now_ts - _background_tasks_cap_last_warn_ts
-                    >= _BACKGROUND_TASKS_CAP_WARN_WINDOW_SECONDS):
+                >= _BACKGROUND_TASKS_CAP_WARN_WINDOW_SECONDS):
                 _background_tasks_cap_last_warn_ts = now_ts
                 print(
                     f"[bg] WARNING — _BACKGROUND_TASKS at cap ({_BACKGROUND_TASKS_CAP}) "
@@ -5497,20 +5497,36 @@ async def api_admin_stats_overview(
     try:
         csv_enabled = active_host_stats_providers()
         curated = _load_hosts_config()
-        per_host_enabled = {"snmp": False, "ping": False}
+        per_host_enabled = {"snmp": False, "ping": False, "service_probe": False}
         for h in curated:
             for key in ("snmp", "ping"):
                 sub = h.get(key) or {}
                 if isinstance(sub, dict) and sub.get("enabled"):
                     per_host_enabled[key] = True
+            # service_probe is per-CHIP on `services[]` rather than a
+            # `hosts_config[].service_probe = {enabled: true}` flag —
+            # any curated row with at least one service entry that
+            # carries a probe URL counts as opting that host into
+            # service_probe. Mirrors how the live merge path treats
+            # the provider (main.py:10789 → populate_host_service_merge
+            # runs whenever ANY service URL exists), so the Stats
+            # Dashboard card now agrees with reality.
+            svcs = h.get("services")
+            if isinstance(svcs, list):
+                for svc in svcs:
+                    if isinstance(svc, dict) and (svc.get("url") or "").strip():
+                        per_host_enabled["service_probe"] = True
+                        break
         # Master-toggle-controlled providers — not part of the
-        # `host_stats_source` CSV, not per-host opt-in. Each owns its
-        # own boolean setting in the `settings` table. Pre-fix the
-        # Stats Dashboard providers card always reported them as
-        # `disabled` regardless of operator state because the loop
-        # below only consulted `csv_enabled` + `per_host_enabled`.
+        # `host_stats_source` CSV. Each owns its own boolean setting
+        # in the `settings` table. http_probe stays purely master-
+        # toggle-driven because its URLs live under `http_probe.urls`
+        # rather than the service catalog. Pre-fix the Stats Dashboard
+        # providers card always reported them as `disabled` regardless
+        # of operator state because the loop below only consulted
+        # `csv_enabled` + the snmp/ping per-host pool.
         master_enabled: dict[str, bool] = {
-            "http_probe":    get_setting_bool(Settings.HTTP_PROBE_ENABLED),
+            "http_probe": get_setting_bool(Settings.HTTP_PROBE_ENABLED),
             "service_probe": get_setting_bool(Settings.SERVICE_PROBE_ENABLED),
         }
         enabled_set: set[str] = set()
@@ -11580,9 +11596,9 @@ def _shape_host_api_row(
             bool((h.get("http_probe") or {}).get("urls"))
             or bool((h.get("url") or "").strip())
             or any(
-                isinstance(svc, dict) and (svc.get("url") or "").strip()
-                for svc in (h.get("services") if isinstance(h.get("services"), list) else [])
-            )
+            isinstance(svc, dict) and (svc.get("url") or "").strip()
+            for svc in (h.get("services") if isinstance(h.get("services"), list) else [])
+        )
         ),
         # Latest sample roll-up. Renders the drawer card + the chip
         # state. None / empty when no sample has landed yet (cold-load
@@ -23522,7 +23538,6 @@ async def serve_app_js_module(name: str = FastApiPath(...)):
 
 
 app.add_api_route("/js/{name}", serve_app_js_module, methods=["GET"])
-
 
 # Keep this line LAST — StaticFiles at "/" is a catch-all.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

@@ -1,7 +1,15 @@
-// noinspection NestedFunctionCallJS,MagicNumberJS,ConditionalExpressionJS,NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS
+// noinspection NestedFunctionCallJS,MagicNumberJS,ConditionalExpressionJS,NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,AnonymousFunctionJS,ConstantOnRightSideOfComparisonJS,FunctionWithMoreThanThreeNegationsJS,RegExpAnonymousGroup
 // noinspection OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS
 // noinspection ChainedMethodCallJS,NestedConditionalExpressionJS,RedundantConditionalExpressionJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS
-// noinspection JSForIIterationOverNonNumericKeyJS,NestedTemplateLiteralJS
+// noinspection JSForIIterationOverNonNumericKeyJS,NestedTemplateLiteralJS,EmptyCatchBlockJS,UnusedCatchParameterJS,ContinueStatementJS,BreakStatementJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithInconsistentReturnsJS
+// noinspection OverlyNestedFunctionJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,IfStatementWithoutBlockJS,NegatedIfStatementJS
+// noinspection NegatedConditionalExpressionJS,JSNegatedConditionalExpression,OverlyComplexBooleanExpressionJS,ExceptionCaughtLocallyJS,PointlessBitwiseExpressionJS
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,XHTMLIncompatabilitiesJS,JSAccessInconsistentInXHTML
+// noinspection JSAsyncFunctionMissingAwait,JSMissingAwait,JSUnfilteredForInLoop,OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS
+// noinspection OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures,JSValidateTypes,JSPotentiallyInvalidUsageOfThis
+// noinspection JSIgnoredPromiseFromCall,AnonymousCapturingGroupJS,AssignmentToFunctionParameterJS,JSIfStatementsCanBeSimplified,IfStatementSimplifyable,RedundantIfStatementJS
+// noinspection RegExpRedundantEscape,JSDeprecatedSymbols,VoidExpressionJS,JSVoidExpression,RedundantLocalVariableJS,JSPossiblyAssignedToNullVariable
 
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
@@ -2232,6 +2240,13 @@ function app() {
       // view, set sub-tab, fire the matching loader.
       this.view = 'stats';
       this.statsTab = tab || 'dashboard';
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('statsTab', this.statsTab);
+        }
+      } catch (_) {
+        /* private mode */
+      }
       if (this.statsTab === 'dashboard') {
         await this.loadStatsOverview();
       } else {
@@ -2557,7 +2572,7 @@ function app() {
         };
       }
       const hhmm = (s.run_at_hhmm || '').trim();
-      if (!hhmm || !/^([01]\d|2[0-3]):[0-5]\d$/.test(hhmm)) {
+      if (!hhmm || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(hhmm)) {
         this.showToast(this.t('admin.schedules.hhmm_invalid'), 'error');
         return null;
       }
@@ -3017,7 +3032,7 @@ function app() {
       }
       const lines = body.split('\n');
       // ISO ts + 1 or more spaces + LEVEL token + space + rest.
-      const RX = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s+(ERROR|WARN|SUCCESS|INFO)\s+(.*)$/;
+      const RX = /^(?<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s+(?<level>ERROR|WARN|SUCCESS|INFO)\s+(?<text>.*)$/;
       const out = [];
       for (const raw of lines) {
         if (!raw) {
@@ -3025,12 +3040,12 @@ function app() {
         }
         const m = RX.exec(raw);
         if (m) {
-          const epoch = Date.parse(m[1]) / 1000;
+          const epoch = Date.parse(m.groups.ts) / 1000;
           out.push({
             ts: Number.isFinite(epoch) ? epoch : 0,
             stream: 'file',
-            level: m[2].toLowerCase(),  // matches `logSeverity()` output
-            text: m[3],
+            level: m.groups.level.toLowerCase(),  // matches `logSeverity()` output
+            text: m.groups.text,
           });
         } else {
           // Non-conforming line — render as INFO with the raw text.
@@ -6624,8 +6639,7 @@ function app() {
           }
           set.delete(vendor);
         }
-        const next = Object.assign({}, snmpIn, {vendors: Array.from(set).sort()});
-        this.hostsConfig[idx].snmp = next;
+        this.hostsConfig[idx].snmp = Object.assign({}, snmpIn, {vendors: Array.from(set).sort()});
         this.markHostRowDirty(idx);
         touched += 1;
       }
@@ -6915,7 +6929,7 @@ function app() {
       //      and use the bare hostname.
       // Skip the promotion entirely when host is an IPv4 literal —
       // appending a DNS suffix to an IP makes no sense.
-      if (host && host.indexOf('.') < 0 && !/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+      if (host && host.indexOf('.') < 0 && !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) {
         let suffix = this._resolveLanSuffixFromCuratedHosts(host);
         if (!suffix) {
           // Fallback: last-2-labels of window.location.hostname.
@@ -6962,7 +6976,7 @@ function app() {
             continue;
           }
           // Skip IPv4 literals — they're not FQDNs.
-          if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) {
+          if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(v)) {
             continue;
           }
           // Skip URL-shaped values (some `address` rows are full URLs).
@@ -8661,9 +8675,9 @@ function app() {
       // navigate to that page BEFORE the DOM query — otherwise the
       // .field-invalid element doesn't exist and focus silently
       // no-ops, leaving the operator confused about why save failed.
-      const m = first.match(/^host_(\d+)_/);
+      const m = first.match(/^host_(?<idx>\d+)_/);
       if (m) {
-        const rowIdx = parseInt(m[1], 10);
+        const rowIdx = parseInt(m.groups.idx, 10);
         const all = this.filteredHostsConfig();
         const pos = all.findIndex(({idx}) => idx === rowIdx);
         if (pos >= 0) {
@@ -13250,14 +13264,14 @@ function app() {
       // Empty HTML heading anchors GitHub adds for permalinks: `<a id="x"></a>`
       out = out.replace(/<a\s+id=["'][^"']*["']\s*><\/a>/gi, '');
       // HTML <a href="..."> with inner text → keep text only.
-      out = out.replace(/<a\s+href=["'][^"']*["'][^>]*>([\s\S]*?)<\/a>/gi, '$1');
+      out = out.replace(/<a\s+href=["'][^"']*["'][^>]*>(?<txt>[\s\S]*?)<\/a>/gi, '$<txt>');
       // Markdown image refs (rare in release notes but worth handling
       // before the generic link rule so we don't keep `![alt]` orphans).
       // `![alt](url)` → `alt`.
-      out = out.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, '$1');
+      out = out.replace(/!\[([^\]]*)\]\((?:https?:\/\/[^)]+)\)/g, '$1');
       // Markdown links: `[text](url)` → `text`. Empty text → drop the
       // whole thing (e.g. `[](url)` is just a wrapper around a URL).
-      out = out.replace(/\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, (m, txt) => {
+      out = out.replace(/\[([^\]]*)\]\((?:https?:\/\/[^)]+)\)/g, (m, txt) => {
         return (txt || '').trim() || '';
       });
       // Bare URLs in prose (`https://example.com/x` standalone): drop
