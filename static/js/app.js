@@ -1,4 +1,6 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
+// noinspection NestedFunctionCallJS
+
 // Note: the JSHint-style `/* global Alpine, Swal, I18N, t */` directive
 // that used to live here was removed when this file became an ES module
 // — ESLint v9 under sourceType:"module" parses that directive and treats
@@ -26,7 +28,6 @@
 // `this.X` cross-reference because every method still merges into one
 // Alpine component at instantiation time.
 
-// noinspection ALL
 
 import appUtils from './app-utils.js?v=__APP_VERSION__';
 import appI18n from './app-i18n.js?v=__APP_VERSION__';
