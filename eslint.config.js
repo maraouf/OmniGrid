@@ -87,6 +87,14 @@ export default [
       "no-unused-vars": [
         "warn",
         {
+          // Only check LOCAL (var/let/const) declarations in the file
+          // body — don't flag globals declared via `/* global */`
+          // directives, which each module carries for JSHint compat.
+          // ESLint's languageOptions.globals already declares them at
+          // config level; the per-file directive duplicates the
+          // declaration for the user's IDE JSHint runner that doesn't
+          // read .jshintrc.
+          vars: "local",
           argsIgnorePattern: "^_",
           varsIgnorePattern: "^_",
           caughtErrorsIgnorePattern: "^_",
@@ -117,6 +125,16 @@ export default [
         "warn",
         { allowShortCircuit: true, allowTernary: true, allowTaggedTemplates: true },
       ],
+      // Each app-*.js module carries a file-level `/* global Alpine, Swal,
+      // I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */`
+      // directive — required by JSHint (the user's IDE JSHint runner
+      // doesn't read the project-root `.jshintrc`, so W117 "'Swal' is
+      // not defined" only goes away when each file declares the globals
+      // inline). ESLint then treats those identifiers as redeclared on
+      // top of the `globals` block above. Both readers happy if we drop
+      // the redeclare check — the globals block stays authoritative
+      // ESLint-side, the `/* global */` directive serves JSHint only.
+      "no-redeclare": "off",
     },
   },
   // ES-module override for the SPA's refactored top-level Alpine
