@@ -9945,6 +9945,24 @@ function app() {
       if (this._snmpHasProbeTarget(h) && this.hasHostStatsSource('snmp')) {
         out.push({name: 'snmp', label: 'SNMP'});
       }
+      // HTTP probe — eighth provider. Surfaces when the host has the
+      // per-host http_probe.enabled flag set AND the master toggle is
+      // ON (the dual-toggle was collapsed to a single master in the
+      // Providers admin, so hasHostStatsSource('http_probe') now reads
+      // settings.http_probe_enabled directly).
+      if (h.http_probe_enabled === true && this.hasHostStatsSource('http_probe')) {
+        out.push({name: 'http_probe', label: 'HTTP probe'});
+      }
+      // Service probe — per-service-chip reachability sampler. Surfaces
+      // when ANY entry in the host's services[] carries probe.enabled
+      // === true AND the global master toggle is ON. The sampler's
+      // contract mirrors this gate (logic/service_sampler.py only
+      // probes opted-in entries when the master setting is ON).
+      const hasServiceProbe = Array.isArray(h.services)
+        && h.services.some(s => s && s.probe && s.probe.enabled === true);
+      if (hasServiceProbe && this.hasHostStatsSource('service_probe')) {
+        out.push({name: 'service_probe', label: 'Service probe'});
+      }
       return out;
     },
     // List of paused provider names for one host.
