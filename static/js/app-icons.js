@@ -1,4 +1,5 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
+// noinspection ElementNotExported,JSUnusedGlobalSymbols,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag
 // Icon registry for the SPA's brand-icon resolver.
 //
 // `KNOWN_ICONS` is the registry of every icon file that actually exists

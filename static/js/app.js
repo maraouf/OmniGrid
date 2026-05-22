@@ -1,5 +1,5 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
-// noinspection NestedFunctionCallJS
+// noinspection NestedFunctionCallJS,AnonymousFunctionJS,ElementNotExported,JSUnusedGlobalSymbols,MagicNumberJS,ConditionalExpressionJS,ContinueStatementJS,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag
 
 // Note: the JSHint-style `/* global Alpine, Swal, I18N, t */` directive
 // that used to live here was removed when this file became an ES module
@@ -65,8 +65,30 @@ import appMinorTools from './app-minor-tools.js?v=__APP_VERSION__';
 // keep working. No exports.
 import './app-globals.js?v=__APP_VERSION__';
 
+// Merge module exports into one target while PRESERVING property
+// descriptors. `Object.assign` calls every getter at copy-time and
+// stores the RESULT VALUE — which breaks Alpine reactivity on any
+// `get filteredStacks() / get counts() / get filteredItems() / get
+// sortedFiltered() / get passwordStrength() / get historyStackOptions() /
+// get _LOAD_BUSY_MAX_MS()` declared in the modules or the inline
+// state literal. Pre-fix the Stacks / Services / Nodes views showed
+// the topbar count correctly (`stacks.length` is a direct read) but
+// rendered ZERO rows because `filteredStacks` had been frozen to its
+// empty-initial-state value at factory call time. `defineProperties`
+// over `getOwnPropertyDescriptors` copies the getter descriptor as-is
+// so Alpine's proxy sees a live computed property.
+function _mergeKeepDescriptors(target, ...sources) {
+  for (const source of sources) {
+    if (!source) {
+      continue;
+    }
+    Object.defineProperties(target, Object.getOwnPropertyDescriptors(source));
+  }
+  return target;
+}
+
 function app() {
-  return Object.assign({}, appMinorTools, appTuning, appStats, appOps, appProviders, appHostsGrid, appNotifyAdmin, appTopbar, appHostDrawer, appCommandPalette, appCharts, appHostsEditor, appAi, appLogs, appHostGroups, appPortainer, appOidc, appUsersAdmin, appSchedules, appBackups, appSsh, appNotificationsPopup, appAuth, appTelegram, appAsset, appSse, appKeyboard, appIconResolvers, appI18n, appUtils, {
+  return _mergeKeepDescriptors({}, appMinorTools, appTuning, appStats, appOps, appProviders, appHostsGrid, appNotifyAdmin, appTopbar, appHostDrawer, appCommandPalette, appCharts, appHostsEditor, appAi, appLogs, appHostGroups, appPortainer, appOidc, appUsersAdmin, appSchedules, appBackups, appSsh, appNotificationsPopup, appAuth, appTelegram, appAsset, appSse, appKeyboard, appIconResolvers, appI18n, appUtils, {
     items: [], stacks: [], nodes: {}, nodesInfo: {},
     // Swarm agent unhealthy banner — populated by `loadStats` from
     // `/api/stats`'s `unhealthy_agents` field. Each entry is
@@ -118,11 +140,17 @@ function app() {
     // a belt-and-braces safety check on top of EventSource's onerror
     // (which doesn't always fire on silent half-open sockets).
     _sseFreshnessTimer: null,
-    view: (['stacks','services','nodes','hosts','history','settings','admin','stats'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
+    view: (['stacks', 'services', 'nodes', 'hosts', 'history', 'settings', 'admin', 'stats'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
     search: '', statusFilter: '', healthFilter: '',
     sortField: 'name', sortDir: 'asc',
     selected: [],
-    expanded: (() => { try { return JSON.parse(localStorage.getItem('expanded') || '[]'); } catch (_) { return []; } })(),
+    expanded: (() => {
+      try {
+        return JSON.parse(localStorage.getItem('expanded') || '[]');
+      } catch (_) {
+        return [];
+      }
+    })(),
     loading: false,
     // Background-refresh indicators. The /api/items + /api/hosts/list
     // endpoints serve cached / snapshot data instantly when warm and
@@ -195,8 +223,8 @@ function app() {
     selectedHosts: new Set(),
     // Bulk-action modals — pure UI state. Each opens a SweetAlert-style
     // dialog so the operator can review the change before sending.
-    bulkSnmpVendorsModal: { open: false, vendors: [], mode: 'set' },
-    bulkSnmpTunablesModal: { open: false, walk_concurrency: '', wall_clock_budget: '', clear: false },
+    bulkSnmpVendorsModal: {open: false, vendors: [], mode: 'set'},
+    bulkSnmpTunablesModal: {open: false, walk_concurrency: '', wall_clock_budget: '', clear: false},
     // Progressive UI feedback after a bulk action lands. Set to
     // {applied, total, action, ts} for ~5 s after the response, then
     // cleared by `_bulkAppliedTimer`. Each affected host row also
@@ -322,7 +350,7 @@ function app() {
     // localStorage so the operator's chosen cadence survives a
     // browser refresh — previously it reset to 0 on every reload.
     //
-  // `refreshInterval` is now the canonical operator-set
+    // `refreshInterval` is now the canonical operator-set
     // cadence; legacy `autoRefresh` (items poll) and `statsInterval`
     // (stats poll) are mirrored to it on every change so the existing
     // pollers don't need to be rewired. Migration: prefer existing
@@ -350,28 +378,34 @@ function app() {
           return [0, 30, 60, 300].includes(a) ? a : 60;
         }
         return -1;
-      } catch { return -1; }
+      } catch {
+        return -1;
+      }
     })(),
     autoRefresh: (() => {
       try {
         const n = parseInt(localStorage.getItem('autoRefresh') || '0', 10);
         return Number.isFinite(n) && n >= 0 ? n : 0;
-      } catch { return 0; }
+      } catch {
+        return 0;
+      }
     })(),
     _autoTimer: null, _opsTimer: null,
     cacheLabel: '',
-    settings: { apprise_url: '', apprise_tag: '', swarm_autoheal_action: 'notify', swarm_autoheal_bootstrap_enabled: true, portainer_public_url: '', debug_panel_enabled: true,
-                // TOTP / 2FA policy defaults so the Admin -> Config inputs
-                // bind cleanly before the first /api/settings response.
-                totp_allowed: true, totp_required_for_admins: false, totp_required_for_users: false,
-                totp_lockout_max_failures: 5, totp_lockout_minutes: 15,
-                // Passkey master toggle default — same `true` as the backend's
-                // `_TOTP_POLICY_DEFAULTS["passkeys_allowed"]` so the form
-                // renders the box checked before the first /api/settings hit.
-                passkeys_allowed: true,
-                // AI integration defaults so the AI tab's form renders
-                // sensibly before the first /api/settings response.
-                ai_enabled: false, ai_active_provider: 'claude', ai_max_tokens: 1024 },
+    settings: {
+      apprise_url: '', apprise_tag: '', swarm_autoheal_action: 'notify', swarm_autoheal_bootstrap_enabled: true, portainer_public_url: '', debug_panel_enabled: true,
+      // TOTP / 2FA policy defaults so the Admin -> Config inputs
+      // bind cleanly before the first /api/settings response.
+      totp_allowed: true, totp_required_for_admins: false, totp_required_for_users: false,
+      totp_lockout_max_failures: 5, totp_lockout_minutes: 15,
+      // Passkey master toggle default — same `true` as the backend's
+      // `_TOTP_POLICY_DEFAULTS["passkeys_allowed"]` so the form
+      // renders the box checked before the first /api/settings hit.
+      passkeys_allowed: true,
+      // AI integration defaults so the AI tab's form renders
+      // sensibly before the first /api/settings response.
+      ai_enabled: false, ai_active_provider: 'claude', ai_max_tokens: 1024
+    },
     openMeteoSaving: false,
     // Per-host DISKS card collapse state for the "Show N empty" toggle.
     // Keyed by host.host. In-memory only — zero-usage mounts rarely
@@ -435,12 +469,12 @@ function app() {
     // stats) moved under the Admin section since they're global and
     // only admins can change them.
     settingsSections: [
-      { id: 'profile',       label: 'Profile',            icon: 'user' },
-      { id: 'notifications', label: 'Notifications',      icon: 'bell' },
-      { id: 'ignores',       label: 'Ignore list',        icon: 'trash' },
-      { id: 'language',      label: 'Language',           icon: 'info' },
-      { id: 'security',      label: 'Security',           icon: 'shield' },
-      { id: 'shortcuts',     label: 'Keyboard shortcuts', icon: 'help-circle' },
+      {id: 'profile', label: 'Profile', icon: 'user'},
+      {id: 'notifications', label: 'Notifications', icon: 'bell'},
+      {id: 'ignores', label: 'Ignore list', icon: 'trash'},
+      {id: 'language', label: 'Language', icon: 'info'},
+      {id: 'security', label: 'Security', icon: 'shield'},
+      {id: 'shortcuts', label: 'Keyboard shortcuts', icon: 'help-circle'},
     ],
     settingsSection: (function () {
       // Gracefully migrate users whose localStorage still points at the
@@ -451,7 +485,7 @@ function app() {
     })(),
     // Profile form state — mirrors the `me` snapshot but held separately
     // so the user can edit without losing unsaved changes across refetches.
-    profileForm: { display_name: '', bio: '', email: '', notify_events: {} },
+    profileForm: {display_name: '', bio: '', email: '', notify_events: {}},
     // Baseline snapshot string of the profile form, captured by
     // syncProfileForm() and refreshed by saveProfile(). Drives
     // profileDirty() so reverting an edit clears the amber ring.
@@ -459,28 +493,28 @@ function app() {
     profileBusy: false,
     avatarBusy: false,
     adminSections: [
-      { id: 'general',        label: 'General',         icon: 'sliders' },
-      { id: 'users',          label: 'Users',           icon: 'users' },
-      { id: 'authentication', label: 'Authentication',  icon: 'shield' },
-      { id: 'sessions',       label: 'Sessions',        icon: 'monitor' },
-      { id: 'tokens',         label: 'API tokens',      icon: 'key' },
-      { id: 'notifications',  label: 'Notifications',   icon: 'bell' },
-      { id: 'portainer',      label: 'Portainer',       icon: 'portainer' },
-      { id: 'oidc',           label: 'Authentik OIDC',  icon: 'authentik' },
-      { id: 'host_stats',     label: 'Host stats',      icon: 'activity' },
-      { id: 'host_groups',    label: 'Host Groups',     icon: 'layers' },
-      { id: 'hosts',          label: 'Hosts',           icon: 'server' },
-      { id: 'ssh',            label: 'SSH',             icon: 'terminal' },
-      { id: 'public_ip',      label: 'Public IP',       icon: 'globe' },
-      { id: 'port_scan',      label: 'Port Scan',       icon: 'search' },
-      { id: 'assets',         label: 'Asset inventory', icon: 'package' },
-      { id: 'ai',             label: 'AI integration',  icon: 'zap' },
-      { id: 'schedules',      label: 'Schedules',       icon: 'calendar' },
-      { id: 'backups',        label: 'Backup',          icon: 'archive' },
-      { id: 'logs',           label: 'Logs',            icon: 'file-text' },
-      { id: 'config',         label: 'Config',          icon: 'settings' },
-      { id: 'config_backup',  label: 'Config Backup',   icon: 'save' },
-      { id: 'debug',          label: 'Debug',           icon: 'bug' },
+      {id: 'general', label: 'General', icon: 'sliders'},
+      {id: 'users', label: 'Users', icon: 'users'},
+      {id: 'authentication', label: 'Authentication', icon: 'shield'},
+      {id: 'sessions', label: 'Sessions', icon: 'monitor'},
+      {id: 'tokens', label: 'API tokens', icon: 'key'},
+      {id: 'notifications', label: 'Notifications', icon: 'bell'},
+      {id: 'portainer', label: 'Portainer', icon: 'portainer'},
+      {id: 'oidc', label: 'Authentik OIDC', icon: 'authentik'},
+      {id: 'host_stats', label: 'Host stats', icon: 'activity'},
+      {id: 'host_groups', label: 'Host Groups', icon: 'layers'},
+      {id: 'hosts', label: 'Hosts', icon: 'server'},
+      {id: 'ssh', label: 'SSH', icon: 'terminal'},
+      {id: 'public_ip', label: 'Public IP', icon: 'globe'},
+      {id: 'port_scan', label: 'Port Scan', icon: 'search'},
+      {id: 'assets', label: 'Asset inventory', icon: 'package'},
+      {id: 'ai', label: 'AI integration', icon: 'zap'},
+      {id: 'schedules', label: 'Schedules', icon: 'calendar'},
+      {id: 'backups', label: 'Backup', icon: 'archive'},
+      {id: 'logs', label: 'Logs', icon: 'file-text'},
+      {id: 'config', label: 'Config', icon: 'settings'},
+      {id: 'config_backup', label: 'Config Backup', icon: 'save'},
+      {id: 'debug', label: 'Debug', icon: 'bug'},
     ],
     // Multi-tab activity registry — { client_id: { actor, view, drawer_host,
     // admin_tab, settings_section, stats_tab, title, ts } }. Hydrated at SPA
@@ -493,7 +527,7 @@ function app() {
     _tabHeartbeatBusy: false,
     // Last-published heartbeat snapshot — heartbeat short-circuits when
     // nothing changed since last post + < 30s elapsed.
-    _tabHeartbeatLast: { ts: 0, signature: '' },
+    _tabHeartbeatLast: {ts: 0, signature: ''},
     // BroadcastChannel for cross-tab focus. `null` when the browser
     // doesn't support it (Safari < 15.4 / older Firefox).
     _tabFocusChannel: null,
@@ -504,7 +538,7 @@ function app() {
     // visible. Persists to localStorage so reload preserves the view.
     // Severity values match the strings `logSeverity()` returns.
     logSeverityLevels: ['error', 'warn', 'ok', 'info'],
-    logSeverityFilter: { error: true, warn: true, ok: true, info: true },
+    logSeverityFilter: {error: true, warn: true, ok: true, info: true},
     logPollHandle: null,
     // Display order for the weekday picker. Mon=0..Sun=6 matches the
     // backend's Python tm_wday convention; labels are i18n keys.
@@ -530,11 +564,12 @@ function app() {
         if (v && ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp'].includes(v)) {
           return v;
         }
-      } catch {}
+      } catch {
+      }
       return 'beszel';
     })(),
     snapshotsLoaded: false,
-    newIgnore: { kind: 'image', pattern: '' },
+    newIgnore: {kind: 'image', pattern: ''},
     endpointId: 1,
     busy: {},
     themePref: localStorage.getItem('theme') || 'auto',
@@ -549,12 +584,12 @@ function app() {
     // SESSION_SECRET in the env. Once they fix it, the backend stops
     // setting `me.session_secret_auto` so the banner disappears.
     sessionSecretWarningDismissed: (typeof sessionStorage !== 'undefined' &&
-                                    sessionStorage.getItem('sessionSecretWarningDismissed') === '1') || false,
+      sessionStorage.getItem('sessionSecretWarningDismissed') === '1') || false,
     // Same dismissal pattern as the SESSION_SECRET banner — per-session,
     // re-appears after a restart so the operator sees the reminder until
     // they actually clear the env vars.
     bootstrapEnvWarningDismissed: (typeof sessionStorage !== 'undefined' &&
-                                    sessionStorage.getItem('bootstrapEnvWarningDismissed') === '1') || false,
+      sessionStorage.getItem('bootstrapEnvWarningDismissed') === '1') || false,
 
     async init() {
       // Expose the live Alpine component instance globally for the
@@ -564,7 +599,10 @@ function app() {
       // need here is the same `this` that Alpine has been mutating
       // since boot. Single-replica + single-component-per-page so
       // there's no ambiguity about which instance to expose.
-      try { window.omnigrid = this; } catch (_) {}
+      try {
+        window.omnigrid = this;
+      } catch (_) {
+      }
       // Wrap any orphan `<input type="password">` in a hidden
       // `<form>` so Chrome / Edge stop logging "Password field is
       // not contained in a form" warnings (~17 instances across
@@ -575,7 +613,10 @@ function app() {
       // handlers stay the source of truth. Runs on init AND on every
       // settings-section / admin-tab open via a MutationObserver so
       // dynamically-rendered partials get the same treatment.
-      try { this._wrapOrphanPasswordFields(); } catch (_) {}
+      try {
+        this._wrapOrphanPasswordFields();
+      } catch (_) {
+      }
       try {
         const obs = new MutationObserver(() => {
           // Debounce — multiple Alpine x-if toggles fire in bursts;
@@ -586,11 +627,15 @@ function app() {
           this._wrapPwdScheduled = true;
           queueMicrotask(() => {
             this._wrapPwdScheduled = false;
-            try { this._wrapOrphanPasswordFields(); } catch (_) {}
+            try {
+              this._wrapOrphanPasswordFields();
+            } catch (_) {
+            }
           });
         });
-        obs.observe(document.body, { childList: true, subtree: true });
-      } catch (_) {}
+        obs.observe(document.body, {childList: true, subtree: true});
+      } catch (_) {
+      }
       // Tick the last-test-success "now" reference once a minute so
       // the relative-time labels next to every Test connection button
       // refresh without reload. Cheap (one int assignment + reactive
@@ -600,7 +645,8 @@ function app() {
         setInterval(() => {
           this._lastTestSuccessNow = Math.floor(Date.now() / 1000);
         }, 60 * 1000);
-      } catch (_) {}
+      } catch (_) {
+      }
       // Idle-time progressive fill for the Hosts view. While the
       // operator stays at the top of the page (no scroll), the
       // IntersectionObserver only fires for the few rows actually in
@@ -638,7 +684,7 @@ function app() {
         // body/window, not a nested container.
         window.addEventListener('scroll', () => {
           lastScrollTs = Date.now();
-        }, { passive: true });
+        }, {passive: true});
         // First ~5 ticker fires log their gate evaluation to console
         // so operators chasing "why isn't idle-fill working?" can see
         // which gate is blocking without inspecting source. Bounded so
@@ -655,20 +701,20 @@ function app() {
             const intervalSeconds = (this.me && this.me.client_config
               && Number(this.me.client_config.hosts_idle_fill_seconds)) || 0;
             if (intervalSeconds <= 0) {
-              _idleDebug('skip: intervalSeconds<=0', { intervalSeconds });
+              _idleDebug('skip: intervalSeconds<=0', {intervalSeconds});
               return;
             }
             if (this.view !== 'hosts') {
-              _idleDebug('skip: wrong view', { view: this.view });
+              _idleDebug('skip: wrong view', {view: this.view});
               return;
             }
             if (typeof document !== 'undefined'
-                && document.visibilityState === 'hidden') {
+              && document.visibilityState === 'hidden') {
               _idleDebug('skip: tab hidden');
               return;
             }
             if (this.drawerHost) {
-              _idleDebug('skip: drawer open', { id: this.drawerHost && this.drawerHost.id });
+              _idleDebug('skip: drawer open', {id: this.drawerHost && this.drawerHost.id});
               return;
             }
             // Skip if the user is actively scrolling — let the IO
@@ -681,7 +727,7 @@ function app() {
             // that the next ticker tick re-skips on the same residual.
             const sinceScroll = Date.now() - lastScrollTs;
             if (sinceScroll < 500) {
-              _idleDebug('skip: recent scroll', { sinceScrollMs: sinceScroll });
+              _idleDebug('skip: recent scroll', {sinceScrollMs: sinceScroll});
               return;
             }
             const hosts = this.hosts || [];
@@ -748,13 +794,18 @@ function app() {
             try {
               this._enqueueHostRefresh(nextId);
               enqueued = true;
-            } catch (_) { /* enqueue failed — leave host unseen for retry */ }
+            } catch (_) { /* enqueue failed — leave host unseen for retry */
+            }
             if (enqueued) {
               seen.add(nextId);
               this._hostSeenIds = seen;
-              try { this._ensureHostRefreshWorkers(); } catch (_) {}
+              try {
+                this._ensureHostRefreshWorkers();
+              } catch (_) {
+              }
             }
-          } catch (_) { /* never let the ticker throw */ }
+          } catch (_) { /* never let the ticker throw */
+          }
         };
         // Run the ticker every 1 s; the gate inside compares
         // `intervalSeconds` against an internal counter so the
@@ -773,17 +824,21 @@ function app() {
           }
           idleFillTick();
         }, 1000);
-      } catch (_) {}
+      } catch (_) {
+      }
       // Restore persisted UI prefs that need to land before the first
       // render of their dependent views.
       this._restoreLogSeverity();
       // i18n is already loaded (Alpine is gated on __i18nReady), but pull
       // the authoritative language list + current code/dir into the
       // reactive Alpine state so pickers and v-bindings track it.
-      try { await window.__i18nReady; } catch (_) {}
+      try {
+        await window.__i18nReady;
+      } catch (_) {
+      }
       if (window.I18N) {
         this.lang = window.I18N.code;
-        this.dir  = window.I18N.dir;
+        this.dir = window.I18N.dir;
         this.availableLanguages = window.I18N.languages || this.availableLanguages;
       }
       // Resolve identity FIRST. Unauthenticated users get redirected to
@@ -814,7 +869,8 @@ function app() {
             if (Array.isArray(names) && names.length) {
               this.aiProviderNames = names.slice();
             }
-          } catch (_) { /* fall through to the literal fallback */ }
+          } catch (_) { /* fall through to the literal fallback */
+          }
           // Hydrate theme preference from the user's DB-backed
           // `ui_prefs.theme` (cross-browser / cross-machine source of
           // truth). localStorage stays as a per-browser fast-path
@@ -825,12 +881,16 @@ function app() {
           try {
             const dbTheme = (m && m.ui_prefs && m.ui_prefs.theme) || '';
             if (dbTheme && ['auto', 'light', 'dark'].includes(dbTheme)
-                && dbTheme !== this.themePref) {
+              && dbTheme !== this.themePref) {
               this.themePref = dbTheme;
-              try { localStorage.setItem('theme', dbTheme); } catch (_) {}
+              try {
+                localStorage.setItem('theme', dbTheme);
+              } catch (_) {
+              }
               this.applyTheme();
             }
-          } catch (_) {}
+          } catch (_) {
+          }
           // Hydrate UI language from DB — same write-through pattern
           // as theme. localStorage caches the operator's last choice
           // for instant first-paint; DB value wins on every load so
@@ -841,12 +901,16 @@ function app() {
           try {
             const dbLang = (m && m.ui_prefs && m.ui_prefs.lang) || '';
             if (dbLang && dbLang !== this.lang) {
-              try { localStorage.setItem('lang', dbLang); } catch (_) {}
+              try {
+                localStorage.setItem('lang', dbLang);
+              } catch (_) {
+              }
               if (typeof this.setLang === 'function') {
                 this.setLang(dbLang);
               }
             }
-          } catch (_) {}
+          } catch (_) {
+          }
           // Hydrate host-drawer time-range picker from DB — same shape
           // as theme above. Override the localStorage cache when the DB
           // has a value so the operator's preferred range follows them
@@ -854,14 +918,15 @@ function app() {
           try {
             const dbRange = m && m.ui_prefs && Number(m.ui_prefs.host_history_range);
             if (Number.isFinite(dbRange) && dbRange > 0
-                && dbRange !== this.hostHistoryRange) {
+              && dbRange !== this.hostHistoryRange) {
               // Setting the bound model triggers the existing $watch
               // which writes the localStorage cache + re-PATCHes the
               // backend. The PATCH is idempotent (same value) so the
               // round-trip costs ~30ms once on /api/me load.
               this.hostHistoryRange = dbRange;
             }
-          } catch (_) {}
+          } catch (_) {
+          }
           // AI sidebar slash-picker recents — last 5 invoked
           // ACTION-kind slash entries, FIFO + dedupe, persisted to
           // ui_prefs.ai_recent_slash_actions so the "Recents" group
@@ -872,7 +937,8 @@ function app() {
             if (Array.isArray(recents)) {
               this.aiRecentSlashActions = recents.slice(0, 5).filter(x => typeof x === 'string' && x);
             }
-          } catch (_) {}
+          } catch (_) {
+          }
           // AI sidebar mode (approval / autonomous). Persisted to
           // ui_prefs.ai_sidebar_mode so the operator's pick follows
           // them across browsers. Default 'approval' — destructive
@@ -885,7 +951,8 @@ function app() {
             if (mode === 'approval' || mode === 'autonomous') {
               this.aiSidebarMode = mode;
             }
-          } catch (_) {}
+          } catch (_) {
+          }
           // AI sidebar launcher visibility — operator-controlled
           // preference to hide the floating launcher button so
           // keyboard-only operators don't pay the Tab cost on every
@@ -901,7 +968,8 @@ function app() {
             // would return true on the very first render because the
             // draft default differs from the just-loaded value.
             this.aiSidebarLauncherHiddenDraft = !!hidden;
-          } catch (_) {}
+          } catch (_) {
+          }
           // ui_prefs.notifications_group_similar — Notifications popup
           // cluster-pivot toggle. Operator's choice
           // persists cross-device so a busy fleet's "group similar"
@@ -909,7 +977,8 @@ function app() {
           try {
             const gs = m && m.ui_prefs && m.ui_prefs.notifications_group_similar;
             this.notificationsGroupSimilar = !!gs;
-          } catch (_) {}
+          } catch (_) {
+          }
           // ui_prefs.ai_sidebar_pinned — pin-to-dock mode. When true,
           // the sidebar opens automatically AND stays docked as a
           // left-edge split (body padding shrinks main view).
@@ -926,7 +995,8 @@ function app() {
             if (this.aiSidebarPinned) {
               this.aiSidebarOpen = true;
             }
-          } catch (_) {}
+          } catch (_) {
+          }
           // AI assistant conversation history — restore from
           // ui_prefs.ai_conversation so a hard reload (or moving to a
           // different browser / machine) doesn't drop the chat. The
@@ -958,7 +1028,8 @@ function app() {
                   }
                 }
               }
-            } catch (_) { /* private-mode / corrupt entry — skip */ }
+            } catch (_) { /* private-mode / corrupt entry — skip */
+            }
             const dbLen = Array.isArray(dbConv) ? dbConv.length : 0;
             const lsLen = Array.isArray(lsConv) ? lsConv.length : 0;
             const conv = (lsLen > dbLen) ? lsConv : dbConv;
@@ -977,15 +1048,15 @@ function app() {
               // tightens back to exact cutoff comparison.
               const filtered = cutoff > 0
                 ? conv.filter(t => {
-                    if (!t) {
-                      return false;
-                    }
-                    const ts = Number(t.ts);
-                    if (!Number.isFinite(ts) || ts <= 0) {
-                      return true;
-                    } // legacy / missing ts → preserve
-                    return ts > cutoff;
-                  })
+                  if (!t) {
+                    return false;
+                  }
+                  const ts = Number(t.ts);
+                  if (!Number.isFinite(ts) || ts <= 0) {
+                    return true;
+                  } // legacy / missing ts → preserve
+                  return ts > cutoff;
+                })
                 : conv;
               this.aiConversation = filtered;
               this._aiConversationClearedAt = cutoff;
@@ -996,7 +1067,10 @@ function app() {
               // failure here just means the next persist round-trip
               // (next turn / clear / feedback) will handle it.
               if (lsLen > dbLen) {
-                try { this.persistAiConversation(); } catch (_) {}
+                try {
+                  this.persistAiConversation();
+                } catch (_) {
+                }
               }
               // Re-fetch chart data for any restored turn that had
               // `host_ids` — the shells render via x-html but stay in
@@ -1015,7 +1089,8 @@ function app() {
                 }
               });
             }
-          } catch (_) {}
+          } catch (_) {
+          }
           // Hydrate the last-Test-success cache from the DB-backed
           // `client_config.last_test_success` block. Drives the
           // "Last connected: <relative time>" label next to every Test
@@ -1023,7 +1098,7 @@ function app() {
           // because the source is the `settings` KV row, not localStorage.
           const lts = m && m.client_config && m.client_config.last_test_success;
           if (lts && typeof lts === 'object') {
-            this._lastTestSuccess = { ...lts };
+            this._lastTestSuccess = {...lts};
           }
           // Adopt operator-tunable notifications page size from
           // /api/me's client_config. Falls back to the in-data()
@@ -1062,13 +1137,16 @@ function app() {
             this.loadPasskeys();
           }
         }
-      } catch (_) { /* network hiccup — next fetch will trip the wrapper */ }
+      } catch (_) { /* network hiccup — next fetch will trip the wrapper */
+      }
 
       if (window.matchMedia) {
         const mq = window.matchMedia('(prefers-color-scheme: light)');
-        const onSys = () => { if (this.themePref === 'auto') {
-          this.applyTheme();
-        } };
+        const onSys = () => {
+          if (this.themePref === 'auto') {
+            this.applyTheme();
+          }
+        };
         mq.addEventListener ? mq.addEventListener('change', onSys) : mq.addListener(onSys);
       }
       this.applyTheme();
@@ -1084,7 +1162,10 @@ function app() {
       // cross-machine source of truth. Same shape as the theme
       // migration.
       this.$watch('hostHistoryRange', v => {
-        try { localStorage.setItem('hostHistoryRange', String(v)); } catch (_) {}
+        try {
+          localStorage.setItem('hostHistoryRange', String(v));
+        } catch (_) {
+        }
         this.persistHostHistoryRange(v);
         // Re-fetch host-debug for any host whose debug panel is
         // currently open — the `samples_in_window` block is keyed
@@ -1094,10 +1175,12 @@ function app() {
         try {
           for (const hid of Object.keys(this.hostsDebugOpen || {})) {
             if (this.hostsDebugOpen[hid] && !this.hostsDebugLoading[hid]) {
-              this.loadHostDebug(hid).catch(() => {});
+              this.loadHostDebug(hid).catch(() => {
+              });
             }
           }
-        } catch (_) {}
+        } catch (_) {
+        }
       });
       // AI-sidebar textarea — vanilla input listener that throttles
       // `aiSidebarQuery` updates to once every ~300 ms. Pre-fix the
@@ -1135,19 +1218,28 @@ function app() {
             el.placeholder = ph;
             el.setAttribute('aria-label', ph);
           }
-        } catch (_) { /* ignore */ }
+        } catch (_) { /* ignore */
+        }
         // Reflect aiSidebarBusy onto the disabled attribute via a
         // $watch — fires only when the boolean transitions, NOT on
         // every keystroke. Initial sync covers the page-load case.
         el.disabled = !!this.aiSidebarBusy;
-        this.$watch('aiSidebarBusy', (v) => { try { el.disabled = !!v; } catch (_) {} });
+        this.$watch('aiSidebarBusy', (v) => {
+          try {
+            el.disabled = !!v;
+          } catch (_) {
+          }
+        });
         // Vanilla keydown listener — replaces the Alpine `@keydown`
         // binding. Bound so `this` inside the handler refers to the
         // Alpine component. We dispatch into the same
         // `aiSidebarHandleKeydown` so the slash-picker / Enter /
         // Esc / arrow-up flows are unchanged.
         const onKey = (ev) => {
-          try { this.aiSidebarHandleKeydown(ev); } catch (_) { /* ignore */ }
+          try {
+            this.aiSidebarHandleKeydown(ev);
+          } catch (_) { /* ignore */
+          }
         };
         el.addEventListener('keydown', onKey);
         let pendingTimer = null;
@@ -1175,7 +1267,10 @@ function app() {
         // `e.target.value` directly via `aiSidebarHandleKeydown`,
         // so this is belt-and-braces for the click-Send path.
         el.addEventListener('blur', () => {
-          if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+          if (pendingTimer) {
+            clearTimeout(pendingTimer);
+            pendingTimer = null;
+          }
           if (el.value !== this.aiSidebarQuery) {
             this.aiSidebarQuery = el.value || '';
           }
@@ -1238,27 +1333,37 @@ function app() {
             this._aiConvSignature = sig;
             this.persistAiConversation();
           }
-        } catch (_) { /* never let a failed tick kill the interval */ }
+        } catch (_) { /* never let a failed tick kill the interval */
+        }
       }, _aiPersistMs);
       // beforeunload — write through synchronously via navigator.sendBeacon
       // so the request lands even though the page is unloading. Falls
       // back to localStorage-only when sendBeacon is unavailable
       // (very rare; localStorage is sync so it ALWAYS lands).
       window.addEventListener('beforeunload', () => {
-        try { this.persistAiConversationSync(); } catch (_) {}
+        try {
+          this.persistAiConversationSync();
+        } catch (_) {
+        }
       });
       // pagehide is fired on iOS Safari and on bfcache freezes; mirrors
       // beforeunload to cover those paths. Both can fire so the persist
       // is idempotent (writes the same payload twice = no harm).
       window.addEventListener('pagehide', () => {
-        try { this.persistAiConversationSync(); } catch (_) {}
+        try {
+          this.persistAiConversationSync();
+        } catch (_) {
+        }
       });
       // visibilitychange to 'hidden' covers tab-switch + window blur —
       // a save here means the chat survives even if the user closes
       // the browser without firing beforeunload (some mobile cases).
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
-          try { this.persistAiConversationSync(); } catch (_) {}
+          try {
+            this.persistAiConversationSync();
+          } catch (_) {
+          }
         }
       });
       // The original $watch stays for ASSIGNMENT paths.
@@ -1269,7 +1374,10 @@ function app() {
         }
         _aiPersistDebounce = setTimeout(() => {
           _aiPersistDebounce = null;
-          try { this.persistAiConversation(); } catch (_) {}
+          try {
+            this.persistAiConversation();
+          } catch (_) {
+          }
         }, 500);
       });
       this.$watch('view', v => {
@@ -1358,23 +1466,46 @@ function app() {
       // Back/forward buttons — re-read the path into app state.
       window.addEventListener('popstate', () => this._applyRouteFromPath());
       this.$watch('expanded', v => localStorage.setItem('expanded', JSON.stringify(v)));
-      this.$watch('hostsSort', v => { try { localStorage.setItem('hostsSort', v); } catch {} });
-      this.$watch('hostsHideUnconfigured', v => { try { localStorage.setItem('hostsHideUnconfigured', v ? '1' : '0'); } catch {} });
+      this.$watch('hostsSort', v => {
+        try {
+          localStorage.setItem('hostsSort', v);
+        } catch {
+        }
+      });
+      this.$watch('hostsHideUnconfigured', v => {
+        try {
+          localStorage.setItem('hostsHideUnconfigured', v ? '1' : '0');
+        } catch {
+        }
+      });
       // Webmin scratch-test URL persists so operators don't retype
       // the same host every time they reload Host Stats.
-      this.$watch('webminTestUrl', v => { try { localStorage.setItem('webminTestUrl', v || ''); } catch {} });
+      this.$watch('webminTestUrl', v => {
+        try {
+          localStorage.setItem('webminTestUrl', v || '');
+        } catch {
+        }
+      });
       this.$watch('hostsConfigExpanded', v => {
-        try { localStorage.setItem('hostsConfigExpanded', JSON.stringify(v || {})); } catch {}
-      }, { deep: true });
+        try {
+          localStorage.setItem('hostsConfigExpanded', JSON.stringify(v || {}));
+        } catch {
+        }
+      }, {deep: true});
       // Filter typing collapses the result set — jumping back to page 1
       // is the only sensible default (otherwise the operator types a
       // filter and sees an empty page because they were on page 4 of
       // the unfiltered list).
-      this.$watch('hostsConfigFilter', () => { this.hostsConfigPage = 1; });
+      this.$watch('hostsConfigFilter', () => {
+        this.hostsConfigPage = 1;
+      });
       // Persist page index so reload / tab navigation lands on the same
       // page. Pairs with the localStorage initialiser above.
       this.$watch('hostsConfigPage', v => {
-        try { localStorage.setItem('hostsConfigPage', String(v)); } catch {}
+        try {
+          localStorage.setItem('hostsConfigPage', String(v));
+        } catch {
+        }
       });
       // `pagedHostsConfig` clamps lazily inside a getter (can't
       // mutate state there without breaking Alpine reactivity), which
@@ -1383,14 +1514,20 @@ function app() {
       // pagination inputs and normalise `hostsConfigPage` on the next
       // tick so the visible state matches what the operator sees.
       this.$watch('hostsConfigSortedOrder', () => this._clampHostsConfigPage());
-      this.$watch('hostsConfigFilter',      () => this._clampHostsConfigPage());
-      this.$watch('hostsConfigPerPage',     () => this._clampHostsConfigPage());
+      this.$watch('hostsConfigFilter', () => this._clampHostsConfigPage());
+      this.$watch('hostsConfigPerPage', () => this._clampHostsConfigPage());
       // Same persistence for the host-groups editor.
       this.$watch('hostGroupsPage', v => {
-        try { localStorage.setItem('hostGroupsPage', String(v)); } catch {}
+        try {
+          localStorage.setItem('hostGroupsPage', String(v));
+        } catch {
+        }
       });
       this.$watch('hostsExpanded', v => {
-        try { localStorage.setItem('hostsExpanded', JSON.stringify(v || [])); } catch {}
+        try {
+          localStorage.setItem('hostsExpanded', JSON.stringify(v || []));
+        } catch {
+        }
       });
       // Re-surface the translated labels in Settings/Admin sidebars when
       // the user swaps language. Alpine re-renders bindings automatically
@@ -1449,14 +1586,20 @@ function app() {
           return;
         }
         if (this._cmdkLongPressTimer) {
-          try { clearTimeout(this._cmdkLongPressTimer); } catch (_) {}
+          try {
+            clearTimeout(this._cmdkLongPressTimer);
+          } catch (_) {
+          }
           this._cmdkLongPressTimer = null;
         }
         let firedLong = false;
         this._cmdkLongPressTimer = setTimeout(() => {
           firedLong = true;
           this._cmdkLongPressTimer = null;
-          try { this.showHotkeys = true; } catch (_) {}
+          try {
+            this.showHotkeys = true;
+          } catch (_) {
+          }
         }, 500);
         const onUp = (up) => {
           // Match the same combo on release. Some keyboards report
@@ -1466,24 +1609,26 @@ function app() {
           if (up.code !== 'KeyK' && up.key !== 'k' && up.key !== 'K') {
             return;
           }
-          window.removeEventListener('keyup', onUp, { capture: true });
+          window.removeEventListener('keyup', onUp, {capture: true});
           if (this._cmdkLongPressTimer) {
-            try { clearTimeout(this._cmdkLongPressTimer); } catch (_) {}
+            try {
+              clearTimeout(this._cmdkLongPressTimer);
+            } catch (_) {
+            }
             this._cmdkLongPressTimer = null;
           }
           if (!firedLong) {
             // Short press — original AI sidebar toggle.
             if (this.aiSidebarOpen) {
               this.closeAiSidebar();
-            }
-            else {
+            } else {
               this.openAiSidebar();
             }
           }
           // firedLong=true → overlay already open, leave it alone.
         };
-        window.addEventListener('keyup', onUp, { capture: true });
-      }, { capture: true });
+        window.addEventListener('keyup', onUp, {capture: true});
+      }, {capture: true});
       // (Diagnostic `window.__omnigridOpenPalette` escape hatch
       //  removed — the palette is verified working in production
       //  and the global handle was just polluting the SPA's window
@@ -1575,7 +1720,9 @@ function app() {
       // freshness helper on bound elements (the small span near the
       // time-range picker), so most renders are skipped.
       this.hostHistoryNow = Date.now();
-      setInterval(() => { this.hostHistoryNow = Date.now(); }, 1000);
+      setInterval(() => {
+        this.hostHistoryNow = Date.now();
+      }, 1000);
       // Multi-tab activity wiring. Boot-hydrate the
       // sibling-tab map, fire the first heartbeat so OTHER tabs see us,
       // then arm a 30s tick + cleanup hooks. Cross-tab focus channel
@@ -1586,14 +1733,19 @@ function app() {
         this._tabActivityHeartbeat();
         // Re-publish on every navigation event so sibling tabs see the
         // location change without waiting for the 30s tick.
-        this.$watch('view',             () => this._tabActivityHeartbeat());
-        this.$watch('drawerHost',       () => this._tabActivityHeartbeat());
-        this.$watch('adminTab',         () => this._tabActivityHeartbeat());
-        this.$watch('settingsSection',  () => this._tabActivityHeartbeat());
-        this.$watch('statsTab',         () => this._tabActivityHeartbeat());
+        this.$watch('view', () => this._tabActivityHeartbeat());
+        this.$watch('drawerHost', () => this._tabActivityHeartbeat());
+        this.$watch('adminTab', () => this._tabActivityHeartbeat());
+        this.$watch('settingsSection', () => this._tabActivityHeartbeat());
+        this.$watch('statsTab', () => this._tabActivityHeartbeat());
         // Idle heartbeat — keeps the entry alive past the backend's
         // 90s TTL when the operator hasn't navigated.
-        setInterval(() => { try { this._tabActivityHeartbeat(); } catch (_) {} }, 30000);
+        setInterval(() => {
+          try {
+            this._tabActivityHeartbeat();
+          } catch (_) {
+          }
+        }, 30000);
         // Cleanup — DELETE the registry entry when the tab unloads so
         // sibling tabs see the count drop immediately instead of
         // waiting for TTL expiry. `pagehide` fires more reliably than
@@ -1601,8 +1753,9 @@ function app() {
         // the request reaches the backend even mid-tab-close.
         const cleanup = () => {
           try {
-            fetch('/api/tabs/activity', { method: 'DELETE', keepalive: true });
-          } catch (_) {}
+            fetch('/api/tabs/activity', {method: 'DELETE', keepalive: true});
+          } catch (_) {
+          }
         };
         window.addEventListener('pagehide', cleanup);
         // BroadcastChannel listener — sibling tabs ask THIS tab to
@@ -1614,18 +1767,24 @@ function app() {
             this._tabFocusChannel.addEventListener('message', (ev) => {
               const cid = ev && ev.data && ev.data.client_id;
               if (cid && cid === window.__ogClientId) {
-                try { window.focus(); } catch (_) {}
+                try {
+                  window.focus();
+                } catch (_) {
+                }
               }
             });
           }
-        } catch (_) { /* BroadcastChannel sandboxed */ }
-      } catch (_) { /* defensive — tab-activity wiring is non-critical */ }
+        } catch (_) { /* BroadcastChannel sandboxed */
+        }
+      } catch (_) { /* defensive — tab-activity wiring is non-critical */
+      }
     },
 
     async logout() {
       try {
-        await fetch('/api/local-auth/logout', { method: 'POST' });
-      } catch (_) { /* ignore — clearing the cookie is the important bit */ }
+        await fetch('/api/local-auth/logout', {method: 'POST'});
+      } catch (_) { /* ignore — clearing the cookie is the important bit */
+      }
       location.href = '/login';
     },
     // Dismiss the SESSION_SECRET-auto banner for this
@@ -1636,11 +1795,17 @@ function app() {
     // operators need the recurring nudge to set SESSION_SECRET.
     dismissSessionSecretWarning() {
       this.sessionSecretWarningDismissed = true;
-      try { sessionStorage.setItem('sessionSecretWarningDismissed', '1'); } catch (_) {}
+      try {
+        sessionStorage.setItem('sessionSecretWarningDismissed', '1');
+      } catch (_) {
+      }
     },
     dismissBootstrapEnvWarning() {
       this.bootstrapEnvWarningDismissed = true;
-      try { sessionStorage.setItem('bootstrapEnvWarningDismissed', '1'); } catch (_) {}
+      try {
+        sessionStorage.setItem('bootstrapEnvWarningDismissed', '1');
+      } catch (_) {
+      }
     },
 
     // --- Profile: display-name / bio / email edit ------------------------
@@ -1651,7 +1816,7 @@ function app() {
       // `notify_events` map; rebuilds the baseline snapshot so the
       // dirty-getter compares against the freshly-loaded values.
       //
-    // Per-medium granularity: every event normalises to a per-medium
+      // Per-medium granularity: every event normalises to a per-medium
       // dict `{medium: bool}` for editing simplicity. The wire shape
       // is mixed (legacy bare-bool OR per-medium dict) — this helper
       // expands legacy bools to a per-medium dict where every globally-
@@ -1686,8 +1851,8 @@ function app() {
       }
       this.profileForm = {
         display_name: (this.me && this.me.display_name) || '',
-        bio:          (this.me && this.me.bio)          || '',
-        email:        (this.me && this.me.email)        || '',
+        bio: (this.me && this.me.bio) || '',
+        email: (this.me && this.me.email) || '',
         notify_events: events,
       };
       this._profileBaseline = this._profileSnapshot();
@@ -1699,8 +1864,8 @@ function app() {
       const f = this.profileForm || {};
       return JSON.stringify({
         display_name: f.display_name || '',
-        bio:          f.bio || '',
-        email:        f.email || '',
+        bio: f.bio || '',
+        email: f.email || '',
         notify_events: f.notify_events || {},
       });
     },
@@ -1726,12 +1891,12 @@ function app() {
         // map for clarity rather than relying on the route to drop it.
         const profilePayload = {
           display_name: this.profileForm.display_name,
-          bio:          this.profileForm.bio,
-          email:        this.profileForm.email,
+          bio: this.profileForm.bio,
+          email: this.profileForm.email,
         };
         const r = await fetch('/api/me/profile', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(profilePayload),
         });
         if (!r.ok) {
@@ -1745,7 +1910,7 @@ function app() {
         // profile edit. Backend payload keys are the bare event names
         // (matching the storage shape inside ui_prefs).
         //
-      // Per-medium granularity: profileForm carries every event as
+        // Per-medium granularity: profileForm carries every event as
         // `{medium: bool}`. On save we collapse uniform-bool dicts
         // (every medium reads the same) back to a bare bool so storage
         // stays compact AND legacy parsers (operator scripts grepping
@@ -1760,14 +1925,14 @@ function app() {
           if (slot && typeof slot === 'object') {
             const vals = mediums.map(m => slot[m] !== false);
             const allSame = vals.every(v => v === vals[0]);
-            events[bare] = allSame ? !!vals[0] : { ...slot };
+            events[bare] = allSame ? !!vals[0] : {...slot};
           } else {
             events[bare] = !!slot;
           }
         }
         const r2 = await fetch('/api/me/notify-prefs', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(events),
         });
         if (!r2.ok) {
@@ -1780,7 +1945,10 @@ function app() {
         // notify_events all reflect the persisted state. syncProfileForm
         // re-baselines so the amber ring + Unsaved indicator clear.
         const rm = await fetch('/api/me');
-        if (rm.ok) { this.me = await rm.json(); this.syncProfileForm(); }
+        if (rm.ok) {
+          this.me = await rm.json();
+          this.syncProfileForm();
+        }
       } catch (_) {
         this.showToast(this.t('toasts.network_error'), 'error');
       } finally {
@@ -1796,16 +1964,18 @@ function app() {
       }
       // Client-side sanity — server re-validates.
       if (!/^image\//.test(file.type)) {
-        this.showToast(this.t('toasts.pick_image'), 'error'); return;
+        this.showToast(this.t('toasts.pick_image'), 'error');
+        return;
       }
-      if (file.size > 1_000_000) {
-        this.showToast(this.t('toasts.image_too_large'), 'error'); return;
+      if (file.size > 1000000) {
+        this.showToast(this.t('toasts.image_too_large'), 'error');
+        return;
       }
       this.avatarBusy = true;
       try {
         const fd = new FormData();
         fd.append('file', file);
-        const r = await fetch('/api/me/avatar', { method: 'POST', body: fd });
+        const r = await fetch('/api/me/avatar', {method: 'POST', body: fd});
         if (r.ok) {
           this.showToast(this.t('toasts.avatar_updated'));
           const rm = await fetch('/api/me');
@@ -1829,7 +1999,7 @@ function app() {
         return;
       }
       try {
-        const r = await fetch('/api/me/avatar', { method: 'DELETE' });
+        const r = await fetch('/api/me/avatar', {method: 'DELETE'});
         if (r.ok) {
           this.showToast(this.t('toasts.avatar_removed'));
           const rm = await fetch('/api/me');
@@ -1837,7 +2007,9 @@ function app() {
             this.me = await rm.json();
           }
         }
-      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
+      } catch (_) {
+        this.showToast(this.t('toasts.network_error'), 'error');
+      }
     },
 
     // -----------------------------------------------------------------
@@ -1847,11 +2019,11 @@ function app() {
       // Settings + Admin live in the avatar dropdown, not the top nav —
       // the top nav stays focused on the fleet views.
       return [
-        ['stacks',   this.t('nav.stacks')],
+        ['stacks', this.t('nav.stacks')],
         ['services', this.t('nav.services')],
-        ['nodes',    this.t('nav.nodes')],
-        ['hosts',    this.t('nav.hosts')],
-        ['history',  this.t('nav.history')],
+        ['nodes', this.t('nav.nodes')],
+        ['hosts', this.t('nav.hosts')],
+        ['history', this.t('nav.history')],
       ];
     },
     // Inner-SVG markup for each top-nav icon. Returned as an HTML
@@ -1861,11 +2033,11 @@ function app() {
     // Nodes, monitor for Hosts, clock-with-arrow for History.
     navIcon(key) {
       const icons = {
-        stacks:   '<path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/>',
+        stacks: '<path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/>',
         services: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
-        nodes:    '<rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>',
-        hosts:    '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
-        history:  '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+        nodes: '<rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>',
+        hosts: '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+        history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
       };
       return icons[key] || '';
     },
@@ -1874,8 +2046,7 @@ function app() {
       const i = this.expanded.indexOf('node:' + name);
       if (i >= 0) {
         this.expanded.splice(i, 1);
-      }
-      else {
+      } else {
         this.expanded.push('node:' + name);
       }
     },
@@ -1903,7 +2074,9 @@ function app() {
         }
       }
     },
-    collapseAllHosts() { this.hostsExpanded = []; },
+    collapseAllHosts() {
+      this.hostsExpanded = [];
+    },
 
     // "Is there an in-flight prune_node op targeting this host?". Drives
     // the button's spinner + disabled state so rapid double-clicks don't
@@ -1921,8 +2094,8 @@ function app() {
       const skipConfirm = !!(opts && opts.skipConfirm);
       if (!skipConfirm) {
         const res = await Swal.fire({
-          title: this.t('admin.nodes.prune_prompt_title', { host }),
-          html: this.t('admin.nodes.prune_prompt_html', { host }),
+          title: this.t('admin.nodes.prune_prompt_title', {host}),
+          html: this.t('admin.nodes.prune_prompt_html', {host}),
           icon: 'warning',
           showCancelButton: true,
           confirmButtonText: this.t('actions.prune_now'),
@@ -1934,14 +2107,14 @@ function app() {
         }
       }
       try {
-        const r = await fetch('/api/prune/node/' + encodeURIComponent(host), { method: 'POST' });
+        const r = await fetch('/api/prune/node/' + encodeURIComponent(host), {method: 'POST'});
         if (r.ok) {
           // Auto-expand the floating ops panel (bottom-right) so a new
           // user actually SEES where the live progress lives. Without
           // this, the toast refers to a panel that only appears briefly
           // and stays collapsed if they've dismissed it before.
           this.opsExpanded = true;
-          this.showToast(this.t('toasts_extra.prune_started', { host }));
+          this.showToast(this.t('toasts_extra.prune_started', {host}));
           // Kick an immediate ops poll so the button flips to "Pruning…".
           this.pollOnce && this.pollOnce();
         } else {
@@ -1979,7 +2152,7 @@ function app() {
     // URL routing helpers — keep the path in sync with view + section
     // so a browser refresh or shared link lands on the same screen.
     //
-  // Path shape:
+    // Path shape:
     // /                            → stacks (default)
     // /{view}                      → top-level view
     // /settings/{section}          → Settings sidebar section
@@ -2022,8 +2195,8 @@ function app() {
         // without this the dashboard's loading-spinner never resolves
         // because loadStatsOverview() was never invoked.
         const target = (sub && (this.statsSections || []).some(s => s.id === sub))
-                       ? sub
-                       : (this.statsTab || 'dashboard');
+          ? sub
+          : (this.statsTab || 'dashboard');
         this.openStatsTab(target);
       }
     },
@@ -2041,7 +2214,10 @@ function app() {
       // Back/forward via actual nav (hash changes, manual link) still
       // work because popstate runs _applyRouteFromPath.
       if (location.pathname !== path) {
-        try { history.replaceState(null, '', path); } catch (_) {}
+        try {
+          history.replaceState(null, '', path);
+        } catch (_) {
+        }
       }
     },
 
@@ -2052,8 +2228,7 @@ function app() {
       this.statsTab = tab || 'dashboard';
       if (this.statsTab === 'dashboard') {
         await this.loadStatsOverview();
-      }
-      else {
+      } else {
         if (this.statsTab === 'database') {
           await this.loadStatsDatabase();
         } else {
@@ -2086,7 +2261,7 @@ function app() {
         // columns sort desc-first (largest / newest); string columns
         // sort asc-first (alphabetical).
         const isNum = (col === 'rows' || col === 'unique_hosts'
-                       || col === 'oldest_ts' || col === 'newest_ts');
+          || col === 'oldest_ts' || col === 'newest_ts');
         this.statsSamplesSortDir = isNum ? 'desc' : 'asc';
       }
     },
@@ -2099,33 +2274,33 @@ function app() {
       }
       const label = (row.provider || '') + ' — ' + (row.name || '');
       this.statsSamplesDrillDown = {
-        open:    true,
+        open: true,
         loading: true,
-        table:   row.name,
+        table: row.name,
         // Provider tag exposed to row-context helpers (e.g. the
         // Portainer `stats_samples` table uses `item_id` referring
         // to containers, NOT hosts — so the "no longer curated"
         // marker text + the orphan-delete button copy adapt).
         provider: (row.provider || '').toLowerCase(),
         host_col: '',
-        label:   label,
-        rows:    [],
-        total:   0,
-        outer:   Number(row.rows || 0),  // stale-fallback only — backend overwrites with fresh snapshot
-        error:   '',
+        label: label,
+        rows: [],
+        total: 0,
+        outer: Number(row.rows || 0),  // stale-fallback only — backend overwrites with fresh snapshot
+        error: '',
         // Per-row prune busy-state map keyed by host_id. Prevents
         // rapid clicks on the same Delete button from firing twice.
         pruning: {},
       };
       try {
         const r = await fetch('/api/admin/stats/samples/by-host?table='
-                              + encodeURIComponent(row.name));
+          + encodeURIComponent(row.name));
         const d = await r.json().catch(() => ({}));
         if (!r.ok) {
           this.statsSamplesDrillDown.error = (d && d.detail) || ('HTTP ' + r.status);
           return;
         }
-        this.statsSamplesDrillDown.rows  = Array.isArray(d.rows) ? d.rows : [];
+        this.statsSamplesDrillDown.rows = Array.isArray(d.rows) ? d.rows : [];
         this.statsSamplesDrillDown.total = Number(d.total || 0);
         this.statsSamplesDrillDown.host_col = d.host_col || '';
         // Backend's fresh outer_count is the authoritative number for
@@ -2171,10 +2346,10 @@ function app() {
       const rowCount = Number(row.rows || 0).toLocaleString();
       const ok = await this.confirmDialog({
         title: this.t('stats.samples.drill_down.prune_confirm_title')
-               || 'Delete sample rows?',
-        html:  this.t('stats.samples.drill_down.prune_confirm_html', { id: hostId, count: rowCount, table })
-               || ('Delete <strong>' + rowCount + '</strong> rows from <code>' + table
-                   + '</code> for <code>' + hostId + '</code>? This cannot be undone.'),
+          || 'Delete sample rows?',
+        html: this.t('stats.samples.drill_down.prune_confirm_html', {id: hostId, count: rowCount, table})
+          || ('Delete <strong>' + rowCount + '</strong> rows from <code>' + table
+            + '</code> for <code>' + hostId + '</code>? This cannot be undone.'),
         icon: 'warning',
         confirmText: this.t('stats.samples.drill_down.prune_confirm_ok') || 'Delete',
         confirmColor: this._cssVar('--danger'),
@@ -2187,8 +2362,8 @@ function app() {
       try {
         const r = await fetch('/api/admin/stats/samples/by-host', {
           method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ table, host_id: hostId }),
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({table, host_id: hostId}),
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) {
@@ -2205,10 +2380,10 @@ function app() {
         );
         // Re-fetch the drill-down so the row disappears + totals update.
         const refreshed = await fetch('/api/admin/stats/samples/by-host?table='
-                                       + encodeURIComponent(table));
+          + encodeURIComponent(table));
         const refData = await refreshed.json().catch(() => ({}));
         if (refreshed.ok) {
-          this.statsSamplesDrillDown.rows  = Array.isArray(refData.rows) ? refData.rows : [];
+          this.statsSamplesDrillDown.rows = Array.isArray(refData.rows) ? refData.rows : [];
           this.statsSamplesDrillDown.total = Number(refData.total || 0);
           if (refData.outer_count !== undefined && refData.outer_count !== null) {
             this.statsSamplesDrillDown.outer = Number(refData.outer_count);
@@ -2233,8 +2408,7 @@ function app() {
       this.adminTab = tab;
       if (tab === 'users') {
         await this.loadUsers();
-      }
-      else {
+      } else {
         if (tab === 'sessions') {
           await this.loadSessions();
         } else {
@@ -2346,8 +2520,11 @@ function app() {
         return {};
       }
       let parsed;
-      try { parsed = JSON.parse(trimmed); }
-      catch (_) { throw new Error(this.t('admin.schedules.params_invalid_json')); }
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch (_) {
+        throw new Error(this.t('admin.schedules.params_invalid_json'));
+      }
       if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
         throw new Error(this.t('admin.schedules.params_must_be_object'));
       }
@@ -2422,8 +2599,7 @@ function app() {
       const i = arr.indexOf(day);
       if (i >= 0) {
         arr.splice(i, 1);
-      }
-      else {
+      } else {
         arr.push(day);
       }
       s.days_of_week = arr;
@@ -2468,14 +2644,23 @@ function app() {
       const delta = Math.round(epoch - (Date.now() / 1000));
       const abs = Math.abs(delta);
       let value, unit;
-      if (abs < 60)          { value = abs; unit = 'second'; }
-      else if (abs < 3600)   { value = Math.round(abs / 60); unit = 'minute'; }
-      else if (abs < 86400)  { value = Math.round(abs / 3600); unit = 'hour'; }
-      else                   { value = Math.round(abs / 86400); unit = 'day'; }
+      if (abs < 60) {
+        value = abs;
+        unit = 'second';
+      } else if (abs < 3600) {
+        value = Math.round(abs / 60);
+        unit = 'minute';
+      } else if (abs < 86400) {
+        value = Math.round(abs / 3600);
+        unit = 'hour';
+      } else {
+        value = Math.round(abs / 86400);
+        unit = 'day';
+      }
       const suffix = value === 1 ? '' : 's';
       return delta >= 0
-        ? this.t('admin.schedules.rel_in', { value, unit: unit + suffix })
-        : this.t('admin.schedules.rel_ago', { value, unit: unit + suffix });
+        ? this.t('admin.schedules.rel_in', {value, unit: unit + suffix})
+        : this.t('admin.schedules.rel_ago', {value, unit: unit + suffix});
     },
 
     // Used only for the "Next execution" column — a past epoch there is
@@ -2498,14 +2683,14 @@ function app() {
     cadenceLabel(s) {
       const mode = s.cadence_mode || (s.run_at_hhmm ? 'daily' : 'interval');
       if (mode === 'daily' && s.run_at_hhmm) {
-        return this.t('admin.schedules.daily_at', { hhmm: s.run_at_hhmm });
+        return this.t('admin.schedules.daily_at', {hhmm: s.run_at_hhmm});
       }
       if (mode === 'weekly' && s.run_at_hhmm) {
         const days = (s.days_of_week || [])
           .map(d => this.t('admin.schedules.weekdays_short.' + d))
           .filter(Boolean)
           .join(', ');
-        return this.t('admin.schedules.weekly_at', { days, hhmm: s.run_at_hhmm });
+        return this.t('admin.schedules.weekly_at', {days, hhmm: s.run_at_hhmm});
       }
       if (mode === 'monthly' && s.run_at_hhmm && s.day_of_month) {
         return this.t('admin.schedules.monthly_at', {
@@ -2553,8 +2738,7 @@ function app() {
       );
       if (on) {
         current.add(name);
-      }
-      else {
+      } else {
         current.delete(name);
       }
       this.settings.host_stats_source = current.size
@@ -2576,7 +2760,10 @@ function app() {
         return;
       }
       this.hostStatsTab = name;
-      try { localStorage.setItem('hostStatsTab', name); } catch {}
+      try {
+        localStorage.setItem('hostStatsTab', name);
+      } catch {
+      }
     },
     // Single source of truth for the strip's tab order. setHostStatsTab
     // already validates against this list; cycleHostStatsTab uses it to
@@ -2669,7 +2856,11 @@ function app() {
       for (const k of pick) {
         subset[k] = s[k];
       }
-      try { return JSON.stringify(subset); } catch { return ''; }
+      try {
+        return JSON.stringify(subset);
+      } catch {
+        return '';
+      }
     },
     // Cheap dirty check — called from the template every render. String
     // comparison is O(length) which is trivial for the ~15-key subset.
@@ -2679,7 +2870,7 @@ function app() {
     // catches the relocated keys correctly.
     hostStatsDirty() {
       return this._hostStatsBaseline !== this._hostStatsSnapshot()
-          || this.tuningDirty();
+        || this.tuningDirty();
     },
     // In-flight flag for the unified host_stats Save button so
     // the spinner / "Saving…" label fires the same way as the
@@ -2725,7 +2916,7 @@ function app() {
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             debug_panel_enabled: !!this.settings.debug_panel_enabled,
           }),
@@ -2786,7 +2977,10 @@ function app() {
       }, 5000);
     },
     async _fetchLogFileBody() {
-      if (!this.logSelectedFile) { this.logFileBody = ''; return; }
+      if (!this.logSelectedFile) {
+        this.logFileBody = '';
+        return;
+      }
       try {
         const r = await fetch(
           '/api/admin/logs/files/' + encodeURIComponent(this.logSelectedFile)
@@ -2834,7 +3028,7 @@ function app() {
           });
         } else {
           // Non-conforming line — render as INFO with the raw text.
-          out.push({ ts: 0, stream: 'file', level: 'info', text: raw });
+          out.push({ts: 0, stream: 'file', level: 'info', text: raw});
         }
       }
       return out;
@@ -2900,15 +3094,15 @@ function app() {
       const diff = Math.max(0, now - Number(epochSeconds));
       if (diff < 60) {
         const n = Math.round(diff);
-        return this.t('hosts_extra.metrics.last_updated_seconds', { count: n }) || `${n}s ago`;
+        return this.t('hosts_extra.metrics.last_updated_seconds', {count: n}) || `${n}s ago`;
       }
       if (diff < 3600) {
         const n = Math.round(diff / 60);
-        return this.t('hosts_extra.metrics.last_updated_minutes', { count: n }) || `${n}m ago`;
+        return this.t('hosts_extra.metrics.last_updated_minutes', {count: n}) || `${n}m ago`;
       }
       if (diff < 86400) {
         const n = Math.round(diff / 3600);
-        return this.t('hosts_extra.metrics.last_updated_hours', { count: n }) || `${n}h ago`;
+        return this.t('hosts_extra.metrics.last_updated_hours', {count: n}) || `${n}h ago`;
       }
       // Older than 24h → fall back to a date-only render. Goes
       // through `fmtDateOnly` so the operator's chosen Formats
@@ -2933,12 +3127,12 @@ function app() {
     _headerPrefsBaseline: '',
     _headerPrefsSnapshot() {
       return JSON.stringify({
-        clk:   !!this.headerClockEnabled,
-        wth:   !!this.headerWeatherEnabled,
-        lat:   this.headerWeatherLat == null ? '' : String(this.headerWeatherLat),
-        lon:   this.headerWeatherLon == null ? '' : String(this.headerWeatherLon),
+        clk: !!this.headerClockEnabled,
+        wth: !!this.headerWeatherEnabled,
+        lat: this.headerWeatherLat == null ? '' : String(this.headerWeatherLat),
+        lon: this.headerWeatherLon == null ? '' : String(this.headerWeatherLon),
         label: this.headerWeatherLabel || '',
-        unit:  (this.headerWeatherUnit === 'f') ? 'f' : 'c',
+        unit: (this.headerWeatherUnit === 'f') ? 'f' : 'c',
         // AI launcher visibility participates in the dirty/save flow
         // so toggling the checkbox marks the form dirty (amber ring +
         // "Unsaved" pulse-dot) and reverting it back to the original
@@ -2960,13 +3154,14 @@ function app() {
     },
     saveHeaderPrefs() {
       try {
-        localStorage.setItem('headerClockEnabled',   String(!!this.headerClockEnabled));
+        localStorage.setItem('headerClockEnabled', String(!!this.headerClockEnabled));
         localStorage.setItem('headerWeatherEnabled', String(!!this.headerWeatherEnabled));
-        localStorage.setItem('headerWeatherLat',     this.headerWeatherLat == null ? '' : String(this.headerWeatherLat));
-        localStorage.setItem('headerWeatherLon',     this.headerWeatherLon == null ? '' : String(this.headerWeatherLon));
-        localStorage.setItem('headerWeatherLabel',   this.headerWeatherLabel || '');
-        localStorage.setItem('headerWeatherUnit',    (this.headerWeatherUnit === 'f') ? 'f' : 'c');
-      } catch (_) {}
+        localStorage.setItem('headerWeatherLat', this.headerWeatherLat == null ? '' : String(this.headerWeatherLat));
+        localStorage.setItem('headerWeatherLon', this.headerWeatherLon == null ? '' : String(this.headerWeatherLon));
+        localStorage.setItem('headerWeatherLabel', this.headerWeatherLabel || '');
+        localStorage.setItem('headerWeatherUnit', (this.headerWeatherUnit === 'f') ? 'f' : 'c');
+      } catch (_) {
+      }
       // Re-baseline after the localStorage write so headerPrefsDirty()
       // returns false on the next render. The server PATCH below is
       // fire-and-forget — its failure shouldn't keep the form marked
@@ -2986,17 +3181,20 @@ function app() {
         const dtFmtTrimmed = (this.datetimeFormatDraft || '').trim();
         fetch('/api/me/ui-prefs', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prefs: {
-            headerClockEnabled:   !!this.headerClockEnabled,
-            headerWeatherEnabled: !!this.headerWeatherEnabled,
-            headerWeatherLat:     this.headerWeatherLat == null ? null : Number(this.headerWeatherLat),
-            headerWeatherLon:     this.headerWeatherLon == null ? null : Number(this.headerWeatherLon),
-            headerWeatherLabel:   this.headerWeatherLabel || null,
-            headerWeatherUnit:    (this.headerWeatherUnit === 'f') ? 'f' : 'c',
-            datetime_format:      dtFmtTrimmed || null,
-          }}),
-        }).catch(() => {/* silent — localStorage still has it */});
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            prefs: {
+              headerClockEnabled: !!this.headerClockEnabled,
+              headerWeatherEnabled: !!this.headerWeatherEnabled,
+              headerWeatherLat: this.headerWeatherLat == null ? null : Number(this.headerWeatherLat),
+              headerWeatherLon: this.headerWeatherLon == null ? null : Number(this.headerWeatherLon),
+              headerWeatherLabel: this.headerWeatherLabel || null,
+              headerWeatherUnit: (this.headerWeatherUnit === 'f') ? 'f' : 'c',
+              datetime_format: dtFmtTrimmed || null,
+            }
+          }),
+        }).catch(() => {/* silent — localStorage still has it */
+        });
         // Update the live `me.ui_prefs.datetime_format` immediately so
         // every `:value="fmtDate(...)"` binding re-renders with the
         // new format on this very save (the PATCH above is fire-and-
@@ -3008,7 +3206,8 @@ function app() {
           }
           this.me.ui_prefs.datetime_format = dtFmtTrimmed || '';
         }
-      } catch (_) {}
+      } catch (_) {
+      }
       // Re-fetch with the new settings immediately rather than waiting
       // for the 10-min tick. Also flushes weather to null when disabled.
       this.loadHeaderWeather();
@@ -3019,8 +3218,10 @@ function app() {
       // AFTER the snapshot re-baseline above so the dirty-flag
       // clears cleanly post-save.
       if (this.aiSidebarLauncherHiddenDraft !== this.aiSidebarLauncherHidden) {
-        try { this.setAiSidebarLauncherHidden(!!this.aiSidebarLauncherHiddenDraft); }
-        catch (_) {}
+        try {
+          this.setAiSidebarLauncherHidden(!!this.aiSidebarLauncherHiddenDraft);
+        } catch (_) {
+        }
       }
       // Toast confirmation — per-browser preferences auto-save on
       // change, but operators coming from the per-user Profile section
@@ -3040,28 +3241,46 @@ function app() {
       // localStorage default in place.
       if (typeof p.headerClockEnabled === 'boolean') {
         this.headerClockEnabled = p.headerClockEnabled;
-        try { localStorage.setItem('headerClockEnabled', String(p.headerClockEnabled)); } catch (_) {}
+        try {
+          localStorage.setItem('headerClockEnabled', String(p.headerClockEnabled));
+        } catch (_) {
+        }
       }
       if (typeof p.headerWeatherEnabled === 'boolean') {
         this.headerWeatherEnabled = p.headerWeatherEnabled;
-        try { localStorage.setItem('headerWeatherEnabled', String(p.headerWeatherEnabled)); } catch (_) {}
+        try {
+          localStorage.setItem('headerWeatherEnabled', String(p.headerWeatherEnabled));
+        } catch (_) {
+        }
       }
       if (p.headerWeatherLat != null) {
         this.headerWeatherLat = Number(p.headerWeatherLat);
-        try { localStorage.setItem('headerWeatherLat', String(p.headerWeatherLat)); } catch (_) {}
+        try {
+          localStorage.setItem('headerWeatherLat', String(p.headerWeatherLat));
+        } catch (_) {
+        }
       }
       if (p.headerWeatherLon != null) {
         this.headerWeatherLon = Number(p.headerWeatherLon);
-        try { localStorage.setItem('headerWeatherLon', String(p.headerWeatherLon)); } catch (_) {}
+        try {
+          localStorage.setItem('headerWeatherLon', String(p.headerWeatherLon));
+        } catch (_) {
+        }
       }
       if (typeof p.headerWeatherLabel === 'string') {
         this.headerWeatherLabel = p.headerWeatherLabel;
-        try { localStorage.setItem('headerWeatherLabel', p.headerWeatherLabel); } catch (_) {}
+        try {
+          localStorage.setItem('headerWeatherLabel', p.headerWeatherLabel);
+        } catch (_) {
+        }
       }
       if (typeof p.headerWeatherUnit === 'string') {
         const u = p.headerWeatherUnit.toLowerCase() === 'f' ? 'f' : 'c';
         this.headerWeatherUnit = u;
-        try { localStorage.setItem('headerWeatherUnit', u); } catch (_) {}
+        try {
+          localStorage.setItem('headerWeatherUnit', u);
+        } catch (_) {
+        }
       }
       // Datetime format. Server is the only source of truth for this
       // preference (no localStorage cache — the SPA reads via the
@@ -3143,7 +3362,10 @@ function app() {
     // truthiness drives a long-running animation (spinner, pulse).
     _setRefreshingFlag(key, value) {
       this[key] = !!value;
-      try { clearTimeout(this._refreshingWd[key]); } catch (_) {}
+      try {
+        clearTimeout(this._refreshingWd[key]);
+      } catch (_) {
+      }
       if (this[key]) {
         this._refreshingWd[key] = setTimeout(() => {
           if (this[key]) {
@@ -3179,16 +3401,23 @@ function app() {
       // the reload button doesn't stay disabled across the session.
       // The fn keeps running in the background; when it finally
       // resolves, finally{} would re-clear (already false — no-op).
-      try { clearTimeout(this._loadBusyWd[key]); } catch (_) {}
+      try {
+        clearTimeout(this._loadBusyWd[key]);
+      } catch (_) {
+      }
       this._loadBusyWd[key] = setTimeout(() => {
         if (this._loadBusy[key]) {
           this._loadBusy[key] = false;
         }
       }, this._LOAD_BUSY_MAX_MS);
-      try { await fn(); }
-      finally {
+      try {
+        await fn();
+      } finally {
         this._loadBusy[key] = false;
-        try { clearTimeout(this._loadBusyWd[key]); } catch (_) {}
+        try {
+          clearTimeout(this._loadBusyWd[key]);
+        } catch (_) {
+        }
         delete this._loadBusyWd[key];
       }
     },
@@ -3212,7 +3441,8 @@ function app() {
             this.newVersionString = this.version;
           }
         }
-      } catch (_) {}
+      } catch (_) {
+      }
     },
     // Start a 60s poll of /api/version so a deploy that lands while
     // the operator has the tab open triggers a hard-refresh banner.
@@ -3261,15 +3491,21 @@ function app() {
           console.warn('[stats] pollStats: stats polling is OFF (statsInterval=0). Re-enable it from the topbar interval picker. Firing one diagnostic loadStats() anyway so /api/stats response is logged once.');
           this._pollStatsOffLogged = true;
         }
-        try { this.loadStats(); } catch (_) { /* never crash init */ }
+        try {
+          this.loadStats();
+        } catch (_) { /* never crash init */
+        }
         return;
       }
       const tick = async () => {
         // Bracket the request so the pill flashes green for the
         // exact duration of the /api/stats round-trip.
         this._pollStart();
-        try { await this.loadStats(); }
-        finally { this._pollEnd(); }
+        try {
+          await this.loadStats();
+        } finally {
+          this._pollEnd();
+        }
         if (this.statsInterval > 0) {
           // when SSE is healthy the backend pushes a
           // ``stats:refreshed`` hint after every gather_stats() write;
@@ -3368,11 +3604,14 @@ function app() {
         return 0;
       });
       let lo = Infinity, hi = -Infinity;
-      for (const v of vals) { if (v < lo) {
-        lo = v;
-      } if (v > hi) {
-        hi = v;
-      } }
+      for (const v of vals) {
+        if (v < lo) {
+          lo = v;
+        }
+        if (v > hi) {
+          hi = v;
+        }
+      }
       // Empty series → bail (no samples to plot). Disk-specific: when
       // EVERY sample reports size_root=0 we treat it as "no data" so
       // pre-migration deploys (where size_root wasn't persisted yet)
@@ -3462,7 +3701,7 @@ function app() {
             existing[f] = inc[f];
           }
         } else {
-          target.push({ ...inc });
+          target.push({...inc});
           byKey.set(k, target[target.length - 1]);
         }
       }
@@ -3482,15 +3721,17 @@ function app() {
       }
     },
 
-    async refresh(force=false) {
+    async refresh(force = false) {
       this.loading = true;
       // Watchdog cap — mirror the `_runWithBusy` pattern so a hung fetch
       // (server not responding, network blip) can't leave the topbar
       // spinner stuck across the session. Cleared on natural resolve.
-      const _wd = setTimeout(() => { if (this.loading) {
-          this.loading = false;
-        } },
-                             this._LOAD_BUSY_MAX_MS || 30000);
+      const _wd = setTimeout(() => {
+          if (this.loading) {
+            this.loading = false;
+          }
+        },
+        this._LOAD_BUSY_MAX_MS || 30000);
       try {
         const r = await fetch('/api/items' + (force ? '?force=true' : ''));
         if (!r.ok) {
@@ -3548,11 +3789,16 @@ function app() {
           this.loadStats(true);
         }
       } catch (e) {
-        try { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
-        catch (_) {}
+        try {
+          this.showToast(this.t('toasts.load_failed', {error: e.message}), 'error');
+        } catch (_) {
+        }
       } finally {
         this.loading = false;
-        try { clearTimeout(_wd); } catch (_) {}
+        try {
+          clearTimeout(_wd);
+        } catch (_) {
+        }
       }
     },
     async loadSettings() {
@@ -3607,24 +3853,24 @@ function app() {
           // in the clear. `has_icmp_support` reflects whether icmplib
           // is importable on the server; SPA uses it to disable the
           // ICMP toggle with a hint when the package is missing.
-          ping_enabled:          !!(d.ping && d.ping.enabled),
-          ping_default_port:     (d.ping && Number.isFinite(d.ping.default_port)) ? d.ping.default_port : 443,
-          ping_use_icmp:         !!(d.ping && d.ping.use_icmp),
+          ping_enabled: !!(d.ping && d.ping.enabled),
+          ping_default_port: (d.ping && Number.isFinite(d.ping.default_port)) ? d.ping.default_port : 443,
+          ping_use_icmp: !!(d.ping && d.ping.use_icmp),
           ping_has_icmp_support: !!(d.ping && d.ping.has_icmp_support),
           // Port-scan provider — on-demand TCP scanner. `port_scan_enabled`
           // is the master toggle; defaults cascade into per-host
           // overrides on `hosts_config[].port_scan`.
-          port_scan_enabled:            !!(d.port_scan && d.port_scan.enabled),
-          port_scan_default_ports:      (d.port_scan && d.port_scan.default_ports) || '',
+          port_scan_enabled: !!(d.port_scan && d.port_scan.enabled),
+          port_scan_default_ports: (d.port_scan && d.port_scan.default_ports) || '',
           // Port-scan UDP companion (Stage 2). UDP runs under the
           // master `port_scan_enabled` toggle (operator-flagged
           // 2026-05-10 to remove the separate flag). `port_scan_udp_enabled`
           // hydrate retained as `true` so any leftover Alpine binding
           // sees a truthy value during the deprecation window — value
           // is otherwise unused.
-          port_scan_udp_enabled:        true,
-          port_scan_udp_default_ports:  (d.port_scan && d.port_scan.udp_default_ports) || '',
-          port_scan_default_timeout:    (d.port_scan && Number.isFinite(d.port_scan.default_timeout)) ? d.port_scan.default_timeout : 2,
+          port_scan_udp_enabled: true,
+          port_scan_udp_default_ports: (d.port_scan && d.port_scan.udp_default_ports) || '',
+          port_scan_default_timeout: (d.port_scan && Number.isFinite(d.port_scan.default_timeout)) ? d.port_scan.default_timeout : 2,
           port_scan_default_concurrency: (d.port_scan && Number.isFinite(d.port_scan.default_concurrency)) ? d.port_scan.default_concurrency : 32,
           // SNMP provider. v3 secret keys flow as `_set` flags
           // (write-only contract); community / version / port / aliases
@@ -3633,25 +3879,25 @@ function app() {
           // the ICMP-style "missing dep" hint when the package isn't
           // installed.
           snmp_default_community: (d.snmp && d.snmp.default_community) || 'public',
-          snmp_default_version:   (d.snmp && d.snmp.default_version)   || 'v2c',
-          snmp_default_port:      (d.snmp && Number.isFinite(d.snmp.default_port)) ? d.snmp.default_port : 161,
-          snmp_v3_user:           (d.snmp && d.snmp.v3_user) || '',
-          snmp_v3_auth_key:       '',
-          snmp_v3_auth_key_set:   !!(d.snmp && d.snmp.v3_auth_key_set),
-          snmp_v3_priv_key:       '',
-          snmp_v3_priv_key_set:   !!(d.snmp && d.snmp.v3_priv_key_set),
+          snmp_default_version: (d.snmp && d.snmp.default_version) || 'v2c',
+          snmp_default_port: (d.snmp && Number.isFinite(d.snmp.default_port)) ? d.snmp.default_port : 161,
+          snmp_v3_user: (d.snmp && d.snmp.v3_user) || '',
+          snmp_v3_auth_key: '',
+          snmp_v3_auth_key_set: !!(d.snmp && d.snmp.v3_auth_key_set),
+          snmp_v3_priv_key: '',
+          snmp_v3_priv_key_set: !!(d.snmp && d.snmp.v3_priv_key_set),
           // Aliases textarea — same JSON-string pattern as
           // node_exporter_overrides_json so the existing dirty-tracker
           // + JSON-parse-on-save path applies.
-          snmp_aliases:           (d.snmp && d.snmp.aliases) || {},
-          snmp_aliases_json:      JSON.stringify((d.snmp && d.snmp.aliases) || {}, null, 2),
-          snmp_has_snmp_support:  !!(d.snmp && d.snmp.has_snmp_support),
+          snmp_aliases: (d.snmp && d.snmp.aliases) || {},
+          snmp_aliases_json: JSON.stringify((d.snmp && d.snmp.aliases) || {}, null, 2),
+          snmp_has_snmp_support: !!(d.snmp && d.snmp.has_snmp_support),
           // actual ImportError text from logic/snmp.py's module-
           // level pysnmp import block. Empty when pysnmp imported
           // cleanly. Surfaced inline in the SPA's "package missing"
           // hint so operators see the ROOT CAUSE without grepping
           // server logs.
-          snmp_import_error:      (d.snmp && d.snmp.import_error) || '',
+          snmp_import_error: (d.snmp && d.snmp.import_error) || '',
           // HTTP / TLS / DNS probe — seventh host-stats provider.
           // Master enable + alias CSV. Per-host overrides land on
           // `hosts_config[].http_probe` and ride the curated-config
@@ -3660,13 +3906,13 @@ function app() {
           http_probe_aliases: (d.http_probe && d.http_probe.aliases) || '',
           // per-provider chip colour overrides. Empty string
           // means "use the SPA default" (see providerColor() helper).
-          provider_color_beszel:        d.provider_color_beszel        || '',
-          provider_color_pulse:         d.provider_color_pulse         || '',
+          provider_color_beszel: d.provider_color_beszel || '',
+          provider_color_pulse: d.provider_color_pulse || '',
           provider_color_node_exporter: d.provider_color_node_exporter || '',
-          provider_color_webmin:        d.provider_color_webmin        || '',
-          provider_color_ping:          d.provider_color_ping          || '',
-          provider_color_snmp:          d.provider_color_snmp          || '',
-          provider_color_http_probe:    d.provider_color_http_probe    || '',
+          provider_color_webmin: d.provider_color_webmin || '',
+          provider_color_ping: d.provider_color_ping || '',
+          provider_color_snmp: d.provider_color_snmp || '',
+          provider_color_http_probe: d.provider_color_http_probe || '',
           // Scheduler — IANA zone. Blank = container-local (legacy).
           scheduler_timezone: d.scheduler_timezone || '',
           // Open-Meteo upstream (weather widget). Blank = default.
@@ -3674,10 +3920,10 @@ function app() {
           // Per-service master switches. Default true so legacy
           // deploys keep working before the operator interacts with
           // the toggles.
-          apprise_enabled:    d.apprise_enabled    !== false,
+          apprise_enabled: d.apprise_enabled !== false,
           open_meteo_enabled: d.open_meteo_enabled !== false,
-          portainer_enabled:  d.portainer_enabled  !== false,
-          ssh_enabled:        d.ssh_enabled        !== false,
+          portainer_enabled: d.portainer_enabled !== false,
+          ssh_enabled: d.ssh_enabled !== false,
           asset_inventory_enabled: d.asset_inventory_enabled !== false,
           // Admin → Hosts toggle that controls visibility of the
           // host-drawer debug-data panel. Default true keeps the
@@ -3689,9 +3935,9 @@ function app() {
           // selector reflect the saved state on first render. Per-provider
           // detail (model / base_url / api_key_set) is hydrated into
           // `this.aiForm` separately by hydrateAiFromSettings(d).
-          ai_enabled:         !!(d.ai && d.ai.enabled),
+          ai_enabled: !!(d.ai && d.ai.enabled),
           ai_active_provider: (d.ai && d.ai.active_provider) || 'claude',
-          ai_max_tokens:      (d.ai && Number.isFinite(+d.ai.max_tokens) && +d.ai.max_tokens > 0) ? +d.ai.max_tokens : 1024,
+          ai_max_tokens: (d.ai && Number.isFinite(+d.ai.max_tokens) && +d.ai.max_tokens > 0) ? +d.ai.max_tokens : 1024,
         };
         // Hydrate per-event notification toggles from the GET response.
         // The api_get_settings handler resolves each through
@@ -3719,26 +3965,26 @@ function app() {
         // any operator edit would flip dirty against a phantom
         // baseline (and the operator's actual saved values wouldn't
         // appear in the input boxes).
-        this.settings.telegram_bot_token     = '';
+        this.settings.telegram_bot_token = '';
         this.settings.telegram_bot_token_set = !!d.telegram_bot_token_set;
-        this.settings.telegram_chat_id       = (d.telegram_chat_id || '').toString();
-        this.settings.telegram_thread_id     = (d.telegram_thread_id || '').toString();
-        this.settings.telegram_verify_tls    = (d.telegram_verify_tls !== false);
+        this.settings.telegram_chat_id = (d.telegram_chat_id || '').toString();
+        this.settings.telegram_thread_id = (d.telegram_thread_id || '').toString();
+        this.settings.telegram_verify_tls = (d.telegram_verify_tls !== false);
         // Operator-tunable Bot API base URL — blank = upstream default.
-        this.settings.telegram_api_base      = (d.telegram_api_base || '').toString();
+        this.settings.telegram_api_base = (d.telegram_api_base || '').toString();
         // Phase 2 — listener config.
-        this.settings.telegram_listener_enabled  = !!d.telegram_listener_enabled;
+        this.settings.telegram_listener_enabled = !!d.telegram_listener_enabled;
         this.settings.telegram_allow_destructive = !!d.telegram_allow_destructive;
         this.settings.telegram_authorized_user_ids = (d.telegram_authorized_user_ids || '').toString();
         // TOTP / 2FA policy. Hydrate the five fields so the
         // Admin -> Config tab can render the inputs + the existing
         // saveSettings flow can ship the values back.
-        this.settings.totp_allowed              = (d.totp_allowed !== false);
-        this.settings.totp_required_for_admins  = !!d.totp_required_for_admins;
-        this.settings.totp_required_for_users   = !!d.totp_required_for_users;
+        this.settings.totp_allowed = (d.totp_allowed !== false);
+        this.settings.totp_required_for_admins = !!d.totp_required_for_admins;
+        this.settings.totp_required_for_users = !!d.totp_required_for_users;
         this.settings.totp_lockout_max_failures =
           Number.isFinite(d.totp_lockout_max_failures) ? d.totp_lockout_max_failures : 5;
-        this.settings.totp_lockout_minutes      =
+        this.settings.totp_lockout_minutes =
           Number.isFinite(d.totp_lockout_minutes) ? d.totp_lockout_minutes : 15;
         // Passkey master toggle. Hydrated alongside the TOTP
         // group because both Save through the same totpPolicySnapshot
@@ -3747,7 +3993,7 @@ function app() {
         // appeared unchecked even when the DB value was true. Default
         // when the backend omits the key matches the backend's own
         // default (`_TOTP_POLICY_DEFAULTS` → True).
-        this.settings.passkeys_allowed          = (d.passkeys_allowed !== false);
+        this.settings.passkeys_allowed = (d.passkeys_allowed !== false);
         // Capture baseline for the host-stats dirty indicator.
         // Passwords/tokens are always blank in the live form (write-
         // only on the wire) so any typed value flips dirty.
@@ -3758,16 +4004,16 @@ function app() {
         this.oidcStatus = d.oidc || null;
         if (this.oidcStatus) {
           this.oidcForm = {
-            enabled:       !!this.oidcStatus.enabled,
-            issuer_url:    this.oidcStatus.issuer_url || '',
-            client_id:     this.oidcStatus.client_id || '',
+            enabled: !!this.oidcStatus.enabled,
+            issuer_url: this.oidcStatus.issuer_url || '',
+            client_id: this.oidcStatus.client_id || '',
             client_secret: '',  // write-only — never prefill
-            redirect_uri:  this.oidcStatus.redirect_uri || this.oidcStatus.redirect_uri_default || '',
-            scopes:        this.oidcStatus.scopes || 'openid email profile groups',
-            admin_group:   this.oidcStatus.admin_group || 'omnigrid-admins',
+            redirect_uri: this.oidcStatus.redirect_uri || this.oidcStatus.redirect_uri_default || '',
+            scopes: this.oidcStatus.scopes || 'openid email profile groups',
+            admin_group: this.oidcStatus.admin_group || 'omnigrid-admins',
             // Default ON when the backend hasn't surfaced it yet (first load
             // after the migration); otherwise reflect whatever's persisted.
-            verify_tls:    this.oidcStatus.verify_tls !== false,
+            verify_tls: this.oidcStatus.verify_tls !== false,
             // case-insensitive admin-group claim match.
             // Default true (legacy exact-match contract) so existing
             // deploys are no-ops; flip false in the form when the IdP
@@ -3781,10 +4027,10 @@ function app() {
         this.portainerStatus = d.portainer || null;
         if (this.portainerStatus) {
           this.portainerForm = {
-            url:          this.portainerStatus.url || '',
-            endpoint_id:  this.portainerStatus.endpoint_id || 1,
-            verify_tls:   !!this.portainerStatus.verify_tls,
-            api_key:      '',  // write-only — never prefill
+            url: this.portainerStatus.url || '',
+            endpoint_id: this.portainerStatus.endpoint_id || 1,
+            verify_tls: !!this.portainerStatus.verify_tls,
+            api_key: '',  // write-only — never prefill
           };
         }
         // Capture portainer-public-url baseline for the dirty getter
@@ -3793,14 +4039,15 @@ function app() {
         this._portainerPublicBaseline = (this.settings || {}).portainer_public_url || '';
         // Capture all 5 unified-pattern baselines AFTER the form/settings
         // are fully populated. Subsequent edits compare against these.
-        this._appriseBaseline    = this._appriseSnapshot();
+        this._appriseBaseline = this._appriseSnapshot();
         // Split-Save baselines — providers + per-event have their
         // own dirty trackers + Save handlers so functionality stays
         // separated (see saveProviders / savePerEvent).
         try {
           this._providersBaseline = this._providersSnapshot();
-          this._perEventBaseline  = this._perEventSnapshot();
-        } catch (_) {}
+          this._perEventBaseline = this._perEventSnapshot();
+        } catch (_) {
+        }
         // Optimistic Test-pass stamp on load. Operator-flagged: after a
         // page reload the per-channel Save was disabled forever because
         // `_<medium>LastPassedTest` resets to '' on every refresh — so
@@ -3817,11 +4064,12 @@ function app() {
         try {
           this._appriseLastPassedTest = this._appriseTestSnapshot();
           this._telegramLastPassedTest = this._telegramTestSnapshot();
-        } catch (_) {}
-        this._openMeteoBaseline  = this._openMeteoSnapshot();
-        this._portainerBaseline  = this._portainerSnapshot();
-        this._oidcBaseline       = this._oidcSnapshot();
-        this._debugBaseline      = this._debugSnapshot();
+        } catch (_) {
+        }
+        this._openMeteoBaseline = this._openMeteoSnapshot();
+        this._portainerBaseline = this._portainerSnapshot();
+        this._oidcBaseline = this._oidcSnapshot();
+        this._debugBaseline = this._debugSnapshot();
         this._totpPolicyBaseline = this._totpPolicySnapshot();
         // AI integration — hydrate the per-provider form state +
         // capture its baseline. Mirrors the pattern above for the
@@ -3844,26 +4092,26 @@ function app() {
           id: String(g.id || ''),
           name: String(g.name || ''),
           range_start: Number.isFinite(+g.range_start) ? +g.range_start : 0,
-          range_end:   Number.isFinite(+g.range_end) ? +g.range_end : 0,
+          range_end: Number.isFinite(+g.range_end) ? +g.range_end : 0,
           // Optional display-prefix number. Empty string in the form
           // when unset; a positive integer otherwise. Sent through to
           // the server unchanged on save.
-          number:      (g.number != null && +g.number > 0) ? +g.number : '',
+          number: (g.number != null && +g.number > 0) ? +g.number : '',
           parent_name: String(g.parent_name || ''),
-          ip_range:    String(g.ip_range || ''),
+          ip_range: String(g.ip_range || ''),
           // Per-group SSH overrides — same shape as `hosts_config[].ssh`.
           // Password is write-only (server returns `password_set`
           // flag instead of the value); UI surfaces "set" badge so
           // operators can see whether one's configured without
           // exposing it.
           ssh: {
-            user:         String((g.ssh && g.ssh.user) || ''),
-            port:         (g.ssh && g.ssh.port) || '',
-            password:     '',
+            user: String((g.ssh && g.ssh.user) || ''),
+            port: (g.ssh && g.ssh.port) || '',
+            password: '',
             password_set: !!(g.ssh && g.ssh.password_set),
             clear_password: false,
           },
-          order:       Number.isFinite(+g.order) ? +g.order : 0,
+          order: Number.isFinite(+g.order) ? +g.order : 0,
         })) : [];
         this.hostGroupsDirty = false;
         // Bust groupedHosts() cache on every load.
@@ -3873,35 +4121,42 @@ function app() {
         this.assetStatus = d.asset_inventory || null;
         if (this.assetStatus) {
           this.assetForm = {
-            auth_mode:      (this.assetStatus.auth_mode === 'lifetime_token')
-                              ? 'lifetime_token' : 'oauth2',
-            base_url:       this.assetStatus.base_url || '',
-            token_url:      this.assetStatus.token_url || '',
-            client_id:      this.assetStatus.client_id || '',
-            client_secret:  '',  // write-only — never prefill
-            scope:          this.assetStatus.scope || '',
+            auth_mode: (this.assetStatus.auth_mode === 'lifetime_token')
+              ? 'lifetime_token' : 'oauth2',
+            base_url: this.assetStatus.base_url || '',
+            token_url: this.assetStatus.token_url || '',
+            client_id: this.assetStatus.client_id || '',
+            client_secret: '',  // write-only — never prefill
+            scope: this.assetStatus.scope || '',
             lifetime_token: '',  // write-only — never prefill
-            service:        this.assetStatus.service || '',
-            action:         this.assetStatus.action  || '',
-            min_value:      (this.assetStatus.min_value != null) ? String(this.assetStatus.min_value) : '',
-            max_value:      (this.assetStatus.max_value != null) ? String(this.assetStatus.max_value) : '',
+            service: this.assetStatus.service || '',
+            action: this.assetStatus.action || '',
+            min_value: (this.assetStatus.min_value != null) ? String(this.assetStatus.min_value) : '',
+            max_value: (this.assetStatus.max_value != null) ? String(this.assetStatus.max_value) : '',
             edit_url_template: this.assetStatus.edit_url_template || '',
             // / — default true if backend omits the key
             // (legacy deploy seeing first read).
-            verify_tls:     (this.assetStatus.verify_tls !== false),
+            verify_tls: (this.assetStatus.verify_tls !== false),
           };
         }
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error(e);
+      }
     },
 
     async copyRedirectUri() {
       const uri = (this.oidcStatus && this.oidcStatus.redirect_uri_default)
         || (this.oidcForm && this.oidcForm.redirect_uri) || '';
-      if (!uri) { this.showToast(this.t('toasts.no_redirect_uri'), 'error'); return; }
+      if (!uri) {
+        this.showToast(this.t('toasts.no_redirect_uri'), 'error');
+        return;
+      }
       try {
         await navigator.clipboard.writeText(uri);
         this.showToast(this.t('toasts.redirect_uri_copied'));
-      } catch (_) { this.showToast(this.t('toasts.copy_failed'), 'error'); }
+      } catch (_) {
+        this.showToast(this.t('toasts.copy_failed'), 'error');
+      }
     },
 
     // Optimistic stamp of the last-test-success cache when a Test
@@ -3917,7 +4172,7 @@ function app() {
         return;
       }
       const ts = Math.floor(Date.now() / 1000);
-      this._lastTestSuccess = { ...(this._lastTestSuccess || {}), [key]: ts };
+      this._lastTestSuccess = {...(this._lastTestSuccess || {}), [key]: ts};
     },
     // Wrap every `<input type="password">` whose closest ancestor
     // `<form>` is missing in a hidden `<form>` so Chromium stops
@@ -3990,8 +4245,7 @@ function app() {
       let rel;
       if (delta < 60) {
         rel = this.t('common.just_now') || 'just now';
-      }
-      else {
+      } else {
         if (delta < 3600) {
           rel = this.t('common.minutes_ago', {count: Math.floor(delta / 60)}) || `${Math.floor(delta / 60)}m ago`;
         } else {
@@ -4002,7 +4256,7 @@ function app() {
           }
         }
       }
-      return this.t('admin.last_connected_label', { rel: rel }) || `Last connected ${rel}`;
+      return this.t('admin.last_connected_label', {rel: rel}) || `Last connected ${rel}`;
     },
 
     // list of curated hosts that have ping enabled. Pulled from
@@ -4013,7 +4267,7 @@ function app() {
       const rows = Array.isArray(this.hostsConfig) ? this.hostsConfig : [];
       return rows
         .filter(h => h && h.ping && h.ping.enabled && h.enabled !== false && h.id)
-        .map(h => ({ id: h.id, label: this.hostDisplayName(h) || h.id }));
+        .map(h => ({id: h.id, label: this.hostDisplayName(h) || h.id}));
     },
     // / list of curated hosts that have SNMP mapped (a
     // non-empty `snmp_name` row field). Pulled from the in-memory
@@ -4025,15 +4279,15 @@ function app() {
       const rows = Array.isArray(this.hostsConfig) ? this.hostsConfig : [];
       return rows
         .filter(h => h && h.enabled !== false && h.id
-                     // explicit opt-in: SNMP probes only run
-                     // when the operator checks the per-host enable
-                     // box. Default-OFF mirrors ping.enabled.
-                     && !!(h.snmp && h.snmp.enabled === true)
-                     // Same canonical chain (snmp_name → address) the
-                     // live sampler uses — a host with `address` set
-                     // and `snmp_name` blank IS valid SNMP target.
-                     && ((h.snmp_name || '').trim() || (h.address || '').trim()))
-        .map(h => ({ id: h.id, label: this.hostDisplayName(h) || h.id }));
+          // explicit opt-in: SNMP probes only run
+          // when the operator checks the per-host enable
+          // box. Default-OFF mirrors ping.enabled.
+          && !!(h.snmp && h.snmp.enabled === true)
+          // Same canonical chain (snmp_name → address) the
+          // live sampler uses — a host with `address` set
+          // and `snmp_name` blank IS valid SNMP target.
+          && ((h.snmp_name || '').trim() || (h.address || '').trim()))
+        .map(h => ({id: h.id, label: this.hostDisplayName(h) || h.id}));
     },
     // User-side convenience handlers — operate on profileForm.notify_events
     // (per-user opt-in map keyed by BARE event name — no
@@ -4042,7 +4296,9 @@ function app() {
     // helper writes uniformly across every medium that's globally
     // enabled. Admin-disabled events skip — the backend rejects an
     // opt-in attempt for them with 400.
-    _bareEventName(k) { return String(k || '').replace(/^notify_event_/, ''); },
+    _bareEventName(k) {
+      return String(k || '').replace(/^notify_event_/, '');
+    },
     // Read / write a single (event, medium) checkbox.
     userNotifyEventValue(eventKey, medium) {
       const bare = this._bareEventName(eventKey);
@@ -4081,16 +4337,21 @@ function app() {
         enabled: !!s.debug_panel_enabled,
       });
     },
-    debugDirty()     { return this._debugBaseline     !== this._debugSnapshot(); },
+    debugDirty() {
+      return this._debugBaseline !== this._debugSnapshot();
+    },
     _openMeteoSnapshot() {
       const s = this.settings || {};
       return JSON.stringify({
         enabled: !!s.open_meteo_enabled,
-        url:     (s.open_meteo_url || '').trim().replace(/\/+$/, ''),
+        url: (s.open_meteo_url || '').trim().replace(/\/+$/, ''),
       });
     },
-    openMeteoDirty() { return this._openMeteoBaseline !== this._openMeteoSnapshot(); },
-    markOpenMeteoDirty()  {},
+    openMeteoDirty() {
+      return this._openMeteoBaseline !== this._openMeteoSnapshot();
+    },
+    markOpenMeteoDirty() {
+    },
     // Auto-save a single per-service "enabled" master switch.
     // Wired to the @change of the toggle checkbox for Apprise /
     // Open-Meteo / Portainer / SSH so the operator doesn't have to
@@ -4107,8 +4368,8 @@ function app() {
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ [key]: value }),
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({[key]: value}),
         });
         if (!r.ok) {
           throw new Error(await r.text());
@@ -4116,7 +4377,7 @@ function app() {
         const stateKey = value
           ? 'admin_integrations.toggle_enabled_toast'
           : 'admin_integrations.toggle_disabled_toast';
-        this.showToast(this.t(stateKey, { name }), 'success');
+        this.showToast(this.t(stateKey, {name}), 'success');
       } catch (_) {
         // Roll the in-memory toggle back so UI matches server state.
         this.settings[key] = !value;
@@ -4152,26 +4413,26 @@ function app() {
       return JSON.stringify({
         // Apprise
         apprise_enabled: !!s.apprise_enabled,
-        apprise_url:     (s.apprise_url || '').trim(),
-        apprise_tag:     (s.apprise_tag || '').trim(),
+        apprise_url: (s.apprise_url || '').trim(),
+        apprise_tag: (s.apprise_tag || '').trim(),
         // Telegram core
-        telegram_chat_id:    (s.telegram_chat_id || '').trim(),
-        telegram_thread_id:  (s.telegram_thread_id || '').trim(),
+        telegram_chat_id: (s.telegram_chat_id || '').trim(),
+        telegram_thread_id: (s.telegram_thread_id || '').trim(),
         telegram_verify_tls: !!s.telegram_verify_tls,
         // Write-only secret — non-empty form value = dirty.
         telegram_token_pending: (s.telegram_bot_token || '').trim() ? '<pending>' : '',
         // Telegram Phase 2 listener config
-        telegram_listener_enabled:    !!s.telegram_listener_enabled,
-        telegram_allow_destructive:   !!s.telegram_allow_destructive,
+        telegram_listener_enabled: !!s.telegram_listener_enabled,
+        telegram_allow_destructive: !!s.telegram_allow_destructive,
         telegram_authorized_user_ids: (s.telegram_authorized_user_ids || '').trim(),
         // Per-medium fan-out toggles
-        medium_app:      !!s.notify_medium_app,
-        medium_apprise:  !!s.notify_medium_apprise,
+        medium_app: !!s.notify_medium_app,
+        medium_apprise: !!s.notify_medium_apprise,
         medium_telegram: !!s.notify_medium_telegram,
         // In-app tunables (live in the In-app tab body)
         tuning_retention: (tf.tuning_notification_retention_days ?? '').toString(),
-        tuning_page:      (tf.tuning_notification_page_size ?? '').toString(),
-        tuning_poll:      (tf.tuning_notifications_poll_interval_seconds ?? '').toString(),
+        tuning_page: (tf.tuning_notification_page_size ?? '').toString(),
+        tuning_poll: (tf.tuning_notifications_poll_interval_seconds ?? '').toString(),
       });
     },
     providersDirty() {
@@ -4204,7 +4465,7 @@ function app() {
         }
         const r = await fetch('/api/settings', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(payload),
         });
         if (!r.ok) {
@@ -4213,7 +4474,7 @@ function app() {
         }
         await this.loadSettings();
         this._perEventBaseline = this._perEventSnapshot();
-        this._appriseBaseline  = this._appriseSnapshot();
+        this._appriseBaseline = this._appriseSnapshot();
         this.perEventSaveResult = {
           ok: true,
           detail: this.t('admin.notifications.per_event_save_success') || 'Per-event toggles saved',
@@ -4231,14 +4492,16 @@ function app() {
       try {
         const r = await fetch('/api/ignores');
         this.ignores = (await r.json()).ignores || [];
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error(e);
+      }
     },
     async addIgnore() {
       if (!this.newIgnore.pattern.trim()) {
         return;
       }
       await fetch('/api/ignores', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
+        method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(this.newIgnore),
       });
       this.newIgnore.pattern = '';
@@ -4246,7 +4509,7 @@ function app() {
       await this.refresh(true);
     },
     async delIgnore(pattern) {
-      await fetch('/api/ignores/' + encodeURIComponent(pattern), { method: 'DELETE' });
+      await fetch('/api/ignores/' + encodeURIComponent(pattern), {method: 'DELETE'});
       await this.loadIgnores();
       await this.refresh(true);
     },
@@ -4260,7 +4523,7 @@ function app() {
           await this.delIgnore(match.pattern);
         }
       } else {
-        this.newIgnore = { kind: 'image', pattern: item.image };
+        this.newIgnore = {kind: 'image', pattern: item.image};
         await this.addIgnore();
       }
       this.drawerItem = null;
@@ -4270,13 +4533,14 @@ function app() {
       return !!(f.q || f.stack || f.op_type || f.status || f.actor || f.fromDate || f.toDate);
     },
     resetHistoryFilters() {
-      this.historyFilters = { q: '', stack: '', op_type: '', status: '', actor: '', fromDate: '', toDate: '' };
+      this.historyFilters = {q: '', stack: '', op_type: '', status: '', actor: '', fromDate: '', toDate: ''};
     },
     _persistHistoryPaging() {
       try {
-        localStorage.setItem('historyPage',    String(this.historyPage));
+        localStorage.setItem('historyPage', String(this.historyPage));
         localStorage.setItem('historyPerPage', String(this.historyPerPage));
-      } catch (_) {}
+      } catch (_) {
+      }
     },
     // Open the AI sidebar pre-loaded with a "diagnose this history row"
     // user-turn. The seeded prompt carries the row's op_type, target,
@@ -4340,8 +4604,7 @@ function app() {
         };
         if (this.$nextTick) {
           this.$nextTick(fire);
-        }
-        else {
+        } else {
           setTimeout(fire, 0);
         }
       } catch (e) {
@@ -4360,7 +4623,7 @@ function app() {
       if (!ok) {
         return;
       }
-      await fetch('/api/history', { method: 'DELETE' });
+      await fetch('/api/history', {method: 'DELETE'});
       await this.loadHistory();
       this.showToast(this.t('toasts.history_cleared'));
     },
@@ -4374,7 +4637,10 @@ function app() {
       }
       const unread = cluster.items.filter(n => n && n.read_at == null);
       for (const n of unread) {
-        try { await this.markNotificationRead(n.id); } catch (_) {}
+        try {
+          await this.markNotificationRead(n.id);
+        } catch (_) {
+        }
       }
     },
 
@@ -4388,7 +4654,7 @@ function app() {
     // stream is healthy. EventSource handles reconnect natively; we only
     // track the connection state for the toolbar indicator + poll-gate.
     //
-  // Reactive updates use the existing in-place reconcile contract —
+    // Reactive updates use the existing in-place reconcile contract —
     // never reassign reactive arrays from an event handler (would tear
     // every chart SVG / <details> / inline-style node down on each
     // event, defeating the entire purpose of moving from poll → push).
@@ -4400,7 +4666,10 @@ function app() {
     _disconnectSSE() {
       if (this._sse) {
         console.log('[live] SSE disconnect: closing stream (operator picked Off/interval)');
-        try { this._sse.close(); } catch (_) {}
+        try {
+          this._sse.close();
+        } catch (_) {
+        }
         this._sse = null;
       }
       this._sseConnected = false;
@@ -4428,14 +4697,13 @@ function app() {
         return (out && out !== 'nav.' + key) ? out : (key.charAt(0).toUpperCase() + key.slice(1));
       };
       const _join = (leg, target) => {
-        const tmpl = this.t('topbar.tabs.path_separator', { leg, target });
+        const tmpl = this.t('topbar.tabs.path_separator', {leg, target});
         return (tmpl && tmpl !== 'topbar.tabs.path_separator') ? tmpl : (leg + ' → ' + target);
       };
       let title = v ? _navLabel(v) : '';
-      if (v === 'admin' && this.adminTab)               {
+      if (v === 'admin' && this.adminTab) {
         title = _join(_navLabel('admin'), this.adminTab);
-      }
-      else {
+      } else {
         if (v === 'settings' && this.settingsSection) {
           title = _join(_navLabel('settings'), this.settingsSection);
         } else {
@@ -4455,15 +4723,15 @@ function app() {
       // here" handoff so the operator on the phone can copy the
       // desktop tab's filter/drawer state into the current tab.
       const _filters = {
-        search:        (this.search || '').toString() || null,
-        statusFilter:  (this.statusFilter || '').toString() || null,
-        healthFilter:  (this.healthFilter || '').toString() || null,
-        hostsProblemFilter:   !!this.hostsProblemFilter || null,
+        search: (this.search || '').toString() || null,
+        statusFilter: (this.statusFilter || '').toString() || null,
+        healthFilter: (this.healthFilter || '').toString() || null,
+        hostsProblemFilter: !!this.hostsProblemFilter || null,
         hostsHideUnconfigured: !!this.hostsHideUnconfigured || null,
-        hostsProviderFilter:  (this.hostsProviderFilter
-                               && this.hostsProviderFilter.size)
-                              ? Array.from(this.hostsProviderFilter)
-                              : null,
+        hostsProviderFilter: (this.hostsProviderFilter
+          && this.hostsProviderFilter.size)
+          ? Array.from(this.hostsProviderFilter)
+          : null,
       };
       // Strip null/false entries so the snapshot stays compact on the
       // wire (heartbeat fires every 30s — keep the payload small).
@@ -4477,24 +4745,24 @@ function app() {
         ? this.selected.slice(0, 50)  // cap to bound the heartbeat size
         : [];
       const _hasRichState = Object.keys(filters).length > 0
-                            || selectionIds.length > 0;
+        || selectionIds.length > 0;
 
       return {
-        view:             v || null,
-        drawer_host:      drawerHostId,
-        drawer_item:      (this.drawerItem && (this.drawerItem.id || this.drawerItem.name)) || null,
-        admin_tab:        (this.adminTab || '').toString() || null,
+        view: v || null,
+        drawer_host: drawerHostId,
+        drawer_item: (this.drawerItem && (this.drawerItem.id || this.drawerItem.name)) || null,
+        admin_tab: (this.adminTab || '').toString() || null,
         settings_section: (this.settingsSection || '').toString() || null,
-        stats_tab:        (this.statsTab || '').toString() || null,
-        title:            title || null,
+        stats_tab: (this.statsTab || '').toString() || null,
+        title: title || null,
         // Compact richer state — only emitted when actually populated
         // so idle tabs don't waste heartbeat bytes.
-        filters:          Object.keys(filters).length ? filters : null,
-        selection:        selectionIds.length ? selectionIds : null,
+        filters: Object.keys(filters).length ? filters : null,
+        selection: selectionIds.length ? selectionIds : null,
         // Pre-formatted summary label the popover renders if the
         // operator wants more than the bare title. e.g. "Hosts → 12
         // selected · paused filter on".
-        rich_label:       _hasRichState ? this._tabActivityRichLabel(filters, selectionIds) : null,
+        rich_label: _hasRichState ? this._tabActivityRichLabel(filters, selectionIds) : null,
       };
     },
 
@@ -4506,7 +4774,7 @@ function app() {
     _tabActivityRichLabel(filters, selection) {
       const fragments = [];
       if (selection && selection.length) {
-        fragments.push(this.t('topbar.tabs.rich.selection', { count: selection.length }) || (selection.length + ' selected'));
+        fragments.push(this.t('topbar.tabs.rich.selection', {count: selection.length}) || (selection.length + ' selected'));
       }
       if (filters.hostsProblemFilter) {
         fragments.push(this.t('topbar.tabs.rich.problem_filter') || 'problem filter');
@@ -4515,19 +4783,19 @@ function app() {
         fragments.push(this.t('topbar.tabs.rich.hide_unconfigured_filter') || 'hide unconfigured');
       }
       if (filters.hostsProviderFilter && filters.hostsProviderFilter.length) {
-        fragments.push(this.t('topbar.tabs.rich.provider_filter', { providers: filters.hostsProviderFilter.join(', ') })
+        fragments.push(this.t('topbar.tabs.rich.provider_filter', {providers: filters.hostsProviderFilter.join(', ')})
           || ('providers: ' + filters.hostsProviderFilter.join(', ')));
       }
       if (filters.statusFilter) {
-        fragments.push(this.t('topbar.tabs.rich.status_filter', { status: filters.statusFilter })
+        fragments.push(this.t('topbar.tabs.rich.status_filter', {status: filters.statusFilter})
           || ('status: ' + filters.statusFilter));
       }
       if (filters.healthFilter) {
-        fragments.push(this.t('topbar.tabs.rich.health_filter', { health: filters.healthFilter })
+        fragments.push(this.t('topbar.tabs.rich.health_filter', {health: filters.healthFilter})
           || ('health: ' + filters.healthFilter));
       }
       if (filters.search) {
-        fragments.push(this.t('topbar.tabs.rich.search', { query: filters.search })
+        fragments.push(this.t('topbar.tabs.rich.search', {query: filters.search})
           || ('search: ' + filters.search));
       }
       return fragments.join(' · ');
@@ -4567,15 +4835,15 @@ function app() {
       // tag when the locale doesn't define the key (forward-compat
       // for novel UA detection cases).
       const platformKey = String(device.platform || 'Other').toLowerCase().replace(/[^a-z0-9]+/g, '_');
-      const browserKey  = String(device.browser  || 'Other').toLowerCase().replace(/[^a-z0-9]+/g, '_');
+      const browserKey = String(device.browser || 'Other').toLowerCase().replace(/[^a-z0-9]+/g, '_');
       const platformLabel = this.t('topbar.tabs.device.platform.' + platformKey);
-      const browserLabel  = this.t('topbar.tabs.device.browser.'  + browserKey);
+      const browserLabel = this.t('topbar.tabs.device.browser.' + browserKey);
       const p = (platformLabel && platformLabel !== 'topbar.tabs.device.platform.' + platformKey)
-                ? platformLabel
-                : String(device.platform || '');
+        ? platformLabel
+        : String(device.platform || '');
       const b = (browserLabel && browserLabel !== 'topbar.tabs.device.browser.' + browserKey)
-                ? browserLabel
-                : String(device.browser || '');
+        ? browserLabel
+        : String(device.browser || '');
       if (p && b) {
         return p + ' · ' + b;
       }
@@ -4629,7 +4897,8 @@ function app() {
             sessionStorage.removeItem('hostsProviderFilter');
           }
         }
-      } catch (_) { /* ignore */ }
+      } catch (_) { /* ignore */
+      }
       // Drawer state — open the same host / item if the source tab
       // had one open. Items / hosts must exist locally; if the source
       // tab had a drawer for a host we don't know about yet, the
@@ -4669,19 +4938,21 @@ function app() {
       try {
         await fetch('/api/tabs/activity', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(snap),
         });
-        this._tabHeartbeatLast = { ts: now, signature: sig };
-      } catch (_) { /* best-effort; next tick retries */ }
-      finally { this._tabHeartbeatBusy = false; }
+        this._tabHeartbeatLast = {ts: now, signature: sig};
+      } catch (_) { /* best-effort; next tick retries */
+      } finally {
+        this._tabHeartbeatBusy = false;
+      }
     },
     // Boot-time hydration of the local map from the backend's snapshot
     // so the topbar widget paints sibling tabs immediately, before the
     // first SSE event lands.
     async _tabActivityHydrate() {
       try {
-        const r = await fetch('/api/tabs/activity', { cache: 'no-store' });
+        const r = await fetch('/api/tabs/activity', {cache: 'no-store'});
         if (!r.ok) {
           return;
         }
@@ -4693,7 +4964,8 @@ function app() {
           }
         }
         this.tabActivity = fresh;
-      } catch (_) { /* best-effort */ }
+      } catch (_) { /* best-effort */
+      }
     },
     // Click-to-focus a sibling tab. Uses BroadcastChannel where available
     // (every modern browser since 2022); receivers self-match on the id
@@ -4709,9 +4981,10 @@ function app() {
           this._tabFocusChannel = new BroadcastChannel('omnigrid-tab-focus');
         }
         if (this._tabFocusChannel) {
-          this._tabFocusChannel.postMessage({ client_id: cid });
+          this._tabFocusChannel.postMessage({client_id: cid});
         }
-      } catch (_) { /* BroadcastChannel disabled / sandboxed */ }
+      } catch (_) { /* BroadcastChannel disabled / sandboxed */
+      }
     },
     // Sorted view of `tabActivity` for the topbar popover. Newest tab
     // first (largest `ts`).
@@ -4788,7 +5061,10 @@ function app() {
 
     setAutoRefresh(seconds) {
       this.autoRefresh = seconds;
-      try { localStorage.setItem('autoRefresh', String(seconds)); } catch {}
+      try {
+        localStorage.setItem('autoRefresh', String(seconds));
+      } catch {
+      }
       if (this._autoTimer) {
         clearInterval(this._autoTimer);
       }
@@ -4804,7 +5080,7 @@ function app() {
     // single canonical cadence-setter. Three modes mapped to
     // the picker's five buttons:
     //
-  // -1   "Live"   — SSE connection ON, every chart updates via
+    // -1   "Live"   — SSE connection ON, every chart updates via
     //                 push events. Polling timers sleep.
     //  0   "Off"    — SSE connection CLOSED, polling sleeps. The
     //                 dashboard becomes a static snapshot of the
@@ -4813,13 +5089,13 @@ function app() {
     // 30/60/300     — SSE connection CLOSED, polling at the chosen
     //                 cadence drives every chart uniformly.
     //
-  // Closing SSE for Off + interval modes is the load-bearing UX
+    // Closing SSE for Off + interval modes is the load-bearing UX
     // fix — pre-fix the picker selected Off but the Live pill stayed
     // green because SSE was still pushing events; operators reported
     // "the picker doesn't do what it says". Now the SSE pill colour
     // is a direct read of the picker's choice.
     //
-  // Mirrors the chosen polling cadence into legacy state vars
+    // Mirrors the chosen polling cadence into legacy state vars
     // (`autoRefresh` for items poll + `statsInterval` for stats /
     // hosts polls) so the existing pollers don't need to be rewired.
     // Live and Off both map to legacy=0; only intervals drive the
@@ -4828,7 +5104,10 @@ function app() {
       const modeLabel = seconds === -1 ? 'Live (SSE)' : seconds === 0 ? 'Off' : seconds + 's interval';
       console.log('[live] setRefreshInterval: mode=' + modeLabel + ' (raw=' + seconds + ')');
       this.refreshInterval = seconds;
-      try { localStorage.setItem('refreshInterval', String(seconds)); } catch {}
+      try {
+        localStorage.setItem('refreshInterval', String(seconds));
+      } catch {
+      }
       const legacy = seconds === -1 ? 0 : seconds;
       this.setStatsInterval(legacy);
       this.setAutoRefresh(legacy);
@@ -4846,7 +5125,10 @@ function app() {
       // body) — re-kick it whenever we transition AWAY from Off so
       // the panel comes back without waiting for a manual interaction.
       if (seconds !== 0 && !this._opsTimer) {
-        try { this.pollOps(); } catch (_) {}
+        try {
+          this.pollOps();
+        } catch (_) {
+        }
       }
       // Host-drawer history chart timer also follows the picker now
       //. Re-arm it under the new cadence whenever the operator
@@ -4935,7 +5217,10 @@ function app() {
         this._sparksTimer = null;
       }
       if (seconds !== 0) {
-        try { this.pollSparks(); } catch (_) {}
+        try {
+          this.pollSparks();
+        } catch (_) {
+        }
       }
     },
 
@@ -4949,20 +5234,17 @@ function app() {
       // fix anyway. Mirrors the per-stack rollup in `logic/gather.py`
       // and the per-node rollup in `nodesView` so all three count
       // sources read consistently.
-      const c = { update:0, update_offline:0, uptodate:0, unknown:0, error:0, ignored:0, healthy:0, degraded:0, offline:0 };
+      const c = {update: 0, update_offline: 0, uptodate: 0, unknown: 0, error: 0, ignored: 0, healthy: 0, degraded: 0, offline: 0};
       for (const i of this.items) {
-        if (i.status==='update') {
-          if (i.health==='offline') {
+        if (i.status === 'update') {
+          if (i.health === 'offline') {
             c.update_offline++;
-          }
-          else {
+          } else {
             c.update++;
           }
-        }
-        else if (i.status==='up-to-date') {
+        } else if (i.status === 'up-to-date') {
           c.uptodate++;
-        }
-        else {
+        } else {
           if (i.status === 'unknown') {
             c.unknown++;
           } else {
@@ -4975,10 +5257,9 @@ function app() {
             }
           }
         }
-        if (i.health==='healthy') {
+        if (i.health === 'healthy') {
           c.healthy++;
-        }
-        else {
+        } else {
           if (i.health === 'degraded') {
             c.degraded++;
           } else {
@@ -4993,7 +5274,7 @@ function app() {
     get filteredStacks() {
       const q = this.search.toLowerCase();
       return this.stacks
-        .map(s => ({ ...s, items: s.items.filter(i => this.matches(i, q)) }))
+        .map(s => ({...s, items: s.items.filter(i => this.matches(i, q))}))
         .filter(s => s.items.length > 0);
     },
     get filteredItems() {
@@ -5003,8 +5284,8 @@ function app() {
     get sortedFiltered() {
       const arr = [...this.filteredItems];
       const f = this.sortField, dir = this.sortDir === 'asc' ? 1 : -1;
-      const statusRank = { update:0, error:1, unknown:2, 'up-to-date':3, ignored:4 };
-      arr.sort((a,b) => {
+      const statusRank = {update: 0, error: 1, unknown: 2, 'up-to-date': 3, ignored: 4};
+      arr.sort((a, b) => {
         let va, vb;
         if (f === 'status') {
           va = statusRank[a.status] ?? 99;
@@ -5024,10 +5305,11 @@ function app() {
           if (ub == null) {
             return -1;
           }
-          va = ua; vb = ub;
+          va = ua;
+          vb = ub;
         } else {
-          va = (a[f]||'').toString().toLowerCase();
-          vb = (b[f]||'').toString().toLowerCase();
+          va = (a[f] || '').toString().toLowerCase();
+          vb = (b[f] || '').toString().toLowerCase();
         }
         if (va < vb) {
           return -1 * dir;
@@ -5068,7 +5350,10 @@ function app() {
       // trips). The DB is the cross-browser / cross-machine source
       // of truth — write through to the user's `ui_prefs.theme` so the
       // operator's preference follows them across browsers.
-      try { localStorage.setItem('theme', this.themePref); } catch (_) {}
+      try {
+        localStorage.setItem('theme', this.themePref);
+      } catch (_) {
+      }
       this.applyTheme();
       this.persistThemePref(this.themePref);
     },
@@ -5084,8 +5369,8 @@ function app() {
       try {
         await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prefs: { theme: value } }),
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({prefs: {theme: value}}),
         });
       } catch (e) {
         // Localised cache still has the new value — operator sees the
@@ -5107,8 +5392,8 @@ function app() {
       try {
         await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prefs: { host_history_range: n } }),
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({prefs: {host_history_range: n}}),
         });
       } catch (e) {
         if (window.console && console.warn) {
@@ -5120,7 +5405,9 @@ function app() {
       return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     },
 
-    _busyKey(kind, id) { return `${kind}:${id}`; },
+    _busyKey(kind, id) {
+      return `${kind}:${id}`;
+    },
     isStackBusy(stack) {
       if (!stack || !stack.stack_id) {
         return false;
@@ -5144,7 +5431,7 @@ function app() {
         return this.isStackBusy({stack_id: item.stack_id});
       }
       if (item.type === 'container') {
-        return this.activeOps.some(o => ['update_container','remove_container','restart_container'].includes(o.op_type) && o.target_id === item.raw_id);
+        return this.activeOps.some(o => ['update_container', 'remove_container', 'restart_container'].includes(o.op_type) && o.target_id === item.raw_id);
       }
       return false;
     },
@@ -5168,24 +5455,38 @@ function app() {
     },
     _busyTimers: {},
     _markBusy(key) {
-      this.busy = { ...this.busy, [key]: true };
+      this.busy = {...this.busy, [key]: true};
       if (this._busyTimers[key]) {
         clearTimeout(this._busyTimers[key]);
       }
       this._busyTimers[key] = setTimeout(() => {
         delete this._busyTimers[key];
-        if (this.busy[key]) { const n = {...this.busy}; delete n[key]; this.busy = n; }
+        if (this.busy[key]) {
+          const n = {...this.busy};
+          delete n[key];
+          this.busy = n;
+        }
       }, 3000);
     },
     _holdBusy(key) {
-      if (this._busyTimers[key]) { clearTimeout(this._busyTimers[key]); delete this._busyTimers[key]; }
+      if (this._busyTimers[key]) {
+        clearTimeout(this._busyTimers[key]);
+        delete this._busyTimers[key];
+      }
       if (!this.busy[key]) {
         this.busy = {...this.busy, [key]: true};
       }
     },
     _clearBusy(key) {
-      if (this._busyTimers[key]) { clearTimeout(this._busyTimers[key]); delete this._busyTimers[key]; }
-      if (this.busy[key]) { const n = {...this.busy}; delete n[key]; this.busy = n; }
+      if (this._busyTimers[key]) {
+        clearTimeout(this._busyTimers[key]);
+        delete this._busyTimers[key];
+      }
+      if (this.busy[key]) {
+        const n = {...this.busy};
+        delete n[key];
+        this.busy = n;
+      }
     },
     _opBusyKey(op) {
       if (!op) {
@@ -5194,7 +5495,7 @@ function app() {
       if (op.op_type === 'update_stack') {
         return this._busyKey('stack', op.target_id);
       }
-      if (['update_container','remove_container','restart_container'].includes(op.op_type)) {
+      if (['update_container', 'remove_container', 'restart_container'].includes(op.op_type)) {
         return this._busyKey('ctn', op.target_id);
       }
       if (op.op_type === 'restart_service') {
@@ -5203,7 +5504,9 @@ function app() {
       return null;
     },
 
-    statusKey(s) { return (s || 'unknown').replace('up-to-date','ok'); },
+    statusKey(s) {
+      return (s || 'unknown').replace('up-to-date', 'ok');
+    },
     // Split a host's network_ifaces into "real" (public-facing physical /
     // virtual NICs the operator cares about) and "internal" (docker veth
     // pairs, br-<id> bridges, docker0, docker_gwbridge, lo). On a Docker
@@ -5218,22 +5521,22 @@ function app() {
       const isInternal = name => {
         const n = (name || '').toLowerCase();
         return n === 'lo'
-            || n === 'docker0'
-            || n === 'docker_gwbridge'
-            || n.startsWith('veth')
-            || n.startsWith('br-')      // docker bridge networks (br-<12hex>)
-            || n.startsWith('cni')      // k8s pod network
-            || n.startsWith('flannel')
-            || n.startsWith('cali')     // calico
-            || n.startsWith('kube-')
-            || n.startsWith('vxlan')
-            || n.startsWith('vmbr');    // proxmox bridge (when surfaced)
+          || n === 'docker0'
+          || n === 'docker_gwbridge'
+          || n.startsWith('veth')
+          || n.startsWith('br-')      // docker bridge networks (br-<12hex>)
+          || n.startsWith('cni')      // k8s pod network
+          || n.startsWith('flannel')
+          || n.startsWith('cali')     // calico
+          || n.startsWith('kube-')
+          || n.startsWith('vxlan')
+          || n.startsWith('vmbr');    // proxmox bridge (when surfaced)
       };
       const real = [], internal = [];
       for (const iface of ifaces) {
         (isInternal(ifaceName(iface)) ? internal : real).push(iface);
       }
-      return { real, internal };
+      return {real, internal};
     },
     networkIfacesShowDocker: {},  // {host_id: bool} — toggle map per host
     toggleNetworkIfacesDocker(h) {
@@ -5270,7 +5573,7 @@ function app() {
         const tb = (+(b && b.rx_bytes) || 0) + (+(b && b.tx_bytes) || 0);
         return tb - ta;
       });
-      return { busy, idle, internal: partition.internal };
+      return {busy, idle, internal: partition.internal};
     },
     networkIfacesShowIdle: {},  // per-host toggle for the idle group
     toggleNetworkIfacesIdle(h) {
@@ -5365,7 +5668,7 @@ function app() {
         return 'pill-update';
       }
       if (s === 'off' || s === 'rebooting' || s.includes('bypass')
-          || s === 'hardware-failure-bypass' || s === 'sleeping-until') {
+        || s === 'hardware-failure-bypass' || s === 'sleeping-until') {
         return 'pill-error';
       }
       return 'pill-unknown';
@@ -5530,7 +5833,7 @@ function app() {
     // Helper: index of a provider in the fallback chain, or -1 if not in chain.
     fallbackPriority(name) {
       const order = Array.isArray(this.settings.ai_fallback_order)
-                      ? this.settings.ai_fallback_order : [];
+        ? this.settings.ai_fallback_order : [];
       return order.indexOf(name);
     },
     // Toggle a provider's membership in the fallback chain. Adding
@@ -5539,12 +5842,11 @@ function app() {
     // surfaced in the per-card UI below.
     toggleFallbackProvider(name) {
       const order = Array.isArray(this.settings.ai_fallback_order)
-                      ? this.settings.ai_fallback_order.slice() : [];
+        ? this.settings.ai_fallback_order.slice() : [];
       const i = order.indexOf(name);
       if (i >= 0) {
         order.splice(i, 1);
-      }
-      else {
+      } else {
         order.push(name);
       }
       this.settings.ai_fallback_order = order;
@@ -5553,7 +5855,7 @@ function app() {
     // Move a provider up (-1) or down (+1) in the fallback order.
     moveFallbackProvider(name, delta) {
       const order = Array.isArray(this.settings.ai_fallback_order)
-                      ? this.settings.ai_fallback_order.slice() : [];
+        ? this.settings.ai_fallback_order.slice() : [];
       const i = order.indexOf(name);
       if (i < 0) {
         return;
@@ -5584,15 +5886,15 @@ function app() {
         return 'pill-info';
       }
       if (s === 'failed' || s === 'offline' || s === 'degraded'
-          || s === 'removed' || s === 'fault') {
+        || s === 'removed' || s === 'fault') {
         return 'pill-error';
       }
       if (s === 'rebuild' || s === 'rebuilding' || s === 'recovering'
-          || s === 'replacing' || s === 'replaced'
-          || s === 'foreign' || s === 'blocked' || s === 'clear'
-          || s === 'non-raid' || s === 'ready-foreign'
-          || s === 'read-only' || s === 'uncertified'
-          || s === 'smart-alert' || s === 'predictive-failure') {
+        || s === 'replacing' || s === 'replaced'
+        || s === 'foreign' || s === 'blocked' || s === 'clear'
+        || s === 'non-raid' || s === 'ready-foreign'
+        || s === 'read-only' || s === 'uncertified'
+        || s === 'smart-alert' || s === 'predictive-failure') {
         return 'pill-update';
       }
       return 'pill-unknown';
@@ -5609,15 +5911,15 @@ function app() {
         return 'pill-info';
       }
       if (s === 'failed' || s === 'offline'
-          || s === 'failed-redundancy'
-          || s === 'permanently-degraded') {
+        || s === 'failed-redundancy'
+        || s === 'permanently-degraded') {
         return 'pill-error';
       }
       if (s === 'degraded' || s === 'verifying' || s === 'resynching'
-          || s === 'regenerating' || s === 'rebuilding'
-          || s === 'formatting' || s === 'reconstructing'
-          || s === 'initializing' || s === 'background-init'
-          || s === 'degraded-redundancy') {
+        || s === 'regenerating' || s === 'rebuilding'
+        || s === 'formatting' || s === 'reconstructing'
+        || s === 'initializing' || s === 'background-init'
+        || s === 'degraded-redundancy') {
         return 'pill-update';
       }
       return 'pill-unknown';
@@ -5714,7 +6016,7 @@ function app() {
       // Each colour token comes from :root so light + dark themes stay
       // consistent. CMYK-style names get their named colours; "waste"
       // / "drum" / "fuser" / etc. fall to text-dim.
-      if (name.includes('cyan'))    {
+      if (name.includes('cyan')) {
         return 'var(--info)';
       }
       if (name.includes('magenta')) {
@@ -5723,10 +6025,10 @@ function app() {
       if (name.includes('yellow')) {
         return 'var(--warning)';
       }
-      if (name.includes('black'))   {
+      if (name.includes('black')) {
         return 'var(--text)';
       }
-      if (name.includes('waste'))   {
+      if (name.includes('waste')) {
         return 'var(--text-faint)';
       }
       return 'var(--text-dim)';
@@ -5800,14 +6102,14 @@ function app() {
     //    and operators couldn't tell them apart in the row chips).
     providerColor(name) {
       const defaults = {
-        beszel:        '#22c55e',  // green  (matches pill-ok hue)
-        pulse:         '#3b82f6',  // blue   (matches pill-info hue)
+        beszel: '#22c55e',  // green  (matches pill-ok hue)
+        pulse: '#3b82f6',  // blue   (matches pill-info hue)
         node_exporter: '#f59e0b',  // amber  (matches pill-update hue)
-        webmin:        '#a78bfa',  // purple (distinct slot for the 4th provider)
-        ping:          '#06b6d4',  // cyan   (distinct from amber + green; was conflating with exporter)
-        snmp:          '#ec4899',  // pink   (sixth provider; distinct from the existing five)
-        port_scan:     '#8b5cf6',  // violet (port-scan on-demand provider)
-        http_probe:    '#fb923c',  // orange (seventh host-stats provider — HTTP / TLS / DNS health probe)
+        webmin: '#a78bfa',  // purple (distinct slot for the 4th provider)
+        ping: '#06b6d4',  // cyan   (distinct from amber + green; was conflating with exporter)
+        snmp: '#ec4899',  // pink   (sixth provider; distinct from the existing five)
+        port_scan: '#8b5cf6',  // violet (port-scan on-demand provider)
+        http_probe: '#fb923c',  // orange (seventh host-stats provider — HTTP / TLS / DNS health probe)
       };
       // Live admin-form value first (reactive on every keystroke / save).
       const live = ((this.settings || {})['provider_color_' + name] || '').trim();
@@ -5863,12 +6165,12 @@ function app() {
     },
     // Stale-marker helpers for the UI.
     //
-  // Backend stamps two markers on cache-seeded entries:
+    // Backend stamps two markers on cache-seeded entries:
     // 1. `_stats_cache[id]._stale: true`              ← per-item stats
     // 2. `nodes_info[host]._stale_fields: [..]`       ← per-host telemetry
     // 3. `_stale_ts: <epoch_seconds>`                 ← persistence write
     //
-  // The SPA dims any element bound to a stale value AND surfaces an
+    // The SPA dims any element bound to a stale value AND surfaces an
     // "X minutes ago" tooltip via `staleAge()`. This makes the
     // "provider went down" case visually explicit instead of letting
     // last-known-good values silently masquerade as live.
@@ -5943,7 +6245,7 @@ function app() {
     // operator gets one clear signal instead of every <dl> row
     // carrying a triangle.
     //
-  // Threshold: ≥ 6 stale fields (matches the typical count covered
+    // Threshold: ≥ 6 stale fields (matches the typical count covered
     // by a single-provider outage — host_cpu_percent, host_mem_total,
     // host_mem_used, host_disk_total, host_disk_used, host_uptime_s
     // is six). Fewer than that = partial / transient — keep the
@@ -5982,16 +6284,16 @@ function app() {
         }
         out.push(name);
       };
-      push('pulse',         !!trim(h.pulse_name));
+      push('pulse', !!trim(h.pulse_name));
       // SNMP: enabled + EITHER snmp_name OR address — same canonical
       // chain (aliases → snmp_name → address → SKIP) as the live
       // sampler / `_merge_one_host` / `rowHasProviderMapping`.
-      push('snmp',          h.snmp_enabled === true
-                            && (!!trim(h.snmp_name) || !!trim(h.address)));
-      push('beszel',        !!trim(h.beszel_name));
+      push('snmp', h.snmp_enabled === true
+        && (!!trim(h.snmp_name) || !!trim(h.address)));
+      push('beszel', !!trim(h.beszel_name));
       push('node_exporter', !!trim(h.ne_url));
-      push('webmin',        !!trim(h.webmin_name));
-      push('ping',          !!h.ping_enabled);
+      push('webmin', !!trim(h.webmin_name));
+      push('ping', !!h.ping_enabled);
       return out;
     },
     // Display label for a provider id — "node_exporter" → "exporter"
@@ -6019,15 +6321,21 @@ function app() {
       const tsRaw = obj._stale_ts;
       const ts = Number(tsRaw);
       if (!Number.isFinite(ts) || ts <= 0) {
-        try { return (window.t && window.t('stale_marker.never')) || ''; }
-        catch (_) { return ''; }
+        try {
+          return (window.t && window.t('stale_marker.never')) || '';
+        } catch (_) {
+          return '';
+        }
       }
       const ms = ts * 1000;
       const ago = this.fmtAgo(ms);
       // i18n: tooltip surface, not visible label. Translators handle
       // the "stale_marker.tooltip" key with the {age} placeholder.
-      try { return (window.t && window.t('stale_marker.tooltip', { age: ago })) || ('Last live data ' + ago + ' ago'); }
-      catch (_) { return 'Last live data ' + ago + ' ago'; }
+      try {
+        return (window.t && window.t('stale_marker.tooltip', {age: ago})) || ('Last live data ' + ago + ' ago');
+      } catch (_) {
+        return 'Last live data ' + ago + ' ago';
+      }
     },
     // Bare relative-time (e.g. `4s`, `12m`, `3h`) for the snapshot
     // timestamp on `obj._stale_ts`. Use this when injecting into a
@@ -6103,7 +6411,7 @@ function app() {
       // Clamp at 100 — brief spikes over a single tick can exceed
       // cores*100 due to sub-second bursts, and a bar that pokes past
       // 100% looks broken.
-      const { cpuRaw, hostCpuRaw, hasHostCpu, cores } = this.nodeStats(host);
+      const {cpuRaw, hostCpuRaw, hasHostCpu, cores} = this.nodeStats(host);
       if (hasHostCpu) {
         return Math.min(100, hostCpuRaw);
       }
@@ -6114,7 +6422,7 @@ function app() {
     },
 
     nodeMemPercent(host) {
-      const { memUsage, memLimit } = this.nodeStats(host);
+      const {memUsage, memLimit} = this.nodeStats(host);
       if (!memLimit) {
         return 0;
       }
@@ -6125,7 +6433,7 @@ function app() {
       // No "of N" denominator available without a host-agent — render
       // a proportional bar against the fleet's busiest Docker daemon
       // so operators see which node is carrying the most Docker disk.
-      const { dockerDisk } = this.nodeStats(host);
+      const {dockerDisk} = this.nodeStats(host);
       if (!dockerDisk) {
         return 0;
       }
@@ -6180,7 +6488,7 @@ function app() {
           hasSize = true;
         }
       }
-      return { cpu, memUsage, sizeRoot, hasStats, hasSize };
+      return {cpu, memUsage, sizeRoot, hasStats, hasSize};
     },
     // Title Case a free-text string. Handles ALL-CAPS replies from
     // SNMP printer agents (HP / Brother often return "BLACK
@@ -6194,7 +6502,7 @@ function app() {
       if (!s || typeof s !== 'string') {
         return s || '';
       }
-      const brands = new Set(['hp','hpe','ibm','amd','arm','lg','rgb','rfid','usb','pci','io','smb','ftp','http','https','tls','ssl','nfc','vpn','dns','dhcp','ip','tcp','udp','rj45','poe','sfp','sas','sata','nvme','ssd','hdd','iot','ai','ml','gpu','cpu','ram','rom','vrm','bmc','ipmi','sff']);
+      const brands = new Set(['hp', 'hpe', 'ibm', 'amd', 'arm', 'lg', 'rgb', 'rfid', 'usb', 'pci', 'io', 'smb', 'ftp', 'http', 'https', 'tls', 'ssl', 'nfc', 'vpn', 'dns', 'dhcp', 'ip', 'tcp', 'udp', 'rj45', 'poe', 'sfp', 'sas', 'sata', 'nvme', 'ssd', 'hdd', 'iot', 'ai', 'ml', 'gpu', 'cpu', 'ram', 'rom', 'vrm', 'bmc', 'ipmi', 'sff']);
       return s.replace(/\w\S*/g, w => {
         const lo = w.toLowerCase();
         if (brands.has(lo)) {
@@ -6243,7 +6551,7 @@ function app() {
         && this.me.client_config.snmp_per_host_walk_concurrency;
       const n = parseInt(v, 10);
       const num = Number.isFinite(n) && n >= 1 ? n : 1;
-      return this.t('admin_hosts.snmp_walk_concurrency_placeholder', { value: num });
+      return this.t('admin_hosts.snmp_walk_concurrency_placeholder', {value: num});
     },
     // Per-host wall-clock-budget input placeholder — same "Inherited: <N>"
     // pattern as walk_concurrency. Sourced from
@@ -6254,7 +6562,7 @@ function app() {
         && this.me.client_config.snmp_wall_clock_budget_seconds;
       const n = parseInt(v, 10);
       const num = Number.isFinite(n) && n >= 5 ? n : 60;
-      return this.t('admin_hosts.snmp_walk_concurrency_placeholder', { value: num });
+      return this.t('admin_hosts.snmp_walk_concurrency_placeholder', {value: num});
     },
     // Per-host SNMP vendor MIB selector. Empty list = auto-detect from
     // sysDescr (the common case; covers 95% of agents). Operator can
@@ -6310,7 +6618,7 @@ function app() {
           }
           set.delete(vendor);
         }
-        const next = Object.assign({}, snmpIn, { vendors: Array.from(set).sort() });
+        const next = Object.assign({}, snmpIn, {vendors: Array.from(set).sort()});
         this.hostsConfig[idx].snmp = next;
         this.markHostRowDirty(idx);
         touched += 1;
@@ -6318,8 +6626,8 @@ function app() {
       if (touched > 0) {
         this.showToast(this.t(
           add ? 'admin_hosts.snmp_vendors_bulk_applied'
-              : 'admin_hosts.snmp_vendors_bulk_cleared',
-          { vendor: this.snmpVendorLabel(vendor), count: touched }
+            : 'admin_hosts.snmp_vendors_bulk_cleared',
+          {vendor: this.snmpVendorLabel(vendor), count: touched}
         ));
       }
     },
@@ -6366,12 +6674,12 @@ function app() {
     snmpVendorLabel(key) {
       const k = String(key || '').trim().toLowerCase();
       const map = {
-        'apc':      'APC',
-        'cisco':    'Cisco',
-        'dell':     'Dell',
+        'apc': 'APC',
+        'cisco': 'Cisco',
+        'dell': 'Dell',
         'synology': 'Synology',
-        'printer':  'Printer',
-        'ucd':      'UCD/net-snmp',
+        'printer': 'Printer',
+        'ucd': 'UCD/net-snmp',
       };
       if (k in map) {
         return map[k];
@@ -6385,8 +6693,7 @@ function app() {
       const set = new Set(list);
       if (checked) {
         set.add(vendor);
-      }
-      else {
+      } else {
         set.delete(vendor);
       }
       snmp.vendors = Array.from(set).sort();
@@ -6545,11 +6852,15 @@ function app() {
         const match = _findCurated(nodeName);
         if (match) {
           host = (match.address || match.host_hostname || match.id || nodeName || '').trim();
-          if (host) { break; }
+          if (host) {
+            break;
+          }
         }
         // No curated match — fall back to the raw node hostname.
         host = String(nodeName).trim();
-        if (host) { break; }
+        if (host) {
+          break;
+        }
       }
       // Portainer public URL fallback — ingress-mode publishes land
       // on every Swarm node, so the public URL hostname is reasonable
@@ -6801,8 +7112,10 @@ function app() {
     sortBy(field) {
       if (this.sortField === field) {
         this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        this.sortField = field;
+        this.sortDir = 'asc';
       }
-      else { this.sortField = field; this.sortDir = 'asc'; }
     },
     sortIndicator(field) {
       if (this.sortField !== field) {
@@ -6825,8 +7138,7 @@ function app() {
     toggleStack(name) {
       if (this.expanded.includes(name)) {
         this.expanded = this.expanded.filter(n => n !== name);
-      }
-      else {
+      } else {
         this.expanded = [...this.expanded, name];
       }
     },
@@ -6840,8 +7152,7 @@ function app() {
       const selectable = this.filteredItems.filter(i => this.isSelectable(i));
       if (this.selected.length === selectable.length) {
         this.selected = [];
-      }
-      else {
+      } else {
         this.selected = selectable.map(i => i.id);
       }
     },
@@ -6853,8 +7164,14 @@ function app() {
         .filter(i => this.isSelectable(i) && i.status === 'update' && this.canUpdate(i))
         .map(i => i.id);
     },
-    clearSelection() { this.selected = []; },
-    clearFilters() { this.search = ''; this.statusFilter = ''; this.healthFilter = ''; },
+    clearSelection() {
+      this.selected = [];
+    },
+    clearFilters() {
+      this.search = '';
+      this.statusFilter = '';
+      this.healthFilter = '';
+    },
     topologyGroups(item) {
       // Returns [{node, chips: [{state, err}, …]}, …] for rendering the
       // node + coloured-dot strip. Placements with a synthetic fallback
@@ -6875,7 +7192,7 @@ function app() {
         }
         by.get(node).push(p);
       }
-      return Array.from(by.entries()).map(([node, chips]) => ({ node, chips }));
+      return Array.from(by.entries()).map(([node, chips]) => ({node, chips}));
     },
     // i18n-aware topology pill tooltips. Pre-fix
     // both the Stacks and Services views inlined `:title="group.node
@@ -6895,7 +7212,7 @@ function app() {
       // picks at call-time so non-binary plural locales can extend
       // their bundle without touching JS.
       const key = count === 1 ? 'topology.node_title' : 'topology.node_title_many';
-      return this.t(key, { node, count });
+      return this.t(key, {node, count});
     },
     topologyChipTooltip(chip) {
       const state = (chip && chip.state) || 'unknown';
@@ -6910,7 +7227,7 @@ function app() {
         stateLabel = state;
       }
       return err
-        ? this.t('topology.chip_tooltip_with_error', { state: stateLabel, err })
+        ? this.t('topology.chip_tooltip_with_error', {state: stateLabel, err})
         : stateLabel;
     },
 
@@ -6931,12 +7248,23 @@ function app() {
       // an unhandled throw inside `this.$nextTick` (e.g. when the
       // method is invoked from a non-Alpine context where $nextTick
       // isn't defined) used to swallow the entire palette open.
-      try { this.commandPaletteOpen = true; } catch (e) { console.error('[cmdpal] open: state flip failed', e); }
-      try { this.commandPaletteQuery = ''; this.commandPaletteSelectedIdx = 0; } catch (_) {}
+      try {
+        this.commandPaletteOpen = true;
+      } catch (e) {
+        console.error('[cmdpal] open: state flip failed', e);
+      }
+      try {
+        this.commandPaletteQuery = '';
+        this.commandPaletteSelectedIdx = 0;
+      } catch (_) {
+      }
       // Bulk-mode exclusion set is per-session; clear it on every
       // open so a previous run's deselections don't bleed into the
       // next bulk action.
-      try { this.commandPaletteBulkExcluded = new Set(); } catch (_) {}
+      try {
+        this.commandPaletteBulkExcluded = new Set();
+      } catch (_) {
+      }
       // Focus the input on the next tick (after Alpine renders the
       // x-show / :style branch). Without rAF the input isn't in the
       // DOM yet and the focus call no-ops.
@@ -6950,9 +7278,11 @@ function app() {
             if (input) {
               input.focus();
             }
-          } catch (_) {}
+          } catch (_) {
+          }
         });
-      } catch (_) {}
+      } catch (_) {
+      }
     },
     closeCommandPalette() {
       this.commandPaletteOpen = false;
@@ -7139,28 +7469,30 @@ function app() {
       const more = ids.length - sample.length;
       const sampleHtml = sample.map(id => '<code>' + this._logEscape(id) + '</code>').join(', ');
       const moreHtml = more > 0
-        ? ' ' + (this.t('hosts_extra.bulk.pause_confirm_more', { more }) || ('… and ' + more + ' more'))
+        ? ' ' + (this.t('hosts_extra.bulk.pause_confirm_more', {more}) || ('… and ' + more + ' more'))
         : '';
       const titleKey = 'command_palette.bulk.confirm_title_' + verb;
-      const bodyKey  = 'command_palette.bulk.confirm_body_'  + verb;
-      const okKey    = 'command_palette.bulk.confirm_ok_'    + verb;
+      const bodyKey = 'command_palette.bulk.confirm_body_' + verb;
+      const okKey = 'command_palette.bulk.confirm_ok_' + verb;
       const fallbackTitle = (verb === 'pause' ? 'Pause sampling on selected hosts?' : 'Resume sampling on selected hosts?');
-      const fallbackBody  = (verb === 'pause' ? 'Pause sampling on ' : 'Resume sampling on ') + ids.length + ' host(s)?';
-      const fallbackOk    = (verb === 'pause' ? 'Pause' : 'Resume');
+      const fallbackBody = (verb === 'pause' ? 'Pause sampling on ' : 'Resume sampling on ') + ids.length + ' host(s)?';
+      const fallbackOk = (verb === 'pause' ? 'Pause' : 'Resume');
       try {
         const res = await swal.fire({
           title: this.t(titleKey) || fallbackTitle,
-          html:  (this.t(bodyKey, { count: ids.length }) || fallbackBody)
-                 + '<br><br><div class="text-[11.5px] text-[var(--text-dim)] mono break-words">' + sampleHtml + moreHtml + '</div>',
-          icon:  'warning',
+          html: (this.t(bodyKey, {count: ids.length}) || fallbackBody)
+            + '<br><br><div class="text-[11.5px] text-[var(--text-dim)] mono break-words">' + sampleHtml + moreHtml + '</div>',
+          icon: 'warning',
           showCancelButton: true,
           confirmButtonText: this.t(okKey) || fallbackOk,
-          cancelButtonText:  this.t('actions.cancel') || 'Cancel',
+          cancelButtonText: this.t('actions.cancel') || 'Cancel',
         });
         if (!res.isConfirmed) {
           return;
         }
-      } catch { return; }
+      } catch {
+        return;
+      }
       // Pause requires step-up reauth (matches the per-host bulk
       // pause contract); resume does not.
       let reauthToken = null;
@@ -7171,14 +7503,14 @@ function app() {
         }
       }
       try {
-        const headers = { 'Content-Type': 'application/json' };
+        const headers = {'Content-Type': 'application/json'};
         if (reauthToken) {
           headers['X-Reauth-Token'] = reauthToken;
         }
         const r = await fetch('/api/hosts/bulk/' + verb, {
-          method:  'POST',
+          method: 'POST',
           headers,
-          body:    JSON.stringify({ host_ids: ids }),
+          body: JSON.stringify({host_ids: ids}),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
@@ -7187,7 +7519,7 @@ function app() {
         }
         const okKey2 = 'command_palette.bulk.success_' + verb;
         this.showToast(
-          this.t(okKey2, { count: (data.applied || []).length || ids.length })
+          this.t(okKey2, {count: (data.applied || []).length || ids.length})
           || ((verb === 'pause' ? 'Paused' : 'Resumed') + ' ' + ((data.applied || []).length || ids.length) + ' host(s)'),
           'success',
         );
@@ -7212,8 +7544,8 @@ function app() {
       }
       const action = turn.pending_action;
       turn.pending_confirm = false;
-      turn.pending_action  = null;
-      turn.action_ran      = true;
+      turn.pending_action = null;
+      turn.action_ran = true;
       this.persistAiConversation();
       this._scrollAiSidebarToBottom();
       try {
@@ -7227,13 +7559,13 @@ function app() {
         // ignore them.
         await action.run({
           skipConfirm: true,
-          tag:         (turn.action_tag || '').toString(),
-          actionItem:  (turn.action_item || '').toString(),
-          data:        (turn.action_data && typeof turn.action_data === 'object') ? turn.action_data : null,
+          tag: (turn.action_tag || '').toString(),
+          actionItem: (turn.action_item || '').toString(),
+          data: (turn.action_data && typeof turn.action_data === 'object') ? turn.action_data : null,
         });
       } catch (e) {
         if (typeof this.showToast === 'function') {
-          this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
+          this.showToast(this.t('toasts.failed_with_error', {error: e.message}), 'error');
         }
       }
     },
@@ -7243,8 +7575,8 @@ function app() {
         return;
       }
       turn.pending_confirm = false;
-      turn.pending_action  = null;
-      turn.cancelled       = true;
+      turn.pending_action = null;
+      turn.cancelled = true;
       this.persistAiConversation();
     },
 
@@ -7264,7 +7596,7 @@ function app() {
       // double-click can't fire twice. We'll replace turn.text once
       // the second-round reply lands.
       turn.pending_tool_confirms = null;
-      turn.pending_query         = null;
+      turn.pending_query = null;
       this.aiSidebarBusy = true;
       this.persistAiConversation();
       this._scrollAiSidebarToBottom();
@@ -7276,10 +7608,10 @@ function app() {
         const priorTurns = this.aiConversation
           .slice(0, turnIdx)
           .filter(t => t && (t.role === 'user' || t.role === 'assistant') && t.text)
-          .map(t => ({ role: t.role, text: t.text }));
+          .map(t => ({role: t.role, text: t.text}));
         const r = await fetch('/api/ai/palette', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             query: origQuery,
             context: ctx,
@@ -7335,7 +7667,7 @@ function app() {
           const chainDepth = (turn.tool_chain_depth || 0) + 1;
           turn.tool_chain_depth = chainDepth;
           if (Array.isArray(j.pending_tool_confirms) && j.pending_tool_confirms.length
-              && chainDepth < 5) {
+            && chainDepth < 5) {
             turn.pending_tool_confirms = j.pending_tool_confirms;
             turn.pending_query = origQuery;
             // Autonomous mode auto-chains the next round; approval
@@ -7362,8 +7694,8 @@ function app() {
         return;
       }
       turn.pending_tool_confirms = null;
-      turn.pending_query         = null;
-      turn.cancelled             = true;
+      turn.pending_query = null;
+      turn.cancelled = true;
       this.persistAiConversation();
     },
 
@@ -7429,8 +7761,8 @@ function app() {
       try {
         await fetch('/api/me/ui-prefs', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prefs: { ai_recent_slash_actions: this.aiRecentSlashActions.slice(0, 5) } }),
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({prefs: {ai_recent_slash_actions: this.aiRecentSlashActions.slice(0, 5)}}),
         });
       } catch (e) {
         if (window.console && console.warn) {
@@ -7464,13 +7796,13 @@ function app() {
       // straight to true.
       const isDestructive = !!(action && action.destructive);
       this.aiConversation.push({
-        role:           'assistant',
-        text:           '',
-        action_id:      action.id,
-        action_label:   action.label || action.id,
-        action_ran:     !isDestructive,
-        slash:          !!slash,
-        ts:             Date.now(),
+        role: 'assistant',
+        text: '',
+        action_id: action.id,
+        action_label: action.label || action.id,
+        action_ran: !isDestructive,
+        slash: !!slash,
+        ts: Date.now(),
       });
       this._scrollAiSidebarToBottom();
       this.persistAiConversation();
@@ -7511,7 +7843,9 @@ function app() {
       }
       return parts.length ? parts.join(' · ') : '';
     },
-    openDrawer(item) { this.drawerItem = item; },
+    openDrawer(item) {
+      this.drawerItem = item;
+    },
     // Body-scroll lock helper. Called from the Alpine root's
     // `x-effect` whenever any drawer-state changes — sets / clears a
     // `.drawer-scroll-lock` class on BOTH html and body so the scroll
@@ -7564,8 +7898,8 @@ function app() {
     _radiogroupArrowKey(ev) {
       const key = ev.key;
       if (key !== 'ArrowLeft' && key !== 'ArrowRight'
-          && key !== 'ArrowUp' && key !== 'ArrowDown'
-          && key !== 'Home' && key !== 'End') {
+        && key !== 'ArrowUp' && key !== 'ArrowDown'
+        && key !== 'Home' && key !== 'End') {
         return;
       }
       const group = ev.currentTarget;
@@ -7575,8 +7909,9 @@ function app() {
       }
       ev.preventDefault();
       let isRtl = false;
-      try { isRtl = group.matches(':dir(rtl)'); }
-      catch (_e) {
+      try {
+        isRtl = group.matches(':dir(rtl)');
+      } catch (_e) {
         isRtl = (document.documentElement.dir === 'rtl' || document.body.dir === 'rtl');
       }
       let idx = radios.indexOf(document.activeElement);
@@ -7589,8 +7924,7 @@ function app() {
       let next = idx;
       if (key === 'Home') {
         next = 0;
-      }
-      else {
+      } else {
         if (key === 'End') {
           next = radios.length - 1;
         } else {
@@ -7617,7 +7951,7 @@ function app() {
     _sidebarTablistArrowKey(ev) {
       const key = ev.key;
       if (key !== 'ArrowUp' && key !== 'ArrowDown'
-          && key !== 'Home' && key !== 'End') {
+        && key !== 'Home' && key !== 'End') {
         return;
       }
       const group = ev.currentTarget;
@@ -7637,8 +7971,7 @@ function app() {
       let next = idx;
       if (key === 'Home') {
         next = 0;
-      }
-      else {
+      } else {
         if (key === 'End') {
           next = tabs.length - 1;
         } else {
@@ -7655,7 +7988,7 @@ function app() {
     // the cn-driven sort/page-jump until the operator has fully left
     // the row card (not just blurred the cn input mid-edit).
     //
-  // Without this, the previous behaviour was: type a new cn, tab to
+    // Without this, the previous behaviour was: type a new cn, tab to
     // the next field → the row immediately re-sorts into its numeric
     // position → on a paged editor the row may have moved to a
     // DIFFERENT page → operator has to find it again to keep editing
@@ -7681,7 +8014,7 @@ function app() {
       // case, but for the post-edit case too.
       this.$nextTick(() => {
         const all = this.filteredHostsConfig();
-        const pos = all.findIndex(({ row: r }) => r._uid === uid);
+        const pos = all.findIndex(({row: r}) => r._uid === uid);
         if (pos >= 0) {
           const per = this.hostsConfigPerPage || 50;
           const targetPage = Math.floor(pos / per) + 1;
@@ -7724,7 +8057,9 @@ function app() {
     // a single row with both fields filled.
     // Helper used by importDiscoveredHosts + anywhere else that
     // programmatically mutates hostsConfig.
-    _markHostsDirty() { this.hostsConfigDirty = true; },
+    _markHostsDirty() {
+      this.hostsConfigDirty = true;
+    },
     importDiscoveredHosts() {
       const existing = new Set((this.hostsConfig || []).map(r =>
         (r.id || '').toLowerCase()
@@ -7737,19 +8072,19 @@ function app() {
         }
         if (!added[key]) {
           added[key] = {
-            id:          name,
-            label:       name,
-            ne_url:      '',
+            id: name,
+            label: name,
+            ne_url: '',
             beszel_name: '',
-            pulse_name:  '',
+            pulse_name: '',
             webmin_name: '',
-            webmin_url:  '',
-            snmp_name:   '',
+            webmin_url: '',
+            snmp_name: '',
             // Init http_probe sub-dict so the per-host editor's
             // textarea x-model binding doesn't read `urls_text` off
             // undefined when this discovery-imported row is opened.
-            http_probe:  {},
-            enabled:     true,
+            http_probe: {},
+            enabled: true,
           };
         }
         added[key][field] = name;
@@ -7757,13 +8092,13 @@ function app() {
       for (const n of (this.hostsDiscovery.beszel || [])) {
         addOrMerge(n, 'beszel_name');
       }
-      for (const n of (this.hostsDiscovery.pulse  || [])) {
+      for (const n of (this.hostsDiscovery.pulse || [])) {
         addOrMerge(n, 'pulse_name');
       }
       for (const n of (this.hostsDiscovery.webmin || [])) {
         addOrMerge(n, 'webmin_name');
       }
-      for (const n of (this.hostsDiscovery.snmp   || [])) {
+      for (const n of (this.hostsDiscovery.snmp || [])) {
         addOrMerge(n, 'snmp_name');
       }
       const rows = Object.values(added);
@@ -7773,7 +8108,7 @@ function app() {
       }
       this.hostsConfig.push(...rows);
       this.hostsConfigDirty = true;
-      this.showToast(this.t('admin_hosts.added_n', { count: rows.length }), 'success');
+      this.showToast(this.t('admin_hosts.added_n', {count: rows.length}), 'success');
     },
     // True when at least one provider (Beszel / Pulse / node-exporter
     // / Webmin / Ping / SNMP) is mapped on this row. The "Test providers"
@@ -7813,10 +8148,10 @@ function app() {
         );
       return !!(
         (row.beszel_name || '').trim() ||
-        (row.pulse_name  || '').trim() ||
-        (row.ne_url      || '').trim() ||
+        (row.pulse_name || '').trim() ||
+        (row.ne_url || '').trim() ||
         (row.webmin_name || '').trim() ||
-        (row.webmin_url  || '').trim() ||
+        (row.webmin_url || '').trim() ||
         snmpActive ||
         (row.ping && row.ping.enabled) ||
         httpProbeActive
@@ -7827,7 +8162,7 @@ function app() {
     // a 2000-line scroll. Collapsed rows show only the summary; the
     // field grid renders behind x-show when expanded.
     //
-  // Keyed on the row's stable `_uid` (assigned on load / add) — NOT
+    // Keyed on the row's stable `_uid` (assigned on load / add) — NOT
     // on `row.id`. Earlier the lookup used `row.id` as the key, so
     // typing into the ID field changed the key mid-keystroke and the
     // row collapsed (`hostsConfigExpanded[oldId]` was true but
@@ -7864,7 +8199,7 @@ function app() {
       if (!row || !row._uid) {
         return;
       }
-      const next = { ...this.hostsConfigExpanded };
+      const next = {...this.hostsConfigExpanded};
       if (next[row._uid]) {
         delete next[row._uid];
       } else {
@@ -7939,9 +8274,9 @@ function app() {
       if (!row) {
         return [];
       }
-      const asset = this.assetForHost({ custom_number: row.custom_number });
+      const asset = this.assetForHost({custom_number: row.custom_number});
       if (!asset) {
-        this.showToast(this.t('admin_hosts.autofill.no_match', { n: row.custom_number }), 'warning');
+        this.showToast(this.t('admin_hosts.autofill.no_match', {n: row.custom_number}), 'warning');
         return [];
       }
       const filled = [];
@@ -8063,7 +8398,8 @@ function app() {
           }
           return 'r' + hex;
         }
-      } catch (_) { /* unreachable on any spec-compliant browser */ }
+      } catch (_) { /* unreachable on any spec-compliant browser */
+      }
       // Last-resort: a monotonic counter scoped to the page session.
       // Not random, but unique within one tab — good enough for an Alpine
       // x-for :key that only needs intra-render uniqueness.
@@ -8115,11 +8451,11 @@ function app() {
 
     topLevelGroupNames(excludeIdx) {
       return (this.hostGroups || [])
-        .map((g, i) => ({ g, i }))
-        .filter(({ g, i }) => i !== excludeIdx
+        .map((g, i) => ({g, i}))
+        .filter(({g, i}) => i !== excludeIdx
           && !g.parent_name
           && (g.name || '').trim())
-        .map(({ g }) => g.name);
+        .map(({g}) => g.name);
     },
 
     // Total hosts in a top-level bucket = its own direct hosts +
@@ -8150,7 +8486,7 @@ function app() {
     bucketRenderList(bucket) {
       const out = [];
       for (const h of (bucket.hosts || [])) {
-        out.push(Object.assign({}, h, { _sub_group: null, _sub_heading: false }));
+        out.push(Object.assign({}, h, {_sub_group: null, _sub_heading: false}));
       }
       for (const sub of (bucket.children || [])) {
         const subHosts = sub.hosts || [];
@@ -8166,7 +8502,7 @@ function app() {
         }
         for (let i = 0; i < subHosts.length; i++) {
           out.push(Object.assign({}, subHosts[i], {
-            _sub_group:   sub.group,
+            _sub_group: sub.group,
             _sub_heading: i === 0,
           }));
         }
@@ -8182,7 +8518,7 @@ function app() {
     // so save-validation + per-row button handlers can reach back
     // to the storage without rebuilding the list.
     sortedGroupsForEditor() {
-      const arr = (this.hostGroups || []).map((g, i) => ({ g, origIdx: i }));
+      const arr = (this.hostGroups || []).map((g, i) => ({g, origIdx: i}));
       // Pass 1: top-level rows in original order (preserving the
       // operator's move-up/move-down choices).
       const tops = arr.filter(e => !e.g.parent_name);
@@ -8202,7 +8538,7 @@ function app() {
       // skip the children when their parent is collapsed via the
       // editor-side toggle. Operator can still expand to edit them.
       //
-    // `seen` MUST include kids whose parent exists even when we
+      // `seen` MUST include kids whose parent exists even when we
       // skip rendering them (collapsed). Otherwise the orphan-catch
       // below re-adds every hidden child at the bottom of the list,
       // which is what produced the "hides first parent's kids only"
@@ -8269,7 +8605,7 @@ function app() {
     // "Collapse all" button.
     scrollToHostGroupsTop() {
       try {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.scrollTo({top: 0, behavior: 'smooth'});
       } catch {
         window.scrollTo(0, 0);
       }
@@ -8283,11 +8619,11 @@ function app() {
     // as soon as the operator starts fixing it — classic
     // jQuery-validate feel without the dependency.
     setFieldError(key, msg) {
-      this.fieldErrors = { ...this.fieldErrors, [key]: msg };
+      this.fieldErrors = {...this.fieldErrors, [key]: msg};
     },
     clearFieldError(key) {
       if (key in this.fieldErrors) {
-        const next = { ...this.fieldErrors };
+        const next = {...this.fieldErrors};
         delete next[key];
         this.fieldErrors = next;
       }
@@ -8301,8 +8637,12 @@ function app() {
       }
       this.fieldErrors = next;
     },
-    hasFieldError(key) { return !!(this.fieldErrors && this.fieldErrors[key]); },
-    fieldError(key)    { return (this.fieldErrors || {})[key] || ''; },
+    hasFieldError(key) {
+      return !!(this.fieldErrors && this.fieldErrors[key]);
+    },
+    fieldError(key) {
+      return (this.fieldErrors || {})[key] || '';
+    },
     // Focus the DOM input whose x-model ends in the given field name
     // on the given row. Used after validation sets an error so the
     // operator's cursor lands on the first failing field.
@@ -8320,7 +8660,7 @@ function app() {
       if (m) {
         const rowIdx = parseInt(m[1], 10);
         const all = this.filteredHostsConfig();
-        const pos = all.findIndex(({ idx }) => idx === rowIdx);
+        const pos = all.findIndex(({idx}) => idx === rowIdx);
         if (pos >= 0) {
           const per = this.hostsConfigPerPage || 50;
           this.hostsConfigGoToPage(Math.floor(pos / per) + 1);
@@ -8364,7 +8704,7 @@ function app() {
         if (el && typeof el.focus === 'function') {
           el.focus();
           if (typeof el.scrollIntoView === 'function') {
-            el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            el.scrollIntoView({block: 'center', behavior: 'smooth'});
           }
         }
       }, 80);
@@ -8387,11 +8727,15 @@ function app() {
           'hostGroupsCollapsed',
           JSON.stringify(this.hostGroupsCollapsed),
         );
-      } catch {}
+      } catch {
+      }
     },
     expandAllGroups() {
       this.hostGroupsCollapsed = [];
-      try { localStorage.setItem('hostGroupsCollapsed', '[]'); } catch {}
+      try {
+        localStorage.setItem('hostGroupsCollapsed', '[]');
+      } catch {
+      }
     },
     collapseAllGroups() {
       const names = (this.hostGroups || []).map(g => g.name).filter(Boolean);
@@ -8404,7 +8748,8 @@ function app() {
           'hostGroupsCollapsed',
           JSON.stringify(this.hostGroupsCollapsed),
         );
-      } catch {}
+      } catch {
+      }
     },
     // Build the grouped view: iterate the (already filtered+sorted)
     // host list, bucket each into the first group whose range covers
@@ -8420,7 +8765,7 @@ function app() {
     // contains it). Hosts that match a top-level group directly
     // but no sub-group appear in the parent's own host list.
     //
-  // Shape:
+    // Shape:
     // [
     //   { group: {...top-level...}, hosts: [h, h],
     //     children: [
@@ -8436,7 +8781,7 @@ function app() {
     // groups list's length + a counter that increments on group save
     // (`hostGroupsRevision`) so a save explicitly busts even when the
     // length is unchanged.
-    _groupedHostsCache: { key: '', value: null },
+    _groupedHostsCache: {key: '', value: null},
     async clearAssetClientSecret() {
       try {
         const ok = await (window.Swal ? Swal.fire({
@@ -8445,15 +8790,15 @@ function app() {
           text: this.t('admin_assets.clear_secret_text'),
           showCancelButton: true,
           confirmButtonText: this.t('actions.confirm'),
-          cancelButtonText:  this.t('actions.cancel'),
+          cancelButtonText: this.t('actions.cancel'),
         }).then(r => !!r.isConfirmed) : confirm(this.t('toasts_extra.asset_clear_secret_prompt')));
         if (!ok) {
           return;
         }
         const r = await fetch('/api/settings', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clear_asset_inventory_client_secret: true }),
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({clear_asset_inventory_client_secret: true}),
         });
         if (!r.ok) {
           throw new Error(`HTTP ${r.status}`);
@@ -8469,18 +8814,18 @@ function app() {
         const ok = await (window.Swal ? Swal.fire({
           icon: 'warning',
           title: this.t('admin_assets.clear_lifetime_token_title'),
-          text:  this.t('admin_assets.clear_lifetime_token_text'),
+          text: this.t('admin_assets.clear_lifetime_token_text'),
           showCancelButton: true,
           confirmButtonText: this.t('actions.confirm'),
-          cancelButtonText:  this.t('actions.cancel'),
+          cancelButtonText: this.t('actions.cancel'),
         }).then(r => !!r.isConfirmed) : confirm(this.t('toasts_extra.asset_clear_token_prompt')));
         if (!ok) {
           return;
         }
         const r = await fetch('/api/settings', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clear_asset_inventory_lifetime_token: true }),
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({clear_asset_inventory_lifetime_token: true}),
         });
         if (!r.ok) {
           throw new Error(`HTTP ${r.status}`);
@@ -8501,15 +8846,15 @@ function app() {
     // backend-flag name + post-clear toast key and runs the flow.
     // Kept the existing `clearAssetClientSecret` / etc. wrappers so
     // their callers stay one-line.
-    async _clearSecret({ flag, titleKey, textKey, toastKey }) {
+    async _clearSecret({flag, titleKey, textKey, toastKey}) {
       try {
         const ok = await (window.Swal ? Swal.fire({
           icon: 'warning',
           title: this.t(titleKey),
-          text:  this.t(textKey),
+          text: this.t(textKey),
           showCancelButton: true,
           confirmButtonText: this.t('actions.confirm'),
-          cancelButtonText:  this.t('actions.cancel'),
+          cancelButtonText: this.t('actions.cancel'),
         }).then(r => !!r.isConfirmed) : confirm(this.t(textKey)));
         if (!ok) {
           return;
@@ -8518,7 +8863,7 @@ function app() {
         body[flag] = true;
         const r = await fetch('/api/settings', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(body),
         });
         if (!r.ok) {
@@ -8534,7 +8879,7 @@ function app() {
       return this._clearSecret({
         flag: 'clear_beszel_password',
         titleKey: 'settings.host_stats.clear_secret_title',
-        textKey:  'settings.host_stats.beszel_password_clear_text',
+        textKey: 'settings.host_stats.beszel_password_clear_text',
         toastKey: 'settings.host_stats.beszel_password_cleared',
       });
     },
@@ -8542,7 +8887,7 @@ function app() {
       return this._clearSecret({
         flag: 'clear_pulse_token',
         titleKey: 'settings.host_stats.clear_secret_title',
-        textKey:  'settings.host_stats.pulse_token_clear_text',
+        textKey: 'settings.host_stats.pulse_token_clear_text',
         toastKey: 'settings.host_stats.pulse_token_cleared',
       });
     },
@@ -8550,7 +8895,7 @@ function app() {
       return this._clearSecret({
         flag: 'clear_webmin_password',
         titleKey: 'settings.host_stats.clear_secret_title',
-        textKey:  'settings.host_stats.webmin_password_clear_text',
+        textKey: 'settings.host_stats.webmin_password_clear_text',
         toastKey: 'settings.host_stats.webmin_password_cleared',
       });
     },
@@ -8659,7 +9004,7 @@ function app() {
       // but type IS present, suggesting the upstream Type object uses
       // a field name we don't recognise yet.
       if (!a.type_short && a.type && a._raw && a._raw.Type
-          && typeof a._raw.Type === 'object') {
+        && typeof a._raw.Type === 'object') {
         if (!this._loggedMissingTypeShort) {
           this._loggedMissingTypeShort = new Set();
         }
@@ -8722,7 +9067,8 @@ function app() {
         // IO). This path is unreachable on every modern browser.
         if (!this._hostSeenIds.has(id)) {
           this._hostSeenIds.add(id);
-          this.refreshHostRow(id).catch(() => {});
+          this.refreshHostRow(id).catch(() => {
+          });
         }
         return;
       }
@@ -8766,7 +9112,7 @@ function app() {
     },
     async _ensureHostRefreshWorkers() {
       const PARALLEL = (this.me && this.me.client_config
-                        && this.me.client_config.hosts_parallel_fetch) || 6;
+        && this.me.client_config.hosts_parallel_fetch) || 6;
       const need = Math.max(0, PARALLEL - this._hostRefreshWorkerCount);
       if (!need) {
         return;
@@ -8784,8 +9130,10 @@ function app() {
             if (!id) {
               break;
             }
-            try { await this.refreshHostRow(id); }
-            catch (_) { /* per-row failure stays isolated */ }
+            try {
+              await this.refreshHostRow(id);
+            } catch (_) { /* per-row failure stays isolated */
+            }
           }
         } finally {
           this._hostRefreshWorkerCount -= 1;
@@ -8833,7 +9181,7 @@ function app() {
       }
       // 2. HTML body — strip and surface status only.
       if (trimmed.startsWith('<')) {
-        return this.t('common.errors.http_status', { status: sCode })
+        return this.t('common.errors.http_status', {status: sCode})
           || ('HTTP ' + sCode);
       }
       // 3. JSON `{"detail": "..."}`.
@@ -8843,14 +9191,15 @@ function app() {
           if (parsed && typeof parsed.detail === 'string' && parsed.detail) {
             return parsed.detail;
           }
-        } catch (_) { /* not JSON — fall through */ }
+        } catch (_) { /* not JSON — fall through */
+        }
       }
       // 4. Short plain text — pass through.
       if (trimmed && trimmed.length <= 200) {
         return trimmed;
       }
       // 5. Fallback.
-      return this.t('common.errors.http_status', { status: sCode })
+      return this.t('common.errors.http_status', {status: sCode})
         || ('HTTP ' + sCode);
     },
 
@@ -8868,7 +9217,7 @@ function app() {
       return curated.filter(s => {
         const port = Number(s && s.port);
         return port > 0 && !detected.has(port);
-      }).map(s => ({ port: Number(s.port), name: s.name || s.label || '' }));
+      }).map(s => ({port: Number(s.port), name: s.name || s.label || ''}));
     },
 
     // Detected ports sorted by port-number ascending, regardless of
@@ -8902,7 +9251,8 @@ function app() {
         if (typeof sessionStorage !== 'undefined') {
           sessionStorage.removeItem('hostsProviderFilter');
         }
-      } catch (_) { /* ignore */ }
+      } catch (_) { /* ignore */
+      }
     },
     // Whether `name` is currently in the active filter set.
     isHostsProviderFilterActive(name) {
@@ -8944,7 +9294,8 @@ function app() {
             sessionStorage.removeItem('hostsProblemFilter');
           }
         }
-      } catch (_) { /* private mode / quota — ignore */ }
+      } catch (_) { /* private mode / quota — ignore */
+      }
     },
     // Count of curated rows that have NO provider field mapped.
     // Used by the synthetic 'none' chip to surface "how many
@@ -8983,7 +9334,7 @@ function app() {
       // is the right surface for setup-gap nagging; the toolbar chip
       // is for "providers I care about" at a glance.
       if (configuredCount === 0) {
-        return { visible: false, cls: '', icon: '', title: '', styled: false };
+        return {visible: false, cls: '', icon: '', title: '', styled: false};
       }
       // Configured-but-not-active state — at least one host has the
       // provider mapped in its curated config BUT the operator hasn't
@@ -9000,8 +9351,8 @@ function app() {
         return {
           visible: true, cls: 'pill-warning', icon: '⚠',
           title: this.t('hosts_extra.provider_filter.title_configured_inactive',
-                        { name, count: configuredCount })
-                 || (`${name} — ${configuredCount} host(s) mapped but provider not enabled in Admin → Host stats`),
+              {name, count: configuredCount})
+            || (`${name} — ${configuredCount} host(s) mapped but provider not enabled in Admin → Host stats`),
           styled: false,
         };
       }
@@ -9009,7 +9360,7 @@ function app() {
       if (err) {
         return {
           visible: true, cls: 'pill-error', icon: '✗',
-          title: this.t('hosts_extra.provider_filter.title_error', { name, error: err }),
+          title: this.t('hosts_extra.provider_filter.title_error', {name, error: err}),
           styled: false,
         };
       }
@@ -9023,7 +9374,7 @@ function app() {
         : 'hosts_extra.provider_filter.title_match_many';
       return {
         visible: true, cls: 'pill-custom', icon: '✓',
-        title: this.t(titleKey, { name, count: matchCount }),
+        title: this.t(titleKey, {name, count: matchCount}),
         styled: true,
       };
     },
@@ -9034,14 +9385,16 @@ function app() {
     // open-toggle + loading-state shape as the host-debug panel, so
     // the markup can reuse the existing `.host-debug-*` CSS family
     // verbatim for visual consistency.
-    subjectDebugKey(kind, id) { return `${kind}:${id || ''}`; },
+    subjectDebugKey(kind, id) {
+      return `${kind}:${id || ''}`;
+    },
     async toggleSubjectDebug(kind, id) {
       if (!kind || !id) {
         return;
       }
       const key = this.subjectDebugKey(kind, id);
       const open = !this.subjectsDebugOpen[key];
-      this.subjectsDebugOpen = { ...this.subjectsDebugOpen, [key]: open };
+      this.subjectsDebugOpen = {...this.subjectsDebugOpen, [key]: open};
       if (open && !this.subjectsDebug[key] && !this.subjectsDebugLoading[key]) {
         await this.loadSubjectDebug(kind, id);
       }
@@ -9051,7 +9404,7 @@ function app() {
         return;
       }
       const key = this.subjectDebugKey(kind, id);
-      this.subjectsDebugLoading = { ...this.subjectsDebugLoading, [key]: true };
+      this.subjectsDebugLoading = {...this.subjectsDebugLoading, [key]: true};
       try {
         const r = await fetch(
           '/api/debug/subject'
@@ -9063,16 +9416,16 @@ function app() {
           const j = await r.json().catch(() => ({}));
           this.subjectsDebug = {
             ...this.subjectsDebug,
-            [key]: { _error: j.detail || `HTTP ${r.status}` },
+            [key]: {_error: j.detail || `HTTP ${r.status}`},
           };
           return;
         }
         const d = await r.json();
-        this.subjectsDebug = { ...this.subjectsDebug, [key]: d };
+        this.subjectsDebug = {...this.subjectsDebug, [key]: d};
       } catch (e) {
         this.subjectsDebug = {
           ...this.subjectsDebug,
-          [key]: { _error: `Network: ${e.message}` },
+          [key]: {_error: `Network: ${e.message}`},
         };
       } finally {
         this.subjectsDebugLoading = {
@@ -9091,11 +9444,12 @@ function app() {
         return;
       }
       if (!this.hostsDebugOpen[hostId]) {
-        this.hostsDebugOpen = { ...this.hostsDebugOpen, [hostId]: true };
+        this.hostsDebugOpen = {...this.hostsDebugOpen, [hostId]: true};
         if (!this.hostsDebug[hostId] && !this.hostsDebugLoading[hostId]) {
           // Don't await — let the scroll happen now, the panel will
           // populate when the fetch lands.
-          this.loadHostDebug(hostId).catch(() => {});
+          this.loadHostDebug(hostId).catch(() => {
+          });
         }
       }
       this._scrollHostSectionIntoView(`debug-${hostId}`);
@@ -9121,7 +9475,7 @@ function app() {
           while (scroller) {
             const cs = window.getComputedStyle(scroller);
             if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll')
-                && scroller.scrollHeight > scroller.clientHeight) {
+              && scroller.scrollHeight > scroller.clientHeight) {
               break;
             }
             scroller = scroller.parentElement;
@@ -9131,12 +9485,15 @@ function app() {
             const srect = scroller.getBoundingClientRect();
             const target = scroller.scrollTop + (rect.top - srect.top) - 12;
             try {
-              scroller.scrollTo({ top: target, behavior: 'smooth' });
+              scroller.scrollTo({top: target, behavior: 'smooth'});
             } catch (_) {
               scroller.scrollTop = target;
             }
           } else {
-            try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {}
+            try {
+              el.scrollIntoView({behavior: 'smooth', block: 'start'});
+            } catch (_) {
+            }
           }
         }));
       });
@@ -9145,7 +9502,7 @@ function app() {
       if (!hostId) {
         return;
       }
-      this.hostsDebugLoading = { ...this.hostsDebugLoading, [hostId]: true };
+      this.hostsDebugLoading = {...this.hostsDebugLoading, [hostId]: true};
       try {
         // Pass `since_hours` so the backend's `samples_in_window`
         // block matches the chart range picker. Operator selecting
@@ -9162,19 +9519,19 @@ function app() {
           const j = await r.json().catch(() => ({}));
           this.hostsDebug = {
             ...this.hostsDebug,
-            [hostId]: { _error: j.detail || `HTTP ${r.status}` },
+            [hostId]: {_error: j.detail || `HTTP ${r.status}`},
           };
           return;
         }
         const d = await r.json();
-        this.hostsDebug = { ...this.hostsDebug, [hostId]: d };
+        this.hostsDebug = {...this.hostsDebug, [hostId]: d};
       } catch (e) {
         this.hostsDebug = {
           ...this.hostsDebug,
-          [hostId]: { _error: `Network: ${e.message}` },
+          [hostId]: {_error: `Network: ${e.message}`},
         };
       } finally {
-        this.hostsDebugLoading = { ...this.hostsDebugLoading, [hostId]: false };
+        this.hostsDebugLoading = {...this.hostsDebugLoading, [hostId]: false};
       }
     },
     // Drawer per-unit pane — toggle open/closed. First open lazy-
@@ -9187,10 +9544,10 @@ function app() {
         return;
       }
       const open = !this.hostBeszelServicesOpen[hostId];
-      this.hostBeszelServicesOpen = { ...this.hostBeszelServicesOpen, [hostId]: open };
+      this.hostBeszelServicesOpen = {...this.hostBeszelServicesOpen, [hostId]: open};
       if (open) {
         if (!this.hostsBeszelServices[hostId]
-            && !this.hostsBeszelServicesLoading[hostId]) {
+          && !this.hostsBeszelServicesLoading[hostId]) {
           await this.loadHostBeszelServices(hostId);
         }
       }
@@ -9233,10 +9590,10 @@ function app() {
     // (number). Outputs: "30s" / "5m" / "2.3h" / "1.2d".
     relativeAge(seconds) {
       const n = Math.max(0, Math.round(+seconds || 0));
-      if (n < 60)    {
+      if (n < 60) {
         return n + 's';
       }
-      if (n < 3600)  {
+      if (n < 3600) {
         return Math.round(n / 60) + 'm';
       }
       if (n < 86400) {
@@ -9271,7 +9628,7 @@ function app() {
     // composition at every site.
     copyAriaLabel(labelKey) {
       const inner = labelKey ? this.t(labelKey) : this.t('debug_panel.copy_default_label');
-      return this.t('debug_panel.copy_aria', { label: inner });
+      return this.t('debug_panel.copy_aria', {label: inner});
     },
     async copyDebugJson(v, label) {
       const text = this.fmtDebugJson(v);
@@ -9303,12 +9660,12 @@ function app() {
       }
       try {
         await navigator.clipboard.writeText(text);
-        this.showToast(this.t('toasts_extra.copied', { label: resolvedLabel }), 'success');
+        this.showToast(this.t('toasts_extra.copied', {label: resolvedLabel}), 'success');
       } catch (_) {
         // Fallback — let the user copy manually. Wrap the entire
         // English "Copy <label> (Cmd/Ctrl+C):" string in i18n too so
         // non-en operators get a translated prompt header.
-        const promptHead = this.t('debug_panel.copy_prompt_fallback', { label: resolvedLabel });
+        const promptHead = this.t('debug_panel.copy_prompt_fallback', {label: resolvedLabel});
         window.prompt(promptHead, text);
       }
     },
@@ -9335,7 +9692,7 @@ function app() {
       // drawer chart cards use. Falls through to a synthetic
       // `{id: hostId}` when the host isn't in `this.hosts` (e.g.
       // operator opened debug for a host that's been removed).
-      const host = (this.hosts || []).find(h => h && h.id === hostId) || { id: hostId };
+      const host = (this.hosts || []).find(h => h && h.id === hostId) || {id: hostId};
       const charts = this.chartDataBundle(host);
       // Sections in the same canonical order the panes render.
       const blocks = [
@@ -9363,8 +9720,8 @@ function app() {
         }
         // Skip empty objects/arrays — keeps the payload tight.
         if (typeof value === 'object'
-            && !Array.isArray(value)
-            && Object.keys(value).length === 0) {
+          && !Array.isArray(value)
+          && Object.keys(value).length === 0) {
           continue;
         }
         if (Array.isArray(value) && value.length === 0) {
@@ -9379,7 +9736,7 @@ function app() {
       const payload = sections.join('\n\n');
       try {
         await navigator.clipboard.writeText(payload);
-        this.showToast(this.t('toasts_extra.copied_all_debug', { count: sections.length - 1 }), 'success');
+        this.showToast(this.t('toasts_extra.copied_all_debug', {count: sections.length - 1}), 'success');
       } catch (_) {
         const promptHead = this.t('debug_panel.copy_all_prompt_fallback');
         window.prompt(promptHead, payload);
@@ -9392,7 +9749,7 @@ function app() {
     // the bars on the host rows (desktop + mobile) and the per-card
     // CPU/Mem/Disk/Net/DiskIO charts in the drawer.
     //
-  // Per-metric telemetry gates. Each axis (CPU / Memory / Disk)
+    // Per-metric telemetry gates. Each axis (CPU / Memory / Disk)
     // is gated INDEPENDENTLY so a host that only reports one axis
     // (Cisco SG300 switch via SNMP exposes CPU but no mem/disk;
     // chassis BMCs like Dell iDRAC + APC UPS report ZERO of these
@@ -9480,7 +9837,7 @@ function app() {
       // flows from the operator-settable provider_color_* settings,
       // not from a fixed visual mapping that conflated providers.
       //
-    //: every per-host enable check is paired with a fleet-level
+      //: every per-host enable check is paired with a fleet-level
       // `hasHostStatsSource(<provider>)` gate. A provider that's
       // disabled at the fleet level (operator un-ticked it in
       // Settings → Host stats) MUST NOT render its chip even when
@@ -9494,19 +9851,19 @@ function app() {
         return [];
       }
       const out = [];
-      if (h.beszel_name && this.hasHostStatsSource('beszel'))               {
+      if (h.beszel_name && this.hasHostStatsSource('beszel')) {
         out.push({name: 'beszel', label: 'Beszel'});
       }
-      if (h.pulse_name && this.hasHostStatsSource('pulse'))                 {
+      if (h.pulse_name && this.hasHostStatsSource('pulse')) {
         out.push({name: 'pulse', label: 'Pulse'});
       }
-      if (h.ne_url && this.hasHostStatsSource('node_exporter'))             {
+      if (h.ne_url && this.hasHostStatsSource('node_exporter')) {
         out.push({name: 'node_exporter', label: 'node-exporter'});
       }
-      if (h.webmin_name && this.hasHostStatsSource('webmin'))               {
+      if (h.webmin_name && this.hasHostStatsSource('webmin')) {
         out.push({name: 'webmin', label: 'Webmin'});
       }
-      if (h.ping_enabled && this.hasHostStatsSource('ping'))                {
+      if (h.ping_enabled && this.hasHostStatsSource('ping')) {
         out.push({name: 'ping', label: 'Ping'});
       }
       // SNMP chip — the gate must MIRROR the SNMP sampler's actual
@@ -9528,7 +9885,7 @@ function app() {
       // SNMP is globally disabled, so a host can't render the chip
       // without something actually probing it.
       if (this._snmpHasProbeTarget(h) && this.hasHostStatsSource('snmp')) {
-        out.push({ name: 'snmp', label: 'SNMP' });
+        out.push({name: 'snmp', label: 'SNMP'});
       }
       return out;
     },
@@ -9537,7 +9894,7 @@ function app() {
     // every chip currently in Paused state. Returns an empty array
     // when no provider is paused — the rollup hides cleanly.
     //
-  // FILTERS against `hostEnabledAgents(h)` so providers that are
+    // FILTERS against `hostEnabledAgents(h)` so providers that are
     // NOT currently enabled on this host don't surface as paused —
     // the orphan-row sweep on host-config save handles
     // host-level orphans, but this guard handles the per-host
@@ -9578,7 +9935,7 @@ function app() {
     // while the rollup remained enabled, even though both targeted the
     // same provider on the same host.
     //
-  // Contract:
+    // Contract:
     // canResume(h, name)  — per-chip / per-provider Resume button.
     //                        Allowed when admin + the chip is paused
     //                        + neither the per-provider busy flag NOR
@@ -9710,7 +10067,8 @@ function app() {
             return match.state;
           }
         }
-      } catch (_) { /* fall through to pause-info fallback */ }
+      } catch (_) { /* fall through to pause-info fallback */
+      }
       if (this.agentPauseInfo(h, name)) {
         return 'paused';
       }
@@ -9721,7 +10079,7 @@ function app() {
       if (s === 'failing') {
         return 'pill-error';
       }
-      if (s === 'paused')  {
+      if (s === 'paused') {
         return 'pill-warning';
       }
       return 'pill-custom';
@@ -9744,7 +10102,7 @@ function app() {
         });
       }
       if (s === 'failing') {
-        return this.t('hosts_extra.provider_failing', { provider: name });
+        return this.t('hosts_extra.provider_failing', {provider: name});
       }
       return '';
     },
@@ -9888,7 +10246,7 @@ function app() {
         const r = await fetch(
           '/api/hosts/' + encodeURIComponent(host.id)
           + '/provider/' + encodeURIComponent(name) + '/resume',
-          { method: 'POST' },
+          {method: 'POST'},
         );
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));
@@ -9910,7 +10268,8 @@ function app() {
         }), 'success');
         // Force-refresh the row so backend's authoritative state lands.
         if (typeof this.refreshHostRow === 'function') {
-          this.refreshHostRow(host.id, { force: true }).catch(() => {});
+          this.refreshHostRow(host.id, {force: true}).catch(() => {
+          });
         }
       } catch (e) {
         this.showToast(this.t('hosts_extra.provider_resume_failed', {
@@ -9984,9 +10343,9 @@ function app() {
         // weight: 0=ok (status_ok && content_match_ok); 1=warning
         // (status_ok but content mismatch); 2=fail. Lower wins early.
         const wa = (a.status_ok && a.content_match_ok) ? 0
-                  : (a.status_ok ? 1 : 2);
+          : (a.status_ok ? 1 : 2);
         const wb = (b.status_ok && b.content_match_ok) ? 0
-                  : (b.status_ok ? 1 : 2);
+          : (b.status_ok ? 1 : 2);
         // Sort failures FIRST in the rendered output — so weight=2
         // comes before weight=0.
         if (wa !== wb) {
@@ -10062,14 +10421,22 @@ function app() {
         let maxT = -Infinity;
         let maxV = 0;
         for (const p of pts) {
-          if (p.t < minT) { minT = p.t; }
-          if (p.t > maxT) { maxT = p.t; }
-          if (p.latency_ms > maxV) { maxV = p.latency_ms; }
+          if (p.t < minT) {
+            minT = p.t;
+          }
+          if (p.t > maxT) {
+            maxT = p.t;
+          }
+          if (p.latency_ms > maxV) {
+            maxV = p.latency_ms;
+          }
         }
         if (!isFinite(minT) || !isFinite(maxT) || maxT === minT) {
           return '';
         }
-        if (maxV <= 0) { maxV = 1; }
+        if (maxV <= 0) {
+          maxV = 1;
+        }
         const W = 100;
         const H = 36;
         // Deterministic per-URL hue via simple hash so colours stay
@@ -10105,9 +10472,9 @@ function app() {
         }
         const ariaLabel = this._logEscape(this.t('host_drawer.http_probe.history_heading') || 'Latency history');
         return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" '
-             + 'width="100%" height="44" aria-label="' + ariaLabel + '" role="img">'
-             + lines.join('')
-             + '</svg>';
+          + 'width="100%" height="44" aria-label="' + ariaLabel + '" role="img">'
+          + lines.join('')
+          + '</svg>';
       } catch (_) {
         return '';
       }
@@ -10225,7 +10592,7 @@ function app() {
           }
         }
       }
-      return { in: inBps, out: outBps, times };
+      return {in: inBps, out: outBps, times};
     },
     // Top N interfaces by latest combined throughput. Returns array of
     // { name, lastIn, lastOut, total } sorted desc. Used to pick which
@@ -10238,10 +10605,16 @@ function app() {
         const s = this.snmpIfaceBpsSeries(hostId, name);
         let lastIn = 0, lastOut = 0;
         for (let i = s.in.length - 1; i >= 0; i--) {
-          if (s.in[i] > 0) { lastIn = s.in[i]; break; }
+          if (s.in[i] > 0) {
+            lastIn = s.in[i];
+            break;
+          }
         }
         for (let i = s.out.length - 1; i >= 0; i--) {
-          if (s.out[i] > 0) { lastOut = s.out[i]; break; }
+          if (s.out[i] > 0) {
+            lastOut = s.out[i];
+            break;
+          }
         }
         const total = lastIn + lastOut;
         if (total > 0) {
@@ -10309,8 +10682,8 @@ function app() {
       // staying empty forever. snmpIfaceLinkSpeedAssumed() flags
       // the assumption for legend display.
       const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname, h)
-                  || this._DEFAULT_IFACE_LINK_MBPS;
-      const linkBps = link * 1_000_000 / 8;
+        || this._DEFAULT_IFACE_LINK_MBPS;
+      const linkBps = link * 1000000 / 8;
       if (linkBps <= 0) {
         return [];
       }
@@ -10340,7 +10713,7 @@ function app() {
       // which exposes parallel `times`, identical length to the values
       // array.
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
-      return this._snmpPathGapped(vals, 100, { times: s.times });
+      return this._snmpPathGapped(vals, 100, {times: s.times});
     },
     // Operator-flagged: APC UPS lance interface at ~37 B/s on a
     // 100 Mbps fallback link = 0.0003% utilization — flat at the
@@ -10366,22 +10739,22 @@ function app() {
           }
         }
       }
-      if (peak <= 0)     {
+      if (peak <= 0) {
         return 100;
       }            // truly idle → keep traditional scale
-      if (peak >= 50)    {
+      if (peak >= 50) {
         return 100;
       }            // typical busy switch / router
-      if (peak >= 10)    {
+      if (peak >= 10) {
         return 50;
       }
-      if (peak >= 1)     {
+      if (peak >= 1) {
         return 10;
       }
-      if (peak >= 0.1)   {
+      if (peak >= 0.1) {
         return 1;
       }
-      if (peak >= 0.01)  {
+      if (peak >= 0.01) {
         return 0.1;
       }
       if (peak >= 0.001) {
@@ -10421,7 +10794,7 @@ function app() {
       }
       const yMax = this.snmpIfaceUtilizationYMax(hostId, h);
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
-      return this._snmpPathGapped(vals, yMax, { times: s.times });
+      return this._snmpPathGapped(vals, yMax, {times: s.times});
     },
     // Format helper for the legend's per-iface util % chip. Pre-fix
     // `Math.round(pct)` rendered "~0%" for any sub-1% value, masking
@@ -10432,7 +10805,7 @@ function app() {
       if (pct == null) {
         return '';
       }
-      if (pct >= 1)   {
+      if (pct >= 1) {
         return Math.round(pct) + '%';
       }
       if (pct >= 0.1) {
@@ -10449,14 +10822,14 @@ function app() {
       if (!vals.length) {
         return '';
       }
-      return this._snmpPathGapped(vals, refMax || 1, { times: s.times });
+      return this._snmpPathGapped(vals, refMax || 1, {times: s.times});
     },
     snmpIfaceMaxBps(hostId) {
       const ifaces = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
       let m = 0;
       for (const name of Object.keys(ifaces)) {
         const s = this.snmpIfaceBpsSeries(hostId, name);
-        for (const v of s.in)  {
+        for (const v of s.in) {
           if (v > m) {
             m = v;
           }
@@ -10507,20 +10880,26 @@ function app() {
     // blank on printers and the line chart stayed empty forever.
     snmpIfaceUtilizationPct(hostId, ifname, h) {
       const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname, h)
-                  || this._DEFAULT_IFACE_LINK_MBPS;
+        || this._DEFAULT_IFACE_LINK_MBPS;
       if (!link) {
         return null;
       }
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
       let lastIn = 0, lastOut = 0;
       for (let i = s.in.length - 1; i >= 0; i--) {
-        if (s.in[i] > 0) { lastIn = s.in[i]; break; }
+        if (s.in[i] > 0) {
+          lastIn = s.in[i];
+          break;
+        }
       }
       for (let i = s.out.length - 1; i >= 0; i--) {
-        if (s.out[i] > 0) { lastOut = s.out[i]; break; }
+        if (s.out[i] > 0) {
+          lastOut = s.out[i];
+          break;
+        }
       }
       const peakBps = Math.max(lastIn, lastOut);
-      const linkBps = link * 1_000_000 / 8;       // Mbps → bytes/sec capacity
+      const linkBps = link * 1000000 / 8;       // Mbps → bytes/sec capacity
       if (linkBps <= 0) {
         return null;
       }
@@ -10536,7 +10915,7 @@ function app() {
     // chart graphs.
     snmpAllIfacesSorted(hostId, h) {
       const exclude = ['lo', 'docker', 'veth', 'br-', 'cni',
-                       'flannel', 'cali', 'vmnet', 'tap', 'tun', 'ovs'];
+        'flannel', 'cali', 'vmnet', 'tap', 'tun', 'ovs'];
       const isExcluded = (name) => {
         const n = (name || '').toLowerCase();
         return exclude.some(p => n.startsWith(p));
@@ -10552,7 +10931,7 @@ function app() {
         }
       }
       return names.sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+        a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'})
       );
     },
     // Color mapping for the heatmap cell: green < 50 < amber < 85 < red.
@@ -10570,7 +10949,7 @@ function app() {
       if (pct >= 50) {
         return 'var(--warning)';
       }
-      if (pct > 0)  {
+      if (pct > 0) {
         return 'var(--success)';
       }
       return 'var(--surface-3)';                       // 0% / idle
@@ -10647,7 +11026,7 @@ function app() {
       // Synthesise from the layer sum as a last resort.
       for (const p of points) {
         const sum = (+p.mem_used || 0) + (+p.mem_buffers || 0)
-                  + (+p.mem_cached || 0) + (+p.mem_free || 0);
+          + (+p.mem_cached || 0) + (+p.mem_free || 0);
         if (sum > max) {
           max = sum;
         }
@@ -10660,7 +11039,7 @@ function app() {
     // cadence (~5min), used to amber-tint the label so the
     // operator knows the data hasn't refreshed in a while.
     //
-  // — Combined freshness across the two writers feeding the
+    // — Combined freshness across the two writers feeding the
     // host drawer: the LIFESPAN sampler (writes `host_snmp_samples`,
     // surfaces here as `hist.points[last].ts`) AND the per-request
     // gather path (writes the snapshot `_stale_ts`). Pre-fix this
@@ -10683,7 +11062,7 @@ function app() {
       const hist = this.hostSnmpHistory[h.id];
       const samplerTs = (hist && Array.isArray(hist.points) && hist.points.length)
         ? Number((hist.points[hist.points.length - 1] || {}).ts
-                 || (hist.points[hist.points.length - 1] || {}).t || 0)
+          || (hist.points[hist.points.length - 1] || {}).t || 0)
         : 0;
       const snapshotTs = Number(h._stale_ts || 0);
       const ts = Math.max(samplerTs, snapshotTs);
@@ -10694,8 +11073,7 @@ function app() {
       let label;
       if (ageS < 60) {
         label = ageS + 's';
-      }
-      else {
+      } else {
         if (ageS < 3600) {
           label = Math.round(ageS / 60) + 'm';
         } else {
@@ -10707,7 +11085,7 @@ function app() {
       // freshness disagreements can see at a glance whether the
       // value came from the sampler or the snapshot.
       const source = (samplerTs >= snapshotTs) ? 'sampler' : 'snapshot';
-      return { age_s: ageS, label, stale: ageS > 600, source };
+      return {age_s: ageS, label, stale: ageS > 600, source};
     },
     // Build a polyline `points` attribute from a series of values.
     // Normalises against `max` (default = max value in series) so the
@@ -10731,7 +11109,7 @@ function app() {
       const rangeHours = Number(this.hostHistoryRange) || 1;
       const tMaxSec = Math.floor(Date.now() / 1000);
       const tMinSec = tMaxSec - (rangeHours * 3600);
-      return { tMinSec, tMaxSec, w: 420, hh: 120 };
+      return {tMinSec, tMaxSec, w: 420, hh: 120};
     },
     // Auto-derive a "this is a gap" threshold (seconds) from the actual
     // sample cadence. Median Δt × 2.5 covers natural sampler jitter
@@ -10786,7 +11164,7 @@ function app() {
       // `<polyline points>` consumers (CPU per-core / load) which
       // never emit nulls.
       //
-    // unified time-domain — when `opts.times` (parallel array
+      // unified time-domain — when `opts.times` (parallel array
       // of epoch SECONDS) is supplied, x is computed against the
       // drawer-shared [tMin, tMax] window so this chart's pixel
       // coordinates match every other chart in the open drawer. When
@@ -10835,7 +11213,7 @@ function app() {
     // `<polyline points="...">` for `<path d="...">` and bind the
     // result here.
     //
-  // unified time-domain — same `opts.times` contract as
+    // unified time-domain — same `opts.times` contract as
     // `_snmpPolyPoints`.
     _snmpPathGapped(values, max, opts) {
       if (!values || !values.length) {
@@ -10864,9 +11242,17 @@ function app() {
         let curTs = 0;
         if (dom) {
           curTs = Number(times[i]) || 0;
-          if (!curTs) { needMove = true; prevTs = 0; continue; }
+          if (!curTs) {
+            needMove = true;
+            prevTs = 0;
+            continue;
+          }
           x = ((curTs - dom.tMinSec) / span) * w;
-          if (x < 0 || x > w) { needMove = true; prevTs = 0; continue; }
+          if (x < 0 || x > w) {
+            needMove = true;
+            prevTs = 0;
+            continue;
+          }
         } else {
           x = (i / Math.max(1, n - 1)) * w;
         }
@@ -10940,13 +11326,13 @@ function app() {
         }
       }
       const stale = lastIdx >= 0 && lastIdx < series.length - 1;
-      return { min, max, last, lastIdx, stale };
+      return {min, max, last, lastIdx, stale};
     },
     // Five evenly-spaced X-axis timestamp labels for the
     // bottom of the chart. Matches the existing `xAxisFromSeries`
     // call shape on Beszel / NE cards.
     //
-  // — Switched to drawer-unified [tMin, tMax] window so SNMP
+    // — Switched to drawer-unified [tMin, tMax] window so SNMP
     // chart axis labels match Beszel / NE / Ping cards on the same
     // pixel positions. Pre-fix SNMP labels reflected actual sample
     // timestamps; post-fix they reflect the picker's selected range
@@ -10988,7 +11374,7 @@ function app() {
       const times = series.map(p => p.ts);
       for (let i = 0; i < numCores; i++) {
         const vals = series.map(p => (p.cpu_per_core || [])[i] ?? 0);
-        out.push(this._snmpPathGapped(vals, 100, { times }));
+        out.push(this._snmpPathGapped(vals, 100, {times}));
       }
       return out;
     },
@@ -11010,7 +11396,7 @@ function app() {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       const vals = series.map(p => p.cpu_used_pct ?? 0);
       const times = series.map(p => p.ts);
-      return this._snmpPathGapped(vals, 100, { times });
+      return this._snmpPathGapped(vals, 100, {times});
     },
     // Operator-flagged: SNMP Load chart should render as % of cores
     // rather than raw `load_1m=0.18` numbers. Converts each load
@@ -11042,7 +11428,7 @@ function app() {
       const cores = this.snmpCoresFor(hostId);
       const vals = series.map(p => Math.min(100, ((p[key] ?? 0) / cores) * 100));
       const times = series.map(p => p.ts);
-      return this._snmpPathGapped(vals, 100, { times });
+      return this._snmpPathGapped(vals, 100, {times});
     },
     snmpLoadMax(_hostId) {
       // Always 100 % now — chart Y-axis stays fixed so a busy machine
@@ -11075,7 +11461,7 @@ function app() {
       const fieldKey = 'mem_' + key;
       const vals = series.map(p => p[fieldKey] || 0);
       const times = series.map(p => p.ts);
-      return this._snmpPathGapped(vals, maxTotal, { times });
+      return this._snmpPathGapped(vals, maxTotal, {times});
     },
     // derive per-tick throughput series in bytes/sec from the
     // cumulative IF-MIB ifHCInOctets / ifHCOutOctets samples. Skip-
@@ -11156,7 +11542,7 @@ function app() {
       }
       const vals = series.map(p => (p.load_percent != null ? +p.load_percent : null));
       const times = series.map(p => p.ts);
-      return this._snmpPathGapped(vals, 100, { times });
+      return this._snmpPathGapped(vals, 100, {times});
     },
     // True when at least 2 samples have a non-null load_percent —
     // used internally by the chart-body template to switch between
@@ -11203,7 +11589,7 @@ function app() {
       }
       const vals = series.map(p => (p.battery_percent != null ? +p.battery_percent : null));
       const times = series.map(p => p.ts);
-      return this._snmpPathGapped(vals, 100, { times });
+      return this._snmpPathGapped(vals, 100, {times});
     },
     snmpHasUpsBatteryHistory(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
@@ -11248,7 +11634,7 @@ function app() {
           m = v;
         }
       }
-      return this._snmpPathGapped(vals, Math.max(50, m), { times });
+      return this._snmpPathGapped(vals, Math.max(50, m), {times});
     },
     snmpUpsBatteryTempMax(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
@@ -11306,9 +11692,9 @@ function app() {
       const entry = this.hostSnmpTempHistory[hostId] || {};
       const probes = entry.probes || {};
       const drawer = (this.drawerHost && this.drawerHost.id === hostId)
-                     ? this.drawerHost : null;
+        ? this.drawerHost : null;
       const liveTemps = drawer && Array.isArray(drawer.host_dell_temps)
-                        ? drawer.host_dell_temps : [];
+        ? drawer.host_dell_temps : [];
       const palette = [
         'var(--info)', 'var(--warning)', 'var(--success)',
         'var(--danger)', 'var(--primary)', '#a78bfa',
@@ -11320,9 +11706,11 @@ function app() {
       // sampler hasn't run but the drawer probe just landed).
       const merged = {};
       for (const idx of Object.keys(probes)) {
-        merged[idx] = { idx, name: (probes[idx] || {}).name || `temp-${idx}`,
-                        points: Array.isArray((probes[idx] || {}).points)
-                                ? (probes[idx] || {}).points : [] };
+        merged[idx] = {
+          idx, name: (probes[idx] || {}).name || `temp-${idx}`,
+          points: Array.isArray((probes[idx] || {}).points)
+            ? (probes[idx] || {}).points : []
+        };
       }
       const nowTs = Math.floor(Date.now() / 1000);
       for (const t of liveTemps) {
@@ -11331,13 +11719,13 @@ function app() {
           continue;
         }
         if (!merged[idx]) {
-          merged[idx] = { idx, name: t.name || `temp-${idx}`, points: [] };
+          merged[idx] = {idx, name: t.name || `temp-${idx}`, points: []};
         }
         // Append the live reading as a synthetic "now" sample only
         // when history is empty for this probe — otherwise the
         // sampler-persisted points are authoritative for time series.
         if (!merged[idx].points.length && t.celsius != null) {
-          merged[idx].points = [{ ts: nowTs, c: +t.celsius }];
+          merged[idx].points = [{ts: nowTs, c: +t.celsius}];
         }
       }
       const idxs = Object.keys(merged).sort((a, b) => {
@@ -11358,7 +11746,10 @@ function app() {
         const pts = p.points;
         let lastC = null;
         for (let j = pts.length - 1; j >= 0; j--) {
-          if (pts[j].c != null) { lastC = pts[j].c; break; }
+          if (pts[j].c != null) {
+            lastC = pts[j].c;
+            break;
+          }
         }
         out.push({
           idx,
@@ -11388,7 +11779,7 @@ function app() {
       // dellTempProbes synthesised single "now" points from the live
       // host_dell_temps payload.
       const drawer = (this.drawerHost && this.drawerHost.id === hostId)
-                     ? this.drawerHost : null;
+        ? this.drawerHost : null;
       if (drawer && Array.isArray(drawer.host_dell_temps)) {
         for (const t of drawer.host_dell_temps) {
           if (t && t.celsius != null && +t.celsius > m) {
@@ -11408,7 +11799,7 @@ function app() {
       // preserveAspectRatio="none", so x ∈ [0, 420] spans the full
       // chart width and y ∈ [0, 120] spans the full chart height.
       //
-    // Single-point fallback: when only one valid sample exists,
+      // Single-point fallback: when only one valid sample exists,
       // _snmpPathGapped maps the synthetic "now" timestamp to the right
       // edge of the time domain — producing `M ~420,y` with no `L`
       // follow-up, which draws nothing AND a 4-pixel nub extension
@@ -11428,7 +11819,7 @@ function app() {
       }
       const vals = points.map(p => (p && p.c != null ? +p.c : null));
       const times = points.map(p => p && p.ts);
-      return this._snmpPathGapped(vals, max, { times });
+      return this._snmpPathGapped(vals, max, {times});
     },
     dellHasTempHistory(hostId) {
       // Mount the chart slot whenever a probe has at least one sample
@@ -11448,7 +11839,7 @@ function app() {
         }
       }
       const drawer = (this.drawerHost && this.drawerHost.id === hostId)
-                     ? this.drawerHost : null;
+        ? this.drawerHost : null;
       if (drawer && Array.isArray(drawer.host_dell_temps)) {
         for (const t of drawer.host_dell_temps) {
           if (t && t.celsius != null) {
@@ -11482,7 +11873,7 @@ function app() {
       // Gap-aware path so wrap / reboot / gap nulls render as visual
       // breaks instead of straight-line bridges. Consumer must use
       // SVG <path :d> not <polyline :points>.
-      return this._snmpPathGapped(vals, m || 1, { times });
+      return this._snmpPathGapped(vals, m || 1, {times});
     },
     snmpThroughputMaxBps(hostId) {
       const rx = this.snmpThroughputBpsSeries(hostId, 'rx');
@@ -11565,7 +11956,7 @@ function app() {
       const m = Math.max(0.0001, ...vals);
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       const times = series.map(p => p.ts);
-      return this._snmpPathGapped(vals, m || 1, { times });
+      return this._snmpPathGapped(vals, m || 1, {times});
     },
     snmpPagesPerDayMax(hostId) {
       const vals = this.snmpPagesPerDaySeries(hostId);
@@ -11597,11 +11988,11 @@ function app() {
     // `{minutes}` placeholder never reaches the rendered DOM.
     snmpWarmingUpText() {
       const cc = (this.me && this.me.client_config) || {};
-      const snmpSec  = +cc.snmp_sample_interval_seconds || 0;
+      const snmpSec = +cc.snmp_sample_interval_seconds || 0;
       const statsSec = +cc.stats_sample_interval_seconds || 0;
       const sec = snmpSec > 0 ? snmpSec : (statsSec || 300);
       const minutes = Math.max(1, Math.round(sec / 60));
-      let s = this.t('host_drawer.snmp_charts.warming_up', { minutes });
+      let s = this.t('host_drawer.snmp_charts.warming_up', {minutes});
       // Defensive: if i18n's interpolation didn't substitute (older
       // browser-cached bundle, helper called pre-load, etc.) — replace
       // manually so the literal `{minutes}` placeholder never reaches
@@ -11765,7 +12156,9 @@ function app() {
       // after 30s. Prevents the stuck-disabled state operators hit
       // when the page came back from a network blip with the busy
       // flag still set.
-      const safetyTimer = setTimeout(() => { h._resumeBusy = false; }, 30000);
+      const safetyTimer = setTimeout(() => {
+        h._resumeBusy = false;
+      }, 30000);
       try {
         const r = await fetch('/api/hosts/' + encodeURIComponent(h.id) + '/resume-sampling', {
           method: 'POST',
@@ -11777,7 +12170,7 @@ function app() {
           h.failure_window_started_at = 0;
           h.consecutive_failures = 0;
           h.last_error = '';
-          this.showToast(this.t('hosts_extra.permanent_fail.resumed_toast', { host: this.hostDisplayName(h) || h.id }), 'success');
+          this.showToast(this.t('hosts_extra.permanent_fail.resumed_toast', {host: this.hostDisplayName(h) || h.id}), 'success');
           // — whole-host pause supersedes per-provider pause. When
           // the operator clicks Resume on the whole-host banner, also
           // walk the paused-providers set on this host and clear each
@@ -11786,7 +12179,8 @@ function app() {
           // both Resume sampling AND Resume all to fully recover.
           const stillPaused = this.pausedProvidersFor(h);
           if (stillPaused.length > 0) {
-            this.resumeAllProviders(h).catch(() => {});
+            this.resumeAllProviders(h).catch(() => {
+            });
           }
           // Refresh the host record to pick up backend's view + any
           // new probe results that landed during the API roundtrip.
@@ -11794,15 +12188,16 @@ function app() {
           // operator sees the post-resume probe immediately instead
           // of waiting out the TTL.
           if (typeof this.refreshHostRow === 'function') {
-            this.refreshHostRow(h.id, { force: true }).catch(() => {});
+            this.refreshHostRow(h.id, {force: true}).catch(() => {
+            });
           }
         } else {
           const j = await r.json().catch(() => ({}));
           const detail = j.detail || ('HTTP ' + r.status);
-          this.showToast(this.t('hosts_extra.permanent_fail.resume_failed_toast', { host: this.hostDisplayName(h) || h.id, error: detail }), 'error');
+          this.showToast(this.t('hosts_extra.permanent_fail.resume_failed_toast', {host: this.hostDisplayName(h) || h.id, error: detail}), 'error');
         }
       } catch (err) {
-        this.showToast(this.t('hosts_extra.permanent_fail.resume_failed_toast', { host: this.hostDisplayName(h) || h.id, error: String(err) }), 'error');
+        this.showToast(this.t('hosts_extra.permanent_fail.resume_failed_toast', {host: this.hostDisplayName(h) || h.id, error: String(err)}), 'error');
       } finally {
         clearTimeout(safetyTimer);
         h._resumeBusy = false;
@@ -11846,7 +12241,7 @@ function app() {
         // Use the host drawer as the clipping reference when present;
         // fall back to the viewport. 8px breathing room on each side.
         const drawer = el.closest('.host-drawer');
-        const bounds = drawer ? drawer.getBoundingClientRect() : { left: 0, right: window.innerWidth };
+        const bounds = drawer ? drawer.getBoundingClientRect() : {left: 0, right: window.innerWidth};
         const PAD = 8;
         let rect = el.getBoundingClientRect();
         if (rect.left < bounds.left + PAD) {
@@ -11865,7 +12260,7 @@ function app() {
     // Pick up to 5 evenly-spaced timestamps from the series and format
     // them as HH:MM strings for the X-axis below the chart.
     //
-  // — Switched from "evenly-spaced points across the actual
+    // — Switched from "evenly-spaced points across the actual
     // sample series" to "evenly-spaced ticks across the drawer's
     // unified [tMin, tMax] window". Pre-fix a chart with 4 sparse
     // samples got 4 axis labels equal to those sample times; a chart
@@ -11888,13 +12283,13 @@ function app() {
     // default) falls back to the passed value.
     _hostChartTickCount(rangeHours) {
       const r = Number(rangeHours || this.hostHistoryRange) || 1;
-      if (r === 1)   {
+      if (r === 1) {
         return 6;
       }
-      if (r === 6)   {
+      if (r === 6) {
         return 6;
       }
-      if (r === 24)  {
+      if (r === 24) {
         return 6;
       }
       if (r === 168) {
@@ -11925,7 +12320,7 @@ function app() {
       // missing; renders with 1-decimal precision so 6.7% reads as
       // "6.7%" instead of either "7" (round-up) or "6.65812..." (raw).
       if (h.mem_percent !== undefined && h.mem_percent !== null
-          && Number.isFinite(Number(h.mem_percent))) {
+        && Number.isFinite(Number(h.mem_percent))) {
         return Number(h.mem_percent);
       }
       if (!h.mem_total) {
@@ -11946,7 +12341,7 @@ function app() {
       // numbers (9.0% vs 8.7%). Fall back to live computation when
       // the backend value is missing.
       if (h.disk_percent !== undefined && h.disk_percent !== null
-          && Number.isFinite(Number(h.disk_percent))) {
+        && Number.isFinite(Number(h.disk_percent))) {
         return Number(h.disk_percent);
       }
       if (!h.disk_total) {
@@ -12074,17 +12469,28 @@ function app() {
     },
     triagePatternChipClass(pattern) {
       switch ((pattern || '').toString()) {
-        case 'auth':         return 'pill-error';
-        case 'tls':          return 'pill-error';
-        case 'timeout':      return 'pill-warning';
-        case 'refused':      return 'pill-error';
-        case 'dns':          return 'pill-warning';
-        case 'network':      return 'pill-warning';
-        case 'server-error': return 'pill-error';
-        case 'rate-limit':   return 'pill-warning';
-        case 'not-found':    return 'pill-info';
-        case 'parse':        return 'pill-info';
-        default:             return 'pill-muted';
+        case 'auth':
+          return 'pill-error';
+        case 'tls':
+          return 'pill-error';
+        case 'timeout':
+          return 'pill-warning';
+        case 'refused':
+          return 'pill-error';
+        case 'dns':
+          return 'pill-warning';
+        case 'network':
+          return 'pill-warning';
+        case 'server-error':
+          return 'pill-error';
+        case 'rate-limit':
+          return 'pill-warning';
+        case 'not-found':
+          return 'pill-info';
+        case 'parse':
+          return 'pill-info';
+        default:
+          return 'pill-muted';
       }
     },
     triageAvgRecoveryLabel(seconds) {
@@ -12092,10 +12498,10 @@ function app() {
       if (!Number.isFinite(n) || n <= 0) {
         return '—';
       }
-      if (n < 60)    {
+      if (n < 60) {
         return Math.round(n) + 's';
       }
-      if (n < 3600)  {
+      if (n < 3600) {
         return Math.round(n / 60) + 'm';
       }
       if (n < 86400) {
@@ -12155,8 +12561,8 @@ function app() {
       try {
         const result = await Swal.fire({
           title: this.t('reauth.title') || 'Confirm with your password',
-          text:  this.t('reauth.text')
-                 || 'This action affects multiple hosts. Re-enter your password to proceed.',
+          text: this.t('reauth.text')
+            || 'This action affects multiple hosts. Re-enter your password to proceed.',
           input: 'password',
           inputAttributes: {
             autocapitalize: 'off',
@@ -12165,7 +12571,7 @@ function app() {
           inputPlaceholder: this.t('reauth.placeholder') || 'Password',
           showCancelButton: true,
           confirmButtonText: this.t('reauth.confirm') || 'Confirm',
-          cancelButtonText:  this.t('actions.cancel') || 'Cancel',
+          cancelButtonText: this.t('actions.cancel') || 'Cancel',
         });
         if (!result.isConfirmed) {
           return null;
@@ -12176,9 +12582,9 @@ function app() {
         }
         const r = await fetch('/api/admin/reauth', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {'Content-Type': 'application/json'},
           credentials: 'same-origin',
-          body: JSON.stringify({ password: pw }),
+          body: JSON.stringify({password: pw}),
         });
         const j = await r.json().catch(() => ({}));
         if (j && j.error_code === 'OG_REAUTH_NO_LOCAL_PASSWORD') {
@@ -12215,23 +12621,25 @@ function app() {
         const more = ids.length - sample.length;
         const sampleHtml = sample.map(id => '<code>' + this._logEscape(id) + '</code>').join(', ');
         const moreHtml = more > 0
-          ? ' ' + (this.t('hosts_extra.bulk.pause_confirm_more', { more }) || ('… and ' + more + ' more'))
+          ? ' ' + (this.t('hosts_extra.bulk.pause_confirm_more', {more}) || ('… and ' + more + ' more'))
           : '';
         try {
           const result = await Swal.fire({
             title: this.t('hosts_extra.bulk.pause_confirm_title') || 'Pause sampling?',
-            html:  (this.t('hosts_extra.bulk.pause_confirm_body', { count: this.selectedHostCount() })
-                    || ('Pause sampling on ' + this.selectedHostCount() + ' host(s)?'))
-                   + '<br><br><div class="text-[11.5px] text-[var(--text-dim)] mono break-words">' + sampleHtml + moreHtml + '</div>',
-            icon:  'warning',
+            html: (this.t('hosts_extra.bulk.pause_confirm_body', {count: this.selectedHostCount()})
+                || ('Pause sampling on ' + this.selectedHostCount() + ' host(s)?'))
+              + '<br><br><div class="text-[11.5px] text-[var(--text-dim)] mono break-words">' + sampleHtml + moreHtml + '</div>',
+            icon: 'warning',
             showCancelButton: true,
             confirmButtonText: this.t('hosts_extra.bulk.pause_confirm_ok') || 'Pause',
-            cancelButtonText:  this.t('actions.cancel') || 'Cancel',
+            cancelButtonText: this.t('actions.cancel') || 'Cancel',
           });
           if (!result.isConfirmed) {
             return;
           }
-        } catch { return; }
+        } catch {
+          return;
+        }
       }
       // Step-up reauth — bulk pause is the most destructive bulk
       // action (sampler stops probing every selected host until
@@ -12245,7 +12653,7 @@ function app() {
       }
       await this._hostsBulkPost(
         'pause', null, 'hosts_extra.bulk.pause_success',
-        { reauthToken },
+        {reauthToken},
       );
     },
     async bulkResumeHosts(opts) {
@@ -12262,10 +12670,10 @@ function app() {
       if (this.selectedHostCount() === 0) {
         return;
       }
-      this.bulkSnmpVendorsModal = { open: true, vendors: [], mode: 'set' };
+      this.bulkSnmpVendorsModal = {open: true, vendors: [], mode: 'set'};
     },
     closeBulkSnmpVendorsModal() {
-      this.bulkSnmpVendorsModal = { open: false, vendors: [], mode: 'set' };
+      this.bulkSnmpVendorsModal = {open: false, vendors: [], mode: 'set'};
     },
     toggleBulkVendor(v) {
       const cur = this.bulkSnmpVendorsModal.vendors || [];
@@ -12275,13 +12683,13 @@ function app() {
       } else {
         cur.push(v);
       }
-      this.bulkSnmpVendorsModal = { ...this.bulkSnmpVendorsModal, vendors: [...cur] };
+      this.bulkSnmpVendorsModal = {...this.bulkSnmpVendorsModal, vendors: [...cur]};
     },
     async submitBulkSnmpVendors() {
       const m = this.bulkSnmpVendorsModal || {};
       await this._hostsBulkPost(
         'snmp_vendors',
-        { vendors: m.vendors || [], mode: m.mode || 'set' },
+        {vendors: m.vendors || [], mode: m.mode || 'set'},
         'hosts_extra.bulk.snmp_vendors_success',
       );
       this.closeBulkSnmpVendorsModal();
@@ -12307,7 +12715,7 @@ function app() {
     },
     async submitBulkSnmpTunables() {
       const m = this.bulkSnmpTunablesModal || {};
-      const payload = { clear: !!m.clear };
+      const payload = {clear: !!m.clear};
       if (!m.clear) {
         const wc = parseInt(m.walk_concurrency, 10);
         if (Number.isFinite(wc)) {
@@ -12320,7 +12728,7 @@ function app() {
         if (payload.walk_concurrency == null && payload.wall_clock_budget == null) {
           this.showToast(
             this.t('hosts_extra.bulk.snmp_tunables_empty')
-              || 'Set at least one tunable or enable Clear',
+            || 'Set at least one tunable or enable Clear',
             'warning',
           );
           return;
@@ -12416,7 +12824,7 @@ function app() {
       if ((stack.offline || 0) > 0) {
         return 'is-down';
       }
-      if ((stack.errors  || 0) > 0) {
+      if ((stack.errors || 0) > 0) {
         return 'is-down';
       }
       if ((stack.degraded || 0) > 0 || (stack.updates || 0) > 0) {
@@ -12439,7 +12847,7 @@ function app() {
       }
       const status = String(item.status || '').toLowerCase();
       const health = String(item.health || '').toLowerCase();
-      if (status === 'error' || health === 'offline')   {
+      if (status === 'error' || health === 'offline') {
         return 'is-down';
       }
       if (status === 'update' || health === 'degraded') {
@@ -12468,7 +12876,7 @@ function app() {
       const human = ms < 1000
         ? `${ms} ms`
         : `${(ms / 1000).toFixed(1)} s`;
-      return this.t('hosts_extra.probe_title', { elapsed: human, status }) || `Probe took ${human}`;
+      return this.t('hosts_extra.probe_title', {elapsed: human, status}) || `Probe took ${human}`;
     },
 
     // --- Node drawer (Nodes view → click a node) ---
@@ -12478,7 +12886,7 @@ function app() {
       // default (node.name) is shown as a placeholder, not a value, so
       // saving an empty string clears the mapping.
       const current = (this.settings.beszel_aliases || {})[node.name] || '';
-      this.drawerNode = { name: node.name, aliasInput: current };
+      this.drawerNode = {name: node.name, aliasInput: current};
     },
     async saveNodeBeszelMapping() {
       if (!this.drawerNode) {
@@ -12487,19 +12895,18 @@ function app() {
       const name = this.drawerNode.name;
       const val = (this.drawerNode.aliasInput || '').trim();
       // Merge into the existing map: blank = delete entry, otherwise set.
-      const map = { ...(this.settings.beszel_aliases || {}) };
+      const map = {...(this.settings.beszel_aliases || {})};
       if (val) {
         map[name] = val;
-      }
-      else {
+      } else {
         delete map[name];
       }
       this.drawerNodeSaving = true;
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ beszel_aliases: map }),
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({beszel_aliases: map}),
         });
         if (!r.ok) {
           const d = await r.json().catch(() => ({}));
@@ -12523,11 +12930,19 @@ function app() {
         this.drawerNodeSaving = false;
       }
     },
-    parseEvents(j) { try { return JSON.parse(j || '[]'); } catch (_) { return []; } },
+    parseEvents(j) {
+      try {
+        return JSON.parse(j || '[]');
+      } catch (_) {
+        return [];
+      }
+    },
     // formatTime + formatTimeShort are kept for backwards compatibility
     // with any template bindings — both now delegate to the unified
     // fmt* helpers so every date in the UI renders in dd/mm/yyyy format.
-    formatTime(ts) { return this.fmtDate(ts); },
+    formatTime(ts) {
+      return this.fmtDate(ts);
+    },
     formatTimeShort(ts) {
       if (!ts) {
         return '—';
@@ -12550,20 +12965,20 @@ function app() {
         return '';
       }
       const fmt = this._userDateOnlyFormat();
-      const monthsLong = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-      const monthsShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const monthsLong = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       // Build a regex from the format string. Order matters — match
       // longer tokens first so `MM` doesn't get split into two `M`s.
-      const tokenOrder = ['yyyy','yy','MMMM','MMM','MM','M','dd','d'];
+      const tokenOrder = ['yyyy', 'yy', 'MMMM', 'MMM', 'MM', 'M', 'dd', 'd'];
       const tokenPatterns = {
         yyyy: '(?<y>\\d{4})',
-        yy:   '(?<y>\\d{2})',
+        yy: '(?<y>\\d{2})',
         MMMM: '(?<mn>[A-Za-z]+)',
-        MMM:  '(?<mn>[A-Za-z]{3})',
-        MM:   '(?<m>\\d{2})',
-        M:    '(?<m>\\d{1,2})',
-        dd:   '(?<d>\\d{2})',
-        d:    '(?<d>\\d{1,2})',
+        MMM: '(?<mn>[A-Za-z]{3})',
+        MM: '(?<m>\\d{2})',
+        M: '(?<m>\\d{1,2})',
+        dd: '(?<d>\\d{2})',
+        d: '(?<d>\\d{1,2})',
       };
       // Escape non-token characters, then replace tokens with capture groups.
       // Walk the format left-to-right matching the longest token at each
@@ -12586,8 +13001,11 @@ function app() {
         }
       }
       let m;
-      try { m = new RegExp('^' + pattern + '$').exec(raw); }
-      catch (_) { return null; }
+      try {
+        m = new RegExp('^' + pattern + '$').exec(raw);
+      } catch (_) {
+        return null;
+      }
       if (!m) {
         return null;
       }
@@ -12610,7 +13028,7 @@ function app() {
       if (mo < 1 || mo > 12 || day < 1 || day > 31) {
         return null;
       }
-      return `${y.toString().padStart(4,'0')}-${mo.toString().padStart(2,'0')}-${day.toString().padStart(2,'0')}`;
+      return `${y.toString().padStart(4, '0')}-${mo.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
     },
     // History-filter `@change` glue. Parses the operator-typed text via
     // `_parseUserDate`, writes the ISO string into `historyFilters.<key>`,
@@ -12636,7 +13054,7 @@ function app() {
       navigator.clipboard?.writeText(text);
       this.showToast(this.t('toasts.copied'));
     },
-    async confirmDialog({ title, html, icon = 'warning', confirmText, confirmColor, focusConfirm = false }) {
+    async confirmDialog({title, html, icon = 'warning', confirmText, confirmColor, focusConfirm = false}) {
       // No hex fallbacks — every token below is declared in BOTH :root
       // blocks. If `_cssVar` returns "" something is genuinely broken
       // at the token level and we want it to surface visibly rather
@@ -12660,7 +13078,7 @@ function app() {
         confirmButtonText: confirmText || this.t('actions.confirm'),
         cancelButtonText: this.t('actions.cancel'),
         reverseButtons: true,
-        focusCancel:  !focusConfirm,
+        focusCancel: !focusConfirm,
         focusConfirm: !!focusConfirm,
         background: this._cssVar('--surface'),
         color: this._cssVar('--text'),
@@ -12680,7 +13098,7 @@ function app() {
     // error toasts get 10 s — operators triage errors more often
     // than success confirmations and need extra time to read +
     // decide whether to copy.
-    showToast(msg, type='success') {
+    showToast(msg, type = 'success') {
       this.toast = msg;
       this.toastType = type;
       this._toastHold = false;
@@ -12744,7 +13162,11 @@ function app() {
           ta.style.opacity = '0';
           document.body.appendChild(ta);
           ta.select();
-          try { document.execCommand('copy'); } finally { ta.remove(); }
+          try {
+            document.execCommand('copy');
+          } finally {
+            ta.remove();
+          }
         }
         // Brief affordance — flip the body to "Copied!" then back.
         const original = this.toast;
@@ -12757,7 +13179,8 @@ function app() {
           this._tt = setTimeout(() => this._dismissToast(),
             Math.max(2500, this._toastRemaining || 4000));
         }, 1200);
-      } catch (_) { /* best-effort */ }
+      } catch (_) { /* best-effort */
+      }
     },
 
     // Error formatter — prefers the structured `error_code` + i18n
@@ -12966,9 +13389,9 @@ function app() {
         // composition over the already-cached stack.items — no extra
         // fetch.
         const blastHtml = this._renderStackBlastRadius(stack);
-        const html = this.t('dialogs.update_stack_html', { name: stack.name })
-                   + blastHtml
-                   + (stackImage ? this._releaseNotesPlaceholderHtml() : '');
+        const html = this.t('dialogs.update_stack_html', {name: stack.name})
+          + blastHtml
+          + (stackImage ? this._releaseNotesPlaceholderHtml() : '');
         if (stackImage) {
           this._replaceReleaseNotesAsync(stackImage);
         }
@@ -12988,15 +13411,15 @@ function app() {
       const key = this._busyKey('stack', stack.stack_id);
       this._markBusy(key);
       try {
-        const r = await fetch(`/api/update/stack/${stack.stack_id}`, { method: 'POST' });
+        const r = await fetch(`/api/update/stack/${stack.stack_id}`, {method: 'POST'});
         if (!r.ok) {
           throw new Error(await r.text());
         }
-        this.showToast(this.t('toasts.queued', { name: stack.name }));
+        this.showToast(this.t('toasts.queued', {name: stack.name}));
         this.pollOpsNow();
       } catch (e) {
         this._clearBusy(key);
-        this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
+        this.showToast(this.t('toasts.failed_with_error', {error: e.message}), 'error');
       }
     },
     // Eligibility gate for the drawer's "Switch to tag…" inline-popover.
@@ -13051,9 +13474,14 @@ function app() {
       this._retagDraft = '';
       this._retagBusy = false;
       this._retagPopoverPos = null;
-      if (this._retagScrollOff) { this._retagScrollOff(); this._retagScrollOff = null; }
+      if (this._retagScrollOff) {
+        this._retagScrollOff();
+        this._retagScrollOff = null;
+      }
     },
-    async restartService(item, opts) { return this.restartItem(item, opts); },
+    async restartService(item, opts) {
+      return this.restartItem(item, opts);
+    },
     async restartItem(item, opts) {
       if (!this.isRestartable(item)) {
         return;
@@ -13065,8 +13493,8 @@ function app() {
       const isService = item.type === 'service';
       if (!skipConfirm) {
         const body = isService
-          ? this.t('dialogs.restart_service_html', { name: item.name })
-          : this.t('dialogs.restart_container_html', { name: item.name });
+          ? this.t('dialogs.restart_service_html', {name: item.name})
+          : this.t('dialogs.restart_container_html', {name: item.name});
         const ok = await this.confirmDialog({
           title: isService ? this.t('dialogs.restart_service_title') : this.t('dialogs.restart_container_title'),
           html: body,
@@ -13086,16 +13514,16 @@ function app() {
         : `/api/restart/container/${item.raw_id}`;
       this._markBusy(key);
       try {
-        const r = await fetch(url, { method: 'POST' });
+        const r = await fetch(url, {method: 'POST'});
         if (!r.ok) {
           throw new Error(await r.text());
         }
-        this.showToast(this.t('toasts.restart_queued', { name: item.name }));
+        this.showToast(this.t('toasts.restart_queued', {name: item.name}));
         this.drawerItem = null;
         this.pollOpsNow();
       } catch (e) {
         this._clearBusy(key);
-        this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
+        this.showToast(this.t('toasts.failed_with_error', {error: e.message}), 'error');
       }
     },
     // Unhealthy-agent banner's one-click force-restart of the
@@ -13105,7 +13533,7 @@ function app() {
     async restartSwarmAgent() {
       const ok = await this.confirmDialog({
         title: this.t('swarm_agent_banner.confirm_title'),
-        text:  this.t('swarm_agent_banner.confirm_text'),
+        text: this.t('swarm_agent_banner.confirm_text'),
         icon: 'warning',
         confirmText: this.t('swarm_agent_banner.restart_button'),
         confirmColor: this._cssVar('--warning'),
@@ -13119,19 +13547,21 @@ function app() {
       }
       this.swarmAgentRestartBusy = true;
       try {
-        const r = await fetch('/api/swarm/restart-agent', { method: 'POST' });
+        const r = await fetch('/api/swarm/restart-agent', {method: 'POST'});
         if (!r.ok) {
           throw new Error(await r.text());
         }
         this.showToast(this.t('swarm_agent_banner.restart_queued'));
         this.pollOpsNow();
       } catch (e) {
-        this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
+        this.showToast(this.t('toasts.failed_with_error', {error: e.message}), 'error');
       } finally {
         // Cleared after a short delay so the spinner stays visible
         // long enough for the operator to see it fired (the actual
         // op runs in the background and surfaces in the ops queue).
-        setTimeout(() => { this.swarmAgentRestartBusy = false; }, 1200);
+        setTimeout(() => {
+          this.swarmAgentRestartBusy = false;
+        }, 1200);
       }
     },
     async removeContainer(item, opts) {
@@ -13142,7 +13572,7 @@ function app() {
       if (!skipConfirm) {
         const ok = await this.confirmDialog({
           title: this.t('dialogs.remove_container_title'),
-          html: this.t('dialogs.remove_container_html', { name: item.name }),
+          html: this.t('dialogs.remove_container_html', {name: item.name}),
           icon: 'warning', confirmText: this.t('actions.remove'), confirmColor: this._cssVar('--danger'),
           focusConfirm: true,
         });
@@ -13156,16 +13586,16 @@ function app() {
       const key = this._busyKey('ctn', item.raw_id);
       this._markBusy(key);
       try {
-        const r = await fetch(`/api/remove/container/${item.raw_id}`, { method: 'POST' });
+        const r = await fetch(`/api/remove/container/${item.raw_id}`, {method: 'POST'});
         if (!r.ok) {
           throw new Error(await r.text());
         }
-        this.showToast(this.t('toasts.remove_queued', { name: item.name }));
+        this.showToast(this.t('toasts.remove_queued', {name: item.name}));
         this.drawerItem = null;
         this.pollOpsNow();
       } catch (e) {
         this._clearBusy(key);
-        this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
+        this.showToast(this.t('toasts.failed_with_error', {error: e.message}), 'error');
       }
     },
   });

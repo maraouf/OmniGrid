@@ -1,4 +1,5 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
+// noinspection ElementNotExported,JSUnusedGlobalSymbols,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag
 // SPA Admin → Providers — per-host-stats-provider settings + test +
 // section-owned save for the six host-stats providers (Beszel / Pulse /
 // node-exporter / Webmin / SNMP / Ping) plus the HTTP probe + Port Scan

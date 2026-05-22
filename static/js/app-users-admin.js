@@ -1,4 +1,5 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
+// noinspection ElementNotExported,JSUnusedGlobalSymbols,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag
 // SPA Users / Sessions / API Tokens admin (Admin → Users, Sessions, Tokens).
 //
 // CRUD + bulk-edit for the three auth admin surfaces:

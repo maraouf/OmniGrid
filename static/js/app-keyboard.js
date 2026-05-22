@@ -1,4 +1,5 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
+// noinspection ElementNotExported,JSUnusedGlobalSymbols,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag
 // SPA keyboard hotkey + button-group arrow-key navigation.
 //
 // `handleHotkey` is bound to `window.keydown` at component init and

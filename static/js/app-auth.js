@@ -1,4 +1,5 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
+// noinspection ElementNotExported,JSUnusedGlobalSymbols,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag
 // SPA Auth + 2FA surface — TOTP enrol / disable / regenerate / policy,
 // WebAuthn passkey registration + revocation, password change flow.
 //

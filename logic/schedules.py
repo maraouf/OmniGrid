@@ -1885,11 +1885,19 @@ async def _run_port_scan_refresh(
                 if not hid:
                     continue
                 ps_cfg = h.get("port_scan") if isinstance(h.get("port_scan"), dict) else {}
-                # Per-host opt-in REQUIRED — the master toggle gates the
-                # provider as a whole, this gates the SPECIFIC host. This
-                # mirrors the on-demand path's gate (api_hosts_port_scan
-                # raises 400 when this is False).
-                if not ps_cfg or ps_cfg.get("enabled") is not True:
+                # Per-host gate — match the on-demand handler's
+                # forgiving semantics: only skip when the per-host
+                # `enabled` key is EXPLICITLY False. Absent / null
+                # inherits the master toggle (which is already true
+                # at this point — the early return above bails if
+                # the master is off). This avoids the trap where the
+                # schedule fires every tick but skips EVERY host
+                # because there's no SPA UI to opt-in per-host, so
+                # `hosts_config[].port_scan` is `{}` or missing on
+                # every row by default. Operators relying on the
+                # master toggle + on-demand button now also benefit
+                # from the schedule.
+                if "enabled" in ps_cfg and not ps_cfg.get("enabled"):
                     skipped["disabled"].append(hid)
                     continue
                 # Address check — the schedule only scans hosts with an

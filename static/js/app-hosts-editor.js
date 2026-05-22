@@ -1,4 +1,5 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
+// noinspection ElementNotExported,JSUnusedGlobalSymbols,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag
 // SPA Admin → Hosts editor — CRUD on the curated `hosts_config` array
 // (Beszel/Pulse/Webmin/SNMP/NodeExporter/Ping aliases + per-host SSH).
 //
