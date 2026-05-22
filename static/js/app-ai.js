@@ -1,4 +1,4 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
 // noinspection NestedTemplateLiteralJS
@@ -51,10 +51,11 @@ export default {
   statsAiCostRange: (() => {
     try {
       const v = (typeof localStorage !== 'undefined' && localStorage.getItem('statsAiCostRange')) || '';
-      if (['1h','24h','7d','30d','90d'].includes(v)) {
+      if (['1h', '24h', '7d', '30d', '90d'].includes(v)) {
         return v;
       }
-    } catch (_) { /* private mode */ }
+    } catch (_) { /* private mode */
+    }
     return '30d';
   })(),
   async loadStatsAiCost(range) {
@@ -69,7 +70,8 @@ export default {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('statsAiCostRange', r0);
       }
-    } catch (_) { /* private mode */ }
+    } catch (_) { /* private mode */
+    }
     try {
       const qs = '?range=' + encodeURIComponent(r0);
       const r = await fetch('/api/admin/stats/ai-cost' + qs);

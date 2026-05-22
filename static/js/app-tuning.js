@@ -1,4 +1,4 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,OverlyComplexBooleanExpressionJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
 // noinspection NestedTemplateLiteralJS
@@ -184,6 +184,12 @@ export default {
       'tuning_http_probe_default_accepted_lo_code',
       'tuning_http_probe_default_accepted_hi_code',
     ],
+    service_probe: [
+      'tuning_service_probe_sample_interval_seconds',
+      'tuning_service_probe_concurrency',
+      'tuning_service_probe_timeout_seconds',
+      'tuning_service_probe_failure_pause_rounds',
+    ],
   },
   relocatedTuningKeys: [
     'tuning_log_retention_days', // → Admin → Logs
@@ -256,6 +262,15 @@ export default {
     'tuning_http_probe_host_fail_cache_ttl_seconds',
     'tuning_http_probe_default_accepted_lo_code',
     'tuning_http_probe_default_accepted_hi_code',
+    // Service probe — per-service-chip reachability sampler.
+    // Section-owned save via serviceProbeSectionDirty() /
+    // saveServiceProbeSection(). Rendered in Settings → Host stats →
+    // Service probe; the sampler reads the values via tuning_int(...)
+    // per-call inside `logic/service_sampler.py`.
+    'tuning_service_probe_sample_interval_seconds',
+    'tuning_service_probe_concurrency',
+    'tuning_service_probe_timeout_seconds',
+    'tuning_service_probe_failure_pause_rounds',
     // SNMP provider tunables (rendered in Host stats → SNMP).
     'tuning_snmp_probe_timeout_seconds',
     'tuning_snmp_wall_clock_budget_seconds',

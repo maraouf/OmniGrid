@@ -170,6 +170,7 @@ class Settings(str, Enum):
     PROVIDER_COLOR_NODE_EXPORTER = "provider_color_node_exporter"
     PROVIDER_COLOR_PING = "provider_color_ping"
     PROVIDER_COLOR_PULSE = "provider_color_pulse"
+    PROVIDER_COLOR_SERVICE_PROBE = "provider_color_service_probe"
     PROVIDER_COLOR_SNMP = "provider_color_snmp"
     PROVIDER_COLOR_WEBMIN = "provider_color_webmin"
     PULSE_ALIASES = "pulse_aliases"
