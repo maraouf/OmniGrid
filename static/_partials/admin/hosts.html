@@ -283,6 +283,8 @@
                     row.webmin_url ? {name:'webmin', label:'webmin'} : null,
                     (row.ping && row.ping.enabled) ? {name:'ping', label:'ping'} : null,
                     (row.snmp && row.snmp.enabled === true && ((row.snmp_name || '').trim() || (row.address || '').trim())) ? {name:'snmp', label:'snmp'} : null,
+                    (row.http_probe && row.http_probe.enabled === true) ? {name:'http_probe', label:'http-probe'} : null,
+                    (Array.isArray(row.services) && row.services.some(s => s && s.probe && s.probe.enabled === true)) ? {name:'service_probe', label:'service-probe'} : null,
                   ].filter(Boolean)" :key="p.name">
                   <span class="provider-icon"
                         :style="providerIconStyle(p.name) + ' --provider-icon-size: 13px;'"
