@@ -1,23 +1,7 @@
-// noinspection ElementNotExported,JSUnusedGlobalSymbols,JSUnusedLocalSymbols,JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSIgnoredPromiseFromCall,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag,MagicNumberJS,UnusedCatchParameterJS,OverlyComplexBooleanExpressionJS,FunctionWithMultipleReturnPointsJS,FunctionWithMoreThanThreeNegationsJS,OverlyNestedFunctionJS,OverlyLongFunctionJS,OverlyComplexFunctionJS,FunctionWithInconsistentReturnsJS,ChainedFunctionCallJS,NestedFunctionCallJS,NestedAssignmentJS,JSVariableNamingConventionJS,FunctionNamingConventionJS,JSStringConcatenationToES6Template,JSPotentiallyInvalidUsageOfThis,ContinueStatementJS,BreakStatementJS,AssignmentToFunctionParameterJS,IfStatementWithoutBlockJS,IfStatementWithIdenticalBranchesJS,AnonymousFunctionJS,AnonymousCapturingGroupJS,AnonymousFunctionRegExpJS,NamedFunctionExpressionJS,ConditionalExpressionJS,NestedConditionalExpressionJS,ConstantOnRightSideOfComparisonJS,ConstantOnLeftSideOfComparisonJS,EmptyCatchBlockJS,StatementWithEmptyBodyJS,RedundantConditionalExpressionJS,RedundantLocalVariableJS,JSValidateTypes,JSCheckFunctionSignatures,JSPrimitiveTypeWrapperUsage,JSDuplicatedDeclaration,TooManyFunctionParametersJS,NestedTemplateLiteralJS,AssignmentToForLoopParameterJS,AssignmentResultUsedJS,ConditionalCanBeReplacedWithEarlyExitJS
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Host detail drawer — slide-out panel triggered by clicking a
 // Hosts-view row.
-//
-// Surface:
-//   - State: `drawerHost`, `hostHistory`, `hostHistoryRange`,
-//     `hostHistoryNow`, `hostHistoryRangeBusy`
-//   - Lifecycle: `openHostDrawer`, `openHostDrawerById`,
-//     `closeHostDrawer`
-//   - Range picker: `setHostHistoryRange`
-//   - History fetches per metric kind:
-//     `loadHostHistory`, `loadHostHttpProbeHistory`,
-//     `loadHostPingHistory`, `loadHostSnmpHistory`,
-//     `loadHostSnmpIfaceHistory`, `loadHostSnmpTempHistory`
-//   - Helpers: `_kickPerHostChartFetches`, `hostHistoryKey`,
-//     `hostPingHistoryKey`, `hostHistoryFreshness*`
-//
-// Phase 2, Batch 22 of the static/js/app.js modularisation.
 
 export default {
   // Slide-out drawer mode — clicking a host row opens this
@@ -71,9 +55,9 @@ export default {
       return;
     }
     try {
-      const _stale = (entry) => !entry || !entry.loadedAt
+      const isStaleEntry = (entry) => !entry || !entry.loadedAt
         || (Date.now() - entry.loadedAt) > 30000;
-      const _seriesLen = (entry, field) => {
+      const seriesLenOf = (entry, field) => {
         if (!entry) {
           return 0;
         }
@@ -86,7 +70,7 @@ export default {
         && (host.beszel_id || host.ne_url
           || host.pulse_name || host.webmin_name)) {
         const cached = this.hostHistory[drawerKey];
-        if (_seriesLen(cached, 'series') < 2 || _stale(cached)) {
+        if (seriesLenOf(cached, 'series') < 2 || isStaleEntry(cached)) {
           this.loadHostHistory(host.beszel_id || '', host.id);
         }
       }
@@ -94,7 +78,7 @@ export default {
       const pingKey = this.hostPingHistoryKey(host);
       if (pingKey && host.ping_enabled) {
         const pcache = this.hostHistory[pingKey];
-        if (_seriesLen(pcache, 'series') < 2 || _stale(pcache)) {
+        if (seriesLenOf(pcache, 'series') < 2 || isStaleEntry(pcache)) {
           this.loadHostPingHistory(host.id);
         }
       }
@@ -103,7 +87,7 @@ export default {
       // gated on the same `_snmpHasProbeTarget` predicate.
       if (this._snmpHasProbeTarget(host)) {
         const sh = this.hostSnmpHistory[host.id];
-        if (_seriesLen(sh, 'points') < 2 || _stale(sh)) {
+        if (seriesLenOf(sh, 'points') < 2 || isStaleEntry(sh)) {
           if (typeof this.loadHostSnmpHistory === 'function') {
             this.loadHostSnmpHistory(host.id, this.hostHistoryRange || 1);
           }
@@ -117,7 +101,7 @@ export default {
             ihMax = a.length;
           }
         }
-        if (ihMax < 2 || _stale(ih)) {
+        if (ihMax < 2 || isStaleEntry(ih)) {
           if (typeof this.loadHostSnmpIfaceHistory === 'function') {
             this.loadHostSnmpIfaceHistory(host.id, this.hostHistoryRange || 1);
           }
@@ -131,7 +115,7 @@ export default {
             thMax = a.length;
           }
         }
-        if (thMax < 2 || _stale(th)) {
+        if (thMax < 2 || isStaleEntry(th)) {
           if (typeof this.loadHostSnmpTempHistory === 'function') {
             this.loadHostSnmpTempHistory(host.id, this.hostHistoryRange || 1);
           }
@@ -142,7 +126,7 @@ export default {
       // surfaces the last collected window in the chart).
       if (host.http_probe_enabled || (this.hostHttpProbeHistory && this.hostHttpProbeHistory[host.id])) {
         const hh = this.hostHttpProbeHistory && this.hostHttpProbeHistory[host.id];
-        if (_seriesLen(hh, 'series') < 2 || _stale(hh)) {
+        if (seriesLenOf(hh, 'series') < 2 || isStaleEntry(hh)) {
           if (typeof this.loadHostHttpProbeHistory === 'function') {
             this.loadHostHttpProbeHistory(host.id, this.hostHistoryRange || 1);
           }
@@ -370,9 +354,13 @@ export default {
       // zeros (skip-don't-synthesize discipline).
       const buckets = new Map();
       for (const pt of rawSeries) {
-        if (!pt || !pt.t) continue;
+        if (!pt || !pt.t) {
+          continue;
+        }
         const lat = pt.latency_ms;
-        if (lat == null || !Number.isFinite(+lat)) continue;
+        if (lat == null || !Number.isFinite(+lat)) {
+          continue;
+        }
         let entry = buckets.get(pt.t);
         if (!entry) {
           entry = {sum: 0, n: 0};
@@ -383,10 +371,14 @@ export default {
       }
       const aggSeries = [];
       for (const [t, {sum, n}] of buckets) {
-        if (n > 0) aggSeries.push({t, latency_ms: sum / n});
+        if (n > 0) {
+          aggSeries.push({t, latency_ms: sum / n});
+        }
       }
       aggSeries.sort((a, b) => a.t - b.t);
-      if (!this.hostHistory) this.hostHistory = {};
+      if (!this.hostHistory) {
+        this.hostHistory = {};
+      }
       const lkey = this.httpLatencyKey({id: hostId});
       this.hostHistory[lkey] = {
         series: aggSeries,

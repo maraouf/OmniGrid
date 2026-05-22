@@ -4,7 +4,7 @@
 // first render free of untranslated strings without needing a build
 // step. Alpine registers its own MutationObserver so adding an Alpine
 // directive to the DOM after its script finishes still wires up.
-// noinspection AnonymousFunctionJS,EmptyCatchBlockJS,UnusedCatchParameterJS
+// noinspection AnonymousFunctionJS,ConstantOnRightSideOfComparisonJS,MagicNumberJS,EmptyCatchBlockJS,UnusedCatchParameterJS
 
 (async function () {
   try {
@@ -20,16 +20,18 @@
   // empty scope and the UI freezes on the loading skeleton.
   if (document.readyState === 'loading') {
     await new Promise(function (r) {
-      document.addEventListener('DOMContentLoaded', r, { once: true });
+      document.addEventListener('DOMContentLoaded', r, {once: true});
     });
   }
   // Defence-in-depth: if for some reason the module is still in
   // flight (slow import resolution, browser quirk), spin until
   // `window.app` lands. Cap at ~2s so a genuine module-load failure
   // surfaces visibly instead of hanging silently.
-  var waited = 0;
+  let waited = 0;
   while (typeof window.app !== 'function' && waited < 2000) {
-    await new Promise(function (r) { setTimeout(r, 25); });
+    await new Promise(function (r) {
+      setTimeout(r, 25);
+    });
     waited += 25;
   }
   const s = document.createElement('script');

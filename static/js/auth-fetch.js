@@ -18,7 +18,6 @@
 //    so a write from THIS tab doesn't loop back as a redundant
 //    refresh / flicker. Read by `window.__ogClientId` from anywhere
 //    that needs to compare an incoming SSE event's client_id.
-// noinspection AnonymousFunctionJS,LocalVariableNamingConventionJS,FunctionWithMultipleReturnPointsJS,NestedFunctionJS,NonBlockStatementBodyJS,ConstantOnRightSideOfComparisonJS,PointlessBitwiseExpressionJS,ConditionalExpressionJS,UnusedCatchParameterJS,ChainedFunctionCallJS,MagicNumberJS,RegExpAnonymousGroup,FunctionWithMoreThanThreeNegationsJS,RedundantIfStatementJS,AssignmentToFunctionParameterJS,OverlyComplexBooleanExpressionJS,EmptyCatchBlockJS
 
 (function () {
   const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
