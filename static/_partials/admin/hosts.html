@@ -919,8 +919,8 @@
                 <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                        x-text="t('admin_hosts.http_probe_urls_label')"></label>
                 <textarea rows="3"
-                          :value="(row.http_probe && Array.isArray(row.http_probe.urls)) ? row.http_probe.urls.join('\n') : ''"
-                          @input="hostsConfig[idx].http_probe = Object.assign({}, hostsConfig[idx].http_probe || {}, { urls: $event.target.value.split('\n').map(s => s.trim()).filter(Boolean) }); markHostRowDirty(idx)"
+                          x-model="row.http_probe.urls_text"
+                          @input.debounce.250ms="markHostRowDirty(idx)"
                           :disabled="isReadonly() || !row.enabled"
                           class="w-full mono fs-xs py-1.5"
                           :placeholder="t('admin_hosts.http_probe_urls_placeholder')"></textarea>

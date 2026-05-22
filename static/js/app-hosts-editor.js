@@ -1401,38 +1401,72 @@ export default {
   // `providerStates(h)` exactly so the toolbar chip and the per-row
   // chip share one source of truth for "is this host configured
   // for provider X".
+  //
+  // Memoize state — bumped by `_bumpHostsConfiguredVersion()`. Cache
+  // is a Map keyed by provider name; entries carry the version they
+  // were computed against + the list length so a fleet that grows
+  // / shrinks invalidates cleanly even without a manual bump.
+  _hostsConfiguredVersion: 0,
+  _hostsConfiguredCache: null,
   _hostsConfiguredForProvider(name) {
+    // Memoized — toolbar chip strip calls this for EVERY provider
+    // (~8) on every Alpine reactive tick. Pre-memo each call walked
+    // `this.hosts` (200+ on big fleets) with a filter, so a single
+    // reactive change to anything triggered ~1600+ array iterations
+    // per second. Cache invalidates via `_hostsConfiguredVersion`
+    // counter (bumped by `loadHosts` reconcile + `refreshHostRow`
+    // updates) — reading the counter at the top registers an Alpine
+    // dependency so the function re-fires when the counter changes,
+    // and the cache lookup returns the previous value without
+    // re-walking `this.hosts`.
+    const ver = this._hostsConfiguredVersion | 0;
     const list = this.hosts || [];
+    const len = list.length;
+    if (!this._hostsConfiguredCache) {
+      this._hostsConfiguredCache = new Map();
+    }
+    const cached = this._hostsConfiguredCache.get(name);
+    if (cached && cached.ver === ver && cached.len === len) {
+      return cached.value;
+    }
     const trim = (v) => (v && String(v).trim()) || '';
+    let value = 0;
     if (name === 'beszel') {
-      return list.filter(h => trim(h.beszel_name)).length;
-    }
-    if (name === 'pulse') {
-      return list.filter(h => trim(h.pulse_name)).length;
-    }
-    if (name === 'node_exporter') {
-      return list.filter(h => trim(h.ne_url)).length;
-    }
-    if (name === 'webmin') {
-      return list.filter(h => trim(h.webmin_name)).length;
-    }
-    if (name === 'ping') {
-      return list.filter(h => h.ping_enabled === true).length;
-    }
-    if (name === 'snmp') {
-      return list.filter(h => h.snmp_enabled === true
+      value = list.filter(h => trim(h.beszel_name)).length;
+    } else if (name === 'pulse') {
+      value = list.filter(h => trim(h.pulse_name)).length;
+    } else if (name === 'node_exporter') {
+      value = list.filter(h => trim(h.ne_url)).length;
+    } else if (name === 'webmin') {
+      value = list.filter(h => trim(h.webmin_name)).length;
+    } else if (name === 'ping') {
+      value = list.filter(h => h.ping_enabled === true).length;
+    } else if (name === 'snmp') {
+      value = list.filter(h => h.snmp_enabled === true
         && (trim(h.snmp_name) || trim(h.address))).length;
-    }
-    if (name === 'http_probe') {
+    } else if (name === 'http_probe') {
       // Mirrors `providerStates(h)`'s http_probe gate exactly so the
       // toolbar chip's configured-count matches the per-row chip
       // visibility. `http_probe_has_targets` is the backend-stamped
       // boolean that resolves the same URL chain the sampler uses
       // (http_probe.urls → row.url → row.services[].url).
-      return list.filter(h => h.http_probe_enabled === true
+      value = list.filter(h => h.http_probe_enabled === true
         && h.http_probe_has_targets).length;
     }
-    return 0;
+    this._hostsConfiguredCache.set(name, {ver, len, value});
+    return value;
+  },
+  /** Bump the `_hostsConfiguredForProvider` cache key. Called from
+   *  `loadHosts` after the in-place reconcile lands, from
+   *  `refreshHostRow` after a single row updates, and from any
+   *  per-host SSE handler that mutates a provider-relevant field.
+   *  Cheap (single integer increment) — Alpine's reactivity tracker
+   *  registers it as a dep when the cached helper reads it at the
+   *  top, so the next read of `_hostsConfiguredForProvider(p)`
+   *  recomputes against the fresh data.
+   */
+  _bumpHostsConfiguredVersion() {
+    this._hostsConfiguredVersion = (this._hostsConfiguredVersion | 0) + 1;
   },
   /** Per-row Test button handler — fires POST /api/hosts/{id}/http-probe/test
    * and stamps the result into `httpProbeRowTestResult[host.id]` for

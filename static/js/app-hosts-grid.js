@@ -1,4 +1,4 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS,AnonymousFunctionJS,JSUnresolvedReference,JSIgnoredPromiseFromCall,ExceptionCaughtLocallyJS,OverlyComplexBooleanExpressionJS,ContinueStatementJS,RedundantIfStatementJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
 // noinspection NestedTemplateLiteralJS
@@ -23,8 +23,74 @@ export default {
     }
     const active = this.hostsActiveSources || [];
     const globalOk = this.providersWorkingGlobally();
-    const got = new Set(h.providers || []);
+    // Memoize against a fingerprint of every reactive input. Reading
+    // the fields below DURING fingerprint construction means Alpine's
+    // reactivity tracker still subscribes to each one, so any future
+    // change to those fields re-fires the effect AND invalidates
+    // the cache (fingerprint mismatch). Cache hit returns the SAME
+    // array reference — downstream `<template x-for="p in ...">`
+    // bindings see no change and skip the chip-DOM rebuild on every
+    // poll-tick. Big win because providerStates is called per visible
+    // host × every Alpine reactive tick (~10/s × 200 hosts = ~2k/s
+    // pre-memo).
+    const polling = (h._polling && typeof h._polling === 'object') ? h._polling : {};
     const pause = (h && h.provider_pause_state) || {};
+    const got = new Set(h.providers || []);
+    // Cheap fingerprint — string concat of every field providerStates
+    // reads, no JSON.stringify (slow). The keys-filter on polling /
+    // pause grabs only truthy entries so e.g. a fresh `{}` and a
+    // `{snmp: false}` collapse to the same fp.
+    const pollKeys = Object.keys(polling).filter(k => polling[k] === true).sort().join(',');
+    const pauseKeys = Object.keys(pause).filter(k => pause[k] && pause[k].paused).sort().join(',');
+    const gotKey = (h.providers || []).slice().sort().join(',');
+    const fp = active.slice().sort().join(',') + '|'
+      + (Array.from(globalOk).sort().join(',')) + '|'
+      + gotKey + '|'
+      + pollKeys + '|'
+      + pauseKeys + '|'
+      + (h._loading === true ? '1' : '0') + '|'
+      + (h.beszel_name || '') + '|' + (h.beszel_status || '') + '|'
+      + (h.pulse_name || '') + '|' + (h.pulse_status || '') + '|'
+      + (h.ne_url || '') + '|'
+      + (h.webmin_name || '') + '|'
+      + (h.ping_enabled === true ? '1' : '0') + '|'
+      + (h.ping_alive === false ? '1' : '0') + '|'
+      + (h.snmp_enabled === true ? '1' : '0') + '|'
+      + (h.snmp_name || '') + '|' + (h.address || '') + '|'
+      + (h.http_probe_enabled === true ? '1' : '0') + '|'
+      + (h.http_probe_has_targets === true ? '1' : '0') + '|'
+      + (h.host_http_status_ok === false ? '1' : '0');
+    // We also need to invalidate when the per-pause `consecutive_failures`
+    // / `last_error` fields change — they're surfaced in the chip's
+    // tooltip / pulse counter. Fold them into the fp.
+    if (pauseKeys) {
+      const pauseDetail = Object.keys(pause).filter(k => pause[k] && pause[k].paused).map(k => {
+        const r = pause[k];
+        return k + ':' + (r.consecutive_failures || 0) + ':' + (r.last_error || '');
+      }).sort().join(';');
+      // Append to the fingerprint so pause-row detail changes invalidate too.
+      // (kept separate from the boolean-only pauseKeys check above for clarity)
+      // The empty-string fallback keeps the fp shape stable when no pauses.
+      const fpExtra = '|' + pauseDetail;
+      // Concatenate into fp via shadowing — locals are write-once so we
+      // build a final string just before the cache check.
+      const finalFp = fp + fpExtra;
+      const cache = this._providerStatesCache || (this._providerStatesCache = new Map());
+      const cached = cache.get(h.id);
+      if (cached && cached.fp === finalFp) {
+        return cached.result;
+      }
+      return this._providerStatesCompute(h, active, globalOk, got, pause, polling, finalFp, cache);
+    }
+    // Fast-path when nothing is paused — skip the detail concat.
+    const cache = this._providerStatesCache || (this._providerStatesCache = new Map());
+    const cached = cache.get(h.id);
+    if (cached && cached.fp === fp) {
+      return cached.result;
+    }
+    return this._providerStatesCompute(h, active, globalOk, got, pause, polling, fp, cache);
+  },
+  _providerStatesCompute(h, active, globalOk, got, pause, polling, fp, cache) {
     const out = [];
     const badStatus = v => {
       const s = String(v || '').toLowerCase();
@@ -44,8 +110,9 @@ export default {
     // the response landed for the providers that finished first),
     // a slow per-provider probe still in flight keeps `_polling[p]`
     // truthy. Chip pulses while EITHER row-loading OR its own
-    // per-provider polling flag is set.
-    const polling = (h._polling && typeof h._polling === 'object') ? h._polling : {};
+    // per-provider polling flag is set. `polling` is bound as a
+    // parameter so the cache-key derivation in the parent
+    // providerStates sees the same object reference we read here.
     const add = (name, mapped, selfStatus) => {
       if (!mapped) {
         return;
@@ -159,6 +226,10 @@ export default {
     // every other value (null / undefined / true) is benign.
     add('http_probe', !!(h.http_probe_enabled === true && h.http_probe_has_targets),
       h.host_http_status_ok === false ? 'down' : null);
+    // Stash the computed result keyed by host id; the parent
+    // `providerStates` returns this same array reference on future
+    // calls until the fingerprint changes.
+    cache.set(h.id, {fp, result: out});
     return out;
   },
 
@@ -725,6 +796,12 @@ export default {
           this.hosts.splice(i, 1);
         }
       }
+      // Invalidate the `_hostsConfiguredForProvider` memoize cache —
+      // the reconcile above just added / removed rows AND overlaid
+      // every provider-relevant field on existing rows.
+      if (typeof this._bumpHostsConfiguredVersion === 'function') {
+        this._bumpHostsConfiguredVersion();
+      }
       this.hostsCuratedCount = Number.isFinite(d.curated_count) ? d.curated_count : 0;
       this.hostsEnabledCount = Number.isFinite(d.enabled_count) ? d.enabled_count : 0;
       // Trim persisted expansion state to hosts that actually exist.
@@ -991,6 +1068,14 @@ export default {
       // forever. Future probes will re-populate via fresh
       // `host:provider_probing` events.
       row._polling = {};
+      // Invalidate the toolbar's per-provider count memoize — this
+      // row may have flipped beszel_name / pulse_name / ne_url /
+      // webmin_name / snmp_name / address / http_probe_has_targets
+      // / ping_enabled / snmp_enabled / http_probe_enabled in the
+      // overlay above.
+      if (typeof this._bumpHostsConfiguredVersion === 'function') {
+        this._bumpHostsConfiguredVersion();
+      }
       // History backfill after first probe lands. The
       // IntersectionObserver-driven prefetch fires when the row
       // FIRST scrolls into view — but at that moment the row is
