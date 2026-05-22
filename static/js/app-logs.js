@@ -1,3 +1,4 @@
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Logs admin (Admin → Logs) — live in-memory buffer + persistent
 // log files browser.
 //

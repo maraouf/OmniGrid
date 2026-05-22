@@ -1,3 +1,4 @@
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Asset-Inventory integration (Admin → Assets) — load/save/test
 // the OAuth2 client_credentials-backed asset API, plus per-host
 // lookups consumed by the Hosts drawer.

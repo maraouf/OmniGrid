@@ -1,3 +1,4 @@
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Admin → Notifications surface — per-event opt-in matrix, per-medium
 // master toggles, Apprise + Telegram + template editor.
 //

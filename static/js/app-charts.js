@@ -1,3 +1,4 @@
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA chart renderers + chart-data helpers.
 //
 // Pure SVG-renderer functions invoked from the markup via x-html

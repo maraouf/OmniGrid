@@ -1,3 +1,4 @@
+/* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Stats view (top-nav `stats` view) — aggregate metrics across the
 // fleet (Overview / Database / Network / Incidents / Samples sub-tabs).
 //
