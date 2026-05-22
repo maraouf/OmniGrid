@@ -317,7 +317,14 @@ export default {
     const q = (this.hostsConfigFilter || '').trim().toLowerCase();
     const order = (this.hostsConfigSortedOrder || []);
     const cfg = this.hostsConfig || [];
-    const cacheKey = q + '|' + cfg.length + '|' + order.length;
+    // Include the asset-cache row count in the cache key so a late-loading
+    // /api/asset-inventory response invalidates a stale `q='foo'` result
+    // computed before assets arrived (otherwise typing "dell" would miss
+    // every host whose vendor lives in the asset record but not in the
+    // curated config).
+    const assetCount = (this.assetCache && Array.isArray(this.assetCache.assets))
+      ? this.assetCache.assets.length : 0;
+    const cacheKey = q + '|' + cfg.length + '|' + order.length + '|' + assetCount;
     const cached = this._filteredHostsConfigCache;
     if (cached.key === cacheKey && cached.value) {
       return cached.value;
@@ -348,13 +355,43 @@ export default {
     if (!q) {
       value = all;
     } else {
+      // Operator-flagged: search must also match asset-related fields
+      // (vendor / model / serial / location / type / hostnames /
+      // primary_ip / sku / barcode / comment / status). The asset row
+      // is resolved by `custom_number` via assetForHost(); falls back
+      // to null cleanly for rows without an asset record so the existing
+      // curated-field haystack still works.
+      const hasAssetLookup = typeof this.assetForHost === 'function';
       value = all.filter(({row}) => {
-        const hay = [
+        const parts = [
           row.id, row.label, row.ne_url,
           row.beszel_name, row.pulse_name,
           row.webmin_name, row.webmin_url,
           row.url, row.icon, row.ip,
-        ].filter(Boolean).join(' ').toLowerCase();
+          row.address, row.custom_number,
+        ];
+        if (hasAssetLookup) {
+          const asset = this.assetForHost(row);
+          if (asset) {
+            parts.push(
+              asset.vendor, asset.model, asset.serial,
+              asset.location, asset.location_details,
+              asset.type, asset.type_short,
+              asset.primary_ip, asset.sku, asset.firmware,
+              asset.hardware_version, asset.barcode,
+              asset.comment, asset.status_name,
+            );
+            if (Array.isArray(asset.hostnames)) {
+              parts.push(asset.hostnames.join(' '));
+            }
+            if (Array.isArray(asset.interfaces)) {
+              for (const iface of asset.interfaces) {
+                parts.push(iface && iface.ip, iface && iface.name, iface && iface.mac);
+              }
+            }
+          }
+        }
+        const hay = parts.filter(Boolean).join(' ').toLowerCase();
         return hay.includes(q);
       });
     }
