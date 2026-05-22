@@ -45,11 +45,19 @@ export default [
   // Baseline rules from eslint:recommended.
   js.configs.recommended,
   // Browser-scope JS files (the SPA itself + login + the global fetch wrapper).
+  //
+  // sourceType note: `static/js/app.js` plus its `app-*.js` siblings are
+  // ES modules (loaded via `<script type="module">` since the front-end
+  // refactor); everything else under `static/` (auth-fetch.js,
+  // alpine-gate.js, login.js, i18n.js) is still a classic script. ESLint
+  // v9's flat config takes the LAST matching block's `sourceType` so the
+  // module override below for `static/js/app*.js` wins for those files
+  // and the default `"script"` below applies to everything else.
   {
     files: ["static/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
-      sourceType: "script",  // The SPA is served as a plain <script>, not a module.
+      sourceType: "script",  // Classic <script>; module override below for app*.js.
       globals: {
         ...globals.browser,
         // Alpine.js global (browser bundle exposes `Alpine` on window).
@@ -109,6 +117,18 @@ export default [
         "warn",
         { allowShortCircuit: true, allowTernary: true, allowTaggedTemplates: true },
       ],
+    },
+  },
+  // ES-module override for the SPA's refactored top-level Alpine
+  // component. `static/js/app.js` (the entry point) plus `app-*.js`
+  // siblings (icon registry, curated refresh-field whitelist, browser
+  // globals install side-effect) are loaded via `<script type="module">`
+  // and use ES `import` / `export` syntax. Everything else under
+  // `static/` stays a classic script.
+  {
+    files: ["static/js/app.js", "static/js/app-*.js"],
+    languageOptions: {
+      sourceType: "module",
     },
   },
 ];
