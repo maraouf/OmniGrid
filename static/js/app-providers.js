@@ -1,7 +1,16 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection ALL
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS,AnonymousFunctionJS,JSUnresolvedReference,NegatedConditionalExpressionJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+// noinspection NegatedIfStatementJS,OverlyComplexBooleanExpressionJS,ContinueStatementJS,BreakStatementJS,ExceptionCaughtLocallyJS,PointlessBitwiseExpressionJS
+// noinspection JSUnresolvedFunction,JSUnresolvedVariable,XHTMLIncompatabilitiesJS,JSAccessInconsistentInXHTML,JSAsyncFunctionMissingAwait
+// noinspection JSMissingAwait,JSUnfilteredForInLoop,IfStatementWithoutBlockJS,JSNegatedConditionalExpression
+// noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
+// noinspection JSValidateTypes,JSPotentiallyInvalidUsageOfThis,JSIgnoredPromiseFromCall,AnonymousCapturingGroupJS,AssignmentToFunctionParameterJS
+// noinspection JSIfStatementsCanBeSimplified,IfStatementSimplifyable,RedundantIfStatementJS,RegExpRedundantEscape,JSDeprecatedSymbols,VoidExpressionJS,JSVoidExpression
+// noinspection RedundantLocalVariableJS,JSPossiblyAssignedToNullVariable,JSObjectNullOrUndefined,JSReusedLocalVariable,HtmlUnknownTag
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Admin → Providers — per-host-stats-provider settings + test +
@@ -1133,7 +1142,10 @@ export default {
       const sources = new Set(
         (this.settings.host_stats_source || '').split(',').map(s => s.trim()).filter(Boolean)
       );
-      if (this.hasHostStatsSource('http_probe')) {
+      // CSV-inclusion follows the master toggle directly (single visible
+      // knob — see the panel's header comment for why we collapsed the
+      // dual toggle into one).
+      if (this.settings.http_probe_enabled) {
         sources.add('http_probe');
       } else {
         sources.delete('http_probe');
@@ -1301,7 +1313,10 @@ export default {
       const sources = new Set(
         (this.settings.host_stats_source || '').split(',').map(s => s.trim()).filter(Boolean)
       );
-      if (this.hasHostStatsSource('service_probe')) {
+      // CSV-inclusion follows the master toggle directly (single visible
+      // knob — see the panel's header comment for why we collapsed the
+      // dual toggle into one).
+      if (this.settings.service_probe_enabled) {
         sources.add('service_probe');
       } else {
         sources.delete('service_probe');

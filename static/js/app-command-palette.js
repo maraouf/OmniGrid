@@ -1,7 +1,11 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
-// noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
+// noinspection ALL
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,AnonymousFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS
+// noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS,RedundantLocalVariableJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS,ContinueStatementJS,BreakStatementJS
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSIgnoredPromiseFromCall,JSAsyncFunctionMissingAwait,JSMissingAwait
+// noinspection NegatedConditionalExpressionJS,JSNegatedConditionalExpression,OverlyComplexBooleanExpressionJS,AnonymousCapturingGroupJS,JSVariableNamingConventionJS,LocalVariableNamingConventionJS,BadName,BadVariableName
+// noinspection HtmlUnknownTag
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Cmd-K command palette — keyboard-first launcher (modal palette).
@@ -87,7 +91,7 @@ export default {
         run: () => {
           this.testBeszelConnection();
           this.view = 'admin';
-          this.setAdminTab && this.setAdminTab('host_stats');
+          this.setAdminTab && this.setAdminTab('providers');
         }
       }] : []),
       ...(typeof this.testPulseConnection === 'function' ? [{
@@ -97,7 +101,7 @@ export default {
         run: () => {
           this.testPulseConnection();
           this.view = 'admin';
-          this.setAdminTab && this.setAdminTab('host_stats');
+          this.setAdminTab && this.setAdminTab('providers');
         }
       }] : []),
       ...(typeof this.testWebminConnection === 'function' ? [{
@@ -107,7 +111,7 @@ export default {
         run: () => {
           this.testWebminConnection();
           this.view = 'admin';
-          this.setAdminTab && this.setAdminTab('host_stats');
+          this.setAdminTab && this.setAdminTab('providers');
         }
       }] : []),
       ...(typeof this.testSnmpConnection === 'function' ? [{
@@ -117,7 +121,7 @@ export default {
         run: () => {
           this.testSnmpConnection();
           this.view = 'admin';
-          this.setAdminTab && this.setAdminTab('host_stats');
+          this.setAdminTab && this.setAdminTab('providers');
         }
       }] : []),
       ...(typeof this.testPingConnection === 'function' ? [{
@@ -127,7 +131,7 @@ export default {
         run: () => {
           this.testPingConnection();
           this.view = 'admin';
-          this.setAdminTab && this.setAdminTab('host_stats');
+          this.setAdminTab && this.setAdminTab('providers');
         }
       }] : []),
       ...(typeof this.testAssetInventoryConnection === 'function' ? [{

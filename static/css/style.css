@@ -6359,6 +6359,26 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   color: inherit;
 }
 
+/* Wrapper around each sidebar entry — exists to give Alpine's x-for
+   a single child per iteration so the loop can conditionally render
+   either a button (tab) or an <hr> (separator) per entry. Behaves as
+   a transparent passthrough for buttons (display: contents) so the
+   existing .page-sidebar flex layout treats the button as a direct
+   child for spacing / hover / active state. */
+.page-sidebar-row {
+  display: contents;
+}
+
+/* Visual divider between groups of admin sections — e.g. after
+   "Notifications" and after "AI integration". Renders as a soft
+   horizontal rule using the surface border token. */
+.page-sidebar-separator {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: var(--s-3) var(--s-2);
+  height: 0;
+}
+
 .page-content {
   flex: 1;
   min-width: 0; /* allow tables to overflow-scroll instead of forcing width */

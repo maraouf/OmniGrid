@@ -1,3 +1,4 @@
+// noinspection ALL
 // noinspection NestedFunctionCallJS,MagicNumberJS,ConditionalExpressionJS,NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,AnonymousFunctionJS,ConstantOnRightSideOfComparisonJS,FunctionWithMoreThanThreeNegationsJS,RegExpAnonymousGroup
 // noinspection OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS
 // noinspection ChainedMethodCallJS,NestedConditionalExpressionJS,RedundantConditionalExpressionJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS
@@ -508,28 +509,38 @@ function app() {
     _profileBaseline: '',
     profileBusy: false,
     avatarBusy: false,
+    // Admin sidebar sections — order is operator-visible, group with
+    // separators between major scopes (identity & user-management →
+    // integrations & data sources → operations & diagnostics). Items
+    // with `separator: true` render as a `<hr>` divider in the sidebar
+    // and a disabled `<option>` in the mobile <select>. Each
+    // separator carries a stable `id` (`_sep_<N>`) for the x-for `:key`
+    // — never collides with a real section id because real sections
+    // never start with `_`.
     adminSections: [
       {id: 'general', label: 'General', icon: 'sliders'},
       {id: 'users', label: 'Users', icon: 'users'},
       {id: 'authentication', label: 'Authentication', icon: 'shield'},
+      {id: 'oidc', label: 'Authentik OIDC', icon: 'authentik'},
       {id: 'sessions', label: 'Sessions', icon: 'monitor'},
       {id: 'tokens', label: 'API tokens', icon: 'key'},
       {id: 'notifications', label: 'Notifications', icon: 'bell'},
+      {id: '_sep_1', separator: true},
       {id: 'portainer', label: 'Portainer', icon: 'portainer'},
-      {id: 'oidc', label: 'Authentik OIDC', icon: 'authentik'},
-      {id: 'host_stats', label: 'Host stats', icon: 'activity'},
+      {id: 'providers', label: 'Providers', icon: 'activity'},
       {id: 'ssh', label: 'SSH', icon: 'terminal'},
-      {id: 'public_ip', label: 'Public IP', icon: 'globe'},
       {id: 'port_scan', label: 'Port Scan', icon: 'search'},
+      {id: 'public_ip', label: 'Public IP', icon: 'globe'},
       {id: 'host_groups', label: 'Host Groups', icon: 'layers'},
       {id: 'hosts', label: 'Hosts', icon: 'server'},
       {id: 'assets', label: 'Asset inventory', icon: 'package'},
       {id: 'ai', label: 'AI integration', icon: 'zap'},
+      {id: '_sep_2', separator: true},
       {id: 'schedules', label: 'Schedules', icon: 'calendar'},
       {id: 'backups', label: 'Backup', icon: 'archive'},
-      {id: 'logs', label: 'Logs', icon: 'file-text'},
       {id: 'config', label: 'Config', icon: 'settings'},
       {id: 'config_backup', label: 'Config Backup', icon: 'save'},
+      {id: 'logs', label: 'Logs', icon: 'file-text'},
       {id: 'debug', label: 'Debug', icon: 'bug'},
     ],
     // Multi-tab activity registry — { client_id: { actor, view, drawer_host,
@@ -1167,7 +1178,7 @@ function app() {
       }
       this.applyTheme();
       // URL routing — reflect current view + section in the path so a
-      // refresh keeps the operator where they were (/admin/host_stats,
+      // refresh keeps the operator where they were (/admin/providers,
       // /settings/profile, etc). Run the one-time parse BEFORE wiring
       // the watchers so the initial assign doesn't spam pushState.
       this._applyRouteFromPath();
@@ -2463,28 +2474,28 @@ function app() {
                   // The four ex-Settings sections all read from the same /api/settings
                   // payload, so a single load covers all of them. Load on every
                 // open so edits from another tab don't go stale.
-                else if (['notifications', 'general', 'portainer', 'oidc', 'host_stats'].includes(tab)) {
+                else if (['notifications', 'general', 'portainer', 'oidc', 'providers'].includes(tab)) {
                   await this.loadSettings();
-                  // Webmin section in host_stats also renders a tunable card
+                  // Webmin section in Providers also renders a tunable card
                   // (tuning_webmin_probe_budget_seconds); ensure tuning state
                   // is available the first time the operator visits.
-                  if (tab === 'host_stats' && !this.tuningLoaded) {
+                  if (tab === 'providers' && !this.tuningLoaded) {
                     await this.loadTuning();
                   }
                   // Notifications tab now hosts the relocated
                   // tuning_notification_retention_days card; same lazy-load
-                  // pattern as host_stats so the bounds-chips + effective-value
+                  // pattern as Providers so the bounds-chips + effective-value
                   // chip render on first visit instead of waiting for the
                   // operator to bounce through Admin → Config first.
                   if (tab === 'notifications' && !this.tuningLoaded) {
                     await this.loadTuning();
                   }
                   // The Ping test-target picker reads from `hostsConfig` (loaded
-                  // by the Hosts admin tab). When the operator opens the host_stats
+                  // by the Hosts admin tab). When the operator opens the Providers
                   // tab without ever visiting Admin → Hosts in this session, the
                   // picker is empty and the dropdown shows "No ping-enabled hosts"
                   // even though there are some. Lazy-load on first visit.
-                  if (tab === 'host_stats' && !(Array.isArray(this.hostsConfig) && this.hostsConfig.length)) {
+                  if (tab === 'providers' && !(Array.isArray(this.hostsConfig) && this.hostsConfig.length)) {
                     this.loadHostsConfig().catch(() => {
                     });
                   }
@@ -2508,7 +2519,7 @@ function app() {
                   // section's `x-show="tuningLoaded"` gate fires and the
                   // bounds-chips / effective-value / form bindings render
                   // instead of staying invisible. Same lazy-load pattern as
-                  // host_stats / notifications / logs tabs.
+                  // providers / notifications / logs tabs.
                   if (!this.tuningLoaded) {
                     await this.loadTuning();
                   }
@@ -2735,6 +2746,17 @@ function app() {
       if (name === 'port_scan') {
         return !!this.settings.port_scan_enabled;
       }
+      // The probe-result providers (http_probe / service_probe) collapsed
+      // their dual toggle (CSV inclusion + master enable) down to a single
+      // master toggle. Read the master directly so the tab-strip dot
+      // updates LIVE on master flip, not only after Save commits the
+      // CSV-side mirror.
+      if (name === 'http_probe') {
+        return !!this.settings.http_probe_enabled;
+      }
+      if (name === 'service_probe') {
+        return !!this.settings.service_probe_enabled;
+      }
       const raw = this.settings.host_stats_source || '';
       return raw.split(',').map(s => s.trim()).includes(name);
     },
@@ -2895,7 +2917,7 @@ function app() {
       return this._hostStatsBaseline !== this._hostStatsSnapshot()
         || this.tuningDirty();
     },
-    // In-flight flag for the unified host_stats Save button so
+    // In-flight flag for the unified Providers Save button so
     // the spinner / "Saving…" label fires the same way as the
     // per-section Save buttons did pre-fix.
     hostStatsSaving: false,
@@ -7338,13 +7360,19 @@ function app() {
       // adding ONE entry to `adminSections` plus ONE key to
       // `i18n/en.json` under `command_palette.admin.<id>`.
       const sections = Array.isArray(this.adminSections) ? this.adminSections : [];
-      return sections.map(s => ({
-        tab: s.id,
-        // Translate via `t()`; if the locale doesn't have the key, fall
-        // back to the section's static `label` (which the admin sub-nav
-        // already renders elsewhere).
-        label: (this.t('command_palette.admin.' + s.id) || s.label || s.id),
-      }));
+      return sections
+        // Sidebar separators (`{separator: true}`) are visual-only
+        // dividers in the Admin nav — they have no tab to navigate to,
+        // so skip them here or the command palette would surface an
+        // empty-label phantom entry per separator.
+        .filter(s => !s.separator)
+        .map(s => ({
+          tab: s.id,
+          // Translate via `t()`; if the locale doesn't have the key, fall
+          // back to the section's static `label` (which the admin sub-nav
+          // already renders elsewhere).
+          label: (this.t('command_palette.admin.' + s.id) || s.label || s.id),
+        }));
     },
     _commandTopViews() {
       const views = ['stacks', 'services', 'nodes', 'hosts', 'history'];
