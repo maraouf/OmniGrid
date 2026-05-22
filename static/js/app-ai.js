@@ -1,35 +1,8 @@
-// noinspection ElementNotExported,JSUnusedGlobalSymbols,JSUnusedLocalSymbols,JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSIgnoredPromiseFromCall,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag,MagicNumberJS,UnusedCatchParameterJS,OverlyComplexBooleanExpressionJS,FunctionWithMultipleReturnPointsJS,FunctionWithMoreThanThreeNegationsJS,OverlyNestedFunctionJS,OverlyLongFunctionJS,OverlyComplexFunctionJS,FunctionWithInconsistentReturnsJS,ChainedFunctionCallJS,NestedFunctionCallJS,NestedAssignmentJS,JSVariableNamingConventionJS,FunctionNamingConventionJS,JSStringConcatenationToES6Template,JSPotentiallyInvalidUsageOfThis,ContinueStatementJS,BreakStatementJS,AssignmentToFunctionParameterJS,IfStatementWithoutBlockJS,IfStatementWithIdenticalBranchesJS,AnonymousFunctionJS,AnonymousCapturingGroupJS,AnonymousFunctionRegExpJS,NamedFunctionExpressionJS,ConditionalExpressionJS,NestedConditionalExpressionJS,ConstantOnRightSideOfComparisonJS,ConstantOnLeftSideOfComparisonJS,EmptyCatchBlockJS,StatementWithEmptyBodyJS,RedundantConditionalExpressionJS,RedundantLocalVariableJS,JSValidateTypes,JSCheckFunctionSignatures,JSPrimitiveTypeWrapperUsage,JSDuplicatedDeclaration,TooManyFunctionParametersJS,NestedTemplateLiteralJS,AssignmentToForLoopParameterJS,AssignmentResultUsedJS,ConditionalCanBeReplacedWithEarlyExitJS
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA AI Integration — sidebar chat, command-palette AI mode, AI
 // dashboard, AI memory, AI provider settings.
-//
-// The largest extracted feature in the modularisation (~120 properties,
-// ~4500 lines). Split into sub-areas:
-//   - Sidebar conversation state + persistence
-//     (`aiConversation`, `persistAiConversation*`, `_scrollAiSidebar*`)
-//   - Sidebar lifecycle (`openAiSidebar`, `closeAiSidebar`,
-//     `togglePinAiSidebar`, `aiSidebar*` flags)
-//   - Slash-command picker (`aiSidebarSlash*`,
-//     `runAiSidebarSlashAction`)
-//   - Message send + tool dispatch (`sendAiSidebarMessage`,
-//     `_aiHostDispatch`, `_aiItemDispatch`, `_aiScheduleDispatch`,
-//     `_aiSendNotificationDispatch`, `_aiRetagDispatch`)
-//   - Command-palette AI mode (`_runCommandPaletteAi`,
-//     `_runCommandPaletteAiBulk`)
-//   - Per-host chart fills (`_populateAiHostChart`,
-//     `_populateAiSidebarHostChart`, `_renderAiHostChartShells`,
-//     `_renderAiSidebarHostChartShells`)
-//   - Cost/usage dashboard (`loadAiDashboard`, `aiDashboard*`,
-//     `loadStatsAiCost`, `statsAiCost*`, `aiJobs*`, `aiTrend*`,
-//     `aiModal*`)
-//   - Memory store (`aiMemories`, `loadAiMemories`, `addAiMemory`,
-//     `deleteAiMemory`)
-//   - Provider settings (`aiForm`, `hydrateAiFromSettings`,
-//     `saveAiSettings`, `testAiProvider`, dirty-tracking helpers)
-//   - Markdown renderer (`_renderAiAnswerMd`)
-//
-// Phase 2, Batch 18 of the static/js/app.js modularisation.
+
 
 export default {
   // ----- AI Assistant sidebar (conversational drawer) ---------------
@@ -298,13 +271,13 @@ export default {
     metaChips.push('<span class="ai-resp-meta-chip">' + esc(this.formatTime(h.ts)) + '</span>');
     const errorBlock = h.error
       ? '<div class="ai-resp-section">'
-      + '<div class="ai-resp-label" style="color:var(--danger)">'
-      + '<span class="ai-resp-label-dot" style="background:var(--danger)" aria-hidden="true"></span>'
+      + '<div class="ai-resp-label" style="color:var(--danger);">'
+      + '<span class="ai-resp-label-dot" style="background:var(--danger);" aria-hidden="true"></span>'
       + esc(this.t('history.detail.error').replace(/:$/, '') || 'Error')
       + '</div>'
       + '<div class="ai-resp-answer" style="background:color-mix(in srgb, var(--danger) 6%, transparent);'
       + 'border-color:color-mix(in srgb, var(--danger) 25%, transparent);'
-      + 'border-inline-start-color:var(--danger);color:var(--text)">'
+      + 'border-inline-start-color:var(--danger);color:var(--text);">'
       + esc(h.error)
       + '</div>'
       + '</div>'
@@ -3613,7 +3586,7 @@ export default {
       return this._applyDateTimeFormat(dt, _dateOnlyFmt);
     };
     const esc = (s) => this._logEscape(String(s));
-    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block">';
+    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block;">';
     for (const t of yTicks) {
       svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
         + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"/>';
@@ -3689,7 +3662,7 @@ export default {
     }
     swal.fire({
       title: this.t('command_palette.ai.thinking_title') || 'Thinking…',
-      html: '<div class="text-[12px] text-[var(--text-faint)] mono" style="text-align:left">'
+      html: '<div class="text-[12px] text-[var(--text-faint)] mono" style="text-align:left;">'
         + this._logEscape(query) + '</div>'
         + '<div class="mt-3"><span class="spin-lg" aria-hidden="true"></span></div>',
       showConfirmButton: false,
@@ -3713,7 +3686,7 @@ export default {
           // SweetAlert role="dialog" + icon image alone don't always
           // trigger an announcement on every reader.
           html: '<div class="text-[12px] mono" role="alert" aria-live="assertive" '
-            + 'style="text-align:left;white-space:pre-wrap">'
+            + 'style="text-align:left;white-space:pre-wrap;">'
             + this._logEscape(detail) + '</div>',
         });
         return;
@@ -3802,7 +3775,7 @@ export default {
           // stay as plain divs (no aria-live) — re-announcing every
           // multi-paragraph answer would be noisy.
           + (answerIsEmpty
-            ? '<div class="ai-resp-answer" role="status" aria-live="polite" style="opacity:0.7">'
+            ? '<div class="ai-resp-answer" role="status" aria-live="polite" style="opacity:0.7;">'
             : '<div class="ai-resp-answer">')
           // Render the AI's answer through the safe-Markdown helper
           // so `**host**` renders as bold, `1. ...` lines render as
@@ -3863,7 +3836,7 @@ export default {
       swal.fire({
         icon: 'error',
         title: this.t('command_palette.ai.error_title') || 'AI request failed',
-        html: '<div class="text-[12px] mono" style="text-align:left">' + this._logEscape(e.message || String(e)) + '</div>',
+        html: '<div class="text-[12px] mono" style="text-align:left;">' + this._logEscape(e.message || String(e)) + '</div>',
       });
     }
   },

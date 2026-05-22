@@ -1,18 +1,6 @@
-// noinspection ElementNotExported,JSUnusedGlobalSymbols,JSUnusedLocalSymbols,JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSIgnoredPromiseFromCall,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag,MagicNumberJS,UnusedCatchParameterJS,OverlyComplexBooleanExpressionJS,FunctionWithMultipleReturnPointsJS,FunctionWithMoreThanThreeNegationsJS,OverlyNestedFunctionJS,OverlyLongFunctionJS,OverlyComplexFunctionJS,FunctionWithInconsistentReturnsJS,ChainedFunctionCallJS,NestedFunctionCallJS,NestedAssignmentJS,JSVariableNamingConventionJS,FunctionNamingConventionJS,JSStringConcatenationToES6Template,JSPotentiallyInvalidUsageOfThis,ContinueStatementJS,BreakStatementJS,AssignmentToFunctionParameterJS,IfStatementWithoutBlockJS,IfStatementWithIdenticalBranchesJS,AnonymousFunctionJS,AnonymousCapturingGroupJS,AnonymousFunctionRegExpJS,NamedFunctionExpressionJS,ConditionalExpressionJS,NestedConditionalExpressionJS,ConstantOnRightSideOfComparisonJS,ConstantOnLeftSideOfComparisonJS,EmptyCatchBlockJS,StatementWithEmptyBodyJS,RedundantConditionalExpressionJS,RedundantLocalVariableJS,JSValidateTypes,JSCheckFunctionSignatures,JSPrimitiveTypeWrapperUsage,JSDuplicatedDeclaration,TooManyFunctionParametersJS,NestedTemplateLiteralJS,AssignmentToForLoopParameterJS,AssignmentResultUsedJS,ConditionalCanBeReplacedWithEarlyExitJS
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // Probe-derived fields that ``refreshHostRow`` writes EXPLICITLY from
-// ``/api/hosts/one/{id}``'s payload — when the backend omits a key the
-// row collapses it to ``null`` instead of letting the previous value
-// stick. Curated config
-// fields (``label`` / ``icon`` / ``ssh_enabled`` / ``ne_url`` /
-// ``beszel_name`` / ``pulse_name`` / ``webmin_name`` / ``url`` /
-// ``custom_number`` / ``asset``) are NOT in this list — ``loadHosts``
-// owns them via ``CURATED_FIELDS`` and ``api/hosts/one`` does not edit
-// them. When a provider extracts a new probe-derived ``host_*`` field,
-// add the key here OR ship the matching backend snapshot whitelist
-// entry — same hand-maintained pattern as ``_HOST_SNAPSHOT_KEYS`` in
-// ``logic/gather.py``.
 
 export const CURATED_REFRESH_FIELDS = new Set([
   // Status / failure-state surface.

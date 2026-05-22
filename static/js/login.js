@@ -17,7 +17,7 @@
 //               provisioning_uri, challenge_id}        -> setup form
 // totp -> {ok}              -> redirect
 //      -> {ok, backup_codes} -> reveal codes -> redirect on continue
-// noinspection FunctionWithMultipleLoopsJS,FunctionNamingConventionJS,ConditionalExpressionJS,NonBlockStatementBodyJS,ConstantOnRightSideOfComparisonJS,EmptyCatchBlockJS,UnusedCatchParameterJS,AnonymousFunctionJS,NestedFunctionJS,FunctionWithMultipleReturnPointsJS,ChainedFunctionCallJS,NestedFunctionCallJS,OverlyComplexBooleanExpressionJS,FunctionTooLongJS,OverlyComplexFunctionJS,IfStatementWithTooManyBranchesJS,MagicNumberJS,JSUnusedLocalSymbols,InnerHTMLJS,LocalVariableNamingConventionJS,ExceptionCaughtLocallyJS,JSUnresolvedReference,DuplicatedCode,JSIgnoredPromiseFromCall
+// noinspection NestedFunctionCallJS,FunctionTooLongJS,OverlyComplexFunctionJS,AnonymousFunctionJS,ConstantOnRightSideOfComparisonJS,MagicNumberJS,ChainedFunctionCallJS,DuplicatedCode,NestedFunctionJS,FunctionWithMultipleLoopsJS,IfStatementWithTooManyBranchesJS,FunctionWithMultipleReturnPointsJS,ConditionalExpressionJS,OverlyComplexBooleanExpressionJS
 
 function applyI18nDom() {
   const els = document.querySelectorAll('[data-i18n]');
@@ -25,7 +25,9 @@ function applyI18nDom() {
     const el = els[i];
     const key = el.getAttribute('data-i18n');
     const v = window.t ? window.t(key) : key;
-    if (v && v !== key) el.textContent = v;
+    if (v && v !== key) {
+      el.textContent = v;
+    }
   }
   // The <title> element only carries `data-i18n-title` (writing
   // `data-i18n` on it would clobber the textContent path with the same
@@ -63,12 +65,7 @@ function applyI18nDom() {
   // listener; rebind these so showErr / button mutations still target
   // the visible card.
   const refs = {
-    form: document.getElementById('login'),
-    btn: document.getElementById('btn'),
-    err: document.getElementById('err'),
-    ver: document.getElementById('ver'),
-    ssoWrap: document.getElementById('ssoWrap'),
-    ssoBtn: document.getElementById('ssoBtn'),
+    form: document.getElementById('login'), btn: document.getElementById('btn'), err: document.getElementById('err'), ver: document.getElementById('ver'), ssoWrap: document.getElementById('ssoWrap'), ssoBtn: document.getElementById('ssoBtn'),
   };
 
   // Multi-step state. Holds the payload from the password step
@@ -80,13 +77,17 @@ function applyI18nDom() {
   }
 
   function showErr(msg) {
-    if (!refs.err) return;
+    if (!refs.err) {
+      return;
+    }
     refs.err.textContent = msg;
     refs.err.classList.add('show');
   }
 
   function clearErr() {
-    if (!refs.err) return;
+    if (!refs.err) {
+      return;
+    }
     refs.err.classList.remove('show');
     refs.err.textContent = '';
   }
@@ -111,11 +112,17 @@ function applyI18nDom() {
     //    invisible char, IDN homographs, mixed-encoding nasties).
     // Falls back to `/` (the SPA root) on any rejection.
     const raw = new URLSearchParams(location.search).get('next') || '/';
-    if (!raw.startsWith('/')) return '/';
-    if (raw.startsWith('//') || raw.startsWith('/\\') || raw.startsWith('\\')) return '/';
+    if (!raw.startsWith('/')) {
+      return '/';
+    }
+    if (raw.startsWith('//') || raw.startsWith('/\\') || raw.startsWith('\\')) {
+      return '/';
+    }
     try {
       const resolved = new URL(raw, location.origin);
-      if (resolved.origin !== location.origin) return '/';
+      if (resolved.origin !== location.origin) {
+        return '/';
+      }
       // Strip the origin so the return value remains a path-only
       // string that downstream `location.href = nextPath()` consumers
       // treat as a same-origin nav unconditionally.
@@ -127,7 +134,9 @@ function applyI18nDom() {
 
   // Show version so operators can sanity-check which build is live.
   fetch('/api/version').then(r => r.ok ? r.json() : null).then(v => {
-    if (v && v.version && refs.ver) refs.ver.textContent = 'v' + v.version;
+    if (v && v.version && refs.ver) {
+      refs.ver.textContent = 'v' + v.version;
+    }
   }).catch(() => {
   });
 
@@ -152,13 +161,10 @@ function applyI18nDom() {
       refs.btn.textContent = tx('login.signing_in', 'Signing in…');
       try {
         const body = new URLSearchParams({
-          username: document.getElementById('u').value,
-          password: document.getElementById('p').value,
+          username: document.getElementById('u').value, password: document.getElementById('p').value,
         });
         const r = await fetch('/api/local-auth/login', {
-          method: 'POST',
-          body,
-          credentials: 'same-origin',
+          method: 'POST', body, credentials: 'same-origin',
         });
         if (r.ok) {
           let j = null;
@@ -168,21 +174,14 @@ function applyI18nDom() {
           }
           if (j && j.step === 'totp_required') {
             totpState = {
-              kind: 'totp_required',
-              challenge_id: j.challenge_id,
-              username: j.username,
-              methods: Array.isArray(j.methods) ? j.methods : ['totp'],
+              kind: 'totp_required', challenge_id: j.challenge_id, username: j.username, methods: Array.isArray(j.methods) ? j.methods : ['totp'],
             };
             renderTotpForm();
             return;
           }
           if (j && j.step === 'totp_setup_required') {
             totpState = {
-              kind: 'totp_setup_required',
-              challenge_id: j.challenge_id,
-              username: j.username,
-              secret: j.secret,
-              provisioning_uri: j.provisioning_uri,
+              kind: 'totp_setup_required', challenge_id: j.challenge_id, username: j.username, secret: j.secret, provisioning_uri: j.provisioning_uri,
             };
             renderTotpSetupForm();
             return;
@@ -264,11 +263,15 @@ function applyI18nDom() {
   }
 
   function hideEl(el) {
-    if (el) el.style.display = 'none';
+    if (el) {
+      el.style.display = 'none';
+    }
   }
 
   function _showEl(el) {
-    if (el) el.style.display = '';
+    if (el) {
+      el.style.display = '';
+    }
   }
 
   // ----------------------------------------------------------------
@@ -290,7 +293,9 @@ function applyI18nDom() {
     }
     const b = new Uint8Array(buf);
     let s = '';
-    for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    for (let i = 0; i < b.length; i++) {
+      s += String.fromCharCode(b[i]);
+    }
     try {
       return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     } catch (_) {
@@ -313,7 +318,9 @@ function applyI18nDom() {
       throw new Error('WebAuthn: server sent malformed base64url credential id (charset)');
     }
     let padded = s.replace(/-/g, '+').replace(/_/g, '/');
-    while (padded.length % 4) padded += '=';
+    while (padded.length % 4) {
+      padded += '=';
+    }
     let bin;
     try {
       bin = atob(padded);
@@ -321,7 +328,9 @@ function applyI18nDom() {
       throw new Error('WebAuthn: server sent malformed base64url credential id (atob)');
     }
     const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    for (let i = 0; i < bin.length; i++) {
+      out[i] = bin.charCodeAt(i);
+    }
     return out.buffer;
   }
 
@@ -336,9 +345,7 @@ function applyI18nDom() {
     out.challenge = b64uDecode(opts.challenge);
     if (Array.isArray(opts.allowCredentials)) {
       out.allowCredentials = opts.allowCredentials.map(c => ({
-        type: c.type,
-        id: b64uDecode(c.id),
-        transports: c.transports,
+        type: c.type, id: b64uDecode(c.id), transports: c.transports,
       }));
     }
     return out;
@@ -346,18 +353,8 @@ function applyI18nDom() {
 
   function buildAssertionResponse(cred) {
     return {
-      id: cred.id,
-      rawId: b64uEncode(cred.rawId),
-      type: cred.type,
-      authenticatorAttachment: cred.authenticatorAttachment || null,
-      clientExtensionResults: cred.getClientExtensionResults
-        ? cred.getClientExtensionResults() : {},
-      response: {
-        authenticatorData: b64uEncode(cred.response.authenticatorData),
-        clientDataJSON: b64uEncode(cred.response.clientDataJSON),
-        signature: b64uEncode(cred.response.signature),
-        userHandle: cred.response.userHandle
-          ? b64uEncode(cred.response.userHandle) : null,
+      id: cred.id, rawId: b64uEncode(cred.rawId), type: cred.type, authenticatorAttachment: cred.authenticatorAttachment || null, clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {}, response: {
+        authenticatorData: b64uEncode(cred.response.authenticatorData), clientDataJSON: b64uEncode(cred.response.clientDataJSON), signature: b64uEncode(cred.response.signature), userHandle: cred.response.userHandle ? b64uEncode(cred.response.userHandle) : null,
       },
     };
   }
@@ -375,10 +372,7 @@ function applyI18nDom() {
     }
     try {
       const startResp = await fetch('/api/local-auth/webauthn-start', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({challenge_id: totpState.challenge_id}),
-        credentials: 'same-origin',
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({challenge_id: totpState.challenge_id}), credentials: 'same-origin',
       });
       if (!startResp.ok) {
         const j = await startResp.json().catch(() => ({}));
@@ -400,11 +394,7 @@ function applyI18nDom() {
           .map(o => o.friendly_name + ' (' + (o.rp_id || 'unknown') + ')')
           .join(', ');
         const cur = startJ.current_rp_id || (location && location.hostname) || '';
-        showErr(tx(
-          'login.passkey_rp_id_mismatch',
-          'Your passkeys were registered under a different domain and can\'t be used here. Sign in another way (TOTP / password recovery), then re-enrol them from Profile → Security on the new domain ({current}). Orphaned: {orphans}.',
-          {current: cur, orphans: orphans || '—'},
-        ));
+        showErr(tx('login.passkey_rp_id_mismatch', 'Your passkeys were registered under a different domain and can\'t be used here. Sign in another way (TOTP / password recovery), then re-enrol them from Profile → Security on the new domain ({current}). Orphaned: {orphans}.', {current: cur, orphans: orphans || '—'},));
         return;
       }
       const publicKey = buildPublicKeyOptions(startJ.options);
@@ -421,13 +411,9 @@ function applyI18nDom() {
         return;
       }
       const finishResp = await fetch('/api/local-auth/webauthn-finish', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          challenge_id: startJ.login_id,
-          credential: buildAssertionResponse(cred),
-        }),
-        credentials: 'same-origin',
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+          challenge_id: startJ.login_id, credential: buildAssertionResponse(cred),
+        }), credentials: 'same-origin',
       });
       if (finishResp.ok) {
         location.href = nextPath();
@@ -440,9 +426,7 @@ function applyI18nDom() {
       // helpers (`buildPublicKeyOptions` / `buildAssertionResponse`)
       // instead of collapsing them into the generic "Network error"
       // toast. Anything else stays generic.
-      const msg = (e && typeof e.message === 'string' && e.message.startsWith('WebAuthn:'))
-        ? tx('login.passkey_data_error', 'Passkey data error: {error}', {error: e.message})
-        : tx('login.network_error', 'Network error.');
+      const msg = (e && typeof e.message === 'string' && e.message.startsWith('WebAuthn:')) ? tx('login.passkey_data_error', 'Passkey data error: {error}', {error: e.message}) : tx('login.network_error', 'Network error.');
       showErr(msg);
     } finally {
       if (passkeyBtn) {
@@ -457,19 +441,18 @@ function applyI18nDom() {
       // No code input rendered → submit was triggered by Enter on a
       // disabled / hidden Verify button. Bail without erroring.
       const codeEl = document.getElementById('totp-code');
-      if (!codeEl) return;
+      if (!codeEl) {
+        return;
+      }
       clearErr();
       refs.btn.disabled = true;
       refs.btn.textContent = tx('login.verifying', 'Verifying…');
       try {
         const body = new URLSearchParams({
-          challenge_id: totpState.challenge_id,
-          code: codeEl.value,
+          challenge_id: totpState.challenge_id, code: codeEl.value,
         });
         const r = await fetch('/api/local-auth/totp', {
-          method: 'POST',
-          body,
-          credentials: 'same-origin',
+          method: 'POST', body, credentials: 'same-origin',
         });
         if (r.ok) {
           location.href = nextPath();
@@ -542,11 +525,7 @@ function applyI18nDom() {
 
     if (hasTotp) {
       const codeBlock = document.createElement('div');
-      codeBlock.innerHTML =
-        '<p class="sub" id="totp-hint"></p>' +
-        '<label for="totp-code" id="totp-code-label"></label>' +
-        '<input id="totp-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required />' +
-        '<a href="#" id="totp-toggle-mode" class="totp-link"></a>';
+      codeBlock.innerHTML = '<p class="sub" id="totp-hint"></p>' + '<label for="totp-code" id="totp-code-label"></label>' + '<input id="totp-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required />' + '<a href="#" id="totp-toggle-mode" class="totp-link"></a>';
       block.appendChild(codeBlock);
     }
     refs.form.insertBefore(block, refs.btn);
@@ -556,7 +535,9 @@ function applyI18nDom() {
       document.getElementById('totp-code-label').textContent = tx('login.totp_code_label', 'Authenticator code');
       document.getElementById('totp-toggle-mode').textContent = tx('login.totp_use_backup', 'Use a backup code instead');
       const codeInp = document.getElementById('totp-code');
-      if (codeInp && !hasPasskey) codeInp.focus();
+      if (codeInp && !hasPasskey) {
+        codeInp.focus();
+      }
       refs.btn.textContent = tx('login.verify', 'Verify');
     } else if (onlyPasskey) {
       // No code path -- hide the Verify submit, kick the passkey
@@ -604,13 +585,10 @@ function applyI18nDom() {
       refs.btn.textContent = tx('login.verifying', 'Verifying…');
       try {
         const body = new URLSearchParams({
-          challenge_id: totpState.challenge_id,
-          code: document.getElementById('totp-code').value,
+          challenge_id: totpState.challenge_id, code: document.getElementById('totp-code').value,
         });
         const r = await fetch('/api/local-auth/totp-setup-confirm', {
-          method: 'POST',
-          body,
-          credentials: 'same-origin',
+          method: 'POST', body, credentials: 'same-origin',
         });
         if (r.ok) {
           const j = await r.json().catch(() => ({}));
@@ -644,15 +622,7 @@ function applyI18nDom() {
 
     const block = document.createElement('div');
     block.id = 'totp-setup-block';
-    block.innerHTML =
-      '<p class="sub" id="totp-setup-hint"></p>' +
-      '<div id="totp-qr" class="totp-qr"></div>' +
-      '<div class="totp-secret-row">' +
-      '<span id="totp-secret-label"></span>' +
-      '<code id="totp-secret-value" class="mono"></code>' +
-      '</div>' +
-      '<label for="totp-code" id="totp-code-label"></label>' +
-      '<input id="totp-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" autofocus required />';
+    block.innerHTML = '<p class="sub" id="totp-setup-hint"></p>' + '<div id="totp-qr" class="totp-qr"></div>' + '<div class="totp-secret-row">' + '<span id="totp-secret-label"></span>' + '<code id="totp-secret-value" class="mono"></code>' + '</div>' + '<label for="totp-code" id="totp-code-label"></label>' + '<input id="totp-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" autofocus required />';
     refs.form.insertBefore(block, refs.btn);
 
     document.getElementById('totp-setup-hint').textContent = tx('login.totp_setup_hint', 'Two-factor authentication is required. Scan the QR with your authenticator app, then enter the generated code below.');
@@ -666,7 +636,9 @@ function applyI18nDom() {
 
   // Show the 10 backup codes one time after a successful setup.
   function renderBackupCodesReveal(codes) {
-    while (refs.form.firstChild) refs.form.removeChild(refs.form.firstChild);
+    while (refs.form.firstChild) {
+      refs.form.removeChild(refs.form.firstChild);
+    }
 
     const h1 = document.createElement('h1');
     h1.textContent = tx('login.totp_backup_title', 'Save these backup codes');

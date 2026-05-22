@@ -1,6 +1,8 @@
-// noinspection ElementNotExported,JSUnusedGlobalSymbols,JSUnusedLocalSymbols,JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSIgnoredPromiseFromCall,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag,MagicNumberJS,UnusedCatchParameterJS,OverlyComplexBooleanExpressionJS,FunctionWithMultipleReturnPointsJS,FunctionWithMoreThanThreeNegationsJS,OverlyNestedFunctionJS,OverlyLongFunctionJS,OverlyComplexFunctionJS,FunctionWithInconsistentReturnsJS,ChainedFunctionCallJS,NestedFunctionCallJS,NestedAssignmentJS,JSVariableNamingConventionJS,FunctionNamingConventionJS,JSStringConcatenationToES6Template,JSPotentiallyInvalidUsageOfThis,ContinueStatementJS,BreakStatementJS,AssignmentToFunctionParameterJS,IfStatementWithoutBlockJS,IfStatementWithIdenticalBranchesJS,AnonymousFunctionJS,AnonymousCapturingGroupJS,AnonymousFunctionRegExpJS,NamedFunctionExpressionJS,ConditionalExpressionJS,NestedConditionalExpressionJS,ConstantOnRightSideOfComparisonJS,ConstantOnLeftSideOfComparisonJS,EmptyCatchBlockJS,StatementWithEmptyBodyJS,RedundantConditionalExpressionJS,RedundantLocalVariableJS,JSValidateTypes,JSCheckFunctionSignatures,JSPrimitiveTypeWrapperUsage,JSDuplicatedDeclaration,TooManyFunctionParametersJS,NestedTemplateLiteralJS,AssignmentToForLoopParameterJS,AssignmentResultUsedJS,ConditionalCanBeReplacedWithEarlyExitJS
+// noinspection NestedFunctionCallJS,MagicNumberJS,ConditionalExpressionJS
+
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
+
 
 // Note: the JSHint-style `/* global Alpine, Swal, I18N, t */` directive
 // that used to live here was removed when this file became an ES module
@@ -1148,7 +1150,7 @@ function app() {
             this.applyTheme();
           }
         };
-        mq.addEventListener ? mq.addEventListener('change', onSys) : mq.addListener(onSys);
+        mq.addEventListener('change', onSys);
       }
       this.applyTheme();
       // URL routing — reflect current view + section in the path so a
@@ -8194,8 +8196,7 @@ function app() {
     },
     toggleHostConfigRow(row) {
       if (typeof row === 'string') {
-        const found = (this.hostsConfig || []).find(r => r && r.id === row);
-        row = found;
+        row = (this.hostsConfig || []).find(r => r && r.id === row);
       }
       if (!row || !row._uid) {
         return;
@@ -11440,8 +11441,7 @@ function app() {
     // "12 %" not "0.18".
     snmpLoadPctLive(hostId, liveLoad) {
       const cores = this.snmpCoresFor(hostId);
-      const pct = Math.max(0, Math.min(100, ((+liveLoad || 0) / cores) * 100));
-      return pct;
+      return Math.max(0, Math.min(100, ((+liveLoad || 0) / cores) * 100));
     },
     snmpMemArea(hostId, key) {
       // For the memory chart — render each layer as a polyline, scaled
@@ -13126,8 +13126,7 @@ function app() {
       this._toastHold = true;
       // Capture how much time was left when the hold began so
       // resumeToast can re-arm with the same budget.
-      const left = Math.max(500, (this._toastDeadline || 0) - Date.now());
-      this._toastRemaining = left;
+      this._toastRemaining = Math.max(500, (this._toastDeadline || 0) - Date.now());
       clearTimeout(this._tt);
       this._tt = null;
     },

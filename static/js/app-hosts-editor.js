@@ -1,22 +1,7 @@
-// noinspection ElementNotExported,JSUnusedGlobalSymbols,JSUnusedLocalSymbols,JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSIgnoredPromiseFromCall,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag,MagicNumberJS,UnusedCatchParameterJS,OverlyComplexBooleanExpressionJS,FunctionWithMultipleReturnPointsJS,FunctionWithMoreThanThreeNegationsJS,OverlyNestedFunctionJS,OverlyLongFunctionJS,OverlyComplexFunctionJS,FunctionWithInconsistentReturnsJS,ChainedFunctionCallJS,NestedFunctionCallJS,NestedAssignmentJS,JSVariableNamingConventionJS,FunctionNamingConventionJS,JSStringConcatenationToES6Template,JSPotentiallyInvalidUsageOfThis,ContinueStatementJS,BreakStatementJS,AssignmentToFunctionParameterJS,IfStatementWithoutBlockJS,IfStatementWithIdenticalBranchesJS,AnonymousFunctionJS,AnonymousCapturingGroupJS,AnonymousFunctionRegExpJS,NamedFunctionExpressionJS,ConditionalExpressionJS,NestedConditionalExpressionJS,ConstantOnRightSideOfComparisonJS,ConstantOnLeftSideOfComparisonJS,EmptyCatchBlockJS,StatementWithEmptyBodyJS,RedundantConditionalExpressionJS,RedundantLocalVariableJS,JSValidateTypes,JSCheckFunctionSignatures,JSPrimitiveTypeWrapperUsage,JSDuplicatedDeclaration,TooManyFunctionParametersJS,NestedTemplateLiteralJS,AssignmentToForLoopParameterJS,AssignmentResultUsedJS,ConditionalCanBeReplacedWithEarlyExitJS
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Admin → Hosts editor — CRUD on the curated `hosts_config` array
 // (Beszel/Pulse/Webmin/SNMP/NodeExporter/Ping aliases + per-host SSH).
-//
-// Surface includes:
-//   - `hostsConfig` array + dirty / saving / filter / pagination state
-//   - Row CRUD: `addHostRow`, `removeHostRow`, `duplicateHostRow`,
-//     `moveHostRow`
-//   - Save / load / import / export / discover / test-all
-//   - Per-row test buttons (`testHostRow`, `testHostHttpProbe`)
-//   - Pagination (`hostsConfig{Go,Next,Prev,SetPer}Page`,
-//     `hostsConfigTotalPages`, `pagedHostsConfig`, `_clampHostsConfigPage`)
-//   - Focus + validation (`focusHostsConfigRow`, `fieldErrors`)
-//   - Helper predicates (`_hostsConfiguredForProvider`,
-//     `_filteredHostsConfigCache`, `rebuildHostsConfigOrder`)
-//
-// Phase 2, Batch 19 of the static/js/app.js modularisation.
 
 export default {
   // Admin → Hosts editor state. ``hostsConfig`` is the curated list
