@@ -10932,6 +10932,12 @@ def _provider_sample_intervals(host_id: str) -> dict:
         ("beszel", Tunable.BESZEL_SAMPLE_INTERVAL_SECONDS, 30),
         ("pulse", Tunable.PULSE_SAMPLE_INTERVAL_SECONDS, 30),
         ("node_exporter", Tunable.NODE_EXPORTER_SAMPLE_INTERVAL_SECONDS, 30),
+        # Probe-result providers — also follow the inherit-or-override
+        # contract via their dedicated sample-interval tunables. Floor
+        # matches each sampler's own ``max(floor, raw)`` clamp so the
+        # surfaced value is what the sampler loop actually sleeps for.
+        ("http_probe", Tunable.HTTP_PROBE_SAMPLE_INTERVAL_SECONDS, 30),
+        ("service_probe", Tunable.SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS, 30),
     )
     for name, key, floor in inheritors:
         try:
@@ -10964,6 +10970,12 @@ def _provider_sample_counts(host_id: str) -> dict:
         ("pulse", "SELECT COUNT(*) FROM host_pulse_samples WHERE host_id = ?"),
         ("webmin", "SELECT COUNT(*) FROM host_webmin_samples WHERE host_id = ?"),
         ("node_exporter", "SELECT COUNT(*) FROM host_metrics_samples WHERE host_id = ?"),
+        # Probe-result providers — same per-host count surface as the
+        # six telemetry providers above. host_http_samples carries one
+        # row per (host, url, ts); service_samples carries one row per
+        # (host, service_idx, ts).
+        ("http_probe", "SELECT COUNT(*) FROM host_http_samples WHERE host_id = ?"),
+        ("service_probe", "SELECT COUNT(*) FROM service_samples WHERE host_id = ?"),
     )
     try:
         with db_conn() as c:
