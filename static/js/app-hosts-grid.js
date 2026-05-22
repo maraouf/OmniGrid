@@ -1,4 +1,5 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
+// noinspection ElementNotExported,JSUnusedGlobalSymbols,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag
 // SPA Hosts grid + per-host helpers — the rows + filters + sort
 // + group bucketing of the Hosts view.
 //
@@ -907,7 +908,7 @@ export default {
       // hammers the same endpoint every 30s. Operator-initiated
       // calls (force=true) bypass the back-off so a refresh button
       // always tries.
-      this._hostRow504BackoffMs = this._hostRow504BackoffMs || 60_000;
+      this._hostRow504BackoffMs = this._hostRow504BackoffMs || 60000;
       this._hostRow504Until = this._hostRow504Until || {};
       const now = Date.now();
       if (!opts.force && this._hostRow504Until[id] && this._hostRow504Until[id] > now) {

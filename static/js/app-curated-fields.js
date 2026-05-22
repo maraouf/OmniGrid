@@ -1,4 +1,5 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
+// noinspection ElementNotExported,JSUnusedGlobalSymbols,CheckTagEmptyBody,HtmlUnknownTag,HtmlExtraClosingTag
 // Probe-derived fields that ``refreshHostRow`` writes EXPLICITLY from
 // ``/api/hosts/one/{id}``'s payload — when the backend omits a key the
 // row collapses it to ``null`` instead of letting the previous value
