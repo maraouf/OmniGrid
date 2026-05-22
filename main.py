@@ -23436,5 +23436,81 @@ app.add_api_route(
 if os.path.isdir("static/i18n"):
     app.mount("/i18n", StaticFiles(directory="static/i18n"), name="i18n")
 
+# SPA JavaScript entry + ES-module siblings.
+#
+# `static/js/app.js` is now an ES module that imports sibling
+# `static/js/app-*.js` files. Each `import` URL inside app.js uses
+# `?v=__APP_VERSION__` for cache-busting on deploy. StaticFiles serves
+# `.js` files raw, so the literal marker would never get substituted —
+# this route does the same `__APP_VERSION__` → live version replacement
+# `_render_shell()` does for the HTML shell, scoped to the app.js entry
+# point + its sibling modules. The substitution is text-level (cheap,
+# no parser), bounded by the closed `_APP_JS_MODULES` set so a typo'd
+# module path 404s instead of fishing arbitrary files.
+#
+# Cache-Control: no-cache, must-revalidate — same shape as the SPA
+# shell. The `?v=` query string only changes on deploy, so the browser
+# revalidates per-tab-open but a 304 is fine in steady state. The
+# underlying file bytes change on every deploy regardless because every
+# `__APP_VERSION__` site gets substituted with the current PATCH.
+_APP_JS_MODULES: Set[str] = set()
+
+
+def _refresh_app_js_modules() -> None:
+    """Discover every `static/js/app*.js` file at startup.
+    The set populates `_APP_JS_MODULES`; the route below allows any
+    name in this set. Re-scan on container restart only — adding a new
+    module file requires a new deploy (which restarts the process)."""
+    _APP_JS_MODULES.clear()
+    js_dir = os.path.join("static", "js")
+    if not os.path.isdir(js_dir):
+        return
+    for name in os.listdir(js_dir):
+        if name.startswith("app") and name.endswith(".js"):
+            _APP_JS_MODULES.add(name)
+
+
+_refresh_app_js_modules()
+
+
+async def serve_app_js_module(name: str = FastApiPath(...)):
+    """Serve a SPA-side JS module with `__APP_VERSION__` substitution.
+
+    Scope: `static/js/app.js` and `static/js/app-*.js` (the ES-module
+    refactor of the SPA's top-level component). Other JS files under
+    `static/js/` (i18n.js, auth-fetch.js, alpine-gate.js, login.js)
+    are served raw — no module imports to cache-bust, the SPA shell's
+    own `?v=__APP_VERSION__` query on each `<script>` tag is sufficient.
+    """
+    js_dir = os.path.join("static", "js")
+    file_path = os.path.realpath(os.path.join(js_dir, name))
+    js_root = os.path.realpath(js_dir)
+    if file_path != js_root and not file_path.startswith(js_root + os.sep):
+        raise HTTPException(404, "Not found")
+    if not os.path.isfile(file_path):
+        raise HTTPException(404, "Not found")
+    if name in _APP_JS_MODULES:
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                body = f.read()
+        except OSError:
+            raise HTTPException(404, "Not found")
+        body = body.replace("__APP_VERSION__", read_version())
+        return Response(
+            content=body,
+            media_type="application/javascript; charset=utf-8",
+            headers={"Cache-Control": "no-cache, must-revalidate"},
+        )
+    # Non-app JS files — serve raw via FileResponse so StaticFiles
+    # semantics (mtime-based ETag) still work.
+    return FileResponse(
+        file_path,
+        media_type="application/javascript; charset=utf-8",
+    )
+
+
+app.add_api_route("/js/{name}", serve_app_js_module, methods=["GET"])
+
+
 # Keep this line LAST — StaticFiles at "/" is a catch-all.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

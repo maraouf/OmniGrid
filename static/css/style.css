@@ -173,6 +173,7 @@
   --metric-disk: #22c55e; /* emerald */
   --metric-net: #3b82f6; /* blue */
   --metric-net-out: #8b5cf6; /* violet (Net Out accent) */
+  --metric-http-latency: #fb923c; /* orange — matches HTTP probe brand */
   /* Hosts debug panel — one hue per provider / stage so the
        side-by-side JSON blobs are visually distinguishable. */
   --debug-pulse: #f59e0b; /* amber — Pulse's orange brand */
@@ -495,6 +496,7 @@
   --metric-disk: #16a34a;
   --metric-net: #2563eb;
   --metric-net-out: #7c3aed;
+  --metric-http-latency: #ea580c; /* darker orange for light-theme contrast */
   --debug-pulse: #d97706;
   --debug-beszel: #0891b2;
   --debug-ne: #65a30d;
@@ -3533,6 +3535,10 @@ details summary::-webkit-details-marker {
 
 .metric-card--net-out {
   color: var(--metric-net-out);
+}
+
+.metric-card--http-latency {
+  color: var(--metric-http-latency);
 }
 
 /* Flat-signal modifier — applied when the peak is zero, which

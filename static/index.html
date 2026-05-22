@@ -110,17 +110,19 @@
   <!-- Poppins is vendored under /fonts/ and declared in css/style.css. No
      external font fetches — the app stays functional fully offline. -->
 
-  <!-- app.js MUST load before alpine-gate.js fires — Alpine processes
-     x-data="app()" the moment its bundle finishes downloading, and a
-     369-KB app.js racing against a ~50-KB Alpine bundle would lose
-     on the cache-busted reload triggered by the new-version banner.
-     The result was a wave of "statusFilter is not defined" / "counts
-     is not defined" / "settings is not defined" Alpine expression
-     errors per refresh. Loading app.js synchronously here (no defer)
-     guarantees `app` is registered on `window` before Alpine starts
-     its DOM walk. The script just defines the factory; no DOM access
-     at module level, so blocking on it is cheap. -->
-  <script src="/js/app.js?v=__APP_VERSION__"></script>
+  <!-- app.js is now an ES module — it imports sibling app-*.js files
+     (icon registry, curated refresh-field whitelist, window.__ogCopyAiCode
+     copy-handler global). `<script type="module">` is implicitly
+     deferred, executing right before DOMContentLoaded along with other
+     deferred scripts in document order. alpine-gate.js (immediately
+     below) is a classic script that runs synchronously but only injects
+     the Alpine bundle AFTER `await window.__i18nReady` resolves, which
+     involves network fetches — far slower than our module parse. Net:
+     `window.app` is set before Alpine instantiates `x-data="app()"`.
+     `main.py:serve_app_js_module` substitutes the literal
+     `__APP_VERSION__` marker inside the served file so module imports
+     get cache-busted on every deploy. -->
+  <script type="module" src="/js/app.js?v=__APP_VERSION__"></script>
 
   <!-- All three front-end deps served straight from /node_modules/. Tailwind
      uses @tailwindcss/browser (v4's in-browser JIT runtime equivalent to
@@ -5282,50 +5284,12 @@
                                   : t('host_drawer.http_probe.show_all', { n: httpProbeHiddenUrlCount(h) })"></button>
                 </div>
               </template>
-              <!-- Latency-history mini-chart — per-URL line for the
-                   probe's `latency_ms` series over the active range
-                   (1h / 6h / 24h / 7d via the host-drawer range
-                   picker). Lazily-loaded via `loadHostHttpProbeHistory`
-                   when the drawer mounts or the range picker fires.
-                   Renders nothing when there's no data yet — the
-                   probe may have just been enabled. -->
-              <template x-if="hostHttpProbeHistory && hostHttpProbeHistory[h.id]
-                              && Array.isArray((hostHttpProbeHistory[h.id] || {}).series)
-                              && (hostHttpProbeHistory[h.id].series.length > 0)">
-                <div class="mt-3 pt-3 border-t border-[var(--border)]">
-                  <div class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-2"
-                       x-text="t('host_drawer.http_probe.history_heading')"></div>
-                  <!-- SVG mini-chart — one line per URL, colour-mapped
-                       by URL hash. Lightweight inline render rather
-                       than the heavier `hostChart` helper because
-                       the per-URL series can have very different
-                       latency magnitudes; the y-axis auto-scales to
-                       the full series max. -->
-                  <div class="rounded border border-[var(--border)] bg-[var(--surface)] p-2"
-                       x-html="renderHttpProbeLatencyMiniChart(h)"></div>
-                </div>
-              </template>
-              <template x-if="hostHttpProbeHistory && hostHttpProbeHistory[h.id]
-                              && (!Array.isArray((hostHttpProbeHistory[h.id] || {}).series)
-                                  || ((hostHttpProbeHistory[h.id] || {}).series || []).length === 0)">
-                <div class="mt-3 pt-3 border-t border-[var(--border)] fs-xs text-[var(--text-faint)] space-y-1">
-                  <div class="italic" x-text="t('host_drawer.http_probe.history_no_data')"></div>
-                  <!-- Diagnostic hint — surface common reasons the
-                       series is empty so the operator can self-diagnose
-                       without opening Admin → Logs. The three checks
-                       cover the typical "I just enabled HTTP probe but
-                       see no data" friction paths. -->
-                  <ul class="list-disc list-inside fs-2xs mt-1">
-                    <li x-show="!hasHostStatsSource('http_probe')"
-                        class="text-[var(--warning)]"
-                        x-text="t('host_drawer.http_probe.no_data_hint_global_off') || 'HTTP probe is not enabled in Settings → Host stats — enable the master toggle to start collecting samples.'"></li>
-                    <li x-show="hasHostStatsSource('http_probe') && !(Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0)"
-                        x-text="t('host_drawer.http_probe.no_data_hint_no_urls') || 'No URLs resolved for this host — add URLs to http_probe.urls in Admin → Hosts, or set the top-level URL / services URLs.'"></li>
-                    <li x-show="hasHostStatsSource('http_probe') && (Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0)"
-                        x-text="t('host_drawer.http_probe.no_data_hint_waiting') || 'Probe configured — waiting for the next sampler tick to write the first sample.'"></li>
-                  </ul>
-                </div>
-              </template>
+              <!-- Latency history was promoted out of this card into
+                   its own full-width metric card alongside CPU / Mem /
+                   Disk / Net — see the metric-card--http-latency block
+                   in the drawer's main metric grid. Keeps the chart
+                   visually consistent with the other per-host charts
+                   (same axes, range picker, freshness label). -->
               <!-- Per-row Test button — fires POST /api/hosts/{id}/http-probe/test
                    against this row's resolved URLs and renders per-URL
                    result chips inline. Operator drills in when a chip
@@ -7406,6 +7370,68 @@
             <!-- Ping latency card was promoted out of this grid in
                      see the standalone full-width row above the
                      3-col CPU/Mem/Disk grid. -->
+
+            <!-- HTTP probe latency — full metric card matching the
+                 Net / CPU / Mem shape. Drives the same chart machinery
+                 (hostChart / xAxisFromSeries / yAxisAuto) against the
+                 derived `httpLatencyKey(h)` slot that `loadHostHttpProbeHistory`
+                 stamps with a per-timestamp avg(latency_ms) series. -->
+            <div class="metric-card metric-card--http-latency"
+                 x-show="h.http_probe_enabled === true && hostChart(httpLatencyKey(h), 'latency_ms')">
+              <div class="metric-card-head">
+                <div class="metric-card-title">
+                  <span x-text="t('host_drawer.http_probe.history_heading')"></span><span class="unit">ms</span>
+                </div>
+                <div class="metric-card-stats">
+                  <span x-show="hostMetricStats(httpLatencyKey(h), 'latency_ms', false)">
+                    <span class="metric-legend-dot" style="background: var(--metric-http-latency, #fb923c);"></span>
+                    <span x-text="t('host_drawer.http_probe.latency_legend') || 'avg'"></span>
+                    <span class="legend-val"
+                          x-text="hostMetricStats(httpLatencyKey(h), 'latency_ms', false) ? _fmtAxisMs(hostMetricStats(httpLatencyKey(h), 'latency_ms', false).max) : ''"></span>
+                  </span>
+                </div>
+              </div>
+              <template x-if="hostChart(httpLatencyKey(h), 'latency_ms') && hostChartMax(httpLatencyKey(h), ['latency_ms']) > 0">
+                <div class="metric-card-body">
+                  <div class="metric-y-axis">
+                    <template x-for="(l, i) in yAxisAuto(hostChartMax(httpLatencyKey(h), ['latency_ms']), _fmtAxisMs)" :key="i">
+                      <span x-text="l"></span>
+                    </template>
+                  </div>
+                  <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                    <path class="metric-grid"
+                          :d="hostChart(httpLatencyKey(h), 'latency_ms', { min: 0, max: hostChartMax(httpLatencyKey(h), ['latency_ms']), height: 120 }).gridPath"
+                          fill="none"/>
+                    <path class="metric-line" style="color: var(--metric-http-latency, #fb923c);"
+                          :d="hostChart(httpLatencyKey(h), 'latency_ms', { min: 0, max: hostChartMax(httpLatencyKey(h), ['latency_ms']), height: 120 }).pathGapped"/>
+                  </svg>
+                  <div class="metric-x-axis">
+                    <template x-for="(l, i) in xAxisFromSeries(httpLatencyKey(h), 5)" :key="i">
+                      <span x-text="l"></span>
+                    </template>
+                  </div>
+                </div>
+              </template>
+              <template x-if="hostChart(httpLatencyKey(h), 'latency_ms') && hostChartMax(httpLatencyKey(h), ['latency_ms']) === 0">
+                <div class="collecting-block">
+                  <svg aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/>
+                  </svg>
+                  <div>
+                    <div x-text="t('host_drawer.http_probe.history_no_data')"></div>
+                    <div class="fs-2xs text-[var(--text-faint)] mt-1">
+                      <span x-show="!hasHostStatsSource('http_probe')"
+                            class="text-[var(--warning)]"
+                            x-text="t('host_drawer.http_probe.no_data_hint_global_off') || 'HTTP probe is not enabled in Settings → Host stats — enable the master toggle.'"></span>
+                      <span x-show="hasHostStatsSource('http_probe') && !(Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0)"
+                            x-text="t('host_drawer.http_probe.no_data_hint_no_urls') || 'No URLs resolved for this host.'"></span>
+                      <span x-show="hasHostStatsSource('http_probe') && (Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0)"
+                            x-text="t('host_drawer.http_probe.no_data_hint_waiting') || 'Probe configured — waiting for the next sampler tick.'"></span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
 
             <!-- ====== Disk I/O — same dual-line pattern as
                      the combined Network card. Read/write summed across
