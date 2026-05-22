@@ -377,7 +377,7 @@
       "notifications": "الإشعارات",
       "portainer": "Portainer",
       "oidc": "Authentik OIDC",
-      "host_stats": "إحصاءات المضيف",
+      "providers": "إحصاءات المضيف",
       "hosts": "المضيفات",
       "schedules": "الجدولة",
       "backups": "النسخ الاحتياطية",

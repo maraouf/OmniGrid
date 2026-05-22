@@ -3394,7 +3394,10 @@
         <label class="fs-xs text-[var(--text-faint)] block mb-1" x-text="t('nav.admin')"></label>
         <select :value="adminTab" @change="openAdminTab($event.target.value)" class="w-full fs-md py-2">
           <template x-for="s in adminSections" :key="s.id">
-            <option :value="s.id" :selected="adminTab === s.id" x-text="t('admin.sections.' + s.id)"></option>
+            <option :value="s.separator ? '' : s.id"
+                    :disabled="!!s.separator"
+                    :selected="!s.separator && adminTab === s.id"
+                    x-text="s.separator ? '──────────' : t('admin.sections.' + s.id)"></option>
           </template>
         </select>
       </div>
@@ -3409,16 +3412,23 @@
           <span x-text="t('nav.admin')"></span>
         </div>
         <template x-for="s in adminSections" :key="s.id">
-          <button type="button" role="tab"
-                  :aria-selected="adminTab === s.id ? 'true' : 'false'"
-                  :tabindex="adminTab === s.id ? 0 : -1"
-                  @click="openAdminTab(s.id)"
-                  :class="adminTab === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'">
-            <svg width="14" height="14" class="page-sidebar-icon" aria-hidden="true">
-              <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-' + s.icon"/>
-            </svg>
-            <span x-text="t('admin.sections.' + s.id)"></span>
-          </button>
+          <div class="page-sidebar-row">
+            <template x-if="s.separator">
+              <hr class="page-sidebar-separator" role="separator" aria-hidden="true">
+            </template>
+            <template x-if="!s.separator">
+              <button type="button" role="tab"
+                      :aria-selected="adminTab === s.id ? 'true' : 'false'"
+                      :tabindex="adminTab === s.id ? 0 : -1"
+                      @click="openAdminTab(s.id)"
+                      :class="adminTab === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'">
+                <svg width="14" height="14" class="page-sidebar-icon" aria-hidden="true">
+                  <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-' + s.icon"/>
+                </svg>
+                <span x-text="t('admin.sections.' + s.id)"></span>
+              </button>
+            </template>
+          </div>
         </template>
       </aside>
       <div class="page-content">
@@ -3430,7 +3440,7 @@
         <!-- INCLUDE: admin/general.html -->
         <!-- INCLUDE: admin/portainer.html -->
         <!-- INCLUDE: admin/oidc.html -->
-        <!-- INCLUDE: admin/host_stats.html -->
+        <!-- INCLUDE: admin/providers.html -->
         <!-- INCLUDE: admin/hosts.html -->
         <!-- INCLUDE: admin/host_groups.html -->
         <!-- INCLUDE: admin/assets.html -->
