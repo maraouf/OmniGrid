@@ -438,23 +438,33 @@ def safe_log_path(name: str) -> Optional[str]:
     (`^omnigrid-YYYY-MM-DD.log$`) and rejects every separator/
     traversal char, also normalise the joined path via
     ``os.path.realpath`` and confirm the result is contained within
-    ``LOG_DIR``. Catches any future regex relaxation (operator-
-    customisable suffix, alternate naming, etc.) AND silences static-
-    analysis path-injection findings that won't trust regex-shape
-    validation alone.
+    ``LOG_DIR`` using ``os.path.commonpath`` (CodeQL's documented
+    sanitiser for ``py/path-injection`` — `startswith` works too but
+    the static analyser doesn't trace through string-method
+    confinement checks reliably; ``commonpath`` is what the rule's
+    docs cite).
+
+    Catches any future regex relaxation (operator-customisable
+    suffix, alternate naming, etc.).
     """
     if not _LOG_NAME_RE.match(name or ""):
         return None
     # Resolve symlinks + collapse `..` segments before the
     # confinement check. `realpath` follows links — important so a
-    # symlinked attack file pointing OUT of LOG_DIR fails the prefix
-    # guard rather than silently leaking.
+    # symlinked attack file pointing OUT of LOG_DIR fails the
+    # commonpath guard rather than silently leaking.
     root = os.path.realpath(LOG_DIR)
     candidate = os.path.realpath(os.path.join(root, name))
-    # Prefix-with-separator guard prevents a sibling directory whose
-    # name starts with the same prefix (e.g. `/var/log/omnigrid_evil`
-    # against root `/var/log/omnigrid`) from passing the check.
-    if candidate != root and not candidate.startswith(root + os.sep):
+    # `os.path.commonpath([root, candidate])` raises ValueError when
+    # the two paths share no common base (e.g. different drives on
+    # Windows). We wrap in try/except so that case maps to "reject"
+    # rather than propagating the exception. Equal common-path
+    # ensures the candidate is contained within `root` — the
+    # documented CodeQL sanitiser for `py/path-injection`.
+    try:
+        if os.path.commonpath([root, candidate]) != root:
+            return None
+    except ValueError:
         return None
     return candidate
 
@@ -465,11 +475,41 @@ def read_persistent_log(name: str, tail_lines: Optional[int] = None) -> Optional
     missing. Errors are propagated for the caller to surface — unlike
     the write path, the read path doesn't have a "best effort" mode
     because the operator explicitly asked for this view.
+
+    Path validation is intentionally INLINED here (rather than
+    delegated entirely to `safe_log_path()`) so the static analyser
+    sees the sanitiser chain — regex shape check → `os.path.basename`
+    canonicalisation → `os.path.realpath` symlink resolution →
+    `os.path.commonpath` confinement — directly in the data flow
+    between the user-controlled `name` argument and the `open()`
+    sink. CodeQL's `py/path-injection` rule doesn't trace taint
+    through a delegating helper's return value, so the validator
+    has to live on the same call-stack as the file API.
     """
-    path = safe_log_path(name)
-    if not path or not os.path.isfile(path):  # type: ignore[attr-defined]
+    # Regex shape gate first — anchored `^omnigrid-YYYY-MM-DD.log$`
+    # rejects every separator / traversal char up front. Catches the
+    # 99% case without touching the filesystem.
+    if not name or not _LOG_NAME_RE.match(name):
         return None
-    with open(path, encoding="utf-8", errors="replace") as f:
+    # `os.path.basename` strips any leading path component — defence
+    # in depth so a future regex relaxation can't slip through. The
+    # equality check confirms the input WAS already a bare filename.
+    safe_name = os.path.basename(name)
+    if safe_name != name:
+        return None
+    # Resolve symlinks + collapse `..` segments. Different drives on
+    # Windows raise ValueError out of `commonpath`; map both that and
+    # the contained-outside-root case to "reject".
+    root = os.path.realpath(LOG_DIR)
+    candidate = os.path.realpath(os.path.join(root, safe_name))
+    try:
+        if os.path.commonpath([root, candidate]) != root:
+            return None
+    except ValueError:
+        return None
+    if not os.path.isfile(candidate):
+        return None
+    with open(candidate, encoding="utf-8", errors="replace") as f:
         if tail_lines is None or tail_lines <= 0:
             return f.read()
         # Lazy tail — grab everything then slice. The biggest log file

@@ -19,7 +19,8 @@
       "bad_gateway": "The reverse proxy returned a bad-gateway error — the backend may be restarting. Try again in a moment.",
       "service_unavailable": "Service temporarily unavailable. Try again in a moment.",
       "http_status": "Request failed (HTTP {status})."
-    }
+    },
+    "loading": "Loading…"
   },
   "item": {
     "drawer_title": "Item details"
@@ -72,7 +73,8 @@
     "admin": "Admin",
     "stats": "Stats",
     "stacks_updates_title": "{count} pending update(s)",
-    "offline_title": "{count} offline service(s)"
+    "offline_title": "{count} offline service(s)",
+    "apps": "Apps"
   },
   "avatar": {
     "unread_badge_aria": "{count} unread notifications"
@@ -1382,7 +1384,8 @@
       "logs": "Logs",
       "config": "Config",
       "config_backup": "Config Backup",
-      "debug": "Debug"
+      "debug": "Debug",
+      "apps": "Apps"
     },
     "general": {
       "title": "General",
@@ -3876,6 +3879,18 @@
       "cached_pill_title": "Provider unreachable — chart line is bounded by the last successful sampler tick. Cached providers: {providers}.",
       "last_sample": "Last sample {age} ago",
       "last_sample_title": "Age of the most recent data point across every chart cache for this host (Beszel / NE / Pulse / Webmin / SNMP / Ping). Amber after 10 min — sampler may have stalled."
+    },
+    "apps": {
+      "title": "Apps",
+      "unnamed": "unnamed",
+      "open": "Open service URL",
+      "probe_now": "Probe now",
+      "last_seen": "seen {ago} ago",
+      "down_suffix": "down",
+      "chip_strip_label": "Apps on this host",
+      "probe_success": "Probe OK",
+      "probe_failed": "Probe failed",
+      "probe_error": "Probe error: "
     }
   },
   "debug_panel": {
@@ -4524,5 +4539,76 @@
   },
   "charts": {
     "swap": "Swap"
+  },
+  "admin_apps": {
+    "title": "Apps",
+    "intro": "Reusable service templates. Each row carries default ports + probe paths + brand-icon slug so a chip in Admin → Hosts can inherit recipe defaults via catalog_id instead of redefining per host. Built-in seed covers ~15 essentials; add operator-authored templates for in-house services.",
+    "templates_pill": "templates",
+    "tab_templates": "Templates",
+    "tab_instances": "Instances",
+    "add_template": "Add template",
+    "reseed_button": "Re-seed built-ins",
+    "reseed_title": "Re-add any built-in templates you previously deleted",
+    "reseed_done": "Re-seeded",
+    "col_name": "Name",
+    "col_slug": "Slug",
+    "col_ports": "Default ports",
+    "col_source": "Source",
+    "col_host": "Host",
+    "col_catalog": "Catalog template",
+    "col_status": "Status",
+    "col_url": "URL",
+    "no_ports": "no ports",
+    "source_builtin": "built-in",
+    "source_operator": "operator",
+    "edit": "Edit template",
+    "delete": "Delete template",
+    "edit_title": "Edit template",
+    "new_title": "New template",
+    "instances_intro": "Read-only summary of every chip pinned to a host via Admin → Hosts. Catalog-linked instances inherit defaults; click a row to jump to the host editor.",
+    "unlinked": "— unlinked —",
+    "empty_templates": "No templates yet — click Add or Re-seed built-ins.",
+    "empty_instances": "No app instances yet. Pin services to hosts via Admin → Hosts to populate.",
+    "field_name": "Name",
+    "field_slug": "Slug",
+    "field_slug_placeholder": "auto from name",
+    "field_icon": "Icon slug",
+    "field_icon_placeholder": "defaults to slug",
+    "field_description": "Description",
+    "field_ports": "Default ports",
+    "add_port": "Add port",
+    "remove_port": "Remove port",
+    "port_port": "Port",
+    "port_protocol": "Proto",
+    "port_label": "Label",
+    "port_path": "Probe path",
+    "port_status": "Status",
+    "saved": "Template saved",
+    "deleted": "Template deleted",
+    "delete_failed": "Delete failed: ",
+    "delete_confirm_title": "Delete template?",
+    "delete_confirm_text": "Per-host chips linked to this template will keep their own name + icon, just lose the catalog binding.",
+    "error_name_required": "Name is required",
+    "status_up": "up",
+    "status_down": "down",
+    "status_unknown": "unknown"
+  },
+  "apps": {
+    "title": "Apps",
+    "subtitle": "Services running across your fleet.",
+    "search_placeholder": "Search apps…",
+    "status_filter_label": "Filter by status",
+    "filter_all": "All",
+    "filter_up": "Up",
+    "filter_degraded": "Degraded",
+    "filter_down": "Down",
+    "status_up": "up",
+    "status_down": "down",
+    "status_degraded": "degraded",
+    "status_unknown": "unknown",
+    "open_link": "Open service URL",
+    "empty_filtered": "No apps match the current filters.",
+    "empty_html": "No app instances yet. Pin services to hosts via <strong>Admin → Hosts</strong> to populate this view; reusable templates live under <strong>Admin → Apps</strong>.",
+    "error_loading": "Failed to load apps: "
   }
 }

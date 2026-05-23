@@ -153,16 +153,53 @@ def _curated_service_probe_targets() -> list[dict]:
                 else:
                     continue
             expected_status = _safe_int(probe_cfg.get("expected_status"))
+            svc_name = (svc.get("name") or svc.get("label") or url or f"service-{idx}").strip()
+            # Multi-port shape (Apps feature). When `probe.ports[]` is
+            # populated, each port becomes a sub-target probed
+            # independently; the chip's final status is rolled up
+            # ("any port up = chip alive, all down = chip dead") at
+            # row-persist time so historical schema stays at one row
+            # per (host_id, service_idx). Per-port HISTORICAL detail
+            # is a follow-up — current view is the live per-tick
+            # snapshot.
+            ports_raw = probe_cfg.get("ports")
+            sub_ports: list[dict] = []
+            if isinstance(ports_raw, list):
+                for p in ports_raw:
+                    if not isinstance(p, dict):
+                        continue
+                    pi = _int_or_none(p.get("port"))
+                    if not pi or not (1 <= pi <= 65535):
+                        continue
+                    proto = (p.get("protocol") or "tcp")
+                    proto = proto.strip().lower() if isinstance(proto, str) else "tcp"
+                    sub_path = (p.get("probe_path") or "").strip() or "/"
+                    sub_status = _safe_int(p.get("probe_status"))
+                    sub_label = (p.get("label") or "").strip()
+                    # Per-port probe type = http when protocol is http/https
+                    # OR a probe_path was supplied (operator opted into
+                    # HTTP-level check); TCP otherwise.
+                    sub_type = ("http" if proto in ("http", "https") or sub_path != "/"
+                                else "tcp")
+                    sub_ports.append({
+                        "port": pi,
+                        "protocol": proto,
+                        "label": sub_label,
+                        "probe_path": sub_path,
+                        "probe_status": sub_status,
+                        "probe_type": sub_type,
+                    })
             out.append({
                 "host_id": hid,
                 "service_idx": idx,
-                "service_name": (svc.get("name") or svc.get("label") or url or f"service-{idx}").strip(),
+                "service_name": svc_name,
                 "probe_type": probe_type,
                 "url": url,
                 "host": parsed_host,
                 "port": port,
                 "path": path,
                 "expected_status": expected_status,
+                "sub_ports": sub_ports,
             })
     return out
 
@@ -226,18 +263,30 @@ async def _probe_http(url: str, expected_status: int, timeout: float) -> dict:
 
 
 def _persist_row(host_id: str, service_idx: int, alive: bool,
-                 rtt_ms: Optional[int], error: Optional[str], ts: int) -> None:
+                 rtt_ms: Optional[int], error: Optional[str], ts: int,
+                 port: int = 0) -> None:
+    """Write one row into ``service_samples``.
+
+    ``port=0`` is the rollup sentinel — the chip-level any-port-up
+    result. Non-zero ``port`` carries per-port detail rows that
+    multi-port chips emit alongside their rollup. Single-port chips
+    only write the rollup row.
+
+    Schema PK is ``(ts, host_id, service_idx, port)`` so rollup and
+    per-port rows at the same tick coexist without conflict.
+    """
     try:
         with db_conn() as c:
             c.execute(
                 "INSERT OR REPLACE INTO service_samples "
-                "(ts, host_id, service_idx, alive, rtt_ms, error) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (ts, host_id, service_idx, 1 if alive else 0,
+                "(ts, host_id, service_idx, port, alive, rtt_ms, error) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (ts, host_id, service_idx, int(port or 0),
+                 1 if alive else 0,
                  rtt_ms, (error or "")[:200] or None),
             )
     except (sqlite3.Error, OSError) as e:
-        print(f"[service_sampler] {host_id!r}/{service_idx} DB insert skipped: {e}")
+        print(f"[service_sampler] {host_id!r}/{service_idx}/port={port} DB insert skipped: {e}")
 
 
 def _prune_old_samples() -> int:
@@ -282,12 +331,19 @@ async def service_sampler_loop() -> None:
                     previously_failing: set[tuple[str, int]] = set()
                     try:
                         with db_conn() as c:
-                            # Most-recent row per (host_id, service_idx)
-                            # — bail to MAX(ts) trick.
+                            # Most-recent ROLLUP row (port=0) per
+                            # (host_id, service_idx). Filtering to the
+                            # rollup ensures the "healthy -> failing"
+                            # transition gate fires once per chip, not
+                            # once per port — per-port rows are detail,
+                            # not a separate failure signal.
                             rows = c.execute(
                                 "SELECT host_id, service_idx, alive FROM service_samples s1 "
-                                "WHERE ts = (SELECT MAX(ts) FROM service_samples s2 "
-                                "WHERE s2.host_id = s1.host_id AND s2.service_idx = s1.service_idx)"
+                                "WHERE port = 0 "
+                                "AND ts = (SELECT MAX(ts) FROM service_samples s2 "
+                                "WHERE s2.host_id = s1.host_id "
+                                "AND s2.service_idx = s1.service_idx "
+                                "AND s2.port = 0)"
                             ).fetchall()
                             for r in rows:
                                 if not r[2]:
@@ -297,6 +353,69 @@ async def service_sampler_loop() -> None:
 
                     async def _probe_target(tgt: dict) -> tuple[dict, dict]:
                         async with sem:
+                            sub_ports = tgt.get("sub_ports") or []
+                            if sub_ports:
+                                # Multi-port chip — probe each port and
+                                # roll up. "any alive = alive" matches
+                                # the operator mental model (Portainer
+                                # responds on EITHER 9000 or 9443; a
+                                # chip with both should look up when
+                                # one is reachable). The per-port detail
+                                # is stamped onto the rollup result via
+                                # `sub_port_results` so the SPA can render
+                                # a per-port mini-table in the App Drawer.
+                                # Inner names deliberately distinct from
+                                # the outer-scope `port_results` /
+                                # `any_alive` rollup vars below to keep
+                                # static analysis honest about scope.
+                                sub_port_results: list[dict] = []
+                                chip_any_alive = False
+                                min_rtt: Optional[int] = None
+                                first_error = None
+                                for sp in sub_ports:
+                                    if sp.get("probe_type") == "http":
+                                        # Build URL for this sub-port:
+                                        # scheme follows protocol, host
+                                        # from parent target, path from
+                                        # sub-port.
+                                        scheme = "https" if sp.get("protocol") == "https" else "http"
+                                        sub_url = f"{scheme}://{tgt['host']}:{sp['port']}{sp.get('probe_path') or '/'}"
+                                        port_outcome = await _probe_http(
+                                            sub_url,
+                                            sp.get("probe_status") or 0,
+                                            timeout_s,
+                                        )
+                                    else:
+                                        port_outcome = await _probe_tcp(
+                                            tgt["host"],
+                                            int(sp["port"]),
+                                            timeout_s,
+                                        )
+                                    sub_port_results.append({
+                                        "port": sp["port"],
+                                        "label": sp.get("label") or "",
+                                        "alive": bool(port_outcome.get("alive")),
+                                        "rtt_ms": port_outcome.get("rtt_ms"),
+                                        "error": port_outcome.get("error"),
+                                    })
+                                    if port_outcome.get("alive"):
+                                        chip_any_alive = True
+                                        # `_int_or_none` narrows the
+                                        # Any-typed rtt_ms cell before
+                                        # the `<` comparison so static
+                                        # analysis sees a concrete int.
+                                        rtt_int = _int_or_none(port_outcome.get("rtt_ms"))
+                                        if rtt_int is not None and (min_rtt is None or rtt_int < min_rtt):
+                                            min_rtt = rtt_int
+                                    elif first_error is None:
+                                        first_error = port_outcome.get("error")
+                                rollup = {
+                                    "alive": chip_any_alive,
+                                    "rtt_ms": min_rtt,
+                                    "error": None if chip_any_alive else (first_error or "all ports down"),
+                                    "port_results": sub_port_results,
+                                }
+                                return tgt, rollup
                             if tgt["probe_type"] == "http" and tgt.get("url"):
                                 probe_outcome = await _probe_http(
                                     tgt["url"],
@@ -329,12 +448,46 @@ async def service_sampler_loop() -> None:
                         host_id = target["host_id"]
                         svc_idx = target["service_idx"]
                         alive = bool(result.get("alive"))
+                        # Rollup row — chip-level status. Always emitted
+                        # (single-port chips have ONLY this row). The
+                        # explicit `port=0` matches the persistence
+                        # contract: 0 is the rollup sentinel even
+                        # though it equals the parameter's default —
+                        # spelling it out documents the intent at
+                        # every call site.
+                        # noinspection PyArgumentEqualDefault
                         _persist_row(
                             host_id, svc_idx, alive,
-                            result.get("rtt_ms"),
+                            _int_or_none(result.get("rtt_ms")),
                             result.get("error"),
                             ts,
+                            port=0,
                         )
+                        # Per-port rows — only when the probe was multi-port
+                        # (sub-port detail stamped onto `result.port_results`
+                        # by _probe_target's multi-port branch). One row per
+                        # port carrying the port's own alive / rtt / error.
+                        port_results = result.get("port_results")
+                        if isinstance(port_results, list):
+                            for pr in port_results:
+                                if not isinstance(pr, dict):
+                                    continue
+                                # `_int_or_none` narrows the Any-typed
+                                # `port`/`rtt_ms` cells before passing
+                                # them into the persistence layer's
+                                # `int(...)` cast so type-checkers don't
+                                # flag the Any|None → int conversion.
+                                port_int = _int_or_none(pr.get("port"))
+                                if not port_int or port_int <= 0:
+                                    continue
+                                _persist_row(
+                                    host_id, svc_idx,
+                                    bool(pr.get("alive")),
+                                    _int_or_none(pr.get("rtt_ms")),
+                                    pr.get("error"),
+                                    ts,
+                                    port=port_int,
+                                )
                         per_host_results.setdefault(host_id, []).append(alive)
                         if alive:
                             n_ok += 1
@@ -412,9 +565,11 @@ async def service_sampler_loop() -> None:
 
 
 def latest_for_host(host_id: str) -> dict:
-    """Latest per-service probe outcome for one host — keyed by
-    `service_idx`. Used by ``populate_host_service_merge`` to stamp
-    `services[].last_probe` onto API responses.
+    """Latest per-service ROLLUP probe outcome for one host — keyed
+    by `service_idx`. Filters to ``port=0`` rows so multi-port chips
+    surface their chip-level rollup, not whichever port happened to
+    sort latest. Per-port detail is exposed via
+    :func:`latest_per_port_for_host`.
 
     Returns ``{service_idx: {alive, rtt_ms, ts, error}, ...}``. Empty
     dict when no samples found.
@@ -423,14 +578,15 @@ def latest_for_host(host_id: str) -> dict:
         return {}
     try:
         with db_conn() as c:
-            # Most-recent row per service_idx for this host.
+            # Most-recent ROLLUP row (port=0) per service_idx for this host.
             rows = c.execute(
                 "SELECT service_idx, ts, alive, rtt_ms, error "
                 "FROM service_samples s1 "
-                "WHERE host_id = ? "
+                "WHERE host_id = ? AND port = 0 "
                 "AND ts = (SELECT MAX(ts) FROM service_samples s2 "
                 "          WHERE s2.host_id = s1.host_id "
-                "          AND s2.service_idx = s1.service_idx)",
+                "          AND s2.service_idx = s1.service_idx "
+                "          AND s2.port = 0)",
                 (host_id,),
             ).fetchall()
     except (sqlite3.Error, OSError) as e:
@@ -446,6 +602,48 @@ def latest_for_host(host_id: str) -> dict:
             "error": r[4],
         }
     return out
+
+
+def latest_per_port_for_host(host_id: str, service_idx: int) -> list[dict]:
+    """Latest per-PORT probe outcomes for one chip on one host.
+
+    Returns a list of ``{port, alive, rtt_ms, ts, error}`` rows — one
+    per distinct port that's been probed for this chip. Ordered by
+    port ASC. Rollup row (port=0) is EXCLUDED. Empty list when the
+    chip has no multi-port history yet.
+
+    Consumed by the host drawer's per-chip detail view and the
+    Apps view's expanded card. Cheap lookup — the
+    ``idx_service_samples_host_idx_ts`` index covers the path.
+    """
+    if not host_id or service_idx is None:
+        return []
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT port, ts, alive, rtt_ms, error "
+                "FROM service_samples s1 "
+                "WHERE host_id = ? AND service_idx = ? AND port > 0 "
+                "AND ts = (SELECT MAX(ts) FROM service_samples s2 "
+                "          WHERE s2.host_id = s1.host_id "
+                "          AND s2.service_idx = s1.service_idx "
+                "          AND s2.port = s1.port) "
+                "ORDER BY port ASC",
+                (host_id, int(service_idx)),
+            ).fetchall()
+    except (sqlite3.Error, OSError) as e:
+        print(f"[service_sampler] latest_per_port_for_host({host_id!r}/{service_idx}) skipped: {e}")
+        return []
+    return [
+        {
+            "port": int(r[0]),
+            "ts": int(r[1]),
+            "alive": bool(r[2]),
+            "rtt_ms": r[3],
+            "error": r[4],
+        }
+        for r in rows
+    ]
 
 
 def populate_host_service_merge(host_id: str, merged: dict) -> None:
@@ -476,3 +674,13 @@ def populate_host_service_merge(host_id: str, merged: dict) -> None:
         if not sample:
             continue
         svc["last_probe"] = sample
+
+
+# Public aliases — main.py's manual probe-now endpoint reuses these
+# helpers to share probe semantics with the lifespan sampler. The
+# underscore-prefixed originals remain for in-module callers; the
+# aliases are the documented entry points for cross-module callers
+# so static analysis doesn't flag protected-member access.
+probe_http = _probe_http
+probe_tcp = _probe_tcp
+persist_row = _persist_row

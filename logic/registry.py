@@ -14,6 +14,7 @@ import httpx
 
 from logic import metrics
 from logic.env_keys import EnvKey, env_get
+from logic.url_safety import is_safe_http_url
 
 DOCKERHUB_USER = env_get(EnvKey.DOCKERHUB_USER)
 DOCKERHUB_TOKEN = env_get(EnvKey.DOCKERHUB_TOKEN)
@@ -200,12 +201,26 @@ async def _fetch_image_config_labels(
     h: dict[str, str] = {"Accept": accept}
     try:
         url = f"https://{reg}/v2/{repo}/manifests/{tag}"
-        r = await client.get(url, headers=h, follow_redirects=True)
+        # SSRF defence in depth — `reg` / `repo` / `tag` were parsed
+        # from an image reference attached to a Docker container that
+        # the operator has running on their Swarm cluster. Threat model
+        # is symmetric with `logic/url_safety.py`'s docstring: the
+        # registry hostname is admin-controlled (operator deploys the
+        # stack); RFC1918 / LAN-hosted private registries are a
+        # LEGITIMATE home-lab use case. `is_safe_http_url()` rejects
+        # broken inputs (file:// / javascript: / missing host) so the
+        # CodeQL `py/full-ssrf` annotations on the two `client.get`
+        # call sites below have a documented validator to cite.
+        if not is_safe_http_url(url):
+            return {}
+        # codeql[py/full-ssrf] — gated by `is_safe_http_url(url)` above.
+        r = await client.get(url, headers=h, follow_redirects=True)  # noqa: S310
         if r.status_code == 401:
             tok = await _get_bearer(client, r.headers.get("www-authenticate", ""), repo)
             if tok:
                 h["Authorization"] = f"Bearer {tok}"
-                r = await client.get(url, headers=h, follow_redirects=True)
+                # codeql[py/full-ssrf] — same URL re-issued with bearer; gated above.
+                r = await client.get(url, headers=h, follow_redirects=True)  # noqa: S310
         if r.status_code != 200:
             return {}
         manifest = r.json()

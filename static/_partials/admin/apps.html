@@ -1,0 +1,276 @@
+<!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
+<section x-show="adminTab==='apps'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+  <!-- Apps feature — reusable service-template catalog + cross-host
+       instance overview. The data spine is the existing per-host
+       services[] array (managed via Admin → Hosts); this tab is
+       where operators curate the catalog templates that chips can
+       optionally link to via `catalog_id`. -->
+  <div class="flex items-center justify-between gap-2 mb-2">
+    <div class="flex items-center gap-2">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-grid"/>
+      </svg>
+      <h3 class="font-semibold fs-md" x-text="t('admin_apps.title') || 'Apps'"></h3>
+    </div>
+    <span class="chip pill-info fs-2xs"
+          x-text="(appsCatalog.length || 0) + ' ' + (t('admin_apps.templates_pill') || 'templates')"></span>
+  </div>
+  <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
+     x-text="t('admin_apps.intro') || 'Reusable service templates. Each row carries default ports + probe paths + brand-icon slug so a chip in Admin → Hosts can inherit recipe defaults via catalog_id instead of redefining per host. Built-in seed covers ~15 essentials; add operator-authored templates for in-house services.'"></p>
+
+  <!-- Tab strip — Templates / Instances. Templates is CRUD; Instances
+       is read-only (operator edits chips via Admin → Hosts). -->
+  <div role="tablist" aria-orientation="horizontal" class="flex gap-1 mb-3 border-b border-[var(--border)]">
+    <button type="button" role="tab"
+            :aria-selected="appsAdminTab === 'templates'"
+            :class="appsAdminTab === 'templates' ? 'border-b-2 border-[var(--primary)] text-[var(--text)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+            class="px-3 py-1.5 fs-sm"
+            @click="appsAdminTab = 'templates'"
+            x-text="t('admin_apps.tab_templates') || 'Templates'"></button>
+    <button type="button" role="tab"
+            :aria-selected="appsAdminTab === 'instances'"
+            :class="appsAdminTab === 'instances' ? 'border-b-2 border-[var(--primary)] text-[var(--text)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+            class="px-3 py-1.5 fs-sm"
+            @click="appsAdminTab = 'instances'"
+            x-text="t('admin_apps.tab_instances') || 'Instances'"></button>
+  </div>
+
+  <!-- TEMPLATES TAB -->
+  <div x-show="appsAdminTab === 'templates'">
+    <div class="flex items-center gap-2 mb-3 flex-wrap">
+      <button type="button" x-show="isAdmin()" @click="openAppCatalogNew()"
+              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+        <svg width="13" height="13" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plus"/>
+        </svg>
+        <span x-text="t('admin_apps.add_template') || 'Add template'"></span>
+      </button>
+      <button type="button" x-show="isAdmin()" @click="reseedAppCatalog()"
+              class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
+              :disabled="appsCatalogReseeding"
+              :title="t('admin_apps.reseed_title') || 'Re-add any built-in templates you deleted'">
+        <svg width="13" height="13" :class="appsCatalogReseeding ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+        </svg>
+        <span x-text="t('admin_apps.reseed_button') || 'Re-seed built-ins'"></span>
+      </button>
+      <span x-show="appsCatalogStatus" class="fs-xs text-[var(--text-faint)]" x-text="appsCatalogStatus"></span>
+    </div>
+
+    <div x-show="!appsCatalogLoaded" class="loading-state">
+      <svg width="16" height="16" class="spin-md inline-block" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+      </svg>
+      <span class="fs-sm text-[var(--text-dim)] ms-2" x-text="t('common.loading') || 'Loading…'"></span>
+    </div>
+
+    <table x-show="appsCatalogLoaded" class="w-full fs-sm">
+      <thead>
+      <tr class="text-[var(--text-dim)] border-b border-[var(--border)]">
+        <th class="text-start py-2 ps-2 w-[36px]"></th>
+        <th class="text-start py-2" x-text="t('admin_apps.col_name') || 'Name'"></th>
+        <th class="text-start py-2 hidden md:table-cell" x-text="t('admin_apps.col_slug') || 'Slug'"></th>
+        <th class="text-start py-2" x-text="t('admin_apps.col_ports') || 'Default ports'"></th>
+        <th class="text-start py-2 hidden lg:table-cell" x-text="t('admin_apps.col_source') || 'Source'"></th>
+        <th class="text-end py-2 pe-2 w-[110px]"></th>
+      </tr>
+      </thead>
+      <tbody>
+      <template x-for="entry in appsCatalog" :key="entry.id">
+        <tr class="border-b border-[var(--border)] hover:bg-[var(--row-hover)]">
+          <td class="py-2 ps-2">
+            <img :src="iconUrlFor(entry.icon || entry.slug)" alt="" width="22" height="22" class="rounded"
+                 @error="$event.target.style.visibility='hidden'">
+          </td>
+          <td class="py-2">
+            <div class="font-medium" x-text="entry.name"></div>
+            <div class="fs-2xs text-[var(--text-faint)]" x-text="entry.description || ''"></div>
+          </td>
+          <td class="py-2 hidden md:table-cell">
+            <code class="fs-xs text-[var(--text-dim)]" x-text="entry.slug"></code>
+          </td>
+          <td class="py-2">
+            <div class="flex flex-wrap gap-1">
+              <template x-for="p in (entry.default_ports || [])" :key="p.port + ':' + p.protocol">
+                        <span class="chip pill-muted fs-2xs"
+                              :title="(p.label || '') + ' (' + p.protocol + ')'"
+                              x-text="p.port + (p.protocol !== 'tcp' ? '/' + p.protocol : '')"></span>
+              </template>
+              <span x-show="!(entry.default_ports || []).length" class="fs-2xs text-[var(--text-faint)] italic" x-text="t('admin_apps.no_ports') || 'no ports'"></span>
+            </div>
+          </td>
+          <td class="py-2 hidden lg:table-cell">
+                    <span class="chip fs-2xs"
+                          :class="entry.source === 'builtin' ? 'pill-info' : 'pill-ok'"
+                          x-text="entry.source === 'builtin' ? (t('admin_apps.source_builtin') || 'built-in') : (t('admin_apps.source_operator') || 'operator')"></span>
+          </td>
+          <td class="py-2 pe-2 text-end">
+            <button type="button" class="user-action-btn"
+                    :aria-label="t('admin_apps.edit') || 'Edit template'"
+                    :title="t('admin_apps.edit') || 'Edit template'"
+                    @click="openAppCatalogEdit(entry)">
+              <svg width="14" height="14" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-pencil"/>
+              </svg>
+            </button>
+            <button type="button" class="user-action-btn user-action-btn--danger"
+                    :aria-label="t('admin_apps.delete') || 'Delete template'"
+                    :title="t('admin_apps.delete') || 'Delete template'"
+                    @click="deleteAppCatalogEntry(entry)">
+              <svg width="14" height="14" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+              </svg>
+            </button>
+          </td>
+        </tr>
+      </template>
+      <tr x-show="appsCatalogLoaded && !appsCatalog.length">
+        <td colspan="6" class="py-6 text-center text-[var(--text-faint)] fs-sm" x-text="t('admin_apps.empty_templates') || 'No templates yet — click Add or Re-seed built-ins.'"></td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- INSTANCES TAB -->
+  <div x-show="appsAdminTab === 'instances'">
+    <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin_apps.instances_intro') || 'Read-only summary of every chip pinned to a host via Admin → Hosts. Catalog-linked instances inherit defaults; click a row to jump to the host editor.'"></p>
+    <div x-show="!appsInstancesLoaded" class="loading-state">
+      <svg width="16" height="16" class="spin-md inline-block" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+      </svg>
+      <span class="fs-sm text-[var(--text-dim)] ms-2" x-text="t('common.loading') || 'Loading…'"></span>
+    </div>
+    <table x-show="appsInstancesLoaded" class="w-full fs-sm">
+      <thead>
+      <tr class="text-[var(--text-dim)] border-b border-[var(--border)]">
+        <th class="text-start py-2 ps-2 w-[36px]"></th>
+        <th class="text-start py-2" x-text="t('admin_apps.col_name') || 'Name'"></th>
+        <th class="text-start py-2" x-text="t('admin_apps.col_host') || 'Host'"></th>
+        <th class="text-start py-2 hidden md:table-cell" x-text="t('admin_apps.col_catalog') || 'Catalog'"></th>
+        <th class="text-start py-2" x-text="t('admin_apps.col_status') || 'Status'"></th>
+        <th class="text-start py-2 hidden lg:table-cell" x-text="t('admin_apps.col_url') || 'URL'"></th>
+      </tr>
+      </thead>
+      <tbody>
+      <template x-for="inst in appsInstances" :key="inst.host_id + ':' + inst.service_idx">
+        <tr class="border-b border-[var(--border)] hover:bg-[var(--row-hover)] cursor-pointer"
+            @click="goToAdminHostsForInstance(inst)">
+          <td class="py-2 ps-2">
+            <img :src="iconUrlFor(inst.icon || inst.catalog_slug || inst.name)" alt="" width="22" height="22" class="rounded"
+                 @error="$event.target.style.visibility='hidden'">
+          </td>
+          <td class="py-2 font-medium" x-text="inst.name || '—'"></td>
+          <td class="py-2"><code class="fs-xs text-[var(--text-dim)]" x-text="inst.host_label || inst.host_id"></code></td>
+          <td class="py-2 hidden md:table-cell">
+            <span x-show="inst.catalog_name" class="chip pill-info fs-2xs" x-text="inst.catalog_name"></span>
+            <span x-show="!inst.catalog_name" class="fs-2xs text-[var(--text-faint)] italic" x-text="t('admin_apps.unlinked') || '— unlinked —'"></span>
+          </td>
+          <td class="py-2">
+                    <span class="chip fs-2xs"
+                          :class="inst.status === 'up' ? 'pill-ok' : (inst.status === 'down' ? 'pill-error' : 'pill-muted')"
+                          x-text="t('admin_apps.status_' + inst.status) || inst.status"></span>
+          </td>
+          <td class="py-2 hidden lg:table-cell">
+            <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener" class="fs-xs text-[var(--primary)] underline" @click.stop x-text="inst.url"></a>
+            <span x-show="!inst.url" class="fs-2xs text-[var(--text-faint)] italic">—</span>
+          </td>
+        </tr>
+      </template>
+      <tr x-show="appsInstancesLoaded && !appsInstances.length">
+        <td colspan="6" class="py-6 text-center text-[var(--text-faint)] fs-sm" x-text="t('admin_apps.empty_instances') || 'No app instances yet. Pin services to hosts via Admin → Hosts to populate.'"></td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- INLINE TEMPLATE EDITOR — opens via openAppCatalogNew / openAppCatalogEdit.
+       Modal-ish overlay; not a true modal but reuses the .drawer pattern
+       to stay inside the admin section's flow. -->
+  <div x-show="appsCatalogEditOpen" class="mt-5 pt-4 border-t border-[var(--border)] space-y-3" x-cloak>
+    <div class="flex items-center justify-between">
+      <h4 class="font-semibold fs-md" x-text="appsCatalogEdit.id ? (t('admin_apps.edit_title') || 'Edit template') : (t('admin_apps.new_title') || 'New template')"></h4>
+      <button type="button" class="user-action-btn"
+              :aria-label="t('actions.close') || 'Close'"
+              @click="closeAppCatalogEditor()">
+        <svg width="14" height="14" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+        </svg>
+      </button>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div>
+        <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.field_name') || 'Name'"></label>
+        <input type="text" class="w-full" maxlength="128" x-model="appsCatalogEdit.name">
+      </div>
+      <div>
+        <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.field_slug') || 'Slug'"></label>
+        <input type="text" class="w-full" maxlength="64" x-model="appsCatalogEdit.slug"
+               :placeholder="t('admin_apps.field_slug_placeholder') || 'auto from name'">
+      </div>
+      <div>
+        <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.field_icon') || 'Icon slug'"></label>
+        <input type="text" class="w-full" maxlength="64" x-model="appsCatalogEdit.icon"
+               :placeholder="t('admin_apps.field_icon_placeholder') || 'defaults to slug'">
+      </div>
+      <div>
+        <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.field_description') || 'Description'"></label>
+        <input type="text" class="w-full" maxlength="512" x-model="appsCatalogEdit.description">
+      </div>
+    </div>
+
+    <div>
+      <div class="flex items-center justify-between mb-1">
+        <label class="block fs-xs font-medium" x-text="t('admin_apps.field_ports') || 'Default ports'"></label>
+        <button type="button" class="btn btn-soft fs-2xs" @click="addAppCatalogPort()"
+                x-text="(t('admin_apps.add_port') || 'Add port')"></button>
+      </div>
+      <template x-for="(p, idx) in (appsCatalogEdit.default_ports || [])" :key="idx">
+        <div class="grid grid-cols-6 gap-2 mb-2 items-end">
+          <div>
+            <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_port') || 'Port'"></label>
+            <input type="number" class="w-full fs-xs" min="1" max="65535" x-model.number="p.port">
+          </div>
+          <div>
+            <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_protocol') || 'Proto'"></label>
+            <select class="w-full fs-xs" x-model="p.protocol">
+              <option value="tcp">tcp</option>
+              <option value="udp">udp</option>
+              <option value="http">http</option>
+              <option value="https">https</option>
+            </select>
+          </div>
+          <div class="col-span-2">
+            <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_label') || 'Label'"></label>
+            <input type="text" class="w-full fs-xs" maxlength="64" x-model="p.label">
+          </div>
+          <div>
+            <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_path') || 'Probe path'"></label>
+            <input type="text" class="w-full fs-xs" maxlength="256" x-model="p.probe_path">
+          </div>
+          <div class="flex items-end gap-1">
+            <div class="flex-1">
+              <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_status') || 'Status'"></label>
+              <input type="number" class="w-full fs-xs" min="0" max="599" x-model.number="p.probe_status">
+            </div>
+            <button type="button" class="user-action-btn user-action-btn--danger" @click="removeAppCatalogPort(idx)"
+                    :aria-label="t('admin_apps.remove_port') || 'Remove port'">
+              <svg width="13" height="13" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <div class="flex items-center gap-2 pt-2">
+      <button type="button" class="btn btn-primary fs-sm" @click="saveAppCatalogEntry()" :disabled="appsCatalogSaving">
+        <span x-text="t('actions.save') || 'Save'"></span>
+      </button>
+      <button type="button" class="btn btn-soft fs-sm" @click="closeAppCatalogEditor()" :disabled="appsCatalogSaving">
+        <span x-text="t('actions.cancel') || 'Cancel'"></span>
+      </button>
+      <span x-show="appsCatalogEditError" class="fs-xs text-[var(--danger)]" x-text="appsCatalogEditError"></span>
+    </div>
+  </div>
+</section>
