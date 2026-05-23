@@ -94,6 +94,37 @@
         <span x-text="t('admin.logs.severity_errors_only')"></span>
       </button>
     </div>
+    <!-- Pattern-chip filter — third axis alongside source-tag +
+         severity. Auto-derived regex-pattern chips for the
+         cross-cutting triage patterns: auth-cool-down skips,
+         probe timeouts, SQL drift, provider auto-pause, SSE / WS
+         disconnects, sampler skips, CSRF / CORS rejections.
+         Multi-select ANY-of-N — clicking N chips shows lines
+         matching at least one. Default all OFF (no pattern gate).
+         Each chip carries a count of matching lines in the LIVE
+         ring buffer. -->
+    <div class="log-pattern-bar flex flex-wrap items-center gap-1.5 mb-3 pb-3 border-b border-[var(--border)]">
+      <span class="fs-2xs text-[var(--text-faint)] uppercase tracking-wider"
+            x-text="t('admin.logs.patterns.strip_label')"></span>
+      <template x-for="def in logPatternDefs" :key="def.id">
+        <button type="button"
+                class="log-pattern-pill"
+                :class="logPatternFilter[def.id] ? 'is-active' : ''"
+                :title="t('admin.logs.patterns.desc_' + def.id)"
+                :aria-label="t('admin.logs.patterns.label_' + def.id) + ' — ' + t('admin.logs.patterns.desc_' + def.id)"
+                :aria-pressed="logPatternFilter[def.id] ? 'true' : 'false'"
+                @click="toggleLogPattern(def.id)">
+          <span class="log-pattern-label" x-text="t('admin.logs.patterns.label_' + def.id)"></span>
+          <span class="log-pattern-count" x-text="logPatternCount(def.id)"></span>
+        </button>
+      </template>
+      <button type="button"
+              x-show="logAnyPatternOn()"
+              @click="setAllLogPatterns(false)"
+              class="btn btn-ghost fs-2xs"
+              :title="t('admin.logs.patterns.clear_title')"
+              x-text="t('admin.logs.patterns.clear')"></button>
+    </div>
     <!-- Line-buffered viewer. Monospace + fixed height = terminal feel.
          Each row is ts + stream label + text. Stderr rows get tinted
          so errors/tracebacks are scan-able. -->
@@ -335,6 +366,33 @@
             <span class="log-sev-count" x-text="logFileSeverityCount(lvl)"></span>
           </button>
         </template>
+      </div>
+      <!-- Pattern-chip filter — same shape as the Live tab. State
+           (`logPatternFilter`) is shared across both tabs so toggling
+           a pattern in either tab carries across, matching the
+           severity-filter cross-tab pattern. Counts come from
+           `logFilePatternCount` (parsed file lines, not the ring). -->
+      <div class="log-pattern-bar flex flex-wrap items-center gap-1.5 pb-2 mb-1">
+        <span class="fs-2xs text-[var(--text-faint)] uppercase tracking-wider"
+              x-text="t('admin.logs.patterns.strip_label')"></span>
+        <template x-for="def in logPatternDefs" :key="def.id">
+          <button type="button"
+                  class="log-pattern-pill"
+                  :class="logPatternFilter[def.id] ? 'is-active' : ''"
+                  :title="t('admin.logs.patterns.desc_' + def.id)"
+                  :aria-label="t('admin.logs.patterns.label_' + def.id) + ' — ' + t('admin.logs.patterns.desc_' + def.id)"
+                  :aria-pressed="logPatternFilter[def.id] ? 'true' : 'false'"
+                  @click="toggleLogPattern(def.id)">
+            <span class="log-pattern-label" x-text="t('admin.logs.patterns.label_' + def.id)"></span>
+            <span class="log-pattern-count" x-text="logFilePatternCount(def.id)"></span>
+          </button>
+        </template>
+        <button type="button"
+                x-show="logAnyPatternOn()"
+                @click="setAllLogPatterns(false)"
+                class="btn btn-ghost fs-2xs"
+                :title="t('admin.logs.patterns.clear_title')"
+                x-text="t('admin.logs.patterns.clear')"></button>
       </div>
       <div class="mono fs-xs bg-[var(--bg)] border border-[var(--border)] rounded-md p-2 h-[50vh] overflow-y-auto scrollbar leading-[1.35]">
         <template x-for="(l, i) in filteredLogFileLines()" :key="i + '-' + l.ts">

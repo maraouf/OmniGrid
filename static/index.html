@@ -2495,6 +2495,13 @@
                       <template x-for="p in providerStates(h)" :key="p.name">
                         <!-- INCLUDE: _components/host-provider-chip.html -->
                       </template>
+                      <!-- Vocabulary legend `?` at the right edge of the
+                           chip strip — opens a popover documenting what
+                           each chip colour means. Only renders when at
+                           least one chip exists so empty rows stay clean. -->
+                      <template x-if="providerStates(h).length > 0">
+                        <!-- INCLUDE: _components/chip-strip-legend.html -->
+                      </template>
                     </div>
                   </div>
                   <!-- Metric strip — only rendered for hosts that are
@@ -2855,6 +2862,11 @@
                           <template x-for="p in providerStates(h)" :key="p.name">
                             <!-- INCLUDE: _components/host-provider-chip.html -->
                           </template>
+                          <!-- Vocabulary legend `?` at the right edge of
+                               the chip strip. Same toggle / Esc / outside-
+                               click behaviour as the mobile-card variant
+                               via the shared `chipLegendOpen` Alpine state. -->
+                          <!-- INCLUDE: _components/chip-strip-legend.html -->
                         </div>
                       </div>
                     </div>

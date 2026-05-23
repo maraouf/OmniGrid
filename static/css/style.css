@@ -3778,6 +3778,58 @@ details summary::-webkit-details-marker {
   color: inherit;
 }
 
+/* Pattern-chip filter — third axis alongside severity. Visually
+   distinct from `.log-sev-pill` (rounded-rect vs pill) so operators
+   read the two filter strips as separate axes rather than two
+   parallel severity bars. Single-color treatment (no per-chip
+   severity colour) since patterns cut across severity. Active
+   state uses the primary token; default is the muted token. */
+.log-pattern-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 3px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+
+.log-pattern-pill:hover,
+.log-pattern-pill:focus-visible {
+  border-color: var(--primary);
+  color: var(--text);
+}
+
+.log-pattern-pill.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--text-on-primary);
+}
+
+.log-pattern-count {
+  font-size: var(--fs-3xs);
+  font-weight: 600;
+  background: var(--surface-3);
+  color: var(--text-faint);
+  padding: 0 var(--s-3);
+  min-width: 18px;
+  height: 16px;
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.log-pattern-pill.is-active .log-pattern-count {
+  background: var(--text-on-primary);
+  color: var(--primary);
+}
+
 /* ALL pill — neutral dark when active. */
 .log-sev-pill--all.is-active {
   background: var(--text);
@@ -5583,6 +5635,56 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   flex-wrap: wrap;
   gap: var(--s-2);
   margin-top: var(--s-1);
+}
+
+/* Chip-strip vocabulary legend — `?` button at the right edge of
+   every host provider-chip strip. Sized to match the surrounding
+   chips visually (same height, similar padding) but rendered as a
+   distinct neutral pill so operators recognise it as an affordance
+   rather than another provider chip. Click opens the legend
+   popover; see chip-strip-legend.html for the contract. */
+.chip-strip-legend-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-dim);
+  font-size: var(--fs-3xs);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.chip-strip-legend-btn:hover,
+.chip-strip-legend-btn:focus-visible {
+  background: var(--surface-3);
+  border-color: var(--primary);
+  color: var(--text);
+}
+.chip-strip-legend-btn[aria-expanded="true"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--text-on-primary);
+}
+
+/* Chip-legend row swatch — matches the chip's visual size + shape
+   so the legend reads as "this colour means X" at a glance. The
+   `.chip-legend-swatch` modifier collapses the text padding the
+   `.chip` base rule applies (since the swatch has no text) and
+   constrains it to a small inline-block tile next to the row's
+   label + meaning text. */
+.chip-legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: var(--r-sm);
+  flex-shrink: 0;
 }
 
 /* Keep the expand/collapse toolbar chips tappable on phone — the
