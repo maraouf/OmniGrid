@@ -2,6 +2,28 @@
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
 // noinspection NestedTemplateLiteralJS
+// "Unused function" warnings fire on every Alpine-template-consumed
+// method — the SPA spread-imports this module's export into the
+// Alpine root and templates call `sortedUsers()` / `createUser()` /
+// `setUserNotifyEventValue()` / etc. via `@click` + `x-for` bindings
+// the static analyser can't see. Same lineage for `Element is not
+// exported` WEAK warnings. Constant-on-RHS covers natural
+// `x === 'admin'` form (project convention, not Yoda) AND the
+// canonical `x == null` / `(x || '').length < 8` idioms. Nested
+// `t()` calls are by design — the i18n helper takes a dynamic key
+// built by template-literal concat. Anonymous-function callbacks
+// inside Swal confirmation chains are inline + readable in place.
+// Empty catch + unused `_` are the ignore-and-move-on shape on
+// localStorage persistence + fetch failures (the surrounding toast
+// owns the user-visible error). `continue` is the nested-loop
+// skip pattern in the notify-events grid bulk handlers.
+// noinspection JSUnusedGlobalSymbols,UnusedFunctionJS,ElementNotExported
+// noinspection ConstantOnRightSideOfComparisonJS,JSConstantOnRightSideOfComparison
+// noinspection AnonymousFunctionJS
+// noinspection ContinueStatementJS,BreakStatementJS
+// noinspection UnusedCatchParameterJS,EmptyCatchBlockJS
+// noinspection NestedFunctionCallJS
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Users / Sessions / API Tokens admin (Admin → Users, Sessions, Tokens).
@@ -15,6 +37,23 @@ export default {
   newToken: {name: '', role: 'readonly'},
   // Raw new-token payload shown exactly once in a modal after creation.
   lastCreatedToken: null,
+  // Sort state for the 3 admin tables. Default `col: ''` = no sort
+  // (server / source order). Clicking a column header flips through
+  // the shared `_sortToggle` helper; the table render walks
+  // `sortedUsers()` / `sortedSessions()` / `sortedTokens()` rather
+  // than the raw arrays so the sort is in-place against a copy.
+  usersSort: {col: '', dir: 'desc'},
+  sessionsSort: {col: '', dir: 'desc'},
+  tokensSort: {col: '', dir: 'desc'},
+  sortedUsers() {
+    return this._sortRows(this.users || [], this.usersSort);
+  },
+  sortedSessions() {
+    return this._sortRows(this.sessions || [], this.sessionsSort);
+  },
+  sortedTokens() {
+    return this._sortRows(this.tokens || [], this.tokensSort);
+  },
 
   async loadUsers() {
     try {
@@ -217,9 +256,8 @@ export default {
         body: JSON.stringify({name: t.name.trim(), role: t.role}),
       });
       if (r.ok) {
-        const d = await r.json();
         // Raw token is shown ONCE — surface it in a one-time modal.
-        this.lastCreatedToken = d;
+        this.lastCreatedToken = await r.json();
         this.newToken = {name: '', role: 'readonly'};
         await this.loadTokens();
       } else {

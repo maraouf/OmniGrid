@@ -1,95 +1,120 @@
-      <div x-show="adminTab==='users'" class="space-y-4">
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-user"/></svg>
-            <h3 class="font-semibold fs-md" x-text="t('admin.users.create_title')"></h3>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-            <input x-model="newUser.username" type="text" :placeholder="t('admin.users.username_placeholder')" class="w-full">
-            <input x-model="newUser.email" type="email" :placeholder="t('admin.users.email_placeholder')" class="w-full">
-            <select x-model="newUser.auth_source" class="w-full">
-              <option value="local" x-text="t('admin.users.auth_local')"></option>
-              <option value="authentik" x-text="t('admin.users.auth_authentik')"></option>
-            </select>
-            <select x-model="newUser.role" class="w-full">
-              <option value="readonly" x-text="t('admin.users.role_readonly')"></option>
-              <option value="admin" x-text="t('admin.users.role_admin')"></option>
-            </select>
-            <input x-show="newUser.auth_source==='local'" x-model="newUser.password"
-                   type="password" :placeholder="t('admin.users.password_placeholder')"
-                   autocomplete="new-password"
-                   class="w-full md:col-span-2">
-          </div>
-          <div x-show="newUser.auth_source==='authentik'" class="mt-2 fs-xs text-[var(--text-faint)]" x-text="t('admin.users.authentik_hint')"></div>
-          <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-3">
-            <button type="button" @click="createUser()" class="btn btn-primary fs-sm" x-text="t('actions.create')"></button>
-          </div>
-        </section>
+<!--suppress ALL -->
+<div x-show="adminTab==='users'" class="space-y-4">
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+    <div class="flex items-center gap-2 mb-2">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-user"/>
+      </svg>
+      <h3 class="font-semibold fs-md" x-text="t('admin.users.create_title')"></h3>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+      <input x-model="newUser.username" type="text" :placeholder="t('admin.users.username_placeholder')" class="w-full">
+      <input x-model="newUser.email" type="email" :placeholder="t('admin.users.email_placeholder')" class="w-full">
+      <select x-model="newUser.auth_source" class="w-full">
+        <option value="local" x-text="t('admin.users.auth_local')"></option>
+        <option value="authentik" x-text="t('admin.users.auth_authentik')"></option>
+      </select>
+      <select x-model="newUser.role" class="w-full">
+        <option value="readonly" x-text="t('admin.users.role_readonly')"></option>
+        <option value="admin" x-text="t('admin.users.role_admin')"></option>
+      </select>
+      <input x-show="newUser.auth_source==='local'" x-model="newUser.password"
+             type="password" :placeholder="t('admin.users.password_placeholder')"
+             autocomplete="new-password"
+             class="w-full md:col-span-2">
+    </div>
+    <div x-show="newUser.auth_source==='authentik'" class="mt-2 fs-xs text-[var(--text-faint)]" x-text="t('admin.users.authentik_hint')"></div>
+    <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-3">
+      <button type="button" @click="createUser()" class="btn btn-primary fs-sm" x-text="t('actions.create')"></button>
+    </div>
+  </section>
 
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
-          <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
-            <div class="flex items-center gap-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-user"/></svg>
-              <h3 class="font-semibold fs-md"><span x-text="t('admin.users.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + users.length + ')'"></span></h3>
-            </div>
-            <button type="button"
-                    @click="_runWithBusy('users', () => loadUsers())"
-                    :disabled="_loadBusy.users === true"
-                    :title="t('actions.reload')"
-                    :aria-label="t('actions.reload')"
-                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.users === true ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-              </svg>
-              <span x-text="t('actions.reload')"></span>
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+    <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
+      <div class="flex items-center gap-2">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-user"/>
+        </svg>
+        <h3 class="font-semibold fs-md"><span x-text="t('admin.users.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + users.length + ')'"></span></h3>
+      </div>
+      <button type="button"
+              @click="_runWithBusy('users', () => loadUsers())"
+              :disabled="_loadBusy.users === true"
+              :title="t('actions.reload')"
+              :aria-label="t('actions.reload')"
+              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="_loadBusy.users === true ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+        </svg>
+        <span x-text="t('actions.reload')"></span>
+      </button>
+    </div>
+    <div x-show="!usersLoaded" class="loading-state">
+      <span class="spin-lg" aria-hidden="true"></span>
+      <span x-text="t('loading.section')"></span>
+    </div>
+    <div class="overflow-x-auto scrollbar" x-show="usersLoaded">
+      <table class="w-full fs-sm">
+        <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+        <tr>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('username', usersSort.col, usersSort.dir)">
+            <button type="button" @click="_sortToggle(usersSort, 'username')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.user')"></span><span x-text="_sortIndicator('username', usersSort.col, usersSort.dir)"></span>
             </button>
-          </div>
-          <div x-show="!usersLoaded" class="loading-state">
-            <span class="spin-lg" aria-hidden="true"></span>
-            <span x-text="t('loading.section')"></span>
-          </div>
-          <div class="overflow-x-auto scrollbar" x-show="usersLoaded">
-            <table class="w-full fs-sm">
-              <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
-                <tr>
-                  <th class="text-start px-4 py-2" x-text="t('columns.user')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.source')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.role')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.status')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.totp')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.passkeys')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.last_login')"></th>
-                  <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="u in users" :key="u.id">
-                  <tr class="border-t border-[var(--border)]">
-                    <td class="px-4 py-2">
-                      <div class="font-medium" x-text="u.username"></div>
-                      <div class="fs-2xs text-[var(--text-faint)]" x-text="u.email || ''"></div>
-                    </td>
-                    <td class="px-4 py-2">
-                      <span class="chip" x-text="u.auth_source"></span>
-                    </td>
-                    <td class="px-4 py-2">
-                      <span class="pill" :class="u.role==='admin' ? 'pill-primary' : 'pill-muted'" x-text="u.role"></span>
-                    </td>
-                    <td class="px-4 py-2">
+          </th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('auth_source', usersSort.col, usersSort.dir)">
+            <button type="button" @click="_sortToggle(usersSort, 'auth_source')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.source')"></span><span x-text="_sortIndicator('auth_source', usersSort.col, usersSort.dir)"></span>
+            </button>
+          </th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('role', usersSort.col, usersSort.dir)">
+            <button type="button" @click="_sortToggle(usersSort, 'role')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.role')"></span><span x-text="_sortIndicator('role', usersSort.col, usersSort.dir)"></span>
+            </button>
+          </th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('disabled', usersSort.col, usersSort.dir)">
+            <button type="button" @click="_sortToggle(usersSort, 'disabled')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.status')"></span><span x-text="_sortIndicator('disabled', usersSort.col, usersSort.dir)"></span>
+            </button>
+          </th>
+          <th class="text-start px-4 py-2" x-text="t('columns.totp')"></th>
+          <th class="text-start px-4 py-2" x-text="t('columns.passkeys')"></th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('last_login_ts', usersSort.col, usersSort.dir)">
+            <button type="button" @click="_sortToggle(usersSort, 'last_login_ts')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.last_login')"></span><span x-text="_sortIndicator('last_login_ts', usersSort.col, usersSort.dir)"></span>
+            </button>
+          </th>
+          <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
+        </tr>
+        </thead>
+        <tbody>
+        <template x-for="u in sortedUsers()" :key="u.id">
+          <tr class="border-t border-[var(--border)]">
+            <td class="px-4 py-2">
+              <div class="font-medium" x-text="u.username"></div>
+              <div class="fs-2xs text-[var(--text-faint)]" x-text="u.email || ''"></div>
+            </td>
+            <td class="px-4 py-2">
+              <span class="chip" x-text="u.auth_source"></span>
+            </td>
+            <td class="px-4 py-2">
+              <span class="pill" :class="u.role==='admin' ? 'pill-primary' : 'pill-muted'" x-text="u.role"></span>
+            </td>
+            <td class="px-4 py-2">
                       <span class="pill" :class="u.disabled ? 'pill-error' : 'pill-success'"
                             x-text="u.disabled ? t('states.disabled') : t('states.active')"></span>
-                    </td>
-                    <td class="px-4 py-2">
-                      <!-- 2FA / TOTP column. Possible states:
-                           - On: enrolled (green pill)
-                           - Off: not enrolled, policy not forcing it
-                           - Required: not enrolled but policy will force on next login
-                           - N/A: Authentik-managed user (handled by IdP) -->
-                      <template x-if="u.auth_source !== 'local'">
+            </td>
+            <td class="px-4 py-2">
+              <!-- 2FA / TOTP column. Possible states:
+                   - On: enrolled (green pill)
+                   - Off: not enrolled, policy not forcing it
+                   - Required: not enrolled but policy will force on next login
+                   - N/A: Authentik-managed user (handled by IdP) -->
+              <template x-if="u.auth_source !== 'local'">
                         <span class="fs-xs text-[var(--text-faint)]"
                               x-text="t('admin.users.totp_na')"></span>
-                      </template>
-                      <template x-if="u.auth_source === 'local'">
+              </template>
+              <template x-if="u.auth_source === 'local'">
                         <span>
                           <!-- Pill priority: enrolled (green) > forced-but-not-yet (warning)
                                > off (muted). The forced-but-not-yet state surfaces the per-
@@ -105,18 +130,18 @@
                                 class="pill pill-muted"
                                 x-text="t('admin.users.totp_off')"></span>
                         </span>
-                      </template>
-                    </td>
-                    <td class="px-4 py-2">
-                      <!-- Passkeys. Local users only — Authentik
-                           IdPs manage their own MFA. Count includes
-                           every WebAuthn credential the user has
-                           enrolled. Operator-readable hint via :title. -->
-                      <template x-if="u.auth_source !== 'local'">
+              </template>
+            </td>
+            <td class="px-4 py-2">
+              <!-- Passkeys. Local users only — Authentik
+                   IdPs manage their own MFA. Count includes
+                   every WebAuthn credential the user has
+                   enrolled. Operator-readable hint via :title. -->
+              <template x-if="u.auth_source !== 'local'">
                         <span class="fs-xs text-[var(--text-faint)]"
                               x-text="t('admin.users.totp_na')"></span>
-                      </template>
-                      <template x-if="u.auth_source === 'local'">
+              </template>
+              <template x-if="u.auth_source === 'local'">
                         <span class="inline-flex items-center gap-1">
                           <svg width="12" height="12" aria-hidden="true" class="text-[var(--text-dim)]"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-key"/></svg>
                           <span class="pill"
@@ -126,83 +151,97 @@
                                   : t('admin.users.passkeys_none_title')"
                                 x-text="u.passkey_count || 0"></span>
                         </span>
-                      </template>
-                    </td>
-                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
-                        x-text="fmtDate(u.last_login_at)"></td>
-                    <td class="px-4 py-2 text-end">
-                      <!-- Iconified actions row. Each button is a
-                           square icon with the existing `:title` for
-                           hover hint; clusters separated visually so the
-                           operator can scan identity / 2FA / destructive
-                           groups at a glance. Single-row layout drops
-                           the table from 3 stacked rows per user to 1. -->
-                      <div class="inline-flex items-center gap-0.5 justify-end user-actions">
-                        <button type="button" @click="toggleUserRole(u)" class="user-action-btn"
-                                :title="u.role==='admin' ? t('admin.users.make_readonly') : t('admin.users.make_admin')"
-                                :aria-label="u.role==='admin' ? t('admin.users.make_readonly') : t('admin.users.make_admin')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-right"/></svg>
-                        </button>
-                        <button type="button" @click="toggleUserDisabled(u)" class="user-action-btn"
-                                :title="u.disabled ? t('admin.users.enable') : t('admin.users.disable')"
-                                :aria-label="u.disabled ? t('admin.users.enable') : t('admin.users.disable')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-lock"/></svg>
-                        </button>
-                        <button type="button" x-show="u.auth_source==='local'" @click="resetUserPassword(u)"
-                                class="user-action-btn"
-                                :title="t('admin.users.reset_pw_title')"
-                                :aria-label="t('admin.users.reset_pw')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-key"/></svg>
-                        </button>
-                        <span class="user-action-sep" x-show="u.auth_source==='local'"></span>
-                        <!-- Disable 2FA — admin override. Visible
-                             only for local users with TOTP currently
-                             enabled. Audited via history.op_type=
-                             totp_admin_disabled. -->
-                        <button type="button" x-show="u.auth_source==='local' && u.totp_enabled"
-                                @click="adminDisableTotp(u)"
-                                class="user-action-btn user-action-btn--warning"
-                                :title="t('admin.users.totp_disable_title')"
-                                :aria-label="t('admin.users.totp_disable')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
-                        </button>
-                        <!-- Force / Unforce 2FA — per-user policy
-                             override. Audited via history.
-                             op_type=totp_force_set. Hidden for
-                             Authentik users (TOTP doesn't apply). -->
-                        <button type="button" x-show="u.auth_source==='local' && !u.totp_force_required"
-                                @click="adminForceTotp(u, true)"
-                                class="user-action-btn"
-                                :title="t('admin.users.totp_force_title')"
-                                :aria-label="t('admin.users.totp_force')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
-                        </button>
-                        <button type="button" x-show="u.auth_source==='local' && u.totp_force_required"
-                                @click="adminForceTotp(u, false)"
-                                class="user-action-btn user-action-btn--warning"
-                                :title="t('admin.users.totp_unforce_title')"
-                                :aria-label="t('admin.users.totp_unforce')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
-                        </button>
-                        <span class="user-action-sep"></span>
-                        <button type="button" @click="deleteUser(u)"
-                                class="user-action-btn user-action-btn--danger"
-                                :disabled="me && u.id === me.id ? true : false"
-                                :title="me && u.id === me.id ? t('admin.users.delete_self_title') : t('admin.users.delete_title')"
-                                :aria-label="t('actions.delete')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/></svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </template>
-                <tr x-show="users.length===0">
-                  <td colspan="7" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_users')"></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
+              </template>
+            </td>
+            <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
+                x-text="fmtDate(u.last_login_at)"></td>
+            <td class="px-4 py-2 text-end">
+              <!-- Iconified actions row. Each button is a
+                   square icon with the existing `:title` for
+                   hover hint; clusters separated visually so the
+                   operator can scan identity / 2FA / destructive
+                   groups at a glance. Single-row layout drops
+                   the table from 3 stacked rows per user to 1. -->
+              <div class="inline-flex items-center gap-0.5 justify-end user-actions">
+                <button type="button" @click="toggleUserRole(u)" class="user-action-btn"
+                        :title="u.role==='admin' ? t('admin.users.make_readonly') : t('admin.users.make_admin')"
+                        :aria-label="u.role==='admin' ? t('admin.users.make_readonly') : t('admin.users.make_admin')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-right"/>
+                  </svg>
+                </button>
+                <button type="button" @click="toggleUserDisabled(u)" class="user-action-btn"
+                        :title="u.disabled ? t('admin.users.enable') : t('admin.users.disable')"
+                        :aria-label="u.disabled ? t('admin.users.enable') : t('admin.users.disable')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-lock"/>
+                  </svg>
+                </button>
+                <button type="button" x-show="u.auth_source==='local'" @click="resetUserPassword(u)"
+                        class="user-action-btn"
+                        :title="t('admin.users.reset_pw_title')"
+                        :aria-label="t('admin.users.reset_pw')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-key"/>
+                  </svg>
+                </button>
+                <span class="user-action-sep" x-show="u.auth_source==='local'"></span>
+                <!-- Disable 2FA — admin override. Visible
+                     only for local users with TOTP currently
+                     enabled. Audited via history.op_type=
+                     totp_admin_disabled. -->
+                <button type="button" x-show="u.auth_source==='local' && u.totp_enabled"
+                        @click="adminDisableTotp(u)"
+                        class="user-action-btn user-action-btn--warning"
+                        :title="t('admin.users.totp_disable_title')"
+                        :aria-label="t('admin.users.totp_disable')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/>
+                  </svg>
+                </button>
+                <!-- Force / Unforce 2FA — per-user policy
+                     override. Audited via history.
+                     op_type=totp_force_set. Hidden for
+                     Authentik users (TOTP doesn't apply). -->
+                <button type="button" x-show="u.auth_source==='local' && !u.totp_force_required"
+                        @click="adminForceTotp(u, true)"
+                        class="user-action-btn"
+                        :title="t('admin.users.totp_force_title')"
+                        :aria-label="t('admin.users.totp_force')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/>
+                  </svg>
+                </button>
+                <button type="button" x-show="u.auth_source==='local' && u.totp_force_required"
+                        @click="adminForceTotp(u, false)"
+                        class="user-action-btn user-action-btn--warning"
+                        :title="t('admin.users.totp_unforce_title')"
+                        :aria-label="t('admin.users.totp_unforce')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/>
+                  </svg>
+                </button>
+                <span class="user-action-sep"></span>
+                <button type="button" @click="deleteUser(u)"
+                        class="user-action-btn user-action-btn--danger"
+                        :disabled="me && u.id === me.id ? true : false"
+                        :title="me && u.id === me.id ? t('admin.users.delete_self_title') : t('admin.users.delete_title')"
+                        :aria-label="t('actions.delete')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+                  </svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="users.length===0">
+          <td colspan="7" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_users')"></td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
 
-      <!-- SESSIONS TAB -->
+<!-- SESSIONS TAB -->

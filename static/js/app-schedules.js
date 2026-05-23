@@ -1,7 +1,32 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,AnonymousFunctionJS,ConstantOnRightSideOfComparisonJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
 // noinspection NestedTemplateLiteralJS
+// "Unused function" warnings fire on every Alpine-template-consumed
+// method — the SPA spread-imports this module's export into the
+// Alpine root, then templates call `sortedSchedules()` /
+// `createSchedule()` / etc. via `@click` + `x-for` bindings the
+// static analyser can't see. Same lineage for `Element is not
+// exported` WEAK warnings. Tail-recursion at the page-clamp retry
+// (`loadScheduleQueue` re-enters itself once when the server reports
+// fewer pages than expected) is bounded by the clamp converging
+// toward `scheduleQueueTotalPages` — depth = at most 1. Empty catch
+// + unused `_` are the ignore-and-move-on shape on localStorage
+// persistence + fetch failures (the surrounding toast / error pill
+// owns the user-visible error). Nested `t()` calls + `String()` /
+// `Math.min()` / `parseInt()` / `encodeURIComponent()` pipelines are
+// idiomatic. `JSIgnoredPromiseFromCall` fires on the
+// `loadScheduleQueue()` fire-and-forget calls in the queue-page
+// navigation handlers — by design, the caller wants the page change
+// to feel instant, not block on the round-trip.
+// noinspection JSUnusedGlobalSymbols,UnusedFunctionJS,ElementNotExported
+// noinspection ContinueStatementJS,BreakStatementJS
+// noinspection UnusedCatchParameterJS,EmptyCatchBlockJS
+// noinspection OverlyComplexBooleanExpressionJS,OverlyComplexBooleanExpression
+// noinspection NestedFunctionCallJS
+// noinspection TailRecursionJS,JSRecursive
+// noinspection JSIgnoredPromiseFromCall,JSUnhandledPromiseFromCall
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Schedules surface (Admin → Schedules).
@@ -56,6 +81,13 @@ export default {
   // the partials render a centered `.loading-state` block while the
   // initial fetch is in flight, then flip to the populated table.
   schedulesLoaded: false,
+  // Sort state for the Schedules admin table. Default `col: ''` = no
+  // sort (server-supplied order). Routes through the shared
+  // `_sortToggle` + `_sortRows` helpers.
+  schedulesSort: {col: '', dir: 'desc'},
+  sortedSchedules() {
+    return this._sortRows(this.schedules || [], this.schedulesSort);
+  },
 
   // ----- Scheduler ----------------------------------------------------
   // Backend at /api/schedules (CRUD) and /api/schedules/queue (recent
@@ -227,7 +259,7 @@ export default {
           name: s.name.trim(),
           kind: s.kind,
           params,
-          interval_seconds: parseInt(s.interval_seconds, 10),
+          interval_seconds: Number(s.interval_seconds) || 0,
           enabled: !!s.enabled,
           ...cadencePayload,
         }),
