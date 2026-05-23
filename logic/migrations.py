@@ -446,9 +446,75 @@ def _migration_004_port_scan_protocol_column(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_005_service_samples_port_column(conn: sqlite3.Connection) -> None:
+    """Add ``port`` column to ``service_samples`` with port-aware PK so
+    per-port + rollup samples can coexist for multi-port chips.
+
+    Pre-fix the table's PK was ``(ts, host_id, service_idx)`` — one
+    row per chip per tick. Multi-port chips lost per-port history;
+    the sampler rolled up "any port up = chip alive" and only the
+    chip-level result hit the table.
+
+    Post-migration the PK is ``(ts, host_id, service_idx, port)``
+    where ``port=0`` is the rollup sentinel (port 0 is reserved per
+    RFC, not a valid TCP/UDP port) and per-port rows carry the actual
+    port number. Single-port chips continue to emit only the rollup
+    row; multi-port chips emit one rollup row PLUS one row per port.
+
+    SQLite treats NULL as distinct in PK comparisons, which would
+    break ``INSERT OR REPLACE`` idempotency on rollup rows. The
+    sentinel-0 approach keeps the upsert pattern working without
+    NULL coercion at every read site.
+
+    Idempotent: detects the new schema via PRAGMA table_info and
+    skips when the ``port`` column is already present.
+    """
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(service_samples)").fetchall()]
+    if "port" in cols:
+        # New schema already in place (fresh install via init_db's
+        # updated CREATE TABLE, OR a previous run of this migration).
+        return
+    # Rebuild: CREATE NEW → COPY → DROP OLD → RENAME.
+    conn.execute(
+        """
+        CREATE TABLE service_samples_v2
+        (
+            ts          INTEGER NOT NULL,
+            host_id     TEXT    NOT NULL,
+            service_idx INTEGER NOT NULL,
+            port        INTEGER NOT NULL DEFAULT 0,
+            alive       INTEGER NOT NULL,
+            rtt_ms      INTEGER,
+            error       TEXT,
+            PRIMARY KEY (ts, host_id, service_idx, port)
+        )
+        """
+    )
+    # Backfill every legacy row as a rollup row (port=0). Pre-migration
+    # there was no per-port concept so EVERY existing row is logically a
+    # rollup; the sentinel-0 stamp preserves that meaning.
+    conn.execute(
+        "INSERT INTO service_samples_v2 "
+        "(ts, host_id, service_idx, port, alive, rtt_ms, error) "
+        "SELECT ts, host_id, service_idx, 0, alive, rtt_ms, error "
+        "FROM service_samples"
+    )
+    conn.execute("DROP TABLE service_samples")
+    conn.execute("ALTER TABLE service_samples_v2 RENAME TO service_samples")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_service_samples_host_ts "
+        "ON service_samples(host_id, ts DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_service_samples_host_idx_ts "
+        "ON service_samples(host_id, service_idx, ts DESC)"
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, MigrationFn]] = [
     (1, "flip_ssh_per_host_to_opt_in", _migration_001_flip_ssh_per_host_to_opt_in),
     (2, "split_provider_host_pk", _migration_002_split_provider_host_pk),
     (3, "history_target_kind", _migration_003_history_target_kind),
     (4, "port_scan_protocol_column", _migration_004_port_scan_protocol_column),
+    (5, "service_samples_port_column", _migration_005_service_samples_port_column),
 ]

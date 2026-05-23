@@ -76,6 +76,7 @@ import appOps from './app-ops.js?v=__APP_VERSION__';
 import appStats from './app-stats.js?v=__APP_VERSION__';
 import appTuning from './app-tuning.js?v=__APP_VERSION__';
 import appMinorTools from './app-minor-tools.js?v=__APP_VERSION__';
+import appApps from './app-apps.js?v=__APP_VERSION__';
 // Side-effect import — installs `window.__ogCopyAiCode` at module-load
 // time so the AI markdown renderer's fenced-code-block copy buttons
 // (rendered via `x-html` string concat, can't bind Alpine `@click`)
@@ -105,7 +106,7 @@ function _mergeKeepDescriptors(target, ...sources) {
 }
 
 function app() {
-  return _mergeKeepDescriptors({}, appMinorTools, appTuning, appStats, appOps, appProviders, appHostsGrid, appNotifyAdmin, appTopbar, appHostDrawer, appCommandPalette, appCharts, appHostsEditor, appAi, appLogs, appHostGroups, appPortainer, appOidc, appUsersAdmin, appSchedules, appBackups, appSsh, appNotificationsPopup, appAuth, appTelegram, appAsset, appSse, appKeyboard, appIconResolvers, appI18n, appUtils, {
+  return _mergeKeepDescriptors({}, appMinorTools, appTuning, appStats, appOps, appProviders, appHostsGrid, appNotifyAdmin, appTopbar, appHostDrawer, appCommandPalette, appCharts, appHostsEditor, appAi, appLogs, appHostGroups, appPortainer, appOidc, appUsersAdmin, appSchedules, appBackups, appSsh, appNotificationsPopup, appAuth, appTelegram, appAsset, appSse, appKeyboard, appIconResolvers, appI18n, appUtils, appApps, {
     items: [], stacks: [], nodes: {}, nodesInfo: {},
     // Swarm agent unhealthy banner — populated by `loadStats` from
     // `/api/stats`'s `unhealthy_agents` field. Each entry is
@@ -205,6 +206,39 @@ function app() {
     // simultaneously when any `?` was clicked. Esc + outside-click
     // dismiss. See chip-strip-legend.html for the rendered surface.
     chipLegendOpen: null,
+    // Apps feature state — top-level Apps view + Admin → Apps tab.
+    // `appsList` is the cross-host aggregate (one row per app, with
+    // every host instance nested inside). `appsCatalog` is the catalog
+    // template library. `appsInstances` is the flat per-instance view
+    // used by Admin → Apps "Instances" sub-tab. Loaded flags drive the
+    // skeleton-vs-empty-state ladder.
+    appsList: [],
+    appsListLoaded: false,
+    appsListLoading: false,
+    appsListError: '',
+    appsCatalog: [],
+    appsCatalogLoaded: false,
+    appsCatalogStatus: '',
+    appsCatalogReseeding: false,
+    appsInstances: [],
+    appsInstancesLoaded: false,
+    appsAdminTab: 'templates',   // 'templates' | 'instances'
+    appsCatalogEditOpen: false,
+    appsCatalogEdit: {},
+    appsCatalogSaving: false,
+    appsCatalogEditError: '',
+    appsSearchQuery: '',
+    appsStatusFilter: '',  // '' | 'up' | 'down' | 'degraded' | 'unknown'
+    // Per-chip "Probe now" in-flight tracker. Keyed by
+    // `'probe:' + host_id + ':' + service_idx` so simultaneous clicks
+    // on different chips don't share state; the matching button binds
+    // :disabled + spinner class to this map.
+    probeNowInFlight: {},
+    // Per-(host, service_idx) probe history cache, populated lazily by
+    // `loadAppHistory` when the App Drawer opens. Keyed by
+    // `host_id + ':' + service_idx`; value is `{samples, hours, loadedAt}`.
+    appsHistory: {},
+
     // Hosts view state (Beszel-backed). Refreshed via /api/hosts on a
     // separate cadence from the item cache — hub calls are cheap and
     // the view wants faster feedback than the 15-30s item refresh.
@@ -556,6 +590,7 @@ function app() {
       {id: 'public_ip', label: 'Public IP', icon: 'globe'},
       {id: 'host_groups', label: 'Host Groups', icon: 'layers'},
       {id: 'hosts', label: 'Hosts', icon: 'server'},
+      {id: 'apps', label: 'Apps', icon: 'grid'},
       {id: 'assets', label: 'Asset inventory', icon: 'package'},
       {id: 'ai', label: 'AI integration', icon: 'zap'},
       {id: '_sep_2', separator: true},
@@ -1526,6 +1561,27 @@ function app() {
           clearInterval(this._hostsTimer);
           this._hostsTimer = null;
         }
+        // Apps view — lazy-load aggregate + restart its refresh timer.
+        // Same SSE-aware fallback shape as hosts (interval polls only
+        // when SSE is disconnected; SSE-driven row updates take over
+        // when the stream is healthy).
+        if (v === 'apps') {
+          if (typeof this.loadAppsList === 'function') {
+            this.loadAppsList();
+          }
+          if (this._appsTimer) {
+            clearInterval(this._appsTimer);
+          }
+          if (this.statsInterval > 0) {
+            this._appsTimer = setInterval(() => {
+              if (this._sseConnected) return;
+              if (typeof this.loadAppsList === 'function') this.loadAppsList();
+            }, Math.max(30, this.statsInterval) * 1000);
+          }
+        } else if (this._appsTimer) {
+          clearInterval(this._appsTimer);
+          this._appsTimer = null;
+        }
       });
 
       // Notifications popup. Lazy-load on open; the 30s polling
@@ -2126,6 +2182,7 @@ function app() {
         ['services', this.t('nav.services')],
         ['nodes', this.t('nav.nodes')],
         ['hosts', this.t('nav.hosts')],
+        ['apps', this.t('nav.apps') || 'Apps'],
         ['history', this.t('nav.history')],
       ];
     },
@@ -2133,13 +2190,15 @@ function app() {
     // string rendered via `x-html` on a shared <svg> wrapper so the
     // stroke / viewBox / size stay consistent. Lucide-derived shapes —
     // layered-squares for Stacks, cube for Services, server-rack for
-    // Nodes, monitor for Hosts, clock-with-arrow for History.
+    // Nodes, monitor for Hosts, grid for Apps, clock-with-arrow for
+    // History.
     navIcon(key) {
       const icons = {
         stacks: '<path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/>',
         services: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
         nodes: '<rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>',
         hosts: '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+        apps: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
         history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
       };
       return icons[key] || '';
@@ -2580,6 +2639,14 @@ function app() {
                   // Host groups live in /api/settings; load it alongside so the
                   // groups editor at the bottom of this tab has current data.
                   await this.loadSettings();
+                } else if (tab === 'apps') {
+                  // Admin → Apps tab — load catalog templates + flat
+                  // instance list. Both are cheap admin-only fetches;
+                  // run in parallel since they're independent.
+                  await Promise.all([
+                    this.loadAppsCatalog(),
+                    this.loadAppsInstances(),
+                  ]);
                 } else if (tab === 'assets') {
                   await this.loadSettings();
                   await this.loadAssetCache();

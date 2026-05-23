@@ -139,6 +139,13 @@ from logic.settings_keys import (  # noqa: E402
     notify_event_key,
 )
 from logic import host_baseline as _host_baseline  # noqa: E402
+# `coerce_int` narrows Any|None → Optional[int] at every JSON/dict-cell
+# boundary in the Apps endpoints. Hoisted to module level so the same
+# helper is reused across `api_service_probe_now`, `_shape_host_apps`,
+# `_clean_host_services` etc. without repeated function-local imports.
+# Imported via the public alias so static analysis doesn't flag the
+# underscore-prefixed `_coerce_int` original (private to the module).
+from logic.service_catalog import coerce_int as _coerce_int_local  # noqa: E402
 
 DOCKERHUB_USER = env_get(EnvKey.DOCKERHUB_USER)
 DOCKERHUB_TOKEN = env_get(EnvKey.DOCKERHUB_TOKEN)
@@ -1166,17 +1173,58 @@ def init_db():
         -- `alive=1` is the success signal; `rtt_ms` populated only
         -- on alive=1 ticks (skipped on failures per the skip-don't-
         -- synthesize rule).
+        -- `port` column distinguishes per-port samples (port=80/443/etc)
+        -- from rollup samples (port=0 sentinel — chip-level status). The
+        -- sentinel value (0 — not a valid TCP/UDP port per RFC) is used
+        -- instead of NULL because SQLite treats every NULL as distinct
+        -- in PRIMARY KEY uniqueness checks, which breaks the
+        -- INSERT OR REPLACE upsert pattern. Pre-migration installs
+        -- (no `port` column) are upgraded in-place by
+        -- `_migration_005_service_samples_port_column` which rebuilds
+        -- the table with the new PK + backfills existing rows to
+        -- port=0. Single-port chips emit ONLY the rollup row; multi-port
+        -- chips emit one rollup row PLUS one row per port.
         CREATE TABLE IF NOT EXISTS service_samples (
             ts            INTEGER NOT NULL,
             host_id       TEXT    NOT NULL,
             service_idx   INTEGER NOT NULL,
+            port          INTEGER NOT NULL DEFAULT 0,
             alive         INTEGER NOT NULL,
             rtt_ms        INTEGER,
             error         TEXT,
-            PRIMARY KEY (ts, host_id, service_idx)
+            PRIMARY KEY (ts, host_id, service_idx, port)
         );
         CREATE INDEX IF NOT EXISTS idx_service_samples_host_ts
             ON service_samples(host_id, ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_service_samples_host_idx_ts
+            ON service_samples(host_id, service_idx, ts DESC);
+
+        -- Apps feature — reusable service templates ("catalog"). Each row
+        -- is a recipe an operator can bind to N hosts (Radarr / Sonarr /
+        -- Plex / Portainer / etc.) so they don't redefine probe path +
+        -- default ports + icon slug per host. Per-host instances continue
+        -- to live in `hosts_config[].services[]`; chips may now carry
+        -- `catalog_id` (numeric FK to this table) to inherit the template's
+        -- defaults. `default_ports_json` is a JSON array of
+        -- `{port, protocol, label, probe_path, probe_status}` so a template
+        -- can carry multi-port shape (Portainer 8000 + 8443). `icon` is the
+        -- brand-icon slug (resolved by static/js/app.js:iconUrlFor).
+        -- `source = 'builtin' | 'operator'` distinguishes shipped seed
+        -- templates from operator-added ones; builtin rows are idempotently
+        -- seeded on first boot when the table is empty.
+        CREATE TABLE IF NOT EXISTS service_catalog (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            name            TEXT    NOT NULL,
+            slug            TEXT    NOT NULL UNIQUE,
+            icon            TEXT,
+            description     TEXT,
+            default_ports_json TEXT NOT NULL DEFAULT '[]',
+            source          TEXT    NOT NULL DEFAULT 'operator',
+            created_ts      INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
+            updated_ts      INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
+        );
+        CREATE INDEX IF NOT EXISTS idx_service_catalog_slug
+            ON service_catalog(slug);
 
         -- Port-scan provider results. ONE ROW PER OPEN PORT per scan;
         -- closed-port rows would balloon the table on multi-host scans.
@@ -1453,6 +1501,18 @@ def init_db():
                 # Seed is best-effort — a one-off insert failure
                 # doesn't block init_db.
                 pass
+
+        # Apps feature — service_catalog built-in templates. Seeded only
+        # when the table is empty so operator edits / deletes survive
+        # restarts. Idempotent via the empty-table check in seed_builtins.
+        try:
+            from logic.service_catalog import seed_builtins as _seed_catalog
+            # noinspection PyArgumentEqualDefault
+            n_added = _seed_catalog(force=False)
+            if n_added:
+                print(f"[service_catalog] seeded {n_added} built-in templates")
+        except (sqlite3.Error, ImportError, OSError) as e:
+            print(f"[service_catalog] seed deferred: {e}")
 
 
 # ============================================================================
@@ -9318,6 +9378,351 @@ def _format_provider_test_summary(
             count_key: len(hosts), items_key: names}
 
 
+# ============================================================================
+# Apps feature — top-level Apps view + reusable service catalog templates.
+# Admin-only across the board: catalog edits + the aggregate view both gate
+# on `require_admin`. Reads the existing `hosts_config[].services[]` array
+# (per-host instances) + the new `service_catalog` table (templates). The
+# cross-host aggregate (`/api/apps`) groups instances by catalog_id or name
+# so an operator can see "Plex is up on 2 of 3 hosts" at a glance without
+# walking every host card.
+# ============================================================================
+@app.get("/api/services/catalog")
+async def api_services_catalog_list(_admin: AdminUser):
+    """Admin-only: list every catalog template (builtin + operator) ordered by name."""
+    from logic import service_catalog as _sc
+    return {"entries": _sc.list_catalog()}
+
+
+@app.post("/api/services/catalog")
+async def api_services_catalog_create(payload: dict[str, Any], _admin: AdminUser):
+    """Admin-only: create a new operator-authored catalog template.
+
+    Body shape:
+        {
+            "name": str,                # required
+            "slug": str,                # optional, derived from name if blank
+            "icon": str,                # optional, defaults to slug
+            "description": str,         # optional
+            "default_ports": [...]      # optional list of port dicts
+        }
+    """
+    from logic import service_catalog as _sc
+    try:
+        # Build kwargs explicitly so the IDE's default-arg-redundancy
+        # check doesn't fire on the operator-empty fields. The
+        # `name` field is required; every other field flows through
+        # `create_catalog_entry`'s own defaults when the payload omits
+        # it. Operator-provided values still propagate through the
+        # `or ""` / `or []` falsy-fallbacks identically to the legacy
+        # form. `source="operator"` is the default but spelled out at
+        # the call site as documentation that this endpoint creates
+        # operator-authored templates (not builtins).
+        entry = _sc.create_catalog_entry(
+            name=payload.get("name") or "",
+            slug=(payload.get("slug") or "").strip(),
+            icon=(payload.get("icon") or "").strip(),
+            description=(payload.get("description") or "").strip(),
+            default_ports=payload.get("default_ports") or [],
+        )
+    except ValueError as ve:
+        raise HTTPException(400, str(ve))
+    except sqlite3.IntegrityError as ie:
+        raise HTTPException(409, f"slug already exists: {ie}")
+    return {"ok": True, "entry": entry}
+
+
+@app.patch("/api/services/catalog/{cid}")
+async def api_services_catalog_update(cid: int, payload: dict[str, Any], _admin: AdminUser):
+    """Admin-only: update a catalog template. Partial — only non-None
+    fields are written."""
+    from logic import service_catalog as _sc
+    try:
+        entry = _sc.update_catalog_entry(
+            cid,
+            name=payload.get("name"),
+            slug=payload.get("slug"),
+            icon=payload.get("icon"),
+            description=payload.get("description"),
+            default_ports=payload.get("default_ports"),
+        )
+    except ValueError as ve:
+        raise HTTPException(400, str(ve))
+    except sqlite3.IntegrityError as ie:
+        raise HTTPException(409, f"slug conflict: {ie}")
+    if entry is None:
+        raise HTTPException(404, "catalog entry not found")
+    return {"ok": True, "entry": entry}
+
+
+@app.delete("/api/services/catalog/{cid}")
+async def api_services_catalog_delete(cid: int, _admin: AdminUser):
+    """Admin-only: delete a catalog template (builtin or operator-authored).
+
+    Per-host chips linked via `catalog_id` are NOT cascade-removed — they
+    just lose their catalog binding and continue to render from their own
+    `name` / `icon` / probe fields. The operator can re-link to another
+    template later via Admin → Hosts.
+    """
+    from logic import service_catalog as _sc
+    ok = _sc.delete_catalog_entry(cid)
+    if not ok:
+        raise HTTPException(404, "catalog entry not found")
+    return {"ok": True}
+
+
+@app.post("/api/services/catalog/seed")
+async def api_services_catalog_seed(_admin: AdminUser):
+    """Admin-only: re-seed missing built-in templates (operator deleted
+    one and wants it back). Builtin slugs already present in the DB are
+    NOT touched — operator edits survive."""
+    from logic import service_catalog as _sc
+    added = _sc.seed_builtins(force=True)
+    return {"ok": True, "added": added}
+
+
+@app.get("/api/apps")
+async def api_apps_list(_admin: AdminUser):
+    """Admin-only: cross-host aggregate view. Returns one row per
+    distinct app (grouped by catalog_id or name) with every host that
+    runs an instance + per-instance status."""
+    from logic import service_catalog as _sc
+    return {"apps": _sc.list_apps()}
+
+
+@app.get("/api/apps/instances")
+async def api_apps_instances(_admin: AdminUser):
+    """Admin-only: flat per-instance iterator — every chip across every
+    host. Used by the Admin → Apps tab's instance list."""
+    from logic import service_catalog as _sc
+    return {"instances": list(_sc.iter_instances())}
+
+
+# noinspection PyProtectedMember
+@app.post("/api/services/{host_id}/{service_idx}/probe")
+async def api_service_probe_now(host_id: str, service_idx: int, _admin: AdminUser):
+    """Admin-only: run a one-shot probe against a specific chip and
+    persist the result to ``service_samples`` so the SPA picks it up
+    on the next refresh. Returns the probe outcome inline so the SPA
+    can render the result without waiting for the next API poll.
+
+    Routes through the existing TCP / HTTP probe helpers in
+    ``logic.service_sampler`` so the manual path uses the same code
+    as the lifespan sampler — one probe verb, one persistence shape,
+    one history pipeline.
+    """
+    import time as _time
+    from urllib.parse import urlparse as _urlparse
+    from logic import service_sampler as _ss
+    # Resolve the chip from hosts_config.
+    hosts = _load_hosts_config()
+    target_host = None
+    for row in hosts:
+        if (row.get("id") or "").strip() == host_id:
+            target_host = row
+            break
+    if target_host is None:
+        raise HTTPException(404, f"host not found: {host_id}")
+    chips = target_host.get("services") or []
+    if not isinstance(chips, list) or service_idx < 0 or service_idx >= len(chips):
+        raise HTTPException(404, f"service_idx {service_idx} out of range for host {host_id}")
+    chip = chips[service_idx]
+    if not isinstance(chip, dict):
+        raise HTTPException(400, "service entry malformed")
+    probe_cfg = chip.get("probe") or {}
+    if not probe_cfg.get("enabled"):
+        raise HTTPException(400, "probe is not enabled for this chip")
+    probe_type = (probe_cfg.get("type") or "tcp").strip().lower()
+    if probe_type not in ("tcp", "http"):
+        probe_type = "tcp"
+    url = (chip.get("url") or "").strip()
+    parsed_host = ""
+    parsed_port = None
+    if url:
+        try:
+            pu = _urlparse(url if "://" in url else "tcp://" + url)
+            parsed_host = (pu.hostname or "").strip()
+            parsed_port = pu.port
+        except (ValueError, AttributeError):
+            pass
+    # `_coerce_int_local` (imported at module top from service_catalog)
+    # narrows the Any-typed `probe.port` cell before the min/max
+    # comparison so static analysis doesn't flag Any|None → int.
+    override_port_int = _coerce_int_local(probe_cfg.get("port"))
+    port = override_port_int if (override_port_int and override_port_int > 0) else parsed_port
+    if not parsed_host:
+        raise HTTPException(400, "unable to resolve probe target host from chip url")
+    if probe_type == "tcp" and not port:
+        lc = url.lower()
+        if lc.startswith("https://"):
+            port = 443
+        elif lc.startswith("http://"):
+            port = 80
+        else:
+            raise HTTPException(400, "no probe port resolvable; set chip url or probe.port")
+    expected_status = _coerce_int_local(probe_cfg.get("expected_status")) or 0
+    timeout_s = float(tuning.tuning_int(Tunable.SERVICE_PROBE_TIMEOUT_SECONDS))
+    # Multi-port chip — fan out per-port probe + roll up. Same shape as
+    # the sampler's _probe_target so the manual + scheduled paths
+    # converge on identical persistence output. When `probe.ports[]`
+    # is set, the legacy single-port `probe.port` is ignored.
+    ports_raw = probe_cfg.get("ports")
+    sub_ports: list[dict] = []
+    if isinstance(ports_raw, list):
+        for p in ports_raw:
+            if not isinstance(p, dict):
+                continue
+            pi = _coerce_int_local(p.get("port"))
+            if pi is None or not (1 <= pi <= 65535):
+                continue
+            sub_proto = (p.get("protocol") or "tcp")
+            sub_proto = sub_proto.strip().lower() if isinstance(sub_proto, str) else "tcp"
+            sub_path = (p.get("probe_path") or "").strip() or "/"
+            sub_label = (p.get("label") or "").strip()
+            sub_status = _coerce_int_local(p.get("probe_status")) or 0
+            sub_type = ("http" if sub_proto in ("http", "https") or sub_path != "/" else "tcp")
+            sub_ports.append({"port": pi, "protocol": sub_proto, "label": sub_label,
+                              "probe_path": sub_path, "probe_status": sub_status,
+                              "probe_type": sub_type})
+    ts = int(_time.time())
+    port_results: list[dict] = []
+    if sub_ports:
+        any_alive = False
+        min_rtt: Optional[int] = None
+        first_error = None
+        for sp in sub_ports:
+            # `sp_port` / `sp_status` narrow from dict-Any access to
+            # concrete ints so the downstream `probe_tcp` / persistence
+            # signatures don't flag Any|None on every call.
+            sp_port = _coerce_int_local(sp.get("port")) or 0
+            sp_status = _coerce_int_local(sp.get("probe_status")) or 0
+            if sp["probe_type"] == "http":
+                scheme = "https" if sp["protocol"] == "https" else "http"
+                sub_url = f"{scheme}://{parsed_host}:{sp_port}{sp['probe_path']}"
+                r = await _ss.probe_http(sub_url, sp_status, timeout_s)
+            else:
+                r = await _ss.probe_tcp(parsed_host, sp_port, timeout_s)
+            r_rtt = _coerce_int_local(r.get("rtt_ms"))
+            pr = {"port": sp_port, "label": sp["label"],
+                  "alive": bool(r.get("alive")), "rtt_ms": r_rtt,
+                  "error": r.get("error")}
+            port_results.append(pr)
+            # Per-port row persistence.
+            _ss.persist_row(host_id, service_idx,
+                            bool(r.get("alive")), r_rtt,
+                            r.get("error"), ts, port=sp_port)
+            if r.get("alive"):
+                any_alive = True
+                if r_rtt is not None and (min_rtt is None or r_rtt < min_rtt):
+                    min_rtt = r_rtt
+            elif first_error is None:
+                first_error = r.get("error")
+        result = {"alive": any_alive, "rtt_ms": min_rtt,
+                  "error": None if any_alive else (first_error or "all ports down")}
+    elif probe_type == "http" and url:
+        result = await _ss.probe_http(url, expected_status, timeout_s)
+    else:
+        result = await _ss.probe_tcp(parsed_host, int(port or 0), timeout_s)
+    # Rollup row (port=0) — always written so the chip-level status
+    # updates regardless of single-port vs multi-port shape. The
+    # explicit `port=0` matches the sentinel-rollup contract; spelling
+    # it out at every call site beats relying on the default.
+    # Narrow `rtt_ms` + `error` from the result dict's Any-typed cells
+    # to concrete Optional[int] / Optional[str] so persist_row's
+    # parameter types match without an Any|None fallthrough.
+    result_rtt = _coerce_int_local(result.get("rtt_ms"))
+    result_error_raw = result.get("error")
+    result_error = result_error_raw if isinstance(result_error_raw, str) else None
+    # noinspection PyArgumentEqualDefault
+    _ss.persist_row(
+        host_id, service_idx,
+        bool(result.get("alive")),
+        result_rtt,
+        result_error,
+        ts,
+        port=0,
+    )
+    return {
+        "ok": True,
+        "host_id": host_id,
+        "service_idx": service_idx,
+        "ts": ts,
+        "alive": bool(result.get("alive")),
+        "rtt_ms": result.get("rtt_ms"),
+        "error": result.get("error"),
+        # Per-port detail — empty list for single-port chips.
+        "port_results": port_results,
+    }
+
+
+@app.get("/api/services/{host_id}/{service_idx}/history")
+async def api_service_history(host_id: str, service_idx: int, hours: int = 24,
+                              port: Optional[int] = None,
+                              _admin: AdminUser = None):  # type: ignore[assignment]
+    """Admin-only: per-(host, service_idx) probe history for the host
+    drawer's Apps sub-tab. Returns up to N hours of samples ordered
+    oldest-first so a sparkline can render directly.
+
+    ``port`` query param filters the returned rows:
+      - omitted (None): returns the ROLLUP series (chip-level any-port-up
+        history) — equivalent to ``port=0``.
+      - 0: explicit rollup-only.
+      - >0: per-port history for that specific port number.
+      - -1: return every row (rollup + every per-port) — useful for the
+        Apps drawer's expanded multi-port chart.
+    """
+    import time as _time
+    hours_clamped = max(1, min(int(hours or 24), 24 * 30))
+    cutoff = int(_time.time() - hours_clamped * 3600)
+    # Resolve port filter — None defaults to rollup (port=0).
+    if port is None:
+        port_filter: Optional[int] = 0
+    elif port == -1:
+        port_filter = None  # No filter — every row
+    else:
+        port_filter = int(port)
+    base_sql = ("SELECT ts, alive, rtt_ms, error, port "
+                "FROM service_samples "
+                "WHERE host_id = ? AND service_idx = ? AND ts >= ?")
+    params: list[Any] = [host_id, service_idx, cutoff]
+    if port_filter is not None:
+        base_sql += " AND port = ?"
+        params.append(port_filter)
+    base_sql += " ORDER BY ts ASC, port ASC"
+    try:
+        with db_conn() as c:
+            rows = c.execute(base_sql, tuple(params)).fetchall()
+    except sqlite3.OperationalError as oe:
+        # Pre-migration-005 schemas don't have the `port` column yet;
+        # fall back to a SELECT without it so the endpoint stays useful
+        # on a database that hasn't run the additive ALTER.
+        if "no such column" in str(oe).lower():
+            with db_conn() as c:
+                rows = c.execute(
+                    "SELECT ts, alive, rtt_ms, error, 0 AS port "
+                    "FROM service_samples "
+                    "WHERE host_id = ? AND service_idx = ? AND ts >= ? "
+                    "ORDER BY ts ASC",
+                    (host_id, service_idx, cutoff),
+                ).fetchall()
+        else:
+            raise
+    return {
+        "samples": [
+            {
+                "ts": int(r[0]),
+                "alive": bool(r[1]),
+                "rtt_ms": r[2],
+                "error": r[3],
+                "port": r[4],
+            }
+            for r in rows
+        ],
+        "hours": hours_clamped,
+        "port_filter": port_filter,  # None = every row; 0 = rollup; >0 = that port
+    }
+
+
 # noinspection PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/hosts")
 async def api_hosts(force: bool = False):
@@ -11144,6 +11549,103 @@ def _is_host_unconfigured(
     )
 
 
+def _shape_host_apps(h: dict) -> list[dict]:
+    """Return the Apps feature's per-chip array for the API row.
+
+    Walks ``h["services"]`` (operator-curated chip array on the
+    ``hosts_config[]`` entry), stamps each entry with:
+
+    - ``service_idx``  — stable position in the source list; consumed
+      by the manual probe endpoint and per-port history queries.
+    - ``last_probe``   — most-recent sample from ``service_samples``
+      for this (host_id, service_idx). ``None`` when no sample yet.
+    - ``status``       — derived ``up`` / ``down`` / ``unknown`` from
+      ``last_probe.alive`` (None when no sample).
+    - ``catalog``      — resolved catalog template dict when the chip
+      carries ``catalog_id``; ``None`` otherwise.
+
+    Source list entries are NOT mutated — the returned shape is a
+    fresh dict per chip so frontend mutations during render can't
+    propagate back. Empty list when ``h["services"]`` is missing /
+    not a list. Catalog lookup is cached per call so a 30-chip host
+    doesn't hit the DB 30 times.
+    """
+    chips_raw = h.get("services")
+    if not isinstance(chips_raw, list) or not chips_raw:
+        return []
+    host_id = (h.get("id") or "").strip()
+    if not host_id:
+        return []
+    try:
+        from logic.service_sampler import (
+            latest_for_host as _latest_for_host,
+            latest_per_port_for_host as _latest_per_port,
+        )
+        latest = _latest_for_host(host_id)
+    except Exception as e:  # noqa: BLE001
+        print(f"[apps] latest_for_host({host_id!r}) skipped: {e}")
+        latest = {}
+        _latest_per_port = None  # type: ignore[assignment]
+    # Catalog lookup cache for the call. Resolves catalog_id -> dict.
+    # Optional[dict] value type so a catalog lookup that resolves to
+    # None (the FK pointed at a deleted template) can still be cached
+    # — avoids re-querying the DB for the same dead id on every chip.
+    catalog_cache: dict[int, Optional[dict]] = {}
+    try:
+        from logic.service_catalog import get_catalog_by_id as _get_catalog
+    except ImportError:
+        _get_catalog = None  # type: ignore[assignment]
+    out: list[dict] = []
+    for idx, chip in enumerate(chips_raw):
+        if not isinstance(chip, dict):
+            continue
+        sample = latest.get(idx) if isinstance(latest, dict) else None
+        status = "unknown"
+        if isinstance(sample, dict):
+            status = "up" if sample.get("alive") else "down"
+        catalog_block: Optional[dict] = None
+        # `_coerce_int_local` (imported at module top from
+        # service_catalog) narrows the Any-typed `catalog_id` cell to
+        # Optional[int] without the legacy try/except + `in (None, "")`
+        # ladder that type checkers couldn't see through.
+        cid_int = _coerce_int_local(chip.get("catalog_id"))
+        if cid_int and _get_catalog is not None:
+            if cid_int in catalog_cache:
+                catalog_block = catalog_cache[cid_int]
+            else:
+                try:
+                    catalog_block = _get_catalog(cid_int)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[apps] catalog lookup {cid_int} skipped: {e}")
+                    catalog_block = None
+                catalog_cache[cid_int] = catalog_block
+        # Per-port latest results — populated only when this chip is
+        # multi-port AND the sampler has run at least once for it. Empty
+        # list for single-port chips OR multi-port chips with no history.
+        port_results: list[dict] = []
+        probe_block = chip.get("probe") or {}
+        is_multi_port = isinstance(probe_block.get("ports"), list) and bool(probe_block.get("ports"))
+        if is_multi_port and _latest_per_port is not None:
+            try:
+                port_results = _latest_per_port(host_id, idx)
+            except Exception as e:  # noqa: BLE001
+                print(f"[apps] latest_per_port({host_id!r}/{idx}) skipped: {e}")
+                port_results = []
+        out.append({
+            "service_idx": idx,
+            "name": (chip.get("name") or "").strip(),
+            "url": (chip.get("url") or "").strip(),
+            "icon": (chip.get("icon") or "").strip(),
+            "catalog_id": cid_int,
+            "catalog": catalog_block,
+            "probe": probe_block,
+            "status": status,
+            "last_probe": sample,
+            "port_results": port_results,
+        })
+    return out
+
+
 # noinspection PyTypeChecker,PyUnresolvedReferences
 def _shape_host_api_row(
     h: dict,
@@ -11634,6 +12136,15 @@ def _shape_host_api_row(
         "host_http_url_count_ok": int(s.get("host_http_url_count_ok") or 0),
         "host_http_urls": list(s.get("host_http_urls") or []),
         "host_http_ts": int(s.get("host_http_ts") or 0),
+        # Apps feature — curated per-host service chip array surfaced
+        # on the API row so the host drawer's Apps sub-tab + chip strip
+        # can render them. Each entry carries `name / url / icon /
+        # catalog_id / probe / service_idx` plus a stamped `last_probe`
+        # block when a service_sampler tick has produced data for that
+        # chip. `service_idx` is the position in the source array; the
+        # manual probe endpoint (`POST /api/services/{host_id}/{idx}/
+        # probe`) keys off it. Empty list = host has no chips pinned.
+        "apps": _shape_host_apps(h),
     }
 
 
@@ -12611,12 +13122,23 @@ def _clean_host_services(raw: Any) -> list[dict]:
             "name": str,       # display label, max 64 chars
             "url": str,        # optional clickable link, max 256 chars
             "icon": str,       # optional icon slug, max 64 chars
+            "catalog_id": int, # optional FK to service_catalog template
             "probe": {         # optional per-chip reachability probe
                 "enabled": bool,
                 "type": "tcp" | "http",       # default "tcp"
-                "port": int | None,            # 1..65535
+                "port": int | None,            # 1..65535 (single-port legacy)
                 "path": str,                   # http-only, "/" default
                 "expected_status": int,        # 100..599, 0 = 2xx default
+                "ports": [                     # multi-port (Apps feature)
+                    {
+                        "port": int,           # 1..65535
+                        "protocol": "tcp" | "udp" | "http" | "https",
+                        "label": str,          # max 64
+                        "probe_path": str,     # http-only, max 256
+                        "probe_status": int,   # 0..599, 0 = 2xx default
+                    },
+                    ...
+                ]
             }
         }
 
@@ -12639,6 +13161,13 @@ def _clean_host_services(raw: Any) -> list[dict]:
         icon = entry.get("icon")
         if isinstance(icon, str) and icon.strip():
             cleaned["icon"] = icon.strip()[:64]
+        # Optional catalog_id (FK to service_catalog template). Operator
+        # can link a chip to a reusable recipe so name / icon / ports
+        # inherit from the template — the chip's per-host overrides take
+        # precedence at render time.
+        ci = _coerce_int_local(entry.get("catalog_id"))
+        if ci is not None and 1 <= ci <= 2 ** 31 - 1:
+            cleaned["catalog_id"] = ci
         # Preserve every other operator-set field we don't actively
         # validate (status, locked_fields[], asset_id, etc.) so service
         # discovery + manual edits round-trip cleanly through save.
@@ -12675,6 +13204,17 @@ def _clean_host_services(raw: Any) -> list[dict]:
                         probe_out["expected_status"] = ei
                 except (TypeError, ValueError):
                     pass
+            # Multi-port probe shape (Apps feature). Each port has its
+            # own probe verb so a chip with N ports (Portainer 9000 +
+            # 9443) tracks each independently. Routed through
+            # service_catalog._coerce_ports to share validation with
+            # the catalog's default_ports list.
+            ports_raw = probe.get("ports")
+            if isinstance(ports_raw, list) and ports_raw:
+                from logic.service_catalog import coerce_ports
+                ports_clean = coerce_ports(ports_raw)
+                if ports_clean:
+                    probe_out["ports"] = ports_clean
             if probe_out:
                 cleaned["probe"] = probe_out
         if cleaned:

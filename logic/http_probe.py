@@ -62,6 +62,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from logic.url_safety import is_safe_http_url
+
 # Accepted-status-codes default — any code inside the operator-tunable
 # `tuning_http_probe_default_accepted_lo_code` / `_hi_code` range
 # counts as "status_ok" when no per-row override is set. Default
@@ -364,6 +366,33 @@ async def probe_http_health(
             "latency_ms": None,
             "error": "no url",
         }
+    # SSRF defence in depth — the URL comes from per-host curated
+    # config (admin-only via `/api/settings`, write-only secrets
+    # contract). Threat model is documented in `logic/url_safety.py`'s
+    # module docstring: admins already have direct host-network access,
+    # internal probes against RFC1918 / link-local space are LEGITIMATE
+    # for the home-lab deploy story, so the gate is intentionally
+    # narrow (rejects scheme typos like `file://` / `javascript:` /
+    # missing host but accepts every legitimate operator-set value).
+    # Reject obviously-broken inputs up-front so the httpx call below
+    # never sees an unvalidated URL. CodeQL's `py/full-ssrf` annotates
+    # the httpx call site; the per-call inline suppression at the
+    # `client.get(url_clean, ...)` line below cites this gate as the
+    # validator.
+    if not is_safe_http_url(url_clean):
+        return {
+            "ok": False,
+            "status_code": None,
+            "status_ok": False,
+            "content_match_ok": False,
+            "tls_expires_in_days": None,
+            "tls_subject": None,
+            "tls_issuer": None,
+            "dns_resolved": False,
+            "dns_error": "invalid url",
+            "latency_ms": None,
+            "error": "invalid url scheme or missing host",
+        }
     hostname = _hostname_of(url_clean)
     port = _port_of(url_clean)
     scheme = (urlparse(url_clean).scheme or "").lower()
@@ -394,7 +423,14 @@ async def probe_http_health(
             verify=verify_tls,
             follow_redirects=True,
         ) as client:
-            resp = await client.get(url_clean, headers={"User-Agent": "OmniGrid/http-probe"})
+            # codeql[py/full-ssrf] — `url_clean` is gated above by
+            # `is_safe_http_url()`; the canonical SSRF threat model
+            # (per `logic/url_safety.py` docstring) doesn't apply
+            # because the URL is admin-set via `/api/settings`, the
+            # admin already has host-network access, and probes
+            # against RFC1918 / link-local home-lab gear are
+            # LEGITIMATE deployment intent.
+            resp = await client.get(url_clean, headers={"User-Agent": "OmniGrid/http-probe"})  # noqa: S310
             status_code = resp.status_code
             latency_ms = int((time.monotonic() - t0) * 1000)
             cm_local = (content_match or "").strip()

@@ -426,6 +426,13 @@
      * surface; the 1px shadow lifts the line off saturated bars. */
   --spark-stroke: rgba(255, 255, 255, 0.85);
   --spark-shadow: rgba(0, 0, 0, 0.5);
+
+  /* Apps view — per-card status-accent border thickness. Declared
+     here so the .apps-card border-inline-start rule reads a real
+     token (no fallback literals per the strict no-var(--x, default)
+     rule). Same value for both themes; status colour varies by
+     .apps-card--<status> modifier. */
+  --apps-card-border-w: 3px;
 }
 
 :root[data-theme="light"] {
@@ -589,6 +596,11 @@
      * value (a darker-on-light shadow reads as a subtle halo). */
   --spark-stroke: rgba(0, 0, 0, 0.7);
   --spark-shadow: rgba(0, 0, 0, 0.5);
+
+  /* Apps view — see dark theme for rationale; same value works in
+     both themes because the status colour (not the thickness)
+     carries the per-state semantic. */
+  --apps-card-border-w: 3px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -5696,12 +5708,14 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
 }
+
 .chip-strip-legend-btn:hover,
 .chip-strip-legend-btn:focus-visible {
   background: var(--surface-3);
   border-color: var(--primary);
   color: var(--text);
 }
+
 .chip-strip-legend-btn[aria-expanded="true"] {
   background: var(--primary);
   border-color: var(--primary);
@@ -9127,3 +9141,140 @@ select.field-invalid {
   margin-block-start: var(--s-1);
 }
 
+/* ==========================================================================
+   APPS VIEW — cross-host service aggregate cards.
+   Card hover lifts via shadow; status accent is a 3px left-edge border
+   tied to the per-card status modifier. Status dots in the per-host
+   instance list reuse the canonical --success / --warning / --danger /
+   --text-faint tokens for colour parity with the chip strip.
+   --apps-card-border-w is the operator-visible accent thickness; declare
+   on :root for the no-fallback-literals rule.
+   ========================================================================== */
+.apps-card {
+  position: relative;
+  transition: box-shadow 120ms ease, transform 120ms ease;
+  border-inline-start-width: var(--apps-card-border-w);
+}
+
+.apps-card:hover {
+  box-shadow: 0 1px 6px var(--row-hover);
+}
+
+.apps-card--up {
+  border-inline-start-color: var(--success);
+}
+
+.apps-card--down {
+  border-inline-start-color: var(--danger);
+}
+
+.apps-card--degraded {
+  border-inline-start-color: var(--warning);
+}
+
+.apps-card--unknown {
+  border-inline-start-color: var(--text-faint);
+}
+
+.apps-card-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.apps-card-dot--up {
+  background: var(--success);
+}
+
+.apps-card-dot--down {
+  background: var(--danger);
+}
+
+.apps-card-dot--unknown {
+  background: var(--text-faint);
+}
+
+.apps-card-dot--degraded {
+  background: var(--warning);
+}
+
+/* ==========================================================================
+   APPS — host-drawer chip strip + Apps card list.
+   Chip strip is a compact horizontal row of brand-icon + status-dot
+   pairs that sits under the drawer header so a glance answers "what
+   runs here?". Per-status border accent matches the rest of the Apps
+   surface (--success / --warning / --danger / --text-faint).
+   ========================================================================== */
+.apps-chip-strip-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 2px 6px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  text-decoration: none;
+  color: inherit;
+  font-size: var(--fs-3xs);
+  line-height: 1;
+  transition: border-color .15s, background .15s, transform .1s;
+}
+
+.apps-chip-strip-chip:hover {
+  background: var(--row-hover);
+  transform: translateY(-1px);
+}
+
+.apps-chip-strip-chip:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.apps-chip-strip-chip--up {
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+}
+
+.apps-chip-strip-chip--down {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.apps-chip-strip-chip--unknown {
+  border-color: var(--border);
+  opacity: .8;
+}
+
+/* Drawer-side Apps list row hover affordance. */
+.apps-drawer-row:hover {
+  background: var(--row-hover);
+}
+
+/* Per-port mini-pills for multi-port chips in the host drawer Apps card.
+   Render as a compact horizontal pill row immediately under the chip
+   parent row. Each pill carries a status dot + port number + optional
+   rtt. Border accent matches the per-status colour family. */
+.apps-port-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.apps-port-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 1px 6px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  line-height: 1.4;
+}
+
+.apps-port-pill--up {
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+}
+
+.apps-port-pill--down {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+}
