@@ -4055,6 +4055,34 @@ details summary::-webkit-details-marker {
   animation: provider-loading-pulse 1.4s ease-in-out infinite;
 }
 
+/* ---------------------------------------------------------------------------
+   Per-host provider chip state → token mapping — SINGLE SOURCE OF TRUTH.
+   Three surfaces must stay in sync because they all render the same
+   semantic state taxonomy:
+     1. `static/_partials/_components/host-provider-chip.html` — the
+        actual per-host chip in the chip strip
+     2. `static/_partials/_components/chip-strip-legend.html` — the
+        legend popover's swatch row for each state
+     3. `static/_partials/_components/provider-chip-popover.html` — the
+        click-popover header's state pill
+
+   State → token mapping:
+     ok                  → `pill-custom` + `providerChipStyle()`     [chip uses per-brand colour]
+                           OR `pill-success`                          [legend / popover header use a generic vivid green]
+     failing             → `pill-error`            (red — active failure)
+     paused              → `pill-info`             (blue — temporary auto-pause after N failures; was previously `pill-muted` (grey) but conflicted with `configured_inactive`)
+     configured_inactive → `pill-muted`            (grey — host has provider mapped but master toggle off in Admin → Providers)
+     loading             → `pill-custom chip-loading` (pulse animation in the brand colour)
+
+   Operator-flagged constraint: NEVER use `pill-warning` (amber) for any chip
+   state — earlier iteration tried it for paused and operator visually conflated
+   amber-paused with amber-warning chips elsewhere.
+
+   Adding a new state: declare the mapping here + update all three partials
+   in ONE commit. The legend's row order should match the on-chip frequency
+   (most-common state first).
+   --------------------------------------------------------------------------- */
+
 /* Items / Stacks status spinner. Sized identically to the host
    variant (10x10) so the row rhythm stays consistent across views.
    Renders before the icon while `/api/stats` hasn't returned for

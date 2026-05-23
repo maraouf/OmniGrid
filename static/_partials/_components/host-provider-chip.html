@@ -40,7 +40,7 @@
   <button type="button"
           class="chip fs-3xs-half px-1 py-0"
           :class="p.state === 'failing' ? 'pill-error'
-                  : (p.state === 'paused' ? 'pill-muted'
+                  : (p.state === 'paused' ? 'pill-info'
                   : (p.state === 'configured_inactive' ? 'pill-muted'
                   : (p.state === 'loading' ? 'pill-custom chip-loading' : 'pill-custom')))"
           :style="(p.state === 'failing' || p.state === 'paused' || p.state === 'configured_inactive') ? '' : providerChipStyle(p.name)"
