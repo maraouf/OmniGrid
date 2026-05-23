@@ -1,0 +1,30 @@
+{
+  "_doc": [
+    "Stale-terminology lint rules — patterns flagged across user-visible surfaces (i18n bundles + index.html + every _partials/**/*.html).",
+    "Each entry: { pattern: <regex string>, replacement_hint: <human suggestion>, reason: <why this drift class matters>, allowlist: <optional list of file paths where the pattern is intentional> }.",
+    "Update this list whenever a section / tab / label gets renamed: add the OLD literal here so any leftover site fails the lint at CI time.",
+    "Run: python tests/test_no_stale_section_names.py — exits non-zero on any unallowlisted hit."
+  ],
+  "rules": [
+    {
+      "pattern": "Settings\\s*[→>-]\\s*Host stats",
+      "replacement_hint": "Admin → Providers",
+      "reason": "The Host stats settings tab was renamed to Admin → Providers. Old breadcrumb is a dead navigation pointer."
+    },
+    {
+      "pattern": "Admin\\s*[→>-]\\s*Host stats",
+      "replacement_hint": "Admin → Providers",
+      "reason": "Same rename — operator-visible references should say Providers."
+    },
+    {
+      "pattern": "Host stats settings",
+      "replacement_hint": "Providers",
+      "reason": "Modal / form titles that still call the section by its old name."
+    },
+    {
+      "pattern": "\"[^\"]*\\bHost stats\\b[^\"]*\"",
+      "replacement_hint": "Providers",
+      "reason": "Bare 'Host stats' inside any double-quoted i18n value or attribute is a renamed-tab leak. The double-quote anchor avoids matching unrelated phrases inside paragraphs."
+    }
+  ]
+}

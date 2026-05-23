@@ -108,15 +108,31 @@
       <table class="w-full fs-sm">
         <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
         <tr>
-          <th class="text-start px-4 py-2" x-text="t('columns.name')"></th>
-          <th class="text-start px-4 py-2" x-text="t('columns.size')"></th>
-          <th class="text-start px-4 py-2" x-text="t('columns.created')"></th>
-          <th class="text-start px-4 py-2" x-text="t('columns.produced_by')"></th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('name', backupsSort.col, backupsSort.dir)">
+            <button type="button" @click="_sortToggle(backupsSort, 'name')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.name')"></span><span x-text="_sortIndicator('name', backupsSort.col, backupsSort.dir)"></span>
+            </button>
+          </th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('size', backupsSort.col, backupsSort.dir)">
+            <button type="button" @click="_sortToggle(backupsSort, 'size')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.size')"></span><span x-text="_sortIndicator('size', backupsSort.col, backupsSort.dir)"></span>
+            </button>
+          </th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('mtime', backupsSort.col, backupsSort.dir)">
+            <button type="button" @click="_sortToggle(backupsSort, 'mtime')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.created')"></span><span x-text="_sortIndicator('mtime', backupsSort.col, backupsSort.dir)"></span>
+            </button>
+          </th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('produced_by', backupsSort.col, backupsSort.dir)">
+            <button type="button" @click="_sortToggle(backupsSort, 'produced_by')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.produced_by')"></span><span x-text="_sortIndicator('produced_by', backupsSort.col, backupsSort.dir)"></span>
+            </button>
+          </th>
           <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
         </tr>
         </thead>
         <tbody>
-        <template x-for="b in backups" :key="b.name">
+        <template x-for="b in sortedBackups()" :key="b.name">
           <tr class="border-t border-[var(--border)]">
             <td class="px-4 py-2 mono fs-xs" x-text="b.name"></td>
             <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtBytes(b.size)"></td>

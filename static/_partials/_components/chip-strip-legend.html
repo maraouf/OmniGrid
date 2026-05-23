@@ -7,17 +7,29 @@
   explains the colour VOCABULARY; the per-chip popover explains a
   SPECIFIC chip's data.
 
-  Gated on the global `chipLegendOpen: boolean` Alpine state.
+  Gated on `chipLegendOpen` which holds the host id of the row
+  whose legend is currently open (null = closed). Earlier shape
+  used a boolean which caused every chip strip in the view to
+  render its legend simultaneously when any `?` was clicked; the
+  per-host id state scopes the popover to one row at a time.
+
   Outside-click + Esc dismiss; clicking the `?` again toggles off.
 
-  No required surrounding scope contract — this partial is purely
-  presentational. It references `providerChipStyle()` for the OK
-  swatch's colour-mix output so operator customisations under
-  Settings → Providers ARE reflected (uses the default neutral
-  chip key 'beszel' for a brand swatch since the legend is generic).
+  Surrounding Alpine scope MUST define:
+    - h : the host row (from the outer `x-for in hosts`). Used to
+          scope the legend popover to a specific host id so a
+          single global state value can route to one row at a time.
+
+  It references `providerChipStyle()` for the OK swatch's
+  colour-mix output so user customisations under Settings →
+  Providers ARE reflected (uses the default neutral chip key
+  'beszel' for a brand swatch since the legend is generic).
 
   Positioning: absolute under the `?` button; the button + popover
   live inside a `.relative` wrapper so the popover anchors cleanly.
+  Every click handler INSIDE the popover (X close, ? toggle, the
+  popover root itself) carries `.stop` so clicks don't bubble up
+  to the surrounding row's `@click="toggleHost(...)"` handler.
 -->
 <!--suppress HtmlUnknownAttribute -->
 <!-- Wrapper is a `<div>` rendered inline-flex via Tailwind so the
@@ -27,27 +39,28 @@
 <div class="relative inline-flex">
   <button type="button"
           class="chip-strip-legend-btn"
-          @click.stop="chipLegendOpen = !chipLegendOpen"
-          :aria-expanded="chipLegendOpen ? 'true' : 'false'"
+          @click.stop="chipLegendOpen = (chipLegendOpen === h.id) ? null : h.id"
+          :aria-expanded="chipLegendOpen === h.id ? 'true' : 'false'"
           aria-haspopup="dialog"
           :title="t('hosts_extra.chip_legend.button_title')"
           :aria-label="t('hosts_extra.chip_legend.button_aria')"
           x-text="'?'"></button>
-  <div x-show="chipLegendOpen"
+  <div x-show="chipLegendOpen === h.id"
        x-cloak
-       @click.outside="chipLegendOpen = false"
+       @click.stop
+       @click.outside="chipLegendOpen = null"
        role="dialog"
        aria-modal="false"
        :aria-label="t('hosts_extra.chip_legend.dialog_label')"
        class="absolute z-50 mt-1 end-0 w-[300px] max-w-[calc(100vw-2rem)]
               bg-[var(--surface-2)] border border-[var(--border)] rounded-md
               shadow-lg p-3 fs-xs text-[var(--text)]"
-       @keydown.escape.stop="chipLegendOpen = false">
+       @keydown.escape.stop="chipLegendOpen = null">
     <!-- Header — title + close affordance -->
     <div class="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-[var(--border)]">
       <span class="font-semibold" x-text="t('hosts_extra.chip_legend.dialog_title')"></span>
       <button type="button"
-              @click="chipLegendOpen = false"
+              @click.stop="chipLegendOpen = null"
               class="user-action-btn"
               :title="t('actions.close')"
               :aria-label="t('actions.close')">
@@ -59,10 +72,10 @@
 
     <!-- 5-row legend. Each row carries a coloured swatch + state
          name + 1-line meaning. The OK swatch routes through
-         providerChipStyle('beszel') so operator customisations
-         show through (the operator's primary brand colour). The
-         other swatches use the canonical pill-* token classes
-         that the chip itself uses for that state. -->
+         providerChipStyle('beszel') so user customisations show
+         through (the user's primary brand colour). The other
+         swatches use the canonical pill-* token classes that the
+         chip itself uses for that state. -->
     <ul class="space-y-1.5" role="list">
       <li class="flex items-start gap-2">
         <span class="chip-legend-swatch flex-shrink-0 mt-0.5"
@@ -113,7 +126,7 @@
       </li>
     </ul>
 
-    <!-- Hint footer — points operators at the per-chip popover
+    <!-- Hint footer — points users at the per-chip popover
          for detail beyond the colour vocabulary. -->
     <div class="mt-2 pt-2 border-t border-dashed border-[var(--border)] fs-3xs text-[var(--text-faint)] italic"
          x-text="t('hosts_extra.chip_legend.hint_click_chip')"></div>

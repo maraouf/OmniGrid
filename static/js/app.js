@@ -196,14 +196,15 @@ function app() {
     chipPopoverOpen: null,
     // Chip-strip vocabulary legend — density-as-product feature. A
     // small `?` button at the end of each chip strip toggles this
-    // boolean to open / close a 5-row legend popover documenting
+    // state to open / close a 5-row legend popover documenting
     // what each chip colour means (ok / failing / paused /
-    // configured_inactive / loading). Single global because at most
-    // one legend is open at a time across the whole view; the
-    // popover positions relative to whichever consumer renders it.
-    // Esc + outside-click dismiss. See chip-strip-legend.html for
-    // the rendered surface.
-    chipLegendOpen: false,
+    // configured_inactive / loading). Tracks the host id whose `?`
+    // is open (null = no legend open) so the popover scopes to
+    // that one row — earlier shape used a global boolean which
+    // caused every chip strip in the view to render its legend
+    // simultaneously when any `?` was clicked. Esc + outside-click
+    // dismiss. See chip-strip-legend.html for the rendered surface.
+    chipLegendOpen: null,
     // Hosts view state (Beszel-backed). Refreshed via /api/hosts on a
     // separate cadence from the item cache — hub calls are cheap and
     // the view wants faster feedback than the 15-30s item refresh.
@@ -7269,6 +7270,93 @@ function app() {
         return 'none';
       }
       return currentDir === 'asc' ? 'ascending' : 'descending';
+    },
+    // Shared sort-direction indicator. Returns ' ▲' / ' ▼' / '' so
+    // any sortable table can show a unicode caret next to the column
+    // header without dragging in an SVG asset. Bind via x-text on a
+    // sibling span so the header text stays in i18n while the
+    // indicator is purely visual.
+    _sortIndicator(field, currentField, currentDir) {
+      if (currentField !== field) {
+        return '';
+      }
+      return currentDir === 'asc' ? ' ▲' : ' ▼';
+    },
+    // Shared sort-toggle helper. Mutates the sortObj `{col, dir}`
+    // in place: clicking the active column flips direction; clicking
+    // a different column resets to descending (matches the AI tab's
+    // ergonomics — operators usually want newest / largest first).
+    _sortToggle(sortObj, col) {
+      if (!sortObj || !col) {
+        return;
+      }
+      if (sortObj.col === col) {
+        sortObj.dir = (sortObj.dir === 'asc') ? 'desc' : 'asc';
+      } else {
+        sortObj.col = col;
+        sortObj.dir = 'desc';
+      }
+    },
+    // Stable mixed-type comparator. Numbers compare as numbers;
+    // numeric strings (digits / dots / sign / exponent only) are
+    // promoted to numbers so "100" sorts after "9"; everything else
+    // compares as a string. Nulls (and empty strings) sink to the
+    // bottom regardless of direction so partial datasets don't
+    // disrupt sort ergonomics. Mirrors `_aiSortValue` in app-ai.js
+    // — could consolidate later, but the AI module ships with its
+    // own copy to stay independently loadable.
+    _sortValue(row, col) {
+      if (!row || !col) {
+        return null;
+      }
+      const v = row[col];
+      if (v == null || v === '') {
+        return null;
+      }
+      if (typeof v === 'number') {
+        return v;
+      }
+      if (typeof v === 'string' && /^[\d.\-+eE]+$/.test(v)) {
+        const n = Number(v);
+        if (Number.isFinite(n)) {
+          return n;
+        }
+      }
+      return String(v);
+    },
+    // Generic sort over a `{col, dir}` SortObj. Returns the same
+    // array reference when no sort is active (col is empty) so
+    // Alpine's reactive bindings don't rebuild the DOM on every poll
+    // tick when nothing changed; produces a new sorted copy when
+    // sort IS active.
+    _sortRows(rows, sortObj) {
+      if (!sortObj || !sortObj.col || !Array.isArray(rows) || rows.length < 2) {
+        return rows || [];
+      }
+      const col = sortObj.col;
+      const dir = (sortObj.dir === 'asc') ? 1 : -1;
+      const out = rows.slice();
+      out.sort((a, b) => {
+        const av = this._sortValue(a, col);
+        const bv = this._sortValue(b, col);
+        if (av == null && bv == null) {
+          return 0;
+        }
+        if (av == null) {
+          return 1;
+        }
+        if (bv == null) {
+          return -1;
+        }
+        if (av < bv) {
+          return -1 * dir;
+        }
+        if (av > bv) {
+          return 1 * dir;
+        }
+        return 0;
+      });
+      return out;
     },
     toggleStack(name) {
       if (this.expanded.includes(name)) {

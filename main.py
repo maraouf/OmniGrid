@@ -6494,6 +6494,8 @@ async def api_admin_stats_samples(
         ("host_webmin_samples", "webmin", "webmin per-tick", "ts", "host_id"),
         ("host_metrics_samples", "node_exporter", "ne per-tick", "ts", "host_id"),
         ("host_net_samples", "node_exporter", "ne net rates", "ts", "host_id"),
+        ("host_http_samples", "http_probe", "http probe per-tick", "ts", "host_id"),
+        ("service_samples", "service_probe", "service probe per-tick", "ts", "host_id"),
         ("stats_samples", "portainer", "container stats", "ts", "item_id"),
         ("host_port_scans", "port_scan", "open ports", "ts", "host_id"),
         ("host_failure_events", "events", "failure log", "ts", "host_id"),

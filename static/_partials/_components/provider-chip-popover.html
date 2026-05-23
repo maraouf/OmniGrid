@@ -26,6 +26,7 @@
               && chipPopoverOpen.host_id === h.id
               && chipPopoverOpen.provider_name === p.name"
      x-cloak
+     @click.stop
      @click.outside="closeProviderChipPopover()"
      role="dialog"
      aria-modal="false"
@@ -49,7 +50,7 @@
                     : ((chipPopoverOpen && chipPopoverOpen.state === 'loading') ? 'pill-custom chip-loading' : 'pill-ok')))"
             x-text="chipPopoverOpen ? t('hosts_extra.provider_popover.state_' + chipPopoverOpen.state) : ''"></span>
       <button type="button"
-              @click="closeProviderChipPopover()"
+              @click.stop="closeProviderChipPopover()"
               class="user-action-btn"
               :title="t('actions.close')"
               :aria-label="t('actions.close')">
@@ -128,7 +129,7 @@
        per-provider history charts + tunables. -->
   <div class="flex justify-end mt-2 pt-2 border-t border-dashed border-[var(--border)]">
     <button type="button"
-            @click="closeProviderChipPopover(); openHostDrawer(h)"
+            @click.stop="closeProviderChipPopover(); openHostDrawer(h)"
             class="btn btn-ghost fs-xs"
             x-text="t('hosts_extra.provider_popover.open_drawer')"></button>
   </div>

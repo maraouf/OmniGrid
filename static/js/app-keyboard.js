@@ -155,9 +155,10 @@ export default {
       }
       // Chip-strip vocabulary legend — same close-before-drawer
       // priority as the per-chip popover. Quick-look overlay, no
-      // navigation state to preserve.
+      // navigation state to preserve. `chipLegendOpen` is the host
+      // id whose legend is open (null = closed).
       if (this.chipLegendOpen) {
-        this.chipLegendOpen = false;
+        this.chipLegendOpen = null;
         e.preventDefault();
         return;
       }

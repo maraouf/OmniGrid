@@ -1,59 +1,86 @@
-      <div x-show="adminTab==='sessions'" class="space-y-4">
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
-          <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
-            <div>
-              <div class="flex items-center gap-2 mb-2">
-                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-monitor"/></svg>
-                <h3 class="font-semibold fs-md"><span x-text="t('admin.sessions.active_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + sessions.length + ')'"></span></h3>
-              </div>
-              <p class="fs-xs text-[var(--text-faint)]" x-text="t('admin.sessions.hint')"></p>
-            </div>
-            <button type="button"
-                    @click="_runWithBusy('sessions', () => loadSessions())"
-                    :disabled="_loadBusy.sessions === true"
-                    :title="t('actions.reload')"
-                    :aria-label="t('actions.reload')"
-                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.sessions === true ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-              </svg>
-              <span x-text="t('actions.reload')"></span>
+<!--suppress HtmlUnknownAttribute -->
+<div x-show="adminTab==='sessions'" class="space-y-4">
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+    <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-monitor"/>
+          </svg>
+          <h3 class="font-semibold fs-md"><span x-text="t('admin.sessions.active_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + sessions.length + ')'"></span></h3>
+        </div>
+        <p class="fs-xs text-[var(--text-faint)]" x-text="t('admin.sessions.hint')"></p>
+      </div>
+      <button type="button"
+              @click="_runWithBusy('sessions', () => loadSessions())"
+              :disabled="_loadBusy.sessions === true"
+              :title="t('actions.reload')"
+              :aria-label="t('actions.reload')"
+              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="_loadBusy.sessions === true ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+        </svg>
+        <span x-text="t('actions.reload')"></span>
+      </button>
+    </div>
+    <!-- Initial-load placeholder. /api/sessions does a non-trivial
+         JOIN across users + sessions and on a busy backend can take
+         several seconds; without this the operator sees an empty
+         table and assumes "no sessions". Unified loader. -->
+    <div x-show="!sessionsLoaded" class="loading-state">
+      <span class="spin-lg" aria-hidden="true"></span>
+      <span x-text="t('loading.section')"></span>
+    </div>
+    <div class="overflow-x-auto scrollbar" x-show="sessionsLoaded">
+      <table class="w-full fs-sm">
+        <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+        <tr>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('username', sessionsSort.col, sessionsSort.dir)">
+            <button type="button" @click="_sortToggle(sessionsSort, 'username')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.user')"></span><span x-text="_sortIndicator('username', sessionsSort.col, sessionsSort.dir)"></span>
             </button>
-          </div>
-          <!-- Initial-load placeholder. /api/sessions does a non-trivial
-               JOIN across users + sessions and on a busy backend can take
-               several seconds; without this the operator sees an empty
-               table and assumes "no sessions". Unified loader. -->
-          <div x-show="!sessionsLoaded" class="loading-state">
-            <span class="spin-lg" aria-hidden="true"></span>
-            <span x-text="t('loading.section')"></span>
-          </div>
-          <div class="overflow-x-auto scrollbar" x-show="sessionsLoaded">
-            <table class="w-full fs-sm">
-              <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
-                <tr>
-                  <th class="text-start px-4 py-2" x-text="t('columns.user')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('admin.sessions.method_label')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.ip')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.user_agent')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('admin.sessions.login_at_label')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.last_seen')"></th>
-                  <th class="text-start px-4 py-2" x-text="t('columns.expires')"></th>
-                  <th class="text-end px-4 py-2" x-text="t('columns.action')"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="s in sessions" :key="s.token_id">
-                  <tr class="border-t border-[var(--border)]">
-                    <td class="px-4 py-2 font-medium" x-text="s.username || t('admin.sessions.deleted_user')"></td>
-                    <!-- Auth method pill. Colour family follows
-                         the project's pill-* tokens: passkey / totp /
-                         oidc are "secured" → pill-success / pill-info;
-                         password / bootstrap are "single-factor" →
-                         pill-muted. Unknown methods (legacy rows or
-                         a future kind not in the map) fall through to
-                         pill-muted with the raw value. -->
-                    <td class="px-4 py-2">
+          </th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('auth_method', sessionsSort.col, sessionsSort.dir)">
+            <button type="button" @click="_sortToggle(sessionsSort, 'auth_method')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('admin.sessions.method_label')"></span><span x-text="_sortIndicator('auth_method', sessionsSort.col, sessionsSort.dir)"></span>
+            </button>
+          </th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('ip', sessionsSort.col, sessionsSort.dir)">
+            <button type="button" @click="_sortToggle(sessionsSort, 'ip')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.ip')"></span><span x-text="_sortIndicator('ip', sessionsSort.col, sessionsSort.dir)"></span>
+            </button>
+          </th>
+          <th class="text-start px-4 py-2" x-text="t('columns.user_agent')"></th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('created_at', sessionsSort.col, sessionsSort.dir)">
+            <button type="button" @click="_sortToggle(sessionsSort, 'created_at')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('admin.sessions.login_at_label')"></span><span x-text="_sortIndicator('created_at', sessionsSort.col, sessionsSort.dir)"></span>
+            </button>
+          </th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('last_seen', sessionsSort.col, sessionsSort.dir)">
+            <button type="button" @click="_sortToggle(sessionsSort, 'last_seen')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.last_seen')"></span><span x-text="_sortIndicator('last_seen', sessionsSort.col, sessionsSort.dir)"></span>
+            </button>
+          </th>
+          <th class="text-start px-4 py-2" :aria-sort="_sortAria('expires_at', sessionsSort.col, sessionsSort.dir)">
+            <button type="button" @click="_sortToggle(sessionsSort, 'expires_at')" class="uppercase tracking-wider hover:text-[var(--text)]">
+              <span x-text="t('columns.expires')"></span><span x-text="_sortIndicator('expires_at', sessionsSort.col, sessionsSort.dir)"></span>
+            </button>
+          </th>
+          <th class="text-end px-4 py-2" x-text="t('columns.action')"></th>
+        </tr>
+        </thead>
+        <tbody>
+        <template x-for="s in sortedSessions()" :key="s.token_id">
+          <tr class="border-t border-[var(--border)]">
+            <td class="px-4 py-2 font-medium" x-text="s.username || t('admin.sessions.deleted_user')"></td>
+            <!-- Auth method pill. Colour family follows
+                 the project's pill-* tokens: passkey / totp /
+                 oidc are "secured" → pill-success / pill-info;
+                 password / bootstrap are "single-factor" →
+                 pill-muted. Unknown methods (legacy rows or
+                 a future kind not in the map) fall through to
+                 pill-muted with the raw value. -->
+            <td class="px-4 py-2">
                       <span class="pill inline-flex items-center gap-1"
                             :class="(s.auth_method === 'passkey' ? 'pill-success'
                                    : s.auth_method === 'totp' ? 'pill-success'
@@ -68,41 +95,41 @@
                         </template>
                         <span x-text="t('admin.sessions.method_' + (s.auth_method || 'password'))"></span>
                       </span>
-                    </td>
-                    <td class="px-4 py-2 mono fs-xs" x-text="s.ip || '—'"></td>
-                    <td class="px-4 py-2 fs-xs text-[var(--text-dim)] truncate max-w-[280px]" x-text="s.user_agent || '—'" :title="s.user_agent || ''"></td>
-                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
-                        :title="s.issued_at ? fmtDate(s.issued_at) : ''"
-                        x-text="s.issued_at ? fmtDate(s.issued_at) : '—'"></td>
-                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
-                        x-text="fmtDate(s.last_seen_at)"></td>
-                    <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
-                        x-text="fmtDate(s.expires_at)"></td>
-                    <td class="px-4 py-2 text-end">
-                      <!-- Action-button row — same pattern as Admin →
-                           Users / API tokens / Backup / Config Backup
-                           / Schedules. Single destructive action. -->
-                      <div class="inline-flex items-center gap-0.5 justify-end user-actions">
-                        <button type="button"
-                                @click="revokeSession(s)"
-                                class="user-action-btn user-action-btn--danger"
-                                :title="t('admin.sessions.revoke')"
-                                :aria-label="t('admin.sessions.revoke')">
-                          <svg width="14" height="14" aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
-                          </svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </template>
-                <tr x-show="sessions.length===0">
-                  <td colspan="8" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_sessions')"></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
+            </td>
+            <td class="px-4 py-2 mono fs-xs" x-text="s.ip || '—'"></td>
+            <td class="px-4 py-2 fs-xs text-[var(--text-dim)] truncate max-w-[280px]" x-text="s.user_agent || '—'" :title="s.user_agent || ''"></td>
+            <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
+                :title="s.issued_at ? fmtDate(s.issued_at) : ''"
+                x-text="s.issued_at ? fmtDate(s.issued_at) : '—'"></td>
+            <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
+                x-text="fmtDate(s.last_seen_at)"></td>
+            <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"
+                x-text="fmtDate(s.expires_at)"></td>
+            <td class="px-4 py-2 text-end">
+              <!-- Action-button row — same pattern as Admin →
+                   Users / API tokens / Backup / Config Backup
+                   / Schedules. Single destructive action. -->
+              <div class="inline-flex items-center gap-0.5 justify-end user-actions">
+                <button type="button"
+                        @click="revokeSession(s)"
+                        class="user-action-btn user-action-btn--danger"
+                        :title="t('admin.sessions.revoke')"
+                        :aria-label="t('admin.sessions.revoke')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+                  </svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="sessions.length===0">
+          <td colspan="8" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_sessions')"></td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
 
-      <!-- API TOKENS TAB -->
+<!-- API TOKENS TAB -->
