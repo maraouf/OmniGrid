@@ -2,6 +2,26 @@
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
 // noinspection NestedTemplateLiteralJS
+// Constant-on-RHS comparison is the IDE preferring `'Foo' === x` (Yoda) over `x === 'Foo'` —
+// project convention is the natural `x === 'Foo'` form. Variable-naming `_t` / `_pendingIdx` /
+// `_hotkeyCharToCode` are deliberate underscore-prefixed locals (module-private convention used
+// across SPA modules). Anonymous functions cover the inline `_buttonGroupArrowKey` predicate
+// callbacks. `continue` statements are control-flow that's clearer than restructuring nested
+// for/if. Unused catch `_` is the conventional ignore-and-move-on shape. `void` expressions
+// are the deliberate "discard the assignment result" pattern for the `run` arrow handlers so
+// the IDE's "Result of assignment expression used" stops flagging valid expression-body arrows.
+// Alpine-template references (`$refs`, helper methods exported via the spread component) trigger the
+// "Element is not exported" + "Unresolved variable" WEAK warnings — Alpine wires these at
+// runtime via `Alpine.data(...)` so the static analyser can't see the binding.
+// noinspection ConstantOnRightSideOfComparisonJS,JSConstantOnRightSideOfComparison
+// noinspection AnonymousFunctionJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,JSCheckNamingConventionsInspection,BadName,BadVariableName
+// noinspection ContinueStatementJS,BreakStatementJS
+// noinspection UnusedCatchParameterJS,EmptyCatchBlockJS
+// noinspection OverlyComplexBooleanExpressionJS,OverlyComplexBooleanExpression
+// noinspection NestedFunctionCallJS
+// noinspection VoidExpressionJS,JSVoidExpression
+// noinspection ElementNotExported,JSUnusedGlobalSymbols,JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA keyboard hotkey + button-group arrow-key navigation.
@@ -47,12 +67,12 @@ export default {
         title: _t('hotkeys.groups.navigate'),
         items: [
           {keys: ['Cmd/Ctrl', '/'], label: _t('hotkeys.items.focus_search'), run: () => this.$refs.searchBox?.focus()},
-          {keys: ['Cmd/Ctrl', '1'], label: _t('hotkeys.items.view_stacks'), run: () => this.view = 'stacks'},
-          {keys: ['Cmd/Ctrl', '2'], label: _t('hotkeys.items.view_services'), run: () => this.view = 'services'},
-          {keys: ['Cmd/Ctrl', '3'], label: _t('hotkeys.items.view_nodes'), run: () => this.view = 'nodes'},
-          {keys: ['Cmd/Ctrl', '4'], label: _t('hotkeys.items.view_hosts'), run: () => this.view = 'hosts'},
-          {keys: ['Cmd/Ctrl', '5'], label: _t('hotkeys.items.view_history'), run: () => this.view = 'history'},
-          {keys: ['Cmd/Ctrl', 'Shift', '/'], label: _t('hotkeys.items.show_help'), run: () => this.showHotkeys = true},
+          {keys: ['Cmd/Ctrl', '1'], label: _t('hotkeys.items.view_stacks'), run: () => void (this.view = 'stacks')},
+          {keys: ['Cmd/Ctrl', '2'], label: _t('hotkeys.items.view_services'), run: () => void (this.view = 'services')},
+          {keys: ['Cmd/Ctrl', '3'], label: _t('hotkeys.items.view_nodes'), run: () => void (this.view = 'nodes')},
+          {keys: ['Cmd/Ctrl', '4'], label: _t('hotkeys.items.view_hosts'), run: () => void (this.view = 'hosts')},
+          {keys: ['Cmd/Ctrl', '5'], label: _t('hotkeys.items.view_history'), run: () => void (this.view = 'history')},
+          {keys: ['Cmd/Ctrl', 'Shift', '/'], label: _t('hotkeys.items.show_help'), run: () => void (this.showHotkeys = true)},
           {keys: ['Cmd/Ctrl', 'B'], label: _t('hotkeys.items.notifications'), run: () => this.openNotificationsPopup()},
           {keys: ['Cmd/Ctrl', 'K'], label: _t('hotkeys.items.command_palette'), run: () => this.openCommandPalette()},
           {keys: ['Esc'], label: _t('hotkeys.items.close_clear'), run: null, note: _t('hotkeys.items.close_clear_note')},
@@ -110,8 +130,7 @@ export default {
   },
   handleHotkey(e) {
     const target = e.target || null;
-    const active = document.activeElement || null;
-    const el = active;
+    const el = document.activeElement || null;
     // Escape works everywhere, including from inside an input — it's the
     // universal "get me out of here" key. Handle it BEFORE any guards.
     if (e.key === 'Escape') {
@@ -552,9 +571,10 @@ export default {
 
   // Generic horizontal button-group arrow-key navigation. For
   // chip-strip patterns (stats range-pickers, refresh-interval
-  // picker, host-stats provider chip strip) that use
-  // `role="group"` + per-button `aria-pressed` rather than the
-  // full radio-group semantics. Bind on the wrapper via
+  // picker, host-stats provider chip strip) that use EITHER
+  // `role="group"` + per-button `aria-pressed` (toggle-button group)
+  // OR `role="radiogroup"` + per-button `role="radio"` + `aria-checked`
+  // (radio group — e.g. <og-range-picker>). Bind on the wrapper via
   // `@keydown="_buttonGroupArrowKey($event)"`. ArrowLeft/Right move
   // focus + click (focus-follows-selection); Home / End jump to
   // ends. ArrowUp / Down also wired so up-down keyboards work
@@ -577,11 +597,17 @@ export default {
     try {
       isRtl = group.matches(':dir(rtl)');
     } catch (_e) {
-      isRtl = (document.documentElement.dir === 'rtl' || document.body.dir === 'rtl');
+      isRtl = document.documentElement.dir === 'rtl';
     }
     let idx = btns.indexOf(document.activeElement);
     if (idx < 0) {
-      idx = btns.findIndex(b => b.getAttribute('aria-pressed') === 'true');
+      // Active-button fallback covers BOTH ARIA patterns this helper
+      // serves: `role="group"` + `aria-pressed` (toggle-button group —
+      // e.g. host-stats provider chip strip) AND `role="radiogroup"` +
+      // `aria-checked` (radio group — e.g. <og-range-picker>). Either
+      // attribute set to 'true' marks the current selection.
+      idx = btns.findIndex(b => b.getAttribute('aria-pressed') === 'true'
+        || b.getAttribute('aria-checked') === 'true');
     }
     if (idx < 0) {
       idx = 0;
