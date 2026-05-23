@@ -17,13 +17,13 @@
 // dismissals. `continue` is the section-saves-its-own-tunables
 // dirty-check pattern. Overly-complex bool is the multi-condition
 // section-dirty / retention-changed predicate.
-// noinspection JSUnusedGlobalSymbols,UnusedFunctionJS,ElementNotExported
+// noinspection JSUnusedGlobalSymbols,JSUnusedLocalSymbols,UnusedFunctionJS,JSUnusedFunction,ElementNotExported,JSElementNotExported
 // noinspection ConstantOnRightSideOfComparisonJS,JSConstantOnRightSideOfComparison
-// noinspection AnonymousFunctionJS
-// noinspection ContinueStatementJS,BreakStatementJS
-// noinspection UnusedCatchParameterJS,EmptyCatchBlockJS
-// noinspection OverlyComplexBooleanExpressionJS,OverlyComplexBooleanExpression
-// noinspection NestedFunctionCallJS
+// noinspection AnonymousFunctionJS,JSAnonymousFunctionAssignment
+// noinspection ContinueStatementJS,JSContinueStatement,BreakStatementJS,JSBreakStatement
+// noinspection UnusedCatchParameterJS,JSUnusedCatchParameter,EmptyCatchBlockJS,JSEmptyCatchBlock
+// noinspection OverlyComplexBooleanExpressionJS,OverlyComplexBooleanExpression,JSOverlyComplexBooleanExpression
+// noinspection NestedFunctionCallJS,JSNestedFunctionCall
 // noinspection ExceptionCaughtLocallyJS,JSExceptionCaughtLocally
 // noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */

@@ -17,12 +17,12 @@
 // localStorage persistence + fetch failures (the surrounding toast
 // owns the user-visible error). `continue` is the nested-loop
 // skip pattern in the notify-events grid bulk handlers.
-// noinspection JSUnusedGlobalSymbols,UnusedFunctionJS,ElementNotExported
+// noinspection JSUnusedGlobalSymbols,JSUnusedLocalSymbols,UnusedFunctionJS,JSUnusedFunction,ElementNotExported,JSElementNotExported
 // noinspection ConstantOnRightSideOfComparisonJS,JSConstantOnRightSideOfComparison
-// noinspection AnonymousFunctionJS
-// noinspection ContinueStatementJS,BreakStatementJS
-// noinspection UnusedCatchParameterJS,EmptyCatchBlockJS
-// noinspection NestedFunctionCallJS
+// noinspection AnonymousFunctionJS,JSAnonymousFunctionAssignment
+// noinspection ContinueStatementJS,JSContinueStatement,BreakStatementJS,JSBreakStatement
+// noinspection UnusedCatchParameterJS,JSUnusedCatchParameter,EmptyCatchBlockJS,JSEmptyCatchBlock
+// noinspection NestedFunctionCallJS,JSNestedFunctionCall
 // noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */

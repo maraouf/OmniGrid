@@ -19,12 +19,12 @@
 // `loadScheduleQueue()` fire-and-forget calls in the queue-page
 // navigation handlers — by design, the caller wants the page change
 // to feel instant, not block on the round-trip.
-// noinspection JSUnusedGlobalSymbols,UnusedFunctionJS,ElementNotExported
-// noinspection ContinueStatementJS,BreakStatementJS
-// noinspection UnusedCatchParameterJS,EmptyCatchBlockJS
-// noinspection OverlyComplexBooleanExpressionJS,OverlyComplexBooleanExpression
-// noinspection NestedFunctionCallJS
-// noinspection TailRecursionJS,JSRecursive
+// noinspection JSUnusedGlobalSymbols,JSUnusedLocalSymbols,UnusedFunctionJS,JSUnusedFunction,ElementNotExported,JSElementNotExported
+// noinspection ContinueStatementJS,JSContinueStatement,BreakStatementJS,JSBreakStatement
+// noinspection UnusedCatchParameterJS,JSUnusedCatchParameter,EmptyCatchBlockJS,JSEmptyCatchBlock
+// noinspection OverlyComplexBooleanExpressionJS,OverlyComplexBooleanExpression,JSOverlyComplexBooleanExpression
+// noinspection NestedFunctionCallJS,JSNestedFunctionCall
+// noinspection TailRecursionJS,JSTailRecursion,JSRecursive
 // noinspection JSIgnoredPromiseFromCall,JSUnhandledPromiseFromCall
 // noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
