@@ -4206,6 +4206,14 @@ details summary::-webkit-details-marker {
   align-items: center;
   gap: var(--s-2);
   flex-wrap: wrap;
+  /* Force onto its own row inside the wrapping flex parent.
+     `flex-basis: 100%` plus `flex-wrap: wrap` on `.notify-category-header`
+     means the chip strip ALWAYS renders below the category toggle,
+     never beside it — user-flagged that the chips sometimes wrapped
+     to a new line and sometimes to the same line depending on
+     viewport / category-label length; locking the basis to full
+     width fixes both shapes to "always on its own line". */
+  flex-basis: 100%;
 }
 
 .notify-cat-count {
