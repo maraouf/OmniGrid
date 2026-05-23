@@ -403,7 +403,7 @@
         <input type="checkbox" :disabled="isReadonly()"
                :checked="hasHostStatsSource('pulse')"
                @change="toggleHostStatsSource('pulse', $event.target.checked)">
-        <span x-text="t('settings.host_stats.tab_enable_label', { provider: 'Pulse' })"></span>
+        <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_pulse') })"></span>
       </label>
       <span class="chip"
             :class="hasHostStatsSource('pulse') ? 'pill-ok' : 'pill-muted'"
@@ -582,7 +582,7 @@
         <input type="checkbox" :disabled="isReadonly()"
                :checked="hasHostStatsSource('webmin')"
                @change="toggleHostStatsSource('webmin', $event.target.checked)">
-        <span x-text="t('settings.host_stats.tab_enable_label', { provider: 'Webmin' })"></span>
+        <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_webmin') })"></span>
       </label>
       <span class="chip"
             :class="hasHostStatsSource('webmin') ? 'pill-ok' : 'pill-muted'"

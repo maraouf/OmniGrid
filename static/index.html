@@ -2277,7 +2277,7 @@
 
       <!-- Config banner — Beszel not set up, or hub returning errors. -->
       <div x-show="!hostsConfigured" class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 fs-sm text-[var(--text-dim)]">
-        <span x-text="hostsError || 'Beszel is not configured — set Hub URL / identity / password in Settings → Host stats.'"></span>
+        <span x-text="hostsError || 'Beszel is not configured — set Hub URL / identity / password in Admin → Providers.'"></span>
       </div>
       <!-- Aggregate error banner — hidden when per-provider chips in
            the toolbar are carrying the detail (avoids duplicate
@@ -2812,21 +2812,25 @@
                           <!-- Subline text priority:
                          1. "Updated Xs ago" when Beszel reported a
                             last-seen time (live providers signal).
-                         2. "N provider(s)" when ANY provider matched
-                            but no Beszel timestamp is available.
-                         3. Status-aware fallback for zero-provider
-                            rows: i18n'd "No agents configured" for
+                         2. Status-aware fallback for zero-provider
+                            rows: i18n'd "No providers configured" for
                             inventory rows (unconfigured status),
-                            "No data from agents" for rows that have
+                            "No data from providers" for rows that have
                             providers mapped but nothing responded
                             (unknown status). Loading rows stay blank
-                            so the spinner isn't obscured. -->
+                            so the spinner isn't obscured.
+                         The "N provider(s)" branch was REMOVED — the
+                         chip strip on its own line directly below this
+                         subline already conveys the count visually
+                         (one chip per provider, with state colour). A
+                         text count would be redundant noise. The
+                         zero-provider fallbacks stay because they
+                         convey state the chip strip can't (an empty
+                         chip strip is invisible). -->
                           <span x-text="
                       fmtUpdatedAgo(h.beszel_updated) ||
                       ((h.providers || []).length
-                        ? ((h.providers || []).length === 1
-                            ? t('hosts_extra.provider_count_one')
-                            : t('hosts_extra.provider_count_many', { count: (h.providers || []).length }))
+                        ? ''
                         : h.status === 'unknown'
                           ? t('hosts_extra.agents_not_responding')
                           : h.status === 'loading' ? ''
@@ -7467,7 +7471,7 @@
                     <div class="fs-2xs text-[var(--text-faint)] mt-1">
                       <span x-show="!hasHostStatsSource('http_probe')"
                             class="text-[var(--warning)]"
-                            x-text="t('host_drawer.http_probe.no_data_hint_global_off') || 'HTTP probe is not enabled in Settings → Host stats — enable the master toggle.'"></span>
+                            x-text="t('host_drawer.http_probe.no_data_hint_global_off') || 'HTTP probe is not enabled in Admin → Providers — enable the master toggle.'"></span>
                       <span x-show="hasHostStatsSource('http_probe') && !(Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0)"
                             x-text="t('host_drawer.http_probe.no_data_hint_no_urls') || 'No URLs resolved for this host.'"></span>
                       <span x-show="hasHostStatsSource('http_probe') && (Array.isArray(h.host_http_urls) && h.host_http_urls.length > 0)"

@@ -838,7 +838,7 @@
   },
   "nodes": {
     "docker_disk_tooltip": "Docker daemon footprint: image layers + container writable layers + volumes + build cache",
-    "docker_disk_caption": "Docker-only. Enable Host stats (node-exporter) in Settings for real host disk usage.",
+    "docker_disk_caption": "Docker-only. Enable node-exporter in Admin → Providers for real host disk usage.",
     "host_disk_tooltip": "Real host disk usage across all non-pseudo mounts (node-exporter).",
     "stats_merged_from_title": "Stats merged from: {sources}",
     "stats_all_failed_title": "All configured host-stats sources failed — falling back to Docker-only signals.",
@@ -3296,7 +3296,7 @@
       "title_unmatched": "{name} is enabled but matched no host",
       "title_match_one": "{name} — 1 host",
       "title_match_many": "{name} — {count} hosts",
-      "title_configured_inactive": "{name} — {count} host(s) mapped but provider not enabled in Admin → Host stats. Flip the master toggle and Save to start probing."
+      "title_configured_inactive": "{name} — {count} host(s) mapped but provider not enabled in Admin → Providers. Flip the master toggle and Save to start probing."
     },
     "host_count_one": "1 host",
     "host_count_many": "{count} hosts",
@@ -3322,7 +3322,7 @@
     "provider_failing": "{provider} is enabled and mapped for this host but returned no data (probe failed / agent paused / unreachable / auth error). Open the drawer's Debug panel for the provider's raw response.",
     "provider_paused": "{provider} auto-paused after {count} consecutive probe failures. Last error: {error}. Probes are stopped until you click Resume.",
     "provider_loading": "{provider} — fetching data…",
-    "provider_configured_inactive": "{provider} is mapped on this host but the provider isn't enabled in Admin → Host stats (`host_stats_source` CSV). Flip the master toggle in that section and Save to start probing.",
+    "provider_configured_inactive": "{provider} is mapped on this host but the provider isn't enabled in Admin → Providers (`host_stats_source` CSV). Flip the master toggle in that section and Save to start probing.",
     "provider_resume": "Resume",
     "provider_resuming": "…",
     "provider_resume_title": "Clear the {provider} auto-pause for this host so probes start running again. The next failed probe will start a fresh failure counter.",
@@ -3664,7 +3664,7 @@
       "cert_link_aria": "Open cert record for {name}",
       "history_heading": "Latency history",
       "history_no_data": "No latency samples in this window yet.",
-      "no_data_hint_global_off": "HTTP probe is not enabled in Settings → Host stats — enable the master toggle to start collecting samples.",
+      "no_data_hint_global_off": "HTTP probe is not enabled in Admin → Providers — enable the master toggle to start collecting samples.",
       "no_data_hint_no_urls": "No URLs resolved for this host — add URLs to http_probe.urls in Admin → Hosts, or set the top-level URL / services URLs.",
       "no_data_hint_waiting": "Probe configured — waiting for the next sampler tick to write the first sample.",
       "show_all": "Show {n} more",
@@ -3936,7 +3936,7 @@
     "count_hosts": "hosts",
     "top": "↑ Top",
     "top_title": "Jump to top of list",
-    "host_stats_unsaved_title": "You have unsaved changes in Host stats settings.",
+    "host_stats_unsaved_title": "You have unsaved changes in Admin → Providers.",
     "collapse_all": "Collapse all",
     "collapse_all_title": "Collapse every host row to its summary line"
   },
