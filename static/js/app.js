@@ -472,7 +472,7 @@ function app() {
     _lastTestSuccessNow: Math.floor(Date.now() / 1000),
     // The URL typed into the "Test one Webmin URL" scratch field.
     // Persisted to localStorage so operators don't have to retype it
-    // every time they reload Host Stats to re-test after a config
+    // every time they reload the Providers tab to re-test after a config
     // change. Per-browser (each device keeps its own last-tested URL).
     webminTestUrl: (typeof localStorage !== 'undefined' && localStorage.getItem('webminTestUrl')) || '',
     _openMeteoBaseline: '',
@@ -572,7 +572,7 @@ function app() {
     weekdayOrder: [0, 1, 2, 3, 4, 5, 6],
     // Admin view state
     adminTab: 'users',
-    // Settings → Host stats provider tabs. Persists in
+    // Admin → Providers provider tabs. Persists in
     // localStorage so the page returns to the operator's view on
     // refresh. Default falls through to the first ENABLED provider on
     // first load (handled by `setHostStatsTab` / `loadSettings`'s
@@ -1506,7 +1506,7 @@ function app() {
         }
       });
       // Webmin scratch-test URL persists so operators don't retype
-      // the same host every time they reload Host Stats.
+      // the same host every time they reload the Providers tab.
       this.$watch('webminTestUrl', v => {
         try {
           localStorage.setItem('webminTestUrl', v || '');
@@ -2526,7 +2526,7 @@ function app() {
                 } else if (tab === 'config') {
                   await this.loadTuning();
                 }
-                  // Port Scan admin tab — same lazy-load pattern as Host stats /
+                  // Port Scan admin tab — same lazy-load pattern as Providers /
                   // Notifications / Logs / AI: the four port-scan tunables
                   // (timeout / concurrency / max_seconds / banner_read) bind to
                   // `tuningForm[...]`, so first-visit needs the tuning state
@@ -2791,7 +2791,7 @@ function app() {
         : 'none';
     },
 
-    // Settings → Host stats provider tab switcher. Persists the
+    // Admin → Providers provider tab switcher. Persists the
     // chosen tab in localStorage so the page returns to the operator's
     // view on refresh. Mirrors the existing `setRefreshInterval` /
     // localStorage shape.
@@ -9388,7 +9388,7 @@ function app() {
       // whenever the CSV lists "webmin" without credentials. That
       // error is about configuration absence, not about probe failures
       // against active hosts — when no host is using the provider,
-      // the toolbar chip has nothing to report. Settings → Host stats
+      // the toolbar chip has nothing to report. Admin → Providers
       // is the right surface for setup-gap nagging; the toolbar chip
       // is for "providers I care about" at a glance.
       if (configuredCount === 0) {
@@ -9397,7 +9397,7 @@ function app() {
       // Configured-but-not-active state — at least one host has the
       // provider mapped in its curated config BUT the operator hasn't
       // added the provider to `host_stats_source`. The provider's
-      // master toggle in Admin → Host stats is OFF, so the sampler
+      // master toggle in Admin → Providers is OFF, so the sampler
       // never runs against it. Surface as a muted (amber) chip with
       // a tooltip explaining the gap so the operator notices without
       // having to remember which sub-tab to click. Without this
@@ -9410,7 +9410,7 @@ function app() {
           visible: true, cls: 'pill-warning', icon: '⚠',
           title: this.t('hosts_extra.provider_filter.title_configured_inactive',
               {name, count: configuredCount})
-            || (`${name} — ${configuredCount} host(s) mapped but provider not enabled in Admin → Host stats`),
+            || (`${name} — ${configuredCount} host(s) mapped but provider not enabled in Admin → Providers`),
           styled: false,
         };
       }
@@ -10033,10 +10033,22 @@ function app() {
       const out = [];
       for (const def of this._PROVIDER_DEFS) {
         if (def.curatedGate(row)) {
-          out.push({name: def.name, label: def.label});
+          out.push({name: def.name, label: this._providerLabel(def)});
         }
       }
       return out;
+    },
+    // Resolve a provider def's display label via i18n. The canonical
+    // key is `settings.host_stats.source_<name>` (already populated for
+    // every wired provider in en.json:967-974); the registry's bare
+    // `def.label` stays as a defensive fallback for any future provider
+    // that ships without an i18n key. Routing here (not at registry
+    // declaration) lets every consumer pick up locale changes without
+    // re-importing the registry on each `t()` re-resolve.
+    _providerLabel(def) {
+      const key = 'settings.host_stats.source_' + def.name;
+      const tr = this.t(key);
+      return (tr && tr !== key) ? tr : def.label;
     },
 
     // Display list of providers enabled on a host — used by the drawer's
@@ -10063,7 +10075,7 @@ function app() {
       const out = [];
       for (const def of this._PROVIDER_DEFS) {
         if (def.apiGate(h) && this.hasHostStatsSource(def.name)) {
-          out.push({name: def.name, label: def.label});
+          out.push({name: def.name, label: this._providerLabel(def)});
         }
       }
       return out;

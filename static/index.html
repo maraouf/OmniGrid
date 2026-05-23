@@ -3407,11 +3407,16 @@
       <div class="page-mobile-nav">
         <label class="fs-xs text-[var(--text-faint)] block mb-1" x-text="t('nav.admin')"></label>
         <select :value="adminTab" @change="openAdminTab($event.target.value)" class="w-full fs-md py-2">
-          <template x-for="s in adminSections" :key="s.id">
-            <option :value="s.separator ? '' : s.id"
-                    :disabled="!!s.separator"
-                    :selected="!s.separator && adminTab === s.id"
-                    x-text="s.separator ? '──────────' : t('admin.sections.' + s.id)"></option>
+          <!-- Skip separator entries entirely on the mobile select.
+               iOS Safari renders `<option :disabled>` similarly to
+               regular options, so the `──────────` rows would clutter
+               the dropdown and push real navigation items down. Desktop
+               sidebar keeps `<hr class="page-sidebar-separator">` for
+               visual grouping (CSS-only divider, no AT impact). -->
+          <template x-for="s in adminSections.filter(s => !s.separator)" :key="s.id">
+            <option :value="s.id"
+                    :selected="adminTab === s.id"
+                    x-text="t('admin.sections.' + s.id)"></option>
           </template>
         </select>
       </div>
@@ -5670,7 +5675,7 @@
                      class="mb-3 flex items-baseline gap-2"
                      :class="isStaleField(h, 'printer_page_count') ? 'stale' : ''"
                      :title="isStaleField(h, 'printer_page_count') ? staleAge(h) : ''">
-                    <span class="text-[18px] font-semibold mono"
+                    <span class="fs-display-base font-semibold mono"
                           x-text="(+h.printer_page_count || 0).toLocaleString()"></span>
                   <span class="fs-xs text-[var(--text-dim)]"
                         x-text="t('host_drawer.printer.pages_label')"></span>
@@ -6579,12 +6584,12 @@
                    class="px-4 pb-2 flex items-baseline gap-3 fs-sm">
                     <span class="flex items-baseline gap-1.5">
                       <span class="text-[var(--success)]">↓</span>
-                      <span class="text-[16px] font-semibold mono"
+                      <span class="fs-display-xs font-semibold mono"
                             x-text="fmtBytesAt(snmpThroughputLast(h.id, 'rx'), snmpThroughputMaxBps(h.id)) + '/s'"></span>
                     </span>
                 <span class="flex items-baseline gap-1.5">
                       <span class="text-[var(--info)]">↑</span>
-                      <span class="text-[16px] font-semibold mono"
+                      <span class="fs-display-xs font-semibold mono"
                             x-text="fmtBytesAt(snmpThroughputLast(h.id, 'tx'), snmpThroughputMaxBps(h.id)) + '/s'"></span>
                     </span>
               </div>
@@ -8736,7 +8741,7 @@
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="fs-2xs uppercase tracking-wider text-[var(--text-faint)]" x-text="t('nodes.beszel.drawer_kicker')"></div>
-                <h2 class="text-[17px] font-semibold mt-1 mono break-all" x-text="drawerNode.name"></h2>
+                <h2 class="fs-display-sm font-semibold mt-1 mono break-all" x-text="drawerNode.name"></h2>
               </div>
               <button type="button" @click="drawerNode=null" class="btn btn-ghost text-base leading-none"
                       :aria-label="t('actions.close')">✕
@@ -8888,7 +8893,7 @@
                   <span class="pill" :class="'pill-' + (drawerItem.health || 'unknown')" x-text="drawerItem.health || '—'"></span>
                   <span class="pill" :class="'pill-' + statusKey(drawerItem.status)" x-text="drawerItem.status"></span>
                 </div>
-                <h2 class="text-[17px] font-semibold mt-2 mono break-all" x-text="drawerItem.name"></h2>
+                <h2 class="fs-display-sm font-semibold mt-2 mono break-all" x-text="drawerItem.name"></h2>
                 <div class="mono fs-xs text-[var(--text-dim)] break-all mt-1">
                   <span x-text="imageRepo(drawerItem)"></span><span class="text-[var(--text-faint)]">:</span><span x-text="drawerItem.tag"></span>
                 </div>
@@ -8998,7 +9003,7 @@
               <div>
                 <div class="fs-3xs text-[var(--text-faint)] uppercase tracking-wider" x-text="t('drawer.replicas')"></div>
                 <div class="mt-1">
-                <span class="text-[16px] font-semibold mono"
+                <span class="fs-display-xs font-semibold mono"
                       :class="(drawerItem.replicas.running < drawerItem.replicas.desired) ? 'text-[var(--warning)]' : 'text-[var(--success)]'"
                       x-text="drawerItem.replicas.running + ' / ' + drawerItem.replicas.desired"></span>
                   <span x-show="drawerItem.replicas.running < drawerItem.replicas.desired" class="fs-xs ms-2 text-warning" x-text="t('drawer.degraded_note')"></span>

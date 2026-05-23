@@ -16,7 +16,7 @@
     </div>
   </div>
 
-  <!-- Provider-style tab strip. Mirrors the Settings → Host stats
+  <!-- Provider-style tab strip. Mirrors the Admin → Providers
        provider tabs. Three tabs: In-app (the local store +
        retention / page-size / poll tunables), Apprise (legacy
        webhook + URL/tag), Telegram (Phase 1 send-only — bot
@@ -39,9 +39,15 @@
                    ]" :key="tab[0]">
       <button type="button"
               role="tab"
+              :id="'notify-tab-' + tab[0]"
+              :aria-controls="'notify-tabpanel-' + tab[0]"
               :aria-selected="notificationsTab === tab[0]"
               :tabindex="notificationsTab === tab[0] ? 0 : -1"
               @click="setNotificationsTab(tab[0])"
+              @keydown.right.prevent="cycleNotificationsTab(1)"
+              @keydown.left.prevent="cycleNotificationsTab(-1)"
+              @keydown.home.prevent="setNotificationsTab(NOTIFICATIONS_TAB_ORDER[0])"
+              @keydown.end.prevent="setNotificationsTab(NOTIFICATIONS_TAB_ORDER[NOTIFICATIONS_TAB_ORDER.length - 1])"
               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded fs-xs font-medium"
               :class="notificationsTab === tab[0]
                             ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
@@ -62,6 +68,7 @@
 
   <!-- ========== TAB: In-app notifications ========== -->
   <div x-show="notificationsTab === 'app'" role="tabpanel"
+       id="notify-tabpanel-app" aria-labelledby="notify-tab-app" tabindex="0"
        :class="!settings.notify_medium_app ? 'opacity-60' : ''">
     <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
       <label class="inline-flex items-center gap-2 fs-sm font-medium">
@@ -138,6 +145,7 @@
 
   <!-- ========== TAB: Apprise ========== -->
   <div x-show="notificationsTab === 'apprise'" role="tabpanel"
+       id="notify-tabpanel-apprise" aria-labelledby="notify-tab-apprise" tabindex="0"
        :class="!settings.apprise_enabled ? 'opacity-60' : ''">
     <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
       <label class="inline-flex items-center gap-2 fs-sm font-medium">
@@ -205,6 +213,7 @@
 
   <!-- ========== TAB: Telegram ========== -->
   <div x-show="notificationsTab === 'telegram'" role="tabpanel"
+       id="notify-tabpanel-telegram" aria-labelledby="notify-tab-telegram" tabindex="0"
        :class="!settings.notify_medium_telegram ? 'opacity-60' : ''">
     <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
       <label class="inline-flex items-center gap-2 fs-sm font-medium">

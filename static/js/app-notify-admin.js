@@ -1,7 +1,12 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,AnonymousFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS,ContinueStatementJS,BreakStatementJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+// noinspection NegatedIfStatementJS,OverlyComplexBooleanExpressionJS,ExceptionCaughtLocallyJS,JSReusedLocalVariable,NegatedConditionalExpressionJS,JSNegatedConditionalExpression
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,RedundantLocalVariableJS,JSIgnoredPromiseFromCall,JSAsyncFunctionMissingAwait,JSMissingAwait
+// noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
+// noinspection RegExpRedundantEscape,JSValidateTypes,HtmlUnknownTag,HtmlEmptyContent,HtmlEmptyTagsRecommendation,HtmlSelfClosedTag,JSReusedLocal,LocalVariableReusedJS,VoidExpressionJS,JSVoidExpression,RedundantLocalVariableJS
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Admin → Notifications surface — per-event opt-in matrix, per-medium
@@ -43,7 +48,7 @@ export default {
   // (and after a successful save). The matching `<X>Dirty()` getter
   // compares the current snapshot against the baseline so reverting
   // a typed-and-deleted edit clears the indicator — same UX as the
-  // existing Profile / Asset Inventory / Host stats tabs. Replaces
+  // existing Profile / Asset Inventory / Providers tabs. Replaces
   // the older "set true on input, reset on save" boolean toggle
   // pattern that couldn't detect a revert.
   _appriseBaseline: '',
@@ -61,7 +66,7 @@ export default {
     return 'app';
   })(),
   setNotificationsTab(name) {
-    if (!['app', 'apprise', 'telegram'].includes(name)) {
+    if (!this.NOTIFICATIONS_TAB_ORDER.includes(name)) {
       return;
     }
     this.notificationsTab = name;
@@ -69,6 +74,28 @@ export default {
       localStorage.setItem('notificationsTab', name);
     } catch {
     }
+  },
+  // Single source of truth for the Notifications tab strip order — same
+  // pattern as `HOST_STATS_TAB_ORDER`. Adding a fourth medium (e.g.
+  // future Discord webhook) means one entry here + one tuple entry in
+  // the tab-strip x-for in `static/_partials/admin/notifications.html`.
+  NOTIFICATIONS_TAB_ORDER: ['app', 'apprise', 'telegram'],
+  // Arrow-key cycler for the Notifications tab strip. Mirrors
+  // `cycleHostStatsTab`: ±1 step with wrap-around, focuses the
+  // newly-active tab so the focus ring tracks selection per the
+  // WAI-ARIA horizontal tablist pattern.
+  cycleNotificationsTab(direction) {
+    const order = this.NOTIFICATIONS_TAB_ORDER;
+    const cur = order.indexOf(this.notificationsTab);
+    const i = cur < 0 ? 0 : cur;
+    const next = (i + (direction > 0 ? 1 : order.length - 1)) % order.length;
+    this.setNotificationsTab(order[next]);
+    this.$nextTick(() => {
+      const el = document.getElementById('notify-tab-' + order[next]);
+      if (el && typeof el.focus === 'function') {
+        el.focus();
+      }
+    });
   },
   // Per-user notification toggle disable gate. Returns true
   // when the admin has globally disabled this event — UI greys out
@@ -495,7 +522,6 @@ export default {
     } catch {
       return false;
     }
-    const _currentEvents = (this.profileForm && this.profileForm.notify_events) || {};
     for (const r of rows) {
       if (this.userNotifyEventDisabledByAdmin(r.key)) {
         continue;
@@ -923,7 +949,10 @@ export default {
       };
       // First preview render — server side so we get the same
       // placeholder analysis the operator will see during edits.
-      this.refreshNotifyTemplatePreview();
+      // Awaited so the modal opens with the preview already populated
+      // instead of a momentary empty body. Caller is async so the
+      // awaiting is cheap.
+      await this.refreshNotifyTemplatePreview();
     } catch (e) {
       if (window.Swal) {
         Swal.fire({icon: 'error', text: this.t('admin.notify_templates.load_failed', {error: String(e.message || e)})});
@@ -991,8 +1020,7 @@ export default {
     } else {
       const start = ref.selectionStart != null ? ref.selectionStart : cur.length;
       const end = ref.selectionEnd != null ? ref.selectionEnd : cur.length;
-      const next = cur.slice(0, start) + insert + cur.slice(end);
-      this.notifyTemplateEditor[field] = next;
+      this.notifyTemplateEditor[field] = cur.slice(0, start) + insert + cur.slice(end);
       // Restore the caret position to AFTER the insert so subsequent
       // chip clicks chain naturally.
       this.$nextTick(() => {

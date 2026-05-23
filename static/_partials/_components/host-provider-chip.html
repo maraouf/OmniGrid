@@ -13,7 +13,7 @@
     - failing             → pill-error
     - paused              → pill-muted (auto-paused after N failures)
     - configured_inactive → pill-muted (host has provider mapped but
-                            master toggle is OFF in Admin → Host stats)
+                            master toggle is OFF in Admin → Providers)
     - loading             → pill-custom chip-loading (probe in flight)
     - default (healthy)   → pill-custom with operator-customised
                             provider colour via providerChipStyle()
@@ -27,8 +27,13 @@
               : (p.state === 'configured_inactive' ? 'pill-muted'
               : (p.state === 'loading' ? 'pill-custom chip-loading' : 'pill-custom')))"
       :style="(p.state === 'failing' || p.state === 'paused' || p.state === 'configured_inactive') ? '' : providerChipStyle(p.name)"
-      :title="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: p.name, count: p.consecutive_failures, error: p.last_error || '—' })
-              : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: p.name })
-              : (p.state === 'configured_inactive' ? (t('hosts_extra.provider_configured_inactive', { provider: p.name }) || (p.name + ' — configured but provider not enabled in Admin → Host stats'))
-              : (p.state === 'loading' ? t('hosts_extra.provider_loading', { provider: p.name }) || (p.name + ' — fetching…') : '')))"
-      x-text="p.name === 'node_exporter' ? 'exporter' : p.name"></span>
+      :title="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: t('settings.host_stats.source_' + p.name) || p.name, count: p.consecutive_failures, error: p.last_error || '—' })
+              : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: t('settings.host_stats.source_' + p.name) || p.name })
+              : (p.state === 'configured_inactive' ? (t('hosts_extra.provider_configured_inactive', { provider: t('settings.host_stats.source_' + p.name) || p.name }) || ((t('settings.host_stats.source_' + p.name) || p.name) + ' — configured but provider not enabled in Admin → Providers'))
+              : (p.state === 'loading' ? t('hosts_extra.provider_loading', { provider: t('settings.host_stats.source_' + p.name) || p.name }) || ((t('settings.host_stats.source_' + p.name) || p.name) + ' — fetching…') : '')))"
+      :aria-label="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: t('settings.host_stats.source_' + p.name) || p.name, count: p.consecutive_failures, error: p.last_error || '—' })
+              : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: t('settings.host_stats.source_' + p.name) || p.name })
+              : (p.state === 'configured_inactive' ? (t('hosts_extra.provider_configured_inactive', { provider: t('settings.host_stats.source_' + p.name) || p.name }) || ((t('settings.host_stats.source_' + p.name) || p.name) + ' — configured but provider not enabled in Admin → Providers'))
+              : (p.state === 'loading' ? t('hosts_extra.provider_loading', { provider: t('settings.host_stats.source_' + p.name) || p.name }) || ((t('settings.host_stats.source_' + p.name) || p.name) + ' — fetching…')
+              : (t('settings.host_stats.source_' + p.name) || p.name))))"
+      x-text="t('settings.host_stats.source_' + p.name) || p.name"></span>

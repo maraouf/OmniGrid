@@ -452,7 +452,7 @@ export default {
     }
   },
 
-  // Settings → Host stats → SNMP sub-tab — section-owned save.
+  // Admin → Providers → SNMP sub-tab — section-owned save.
   // Posts ONLY SNMP's plain settings + every SNMP tunable rendered
   // in the sub-tab (probe_timeout / wall_clock_budget /
   // per_host_walk_concurrency / 5 vendor walk-concurrency overrides
@@ -642,7 +642,7 @@ export default {
     }
   },
 
-  // Settings → Host stats → Ping sub-tab — section-owned save.
+  // Admin → Providers → Ping sub-tab — section-owned save.
   // Posts ONLY Ping's plain settings + the five Ping tunables.
   // Per the section-saves-its-own-tunables convention.
   _pingSectionTuningKeys() {
@@ -766,7 +766,7 @@ export default {
     }
   },
 
-  // Settings → Host stats → Beszel sub-tab — section-owned save.
+  // Admin → Providers → Beszel sub-tab — section-owned save.
   // Mirrors the Ping section pattern (canonical reference). Plain
   // keys cover the hub URL / identity / password-set semantics +
   // verify_tls + the per-provider chip colour; password follows the
@@ -897,7 +897,7 @@ export default {
     }
   },
 
-  // Settings → Host stats → Pulse sub-tab — section-owned save.
+  // Admin → Providers → Pulse sub-tab — section-owned save.
   // Same shape as Beszel; the token field follows the keep-current-
   // if-blank contract and Pulse-specific `pulse_aliases` is a JSON
   // object (not a CSV) so it's stringified on POST and surfaced via
@@ -1026,7 +1026,7 @@ export default {
     }
   },
 
-  // Settings → Host stats → HTTP probe sub-tab — section-owned save.
+  // Admin → Providers → HTTP probe sub-tab — section-owned save.
   // Posts ONLY HTTP probe's plain settings + the 8 HTTP probe
   // tunables. Mirrors the SNMP / Ping section-save pattern: proxies
   // through `_perProviderTuneKeys.http_probe` so adding a new
@@ -1203,7 +1203,7 @@ export default {
     }
   },
 
-  // Settings → Host stats → service-probe sub-tab — section-owned save.
+  // Admin → Providers → service-probe sub-tab — section-owned save.
   // Service probe is the per-service-chip reachability sampler (distinct
   // from http_probe which is per-host). Posts ONLY the master toggle +
   // chip colour + the four service_probe tunables. Mirrors the http_probe
@@ -1344,7 +1344,7 @@ export default {
     }
   },
 
-  // Settings → Host stats → node-exporter sub-tab — section-owned save.
+  // Admin → Providers → node-exporter sub-tab — section-owned save.
   // Posts ONLY NE's plain settings + the NE probe-timeout tunable.
   // Per the section-saves-its-own-tunables convention.
   _neSectionTuningKeys() {
@@ -1473,7 +1473,7 @@ export default {
     }
   },
 
-  // Settings → Host stats → Webmin sub-tab — section-owned save.
+  // Admin → Providers → Webmin sub-tab — section-owned save.
   // Posts ONLY Webmin's plain settings + the four Webmin tunables in
   // its own body. Per the section-saves-its-own-tunables convention.
   _webminSectionTuningKeys() {

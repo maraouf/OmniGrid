@@ -133,7 +133,7 @@
            :placeholder="t('admin_hosts.filter_placeholder')">
     <span class="fs-2xs text-[var(--text-faint)]"
           x-show="hostsConfigFilter"
-          x-text="filteredHostsConfig().length + ' of ' + hostsConfig.length"></span>
+          x-text="t('admin_hosts.filter_count', { shown: filteredHostsConfig().length, total: hostsConfig.length })"></span>
     <button type="button" x-show="hostsConfigFilter" @click="hostsConfigFilter=''"
             class="btn btn-ghost fs-xs"
             :title="t('hosts_extra.empty.clear_filter')"
@@ -595,7 +595,7 @@
                 </div>
                 <div>
                   <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                    SSH password
+                    <span x-text="t('admin_hosts.row.ssh_password_label')"></span>
                     <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-text="t('common.hint_global_default')"></span>
                   </label>
