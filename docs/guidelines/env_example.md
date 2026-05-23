@@ -167,6 +167,23 @@ AI_SIDEBAR_WIDTH_PX=480
 # regardless — this only governs the SPA-side download UI.
 AI_CONVERSATION_EXPORT_ENABLED=1
 
+# AI sidebar conversation-persist cadence (milliseconds). The sidebar
+# checks for conversation changes every N ms and writes through to
+# `/api/me/ui-prefs` when the signature changes. Default 2000 ms; raise
+# to 5000-10000 ms on slow networks / low-power devices. Takes effect
+# on the NEXT page load (interval doesn't re-arm mid-session). Range
+# 500..30000.
+AI_CONVERSATION_PERSIST_INTERVAL_MS=2000
+
+# In-app notifications popup poll-fallback cadence (seconds). The popup
+# normally live-updates via the `notification:*` SSE events; this knob
+# only controls the polling fallback when SSE is disconnected AND the
+# popup is open. Surfaced via `/api/me`'s
+# `client_config.notifications_poll_seconds` (× 1000 → ms in the SPA).
+# Range 5..300. Default 30 — raise on slow connections / power-saving
+# devices.
+NOTIFICATIONS_POLL_INTERVAL_SECONDS=30
+
 # Port-scan provider tunables. Per-port TCP-connect timeout +
 # parallel probe count + outer wall-clock budget + banner-grab read
 # timeout. The CSV `port_scan_default_ports` is a plain settings

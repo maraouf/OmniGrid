@@ -750,6 +750,159 @@ endpoints surface deeper provider-specific detail used by the host drawer:
 | `GET`  | `/api/hosts/{id}/timeline?hours=N` | Unified per-host event timeline (state changes + sampler errors + bulk-action audit rows). |
 | `GET`  | `/api/hosts/debug?id=<host>&since_hours=N` | Raw provider payloads + counters block (samples-in-window, failure_state, provider_pause_state, full live tunables map) — the "why is this host's chart cut?" diagnostic. |
 
+### Stats dashboards (admin-only)
+
+Six aggregated endpoints back the **Stats** top-nav (cluster-wide insight on top of the
+per-host telemetry detail above). Each is GET-only, accepts an optional `window`/`range`
+query param, and returns a single fast JSON payload tuned for one dashboard sub-page.
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET`  | `/api/admin/stats/overview` | Quick-insight counts — user / session / curated-host / asset / node / stack / container totals + per-provider enabled split. One-shot fetch for the dashboard landing card. |
+| `GET`  | `/api/admin/stats/database?range=24h` | DB-level KPIs — table row counts, daily-INSERT bar-chart series, total bytes on disk, with thousands-separator-friendly shapes. |
+| `GET`  | `/api/admin/stats/network?range=24h` | Fleet-wide network throughput KPIs — per-host top-N + burst-rate table for the selected range. |
+| `GET`  | `/api/admin/stats/incidents?range=24h` | Incident-centric view of `host_failure_events` — top hosts by incident count, per-provider failure breakdown. |
+| `GET`  | `/api/admin/stats/ai-cost?range=24h` | Finance-style view of `ai_jobs` — per-provider token / cost / latency / response-time-trend chart. |
+| `GET`  | `/api/admin/stats/samples?range=24h` | Per-sample-table KPIs (Beszel / Pulse / NE / SNMP / Webmin / HTTP probe / service probe / ping) — row counts, daily-INSERT bar charts. |
+| `GET`  | `/api/admin/stats/samples/by-host?table=<name>&host_id=<id>&range=24h` | Per-host drill-down popup for one sample table. Returns the matching row count + recent rows for the chosen host. |
+| `DELETE` | `/api/admin/stats/samples/by-host?table=<name>&host_id=<id>` | Admin scrub for one host's rows in one sample table. Used by the per-host drill-down popup's "Delete rows" button. |
+
+```bash
+# Example: fetch the AI-cost dashboard for the last 24 hours
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  "https://omnigrid.example.com/api/admin/stats/ai-cost?range=24h" | jq
+```
+
+`range` values: `1h` / `24h` / `7d` / `30d` (defaults to 24h when omitted). The frontend
+range-picker writes back to the user's date / time prefs so the choice persists per-tab.
+
+### Stack + container retag-to-latest (admin-only)
+
+When OmniGrid detects a stack / container running a pinned tag (`:v1.2.3`) that an update would
+break (because the registry's `:latest` has moved past the pin), the drawer surfaces a
+"Switch to `:latest`" affordance backed by these endpoints. Confirmed via SweetAlert in the SPA
+because of the recreate risk.
+
+| Method | Route | Body | Purpose |
+| ------ | ----- | ---- | ------- |
+| `POST` | `/api/update/stack/{stack_id}/retag-latest` | `{tag: "latest"}` (other tags accepted; the validator clamps to a small allowlist) | Switch a Portainer-managed stack's image refs to a different tag. Routes through Portainer's stack-edit flow. |
+| `POST` | `/api/update/container/{container_id}/retag-latest` | `{tag?: str}` (optional — defaults to `latest`) | Switch a non-Portainer-managed container's image tag. Captures Config + HostConfig + Networks via inspect, pulls the new image, stop + remove + recreate with the same name. Named volumes survive. |
+
+Returns `{op_id, new_tag}`. Drives the same Operation lifecycle as the other write ops — poll
+`/api/ops/{op_id}` for progress.
+
+### Registry release notes (admin-only)
+
+`GET /api/registry/release-notes?image=<ref>&from_digest=<sha256>&to_digest=<sha256>` resolves
+the OCI image labels on a target manifest and returns any embedded release-notes URL +
+short summary. Used by the stack-update popup's blast-radius preview to show the upstream
+changelog snippet before committing the update.
+
+### Config backup (admin-only)
+
+Settings-as-Code snapshots — a complementary surface to the SQLite zip created by the
+`backup` schedule kind. Snapshot covers the `settings` KV table, schedules, ai_memory; secrets
+are redacted to `__OMITTED__`. Created on demand from Admin → Config backup or by the
+`config_backup` scheduler kind; the `tuning_config_backup_retention_count` knob bounds the
+saved-snapshots set.
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET`  | `/api/admin/config-backup/export` | Stream the current config as a JSON download (no on-disk save). |
+| `GET`  | `/api/admin/config-backup/preview` | Same payload as `/export` but returned inline for the SPA to diff against the current state. |
+| `POST` | `/api/admin/config-backup/import` | Body: a JSON snapshot. Applies to the running config (admin step-up required). |
+| `GET`  | `/api/admin/config-backup/list` | List on-disk saved snapshots under `/app/data/config_backups/`. |
+| `POST` | `/api/admin/config-backup/save` | Persist the current config as a saved snapshot (auto-named with a timestamp). |
+| `GET`  | `/api/admin/config-backup/saved/{name}` | Fetch one saved snapshot's body. |
+| `POST` | `/api/admin/config-backup/saved/{name}/restore` | Restore from one saved snapshot. Admin step-up required. |
+| `DELETE` | `/api/admin/config-backup/saved/{name}` | Delete one saved snapshot. |
+
+### Notification fan-out test surface (admin-only)
+
+Three endpoints fan a test notification through different mediums for debugging the per-event /
+per-medium routing matrix.
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `POST` | `/api/notify-test` | Fire a fixed test payload through every enabled medium (app + apprise + telegram). |
+| `POST` | `/api/apprise/test` | Fire ONLY through Apprise. |
+| `POST` | `/api/telegram/test` | Fire ONLY through Telegram. |
+| `POST` | `/api/notify/send` | Send a user-typed notification through ONE chosen medium. Body: `{medium: "app"|"apprise"|"telegram", title, body, severity?, target_kind?, target_id?}`. Routes through `logic.ops.notify` with the same template + per-event toggle pipeline as system-generated events. |
+
+### Telegram link management (admin-only)
+
+The Telegram bot's `/link` and `/unlink` commands populate `telegram_links(telegram_user_id,
+username, ...)` to map a Telegram sender to an OmniGrid user. Two admin-side endpoints surface
+the table for the Admin → Notifications → Telegram tab:
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET`  | `/api/telegram/links` | List every mapping (`telegram_user_id`, `username`, `linked_at_ms`). |
+| `DELETE` | `/api/telegram/links/{telegram_user_id}` | Drop one mapping. Emits `telegram:unlinked` SSE — the linked user's Profile → Telegram card flips back to its unlinked state on receipt. |
+
+User-side self-service for the Profile → Telegram card:
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `POST` | `/api/me/telegram-link-code` | Mint a fresh one-shot code (TTL 5 min) the user pastes into the bot's `/link <code>` command. |
+| `DELETE` | `/api/me/telegram-link` | Self-service unlink for the current user. |
+
+### Profile / WebAuthn self-service
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET`  | `/api/me/webauthn` | List the current user's enrolled passkeys (id, friendly_name, transports, last_used, rp_id, registered_at). |
+| `POST` | `/api/me/webauthn/register-start` | Start enrolment — returns the WebAuthn challenge options. |
+| `POST` | `/api/me/webauthn/register-finish` | Complete enrolment — body: the browser's attestation response. |
+| `DELETE` | `/api/me/webauthn/{credential_row_id}` | Revoke one enrolled passkey. |
+| `POST` | `/api/me/webauthn/client-error` | Best-effort log of a client-side WebAuthn error so server-side logs reflect why the browser refused (e.g. RP-ID mismatch detection). |
+| `PATCH` | `/api/me/ui-prefs` | Partial update on the current user's UI prefs blob (sidebar width, datetime format, ai_conversation, theme overrides). |
+| `POST` | `/api/me/ui-prefs/beacon` | Same as PATCH but accepts `navigator.sendBeacon`'s `application/x-www-form-urlencoded`-style body for tab-unload writes. |
+| `PATCH` | `/api/me/notify-prefs` | Partial update on the per-event notify opt-in / opt-out map. |
+| `PATCH` | `/api/me/profile` | Update display name / email / bio / avatar metadata. |
+| `POST` | `/api/me/avatar` | Multipart upload of a new avatar (PNG / JPG / WebP, capped server-side). |
+| `DELETE` | `/api/me/avatar` | Remove the user's avatar (reverts to the deterministic-hue initial). |
+| `GET`  | `/api/avatars/{fname}` | Fetch one avatar file. Public — no auth — same shape as `/img/icons/*`. |
+
+### Multi-tab activity sync
+
+The Admin → Sessions "active tabs" panel reads a shared in-memory registry of every connected
+SPA tab. The SPA writes through these endpoints on every navigation / drawer-open / filter
+change so admins can see "who is looking at what" in real time.
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `POST` | `/api/tabs/activity` | Heartbeat — body: `{client_id, view, drawer_host?, ...}`. Stamps into the registry. Emits `tab:activity` SSE. |
+| `DELETE` | `/api/tabs/activity` | Best-effort cleanup on tab close (`pagehide`). Emits `tab:closed` SSE. |
+| `GET`  | `/api/tabs/activity` | Read the registry. Admin-only. |
+
+### Public IP / weather widget
+
+Both endpoints support topbar widgets + the AI palette context block. Public IP is admin-only
++ default-OFF (opt-in via the master toggle in Admin → Public IP); weather is anonymous and
+opt-in via the topbar widget setting.
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET`  | `/api/public-ip` | Admin-only. Returns `{enabled, ip?, isp?, asn?, country?, city?}` from `logic.public_ip.fetch()`. `{enabled: false}` when the master toggle is off. |
+| `GET`  | `/api/weather?lat=<f>&lon=<f>&label=<s>` | Public (no auth). Open-Meteo proxy returning the compact widget shape `{temp_c, humidity, wind_kmh, code, condition, icon, forecast: [...]}`. |
+
+### Login providers advertisement
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET`  | `/api/auth/providers` | Public. Tells the login page which paths are live — `{local: bool, oidc: bool, ...}`. OIDC is hidden when the request's hostname doesn't match the configured `oidc_redirect_uri` host (multi-FQDN deploys). |
+
+### Logs (admin-only)
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET`  | `/api/logs?limit=N` | Tail of the in-memory ring buffer. Filterable by severity / source-tag. |
+| `DELETE` | `/api/logs` | Clear the in-memory ring buffer. Persistent on-disk daily files under `/app/data/logs/` are unaffected. |
+| `GET`  | `/api/admin/logs/files` | List on-disk daily log files (`omnigrid-YYYY-MM-DD.log`) with size + modified-time. |
+| `GET`  | `/api/admin/logs/files/{name}` | Stream the contents of one file. |
+| `GET`  | `/api/admin/logs/files/{name}/download` | Download one file as an attachment. |
+
 ### Cleanup overlay network (admin-only)
 
 `POST /api/cleanup-overlay-network` is the Portainer-API-only path for stale VXLAN

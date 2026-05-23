@@ -323,6 +323,64 @@ POST                          /api/ai/feedback                       per-call �
 GET / POST / DELETE          /api/ai/memory[/{id}]                  AI memory CRUD (durable per-deployment lessons)
 POST                          /api/ai/memory/forget                  delete by exact-text match (`MEMORY-FORGET:` directive)
 
+# Stats dashboards (admin-only)
+GET                           /api/admin/stats/overview              cluster-wide quick-insight counts
+GET                           /api/admin/stats/database?range=24h    DB KPIs + daily-INSERT bar charts
+GET                           /api/admin/stats/network?range=24h     fleet-wide network throughput + burst-rate
+GET                           /api/admin/stats/incidents?range=24h   incident view of host_failure_events
+GET                           /api/admin/stats/ai-cost?range=24h     finance-style view of ai_jobs
+GET                           /api/admin/stats/samples?range=24h     per-sample-table KPIs
+GET / DELETE                  /api/admin/stats/samples/by-host       per-host drill-down (per sample table)
+
+# Config backup (admin-only — Settings-as-Code snapshots)
+GET                           /api/admin/config-backup/export        stream current config as JSON download
+GET                           /api/admin/config-backup/preview       same as export but inline JSON for diffing
+POST                          /api/admin/config-backup/import        apply a snapshot to running config
+GET                           /api/admin/config-backup/list          list saved snapshots under /app/data/config_backups/
+POST                          /api/admin/config-backup/save          persist current config as a named snapshot
+GET / POST / DELETE          /api/admin/config-backup/saved/{name}  fetch / restore / delete one snapshot
+
+# Registry + retag
+GET                           /api/registry/release-notes            resolve OCI labels for blast-radius preview
+POST                          /api/update/stack/{id}/retag-latest    switch a Portainer stack's tag → {op_id}
+POST                          /api/update/container/{id}/retag-latest  switch a container's image tag → {op_id}
+
+# Telegram link management (admin + self-service)
+GET                           /api/telegram/links                    list Telegram → user mappings (admin)
+DELETE                        /api/telegram/links/{telegram_user_id} drop one mapping (admin)
+POST                          /api/me/telegram-link-code             mint a one-shot /link code (TTL 5 min)
+DELETE                        /api/me/telegram-link                  self-service unlink
+
+# Profile / WebAuthn / UI prefs (self-service)
+GET                           /api/me/webauthn                       list this user's enrolled passkeys
+POST                          /api/me/webauthn/register-{start,finish}  passkey enrolment two-step
+DELETE                        /api/me/webauthn/{credential_row_id}   revoke one passkey
+POST                          /api/me/webauthn/client-error          best-effort browser-side error log
+PATCH                         /api/me/{ui-prefs,notify-prefs,profile}  self-service prefs (covered above)
+POST                          /api/me/ui-prefs/beacon                  beacon-friendly PATCH variant
+POST / DELETE                 /api/me/avatar                          multipart upload / removal
+GET                           /api/avatars/{fname}                    public avatar fetch
+
+# Notification fan-out test surface (admin-only)
+POST                          /api/notify-test                       fire test through every enabled medium
+POST                          /api/notify/send                        user-typed notification → ONE medium
+
+# Multi-tab activity sync (Admin → Sessions "active tabs" panel)
+GET / POST / DELETE          /api/tabs/activity                       SPA heartbeat / read / cleanup
+
+# Public IP / weather (topbar widgets + AI palette context block)
+GET                           /api/public-ip                          admin-only; default OFF for privacy
+GET                           /api/weather?lat=&lon=&label=           public Open-Meteo proxy
+
+# Login providers advertisement
+GET                           /api/auth/providers                     {local, oidc, ...} for login page rendering
+
+# Logs (admin-only)
+GET / DELETE                  /api/logs                                tail / clear the in-memory ring buffer
+GET                           /api/admin/logs/files                    list on-disk daily log files
+GET                           /api/admin/logs/files/{name}             stream one file
+GET                           /api/admin/logs/files/{name}/download    download one file
+
 # Cleanup overlay network (Portainer-API-only path for stale VXLAN overlays)
 POST                          /api/cleanup-overlay-network           {network_id?, service_id?, cidr?} → {op_id}
 
