@@ -805,6 +805,7 @@ def record_run(
     op_id: str,
     duration: Optional[int],
     status: Optional[str],
+    update_run_at: bool = True,
 ) -> None:
     """Stamp the outcome of a fired schedule.
 
@@ -813,10 +814,39 @@ def record_run(
     last_run_at moves forward even if the op hangs), and again by the
     waiter coroutine when the op completes (with the real duration +
     status). Passing ``None`` for either field means "don't touch it".
+
+    ``update_run_at`` (default True) controls whether ``last_run_at``
+    gets overwritten with ``int(time.time())``. The fire-time call
+    leaves it at True (the canonical "this is when we fired"); the
+    waiter-completion call AND the ghost-clear sweep at startup pass
+    False because their stamping moment is NOT the schedule's actual
+    fire moment:
+
+    - **Waiter:** runs when the op completes, which could be seconds
+      to minutes after fire-time. Drifting ``last_run_at`` forward by
+      the op duration would make "Last execution" lie by the op's
+      runtime — a Daily-@-01:30 schedule whose op took 3 minutes
+      would display last_run_at = 01:33 instead of 01:30.
+    - **Ghost-clear sweep:** runs at startup AFTER a container
+      restart to clear duration-NULL rows whose waiter died mid-op.
+      Stamping ``last_run_at`` here would move the fire-time to the
+      container restart moment — operator-visible as "Last execution:
+      X minutes ago" where X = how long the container has been up,
+      regardless of when the schedule actually fired (operator-flagged
+      as the canonical "Daily @ 01:30 shows 48 minutes ago at 08:17"
+      bug when the container restart was at 07:29).
+
+    The error-path stamp at fire-failure (in scheduler_loop's
+    per-schedule try/except) keeps the default True because a failed
+    fire attempt IS a fire-time event — without it the schedule would
+    re-fire every tick forever.
     """
-    sets = ["last_run_at=?", "last_op_id=?", "updated_at=?"]
+    sets: list[str] = ["last_op_id=?", "updated_at=?"]
     now = int(time.time())
-    values: list[Any] = [now, op_id, now]
+    values: list[Any] = [op_id, now]
+    if update_run_at:
+        sets.insert(0, "last_run_at=?")
+        values.insert(0, now)
     if duration is not None:
         sets.append("last_duration=?")
         values.append(int(duration))
@@ -2392,7 +2422,14 @@ async def fire_schedule(schedule: dict) -> str:
             duration, status = 0, "error"
         try:
             with db_conn() as record_conn:
-                record_run(record_conn, int(schedule["id"]), op_id, duration, status)
+                # Pass `update_run_at=False` — the fire-time was
+                # already stamped at fire moment (line 2366). The
+                # waiter only records the duration + status of the
+                # completed op; bumping `last_run_at` here would
+                # drift the operator-visible "Last execution" time
+                # forward by the op's runtime.
+                record_run(record_conn, int(schedule["id"]), op_id, duration, status,
+                           update_run_at=False)
         except sqlite3.Error as rec_err:
             print(f"[scheduler] record_run update for {op_id} failed: {rec_err}")
         # SSE — fire END event with the resolved duration + status so
@@ -2599,8 +2636,14 @@ async def scheduler_loop() -> None:
             for row in ghosts:
                 last_op_id = row["last_op_id"]
                 if last_op_id and last_op_id not in live_op_ids:
+                    # Pass `update_run_at=False` — ghost-clear runs at
+                    # restart and MUST preserve the schedule's original
+                    # fire-time. Without this guard the "Last execution"
+                    # column displays the container restart moment, not
+                    # the actual schedule fire moment (operator-flagged).
                     record_run(c, int(row["id"]), last_op_id,
-                               duration=0, status="error")
+                               duration=0, status="error",
+                               update_run_at=False)
                     print(
                         f"[scheduler] cleared ghost run for "
                         f"'{row['name']}' (op {last_op_id} not live "

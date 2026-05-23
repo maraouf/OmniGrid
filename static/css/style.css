@@ -5503,6 +5503,21 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   margin-inline-start: auto;
 }
 
+/* Per-host provider chip strip on the desktop Hosts view, pulled OUT
+   of the inline name+badges flex row so long host labels can use the
+   full row width instead of being truncated by the chip strip. Renders
+   on its OWN line under the "N Providers" subline. Same flex-wrap +
+   gap shape as `.host-mobile-providers` but no `margin-inline-start:
+   auto` because there's no sibling competing for trailing space — the
+   strip occupies its own row. Small top margin so the chips don't
+   crowd the subline. */
+.host-row-providers-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-1);
+}
+
 /* Keep the expand/collapse toolbar chips tappable on phone — the
    `px-2.5 py-1` Tailwind utilities shrink below the touch target. */
 @media (max-width: 768px) {
@@ -7930,7 +7945,7 @@ body.login {
 }
 
 .host-debug-label--http_probe {
-  color: var(--debug-http-probe, var(--warning));
+  color: var(--debug-http-probe);
 }
 
 .host-debug-label--merged {

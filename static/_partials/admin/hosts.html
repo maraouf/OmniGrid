@@ -259,7 +259,7 @@
                          aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-package"/></svg>
                   </span>
           </template>
-          <span x-show="!row.enabled" class="chip text-[9.5px] px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
+          <span x-show="!row.enabled" class="chip fs-3xs-half px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
           <!-- Spacer pushes the per-row provider chip strip + the
                SSH state icon to the trailing edge of the row
                . Pre-fix the chips sat inline next to the
@@ -276,16 +276,16 @@
                chips. `title` attr surfaces the canonical
                provider name on hover for accessibility +
                screen-readers. -->
-          <template x-for="p in [
-                    row.beszel_name ? {name:'beszel', label:'beszel'} : null,
-                    row.pulse_name ? {name:'pulse', label:'pulse'} : null,
-                    row.ne_url ? {name:'node_exporter', label:'node-exporter'} : null,
-                    row.webmin_url ? {name:'webmin', label:'webmin'} : null,
-                    (row.ping && row.ping.enabled) ? {name:'ping', label:'ping'} : null,
-                    (row.snmp && row.snmp.enabled === true && ((row.snmp_name || '').trim() || (row.address || '').trim())) ? {name:'snmp', label:'snmp'} : null,
-                    (row.http_probe && row.http_probe.enabled === true) ? {name:'http_probe', label:'http-probe'} : null,
-                    (Array.isArray(row.services) && row.services.some(s => s && s.probe && s.probe.enabled === true)) ? {name:'service_probe', label:'service-probe'} : null,
-                  ].filter(Boolean)" :key="p.name">
+          <!-- Per-row provider chip strip — iterates the canonical
+               `curatedHostProviderChips(row)` helper which is the
+               SINGLE SOURCE of truth across the three chip-rendering
+               surfaces (Hosts view via providerStates, drawer via
+               hostEnabledAgents, this admin row). Adding a new
+               provider = one entry in `_PROVIDER_DEFS` in app.js;
+               the helper picks it up here without an edit. See
+               CLAUDE.md "SPA chip-rendering parity" for the
+               canonical contract. -->
+          <template x-for="p in curatedHostProviderChips(row)" :key="p.name">
                   <span class="provider-icon"
                         :style="providerIconStyle(p.name) + ' --provider-icon-size: 13px;'"
                         :title="p.label"

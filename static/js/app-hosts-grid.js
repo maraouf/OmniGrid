@@ -38,23 +38,21 @@ export default {
     const pollKeys = Object.keys(polling).filter(k => polling[k] === true).sort().join(',');
     const pauseKeys = Object.keys(pause).filter(k => pause[k] && pause[k].paused).sort().join(',');
     const gotKey = (h.providers || []).slice().sort().join(',');
+    // Per-provider fingerprint contributions live on `_PROVIDER_DEFS`
+    // (single source of truth, declared in `app.js`). Adding a new
+    // provider auto-extends the memo key — no parallel edit here.
+    const defs = (this._PROVIDER_DEFS || []);
+    let perProviderFp = '';
+    for (const def of defs) {
+      perProviderFp += '|' + def.fpFields(h);
+    }
     const fp = active.slice().sort().join(',') + '|'
       + (Array.from(globalOk).sort().join(',')) + '|'
       + gotKey + '|'
       + pollKeys + '|'
       + pauseKeys + '|'
-      + (h._loading === true ? '1' : '0') + '|'
-      + (h.beszel_name || '') + '|' + (h.beszel_status || '') + '|'
-      + (h.pulse_name || '') + '|' + (h.pulse_status || '') + '|'
-      + (h.ne_url || '') + '|'
-      + (h.webmin_name || '') + '|'
-      + (h.ping_enabled === true ? '1' : '0') + '|'
-      + (h.ping_alive === false ? '1' : '0') + '|'
-      + (h.snmp_enabled === true ? '1' : '0') + '|'
-      + (h.snmp_name || '') + '|' + (h.address || '') + '|'
-      + (h.http_probe_enabled === true ? '1' : '0') + '|'
-      + (h.http_probe_has_targets === true ? '1' : '0') + '|'
-      + (h.host_http_status_ok === false ? '1' : '0');
+      + (h._loading === true ? '1' : '0')
+      + perProviderFp;
     // We also need to invalidate when the per-pause `consecutive_failures`
     // / `last_error` fields change — they're surfaced in the chip's
     // tooltip / pulse counter. Fold them into the fp.
@@ -177,50 +175,16 @@ export default {
       }
       out.push({name, state});
     };
-    add('beszel', !!(h.beszel_name && String(h.beszel_name).trim()), h.beszel_status);
-    add('pulse', !!(h.pulse_name && String(h.pulse_name).trim()), h.pulse_status);
-    add('node_exporter', !!(h.ne_url && String(h.ne_url).trim()), null);
-    add('webmin', !!(h.webmin_name && String(h.webmin_name).trim()), null);
-    // Ping is per-host opt-in (no name/URL field — just a boolean
-    // toggle). The chip turns red when the latest sample says
-    // alive=false; that's the closest analog to beszel_status='down'
-    // for a transport that IS the up/down signal. `ping_alive` is
-    // null until the sampler fires for the first time — we don't
-    // want that "no data yet" case to render a misleading red chip,
-    // so only flip to 'down' when the value is explicitly false.
-    add('ping', !!h.ping_enabled, h.ping_alive === false ? 'down' : null);
-    // SNMP — chip renders when the row has a snmp_name
-    // alias AND `snmp.enabled === true`.
-    // Same rules as the other providers: globally enabled, globally
-    // healthy, hit on this host = ok, mapped-but-no-hit = failing.
-    // SNMP doesn't carry its own self-status field (unlike
-    // beszel_status) so the badStatus check no-ops by passing null.
-    // SNMP target resolution chain at the backend is
-    // `snmp_aliases → snmp_name → address → SKIP`, so the chip
-    // should render whenever SNMP is enabled AND ANY valid target
-    // exists — `snmp_name` (provider-specific override) OR the
-    // curated `address` field (the dedicated probe target user
-    // configures once and shares across port-scan / ping / SSH).
-    // Pre-fix the chip vanished when the user cleared `snmp_name`
-    // intending to inherit from `address`, even though the backend
-    // probe still ran successfully.
-    add('snmp', !!(h.snmp_enabled === true
-        && ((h.snmp_name && String(h.snmp_name).trim())
-          || (h.address && String(h.address).trim()))),
-      null);
-    // HTTP probe — seventh host-stats provider. Per-host opt-in
-    // flag `http_probe_enabled === true` AND at least one URL to
-    // probe. The has-targets boolean is computed BACKEND-side
-    // (`_shape_host_api_row`) from the same URL-resolution chain
-    // the sampler uses (http_probe.urls → row.url → row.services[].url)
-    // because the API row's `h.services` carries the Beszel systemd
-    // ROLLUP OBJECT (not the curated services list), so the SPA
-    // can't iterate it for the third URL source itself.
-    // Self-status mirrors Ping's "down on explicit false" pattern:
-    // `host_http_status_ok === false` is a real failure signal,
-    // every other value (null / undefined / true) is benign.
-    add('http_probe', !!(h.http_probe_enabled === true && h.http_probe_has_targets),
-      h.host_http_status_ok === false ? 'down' : null);
+    // Iterate the canonical `_PROVIDER_DEFS` registry — single source
+    // of truth for which providers render. Each def carries its own
+    // `apiGate` (per-host config gate) + `apiStatus` (self-status
+    // getter for the state machine — 'down' on hard failure, null
+    // otherwise). Adding a new provider = ONE entry on `_PROVIDER_DEFS`
+    // in app.js; this loop picks it up automatically. See CLAUDE.md
+    // "SPA chip-rendering parity" for the canonical contract.
+    for (const def of (this._PROVIDER_DEFS || [])) {
+      add(def.name, def.apiGate(h), def.apiStatus(h));
+    }
     // Stash the computed result keyed by host id; the parent
     // `providerStates` returns this same array reference on future
     // calls until the fingerprint changes.

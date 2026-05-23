@@ -259,7 +259,7 @@
                                    a future i18n call would silently
                                    throw. -->
                               <template x-for="transport in pk.transports" :key="transport">
-                                <span class="chip pill-info text-[9.5px] px-1 py-0 mono uppercase" x-text="transport"></span>
+                                <span class="chip pill-info fs-3xs-half px-1 py-0 mono uppercase" x-text="transport"></span>
                               </template>
                             </span>
                     </template>
@@ -271,7 +271,7 @@
                          and should remove + re-enrol it. Empty
                          rp_id (legacy creds) hides the badge. -->
                     <template x-if="pk.rp_id && pk.rp_id !== (passkeys.current_rp_id || (location && location.hostname || '').toLowerCase())">
-                            <span class="chip pill-error text-[9.5px] px-1.5 py-0 ms-1"
+                            <span class="chip pill-error fs-3xs-half px-1.5 py-0 ms-1"
                                   :title="t('settings.profile.passkeys.orphaned_title', { rp_id: pk.rp_id })"
                                   x-text="t('settings.profile.passkeys.orphaned_badge', { rp_id: pk.rp_id })"></span>
                     </template>

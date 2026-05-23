@@ -1,361 +1,368 @@
-      <div x-show="adminTab==='logs'" class="space-y-3">
-        <div class="flex items-center gap-1 border-b border-[var(--border)]">
-          <button type="button" @click="logsSubTab='live'"
-                  :class="logsSubTab==='live' ? 'text-[var(--text)] border-b-2 border-[var(--primary)] -mb-[1px]' : 'text-[var(--text-dim)]'"
-                  class="px-3 py-2 fs-sm font-medium transition"
-                  x-text="t('admin.logs.subtab_live')"></button>
-          <button type="button" @click="logsSubTab='files'; loadLogFiles()"
-                  :class="logsSubTab==='files' ? 'text-[var(--text)] border-b-2 border-[var(--primary)] -mb-[1px]' : 'text-[var(--text-dim)]'"
-                  class="px-3 py-2 fs-sm font-medium transition"
-                  x-text="t('admin.logs.subtab_files')"></button>
+<!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
+<div x-show="adminTab==='logs'" class="space-y-3">
+  <div class="flex items-center gap-1 border-b border-[var(--border)]">
+    <button type="button" @click="logsSubTab='live'"
+            :class="logsSubTab==='live' ? 'text-[var(--text)] border-b-2 border-[var(--primary)] -mb-[1px]' : 'text-[var(--text-dim)]'"
+            class="px-3 py-2 fs-sm font-medium transition"
+            x-text="t('admin.logs.subtab_live')"></button>
+    <button type="button" @click="logsSubTab='files'; loadLogFiles()"
+            :class="logsSubTab==='files' ? 'text-[var(--text)] border-b-2 border-[var(--primary)] -mb-[1px]' : 'text-[var(--text-dim)]'"
+            class="px-3 py-2 fs-sm font-medium transition"
+            x-text="t('admin.logs.subtab_files')"></button>
+  </div>
+
+  <section x-show="logsSubTab==='live'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4">
+    <div class="flex flex-wrap items-center gap-2 mb-3">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-file-text"/>
+      </svg>
+      <h3 class="font-semibold fs-md" x-text="t('admin.logs.title')"></h3>
+      <span class="fs-xs text-[var(--text-faint)]"
+            x-text="t('admin.logs.count', { n: filteredLogLines().length, total: logLines.length })"></span>
+      <span class="flex-1"></span>
+      <label class="inline-flex items-center gap-1.5 fs-xs text-[var(--text-dim)]">
+        <input type="checkbox" x-model="logAuto">
+        <span x-text="t('admin.logs.auto_refresh')"></span>
+      </label>
+      <input type="search" x-model.debounce.200ms="logFilter"
+             :placeholder="t('admin.logs.filter_placeholder')"
+             class="fs-sm min-w-[180px]">
+      <button type="button"
+              @click="_runWithBusy('logs', () => loadLogs(true))"
+              :disabled="_loadBusy.logs === true"
+              :title="t('actions.reload')"
+              :aria-label="t('actions.reload')"
+              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="_loadBusy.logs === true ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+        </svg>
+        <span x-text="t('actions.reload')"></span>
+      </button>
+      <!-- Copy the currently VISIBLE (filtered) log lines to the
+           clipboard as plain text — ts + stream + body, one per
+           line. Respects both the search filter AND any future
+           severity/tag filters so the user can paste the exact
+           view they're looking at into an issue tracker or chat. -->
+      <button type="button"
+              @click="copyFilteredLogs()"
+              :title="t('admin.logs.copy_title')"
+              :aria-label="t('admin.logs.copy')"
+              :disabled="!filteredLogLines().length"
+              class="user-action-btn">
+        <svg width="14" height="14" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+        </svg>
+      </button>
+      <button type="button"
+              @click="clearLogs()"
+              :title="t('admin.logs.clear')"
+              :aria-label="t('admin.logs.clear')"
+              class="user-action-btn user-action-btn--danger">
+        <svg width="14" height="14" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+        </svg>
+      </button>
+    </div>
+    <!-- Severity filter pills — colored chips per level with
+         counts. Click ALL → enable every level; click a specific
+         level → toggle that one. State stored in
+         `logSeverityFilter` per level + persisted to localStorage.
+         Pill colours come from new `--log-sev-*` CSS tokens. -->
+    <div class="log-sev-bar flex flex-wrap items-center gap-1.5 mb-3 pb-3 border-b border-[var(--border)]">
+      <button type="button"
+              class="log-sev-pill log-sev-pill--all"
+              :class="logAllSeverityOn() ? 'is-active' : ''"
+              @click="setAllLogSeverity(true)">
+        <span class="log-sev-pill-label" x-text="t('admin.logs.severity_all_label')"></span>
+        <span class="log-sev-count" x-text="logLines.length"></span>
+      </button>
+      <template x-for="lvl in logSeverityLevels" :key="lvl">
+        <button type="button"
+                class="log-sev-pill"
+                :class="['log-sev-pill--' + lvl, logSeverityFilter[lvl] ? 'is-active' : '']"
+                @click="toggleLogSeverity(lvl)">
+          <span class="log-sev-pill-label" x-text="t('admin.logs.severity.' + lvl)"></span>
+          <span class="log-sev-count" x-text="logSeverityCount(lvl)"></span>
+        </button>
+      </template>
+      <span class="flex-1"></span>
+      <button type="button" @click="setLogSeverityErrorsOnly()"
+              class="btn btn-ghost fs-2xs inline-flex items-center gap-1.5">
+        <svg width="11" height="11" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+        </svg>
+        <span x-text="t('admin.logs.severity_errors_only')"></span>
+      </button>
+    </div>
+    <!-- Line-buffered viewer. Monospace + fixed height = terminal feel.
+         Each row is ts + stream label + text. Stderr rows get tinted
+         so errors/tracebacks are scan-able. -->
+    <div id="log-viewer"
+         class="mono fs-xs bg-[var(--bg)] border border-[var(--border)] rounded-md p-2 h-[60vh] overflow-y-auto scrollbar leading-[1.35]">
+      <template x-for="(l, i) in filteredLogLines()" :key="i + '-' + l.ts">
+        <div class="flex items-start gap-2 whitespace-pre-wrap break-all log-line"
+             :class="'log-line--' + logSeverity(l)">
+          <!-- Left-anchored severity badge — colored pill so the
+               row's level is scan-able at a glance (matches the
+               filter-pill colour for the same level). -->
+          <span class="log-line-sev shrink-0"
+                :class="'log-line-sev--' + logSeverity(l)"
+                x-text="logSeverity(l).toUpperCase()"></span>
+          <span class="log-line-sep shrink-0 text-[var(--text-faint)]">—</span>
+          <span class="text-[var(--text-faint)] shrink-0" x-text="fmtDate(l.ts)"></span>
+          <span class="log-stream shrink-0 uppercase fs-3xs-half tracking-wider pt-[2px]"
+                x-text="l.stream"></span>
+          <!-- Body: escape + wrap known [tag] prefixes in
+               accent spans via colorizeLogText (returns safe
+               pre-escaped HTML). Severity class on the wrapper
+               colours the non-tag text. -->
+          <span class="log-body" x-html="colorizeLogText(l)"></span>
         </div>
+      </template>
+      <div x-show="!filteredLogLines().length"
+           class="text-center py-8 text-[var(--text-faint)]"
+           x-text="logLines.length ? t('admin.logs.no_match') : t('admin.logs.empty')"></div>
+    </div>
+    <p class="fs-2xs text-[var(--text-faint)] mt-2"
+       x-text="t('admin.logs.hint')"></p>
+  </section>
 
-        <section x-show="logsSubTab==='live'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4">
-          <div class="flex flex-wrap items-center gap-2 mb-3">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-file-text"/></svg>
-            <h3 class="font-semibold fs-md" x-text="t('admin.logs.title')"></h3>
-            <span class="fs-xs text-[var(--text-faint)]"
-                  x-text="t('admin.logs.count', { n: filteredLogLines().length, total: logLines.length })"></span>
-            <span class="flex-1"></span>
-            <label class="inline-flex items-center gap-1.5 fs-xs text-[var(--text-dim)]">
-              <input type="checkbox" x-model="logAuto">
-              <span x-text="t('admin.logs.auto_refresh')"></span>
-            </label>
-            <input type="search" x-model.debounce.200ms="logFilter"
-                   :placeholder="t('admin.logs.filter_placeholder')"
-                   class="fs-sm min-w-[180px]">
-            <button type="button"
-                    @click="_runWithBusy('logs', () => loadLogs(true))"
-                    :disabled="_loadBusy.logs === true"
-                    :title="t('actions.reload')"
-                    :aria-label="t('actions.reload')"
-                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.logs === true ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-              </svg>
-              <span x-text="t('actions.reload')"></span>
-            </button>
-            <!-- Copy the currently VISIBLE (filtered) log lines to the
-                 clipboard as plain text — ts + stream + body, one per
-                 line. Respects both the search filter AND any future
-                 severity/tag filters so the user can paste the exact
-                 view they're looking at into an issue tracker or chat. -->
-            <button type="button"
-                    @click="copyFilteredLogs()"
-                    :title="t('admin.logs.copy_title')"
-                    :aria-label="t('admin.logs.copy')"
-                    :disabled="!filteredLogLines().length"
-                    class="user-action-btn">
-              <svg width="14" height="14" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-              </svg>
-            </button>
-            <button type="button"
-                    @click="clearLogs()"
-                    :title="t('admin.logs.clear')"
-                    :aria-label="t('admin.logs.clear')"
-                    class="user-action-btn user-action-btn--danger">
-              <svg width="14" height="14" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
-              </svg>
-            </button>
-          </div>
-          <!-- Severity filter pills — colored chips per level with
-               counts. Click ALL → enable every level; click a specific
-               level → toggle that one. State stored in
-               `logSeverityFilter` per level + persisted to localStorage.
-               Pill colours come from new `--log-sev-*` CSS tokens. -->
-          <div class="log-sev-bar flex flex-wrap items-center gap-1.5 mb-3 pb-3 border-b border-[var(--border)]">
-            <button type="button"
-                    class="log-sev-pill log-sev-pill--all"
-                    :class="logAllSeverityOn() ? 'is-active' : ''"
-                    @click="setAllLogSeverity(true)">
-              <span class="log-sev-pill-label" x-text="t('admin.logs.severity_all_label')"></span>
-              <span class="log-sev-count" x-text="logLines.length"></span>
-            </button>
-            <template x-for="lvl in logSeverityLevels" :key="lvl">
-              <button type="button"
-                      class="log-sev-pill"
-                      :class="['log-sev-pill--' + lvl, logSeverityFilter[lvl] ? 'is-active' : '']"
-                      @click="toggleLogSeverity(lvl)">
-                <span class="log-sev-pill-label" x-text="t('admin.logs.severity.' + lvl)"></span>
-                <span class="log-sev-count" x-text="logSeverityCount(lvl)"></span>
-              </button>
-            </template>
-            <span class="flex-1"></span>
-            <button type="button" @click="setLogSeverityErrorsOnly()"
-                    class="btn btn-ghost fs-2xs inline-flex items-center gap-1.5">
-              <svg width="11" height="11" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
-              </svg>
-              <span x-text="t('admin.logs.severity_errors_only')"></span>
-            </button>
-          </div>
-          <!-- Line-buffered viewer. Monospace + fixed height = terminal feel.
-               Each row is ts + stream label + text. Stderr rows get tinted
-               so errors/tracebacks are scan-able. -->
-          <div id="log-viewer"
-               class="mono fs-xs bg-[var(--bg)] border border-[var(--border)] rounded-md p-2 h-[60vh] overflow-y-auto scrollbar leading-[1.35]">
-            <template x-for="(l, i) in filteredLogLines()" :key="i + '-' + l.ts">
-              <div class="flex items-start gap-2 whitespace-pre-wrap break-all log-line"
-                   :class="'log-line--' + logSeverity(l)">
-                <!-- Left-anchored severity badge — colored pill so the
-                     row's level is scan-able at a glance (matches the
-                     filter-pill colour for the same level). -->
-                <span class="log-line-sev shrink-0"
-                      :class="'log-line-sev--' + logSeverity(l)"
-                      x-text="logSeverity(l).toUpperCase()"></span>
-                <span class="log-line-sep shrink-0 text-[var(--text-faint)]">—</span>
-                <span class="text-[var(--text-faint)] shrink-0" x-text="fmtDate(l.ts)"></span>
-                <span class="log-stream shrink-0 uppercase text-[9.5px] tracking-wider pt-[2px]"
-                      x-text="l.stream"></span>
-                <!-- Body: escape + wrap known [tag] prefixes in
-                     accent spans via colorizeLogText (returns safe
-                     pre-escaped HTML). Severity class on the wrapper
-                     colours the non-tag text. -->
-                <span class="log-body" x-html="colorizeLogText(l)"></span>
-              </div>
-            </template>
-            <div x-show="!filteredLogLines().length"
-                 class="text-center py-8 text-[var(--text-faint)]"
-                 x-text="logLines.length ? t('admin.logs.no_match') : t('admin.logs.empty')"></div>
-          </div>
-          <p class="fs-2xs text-[var(--text-faint)] mt-2"
-             x-text="t('admin.logs.hint')"></p>
-        </section>
-
-        <!-- FILES sub-tab — persistent daily log files on disk.
-             Two-pane layout: list of files on the left (or stacked on
-             mobile), live-tail viewer on the right when a file is
-             selected. Each file row carries a download button that
-             hits /api/admin/logs/files/{name}/download. -->
-        <!-- Log retention setting — moved here from the generic
-             Process tunables section so operators looking at the
-             persistent log files have the retention knob ready to
-             hand. Reuses the same `tuningForm` / `tuningEffective` /
-             `saveTuning` Alpine state as Admin → Process tunables;
-             a Save here triggers the same POST /api/settings call
-             and the same effective-value re-resolution as a Save
-             there. -->
-        <section x-show="logsSubTab==='files' && tuningLoaded" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4">
-          <div class="flex items-center gap-2 mb-3">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/></svg>
-            <h3 class="font-semibold fs-md"
-                x-text="t('admin.config.fields.tuning_log_retention_days.label')"></h3>
-          </div>
-          <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
-             x-text="t('admin.config.fields.tuning_log_retention_days.help')"></p>
-          <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
-                   x-model="tuningForm['tuning_log_retention_days']"
-                   :placeholder="tuningPlaceholder('tuning_log_retention_days')"
-                   :min="(tuningEffective['tuning_log_retention_days'] || {}).min"
-                   :max="(tuningEffective['tuning_log_retention_days'] || {}).max"
-                   :disabled="!isAdmin() || tuningSaving"
-                   class="w-44 mono fs-sm py-1">
-            <div class="bounds-chips" role="group"
-                 :aria-label="t('admin.config.bounds.group_label')">
+  <!-- FILES sub-tab — persistent daily log files on disk.
+       Two-pane layout: list of files on the left (or stacked on
+       mobile), live-tail viewer on the right when a file is
+       selected. Each file row carries a download button that
+       hits /api/admin/logs/files/{name}/download. -->
+  <!-- Log retention setting — moved here from the generic
+       Process tunables section so operators looking at the
+       persistent log files have the retention knob ready to
+       hand. Reuses the same `tuningForm` / `tuningEffective` /
+       `saveTuning` Alpine state as Admin → Process tunables;
+       a Save here triggers the same POST /api/settings call
+       and the same effective-value re-resolution as a Save
+       there. -->
+  <section x-show="logsSubTab==='files' && tuningLoaded" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4">
+    <div class="flex items-center gap-2 mb-3">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
+      </svg>
+      <h3 class="font-semibold fs-md"
+          x-text="t('admin.config.fields.tuning_log_retention_days.label')"></h3>
+    </div>
+    <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
+       x-text="t('admin.config.fields.tuning_log_retention_days.help')"></p>
+    <div class="flex flex-wrap items-center gap-2">
+      <input type="number"
+             x-model="tuningForm['tuning_log_retention_days']"
+             :placeholder="tuningPlaceholder('tuning_log_retention_days')"
+             :min="(tuningEffective['tuning_log_retention_days'] || {}).min"
+             :max="(tuningEffective['tuning_log_retention_days'] || {}).max"
+             :disabled="!isAdmin() || tuningSaving"
+             class="w-44 mono fs-sm py-1">
+      <div class="bounds-chips" role="group"
+           :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
                     :title="t('admin.config.bounds.min_title')">
                 <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                 <span x-text="(tuningEffective['tuning_log_retention_days'] || {}).min"></span>
               </span>
-              <span class="bounds-chip bounds-chip--max"
-                    :title="t('admin.config.bounds.max_title')">
+        <span class="bounds-chip bounds-chip--max"
+              :title="t('admin.config.bounds.max_title')">
                 <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                 <span x-text="(tuningEffective['tuning_log_retention_days'] || {}).max"></span>
               </span>
-              <span class="bounds-chip bounds-chip--default"
-                    :title="t('admin.config.bounds.default_title')">
+        <span class="bounds-chip bounds-chip--default"
+              :title="t('admin.config.bounds.default_title')">
                 <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                 <span x-text="(tuningEffective['tuning_log_retention_days'] || {}).default"></span>
               </span>
-            </div>
-            <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="tuningEffectiveLabel('tuning_log_retention_days')"></span>
-          </div>
-          <!-- Section-owned save — commits ONLY the Logs section's
-               tunable (`tuning_log_retention_days`) so a click here
-               doesn't silently persist pending edits from other
-               admin sections. -->
-          <div class="flex items-center gap-3 mt-3 pt-3 border-t border-[var(--border)]" x-show="isAdmin()">
-            <button type="button" @click="saveLogsSection()"
-                    :disabled="tuningSaving"
-                    :class="logsSectionDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                    class="btn btn-primary fs-sm">
-              <span x-show="!tuningSaving" x-text="t('admin.config.save')"></span>
-              <span x-show="tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-            </button>
-            <span x-show="logsSectionDirty()" class="fs-xs text-[var(--warning)]"
-                  x-text="t('admin.config.unsaved')"></span>
-          </div>
-        </section>
+      </div>
+      <span class="fs-xs text-[var(--text-dim)] ms-auto"
+            x-text="tuningEffectiveLabel('tuning_log_retention_days')"></span>
+    </div>
+    <!-- Section-owned save — commits ONLY the Logs section's
+         tunable (`tuning_log_retention_days`) so a click here
+         doesn't silently persist pending edits from other
+         admin sections. -->
+    <div class="flex items-center gap-3 mt-3 pt-3 border-t border-[var(--border)]" x-show="isAdmin()">
+      <button type="button" @click="saveLogsSection()"
+              :disabled="tuningSaving"
+              :class="logsSectionDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+              class="btn btn-primary fs-sm">
+        <span x-show="!tuningSaving" x-text="t('admin.config.save')"></span>
+        <span x-show="tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+      </button>
+      <span x-show="logsSectionDirty()" class="fs-xs text-[var(--warning)]"
+            x-text="t('admin.config.unsaved')"></span>
+    </div>
+  </section>
 
-        <section x-show="logsSubTab==='files'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4 space-y-3">
-          <div class="flex flex-wrap items-center gap-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/></svg>
-            <h3 class="font-semibold fs-md" x-text="t('admin.logs.files_title')"></h3>
-            <span class="fs-xs text-[var(--text-faint)]"
-                  x-text="t('admin.logs.files_count', { n: logFiles.length })"></span>
-            <span class="flex-1"></span>
-            <span class="fs-2xs text-[var(--text-faint)] mono" x-text="logFilesDir"></span>
-            <button type="button"
-                    @click="_runWithBusy('log_files', () => loadLogFiles())"
-                    :disabled="_loadBusy.log_files === true"
-                    :title="t('actions.reload')"
-                    :aria-label="t('actions.reload')"
-                    class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-              <svg width="13" height="13" :class="_loadBusy.log_files === true ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-              </svg>
-              <span x-text="t('actions.reload')"></span>
-            </button>
-          </div>
+  <section x-show="logsSubTab==='files'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4 space-y-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/>
+      </svg>
+      <h3 class="font-semibold fs-md" x-text="t('admin.logs.files_title')"></h3>
+      <span class="fs-xs text-[var(--text-faint)]"
+            x-text="t('admin.logs.files_count', { n: logFiles.length })"></span>
+      <span class="flex-1"></span>
+      <span class="fs-2xs text-[var(--text-faint)] mono" x-text="logFilesDir"></span>
+      <button type="button"
+              @click="_runWithBusy('log_files', () => loadLogFiles())"
+              :disabled="_loadBusy.log_files === true"
+              :title="t('actions.reload')"
+              :aria-label="t('actions.reload')"
+              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="_loadBusy.log_files === true ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+        </svg>
+        <span x-text="t('actions.reload')"></span>
+      </button>
+    </div>
 
-          <!-- Loading indicator (parity with Users / Schedules /
-               Backups / Snapshots tables). -->
-          <div x-show="!logFilesLoaded" class="loading-state">
-            <span class="spin-lg" aria-hidden="true"></span>
-            <span x-text="t('loading.section')"></span>
-          </div>
-          <div class="overflow-x-auto scrollbar" x-show="logFilesLoaded">
-            <table class="w-full fs-sm">
-              <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
-                <tr>
-                  <th class="text-start px-3 py-2" x-text="t('columns.name')"></th>
-                  <th class="text-start px-3 py-2" x-text="t('columns.size')"></th>
-                  <th class="text-start px-3 py-2" x-text="t('admin.logs.modified')"></th>
-                  <th class="text-end px-3 py-2" x-text="t('columns.actions')"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="f in logFiles" :key="f.name">
-                  <tr class="border-t border-[var(--border)]"
-                      :class="logSelectedFile===f.name ? 'bg-[var(--surface-2)]' : ''">
-                    <td class="px-3 py-2 mono fs-xs cursor-pointer"
-                        @click="viewLogFile(f.name)"
-                        x-text="f.name"></td>
-                    <td class="px-3 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtBytes(f.size)"></td>
-                    <td class="px-3 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtDate(f.mtime)"></td>
-                    <td class="px-3 py-2 text-end">
-                      <!-- Action-button row — same pattern as Admin →
-                           Users / API tokens / Sessions / Backup /
-                           Config Backup / Schedules. View + Download. -->
-                      <div class="inline-flex items-center gap-0.5 justify-end user-actions">
-                        <button type="button"
-                                @click="viewLogFile(f.name)"
-                                class="user-action-btn"
-                                :title="t('admin.logs.view')"
-                                :aria-label="t('admin.logs.view')">
-                          <svg width="14" height="14" aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-eye"/>
-                          </svg>
-                        </button>
-                        <a :href="'/api/admin/logs/files/' + encodeURIComponent(f.name) + '/download'"
-                           :download="f.name"
-                           class="user-action-btn"
-                           :title="t('admin.logs.download_title')"
-                           :aria-label="t('admin.logs.download')">
-                          <svg width="14" height="14" aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
-                          </svg>
-                        </a>
-                      </div>
-                    </td>
-                  </tr>
-                </template>
-                <tr x-show="logFiles.length === 0">
-                  <td colspan="4" class="text-center py-8 text-[var(--text-faint)]"
-                      x-text="t('admin.logs.files_empty')"></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Selected file live-tail viewer. Polls every 5s while
-               visible. Tail size is capped to keep the DOM cheap; for
-               full content the operator uses the Download button.
-               Reuses the Live tab's per-line template + colourisation
-                so timestamp + level + [tag] chips render with
-               the same accent classes. -->
-          <div x-show="logSelectedFile" class="border-t border-[var(--border)] pt-3 space-y-2">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="font-semibold fs-sm mono" x-text="logSelectedFile"></span>
-              <label class="inline-flex items-center gap-1.5 fs-xs text-[var(--text-dim)]">
-                <input type="checkbox" x-model="logFileAutoTail">
-                <span x-text="t('admin.logs.live_tail')"></span>
-              </label>
-              <span class="fs-2xs text-[var(--text-faint)]"
-                    x-text="t('admin.logs.tail_lines', { n: logFileTailLines })"></span>
-              <span class="flex-1"></span>
-              <button type="button" @click="logSelectedFile=''" class="btn btn-ghost fs-xs"
-                      x-text="t('actions.close')"></button>
-            </div>
-            <!-- Text filter — same input as the Live (stdout) tab.
-                 Reuses the shared `logFilter` state so a query typed
-                 in either tab carries across, matching the existing
-                 `logSeverityFilter` cross-tab pattern. Filters
-                 substring-match against the line body + [tag] prefix
-                 in `filteredLogFileLines`. -->
-            <div class="flex flex-wrap items-center gap-2">
-              <input type="search" x-model.debounce.200ms="logFilter"
-                     :placeholder="t('admin.logs.filter_placeholder')"
-                     class="fs-sm min-w-[180px] flex-1">
-              <button type="button" x-show="logFilter" @click="logFilter=''"
-                      class="btn btn-ghost fs-xs"
-                      :title="t('admin.logs.filter_clear')"
-                      x-text="t('admin.logs.filter_clear')"></button>
-            </div>
-            <!-- Severity filter pill bar — same shape as the Live tab.
-                 Reuses the shared `logSeverityFilter` state so toggling
-                 a level in either tab carries across, but counts come
-                 from `logFileSeverityCount` (parsed file lines, not the
-                 ring buffer). -->
-            <div class="log-sev-bar flex flex-wrap items-center gap-1.5 pb-2 mb-1">
-              <button type="button"
-                      class="log-sev-pill log-sev-pill--all"
-                      :class="logAllSeverityOn() ? 'is-active' : ''"
-                      @click="setAllLogSeverity(true)">
-                <span class="log-sev-pill-label" x-text="t('admin.logs.severity_all_label')"></span>
-                <span class="log-sev-count" x-text="parsedLogFileLines().length"></span>
-              </button>
-              <template x-for="lvl in logSeverityLevels" :key="lvl">
+    <!-- Loading indicator (parity with Users / Schedules /
+         Backups / Snapshots tables). -->
+    <div x-show="!logFilesLoaded" class="loading-state">
+      <span class="spin-lg" aria-hidden="true"></span>
+      <span x-text="t('loading.section')"></span>
+    </div>
+    <div class="overflow-x-auto scrollbar" x-show="logFilesLoaded">
+      <table class="w-full fs-sm">
+        <thead class="bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
+        <tr>
+          <th class="text-start px-3 py-2" x-text="t('columns.name')"></th>
+          <th class="text-start px-3 py-2" x-text="t('columns.size')"></th>
+          <th class="text-start px-3 py-2" x-text="t('admin.logs.modified')"></th>
+          <th class="text-end px-3 py-2" x-text="t('columns.actions')"></th>
+        </tr>
+        </thead>
+        <tbody>
+        <template x-for="f in logFiles" :key="f.name">
+          <tr class="border-t border-[var(--border)]"
+              :class="logSelectedFile===f.name ? 'bg-[var(--surface-2)]' : ''">
+            <td class="px-3 py-2 mono fs-xs cursor-pointer"
+                @click="viewLogFile(f.name)"
+                x-text="f.name"></td>
+            <td class="px-3 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtBytes(f.size)"></td>
+            <td class="px-3 py-2 mono fs-xs text-[var(--text-dim)]" x-text="fmtDate(f.mtime)"></td>
+            <td class="px-3 py-2 text-end">
+              <!-- Action-button row — same pattern as Admin →
+                   Users / API tokens / Sessions / Backup /
+                   Config Backup / Schedules. View + Download. -->
+              <div class="inline-flex items-center gap-0.5 justify-end user-actions">
                 <button type="button"
-                        class="log-sev-pill"
-                        :class="['log-sev-pill--' + lvl, logSeverityFilter[lvl] ? 'is-active' : '']"
-                        @click="toggleLogSeverity(lvl)">
-                  <span class="log-sev-pill-label" x-text="t('admin.logs.severity.' + lvl)"></span>
-                  <span class="log-sev-count" x-text="logFileSeverityCount(lvl)"></span>
+                        @click="viewLogFile(f.name)"
+                        class="user-action-btn"
+                        :title="t('admin.logs.view')"
+                        :aria-label="t('admin.logs.view')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-eye"/>
+                  </svg>
                 </button>
-              </template>
-            </div>
-            <div class="mono fs-xs bg-[var(--bg)] border border-[var(--border)] rounded-md p-2 h-[50vh] overflow-y-auto scrollbar leading-[1.35]">
-              <template x-for="(l, i) in filteredLogFileLines()" :key="i + '-' + l.ts">
-                <div class="flex items-start gap-2 whitespace-pre-wrap break-all log-line"
-                     :class="'log-line--' + logSeverityFor(l)">
+                <a :href="'/api/admin/logs/files/' + encodeURIComponent(f.name) + '/download'"
+                   :download="f.name"
+                   class="user-action-btn"
+                   :title="t('admin.logs.download_title')"
+                   :aria-label="t('admin.logs.download')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
+                  </svg>
+                </a>
+              </div>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="logFiles.length === 0">
+          <td colspan="4" class="text-center py-8 text-[var(--text-faint)]"
+              x-text="t('admin.logs.files_empty')"></td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Selected file live-tail viewer. Polls every 5s while
+         visible. Tail size is capped to keep the DOM cheap; for
+         full content the operator uses the Download button.
+         Reuses the Live tab's per-line template + colourisation
+          so timestamp + level + [tag] chips render with
+         the same accent classes. -->
+    <div x-show="logSelectedFile" class="border-t border-[var(--border)] pt-3 space-y-2">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="font-semibold fs-sm mono" x-text="logSelectedFile"></span>
+        <label class="inline-flex items-center gap-1.5 fs-xs text-[var(--text-dim)]">
+          <input type="checkbox" x-model="logFileAutoTail">
+          <span x-text="t('admin.logs.live_tail')"></span>
+        </label>
+        <span class="fs-2xs text-[var(--text-faint)]"
+              x-text="t('admin.logs.tail_lines', { n: logFileTailLines })"></span>
+        <span class="flex-1"></span>
+        <button type="button" @click="logSelectedFile=''" class="btn btn-ghost fs-xs"
+                x-text="t('actions.close')"></button>
+      </div>
+      <!-- Text filter — same input as the Live (stdout) tab.
+           Reuses the shared `logFilter` state so a query typed
+           in either tab carries across, matching the existing
+           `logSeverityFilter` cross-tab pattern. Filters
+           substring-match against the line body + [tag] prefix
+           in `filteredLogFileLines`. -->
+      <div class="flex flex-wrap items-center gap-2">
+        <input type="search" x-model.debounce.200ms="logFilter"
+               :placeholder="t('admin.logs.filter_placeholder')"
+               class="fs-sm min-w-[180px] flex-1">
+        <button type="button" x-show="logFilter" @click="logFilter=''"
+                class="btn btn-ghost fs-xs"
+                :title="t('admin.logs.filter_clear')"
+                x-text="t('admin.logs.filter_clear')"></button>
+      </div>
+      <!-- Severity filter pill bar — same shape as the Live tab.
+           Reuses the shared `logSeverityFilter` state so toggling
+           a level in either tab carries across, but counts come
+           from `logFileSeverityCount` (parsed file lines, not the
+           ring buffer). -->
+      <div class="log-sev-bar flex flex-wrap items-center gap-1.5 pb-2 mb-1">
+        <button type="button"
+                class="log-sev-pill log-sev-pill--all"
+                :class="logAllSeverityOn() ? 'is-active' : ''"
+                @click="setAllLogSeverity(true)">
+          <span class="log-sev-pill-label" x-text="t('admin.logs.severity_all_label')"></span>
+          <span class="log-sev-count" x-text="parsedLogFileLines().length"></span>
+        </button>
+        <template x-for="lvl in logSeverityLevels" :key="lvl">
+          <button type="button"
+                  class="log-sev-pill"
+                  :class="['log-sev-pill--' + lvl, logSeverityFilter[lvl] ? 'is-active' : '']"
+                  @click="toggleLogSeverity(lvl)">
+            <span class="log-sev-pill-label" x-text="t('admin.logs.severity.' + lvl)"></span>
+            <span class="log-sev-count" x-text="logFileSeverityCount(lvl)"></span>
+          </button>
+        </template>
+      </div>
+      <div class="mono fs-xs bg-[var(--bg)] border border-[var(--border)] rounded-md p-2 h-[50vh] overflow-y-auto scrollbar leading-[1.35]">
+        <template x-for="(l, i) in filteredLogFileLines()" :key="i + '-' + l.ts">
+          <div class="flex items-start gap-2 whitespace-pre-wrap break-all log-line"
+               :class="'log-line--' + logSeverityFor(l)">
                   <span class="log-line-sev shrink-0"
                         :class="'log-line-sev--' + logSeverityFor(l)"
                         x-text="logSeverityFor(l).toUpperCase()"></span>
-                  <span class="log-line-sep shrink-0 text-[var(--text-faint)]">—</span>
-                  <span class="text-[var(--text-faint)] shrink-0"
-                        x-text="l.ts ? fmtDate(l.ts) : ''"></span>
-                  <span class="log-stream shrink-0 uppercase text-[9.5px] tracking-wider pt-[2px]"
-                        x-text="(l.level || 'info').toUpperCase()"></span>
-                  <span class="log-body" x-html="colorizeLogText(l)"></span>
-                </div>
-              </template>
-              <div x-show="!parsedLogFileLines().length"
-                   class="text-center py-8 text-[var(--text-faint)]"
-                   x-text="t('admin.logs.empty')"></div>
-            </div>
+            <span class="log-line-sep shrink-0 text-[var(--text-faint)]">—</span>
+            <span class="text-[var(--text-faint)] shrink-0"
+                  x-text="l.ts ? fmtDate(l.ts) : ''"></span>
+            <span class="log-stream shrink-0 uppercase fs-3xs-half tracking-wider pt-[2px]"
+                  x-text="(l.level || 'info').toUpperCase()"></span>
+            <span class="log-body" x-html="colorizeLogText(l)"></span>
           </div>
-        </section>
+        </template>
+        <div x-show="!parsedLogFileLines().length"
+             class="text-center py-8 text-[var(--text-faint)]"
+             x-text="t('admin.logs.empty')"></div>
       </div>
+    </div>
+  </section>
+</div>
 
-      <!-- CONFIG TAB — process-level tunables. Six knobs that
-           previously required an env-var change + restart now resolve
-           via DB > env > code default. Blank input = clear DB override
-           and fall back to env / default (placeholder reflects the
-           live fallback). Each input is bounds-checked client-side
-           via min/max + server-side via TUNABLES. UI changes take
-           effect on the next consumer read; samplers see one tick lag. -->
+<!-- CONFIG TAB — process-level tunables. Six knobs that
+     previously required an env-var change + restart now resolve
+     via DB > env > code default. Blank input = clear DB override
+     and fall back to env / default (placeholder reflects the
+     live fallback). Each input is bounds-checked client-side
+     via min/max + server-side via TUNABLES. UI changes take
+     effect on the next consumer read; samplers see one tick lag. -->
