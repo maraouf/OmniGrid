@@ -31,7 +31,12 @@
   translate.
 -->
 <!--suppress HtmlUnknownAttribute -->
-<span class="relative inline-flex">
+<!-- Wrapper is a `<div>` rendered inline-flex via Tailwind so the
+     included `provider-chip-popover.html` (which is a block-level
+     `<div>` with absolute positioning) lives as a child without
+     the block-in-inline HTML violation that an inline `<span>`
+     parent would trigger. -->
+<div class="relative inline-flex">
   <button type="button"
           class="chip fs-3xs-half px-1 py-0"
           :class="p.state === 'failing' ? 'pill-error'
@@ -55,4 +60,4 @@
                   : (t('settings.host_stats.source_' + p.name) || p.name))))"
           x-text="t('settings.host_stats.source_' + p.name) || p.name"></button>
   <!-- INCLUDE: _components/provider-chip-popover.html -->
-</span>
+</div>

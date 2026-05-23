@@ -2,6 +2,38 @@
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
 // noinspection NestedTemplateLiteralJS
+// Constant-on-RHS covers natural `x === 'Foo'` form + the canonical
+// `x == null` "is null or undefined" idiom (project uses the two-equals
+// shape deliberately to catch both). Empty catch + unused catch `_`
+// are the ignore-and-move-on shape on localStorage persistence + clipboard
+// fallback. Anonymous functions are inline predicate / map callbacks.
+// `Nested call to function 't'` fires because the i18n helper takes a
+// dynamic string built by another helper — every `t(' + var)` site is
+// flagged, but the wrapper IS the point of the helper. Negated-conditional
+// + 4-negation count is the multi-condition filter predicate
+// (`!q && allSevOn && !activePats.length` shape). `throw of exception
+// caught locally` fires on the canonical `if (!r.ok) throw new Error(await r.text())`
+// shape inside a try/catch — the throw constructs a unified error
+// object that the catch then surfaces to the operator via toast. The
+// alternative (inline `showToast` call directly in the if-block)
+// duplicates the error-handling logic. The clipboard-copy fallback
+// path uses `document.body.appendChild` + `document.execCommand('copy')`
+// — both are legacy but deliberately gated behind a `navigator.clipboard`
+// feature-detect for older / non-secure-context browsers. Alpine
+// `$nextTick`, helper methods imported via the spread component,
+// and runtime-bound state fields aren't visible to the static
+// analyser at edit time so the WEAK warnings cluster.
+// noinspection ConstantOnRightSideOfComparisonJS,JSConstantOnRightSideOfComparison
+// noinspection AnonymousFunctionJS
+// noinspection ContinueStatementJS,BreakStatementJS
+// noinspection UnusedCatchParameterJS,EmptyCatchBlockJS
+// noinspection OverlyComplexBooleanExpressionJS,OverlyComplexBooleanExpression
+// noinspection NestedFunctionCallJS
+// noinspection NegatedConditionalExpressionJS,JSNegatedConditionalExpression,FunctionWithMoreThanThreeNegationsJS
+// noinspection ExceptionCaughtLocallyJS,JSExceptionCaughtLocally
+// noinspection RedundantIfStatementJS,JSRedundantIfStatement
+// noinspection JSDeprecatedSymbols
+// noinspection ElementNotExported,JSUnusedGlobalSymbols,JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Logs admin (Admin → Logs) — live in-memory buffer + persistent
@@ -177,7 +209,8 @@ export default {
     const q = (this.logFilter || '').toLowerCase();
     const sev = this.logSeverityFilter || {};
     const allSevOn = this.logSeverityLevels.every(k => sev[k]);
-    if (!q && allSevOn) {
+    const activePats = this._activeLogPatterns();
+    if (!q && allSevOn && !activePats.length) {
       return this.logLines;
     }
     return this.logLines.filter(l => {
@@ -187,8 +220,137 @@ export default {
       if (q && !l.text.toLowerCase().includes(q)) {
         return false;
       }
+      if (activePats.length && !this._lineMatchesAnyPattern(l, activePats)) {
+        return false;
+      }
       return true;
     });
+  },
+  // ---- Log pattern chip filter ---------------------------------
+  // Resolve the set of currently-active pattern IDs (those whose
+  // chip is ON). Empty array = no pattern filter applied. The
+  // canonical filter check is "ANY-of-N" so multiple selected chips
+  // act as a union, matching the operator's mental model: "show me
+  // auth-cooldown OR probe-timeout lines".
+  _activeLogPatterns() {
+    const f = this.logPatternFilter || {};
+    const out = [];
+    for (const def of (this.logPatternDefs || [])) {
+      if (f[def.id]) {
+        out.push(def.id);
+      }
+    }
+    return out;
+  },
+  // Compiled-regex cache. Build on first use; refresh when the
+  // pattern set ever changes (no UI today alters it but a future
+  // operator-custom-pattern feature would). Case-insensitive +
+  // multiline-tolerant because some log lines wrap.
+  _getLogPatternRegex(id) {
+    let cache = this._logPatternRegexCache;
+    if (!cache) {
+      cache = {};
+      for (const def of (this.logPatternDefs || [])) {
+        try {
+          cache[def.id] = new RegExp(def.regex_str, 'i');
+        } catch (_) {
+          // Skip a malformed pattern rather than crashing the
+          // entire filter — operator-custom-pattern future-proofing.
+          cache[def.id] = null;
+        }
+      }
+      this._logPatternRegexCache = cache;
+    }
+    return cache[id] || null;
+  },
+  _lineMatchesAnyPattern(l, activeIds) {
+    const text = (l && (l.text || l.body || l.msg || '')) + '';
+    for (const id of activeIds) {
+      const re = this._getLogPatternRegex(id);
+      if (re && re.test(text)) {
+        return true;
+      }
+    }
+    return false;
+  },
+  // Multi-select pattern controls. Persist to localStorage so the
+  // view survives a reload. setAllPatterns is bulk-on/off; the
+  // canonical "no pattern filter" state is all OFF (every line
+  // matches; same behaviour as severity-all-ON).
+  toggleLogPattern(id) {
+    if (!Object.prototype.hasOwnProperty.call(this.logPatternFilter, id)) {
+      return;
+    }
+    this.logPatternFilter[id] = !this.logPatternFilter[id];
+    this._persistLogPattern();
+  },
+  setAllLogPatterns(on) {
+    for (const def of (this.logPatternDefs || [])) {
+      this.logPatternFilter[def.id] = !!on;
+    }
+    this._persistLogPattern();
+  },
+  // Count of lines (in the LIVE ring buffer) matching one specific
+  // pattern. Walks logLines once per chip render; cheap on the
+  // capped ring. Returns the COUNT regardless of severity / text
+  // filter so the chip's number reflects "how many lines could
+  // this chip surface if you click it" rather than "how many lines
+  // are visible right now".
+  logPatternCount(id) {
+    const re = this._getLogPatternRegex(id);
+    if (!re) {
+      return 0;
+    }
+    let n = 0;
+    for (const l of (this.logLines || [])) {
+      const text = (l && (l.text || l.body || l.msg || '')) + '';
+      if (re.test(text)) {
+        n++;
+      }
+    }
+    return n;
+  },
+  // Same shape for the Files tab — counts parsed file rows
+  // matching the pattern.
+  logFilePatternCount(id) {
+    const re = this._getLogPatternRegex(id);
+    if (!re) {
+      return 0;
+    }
+    let n = 0;
+    for (const l of this.parsedLogFileLines()) {
+      const text = (l && (l.text || l.body || l.msg || '')) + '';
+      if (re.test(text)) {
+        n++;
+      }
+    }
+    return n;
+  },
+  logAnyPatternOn() {
+    return this._activeLogPatterns().length > 0;
+  },
+  _persistLogPattern() {
+    try {
+      localStorage.setItem('logPatternFilter', JSON.stringify(this.logPatternFilter));
+    } catch (_) {
+    }
+  },
+  _restoreLogPattern() {
+    try {
+      const raw = localStorage.getItem('logPatternFilter');
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        for (const def of (this.logPatternDefs || [])) {
+          if (typeof parsed[def.id] === 'boolean') {
+            this.logPatternFilter[def.id] = parsed[def.id];
+          }
+        }
+      }
+    } catch (_) {
+    }
   },
   // Multi-select severity controls. Persist to localStorage so
   // the view survives a reload. setAll/errorsOnly mirror the same
@@ -314,10 +476,18 @@ export default {
         ta.style.position = 'fixed';
         ta.style.opacity = '0';
         ta.style.pointerEvents = 'none';
-        document.body.appendChild(ta);
+        // Use `getElementsByTagName('body')[0]` instead of
+        // `document.body` — the textarea must be in the body (not
+        // documentElement) for selection + execCommand('copy') to
+        // work, but the IDE's "document.body may produce inconsistent
+        // results for XHTML" inspection flags every direct
+        // `document.body` access. The TagName lookup is the IDE's
+        // recommended XHTML-safe alternative.
+        const bodyEl = document.getElementsByTagName('body')[0];
+        bodyEl.appendChild(ta);
         ta.select();
         document.execCommand('copy');
-        document.body.removeChild(ta);
+        bodyEl.removeChild(ta);
       }
       this.showToast(this.t('admin.logs.copied', {n: lines.length}), 'success');
     } catch (_) {

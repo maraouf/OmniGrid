@@ -194,6 +194,16 @@ function app() {
     // the same chip close it. See provider-chip-popover.html for the
     // rendered surface.
     chipPopoverOpen: null,
+    // Chip-strip vocabulary legend — density-as-product feature. A
+    // small `?` button at the end of each chip strip toggles this
+    // boolean to open / close a 5-row legend popover documenting
+    // what each chip colour means (ok / failing / paused /
+    // configured_inactive / loading). Single global because at most
+    // one legend is open at a time across the whole view; the
+    // popover positions relative to whichever consumer renders it.
+    // Esc + outside-click dismiss. See chip-strip-legend.html for
+    // the rendered surface.
+    chipLegendOpen: false,
     // Hosts view state (Beszel-backed). Refreshed via /api/hosts on a
     // separate cadence from the item cache — hub calls are cheap and
     // the view wants faster feedback than the 15-30s item refresh.
@@ -578,6 +588,58 @@ function app() {
     // Severity values match the strings `logSeverity()` returns.
     logSeverityLevels: ['error', 'warn', 'ok', 'info'],
     logSeverityFilter: {error: true, warn: true, ok: true, info: true},
+    // Log-pattern chip filter — third axis alongside source-tag +
+    // severity. Auto-derived chips that match cross-cutting patterns
+    // operators routinely triage on: auth-cool-down skips, probe
+    // timeouts, SQL drift warnings, provider auto-pause events,
+    // SSE / WS reconnects, sampler skips, CSRF / CORS rejections.
+    // Each chip is a `{id, label_key, desc_key, regex_str}` shape;
+    // the chip's RegExp is compiled per-call (cheap; small chip set).
+    // Multi-select semantics: ANY-of-N selected → show only lines
+    // matching at least one selected pattern. ALL OFF → no pattern
+    // filter applied (the source-tag + severity filters still gate).
+    // Persisted to localStorage so the view survives a reload.
+    logPatternDefs: [
+      // Auth-cool-down — `logic/cooldown.py` consumers (Webmin / SSH)
+      // emit "skipped (cool-down)" lines when a per-host 401 cool-down
+      // is active. Operators triaging "why isn't this host probing?"
+      // pin this chip to see every cool-down skip across all sources.
+      {id: 'auth_cooldown', regex_str: '(skipped \\(cool-?down\\)|cool-?down active|401.*back\\s*off)'},
+      // Probe timeout — every per-host provider probe times out under
+      // its outer wall-clock (15-30s typically). Pinning this chip
+      // shows every provider hitting its outer cap so operators can
+      // spot a network-segment outage at a glance.
+      {id: 'probe_timeout', regex_str: '(timed?\\s*out|timeout\\s*(?:exceeded|reached)|probe\\s*budget|wall-?clock\\s*cap)'},
+      // SQL drift — additive-ALTER warnings + schema-migrations
+      // mentions. Useful during a release upgrade where a new column
+      // landed and a stale SELECT might still be in flight.
+      {id: 'sql_drift', regex_str: '(SQL\\s*drift|additive\\s*ALTER|schema_migrations|no\\s*such\\s*column)'},
+      // Provider auto-pause — `_record_failure` / `_clear_failure`
+      // events. Pinning this chip shows the full timeline of a host's
+      // pause / resume cycle without scrolling raw log.
+      {id: 'provider_paused', regex_str: '(auto-?paused|provider\\s*(?:paused|resumed)|consecutive\\s*failures)'},
+      // SSE / WS disconnect — operator-visible "stream dropped"
+      // events. Useful when the SPA Live pill flickers and the
+      // operator wants to confirm it's a server-side disconnect vs
+      // a local-network blip.
+      {id: 'ws_disconnect', regex_str: '(SSE.*(?:reconnect|drop|close)|WebSocket.*(?:close|disconnect)|stream\\s*(?:closed|stalled))'},
+      // Sampler skip — any sampler tick that deliberately deferred
+      // (cool-down, paused host, missing config, etc.). Companion
+      // chip to the per-pattern ones above for the "why isn't N
+      // happening?" triage workflow.
+      {id: 'sampler_skip', regex_str: '(sampler.*(?:skip|defer|noop)|skipping.*sampler|deferred\\s*to\\s*next\\s*tick)'},
+      // CSRF / CORS / auth — security-class events. Pinning this
+      // chip during an auth-debug session surfaces 403 / origin /
+      // CSRF mismatch lines across all sources.
+      {id: 'cors_csrf', regex_str: '(CSRF|CORS|forbidden\\s*\\(403\\)|origin\\s*mismatch|invalid\\s*token)'},
+    ],
+    logPatternFilter: {auth_cooldown: false, probe_timeout: false, sql_drift: false, provider_paused: false, ws_disconnect: false, sampler_skip: false, cors_csrf: false},
+    // Cached compiled regexes per-pattern. Built lazily on first
+    // filter call + invalidated on chip-set change (no UI today
+    // alters the set, but a future "operator-custom pattern" feature
+    // would invalidate this map). Per-call compilation is cheap but
+    // cache hits are cheaper across the thousands-of-lines ring.
+    _logPatternRegexCache: null,
     logPollHandle: null,
     // Display order for the weekday picker. Mon=0..Sun=6 matches the
     // backend's Python tm_wday convention; labels are i18n keys.
@@ -868,6 +930,7 @@ function app() {
       // Restore persisted UI prefs that need to land before the first
       // render of their dependent views.
       this._restoreLogSeverity();
+      this._restoreLogPattern();
       // i18n is already loaded (Alpine is gated on __i18nReady), but pull
       // the authoritative language list + current code/dir into the
       // reactive Alpine state so pickers and v-bindings track it.
@@ -3099,6 +3162,7 @@ function app() {
       const sev = this.logSeverityFilter || {};
       const allOn = this.logSeverityLevels.every(k => sev[k]);
       const lines = this.parsedLogFileLines();
+      const activePats = this._activeLogPatterns();
       // Text filter — same shape as the live (stdout) tab. Reuses
       // `logFilter` so a query typed in either tab carries across,
       // matching the existing `logSeverityFilter` cross-tab pattern.
@@ -3115,10 +3179,16 @@ function app() {
         const text = (l && (l.text || l.body || l.msg || '')) + '';
         return text.toLowerCase().includes(q);
       };
-      if (allOn) {
+      const filterByPattern = (l) => {
+        if (!activePats.length) {
+          return true;
+        }
+        return this._lineMatchesAnyPattern(l, activePats);
+      };
+      if (allOn && !activePats.length) {
         return q ? lines.filter(filterByText) : lines;
       }
-      return lines.filter(l => !!sev[this.logSeverityFor(l)] && filterByText(l));
+      return lines.filter(l => (allOn || !!sev[this.logSeverityFor(l)]) && filterByText(l) && filterByPattern(l));
     },
 
     _b64uEncode(buf) {

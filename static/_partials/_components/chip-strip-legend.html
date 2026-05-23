@@ -1,0 +1,121 @@
+<!--
+  Chip-strip vocabulary legend — `?` button rendered at the right
+  edge of every per-host provider chip strip. Click opens a small
+  popover documenting what each chip colour means: ok / failing /
+  paused / configured_inactive / loading. Pairs with the per-chip
+  click popover (`provider-chip-popover.html`) — this legend
+  explains the colour VOCABULARY; the per-chip popover explains a
+  SPECIFIC chip's data.
+
+  Gated on the global `chipLegendOpen: boolean` Alpine state.
+  Outside-click + Esc dismiss; clicking the `?` again toggles off.
+
+  No required surrounding scope contract — this partial is purely
+  presentational. It references `providerChipStyle()` for the OK
+  swatch's colour-mix output so operator customisations under
+  Settings → Providers ARE reflected (uses the default neutral
+  chip key 'beszel' for a brand swatch since the legend is generic).
+
+  Positioning: absolute under the `?` button; the button + popover
+  live inside a `.relative` wrapper so the popover anchors cleanly.
+-->
+<!--suppress HtmlUnknownAttribute -->
+<!-- Wrapper is a `<div>` rendered inline-flex via Tailwind so the
+     legend popover (a block-level `<div>` with absolute positioning)
+     can live as a child without the block-in-inline HTML violation
+     that an inline `<span>` parent would trigger. -->
+<div class="relative inline-flex">
+  <button type="button"
+          class="chip-strip-legend-btn"
+          @click.stop="chipLegendOpen = !chipLegendOpen"
+          :aria-expanded="chipLegendOpen ? 'true' : 'false'"
+          aria-haspopup="dialog"
+          :title="t('hosts_extra.chip_legend.button_title')"
+          :aria-label="t('hosts_extra.chip_legend.button_aria')"
+          x-text="'?'"></button>
+  <div x-show="chipLegendOpen"
+       x-cloak
+       @click.outside="chipLegendOpen = false"
+       role="dialog"
+       aria-modal="false"
+       :aria-label="t('hosts_extra.chip_legend.dialog_label')"
+       class="absolute z-50 mt-1 end-0 w-[300px] max-w-[calc(100vw-2rem)]
+              bg-[var(--surface-2)] border border-[var(--border)] rounded-md
+              shadow-lg p-3 fs-xs text-[var(--text)]"
+       @keydown.escape.stop="chipLegendOpen = false">
+    <!-- Header — title + close affordance -->
+    <div class="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-[var(--border)]">
+      <span class="font-semibold" x-text="t('hosts_extra.chip_legend.dialog_title')"></span>
+      <button type="button"
+              @click="chipLegendOpen = false"
+              class="user-action-btn"
+              :title="t('actions.close')"
+              :aria-label="t('actions.close')">
+        <svg width="12" height="12" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 5-row legend. Each row carries a coloured swatch + state
+         name + 1-line meaning. The OK swatch routes through
+         providerChipStyle('beszel') so operator customisations
+         show through (the operator's primary brand colour). The
+         other swatches use the canonical pill-* token classes
+         that the chip itself uses for that state. -->
+    <ul class="space-y-1.5" role="list">
+      <li class="flex items-start gap-2">
+        <span class="chip-legend-swatch flex-shrink-0 mt-0.5"
+              :style="providerChipStyle('beszel')"
+              aria-hidden="true"></span>
+        <div class="min-w-0">
+          <div class="font-medium" x-text="t('hosts_extra.chip_legend.row_ok_label')"></div>
+          <div class="text-[var(--text-faint)] fs-3xs"
+               x-text="t('hosts_extra.chip_legend.row_ok_meaning')"></div>
+        </div>
+      </li>
+      <li class="flex items-start gap-2">
+        <span class="chip chip-legend-swatch pill-error flex-shrink-0 mt-0.5"
+              aria-hidden="true"></span>
+        <div class="min-w-0">
+          <div class="font-medium" x-text="t('hosts_extra.chip_legend.row_failing_label')"></div>
+          <div class="text-[var(--text-faint)] fs-3xs"
+               x-text="t('hosts_extra.chip_legend.row_failing_meaning')"></div>
+        </div>
+      </li>
+      <li class="flex items-start gap-2">
+        <span class="chip chip-legend-swatch pill-muted flex-shrink-0 mt-0.5"
+              aria-hidden="true"></span>
+        <div class="min-w-0">
+          <div class="font-medium" x-text="t('hosts_extra.chip_legend.row_paused_label')"></div>
+          <div class="text-[var(--text-faint)] fs-3xs"
+               x-text="t('hosts_extra.chip_legend.row_paused_meaning')"></div>
+        </div>
+      </li>
+      <li class="flex items-start gap-2">
+        <span class="chip chip-legend-swatch pill-muted flex-shrink-0 mt-0.5"
+              aria-hidden="true"></span>
+        <div class="min-w-0">
+          <div class="font-medium"
+               x-text="t('hosts_extra.chip_legend.row_configured_inactive_label')"></div>
+          <div class="text-[var(--text-faint)] fs-3xs"
+               x-text="t('hosts_extra.chip_legend.row_configured_inactive_meaning')"></div>
+        </div>
+      </li>
+      <li class="flex items-start gap-2">
+        <span class="chip chip-legend-swatch pill-custom chip-loading flex-shrink-0 mt-0.5"
+              aria-hidden="true"></span>
+        <div class="min-w-0">
+          <div class="font-medium" x-text="t('hosts_extra.chip_legend.row_loading_label')"></div>
+          <div class="text-[var(--text-faint)] fs-3xs"
+               x-text="t('hosts_extra.chip_legend.row_loading_meaning')"></div>
+        </div>
+      </li>
+    </ul>
+
+    <!-- Hint footer — points operators at the per-chip popover
+         for detail beyond the colour vocabulary. -->
+    <div class="mt-2 pt-2 border-t border-dashed border-[var(--border)] fs-3xs text-[var(--text-faint)] italic"
+         x-text="t('hosts_extra.chip_legend.hint_click_chip')"></div>
+  </div>
+</div>

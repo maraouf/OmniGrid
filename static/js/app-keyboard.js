@@ -153,6 +153,14 @@ export default {
         e.preventDefault();
         return;
       }
+      // Chip-strip vocabulary legend — same close-before-drawer
+      // priority as the per-chip popover. Quick-look overlay, no
+      // navigation state to preserve.
+      if (this.chipLegendOpen) {
+        this.chipLegendOpen = false;
+        e.preventDefault();
+        return;
+      }
       if (this.showHotkeys) {
         this.showHotkeys = false;
         e.preventDefault();
