@@ -9873,95 +9873,198 @@ function app() {
       // axis falls through to live h.disk_total / h.disk_percent.
       return false;
     },
-    // Display list of agents enabled on a host — used by the drawer's
-    // dedicated "Enabled agents" card. Returns rich objects so the
-    // template can render colored pills:
-    // { name: 'beszel', label: 'Beszel', pill: 'pill-ok' }
-    // Each pill class is hand-mapped for visual distinctness across
-    // the five providers (the four ok/info/update colors that
-    // `providerStates` uses don't have enough variance for five
-    // distinct chips, so pill-primary is added for one slot). Ping
-    // shows alongside the four telemetry providers because from the
-    // operator's POV it's a distinct opt-in agent — even though it
-    // doesn't contribute CPU / Mem / Disk gauges.
+    // SINGLE SOURCE OF TRUTH for chip-rendering across the THREE host
+    // chip-strip surfaces (Hosts view, drawer, Admin → Hosts row).
+    // Pre-consolidation each surface walked its own hardcoded provider
+    // list and they drifted — service_probe was caught rendering in 2
+    // of 3 paths (HIGH finding in 2026-05-23 UX review). Now: this
+    // registry is canonical; each surface iterates it via its own
+    // entry-point helper (curatedHostProviderChips for hosts_config[]
+    // shape, hostEnabledAgents for API-row shape with global gate,
+    // providerStates for API-row shape with full state machine +
+    // memoization). Adding a new provider = ONE entry here.
+    //
+    // Per-entry contract:
+    //   name        — canonical provider name (matches host_stats_source CSV)
+    //   label       — display string. Operator-facing; eventually i18n via
+    //                  `t('settings.host_stats.source_<name>')`.
+    //   curatedGate — predicate over a `hosts_config[]` row (raw curated
+    //                  shape — `row.beszel_name`, `row.ping?.enabled`,
+    //                  `row.http_probe?.enabled`, etc.). True = the
+    //                  curated row has the per-host config to opt this
+    //                  provider in. Consumed by curatedHostProviderChips
+    //                  for the Admin → Hosts row chip strip.
+    //   apiGate     — predicate over an API-row `h` (post-shape,
+    //                  `h.beszel_name`, `h.ping_enabled`,
+    //                  `h.http_probe_has_targets`, etc.). True = the
+    //                  host has the per-host config to opt this provider
+    //                  in. Consumed by hostEnabledAgents (drawer) +
+    //                  providerStates (Hosts view).
+    //   apiStatus   — getter for the provider's self-status used by the
+    //                  providerStates state machine. Returns 'down' on a
+    //                  hard failure signal, null otherwise. For
+    //                  providers without a self-status field (ne /
+    //                  webmin / snmp / service_probe), return null.
+    //   fpFields    — fingerprint contribution for providerStates's memo.
+    //                  Returns a string concatenating every field this
+    //                  def reads from `h`; mismatch invalidates the cache.
+    //                  Centralised here so adding a new field to a gate
+    //                  also adds it to the memo key in one edit.
+    _PROVIDER_DEFS: [
+      {
+        name: 'beszel', label: 'Beszel',
+        curatedGate: r => !!(r.beszel_name && String(r.beszel_name).trim()),
+        apiGate: h => !!(h.beszel_name && String(h.beszel_name).trim()),
+        apiStatus: h => h.beszel_status,
+        fpFields: h => (h.beszel_name || '') + '|' + (h.beszel_status || ''),
+      },
+      {
+        name: 'pulse', label: 'Pulse',
+        curatedGate: r => !!(r.pulse_name && String(r.pulse_name).trim()),
+        apiGate: h => !!(h.pulse_name && String(h.pulse_name).trim()),
+        apiStatus: h => h.pulse_status,
+        fpFields: h => (h.pulse_name || '') + '|' + (h.pulse_status || ''),
+      },
+      {
+        name: 'node_exporter', label: 'node-exporter',
+        curatedGate: r => !!(r.ne_url && String(r.ne_url).trim()),
+        apiGate: h => !!(h.ne_url && String(h.ne_url).trim()),
+        apiStatus: () => null,
+        fpFields: h => (h.ne_url || ''),
+      },
+      {
+        name: 'webmin', label: 'Webmin',
+        // Admin row sees curated `webmin_url` (operator-typed Miniserv
+        // URL); API row sees `webmin_name` (resolved alias after
+        // webmin_aliases lookup). Both gates target the same logical
+        // question — the SHAPES differ because the curated config and
+        // the post-shape API output flatten the field differently.
+        curatedGate: r => !!(r.webmin_url && String(r.webmin_url).trim()),
+        apiGate: h => !!(h.webmin_name && String(h.webmin_name).trim()),
+        apiStatus: () => null,
+        fpFields: h => (h.webmin_name || ''),
+      },
+      {
+        name: 'ping', label: 'Ping',
+        // Curated shape: `row.ping = {enabled: true, ...}`. API shape:
+        // `h.ping_enabled` (flattened boolean post-shape).
+        curatedGate: r => !!(r.ping && r.ping.enabled === true),
+        apiGate: h => h.ping_enabled === true,
+        // `ping_alive === false` is the only definitive "down" signal —
+        // null means "no sample yet" (don't render red on first paint).
+        apiStatus: h => (h.ping_alive === false ? 'down' : null),
+        fpFields: h => (h.ping_enabled === true ? '1' : '0') + '|'
+                       + (h.ping_alive === false ? '1' : '0'),
+      },
+      {
+        name: 'snmp', label: 'SNMP',
+        // Mirrors the SNMP sampler's actual target resolution chain:
+        // `snmp_aliases[id] → snmp_name → address → SKIP`. Chip renders
+        // whenever SNMP is per-host enabled AND any valid target exists
+        // (either `snmp_name` provider-specific override OR the curated
+        // `address` field — the dedicated probe target shared across
+        // port-scan / ping / SSH). Earlier iteration required strict
+        // `snmp_enabled === true` which dropped chips on hosts where
+        // the sampler WAS probing via `address` only.
+        curatedGate: r => !!(r.snmp && r.snmp.enabled === true
+            && ((r.snmp_name && String(r.snmp_name).trim())
+              || (r.address && String(r.address).trim()))),
+        apiGate: h => !!(h.snmp_enabled === true
+            && ((h.snmp_name && String(h.snmp_name).trim())
+              || (h.address && String(h.address).trim()))),
+        apiStatus: () => null,
+        fpFields: h => (h.snmp_enabled === true ? '1' : '0') + '|'
+                       + (h.snmp_name || '') + '|' + (h.address || ''),
+      },
+      {
+        name: 'http_probe', label: 'HTTP probe',
+        // Curated shape carries the per-host `http_probe.enabled` flag;
+        // API shape exposes the same flag flattened to `http_probe_enabled`
+        // PLUS the backend-computed `http_probe_has_targets` boolean
+        // (resolves the URL chain `http_probe.urls → row.url →
+        // services[].url` once on the backend so the SPA doesn't have
+        // to walk `h.services` — the API row's `h.services` carries the
+        // Beszel systemd ROLLUP object, not the curated services list).
+        curatedGate: r => !!(r.http_probe && r.http_probe.enabled === true),
+        apiGate: h => !!(h.http_probe_enabled === true && h.http_probe_has_targets),
+        // `host_http_status_ok === false` is the explicit fail signal;
+        // every other value (null / true / undefined) is benign.
+        apiStatus: h => (h.host_http_status_ok === false ? 'down' : null),
+        fpFields: h => (h.http_probe_enabled === true ? '1' : '0') + '|'
+                       + (h.http_probe_has_targets === true ? '1' : '0') + '|'
+                       + (h.host_http_status_ok === false ? '1' : '0'),
+      },
+      {
+        name: 'service_probe', label: 'Service probe',
+        // Per-service-chip reachability sampler — surfaces when ANY
+        // `services[].probe.enabled === true`. NOTE: the curated path
+        // walks `row.services` (raw operator config); the API path also
+        // walks `h.services` — UNLIKE the other providers, the API row
+        // DOES carry the operator's services[] array (`_shape_host_api_row`
+        // passes it through). This is the one case where the curated +
+        // API shapes ARE structurally identical.
+        curatedGate: r => !!(Array.isArray(r.services)
+            && r.services.some(s => s && s.probe && s.probe.enabled === true)),
+        apiGate: h => !!(Array.isArray(h.services)
+            && h.services.some(s => s && s.probe && s.probe.enabled === true)),
+        apiStatus: () => null,
+        // Fingerprint a stable digest of which services have probes on —
+        // operator toggling probe.enabled on a single chip should
+        // invalidate without forcing a deep-equal walk per Alpine tick.
+        fpFields: h => (Array.isArray(h.services)
+            ? h.services.map((s, i) => (s && s.probe && s.probe.enabled === true)
+                ? String(i)
+                : '').filter(Boolean).join(',')
+            : ''),
+      },
+    ],
+
+    // Returns `[{name, label}]` for chips representing providers the
+    // CURATED row has configured. NO global gate, NO state machine —
+    // pure per-row config inspection. Consumed by Admin → Hosts row
+    // chip strip (`static/_partials/admin/hosts.html`). Each consumer
+    // surface that wants a "what's configured on this curated row"
+    // signal should route through this helper instead of inlining the
+    // gate logic (see CLAUDE.md "SPA chip-rendering parity").
+    curatedHostProviderChips(row) {
+      if (!row) {
+        return [];
+      }
+      const out = [];
+      for (const def of this._PROVIDER_DEFS) {
+        if (def.curatedGate(row)) {
+          out.push({name: def.name, label: def.label});
+        }
+      }
+      return out;
+    },
+
+    // Display list of providers enabled on a host — used by the drawer's
+    // dedicated "Enabled providers" card. Returns `[{name, label}]`.
+    //
+    // Per-host enable check is paired with a fleet-level
+    // `hasHostStatsSource(<provider>)` gate. A provider that's
+    // disabled at the fleet level (operator un-ticked it in Admin →
+    // Providers) MUST NOT render its chip even when the per-host
+    // alias / enable flag are still populated — pre-fix a stale SNMP
+    // chip with a Paused state still appeared on hosts where SNMP was
+    // globally disabled, while the per-chip Resume was disabled
+    // (busy-flag stuck) and the rollup-Resume was enabled. Filtering
+    // at the chip-render gate makes the contradictory state impossible
+    // by construction.
+    //
+    // Adding a new provider — ONE entry in `_PROVIDER_DEFS` is sufficient;
+    // this helper picks it up automatically. See CLAUDE.md "SPA chip-
+    // rendering parity" for the canonical contract.
     hostEnabledAgents(h) {
       if (!h) {
         return [];
       }
-      // Each chip is `pill-custom` so it picks up the configured
-      // per-provider colour via providerChipStyle. The
-      // hand-mapped pill class names left over from the original
-      // implementation are deliberately dropped — the colour now
-      // flows from the operator-settable provider_color_* settings,
-      // not from a fixed visual mapping that conflated providers.
-      //
-      //: every per-host enable check is paired with a fleet-level
-      // `hasHostStatsSource(<provider>)` gate. A provider that's
-      // disabled at the fleet level (operator un-ticked it in
-      // Settings → Host stats) MUST NOT render its chip even when
-      // the per-host alias / enable flag are still populated —
-      // pre-fix a stale SNMP chip with a Paused state still appeared
-      // on hosts where SNMP was globally disabled, while the per-chip
-      // Resume was disabled (busy-flag stuck) and the rollup-Resume
-      // was enabled. Filtering at the chip-render gate makes the
-      // contradictory state impossible by construction.
-      if (!h) {
-        return [];
-      }
       const out = [];
-      if (h.beszel_name && this.hasHostStatsSource('beszel')) {
-        out.push({name: 'beszel', label: 'Beszel'});
-      }
-      if (h.pulse_name && this.hasHostStatsSource('pulse')) {
-        out.push({name: 'pulse', label: 'Pulse'});
-      }
-      if (h.ne_url && this.hasHostStatsSource('node_exporter')) {
-        out.push({name: 'node_exporter', label: 'node-exporter'});
-      }
-      if (h.webmin_name && this.hasHostStatsSource('webmin')) {
-        out.push({name: 'webmin', label: 'Webmin'});
-      }
-      if (h.ping_enabled && this.hasHostStatsSource('ping')) {
-        out.push({name: 'ping', label: 'Ping'});
-      }
-      // SNMP chip — the gate must MIRROR the SNMP sampler's actual
-      // probe-target resolver chain: `aliases[id] → snmp_name →
-      // address → SKIP`. Use the existing `_snmpHasProbeTarget`
-      // helper (also used by the SNMP chart-mount gate fleet-wide)
-      // so a host whose sampler IS probing — because `snmp_name` or
-      // `address` is set, even without the explicit per-host opt-in
-      // tick — renders the SNMP chip in the drawer.
-      //
-      // Earlier iteration of this gate required `h.snmp_enabled ===
-      // true` strictly. That was tighter than the sampler so the
-      // operator's APC UPS (`UPS_10K`, snmp_name set, sampler
-      // returning fresh APC vendor data) showed only the Ping chip
-      // in the drawer's "Enabled agents" card — SNMP was actively
-      // probing but invisible. Same drift class as the chart-mount
-      // gate fix that introduced `_snmpHasProbeTarget`. Fleet-wide
-      // `hasHostStatsSource('snmp')` still suppresses the chip when
-      // SNMP is globally disabled, so a host can't render the chip
-      // without something actually probing it.
-      if (this._snmpHasProbeTarget(h) && this.hasHostStatsSource('snmp')) {
-        out.push({name: 'snmp', label: 'SNMP'});
-      }
-      // HTTP probe — eighth provider. Surfaces when the host has the
-      // per-host http_probe.enabled flag set AND the master toggle is
-      // ON (the dual-toggle was collapsed to a single master in the
-      // Providers admin, so hasHostStatsSource('http_probe') now reads
-      // settings.http_probe_enabled directly).
-      if (h.http_probe_enabled === true && this.hasHostStatsSource('http_probe')) {
-        out.push({name: 'http_probe', label: 'HTTP probe'});
-      }
-      // Service probe — per-service-chip reachability sampler. Surfaces
-      // when ANY entry in the host's services[] carries probe.enabled
-      // === true AND the global master toggle is ON. The sampler's
-      // contract mirrors this gate (logic/service_sampler.py only
-      // probes opted-in entries when the master setting is ON).
-      const hasServiceProbe = Array.isArray(h.services)
-        && h.services.some(s => s && s.probe && s.probe.enabled === true);
-      if (hasServiceProbe && this.hasHostStatsSource('service_probe')) {
-        out.push({name: 'service_probe', label: 'Service probe'});
+      for (const def of this._PROVIDER_DEFS) {
+        if (def.apiGate(h) && this.hasHostStatsSource(def.name)) {
+          out.push({name: def.name, label: def.label});
+        }
       }
       return out;
     },

@@ -1093,10 +1093,20 @@
               <span class="fs-2xs text-[var(--text-faint)]"
                     x-text="aiJobs ? (aiJobs.total + ' ' + t('admin.ai.modal.total_jobs')) : ''"></span>
             </div>
-            <div x-show="!aiJobs || aiJobs.jobs.length === 0"
+            <!-- Loading-state spinner — fires while the first
+                 /api/admin/ai/jobs request is in flight. Without the
+                 `aiJobsLoaded` flag the operator sees the empty-state
+                 body during the in-flight window which mis-signals
+                 "no data" before the fetch lands. -->
+            <div x-show="!aiJobsLoaded" class="loading-state py-8 text-center">
+              <svg width="20" height="20" class="spin-md text-[var(--text-faint)]" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+            </div>
+            <div x-show="aiJobsLoaded && (!aiJobs || aiJobs.jobs.length === 0)"
                  class="py-8 text-center fs-sm text-[var(--text-faint)] italic"
                  x-text="t('admin.ai.modal.empty_jobs')"></div>
-            <table x-show="aiJobs && aiJobs.jobs.length > 0" class="w-full fs-xs mono">
+            <table x-show="aiJobsLoaded && aiJobs && aiJobs.jobs.length > 0" class="w-full fs-xs mono">
               <thead>
               <tr class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] text-start">
                 <!-- Sortable headers — buttons (not spans) so
@@ -1200,10 +1210,18 @@
           <div x-show="aiModalKey && aiModalKey !== 'jobs'">
             <p class="fs-xs text-[var(--text-faint)] mb-3"
                x-text="aiModalKey ? t('admin.ai.modal.' + aiModalKey + '_desc') : ''"></p>
-            <div x-show="!aiDashboard || aiDashboard.trend.length === 0"
+            <!-- Loading-state spinner — same `*Loaded`-gate pattern
+                 as the Jobs table above so the operator doesn't see
+                 the empty-state during the in-flight window. -->
+            <div x-show="!aiDashboardLoaded" class="loading-state py-8 text-center">
+              <svg width="20" height="20" class="spin-md text-[var(--text-faint)]" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+            </div>
+            <div x-show="aiDashboardLoaded && (!aiDashboard || aiDashboard.trend.length === 0)"
                  class="py-8 text-center fs-sm text-[var(--text-faint)] italic"
                  x-text="t('admin.ai.modal.empty_trend')"></div>
-            <table x-show="aiDashboard && aiDashboard.trend.length > 0" class="w-full fs-xs mono">
+            <table x-show="aiDashboardLoaded && aiDashboard && aiDashboard.trend.length > 0" class="w-full fs-xs mono">
               <thead>
               <tr class="fs-3xs uppercase tracking-wider text-[var(--text-faint)]">
                 <!-- Sortable headers — same shape as the JOBS

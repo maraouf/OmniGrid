@@ -1,7 +1,15 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS,AnonymousFunctionJS,FunctionTooLongJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS,ContinueStatementJS,BreakStatementJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+// noinspection NegatedIfStatementJS,OverlyComplexBooleanExpressionJS,ExceptionCaughtLocallyJS,PointlessBitwiseExpressionJS,AnonymousCapturingGroupJS,RegExpAnonymousGroup
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSIgnoredPromiseFromCall,JSAsyncFunctionMissingAwait,JSMissingAwait
+// noinspection NegatedConditionalExpressionJS,JSNegatedConditionalExpression,JSIfStatementsCanBeSimplified,IfStatementSimplifyable,RedundantIfStatementJS
+// noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
+// noinspection JSValidateTypes,JSPotentiallyInvalidUsageOfThis,RegExpRedundantEscape,JSDeprecatedSymbols,VoidExpressionJS,JSVoidExpression
+// noinspection RedundantLocalVariableJS,JSPossiblyAssignedToNullVariable,JSObjectNullOrUndefined,JSReusedLocalVariable,XHTMLIncompatabilitiesJS,JSAccessInconsistentInXHTML
+// noinspection HtmlUnknownTag,HtmlEmptyContent,HtmlEmptyTagsRecommendation,InnerHTMLJS
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA AI Integration — sidebar chat, command-palette AI mode, AI
@@ -641,6 +649,16 @@ export default {
   aiSaving: false,
   aiDashboard: null,
   aiDashboardLoading: false,
+  // `aiDashboardLoaded` / `aiJobsLoaded` follow the canonical `*Loaded`
+  // boolean pattern used by every other async-loaded admin table
+  // (`usersLoaded` / `sessionsLoaded` / `tokensLoaded` / `schedulesLoaded`
+  // / `backupsLoaded` / etc.). Flip true once on first successful
+  // fetch and STAY true — distinguishes "still fetching, show spinner"
+  // from "fetch completed, table is genuinely empty". Without these,
+  // the AI tab's dashboard + jobs tables flashed their "No data" empty
+  // state during the in-flight window before /api/admin/ai/dashboard +
+  // /api/admin/ai/jobs landed.
+  aiDashboardLoaded: false,
   // AI memory — durable lessons the AI emits via MEMORY: directives.
   // Surfaced in Admin → AI memory; injected into every palette
   // call's system prompt so the AI accumulates knowledge over the
@@ -651,6 +669,10 @@ export default {
   aiRange: 24,                     // 1 / 24 / 168 / 720 hours
   aiModalKey: null,                 // 'jobs' / 'cost' / 'tokens' / 'response_time' / 'accuracy' / 'passrate'
   aiJobs: null,                     // { total, jobs: [...] }
+  // Canonical `*Loaded` flag for the jobs table — see the matching
+  // comment on `aiDashboardLoaded` above. Flipped true on first
+  // successful `/api/admin/ai/jobs` response.
+  aiJobsLoaded: false,
   aiJobsFilterProvider: '',
   aiJobsFilterStatus: '',
   // Paging + sorting for the dashboard popups (jobs + every trend
@@ -939,6 +961,10 @@ export default {
       this.aiDashboard = null;
     } finally {
       this.aiDashboardLoading = false;
+      // Mark loaded regardless of fetch outcome — the empty-state
+      // gate in the partial expects this flag to distinguish "still
+      // fetching" from "fetch completed, result is empty / failed".
+      this.aiDashboardLoaded = true;
     }
     // Always refresh the memory list when the dashboard loads — the
     // AI tab and the memory pane share the same scope.
@@ -1037,6 +1063,11 @@ export default {
     } catch (e) {
       console.error('[ai] loadAiJobs failed:', e);
       this.aiJobs = null;
+    } finally {
+      // Canonical `*Loaded` flag — flip true once on first response so
+      // the partial's empty-state gate can distinguish "still fetching"
+      // from "result is genuinely empty / failed".
+      this.aiJobsLoaded = true;
     }
   },
   openAiModal(key) {
@@ -1695,7 +1726,12 @@ export default {
     // turn lands) is cheap; both writes round-trip the full capped
     // array, so the second write supersedes the first cleanly.
     try {
-      this.persistAiConversation();
+      // Fire-and-forget persist — `void` makes the intent explicit to
+      // both readers and the IDE's missing-await inspection. The
+      // assistant turn that follows will call persist again; both
+      // writes round-trip the full capped array so the second
+      // supersedes the first cleanly.
+      void this.persistAiConversation();
     } catch (_) {
     }
 
@@ -2026,7 +2062,11 @@ export default {
     } finally {
       this.aiSidebarBusy = false;
       this._scrollAiSidebarToBottom();
-      this.persistAiConversation();
+      // Fire-and-forget persist on cleanup — `void` makes the
+      // discard-the-promise intent explicit. Awaiting here would
+      // block the UI's busy-flag teardown on a round-trip we don't
+      // care about; failures are tolerated (every send re-persists).
+      void this.persistAiConversation();
     }
   },
   _scrollAiSidebarToBottom(opts) {
@@ -2178,7 +2218,9 @@ export default {
       }
     } finally {
       this.aiSidebarFeedbackBusy[turnIdx] = false;
-      this.persistAiConversation();
+      // Fire-and-forget persist after recording the 👍 / 👎 — `void`
+      // makes the discard-the-promise intent explicit to the IDE.
+      void this.persistAiConversation();
     }
   },
   // Scroll the slash-picker's active row into view after Up/Down arrow
@@ -2600,6 +2642,17 @@ export default {
     return parts.join(' · ');
   },
   _buildAiPaletteContext() {
+    // `fmtHost` is intentionally long-but-flat (~125 statements). It
+    // maps EVERY operator-visible host_* field into the AI palette's
+    // single-host context object — each `if (h.X) out.X = …` line is
+    // one field. Splitting into sub-helpers (`fmtHostNetwork`,
+    // `fmtHostDisk`, `fmtHostInventory`, …) would obscure the
+    // canonical "what the AI sees per host" contract by scattering it
+    // across 4-5 functions, when the whole function exists to answer
+    // exactly one question: which fields cross the SPA→AI boundary?
+    // Scoped suppression with documented reason is the correct call —
+    // refactoring trades one readable manifest for a tour of helpers.
+    // noinspection OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,FunctionWithMoreThanThreeNegationsJS
     const fmtHost = (h) => {
       const total = Number(h.disk_total || 0);
       const used = Number(h.disk_used || 0);
@@ -3827,7 +3880,13 @@ export default {
       // one failed projection doesn't poison the whole modal.
       if (Array.isArray(j.hosts) && j.hosts.length > 0) {
         for (const hid of j.hosts) {
-          this._populateAiHostChart(hid);
+          // Fire-and-forget per-host populate — `void` makes the
+          // discard-the-promise intent explicit. We deliberately do
+          // NOT await so the per-host fetches run in parallel; each
+          // _populateAiHostChart manages its own error fallback (a
+          // "no data" hint on its shell), so one failure can't poison
+          // the others.
+          void this._populateAiHostChart(hid);
         }
       }
       // Fire the action(s) AFTER the answer modal renders. Multi-
@@ -3841,7 +3900,12 @@ export default {
       // circuits via `_runCommandPaletteAction`'s `if (!ok) return`
       // and the loop continues to the next action.
       if (actionDescs.length) {
-        (async () => {
+        // Fire-and-forget IIFE — runs the action descriptors
+        // sequentially in the background so the answer modal stays
+        // responsive while the action chain executes. `void` makes the
+        // discard-the-promise intent explicit; the inner loop awaits
+        // each action so the operator sees confirm popups in order.
+        void (async () => {
           for (const desc of actionDescs) {
             try {
               await this._runCommandPaletteAction(desc);

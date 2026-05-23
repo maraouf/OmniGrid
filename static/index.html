@@ -2798,15 +2798,6 @@
                            class="text-[var(--warning)]"
                            aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/></svg>
                     </span>
-                          <!-- Per-host provider chips. Red when provider is
-                         globally enabled AND mapped to this host but
-                         didn't return data (paused / unreachable / 401).
-                         Brand color when healthy — driven by
-                         `providerColor()`, per-provider
-                         customisable under Settings → Providers. -->
-                          <template x-for="p in providerStates(h)" :key="p.name">
-                            <!-- INCLUDE: _components/host-provider-chip.html -->
-                          </template>
                         </div>
                         <!-- Asset location — its OWN line under the title
                        so the asset name above isn't cropped. Only
@@ -2841,6 +2832,25 @@
                           : h.status === 'loading' ? ''
                           : t('hosts_extra.no_agents_configured'))
                     "></span>
+                        </div>
+                        <!-- Per-host provider chips. Pulled OUT of the
+                       inline name+badges flex row above so long host
+                       labels can use the full row width instead of
+                       being truncated by the chip strip. Renders on
+                       its OWN line under the "N Providers" subline.
+                       Red when provider is globally enabled AND
+                       mapped to this host but didn't return data
+                       (paused / unreachable / 401). Brand colour
+                       when healthy — driven by `providerColor()`,
+                       per-provider customisable under Admin →
+                       Providers. Hidden entirely when the host has
+                       no provider chips to render so the row doesn't
+                       reserve a blank vertical slot. -->
+                        <div class="host-row-providers-line"
+                             x-show="providerStates(h).length > 0">
+                          <template x-for="p in providerStates(h)" :key="p.name">
+                            <!-- INCLUDE: _components/host-provider-chip.html -->
+                          </template>
                         </div>
                       </div>
                     </div>
@@ -4520,7 +4530,7 @@
                                distinguish "this chip is fine but we haven't
                                heard from it in 6 hours" from "fresh data". -->
                       <span x-show="providerLastOkSeconds(h, agent.name) > 0"
-                            class="text-[9.5px] text-[var(--text-faint)] mono ps-0.5"
+                            class="fs-3xs-half text-[var(--text-faint)] mono ps-0.5"
                             :title="t('hosts_extra.provider_last_ok_title', { provider: agent.name })"
                             x-text="t('hosts_extra.provider_last_ok', { age: providerLastOkAge(h, agent.name) })"></span>
                       <!-- Per-(provider, host) row count from the
@@ -4534,7 +4544,7 @@
                                thousands separator for fleets with
                                millions of rows. -->
                       <span x-show="providerSampleCount(h, agent.name) > 0"
-                            class="text-[9.5px] text-[var(--text-faint)] mono ps-0.5"
+                            class="fs-3xs-half text-[var(--text-faint)] mono ps-0.5"
                             :title="t('hosts_extra.provider_sample_count_title', { provider: agent.name })"
                             x-text="t('hosts_extra.provider_sample_count', { count: Number(providerSampleCount(h, agent.name)).toLocaleString() })"></span>
                       <!-- Effective sampler cadence for this provider.
@@ -4545,7 +4555,7 @@
                                the raw `0 = inherit` sentinel. Hidden on 0
                                (cold-load skeleton). -->
                       <span x-show="providerSampleInterval(h, agent.name) > 0"
-                            class="text-[9.5px] text-[var(--text-faint)] mono ps-0.5"
+                            class="fs-3xs-half text-[var(--text-faint)] mono ps-0.5"
                             :title="t('hosts_extra.provider_sample_interval_title', { provider: agent.name, seconds: providerSampleInterval(h, agent.name) })"
                             x-text="t('hosts_extra.provider_sample_interval', { every: providerSampleIntervalLabel(h, agent.name) })"></span>
                     </div>
@@ -5740,7 +5750,7 @@
                                  the chart can silently misrepresent under-
                                  wrap traffic on this iface. -->
                         <span x-show="typeof iface === 'object' && iface.counter_width === 32"
-                              class="chip pill-warning text-[9.5px] px-1 py-0"
+                              class="chip pill-warning fs-3xs-half px-1 py-0"
                               :title="t('host_drawer.network.counter_32_title')"
                               x-text="'32'"></span>
                         <span x-show="typeof iface === 'object' && iface.mac"
@@ -7419,7 +7429,7 @@
                 </div>
                 <div class="metric-card-stats">
                   <span x-show="hostMetricStats(httpLatencyKey(h), 'latency_ms', false)">
-                    <span class="metric-legend-dot" style="background: var(--metric-http-latency, #fb923c);"></span>
+                    <span class="metric-legend-dot" style="background: var(--metric-http-latency);"></span>
                     <span x-text="t('host_drawer.http_probe.latency_legend') || 'avg'"></span>
                     <span class="legend-val"
                           x-text="hostMetricStats(httpLatencyKey(h), 'latency_ms', false) ? _fmtAxisMs(hostMetricStats(httpLatencyKey(h), 'latency_ms', false).max) : ''"></span>
@@ -7437,7 +7447,7 @@
                     <path class="metric-grid"
                           :d="hostChart(httpLatencyKey(h), 'latency_ms', { min: 0, max: hostChartMax(httpLatencyKey(h), ['latency_ms']), height: 120 }).gridPath"
                           fill="none"/>
-                    <path class="metric-line" style="color: var(--metric-http-latency, #fb923c);"
+                    <path class="metric-line" style="color: var(--metric-http-latency);"
                           :d="hostChart(httpLatencyKey(h), 'latency_ms', { min: 0, max: hostChartMax(httpLatencyKey(h), ['latency_ms']), height: 120 }).pathGapped"/>
                   </svg>
                   <div class="metric-x-axis">
