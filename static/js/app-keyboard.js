@@ -144,6 +144,15 @@ export default {
         e.preventDefault();
         return;
       }
+      // Provider chip popover — closes BEFORE the host drawer / item
+      // drawer so a stacked popover-over-drawer scenario dismisses the
+      // smaller surface first. Chip popover is a quick-look overlay,
+      // not a navigation state worth preserving on Esc.
+      if (this.chipPopoverOpen) {
+        this.closeProviderChipPopover();
+        e.preventDefault();
+        return;
+      }
       if (this.showHotkeys) {
         this.showHotkeys = false;
         e.preventDefault();

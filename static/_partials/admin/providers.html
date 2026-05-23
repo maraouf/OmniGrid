@@ -23,48 +23,38 @@
        preferred the higher-contrast pill style. Active tab fills
        with --primary + reads in --text-on-primary; inactive tabs
        keep the muted text + hover-on-surface-2 affordance. -->
-  <div class="flex flex-wrap items-center gap-1 mb-4 pb-2 border-b border-[var(--border)] overflow-x-auto overflow-y-hidden scrollbar"
-       role="tablist" aria-orientation="horizontal" :aria-label="t('settings.host_stats.tablist_label')">
-    <template x-for="tab in [
-            ['node_exporter', t('settings.host_stats.source_node_exporter')],
-            ['beszel',        t('settings.host_stats.source_beszel')],
-            ['pulse',         t('settings.host_stats.source_pulse')],
-            ['webmin',        t('settings.host_stats.source_webmin')],
-            ['ping',          t('settings.host_stats.source_ping')],
-            ['snmp',          t('settings.host_stats.source_snmp')],
-            ['http_probe',    t('settings.host_stats.source_http_probe')],
-            ['service_probe', t('settings.host_stats.source_service_probe')],
-          ]" :key="tab[0]">
-      <button type="button" @click="setHostStatsTab(tab[0])"
-              role="tab"
-              :id="'provider-tab-' + tab[0]"
-              :aria-selected="hostStatsTab === tab[0] ? 'true' : 'false'"
-              :aria-controls="'provider-tabpanel-' + tab[0]"
-              :aria-label="tab[1] + ' — ' + (hasHostStatsSource(tab[0])
-                            ? t('settings.host_stats.tab_active_dot')
-                            : t('settings.host_stats.tab_inactive_dot'))"
-              :tabindex="hostStatsTab === tab[0] ? 0 : -1"
-              @keydown.right.prevent="cycleHostStatsTab(1)"
-              @keydown.left.prevent="cycleHostStatsTab(-1)"
-              @keydown.home.prevent="setHostStatsTab(HOST_STATS_TAB_ORDER[0])"
-              @keydown.end.prevent="setHostStatsTab(HOST_STATS_TAB_ORDER[HOST_STATS_TAB_ORDER.length - 1])"
-              :class="hostStatsTab === tab[0]
-                      ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
-                      : 'text-[var(--text-dim)] hover:bg-[var(--surface-2)]'"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded fs-xs font-medium whitespace-nowrap">
-              <span class="w-1.5 h-1.5 rounded-full"
-                    :class="hasHostStatsSource(tab[0]) ? 'dot-on' : 'dot-off'"
-                    :title="hasHostStatsSource(tab[0]) ? t('settings.host_stats.tab_active_dot') : t('settings.host_stats.tab_inactive_dot')"></span>
-        <!-- Colored brand icon (matches Notifications tab
-             strip for visual consistency across master-toggled
-             admin tabs). Drops the mask-image / mono treatment
-             in favour of the canonical SVG so each provider's
-             brand identity reads at a glance. -->
-        <img width="14" height="14" alt="" aria-hidden="true"
-             :src="'/img/icons/' + providerIconSlug(tab[0]) + '.svg?v=__APP_VERSION__'">
-        <span x-text="tab[1]"></span>
-      </button>
-    </template>
+  <!-- Tab strip delegated to the shared `og-tab-strip` partial.
+       Carries the optional `dotActive` per-option flag so the
+       active-provider dot indicator + dot-state aria-label fold
+       in automatically. The matching tabpanel attributes
+       (role="tabpanel" + id="provider-tabpanel-<name>" +
+       aria-labelledby="provider-tab-<name>" + tabindex="0") stay
+       on each panel below — only the strip is shared. -->
+  <div x-data="{
+                 get tsOptions() {
+                   return [
+                     {value: 'node_exporter', label: t('settings.host_stats.source_node_exporter'), iconKind: 'brand', iconId: providerIconSlug('node_exporter'), dotActive: hasHostStatsSource('node_exporter')},
+                     {value: 'beszel',        label: t('settings.host_stats.source_beszel'),        iconKind: 'brand', iconId: providerIconSlug('beszel'),        dotActive: hasHostStatsSource('beszel')},
+                     {value: 'pulse',         label: t('settings.host_stats.source_pulse'),         iconKind: 'brand', iconId: providerIconSlug('pulse'),         dotActive: hasHostStatsSource('pulse')},
+                     {value: 'webmin',        label: t('settings.host_stats.source_webmin'),        iconKind: 'brand', iconId: providerIconSlug('webmin'),        dotActive: hasHostStatsSource('webmin')},
+                     {value: 'ping',          label: t('settings.host_stats.source_ping'),          iconKind: 'brand', iconId: providerIconSlug('ping'),          dotActive: hasHostStatsSource('ping')},
+                     {value: 'snmp',          label: t('settings.host_stats.source_snmp'),          iconKind: 'brand', iconId: providerIconSlug('snmp'),          dotActive: hasHostStatsSource('snmp')},
+                     {value: 'http_probe',    label: t('settings.host_stats.source_http_probe'),    iconKind: 'brand', iconId: providerIconSlug('http_probe'),    dotActive: hasHostStatsSource('http_probe')},
+                     {value: 'service_probe', label: t('settings.host_stats.source_service_probe'), iconKind: 'brand', iconId: providerIconSlug('service_probe'), dotActive: hasHostStatsSource('service_probe')},
+                   ];
+                 },
+                 get tsCurrent() { return hostStatsTab; },
+                 tsOnChange(v) { setHostStatsTab(v); },
+                 tsCycle(dir) { cycleHostStatsTab(dir); },
+                 tsHome() { setHostStatsTab(HOST_STATS_TAB_ORDER[0]); },
+                 tsEnd() { setHostStatsTab(HOST_STATS_TAB_ORDER[HOST_STATS_TAB_ORDER.length - 1]); },
+                 get tsAriaLabel() { return t('settings.host_stats.tablist_label'); },
+                 tsIdPrefix: 'provider',
+                 get tsActiveDotLabel() { return t('settings.host_stats.tab_active_dot'); },
+                 get tsInactiveDotLabel() { return t('settings.host_stats.tab_inactive_dot'); },
+                 tsExtraClass: 'mb-4'
+               }">
+    <!-- INCLUDE: _components/og-tab-strip.html -->
   </div>
   <!-- Per-provider config blocks — visible always, inputs
        disabled when the matching toggle in the source-list above
