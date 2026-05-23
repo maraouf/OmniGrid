@@ -4074,6 +4074,7 @@
       "address_placeholder": "192.X.X.X · host.example.com · …",
       "ssh_fqdn_label": "SSH FQDN / host",
       "ssh_fqdn_hint": "(blank = falls back to Hostname or IP)",
+      "ssh_password_label": "SSH password",
       "snmp_target_label": "SNMP target",
       "snmp_target_hint": "(blank = falls back to Hostname or IP)",
       "ne_url_placeholder": "http://192.X.X.X:9100/metrics",
@@ -4082,6 +4083,7 @@
       "remove": "Remove"
     },
     "filter_placeholder": "Filter hosts by id, label, provider name, URL…",
+    "filter_count": "{shown} of {total}",
     "export": "Export",
     "import_button": "Import",
     "export_title": "Download the curated hosts list as a JSON file.",

@@ -1,7 +1,12 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,OverlyComplexBooleanExpressionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,OverlyComplexBooleanExpressionJS,AnonymousFunctionJS,NestedFunctionCallJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS,ContinueStatementJS,BreakStatementJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+// noinspection NegatedIfStatementJS,ExceptionCaughtLocallyJS,JSReusedLocalVariable,NegatedConditionalExpressionJS,JSNegatedConditionalExpression
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,RedundantLocalVariableJS,JSIgnoredPromiseFromCall
+// noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
+// noinspection JSValidateTypes,HtmlUnknownTag,HtmlEmptyContent,HtmlEmptyTagsRecommendation,HtmlSelfClosedTag,JSReusedLocal,LocalVariableReusedJS
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Admin → Config — the tunables editor.
@@ -72,13 +77,13 @@ export default {
     'tuning_sse_heartbeat_seconds',
     'tuning_sse_max_lifetime_seconds',
     // Webmin probe outer budget. Rendered in
-    // Settings → Host stats (Webmin section) instead of the generic
+    // Admin → Providers (Webmin section) instead of the generic
     // Process tunables form so operators editing Webmin creds have
     // the budget knob ready to hand. Same `tuningForm` /
     // `tuningEffective` / `saveTuning` Alpine state — just rendered
     // in two places only when configured.
     // node-exporter per-host probe timeout. Rendered in
-    // Settings → Host stats → Node-exporter section instead of
+    // Admin → Providers → Node-exporter section instead of
     // the generic Process tunables form so operators editing NE
     // config have the timeout knob ready to hand. Same
     // `tuningForm` / `tuningEffective` / `saveTuning` Alpine
@@ -93,7 +98,7 @@ export default {
     'tuning_rate_limit_lockout_seconds',
     // outer host-provider cache.
     'tuning_host_provider_cache_ttl_seconds',
-    // per-host Webmin caches MOVED to Settings → Host stats
+    // per-host Webmin caches MOVED to Admin → Providers
     // → Webmin section per operator request. See
     // `relocatedTuningKeys` below — they keep the same Alpine
     // state via the union helper, just don't render in the
@@ -193,9 +198,9 @@ export default {
   },
   relocatedTuningKeys: [
     'tuning_log_retention_days', // → Admin → Logs
-    'tuning_webmin_probe_budget_seconds', // → Settings → Host stats → Webmin
-    'tuning_webmin_sampler_budget_seconds', // → Settings → Host stats → Webmin (sampler tick budget)
-    'tuning_node_exporter_probe_timeout_seconds', // → Settings → Host stats → NE
+    'tuning_webmin_probe_budget_seconds', // → Admin → Providers → Webmin
+    'tuning_webmin_sampler_budget_seconds', // → Admin → Providers → Webmin (sampler tick budget)
+    'tuning_node_exporter_probe_timeout_seconds', // → Admin → Providers → NE
     // Asset Inventory outbound HTTP timeouts — rendered in
     // Admin → Asset Inventory next to URL / client ID / etc.
     // Section-owned save via assetDirty() / saveAssetSettings().
@@ -227,21 +232,21 @@ export default {
     // also rendered in Admin → Portainer (gather talks to Portainer).
     'tuning_gather_client_timeout_seconds',
     'tuning_gather_orphan_probe_timeout_seconds',
-    'tuning_webmin_host_cache_ttl_seconds', // → Settings → Host stats → Webmin
-    'tuning_webmin_host_fail_cache_ttl_seconds',// → Settings → Host stats → Webmin
+    'tuning_webmin_host_cache_ttl_seconds', // → Admin → Providers → Webmin
+    'tuning_webmin_host_fail_cache_ttl_seconds',// → Admin → Providers → Webmin
     // Swarm autoheal cooldown — fires from the `swarm_agent_health`
     // schedule kind, not visible in any host-stats section. Listed
     // here so the save round-trip + dirty tracking still pick it up
     // even though it lives in the generic Admin → Config form.
     'tuning_swarm_autoheal_cooldown_minutes',
-    // Beszel section tunables — rendered in Settings → Host stats
+    // Beszel section tunables — rendered in Admin → Providers
     // → Beszel via `_perProviderTuneKeys.beszel`. Listed here so
     // saveHostStats picks them up alongside the other provider
     // tunables instead of leaking them to the generic Admin →
     // Config save path.
     'tuning_beszel_probe_timeout_seconds',
     'tuning_beszel_sample_interval_seconds',
-    // Ping provider tunables (rendered in Host stats → Ping).
+    // Ping provider tunables (rendered in Providers → Ping).
     'tuning_ping_interval_seconds',
     'tuning_ping_concurrency',
     'tuning_ping_probe_timeout_seconds',
@@ -249,7 +254,7 @@ export default {
     'tuning_ping_packet_interval_ms',
     // HTTP / TLS / DNS probe — seventh host-stats provider.
     // Section-owned save via httpProbeSectionDirty() /
-    // saveHttpProbeSection(). Rendered in Settings → Host stats →
+    // saveHttpProbeSection(). Rendered in Admin → Providers →
     // HTTP probe; the consumer reads the values via tuning_int(...)
     // per-call inside `logic/host_http_sampler.py`.
     'tuning_http_probe_timeout_seconds',
@@ -264,14 +269,14 @@ export default {
     'tuning_http_probe_default_accepted_hi_code',
     // Service probe — per-service-chip reachability sampler.
     // Section-owned save via serviceProbeSectionDirty() /
-    // saveServiceProbeSection(). Rendered in Settings → Host stats →
+    // saveServiceProbeSection(). Rendered in Admin → Providers →
     // Service probe; the sampler reads the values via tuning_int(...)
     // per-call inside `logic/service_sampler.py`.
     'tuning_service_probe_sample_interval_seconds',
     'tuning_service_probe_concurrency',
     'tuning_service_probe_timeout_seconds',
     'tuning_service_probe_failure_pause_rounds',
-    // SNMP provider tunables (rendered in Host stats → SNMP).
+    // SNMP provider tunables (rendered in Providers → SNMP).
     'tuning_snmp_probe_timeout_seconds',
     'tuning_snmp_wall_clock_budget_seconds',
     'tuning_snmp_per_host_walk_concurrency',
@@ -306,7 +311,7 @@ export default {
     'tuning_pulse_probe_timeout_seconds',
     // Pulse + NE per-sampler interval overrides — mirror the
     // Beszel knob's shape (0 = inherit `tuning_stats_sample_interval_seconds`,
-    // > 0 = override). Rendered in Settings → Host stats →
+    // > 0 = override). Rendered in Admin → Providers →
     // Pulse / NE respectively via `_perProviderTuneKeys`.
     'tuning_pulse_sample_interval_seconds',
     'tuning_node_exporter_sample_interval_seconds',

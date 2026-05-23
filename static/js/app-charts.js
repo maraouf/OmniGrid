@@ -1,7 +1,12 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,AnonymousFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS,ContinueStatementJS,BreakStatementJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+// noinspection NegatedIfStatementJS,OverlyComplexBooleanExpressionJS,ExceptionCaughtLocallyJS,JSReusedLocalVariable,NegatedConditionalExpressionJS,JSNegatedConditionalExpression
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,RedundantLocalVariableJS,HtmlUnknownAttributeValueOfHtmlAttributeJS
+// noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
+// noinspection JSValidateTypes,HtmlUnknownTag,HtmlEmptyContent,HtmlEmptyTagsRecommendation,HtmlSelfClosedTag,HtmlUnknownAttributeValue,JSReusedLocal,LocalVariableReusedJS,JSDuplicatedDeclaration,JSCheckNamingConventionsInspection,JSAnonymousFunctionDeclaration
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA chart renderers + chart-data helpers.
@@ -62,8 +67,6 @@ export default {
     // Build the two stacked areas. rx is the BOTTOM band (0 →
     // rx); tx is the TOP band (rx → rx + tx). Closed polygons so
     // fill works correctly.
-    let rxArea = '';
-    let txArea = '';
     let rxLine = '';
     for (const p of points) {
       const rx = Number(p.rx_bps) || 0;
@@ -71,7 +74,7 @@ export default {
       rxLine += (rxLine ? ' L' : 'M') + x.toFixed(1) + ',' + Y(rx).toFixed(1);
     }
     // Close the rx area down to the baseline.
-    rxArea = rxLine + ' L' + X(points[points.length - 1].bucket_ts).toFixed(1) + ',' + Y(0).toFixed(1)
+    const rxArea = rxLine + ' L' + X(points[points.length - 1].bucket_ts).toFixed(1) + ',' + Y(0).toFixed(1)
       + ' L' + X(points[0].bucket_ts).toFixed(1) + ',' + Y(0).toFixed(1) + ' Z';
     // tx area sits on top of rx. Top edge: rx + tx. Bottom edge:
     // rx (reversed so the polygon closes correctly).
@@ -88,7 +91,7 @@ export default {
       const rx = Number(p.rx_bps) || 0;
       txBot += ' L' + X(p.bucket_ts).toFixed(1) + ',' + Y(rx).toFixed(1);
     }
-    txArea = txTop + txBot + ' Z';
+    const txArea = txTop + txBot + ' Z';
     // Y-axis ticks (5).
     const fmt = (n) => this.fmtBps(n);
     const yTicks = [0, yMax * 0.25, yMax * 0.5, yMax * 0.75, yMax].map(v => ({
@@ -106,17 +109,17 @@ export default {
     let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block;">';
     for (const t of yTicks) {
       svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
-        + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+        + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"></line>';
       svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
     }
     for (const t of xTicks) {
       svg += '<line x1="' + t.x + '" y1="' + PAD_T + '" x2="' + t.x + '" y2="' + (H - PAD_B)
-        + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+        + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"></line>';
     }
     // RX area (bottom, primary tint).
-    svg += '<path d="' + rxArea + '" fill="var(--primary)" fill-opacity="0.35" stroke="var(--primary)" stroke-width="1"/>';
+    svg += '<path d="' + rxArea + '" fill="var(--primary)" fill-opacity="0.35" stroke="var(--primary)" stroke-width="1"></path>';
     // TX area (top, success tint).
-    svg += '<path d="' + txArea + '" fill="var(--success)" fill-opacity="0.35" stroke="var(--success)" stroke-width="1"/>';
+    svg += '<path d="' + txArea + '" fill="var(--success)" fill-opacity="0.35" stroke="var(--success)" stroke-width="1"></path>';
     for (const t of xTicks) {
       if (rotateXLabels) {
         const ly = (H - PAD_B + 16).toFixed(1);
@@ -440,7 +443,7 @@ export default {
       const y = yOf(v).toFixed(1);
       yAxis += '<line x1="' + PAD_L + '" x2="' + (W - PAD_R)
         + '" y1="' + y + '" y2="' + y
-        + '" stroke="var(--text-faint)" stroke-width="0.6" stroke-dasharray="2,3" opacity="0.85"/>';
+        + '" stroke="var(--text-faint)" stroke-width="0.6" stroke-dasharray="2,3" opacity="0.85"></line>';
       // label aligned right of the gridline's left edge
       yAxis += '<text x="' + (PAD_L - 4) + '" y="' + y
         + '" fill="var(--text-faint)" font-size="9" '
@@ -455,7 +458,7 @@ export default {
     const baseY = (PAD_T + plotH).toFixed(1);
     let xAxis = '<line x1="' + PAD_L + '" x2="' + (W - PAD_R)
       + '" y1="' + baseY + '" y2="' + baseY
-      + '" stroke="var(--border)" stroke-width="0.5"/>';
+      + '" stroke="var(--border)" stroke-width="0.5"></line>';
     // 7 evenly-spaced ticks across the window. Pre-fix the chart
     // had only 3 (start / mid / end) which on a 24h memory chart
     // read as just `-24h / -12h / now` — operators scanning the
@@ -494,16 +497,22 @@ export default {
       if (tick.frac > 0) {
         xAxis += '<line x1="' + x + '" x2="' + x
           + '" y1="' + PAD_T.toFixed(1) + '" y2="' + baseY
-          + '" stroke="var(--text-faint)" stroke-width="0.6" stroke-dasharray="2,3" opacity="0.85"/>';
+          + '" stroke="var(--text-faint)" stroke-width="0.6" stroke-dasharray="2,3" opacity="0.85"></line>';
       }
       // Tick mark below the baseline.
       xAxis += '<line x1="' + x + '" x2="' + x
         + '" y1="' + baseY + '" y2="' + (parseFloat(baseY) + 3).toFixed(1)
-        + '" stroke="var(--border)" stroke-width="0.5"/>';
-      const anchor = tick.frac === 0 ? 'start' : (tick.frac === 1 ? 'end' : 'middle');
+        + '" stroke="var(--border)" stroke-width="0.5"></line>';
+      // Bake the full `text-anchor="..."` attribute into the ternary
+      // so each branch emits a literal valid value — bypasses the IDE
+      // HTML inspector's inability to narrow the value through the
+      // dynamic interpolation.
+      const anchorAttr = tick.frac === 0
+        ? 'text-anchor="start"'
+        : (tick.frac === 1 ? 'text-anchor="end"' : 'text-anchor="middle"');
       xAxis += '<text x="' + x + '" y="' + (parseFloat(baseY) + 14).toFixed(1)
         + '" fill="var(--text-faint)" font-size="9" '
-        + 'text-anchor="' + anchor + '" '
+        + anchorAttr + ' '
         + 'font-family="var(--font-mono, monospace)">'
         + esc(fmtRel(tick.ts)) + '</text>';
     }
@@ -523,7 +532,7 @@ export default {
       + 'width="100%" height="' + H + '" aria-hidden="true">'
       + yAxis + xAxis + yUnit
       + '<path d="' + path + '" fill="none" stroke="var(--primary)" '
-      + 'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+      + 'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>'
       + '</svg>'
       + '</div>');
   },
@@ -667,7 +676,7 @@ export default {
     // Horizontal gridlines + Y-axis labels.
     for (const t of yTicks) {
       svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
-        + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+        + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"></line>';
       svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">'
         + esc(t.label) + '</text>';
     }
@@ -720,11 +729,11 @@ export default {
     const tsMin = points[0].ts;
     const tsMax = points[points.length - 1].ts;
     const tsRange = Math.max(1, tsMax - tsMin);
-    let yMax = 0;
+    let dataMax = 0;
     for (const p of points) {
       const hi = Number(p.high || p.bytes || 0);
-      if (hi > yMax) {
-        yMax = hi;
+      if (hi > dataMax) {
+        dataMax = hi;
       }
     }
     // Pick a Y-axis with EVERY tick a multiple of 100 in whatever
@@ -740,7 +749,7 @@ export default {
     //    clean multiple of 100 in the chosen unit.
     let yTicksValues = [0];
     let yMaxCalc = 1;
-    const padded = yMax * 1.05;
+    const padded = dataMax * 1.05;
     if (padded > 0) {
       let unitIdx = 0;
       let inUnit = padded;
@@ -770,7 +779,7 @@ export default {
         yTicksValues.push(i * step * unitBytes);
       }
     }
-    yMax = yMaxCalc;
+    const yMax = yMaxCalc;
     const X = (ts) => PAD_L + ((ts - tsMin) / tsRange) * plotW;
     const Y = (b) => PAD_T + (1 - (b / Math.max(1, yMax))) * plotH;
     // Confidence band — closed polygon (top edge low→high, bottom
@@ -820,18 +829,18 @@ export default {
     // invisible in light theme.
     for (const t of yTicks) {
       svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
-        + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+        + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"></line>';
       svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
     }
     // Vertical gridlines — same `--chart-grid` per-theme tone.
     for (const t of xTicks) {
       svg += '<line x1="' + t.x + '" y1="' + PAD_T + '" x2="' + t.x + '" y2="' + (H - PAD_B)
-        + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"/>';
+        + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"></line>';
     }
     // Band.
-    svg += '<path d="' + bandPath + '" fill="var(--primary)" fill-opacity="0.12" stroke="none"/>';
+    svg += '<path d="' + bandPath + '" fill="var(--primary)" fill-opacity="0.12" stroke="none"></path>';
     // Central line (dashed for projection feel).
-    svg += '<path d="' + linePath + '" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-dasharray="4,2"/>';
+    svg += '<path d="' + linePath + '" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-dasharray="4,2"></path>';
     // X-axis tick labels.
     for (const t of xTicks) {
       svg += '<text x="' + t.x + '" y="' + (H - 6) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
@@ -949,7 +958,7 @@ export default {
     // Y-axis ticks at 0/50/100.
     const yTicks = [0, 50, 100].map(p => (
       '<line x1="' + PL + '" y1="' + yOf(p) + '" x2="' + (W - PR) + '" y2="' + yOf(p) + '" '
-      + 'stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>'
+      + 'stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"></line>'
       + '<text x="' + (PL - 4) + '" y="' + (yOf(p) + 3) + '" text-anchor="end" '
       + 'class="ai-resp-chart-axis">' + p + '%</text>'
     )).join('');
@@ -977,7 +986,7 @@ export default {
     // "Now" vertical divider.
     const nowLine = (
       '<line x1="' + xOf(tNow) + '" y1="' + PT + '" x2="' + xOf(tNow) + '" y2="' + (H - PB) + '" '
-      + 'stroke="var(--text-faint)" stroke-width="1" stroke-dasharray="3,3"/>'
+      + 'stroke="var(--text-faint)" stroke-width="1" stroke-dasharray="3,3"></line>'
     );
     // i18n-aware accessible name + band tooltip text. Pre-fix the
     // SVG `aria-label` and band-edge `<title>` were bare English
@@ -994,12 +1003,12 @@ export default {
       + 'preserveAspectRatio="xMidYMid meet" class="ai-resp-chart-svg" '
       + 'role="img" aria-label="' + esc(ariaLabel) + '">'
       + yTicks
-      + '<path d="' + areaPath + '" class="ai-resp-chart-area"/>'
-      + (projBand ? '<path d="' + projBand + '" class="ai-resp-chart-band"/>' : '')
+      + '<path d="' + areaPath + '" class="ai-resp-chart-area"></path>'
+      + (projBand ? '<path d="' + projBand + '" class="ai-resp-chart-band"></path>' : '')
       + (projHighEdge ? '<path d="' + projHighEdge + '" class="ai-resp-chart-band-edge"><title>' + esc(bandHighTitle) + '</title></path>' : '')
       + (projLowEdge ? '<path d="' + projLowEdge + '" class="ai-resp-chart-band-edge"><title>' + esc(bandLowTitle) + '</title></path>' : '')
-      + '<path d="' + histStroke + '" class="ai-resp-chart-line ai-resp-chart-line--hist" fill="none"/>'
-      + (projStroke ? '<path d="' + projStroke + '" class="ai-resp-chart-line ai-resp-chart-line--proj" fill="none"/>' : '')
+      + '<path d="' + histStroke + '" class="ai-resp-chart-line ai-resp-chart-line--hist" fill="none"></path>'
+      + (projStroke ? '<path d="' + projStroke + '" class="ai-resp-chart-line ai-resp-chart-line--proj" fill="none"></path>' : '')
       + nowLine
       + xLabels
       + '</svg>');
@@ -1060,7 +1069,7 @@ export default {
       const days = Math.max(0, Math.round((exhaustionTs - Math.floor(Date.now() / 1000)) / 86400));
       exhaustionLabel = days <= 0
         ? esc(t('command_palette.ai.disk_chart.exhaustion_now', 'fills imminently'))
-        : esc(t('command_palette.ai.disk_chart.exhaustion_days', 'runs out in ~' + days + ' days')
+        : esc(t('command_palette.ai.disk_chart.exhaustion_days', 'runs out in ~{days} days')
           .replace('{days}', String(days)));
     } else if (typeof slope === 'number' && slope <= 0) {
       exhaustionLabel = esc(t('command_palette.ai.disk_chart.stable', 'stable / shrinking'));
@@ -1541,8 +1550,6 @@ export default {
       return `This host is mapped to ${summary}, but ${key} is not surfaced by any of those providers — chart will stay empty until you add a provider that tracks it.`;
     }
 
-    const primary = providers[active[0]];
-
     // Operator-flagged: just the active source — no fallback chain
     // suffix, no dual-source phrasing. The chart is rendered from
     // ONE provider's data; calling out fallbacks confused operators
@@ -1550,7 +1557,7 @@ export default {
     // chart's NE-back-fill nuance (when Beszel returns zero we
     // overlay NE rates from host_net_samples) is suppressed in the
     // tooltip — too much detail for a one-line chip hint.
-    return primary;
+    return providers[active[0]];
   },
   // Produce 3 Y-axis labels (top/middle/bottom) for a chart with a
   // fixed max — percent charts use 100/50/0. Range is [0..100] here.
@@ -1920,17 +1927,21 @@ export default {
     // gap boundary.
     const seriesTs = haveTimes ? entry.series.map(r => Number(r && r.t) || 0) : null;
     const gapThr = seriesTs ? this._detectGapThresholdSec(seriesTs) : null;
-    sortedNames.forEach((name, idx) => {
-      const segs = [];   // SVG path data — handles missing samples
+    // Build one sensor's SVG path. Extracted from the forEach below so
+    // the callback stays short — the inner builder handles missing
+    // samples (break-and-restart segments) AND time-gap detection
+    // (break when consecutive valid samples are > gapThr seconds apart)
+    // so a multi-hour outage breaks the line for every sensor, not
+    // just those whose individual sample happens to be missing at the
+    // gap boundary.
+    const buildSensorPath = (name) => {
+      const segs = [];
       let cur = '';
       let prevTs = 0;
       for (let i = 0; i < entry.series.length; i++) {
         const t = entry.series[i] && entry.series[i].temps;
         const v = t && Number(t[name]);
         if (!Number.isFinite(v)) {
-          // Sample missing → break the line; next valid point
-          // starts a new sub-path so we don't synthesise a slope
-          // through a gap.
           if (cur) {
             segs.push(cur);
             cur = '';
@@ -1946,9 +1957,6 @@ export default {
         } else {
           x = PAD_X + i * stepFallback;
         }
-        // Time-gap break — if the previous valid point was more than
-        // `gapThr` seconds ago, start a fresh sub-path so the
-        // rendered line doesn't bridge the dead period.
         if (cur && gapThr && prevTs > 0 && curTs > 0 && (curTs - prevTs) > gapThr) {
           segs.push(cur);
           cur = '';
@@ -1960,7 +1968,10 @@ export default {
       if (cur) {
         segs.push(cur);
       }
-      const d = segs.join(' ');
+      return segs.join(' ');
+    };
+    sortedNames.forEach((name, idx) => {
+      const d = buildSensorPath(name);
       if (!d) {
         return;
       }

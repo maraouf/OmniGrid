@@ -40,6 +40,9 @@
               :id="'provider-tab-' + tab[0]"
               :aria-selected="hostStatsTab === tab[0] ? 'true' : 'false'"
               :aria-controls="'provider-tabpanel-' + tab[0]"
+              :aria-label="tab[1] + ' — ' + (hasHostStatsSource(tab[0])
+                            ? t('settings.host_stats.tab_active_dot')
+                            : t('settings.host_stats.tab_inactive_dot'))"
               :tabindex="hostStatsTab === tab[0] ? 0 : -1"
               @keydown.right.prevent="cycleHostStatsTab(1)"
               @keydown.left.prevent="cycleHostStatsTab(-1)"
@@ -69,7 +72,7 @@
        reads as "saved but inactive" instead of disappearing.
        Operator can audit configured values for a disabled
        provider without flipping it back on. -->
-  <div x-show="hostStatsTab === 'node_exporter'" class="space-y-3" role="tabpanel" id="provider-tabpanel-node_exporter" aria-labelledby="provider-tab-node_exporter" :class="!hasHostStatsSource('node_exporter') ? 'opacity-60' : ''">
+  <div x-show="hostStatsTab === 'node_exporter'" class="space-y-3" role="tabpanel" id="provider-tabpanel-node_exporter" aria-labelledby="provider-tab-node_exporter" tabindex="0" :class="!hasHostStatsSource('node_exporter') ? 'opacity-60' : ''">
     <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
       <label class="inline-flex items-center gap-2 fs-sm font-medium">
         <input type="checkbox" :disabled="isReadonly()"
@@ -204,7 +207,7 @@
             </span>
     </div>
   </div>
-  <div x-show="hostStatsTab === 'beszel'" class="space-y-3" role="tabpanel" id="provider-tabpanel-beszel" aria-labelledby="provider-tab-beszel" :class="!hasHostStatsSource('beszel') ? 'opacity-60' : ''">
+  <div x-show="hostStatsTab === 'beszel'" class="space-y-3" role="tabpanel" id="provider-tabpanel-beszel" aria-labelledby="provider-tab-beszel" tabindex="0" :class="!hasHostStatsSource('beszel') ? 'opacity-60' : ''">
     <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
       <label class="inline-flex items-center gap-2 fs-sm font-medium">
         <input type="checkbox" :disabled="isReadonly()"
@@ -397,7 +400,7 @@
   <!-- Pulse config — third provider. PVE-only, so it pairs well
        with Beszel (cross-platform) + node-exporter (Linux detail).
        Token is write-only like Beszel's password. -->
-  <div x-show="hostStatsTab === 'pulse'" class="space-y-3" role="tabpanel" id="provider-tabpanel-pulse" aria-labelledby="provider-tab-pulse" :class="!hasHostStatsSource('pulse') ? 'opacity-60' : ''">
+  <div x-show="hostStatsTab === 'pulse'" class="space-y-3" role="tabpanel" id="provider-tabpanel-pulse" aria-labelledby="provider-tab-pulse" tabindex="0" :class="!hasHostStatsSource('pulse') ? 'opacity-60' : ''">
     <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
       <label class="inline-flex items-center gap-2 fs-sm font-medium">
         <input type="checkbox" :disabled="isReadonly()"
@@ -576,7 +579,7 @@
        per-host (edited in the Hosts tab's webmin_aliases map).
        These fields carry the SHARED credentials that probe every
        Webmin endpoint. Password is write-only like the others. -->
-  <div x-show="hostStatsTab === 'webmin'" class="space-y-3" role="tabpanel" id="provider-tabpanel-webmin" aria-labelledby="provider-tab-webmin" :class="!hasHostStatsSource('webmin') ? 'opacity-60' : ''">
+  <div x-show="hostStatsTab === 'webmin'" class="space-y-3" role="tabpanel" id="provider-tabpanel-webmin" aria-labelledby="provider-tab-webmin" tabindex="0" :class="!hasHostStatsSource('webmin') ? 'opacity-60' : ''">
     <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
       <label class="inline-flex items-center gap-2 fs-sm font-medium">
         <input type="checkbox" :disabled="isReadonly()"
@@ -756,7 +759,7 @@
        Defaults flow into per-host config; per-host overrides win.
        Per-host opt-in still gates probing, so this block is the
        "globals" panel. -->
-  <div x-show="hostStatsTab === 'ping'" class="space-y-3" role="tabpanel" id="provider-tabpanel-ping" aria-labelledby="provider-tab-ping" :class="!hasHostStatsSource('ping') ? 'opacity-60' : ''">
+  <div x-show="hostStatsTab === 'ping'" class="space-y-3" role="tabpanel" id="provider-tabpanel-ping" aria-labelledby="provider-tab-ping" tabindex="0" :class="!hasHostStatsSource('ping') ? 'opacity-60' : ''">
     <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
       <label class="inline-flex items-center gap-2 fs-sm font-medium">
         <input type="checkbox" :disabled="isReadonly()"
@@ -944,7 +947,7 @@
        Mirrors the Webmin tab structure (per-host probe with a
        per-host alias map) plus a v3-only sub-block for USM
        credentials. -->
-  <div x-show="hostStatsTab === 'snmp'" class="space-y-3" role="tabpanel" id="provider-tabpanel-snmp" aria-labelledby="provider-tab-snmp" :class="!hasHostStatsSource('snmp') ? 'opacity-60' : ''">
+  <div x-show="hostStatsTab === 'snmp'" class="space-y-3" role="tabpanel" id="provider-tabpanel-snmp" aria-labelledby="provider-tab-snmp" tabindex="0" :class="!hasHostStatsSource('snmp') ? 'opacity-60' : ''">
     <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
       <label class="inline-flex items-center gap-2 fs-sm font-medium">
         <input type="checkbox" :disabled="isReadonly() || !settings.snmp_has_snmp_support"
@@ -1219,7 +1222,7 @@
        two near-identical "Enable" boxes was just noise. Save handler
        syncs the host_stats_source CSV to settings.http_probe_enabled
        so the Stats Dashboard chip stays accurate. -->
-  <div x-show="hostStatsTab === 'http_probe'" class="space-y-3" role="tabpanel" id="provider-tabpanel-http_probe" aria-labelledby="provider-tab-http_probe" :class="!settings.http_probe_enabled ? 'opacity-60' : ''">
+  <div x-show="hostStatsTab === 'http_probe'" class="space-y-3" role="tabpanel" id="provider-tabpanel-http_probe" aria-labelledby="provider-tab-http_probe" tabindex="0" :class="!settings.http_probe_enabled ? 'opacity-60' : ''">
     <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
       <label class="inline-flex items-center gap-2 fs-sm font-medium">
         <input type="checkbox" x-model="settings.http_probe_enabled"
@@ -1395,7 +1398,7 @@
        and the sampler-master collapse to the same operator intent
        ("is this sampler running?") so two near-identical "Enable
        service probe" boxes was just noise. -->
-  <div x-show="hostStatsTab === 'service_probe'" class="space-y-3" role="tabpanel" id="provider-tabpanel-service_probe" aria-labelledby="provider-tab-service_probe" :class="!settings.service_probe_enabled ? 'opacity-60' : ''">
+  <div x-show="hostStatsTab === 'service_probe'" class="space-y-3" role="tabpanel" id="provider-tabpanel-service_probe" aria-labelledby="provider-tab-service_probe" tabindex="0" :class="!settings.service_probe_enabled ? 'opacity-60' : ''">
     <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
       <label class="inline-flex items-center gap-2 fs-sm font-medium">
         <input type="checkbox" x-model="settings.service_probe_enabled"

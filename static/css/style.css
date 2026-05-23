@@ -313,6 +313,16 @@
      * impact rather than reading hierarchy. Add new sizes here when a
      * legitimate "headline / hero numeral" use lands; don't smuggle
      * raw px literals into the headline rule. */
+  /* `--fs-display-xs` (16px) / `-sm` (17px) / `-base` (18px) cover the
+     * drawer-heading range — host drawer / item drawer / node drawer
+     * titles + a couple of section-card heading numerals. Below the
+     * existing -md (20px); above the `--fs-*` regular family (peaks at
+     * --fs-xl = 15px). Theme-independent like the rest of the
+     * font-size token family. Adding here keeps the drawer-heading
+     * scale one place to change. */
+  --fs-display-xs: 16px;
+  --fs-display-sm: 17px;
+  --fs-display-base: 18px;
   --fs-display-md: 20px;
   --fs-display-lg: 48px;
 
@@ -724,6 +734,24 @@ body {
 
 .fs-xl {
   font-size: var(--fs-xl);
+}
+
+/* Display headings — sit ABOVE the regular `.fs-*` family. Use these
+   on host / item / node drawer titles + section-card heading numerals.
+   New components landing in the 16-18 px range MUST consume one of
+   these tokens instead of inlining `text-[16px]` / `text-[17px]` /
+   `text-[18px]` Tailwind arbitrary values; the token system stays the
+   single source of truth for the heading scale. */
+.fs-display-xs {
+  font-size: var(--fs-display-xs);
+}
+
+.fs-display-sm {
+  font-size: var(--fs-display-sm);
+}
+
+.fs-display-base {
+  font-size: var(--fs-display-base);
 }
 
 .scrollbar {

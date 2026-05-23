@@ -113,7 +113,7 @@ export default {
       if (!active.includes(name)) {
         // Provider is mapped on this row but not in the
         // `host_stats_source` CSV — the master toggle in Admin →
-        // Host stats is off, so the sampler isn't probing. Surface
+        // Providers is off, so the sampler isn't probing. Surface
         // a muted chip per-row so the operator notices the gap
         // (paired with the toolbar filter chip's warning surface
         // for the same condition). Without this branch the row
@@ -938,7 +938,7 @@ export default {
   // can distinguish "not yet loaded" from "probed but empty".
   async refreshHostRow(id, opts = {}) {
     // ``opts.force`` propagates to ``/api/hosts/one/{id}?force=true``.
-    // Used after a Save in Admin → Hosts / Host stats so a
+    // Used after a Save in Admin → Hosts / Providers so a
     // re-opened drawer sees fresh provider data without waiting out
     // the 10s provider-state cache. Default false keeps the polling
     // path cheap.
