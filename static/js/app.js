@@ -7971,7 +7971,7 @@ function app() {
       try {
         isRtl = group.matches(':dir(rtl)');
       } catch (_e) {
-        isRtl = (document.documentElement.dir === 'rtl' || document.body.dir === 'rtl');
+        isRtl = document.documentElement.dir === 'rtl';
       }
       let idx = radios.indexOf(document.activeElement);
       if (idx < 0) {

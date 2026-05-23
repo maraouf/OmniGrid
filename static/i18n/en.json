@@ -57,6 +57,7 @@
     "name": "OmniGrid",
     "tagline": "One dashboard. Every node.",
     "signed_in_as": "Signed in as",
+    "signed_in_as_user": "Signed in as {username}",
     "version": "Version:",
     "skip_to_main": "Skip to main content"
   },
@@ -524,6 +525,8 @@
       "hint": "Quick insights across users, sessions, providers, hosts and assets. Click any card to jump to the matching admin tab."
     },
     "cards": {
+      "aria_label_sub": "{label}: {sub}",
+      "aria_label_value_sub": "{label}: {value} — {sub}",
       "users": {
         "label": "Users",
         "sub": "{active} active · {disabled} disabled · {admins} admin(s)"
@@ -3192,6 +3195,8 @@
   },
   "hosts_extra": {
     "probe_title": "Probe took {elapsed} (status: {status})",
+    "subline_host_os": "{host} · {os}",
+    "subline_axis": "{label} · {detail}",
     "drift": {
       "title_above": "Above baseline — current {live}, 30-day median {median}, IQR ±{iqr} (n={count})",
       "title_below": "Below baseline — current {live}, 30-day median {median}, IQR ±{iqr} (n={count})",

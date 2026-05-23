@@ -1920,6 +1920,36 @@ details summary::-webkit-details-marker {
   }
 }
 
+/* RTL counterpart — `translateX` is a physical transform that doesn't
+   auto-flip under `dir="rtl"`. The drawers anchor on the inline-end
+   edge via logical properties (which DO flip), so in RTL the drawer
+   sits on the LEFT viewport edge and must slide in from off-screen
+   LEFT (-100% → 0). Same override targets the `.host-drawer` whose
+   base rule also runs `animation: slideIn .2s ease-out`. */
+[dir="rtl"] .slide-in,
+[dir="rtl"] .host-drawer {
+  animation-name: slideInRtl;
+}
+
+@keyframes slideInRtl {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* Host drawer box-shadow direction must also flip for RTL — the
+   shadow casts away from the drawer body into the viewport, so the
+   X offset sign flips when the drawer moves from the right edge to
+   the left edge. CSS box-shadow has no logical-property equivalent
+   yet (no `box-shadow: var(--shadow-inline-start)`), so an explicit
+   `[dir="rtl"]` override is the only option. */
+[dir="rtl"] .host-drawer {
+  box-shadow: 8px 0 24px -12px var(--backdrop-strong);
+}
+
 .fade-in {
   animation: fadeIn .2s ease-out;
 }
@@ -5310,23 +5340,32 @@ body.ai-pinned > .og-app-shell--ai-pinned {
    are narrow because their labels are shorter. */
 .hosts-row-grid {
   display: grid;
-  /* Baseline — CPU / Memory / Disk all equal at 180px. Iterate from
-       here. Columns in order:
+  /* Columns in order, matching the header at index.html ~line 2596 +
+       the body row at ~line 2673:
          (1) 60px   — checkbox (admin only) + chevron + status dot.
                       The 26px the column previously had was enough only
                       for non-admin (chevron 11px + dot 8px + gap 6px ≈
                       25px); with the admin-role checkbox rendered (16px
                       + gap-1.5) the chevron got pushed beyond the
-                      column edge and effectively disappeared, which
-                      the operator reported as "hosts are not showing
-                      arrows anymore". 60px comfortably fits all three
-                      elements (16 + 6 + 11 + 6 + 8 = 47px) with a
-                      little breathing room.
-         (2) name   — flex column for hostname + provider chips
-         (3) 180px  — CPU
-         (4) 180px  — Memory
-         (5) 180px  — Disk
-         (6) 1fr    — Providers
+                      column edge and effectively disappeared, reported
+                      as "hosts are not showing arrows anymore". 60px
+                      comfortably fits all three elements (16 + 6 + 11 +
+                      6 + 8 = 47px) with a little breathing room.
+         (2) host   — flex column for hostname + asset-name + provider
+                      chips line. Bumped min-width from 280→320 + given
+                      a stronger flex share (2fr) so the asset-name
+                      label has room to breathe instead of being clipped
+                      by the brand-icon + chip strip. With Disk no
+                      longer flexible, host is now the sole 'fr' column
+                      and absorbs all remaining width on wide viewports.
+         (3) 180px  — Platform
+         (4) 180px  — CPU       (bar + sparkline + percent label)
+         (5) 180px  — Memory    (bar + sparkline + percent + bytes)
+         (6) 180px  — Disk      (same shape as CPU / Memory — fixed-width
+                                 sibling, was previously minmax(140px,
+                                 1fr) which made Disk drift wider than
+                                 its siblings on large viewports + cut
+                                 into the host column's available width)
          (7) 80px   — Uptime
          (8) 60px   — Cores
          (9) 72px   — Arch
@@ -5334,11 +5373,11 @@ body.ai-pinned > .og-app-shell--ai-pinned {
          (11) 40px  — External link */
   grid-template-columns:
         60px
-        minmax(280px, 1.4fr)
+        minmax(320px, 2fr)
         180px
         180px
         180px
-        minmax(140px, 1fr)
+        180px
         80px
         60px
         72px
@@ -6442,6 +6481,12 @@ body.ai-pinned > .og-app-shell--ai-pinned {
    jump to the matching admin tab. Match admin-section visual treatment
    (surface background + border) so the page feels like a peer of Admin
    rather than a separate UI family. */
+.stats-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--s-3);
+}
+
 .stats-card {
   display: flex;
   align-items: flex-start;
@@ -8329,13 +8374,13 @@ select.field-invalid {
   position: fixed;
   top: 0;
   bottom: 0;
-  right: 0;
+  inset-inline-end: 0;
   z-index: 40;
   width: 100%;
   max-width: 100%;
   overflow-y: auto;
   background: var(--surface);
-  border-left: 1px solid var(--border);
+  border-inline-start: 1px solid var(--border);
   box-shadow: -8px 0 24px -12px var(--backdrop-strong);
   padding: 1rem 1.25rem;
   /* Slide-in keyframe animation — same shape as the legacy

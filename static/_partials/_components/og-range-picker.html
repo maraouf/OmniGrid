@@ -2,8 +2,16 @@
   Shared range-picker chip strip — used by every chip-strip pattern in
   the SPA that needs mutually-exclusive choices (4 stats range pickers
   + topbar refresh-interval picker). Single source of truth for the
-  ARIA contract (`role="radiogroup"` + `aria-pressed` + arrow-key nav
-  via `_buttonGroupArrowKey`) + active-state token colours.
+  ARIA contract — the WAI-ARIA Authoring Practices "Radio Group"
+  pattern: wrapper carries `role="radiogroup"` + `aria-label`; each
+  child button carries `role="radio"` + `aria-checked="true|false"`
+  (NOT `aria-pressed`, which is the toggle-button semantic — radio
+  is a mutually-exclusive selection within a group, toggle is per-
+  button independent on/off) + the radiogroup tabindex pattern
+  (`tabindex="0"` on the selected option, `-1` on the rest, so Tab
+  enters the group, Arrow keys cycle within). Arrow / Home / End
+  keyboard navigation handled by `_buttonGroupArrowKey` on the
+  wrapper.
 
   Surrounding Alpine scope MUST define:
     - rpOptions   : array of option objects (see shape below)
@@ -54,7 +62,9 @@
         x-text="$data['rpLeadingLabel']"></span>
   <template x-for="opt in rpOptions" :key="opt.value">
     <button type="button"
-            :aria-pressed="rpCurrent === opt.value ? 'true' : 'false'"
+            role="radio"
+            :aria-checked="rpCurrent === opt.value ? 'true' : 'false'"
+            :tabindex="rpCurrent === opt.value ? 0 : -1"
             :title="opt.title || ''"
             :class="rpCurrent === opt.value
               ? (opt.activeBg
