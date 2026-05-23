@@ -182,6 +182,18 @@ function app() {
     // when the operator clicks a node row. Shape: {name, aliasInput}.
     drawerNode: null,
     drawerNodeSaving: false,
+    // Per-provider chip popover — workflow-compressor. Clicking a
+    // provider chip on a host row opens a small panel anchored to the
+    // chip with the most-recent probe result (timestamp + state +
+    // error + latency + raw value). Data is composed from the row's
+    // existing `provider_pause_state` map — no new API call. Shape:
+    // `{host_id, provider_name, state}` (`state` is the chip's state
+    // string at click time so the popover header chip matches what
+    // the operator just clicked even if the row re-polls mid-view).
+    // Null = popover closed; outside-click / Esc / second-click on
+    // the same chip close it. See provider-chip-popover.html for the
+    // rendered surface.
+    chipPopoverOpen: null,
     // Hosts view state (Beszel-backed). Refreshed via /api/hosts on a
     // separate cadence from the item cache — hub calls are cheap and
     // the view wants faster feedback than the 15-30s item refresh.

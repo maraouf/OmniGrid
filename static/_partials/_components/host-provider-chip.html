@@ -6,6 +6,9 @@
   divergent copies.
 
   Surrounding Alpine scope MUST define:
+    - h  : the host row object (carries `id`, `provider_pause_state`,
+           etc.). Used to scope the chip-click popover to a specific
+           (host, provider) pair.
     - p  : provider state object from `providerStates(h)` x-for loop.
            Carries { name, state, consecutive_failures?, last_error? }.
 
@@ -18,22 +21,38 @@
     - default (healthy)   → pill-custom with operator-customised
                             provider colour via providerChipStyle()
 
-  Title strings route through i18n so non-en locales translate.
+  Click contract: clicking the chip toggles a small popover anchored
+  to the chip (see provider-chip-popover.html). The popover is
+  positioned relative to a wrapping `.relative` span; the chip is a
+  `<button>` (not a `<span>`) so it's keyboard-reachable and AT users
+  can activate the popover via Enter / Space.
+
+  Title strings + aria-label route through i18n so non-en locales
+  translate.
 -->
 <!--suppress HtmlUnknownAttribute -->
-<span class="chip fs-3xs-half px-1 py-0"
-      :class="p.state === 'failing' ? 'pill-error'
-              : (p.state === 'paused' ? 'pill-muted'
-              : (p.state === 'configured_inactive' ? 'pill-muted'
-              : (p.state === 'loading' ? 'pill-custom chip-loading' : 'pill-custom')))"
-      :style="(p.state === 'failing' || p.state === 'paused' || p.state === 'configured_inactive') ? '' : providerChipStyle(p.name)"
-      :title="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: t('settings.host_stats.source_' + p.name) || p.name, count: p.consecutive_failures, error: p.last_error || '—' })
-              : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: t('settings.host_stats.source_' + p.name) || p.name })
-              : (p.state === 'configured_inactive' ? (t('hosts_extra.provider_configured_inactive', { provider: t('settings.host_stats.source_' + p.name) || p.name }) || ((t('settings.host_stats.source_' + p.name) || p.name) + ' — configured but provider not enabled in Admin → Providers'))
-              : (p.state === 'loading' ? t('hosts_extra.provider_loading', { provider: t('settings.host_stats.source_' + p.name) || p.name }) || ((t('settings.host_stats.source_' + p.name) || p.name) + ' — fetching…') : '')))"
-      :aria-label="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: t('settings.host_stats.source_' + p.name) || p.name, count: p.consecutive_failures, error: p.last_error || '—' })
-              : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: t('settings.host_stats.source_' + p.name) || p.name })
-              : (p.state === 'configured_inactive' ? (t('hosts_extra.provider_configured_inactive', { provider: t('settings.host_stats.source_' + p.name) || p.name }) || ((t('settings.host_stats.source_' + p.name) || p.name) + ' — configured but provider not enabled in Admin → Providers'))
-              : (p.state === 'loading' ? t('hosts_extra.provider_loading', { provider: t('settings.host_stats.source_' + p.name) || p.name }) || ((t('settings.host_stats.source_' + p.name) || p.name) + ' — fetching…')
-              : (t('settings.host_stats.source_' + p.name) || p.name))))"
-      x-text="t('settings.host_stats.source_' + p.name) || p.name"></span>
+<span class="relative inline-flex">
+  <button type="button"
+          class="chip fs-3xs-half px-1 py-0"
+          :class="p.state === 'failing' ? 'pill-error'
+                  : (p.state === 'paused' ? 'pill-muted'
+                  : (p.state === 'configured_inactive' ? 'pill-muted'
+                  : (p.state === 'loading' ? 'pill-custom chip-loading' : 'pill-custom')))"
+          :style="(p.state === 'failing' || p.state === 'paused' || p.state === 'configured_inactive') ? '' : providerChipStyle(p.name)"
+          aria-haspopup="dialog"
+          :aria-expanded="chipPopoverOpen
+                  && chipPopoverOpen.host_id === h.id
+                  && chipPopoverOpen.provider_name === p.name ? 'true' : 'false'"
+          @click.stop="openProviderChipPopover(h.id, p)"
+          :title="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: t('settings.host_stats.source_' + p.name) || p.name, count: p.consecutive_failures, error: p.last_error || '—' })
+                  : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: t('settings.host_stats.source_' + p.name) || p.name })
+                  : (p.state === 'configured_inactive' ? (t('hosts_extra.provider_configured_inactive', { provider: t('settings.host_stats.source_' + p.name) || p.name }) || ((t('settings.host_stats.source_' + p.name) || p.name) + ' — configured but provider not enabled in Admin → Providers'))
+                  : (p.state === 'loading' ? t('hosts_extra.provider_loading', { provider: t('settings.host_stats.source_' + p.name) || p.name }) || ((t('settings.host_stats.source_' + p.name) || p.name) + ' — fetching…') : '')))"
+          :aria-label="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: t('settings.host_stats.source_' + p.name) || p.name, count: p.consecutive_failures, error: p.last_error || '—' })
+                  : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: t('settings.host_stats.source_' + p.name) || p.name })
+                  : (p.state === 'configured_inactive' ? (t('hosts_extra.provider_configured_inactive', { provider: t('settings.host_stats.source_' + p.name) || p.name }) || ((t('settings.host_stats.source_' + p.name) || p.name) + ' — configured but provider not enabled in Admin → Providers'))
+                  : (p.state === 'loading' ? t('hosts_extra.provider_loading', { provider: t('settings.host_stats.source_' + p.name) || p.name }) || ((t('settings.host_stats.source_' + p.name) || p.name) + ' — fetching…')
+                  : (t('settings.host_stats.source_' + p.name) || p.name))))"
+          x-text="t('settings.host_stats.source_' + p.name) || p.name"></button>
+  <!-- INCLUDE: _components/provider-chip-popover.html -->
+</span>

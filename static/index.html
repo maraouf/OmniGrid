@@ -3637,13 +3637,17 @@
                        than an operator-typed label. Visible only
                        when h.label is blank AND the asset lookup
                        returns a name. -->
-              <svg x-show="!h.label && assetForHost(h) && assetForHost(h).name"
-                   width="9" height="9"
-                   class="text-[var(--text-faint)] flex-shrink-0 opacity-70"
-                   aria-hidden="true"
-                   :title="t('admin_hosts.label_source_asset', { name: (assetForHost(h) && assetForHost(h).name) || '' })">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-package"/>
-              </svg>
+              <span x-show="!h.label && assetForHost(h) && assetForHost(h).name"
+                    role="img"
+                    class="inline-flex flex-shrink-0"
+                    :title="t('admin_hosts.label_source_asset', { name: (assetForHost(h) && assetForHost(h).name) || '' })"
+                    :aria-label="t('admin_hosts.label_source_asset', { name: (assetForHost(h) && assetForHost(h).name) || '' })">
+                <svg width="9" height="9"
+                     class="text-[var(--text-faint)] opacity-70"
+                     aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-package"/>
+                </svg>
+              </span>
               <!-- Health-score chip in the drawer header — clicking
                        it toggles the breakdown popover below. Same
                        colour tier as the row chip. The button form

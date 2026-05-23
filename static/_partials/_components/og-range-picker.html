@@ -64,6 +64,7 @@
     <button type="button"
             role="radio"
             :aria-checked="rpCurrent === opt.value ? 'true' : 'false'"
+            :aria-label="opt.label + ', ' + rpAriaLabel"
             :tabindex="rpCurrent === opt.value ? 0 : -1"
             :title="opt.title || ''"
             :class="rpCurrent === opt.value

@@ -23,47 +23,30 @@
        token + chat + topic). Per-event toggles live BELOW the
        tabs because they're per-event globals (apply to whichever
        channels are enabled). -->
-  <div class="flex flex-wrap items-center gap-1 mb-3 pb-2 border-b border-[var(--border)]"
-       role="tablist" aria-orientation="horizontal"
-       :aria-label="t('admin.notifications.tabs_label')">
-    <!-- Tab tuple shape: [name, label, icon_kind, icon_id].
-         `icon_kind === 'sprite'` → consume #icon-<id> from the
-         internal sprite (used for In-app's bell — no brand
-         identity to honour). `icon_kind === 'brand'` → render
-         `<img src="/img/icons/<id>.svg">` so the Apprise + Telegram
-         brand marks display in their canonical colours and shape. -->
-    <template x-for="tab in [
-                     ['app',      t('admin.notifications.tab_app'),      'sprite', 'icon-bell'],
-                     ['apprise',  t('admin.notifications.tab_apprise'),  'brand',  'apprise'],
-                     ['telegram', t('admin.notifications.tab_telegram'), 'brand',  'telegram'],
-                   ]" :key="tab[0]">
-      <button type="button"
-              role="tab"
-              :id="'notify-tab-' + tab[0]"
-              :aria-controls="'notify-tabpanel-' + tab[0]"
-              :aria-selected="notificationsTab === tab[0]"
-              :tabindex="notificationsTab === tab[0] ? 0 : -1"
-              @click="setNotificationsTab(tab[0])"
-              @keydown.right.prevent="cycleNotificationsTab(1)"
-              @keydown.left.prevent="cycleNotificationsTab(-1)"
-              @keydown.home.prevent="setNotificationsTab(NOTIFICATIONS_TAB_ORDER[0])"
-              @keydown.end.prevent="setNotificationsTab(NOTIFICATIONS_TAB_ORDER[NOTIFICATIONS_TAB_ORDER.length - 1])"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded fs-xs font-medium"
-              :class="notificationsTab === tab[0]
-                            ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
-                            : 'text-[var(--text-dim)] hover:bg-[var(--surface-2)]'">
-        <template x-if="tab[2] === 'sprite'">
-          <svg width="12" height="12" aria-hidden="true">
-            <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + tab[3]"/>
-          </svg>
-        </template>
-        <template x-if="tab[2] === 'brand'">
-          <img width="14" height="14" alt="" aria-hidden="true"
-               :src="'/img/icons/' + tab[3] + '.svg?v=__APP_VERSION__'">
-        </template>
-        <span x-text="tab[1]"></span>
-      </button>
-    </template>
+  <!-- Tab strip delegated to the shared `og-tab-strip` partial.
+       Single ARIA contract for every admin tab strip — wrapper
+       role="tablist" + per-tab role/aria-selected/aria-controls +
+       roving tabindex + arrow/Home/End nav. The matching tabpanel
+       attributes (role="tabpanel" + id="notify-tabpanel-<name>" +
+       aria-labelledby="notify-tab-<name>" + tabindex="0") stay
+       on each panel below — only the strip is shared. -->
+  <div x-data="{
+                 get tsOptions() {
+                   return [
+                     {value: 'app',      label: t('admin.notifications.tab_app'),      iconKind: 'sprite', iconId: 'icon-bell'},
+                     {value: 'apprise',  label: t('admin.notifications.tab_apprise'),  iconKind: 'brand',  iconId: 'apprise'},
+                     {value: 'telegram', label: t('admin.notifications.tab_telegram'), iconKind: 'brand',  iconId: 'telegram'},
+                   ];
+                 },
+                 get tsCurrent() { return notificationsTab; },
+                 tsOnChange(v) { setNotificationsTab(v); },
+                 tsCycle(dir) { cycleNotificationsTab(dir); },
+                 tsHome() { setNotificationsTab(NOTIFICATIONS_TAB_ORDER[0]); },
+                 tsEnd() { setNotificationsTab(NOTIFICATIONS_TAB_ORDER[NOTIFICATIONS_TAB_ORDER.length - 1]); },
+                 get tsAriaLabel() { return t('admin.notifications.tabs_label'); },
+                 tsIdPrefix: 'notify'
+               }">
+    <!-- INCLUDE: _components/og-tab-strip.html -->
   </div>
 
   <!-- ========== TAB: In-app notifications ========== -->

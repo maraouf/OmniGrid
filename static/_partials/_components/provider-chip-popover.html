@@ -1,0 +1,135 @@
+<!--
+  Per-provider chip popover — small panel anchored to a clicked
+  provider chip on the Hosts view. Replaces the three-click "open
+  drawer → scroll to per-provider section → read" workflow with
+  one click. Data composition only — no new API endpoint; every
+  field is read from the host row's `provider_pause_state` map
+  already shipped by `_shape_host_api_row`.
+
+  Surrounding scope MUST define:
+    - h     : the host row (from the outer `x-for in hosts`).
+    - p     : the provider state object from `providerStates(h)`
+              x-for. Carries `{name, state}` + optional
+              `consecutive_failures` / `last_error` / `paused_at`.
+
+  The popover is gated on a global Alpine state
+  `chipPopoverOpen = {host_id, provider_name, state}` so only one
+  popover renders at a time across the entire Hosts view. Outside-
+  click + Esc dismiss; second-click on the same chip toggles off.
+
+  Positioning: absolute under the chip via top-100%-anchored
+  positioning. Width capped at 320px so error messages wrap rather
+  than pushing the popover off the right edge.
+-->
+<!--suppress HtmlUnknownAttribute -->
+<div x-show="chipPopoverOpen
+              && chipPopoverOpen.host_id === h.id
+              && chipPopoverOpen.provider_name === p.name"
+     x-cloak
+     @click.outside="closeProviderChipPopover()"
+     role="dialog"
+     aria-modal="false"
+     :aria-label="t('hosts_extra.provider_popover.dialog_label', { provider: providerChipPopoverLabel() })"
+     class="absolute z-50 mt-1 start-0 w-[320px] max-w-[calc(100vw-2rem)]
+            bg-[var(--surface-2)] border border-[var(--border)] rounded-md
+            shadow-lg p-3 fs-xs text-[var(--text)]"
+     @keydown.escape.stop="closeProviderChipPopover()">
+  <!-- Header — provider name + state pill + close affordance -->
+  <div class="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-[var(--border)]">
+    <div class="flex items-center gap-2 min-w-0">
+      <img width="14" height="14" alt="" aria-hidden="true" class="flex-shrink-0"
+           :src="'/img/icons/' + providerIconSlug(p.name) + '.svg?v=__APP_VERSION__'">
+      <span class="font-semibold truncate" x-text="providerChipPopoverLabel()"></span>
+    </div>
+    <div class="flex items-center gap-1.5">
+      <span class="chip fs-3xs px-1.5 py-0"
+            :class="(chipPopoverOpen && chipPopoverOpen.state === 'failing') ? 'pill-error'
+                    : ((chipPopoverOpen && chipPopoverOpen.state === 'paused') ? 'pill-muted'
+                    : ((chipPopoverOpen && chipPopoverOpen.state === 'configured_inactive') ? 'pill-muted'
+                    : ((chipPopoverOpen && chipPopoverOpen.state === 'loading') ? 'pill-custom chip-loading' : 'pill-ok')))"
+            x-text="chipPopoverOpen ? t('hosts_extra.provider_popover.state_' + chipPopoverOpen.state) : ''"></span>
+      <button type="button"
+              @click="closeProviderChipPopover()"
+              class="user-action-btn"
+              :title="t('actions.close')"
+              :aria-label="t('actions.close')">
+        <svg width="12" height="12" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Body — last-OK / last-fail / consecutive / error / paused-at
+       rows. Each row hides itself when its data field is absent so
+       a healthy chip renders just the "Last OK" line and nothing
+       else; a paused chip renders the full set. -->
+  <template x-if="providerChipPopoverRow()">
+    <div class="space-y-1">
+      <!-- Last OK timestamp -->
+      <template x-if="providerChipPopoverRow().last_ok_ts > 0">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="text-[var(--text-faint)]"
+                x-text="t('hosts_extra.provider_popover.last_ok')"></span>
+          <span class="mono"
+                :title="new Date(providerChipPopoverRow().last_ok_ts * 1000).toLocaleString()"
+                x-text="fmtAgo(providerChipPopoverRow().last_ok_ts * 1000)"></span>
+        </div>
+      </template>
+      <!-- Last failure timestamp -->
+      <template x-if="providerChipPopoverRow().last_failure_ts > 0">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="text-[var(--text-faint)]"
+                x-text="t('hosts_extra.provider_popover.last_fail')"></span>
+          <span class="mono text-[var(--danger)]"
+                :title="new Date(providerChipPopoverRow().last_failure_ts * 1000).toLocaleString()"
+                x-text="fmtAgo(providerChipPopoverRow().last_failure_ts * 1000)"></span>
+        </div>
+      </template>
+      <!-- Consecutive failures -->
+      <template x-if="providerChipPopoverRow().consecutive_failures > 0">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="text-[var(--text-faint)]"
+                x-text="t('hosts_extra.provider_popover.consecutive_failures')"></span>
+          <span class="mono text-[var(--danger)]"
+                x-text="providerChipPopoverRow().consecutive_failures"></span>
+        </div>
+      </template>
+      <!-- Paused-at timestamp (only when paused=true) -->
+      <template x-if="providerChipPopoverRow().paused && providerChipPopoverRow().paused_at > 0">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="text-[var(--text-faint)]"
+                x-text="t('hosts_extra.provider_popover.paused_at')"></span>
+          <span class="mono"
+                :title="new Date(providerChipPopoverRow().paused_at * 1000).toLocaleString()"
+                x-text="fmtAgo(providerChipPopoverRow().paused_at * 1000)"></span>
+        </div>
+      </template>
+      <!-- Last error message (full-width row, wrapped) -->
+      <template x-if="providerChipPopoverRow().last_error">
+        <div class="pt-1 mt-1 border-t border-dashed border-[var(--border)]">
+          <div class="text-[var(--text-faint)] mb-0.5"
+               x-text="t('hosts_extra.provider_popover.last_error')"></div>
+          <div class="mono fs-3xs text-[var(--danger)] break-words"
+               x-text="providerChipPopoverRow().last_error"></div>
+        </div>
+      </template>
+    </div>
+  </template>
+
+  <!-- Empty-state — no data available (healthy chip with no
+       last_ok_ts stamped yet, or chip is configured_inactive). -->
+  <template x-if="!providerChipPopoverRow()">
+    <div class="text-[var(--text-faint)] italic"
+         x-text="t('hosts_extra.provider_popover.no_data')"></div>
+  </template>
+
+  <!-- Footer affordance — link to open the host drawer for full
+       per-provider history charts + tunables. -->
+  <div class="flex justify-end mt-2 pt-2 border-t border-dashed border-[var(--border)]">
+    <button type="button"
+            @click="closeProviderChipPopover(); openHostDrawer(h)"
+            class="btn btn-ghost fs-xs"
+            x-text="t('hosts_extra.provider_popover.open_drawer')"></button>
+  </div>
+</div>

@@ -1,0 +1,105 @@
+<!--
+  Shared tab-strip — consumed by every admin sub-tab whose body
+  uses a horizontal tab strip (Providers / Notifications + future
+  Logs / SSH-policy / AI-fallback / etc.). Single source of truth
+  for the WAI-ARIA Tabs pattern: wrapper `role="tablist"` +
+  `aria-label`; each child `<button role="tab">` + `aria-selected`
+  + `aria-controls` + `id` + roving `tabindex`. The matching
+  `role="tabpanel"` + `id` + `aria-labelledby` + `tabindex="0"`
+  attributes stay in the consumer's panel markup because each
+  panel's CONTENT is per-consumer; only the strip is shared.
+
+  Arrow / Home / End keyboard navigation is delegated to consumer-
+  provided cycle / home / end handlers (each consumer owns its own
+  ordered enum + setter), which means the strip stays purely
+  presentational and the cursor logic lives next to the state it
+  drives.
+
+  Surrounding Alpine scope MUST define:
+    - tsOptions    : array of option objects (see shape below)
+    - tsCurrent    : current selected value (compared via `===`) —
+                     use a GETTER so the binding stays reactive
+                     across state changes
+    - tsOnChange   : function `(value) => void` fired on tab click
+    - tsCycle      : function `(direction: +1 | -1) => void` for
+                     ArrowRight / ArrowLeft (and ArrowDown / ArrowUp)
+    - tsHome       : function `() => void` — jump to first tab
+    - tsEnd        : function `() => void` — jump to last tab
+    - tsAriaLabel  : aria-label string for the tablist wrapper
+    - tsIdPrefix   : id prefix; per-tab id resolves to
+                     `<prefix>-tab-<value>` and the matching panel
+                     `<prefix>-tabpanel-<value>` (consumer panel
+                     markup MUST mirror this naming)
+
+  May OPTIONALLY define:
+    - tsActiveDotLabel   : aria text for the active-dot-indicator
+                           state (when a tab carries `dotActive`).
+                           Folded into the per-tab `:aria-label`
+                           so AT users hear the dot state as part
+                           of the tab name. If omitted, the dot
+                           renders visually but doesn't contribute
+                           to the accessible name.
+    - tsInactiveDotLabel : aria text for the inactive-dot state.
+    - tsExtraClass       : extra Tailwind classes on the wrapper
+                           (e.g. responsive width / overflow rules).
+
+  Option object shape:
+    { value:     <primitive>,            // identity for compare + key
+      label:     <string>,               // visible tab text
+      iconKind?: 'sprite' | 'brand',     // optional leading icon
+      iconId?:   <string>,               // sprite id OR brand slug
+      dotActive?:<boolean>               // optional active-dot indicator
+    }
+-->
+<!--suppress HtmlUnknownAttribute -->
+<div class="flex flex-wrap items-center gap-1 mb-3 pb-2 border-b border-[var(--border)] overflow-x-auto overflow-y-hidden scrollbar"
+     :class="$data['tsExtraClass'] ? $data['tsExtraClass'] : ''"
+     role="tablist" aria-orientation="horizontal"
+     :aria-label="tsAriaLabel">
+  <template x-for="opt in tsOptions" :key="opt.value">
+    <button type="button"
+            role="tab"
+            :id="tsIdPrefix + '-tab-' + opt.value"
+            :aria-controls="tsIdPrefix + '-tabpanel-' + opt.value"
+            :aria-selected="tsCurrent === opt.value ? 'true' : 'false'"
+            :aria-label="(opt.dotActive === undefined || !$data['tsActiveDotLabel'])
+                          ? opt.label
+                          : (opt.label + ' — ' + (opt.dotActive
+                              ? $data['tsActiveDotLabel']
+                              : ($data['tsInactiveDotLabel'] || '')))"
+            :tabindex="tsCurrent === opt.value ? 0 : -1"
+            @click="tsOnChange(opt.value)"
+            @keydown.right.prevent="tsCycle(1)"
+            @keydown.left.prevent="tsCycle(-1)"
+            @keydown.down.prevent="tsCycle(1)"
+            @keydown.up.prevent="tsCycle(-1)"
+            @keydown.home.prevent="tsHome()"
+            @keydown.end.prevent="tsEnd()"
+            :class="tsCurrent === opt.value
+                      ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
+                      : 'text-[var(--text-dim)] hover:bg-[var(--surface-2)]'"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded fs-xs font-medium whitespace-nowrap">
+      <!-- Optional active-state dot indicator. Visible only when
+           the consumer's option object carries `dotActive`. The
+           dot state is already folded into the tab's aria-label
+           above so screen readers hear it as part of the tab name. -->
+      <span x-show="opt.dotActive !== undefined"
+            class="w-1.5 h-1.5 rounded-full"
+            :class="opt.dotActive ? 'dot-on' : 'dot-off'"
+            aria-hidden="true"></span>
+      <!-- Optional leading icon. Sprite-kind reads from the
+           internal `/img/ui-sprite.svg`; brand-kind reads from
+           the per-brand `/img/icons/<slug>.svg`. -->
+      <template x-if="opt.iconKind === 'sprite' && opt.iconId">
+        <svg width="12" height="12" aria-hidden="true">
+          <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + opt.iconId"/>
+        </svg>
+      </template>
+      <template x-if="opt.iconKind === 'brand' && opt.iconId">
+        <img width="14" height="14" alt="" aria-hidden="true"
+             :src="'/img/icons/' + opt.iconId + '.svg?v=__APP_VERSION__'">
+      </template>
+      <span x-text="opt.label"></span>
+    </button>
+  </template>
+</div>

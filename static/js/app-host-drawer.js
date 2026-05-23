@@ -2,6 +2,29 @@
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
 // noinspection NestedTemplateLiteralJS
+// Constant-on-RHS comparison covers natural `x === 'Foo'` form (project convention,
+// not Yoda). Anonymous functions are the inline `.filter` / `.find` / `.map` / SSE
+// handler predicates. Continue / break statements are nested-loop early-exits where
+// restructuring to flat if/else would harm readability. Unused catch `_` is the
+// intentional ignore-and-move-on shape (catch is reached but the error is logged or
+// recovered without inspecting the message). Overly complex boolean is the multi-
+// condition keyboard / chart-state matchers. Nested function calls are idiomatic
+// pipelines (`Math.min(Number(...))`, `encodeURIComponent(String(...))`). The host
+// drawer fires N parallel chart-fetch promises by design — the caller never awaits
+// them (each chart updates independently as data lands) so `JSIgnoredPromiseFromCall`
+// is suppressed file-wide. Alpine spread-component refs (`$refs`, helper methods
+// imported via the spread shape, runtime-bound row fields like `beszel_id` /
+// `provider_pause_state` / `host_temperatures` / `host_gpus`) trigger the WEAK
+// "Element is not exported" + "Unresolved variable" warnings because the static
+// analyser can't see the runtime wiring.
+// noinspection ConstantOnRightSideOfComparisonJS,JSConstantOnRightSideOfComparison
+// noinspection AnonymousFunctionJS
+// noinspection ContinueStatementJS,BreakStatementJS
+// noinspection UnusedCatchParameterJS,EmptyCatchBlockJS
+// noinspection OverlyComplexBooleanExpressionJS,OverlyComplexBooleanExpression
+// noinspection NestedFunctionCallJS
+// noinspection JSIgnoredPromiseFromCall,JSUnhandledPromiseFromCall
+// noinspection ElementNotExported,JSUnusedGlobalSymbols,JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Host detail drawer — slide-out panel triggered by clicking a
@@ -322,6 +345,63 @@ export default {
       this._drawerSnmpHistoryTimer = null;
     }
   },
+  // Per-provider chip popover — workflow-compressor. Clicked-chip
+  // opens a small panel anchored to the chip with the most-recent
+  // probe result, composed entirely from `host.provider_pause_state`
+  // already on the row (no new API call). Toggle semantics: clicking
+  // the same chip twice closes; clicking a different chip moves the
+  // popover. Esc + outside-click also close. Stamping the click-time
+  // `state` into the popover state lets the popover header render
+  // the same chip state the operator just clicked even if a fresh
+  // poll re-classifies the chip mid-view (loading → ok, etc.).
+  openProviderChipPopover(host_id, p) {
+    if (!host_id || !p || !p.name) {
+      return;
+    }
+    if (this.chipPopoverOpen
+      && this.chipPopoverOpen.host_id === host_id
+      && this.chipPopoverOpen.provider_name === p.name) {
+      // Second click on the same chip = close
+      this.chipPopoverOpen = null;
+      return;
+    }
+    this.chipPopoverOpen = {
+      host_id: host_id,
+      provider_name: p.name,
+      state: p.state || 'ok',
+    };
+  },
+  closeProviderChipPopover() {
+    this.chipPopoverOpen = null;
+  },
+  // Resolve the per-host pause row for the popover's open provider.
+  // Returns the same shape `host.provider_pause_state[name]` carries
+  // server-side, or `null` if no host / no row / popover closed.
+  // Centralised here so the popover template doesn't repeat the
+  // 3-level conditional access.
+  providerChipPopoverRow() {
+    const open = this.chipPopoverOpen;
+    if (!open) {
+      return null;
+    }
+    const h = (this.hosts || []).find(x => x && x.id === open.host_id);
+    if (!h || !h.provider_pause_state) {
+      return null;
+    }
+    return h.provider_pause_state[open.provider_name] || null;
+  },
+  // Display name for the popover header — routes through the
+  // canonical i18n key (`settings.host_stats.source_<name>`) so
+  // non-en locales translate. Defensive fallback to the raw name.
+  providerChipPopoverLabel() {
+    const open = this.chipPopoverOpen;
+    if (!open) {
+      return '';
+    }
+    const key = 'settings.host_stats.source_' + open.provider_name;
+    const translated = this.t(key);
+    return (translated && translated !== key) ? translated : open.provider_name;
+  },
   async loadHostHttpProbeHistory(hostId, hours) {
     if (!hostId) {
       return;
@@ -543,11 +623,12 @@ export default {
     // fall back to the curated host_id (NE-only path). Every chart
     // helper looks up by this same key, so the templates pass
     // `hostHistoryKey(h)` instead of bare `h.beszel_id`.
-    if (!hostId) {
+    let resolvedHostId = hostId;
+    if (!resolvedHostId) {
       const host = (this.hosts || []).find(h => h.beszel_id === systemId);
-      hostId = host ? host.id : '';
+      resolvedHostId = host ? host.id : '';
     }
-    const cacheKey = systemId || hostId;
+    const cacheKey = systemId || resolvedHostId;
     if (!cacheKey) {
       return;
     }
@@ -685,84 +766,6 @@ export default {
         collectors: prev.collectors || null,
         loadedAt: prev.loadedAt || 0,
       };
-    }
-  },
-  // Subtle freshness label for the host-drawer chart-grid header
-  //. Returns a short translated string like "Updated 2m ago"
-  // or empty when the cache hasn't seen a successful fetch yet
-  // (caller hides the line). Reads `hostHistoryNow` (ticked every
-  // 30s) so the label stays current without re-fetching the data.
-  hostHistoryFreshness(h) {
-    if (!h) {
-      return '';
-    }
-    const key = this.hostHistoryKey(h);
-    const entry = this.hostHistory[key];
-    if (!entry || !entry.loadedAt) {
-      return '';
-    }
-    // Don't render "Updated Xs ago" on a permanently-flat series.
-    // A SNMP-only host with no Beszel/NE wired keeps `loadedAt`
-    // updated by the polling loop even though the series is
-    // empty / all-zero — operator reads "Updated 2s ago" as
-    // "fresh data" but there's nothing to look at. Suppress the
-    // freshness label when fewer than 2 history points exist OR
-    // when every point is zero across the canonical metric keys.
-    const series = entry.series || [];
-    if (series.length < 2) {
-      return '';
-    }
-    const sentinel = ['cpu', 'mp', 'dp', 'net', 'dr', 'dw', 'la1_pct', 'temp_max', 'gpu_pwr', 'gpu_usage', 'gpu_vram_pct'];
-    let hasData = false;
-    for (const r of series) {
-      for (const k of sentinel) {
-        if ((+r[k] || 0) > 0) {
-          hasData = true;
-          break;
-        }
-      }
-      if (hasData) {
-        break;
-      }
-    }
-    if (!hasData) {
-      return '';
-    }
-    // `hostHistoryNow` is bumped on a 30s timer; touching it inside
-    // the getter means Alpine re-evaluates whenever it ticks.
-    const now = this.hostHistoryNow || Date.now();
-    const ageMs = Math.max(0, now - entry.loadedAt);
-    const ageS = Math.floor(ageMs / 1000);
-    if (ageS < 60) {
-      return this.t('hosts_extra.metrics.last_updated_seconds', {count: ageS});
-    }
-    if (ageS < 3600) {
-      return this.t('hosts_extra.metrics.last_updated_minutes', {
-        count: Math.floor(ageS / 60),
-      });
-    }
-    return this.t('hosts_extra.metrics.last_updated_hours', {
-      count: Math.floor(ageS / 3600),
-    });
-  },
-  // absolute-time tooltip companion for the
-  // relative "Updated Xs ago" label. Operators correlating a chart
-  // anomaly with Grafana / Prometheus dashboards need a stable
-  // anchor — the relative label drifts every second, the ISO string
-  // doesn't.
-  hostHistoryFreshnessAbsolute(h) {
-    if (!h) {
-      return '';
-    }
-    const key = this.hostHistoryKey(h);
-    const entry = this.hostHistory[key];
-    if (!entry || !entry.loadedAt) {
-      return '';
-    }
-    try {
-      return new Date(entry.loadedAt).toISOString().replace(/\.\d{3}Z$/, 'Z');
-    } catch (_) {
-      return '';
     }
   },
   // Resolve the right hostHistory[] key for one host. Beszel-mapped
