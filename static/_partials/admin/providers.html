@@ -113,8 +113,21 @@
       </div>
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_node_exporter')"></p>
+      <!-- Per-tab tunable search — fuzzy-matches against
+           key, localised label, and help text. Shared
+           `tunableSearch` state persists across tab switches. -->
+      <div class="flex items-center gap-2 mb-2">
+        <input type="search" x-model.debounce.150ms="tunableSearch"
+               :placeholder="t('admin.config.search_placeholder')"
+               :aria-label="t('admin.config.search_aria')"
+               class="flex-1 fs-sm">
+        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                class="btn btn-ghost fs-xs"
+                :title="t('admin.config.search_clear')"
+                x-text="t('admin.config.search_clear')"></button>
+      </div>
       <template x-for="key in _perProviderTuneKeys.node_exporter" :key="key">
-        <div class="space-y-1">
+        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
           <p class="fs-2xs text-[var(--text-faint)] leading-snug"
@@ -303,8 +316,21 @@
       </div>
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_beszel')"></p>
+      <!-- Per-tab tunable search — fuzzy-matches against
+           key, localised label, and help text. Shared
+           `tunableSearch` state persists across tab switches. -->
+      <div class="flex items-center gap-2 mb-2">
+        <input type="search" x-model.debounce.150ms="tunableSearch"
+               :placeholder="t('admin.config.search_placeholder')"
+               :aria-label="t('admin.config.search_aria')"
+               class="flex-1 fs-sm">
+        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                class="btn btn-ghost fs-xs"
+                :title="t('admin.config.search_clear')"
+                x-text="t('admin.config.search_clear')"></button>
+      </div>
       <template x-for="key in _perProviderTuneKeys.beszel" :key="key">
-        <div class="space-y-1">
+        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
           <p class="fs-2xs text-[var(--text-faint)] leading-snug"
@@ -481,8 +507,21 @@
       </div>
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_pulse')"></p>
+      <!-- Per-tab tunable search — fuzzy-matches against
+           key, localised label, and help text. Shared
+           `tunableSearch` state persists across tab switches. -->
+      <div class="flex items-center gap-2 mb-2">
+        <input type="search" x-model.debounce.150ms="tunableSearch"
+               :placeholder="t('admin.config.search_placeholder')"
+               :aria-label="t('admin.config.search_aria')"
+               class="flex-1 fs-sm">
+        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                class="btn btn-ghost fs-xs"
+                :title="t('admin.config.search_clear')"
+                x-text="t('admin.config.search_clear')"></button>
+      </div>
       <template x-for="key in _perProviderTuneKeys.pulse" :key="key">
-        <div class="space-y-1">
+        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
           <p class="fs-2xs text-[var(--text-faint)] leading-snug"
@@ -663,8 +702,21 @@
       </div>
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_webmin')"></p>
+      <!-- Per-tab tunable search — fuzzy-matches against
+           key, localised label, and help text. Shared
+           `tunableSearch` state persists across tab switches. -->
+      <div class="flex items-center gap-2 mb-2">
+        <input type="search" x-model.debounce.150ms="tunableSearch"
+               :placeholder="t('admin.config.search_placeholder')"
+               :aria-label="t('admin.config.search_aria')"
+               class="flex-1 fs-sm">
+        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                class="btn btn-ghost fs-xs"
+                :title="t('admin.config.search_clear')"
+                x-text="t('admin.config.search_clear')"></button>
+      </div>
       <template x-for="key in _perProviderTuneKeys.webmin" :key="key">
-        <div class="space-y-1">
+        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
           <p class="fs-2xs text-[var(--text-faint)] leading-snug"
@@ -850,8 +902,21 @@
       </div>
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_ping')"></p>
+      <!-- Per-tab tunable search — fuzzy-matches against
+           key, localised label, and help text. Shared
+           `tunableSearch` state persists across tab switches. -->
+      <div class="flex items-center gap-2 mb-2">
+        <input type="search" x-model.debounce.150ms="tunableSearch"
+               :placeholder="t('admin.config.search_placeholder')"
+               :aria-label="t('admin.config.search_aria')"
+               class="flex-1 fs-sm">
+        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                class="btn btn-ghost fs-xs"
+                :title="t('admin.config.search_clear')"
+                x-text="t('admin.config.search_clear')"></button>
+      </div>
       <template x-for="key in _perProviderTuneKeys.ping" :key="key">
-        <div class="space-y-1">
+        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
           <p class="fs-2xs text-[var(--text-faint)] leading-snug"
@@ -1116,8 +1181,21 @@
       </div>
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_snmp')"></p>
+      <!-- Per-tab tunable search — fuzzy-matches against
+           key, localised label, and help text. Shared
+           `tunableSearch` state persists across tab switches. -->
+      <div class="flex items-center gap-2 mb-2">
+        <input type="search" x-model.debounce.150ms="tunableSearch"
+               :placeholder="t('admin.config.search_placeholder')"
+               :aria-label="t('admin.config.search_aria')"
+               class="flex-1 fs-sm">
+        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                class="btn btn-ghost fs-xs"
+                :title="t('admin.config.search_clear')"
+                x-text="t('admin.config.search_clear')"></button>
+      </div>
       <template x-for="key in _perProviderTuneKeys.snmp" :key="key">
-        <div class="space-y-1">
+        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
           <p class="fs-2xs text-[var(--text-faint)] leading-snug"
@@ -1287,8 +1365,21 @@
       </div>
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_http_probe')"></p>
+      <!-- Per-tab tunable search — fuzzy-matches against
+           key, localised label, and help text. Shared
+           `tunableSearch` state persists across tab switches. -->
+      <div class="flex items-center gap-2 mb-2">
+        <input type="search" x-model.debounce.150ms="tunableSearch"
+               :placeholder="t('admin.config.search_placeholder')"
+               :aria-label="t('admin.config.search_aria')"
+               class="flex-1 fs-sm">
+        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                class="btn btn-ghost fs-xs"
+                :title="t('admin.config.search_clear')"
+                x-text="t('admin.config.search_clear')"></button>
+      </div>
       <template x-for="key in (_perProviderTuneKeys && _perProviderTuneKeys.http_probe) || []" :key="key">
-        <div class="space-y-1">
+        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
           <p class="fs-2xs text-[var(--text-faint)] leading-snug"
@@ -1422,8 +1513,21 @@
       </div>
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_service_probe')"></p>
+      <!-- Per-tab tunable search — fuzzy-matches against
+           key, localised label, and help text. Shared
+           `tunableSearch` state persists across tab switches. -->
+      <div class="flex items-center gap-2 mb-2">
+        <input type="search" x-model.debounce.150ms="tunableSearch"
+               :placeholder="t('admin.config.search_placeholder')"
+               :aria-label="t('admin.config.search_aria')"
+               class="flex-1 fs-sm">
+        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                class="btn btn-ghost fs-xs"
+                :title="t('admin.config.search_clear')"
+                x-text="t('admin.config.search_clear')"></button>
+      </div>
       <template x-for="key in (_perProviderTuneKeys && _perProviderTuneKeys.service_probe) || []" :key="key">
-        <div class="space-y-1">
+        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
           <p class="fs-2xs text-[var(--text-faint)] leading-snug"

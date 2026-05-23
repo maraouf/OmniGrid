@@ -22,8 +22,22 @@
     </div>
 
     <div class="space-y-4" x-show="tuningLoaded">
+      <!-- Per-tab search — fuzzy-matches against tunable key,
+           localised label, and localised help text. Empty = show
+           all rows; non-empty = hide rows that don't match. -->
+      <div class="flex items-center gap-2">
+        <input type="search" x-model.debounce.150ms="tunableSearch"
+               :placeholder="t('admin.config.search_placeholder')"
+               :aria-label="t('admin.config.search_aria')"
+               class="flex-1 fs-sm">
+        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                class="btn btn-ghost fs-xs"
+                :title="t('admin.config.search_clear')"
+                x-text="t('admin.config.search_clear')"></button>
+      </div>
       <template x-for="key in sortedTuningKeys()" :key="key">
-        <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
+        <div x-show="tunableMatchesSearch(key)"
+             class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
           <label class="flex items-center gap-2 fs-sm font-medium mb-1 flex-wrap">
             <span x-text="t('admin.config.fields.' + key + '.label')"></span>
             <!-- Dead-tunable badge — surfaces when the audit shows the

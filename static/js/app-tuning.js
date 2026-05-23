@@ -425,6 +425,42 @@ export default {
   tuningLoaded: false,
   tuningSaving: false,
   _tuningBaseline: '',
+  // Per-tab tunable search — workflow-compressor. The 8 provider
+  // sub-tabs + the Process tunables tab each render N tunables;
+  // typing here filters the visible rows by key / localised label /
+  // localised help text (case-insensitive substring). Empty string
+  // = no filter (every row visible). Shared across all tabs since
+  // the user is in ONE tab at a time; persists across tab switches
+  // for the rare cross-tab search workflow.
+  tunableSearch: '',
+  // Helper consumed by every row's `x-show` gate. Returns true when
+  // the search is empty OR the key contains the query OR the
+  // localised label / help text contains the query.
+  tunableMatchesSearch(key) {
+    const q = (this.tunableSearch || '').trim().toLowerCase();
+    if (!q) {
+      return true;
+    }
+    if (!key) {
+      return false;
+    }
+    const k = String(key).toLowerCase();
+    if (k.includes(q)) {
+      return true;
+    }
+    try {
+      const label = (this.t && this.t('admin.config.fields.' + key + '.label')) || '';
+      if (String(label).toLowerCase().includes(q)) {
+        return true;
+      }
+      const help = (this.t && this.t('admin.config.fields.' + key + '.help')) || '';
+      if (String(help).toLowerCase().includes(q)) {
+        return true;
+      }
+    } catch (_) {
+    }
+    return false;
+  },
   // Admin → Config. Load DB / env / default state from the
   // dedicated endpoint so the form can render placeholders for the
   // env-fallback behind each input. `tuningForm[k]` is always a
