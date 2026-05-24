@@ -73,10 +73,22 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     tuning,
 )
 
-# `_sqlite_like_escape` is defined in main_pkg.hosts_routes; at runtime
-# it ends up in main's namespace via the chain, but PyCharm doesn't
-# trace that, so import directly from the definition module.
-from main_pkg.hosts_routes import _sqlite_like_escape  # noqa: E402,F401
+# `_sqlite_like_escape` is defined in main_pkg.hosts_routes. We CAN'T
+# import it at the top level — hosts_routes is FAR DOWN the load chain
+# (after ops_routes itself in main.py), so a top-level import here
+# would trigger hosts_routes' tail chain (hosts_ssh_routes →
+# hosts_provider_routes → scan_routes → auth_routes → users_routes)
+# BEFORE ops_routes finishes registering its own decorators. That puts
+# every ops_routes route AFTER auth_routes' StaticFiles catch-all mount
+# in router-registration order — meaning /api/ops, /api/events, etc.
+# 404 because the catch-all matches first.
+# Deferred via TYPE_CHECKING (False at runtime → no chain trigger).
+# Runtime resolution happens via `from main import *` (line 60) which
+# re-exports the symbol once main's namespace has been populated.
+from typing import TYPE_CHECKING as _TYPE_CHECKING  # noqa: E402
+
+if _TYPE_CHECKING:
+    from main_pkg.hosts_routes import _sqlite_like_escape  # noqa: F401
 import asyncio
 import json
 import sqlite3
