@@ -88,9 +88,20 @@ from main import (  # noqa: E402,F401  — re-imports for IDE static-analysis
     set_setting,
     tuning,
 )
-# Sibling-module names get their own explicit import — they end up in
-# main's namespace via the chain but PyCharm doesn't trace that.
-from main_pkg.hosts_routes import _load_hosts_config  # noqa: E402,F401
+# `_load_hosts_config` is defined in main_pkg.hosts_routes. We CAN'T
+# import it at the top level — hosts_routes loads AFTER apps_routes in
+# main.py's chain (main.py:2134 → admin_ai_routes → apps_routes →
+# returns; then main.py:2140 → hosts_routes → chain → auth_routes
+# mounts catch-all). A top-level import here would trigger hosts_routes'
+# tail chain BEFORE apps_routes finishes registering its decorators,
+# putting every apps_routes route AFTER the catch-all and 404'ing them.
+# Deferred via TYPE_CHECKING (False at runtime → no chain trigger).
+# Runtime resolution happens via `from main import *` (line 57) which
+# re-exports the symbol once main's namespace has been populated.
+from typing import TYPE_CHECKING as _TYPE_CHECKING  # noqa: E402
+
+if _TYPE_CHECKING:
+    from main_pkg.hosts_routes import _load_hosts_config  # noqa: F401
 
 
 @app.post("/api/services/discover/{host_id}/apply")

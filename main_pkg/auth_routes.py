@@ -2097,7 +2097,7 @@ async def api_me_totp_disable(
 # manages MFA). API-token "users" (negative ids) 400.
 # ============================================================================
 class WebauthnRegisterStartIn(BaseModel):
-    """Empty body -- the route reads username + user_id from the
+    """Empty body -- the route reads username + user_id from theÒ
     session. Kept as a model for future fields (e.g. preferred
     transports filter)."""
     pass
@@ -2117,7 +2117,6 @@ class WebauthnRegisterFinishIn(BaseModel):
 # because its `/` mount matches the path prefix first).
 # ----------------------------------------------------------------------------
 from main_pkg.users_routes import *  # noqa: E402,F401,F403
-
 
 # Keep this line LAST — StaticFiles at "/" is a catch-all.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
