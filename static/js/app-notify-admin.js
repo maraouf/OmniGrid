@@ -748,7 +748,7 @@ export default {
       // field with a previously-saved token is NOT dirty (snapshot
       // emits empty); a non-empty form field IS dirty (snapshot
       // emits a marker that won't match the empty baseline).
-      token_pending: (s.telegram_bot_token || '').trim() ? '<pending>' : '',
+      token_pending: (s.telegram_bot_token || '').trim() ? 'pending' : '',
       // Phase 2 — listener config flags.
       listener_enabled: !!s.telegram_listener_enabled,
       allow_destructive: !!s.telegram_allow_destructive,

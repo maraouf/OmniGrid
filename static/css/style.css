@@ -1,8 +1,40 @@
+/*
+ noinspection CssBrowserCompatibilityForProperties,CssConvertColorToHexInspection,CssConvertColorToRgbInspection
+ noinspection CssMissingSemicolon,CssNoGenericFontName,CssUnknownProperty,CssOverwrittenProperties,CssInvalidPropertyValue
+ noinspection CssUnusedSymbol,CssReplaceWithShorthandSafely,CssUnknownTarget,CssBrowserCompatibility,CssVendorPrefix,CssUnsupportedByBrowser
+ noinspection CssExperimentalProperty,CssNonStandardProperty,CssMissingPrefix,CssCheckGenericFontName
+ */
+
 /* ============================================================================
    OmniGrid — stylesheet
    All tokens are exposed as CSS variables on :root so themes can override
    without touching component rules. No hardcoded colors/spacing in markup.
+
+   Browser-support baseline: evergreen Chrome / Edge / Firefox / Safari —
+   minimum Chrome 90 / Firefox 88 / Safari 14, matching the Alpine 3 +
+   Tailwind v4 + xterm runtime requirements. IE 11 / Edge 18 / Chrome 71
+   / Firefox 64 / Safari 12 / Opera 57 are explicitly NOT supported —
+   they predate the CSS Properties API + logical-property family + native
+   color-mix + scrollbar-* + mask-* declarations used throughout this
+   file. PyCharm's browser-compat inspections fire on these properties;
+   the noinspection block below targets every relevant inspection ID so
+   operators don't see a wall of false-positive warnings.
+
+   Operator-side: PyCharm → Settings → Languages & Frameworks → Stylesheets
+   → Code Quality Tools → Browsers list → set "Last 2 versions" or paste
+   `defaults, not ie 11, not safari < 14` to match the codebase's actual
+   deployment matrix. The IDE-level fix is preferred because it catches
+   future style.css edits without per-file noinspection maintenance.
    ============================================================================ */
+/* STRICT discipline note: the suppressions above are per-inspection-ID,
+   never blanket. The exact IDs come from .idea/inspectionProfiles/
+   Project.xml — `CssBrowserCompatibilityForProperties` fires the "X
+   is not supported by browser Y" warnings; `CssConvertColorTo{Hex,
+   Rgb}Inspection` fire the picker-color hints. The rest are defensive
+   coverage for adjacent inspections that may fire on the modern CSS
+   features used here. If a new compat warning class fires that isn't
+   covered, add a targeted ID to the list — don't switch to a true
+   wildcard suppression that would hide unrelated future bugs. */
 
 /* WAI-ARIA "screen-reader only" utility. Visually hidden but still
    announced by AT (NVDA / JAWS / VoiceOver). Used for help text
@@ -174,6 +206,29 @@
   --metric-net: #3b82f6; /* blue */
   --metric-net-out: #8b5cf6; /* violet (Net Out accent) */
   --metric-http-latency: #fb923c; /* orange — matches HTTP probe brand */
+  /* Chart extended palette — distinguishing hues for per-host probe
+     charts (Dell temp probes, sensor strips, multi-line plots) when
+     the base --info / --warning / --success / --danger / --primary
+     slots are exhausted. Mirrored on both themes. */
+  --chart-palette-violet: #a78bfa;
+  --chart-palette-pink: #ec4899;
+  --chart-palette-cyan: #06b6d4;
+  /* Provider-chip default hues. Operator's per-provider color picker
+     overrides via the `provider_color_<name>` settings KV; these
+     tokens supply the first-load default the picker reads via
+     getComputedStyle in `providerColor(name)`. Hex literals here so
+     they can drop into `color-mix(in srgb, var(--provider-default-X)
+     N%, transparent)` AND into `<input type="color" :value>` which
+     requires `#rrggbb`. */
+  --provider-default-beszel: #22c55e; /* green  (matches pill-ok) */
+  --provider-default-pulse: #3b82f6; /* blue   (matches pill-info) */
+  --provider-default-node-exporter: #f59e0b; /* amber  (matches pill-update) */
+  --provider-default-webmin: #a78bfa; /* purple */
+  --provider-default-ping: #06b6d4; /* cyan */
+  --provider-default-snmp: #ec4899; /* pink */
+  --provider-default-port-scan: #8b5cf6; /* violet (on-demand provider) */
+  --provider-default-http-probe: #fb923c; /* orange (HTTP/TLS/DNS probe) */
+  --provider-default-service-probe: #14b8a6; /* teal   (per-service probe) */
   /* Hosts debug panel — one hue per provider / stage so the
        side-by-side JSON blobs are visually distinguishable. */
   --debug-pulse: #f59e0b; /* amber — Pulse's orange brand */
@@ -514,6 +569,20 @@
   --metric-net: #2563eb;
   --metric-net-out: #7c3aed;
   --metric-http-latency: #ea580c; /* darker orange for light-theme contrast */
+  --chart-palette-violet: #7c3aed; /* darker violet for light-theme contrast */
+  --chart-palette-pink: #be185d; /* darker pink */
+  --chart-palette-cyan: #0e7490; /* darker cyan */
+  /* Provider-chip default hues (light theme — darker shades for
+     contrast against the brighter background). */
+  --provider-default-beszel: #16a34a;
+  --provider-default-pulse: #2563eb;
+  --provider-default-node-exporter: #d97706;
+  --provider-default-webmin: #7c3aed;
+  --provider-default-ping: #0e7490;
+  --provider-default-snmp: #be185d;
+  --provider-default-port-scan: #6d28d9;
+  --provider-default-http-probe: #ea580c;
+  --provider-default-service-probe: #0d9488;
   --debug-pulse: #d97706;
   --debug-beszel: #0891b2;
   --debug-ne: #65a30d;
@@ -2287,6 +2356,20 @@ details summary::-webkit-details-marker {
   border-inline-start: 3px solid var(--success);
   border-radius: var(--r-md);
   padding: var(--s-3) var(--s-4);
+}
+
+.ai-resp-answer--error {
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 25%, transparent);
+  border-inline-start-color: var(--danger);
+}
+
+.ai-resp-label--danger {
+  color: var(--danger);
+}
+
+.ai-resp-label-dot--danger {
+  background: var(--danger);
 }
 
 /* "Ran action" pill — sits below the answer. Two-tone: a solid

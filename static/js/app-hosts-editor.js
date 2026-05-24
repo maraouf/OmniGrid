@@ -1336,6 +1336,15 @@ export default {
         ssh: sshOut,
         ping: pingOut,
         http_probe: httpOut,
+        // Pass `services[]` through unchanged. The Hosts editor does
+        // NOT manage the apps / services chip strip — that surface
+        // lives in Admin → Apps. Without this field on the POST
+        // payload, the backend's `_clean_host_services(None)` returns
+        // `[]` and silently wipes the operator's pinned apps on
+        // every Hosts save (operator-reported: "app section gets
+        // cleared when I save hosts"). Keep the list as-is so the
+        // round-trip is a no-op for this editor.
+        services: Array.isArray(h.services) ? h.services : [],
         enabled: h.enabled !== false,
       };
     });

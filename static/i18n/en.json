@@ -4186,6 +4186,7 @@
       "http_probe_enabled_hint": "When on, the lifespan sampler probes the curated URLs below (or every services[].url + the top-level url field when the list is empty) for HTTP status, TLS-cert expiry, and DNS resolution."
     },
     "http_probe_section_label": "HTTP / TLS / DNS",
+    "http_probe_scope_note": "Use this section for NON-APP probes only — host-level health endpoints like a router's admin console, switch management UI, or a generic `/health` endpoint that doesn't belong to any specific app. Per-app probes (Plex / Sonarr / qBittorrent / etc.) will move to a dedicated per-app probe surface under Admin → Apps so each chip in the curated services list can carry its own probe config. Until that lands, leave app-specific health-check URLs out of this textarea — the auto-derived chain (top-level url + services[].url) already covers them.",
     "http_probe_urls_label": "Probe URLs (one per line)",
     "http_probe_urls_hint": "Override the auto-derived list. Leave blank to probe the top-level URL + every services[].url on this row. One URL per line; each MUST start with http:// or https://.",
     "http_probe_urls_placeholder": "https://service1.example.com\nhttps://service2.example.com:8443/health",

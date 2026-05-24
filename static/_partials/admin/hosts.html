@@ -900,6 +900,19 @@
           <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
             <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold"
                  x-text="t('admin_hosts.http_probe_section_label')"></div>
+            <!-- Scope note — surfaces the planned split between
+                 host-level HTTP probes (THIS section, for non-app
+                 targets like a router's web UI / admin console /
+                 generic health endpoint) and per-app probes (the
+                 forthcoming Apps section, which will own probes for
+                 every chip in the curated `services[]` list). The
+                 operator landed this scope decision so the editor
+                 stops looking like the canonical place to add
+                 per-Plex / per-Sonarr / per-qBittorrent health
+                 checks — those should be configured per-app under
+                 Admin → Apps once the per-app probe surface lands. -->
+            <p class="fs-2xs text-[var(--text-dim)] mb-3 leading-snug rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5"
+               x-text="t('admin_hosts.http_probe_scope_note')"></p>
             <label class="inline-flex items-center gap-2 fs-sm mb-3"
                    :class="!row.enabled ? 'opacity-50' : ''">
               <input type="checkbox"

@@ -1,7 +1,22 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS,AnonymousFunctionJS,FunctionTooLongJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,ExceptionCaughtLocallyJS
+// noinspection OverlyComplexBooleanExpressionJS,NegatedConditionalExpressionJS,JSNegatedConditionalExpression,NegatedIfStatementJS
+// noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSIgnoredPromiseFromCall
+// noinspection JSIfStatementsCanBeSimplified,IfStatementSimplifyable,RedundantIfStatementJS,RedundantLocalVariableJS,JSReusedLocalVariable
+// noinspection HtmlUnknownTag,HtmlEmptyContent,HtmlEmptyTagsRecommendation,InnerHTMLJS,VoidExpressionJS,JSVoidExpression
+// noinspection ContinueStatementJS,BreakStatementJS,XHTMLIncompatabilitiesJS,JSAccessInconsistentInXHTML
+// Comprehensive per-inspection suppressions mirror app-ai-admin.js.
+// Same SPA-wide conventions: constants on right of comparisons (ESLint
+// default — opposite of Yoda); anonymous arrow callbacks; chained
+// map+filter; ternaries; Alpine-called methods PyCharm can't trace
+// through x-on:click; nested t() i18n lookups; `Unresolved variable
+// notify_medium_telegram` / `telegram_user_id` fire because PyCharm
+// can't trace SettingsIn-shape dict fields back to the Pydantic
+// model (server-side schema).
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Telegram-link / Telegram-notify integration.
@@ -79,7 +94,7 @@ export default {
             Object.assign(this.me, meData);
           }
         }
-      } catch (_) {
+      } catch {
       }
       // Clear any stale code from the prior session — once unlinked
       // the operator should generate a fresh code if they want to
@@ -96,7 +111,7 @@ export default {
     try {
       await navigator.clipboard.writeText(this.telegramLinkCode || '');
       this.showToast(this.t('toasts.copied') || 'Copied', 'success');
-    } catch (_) {
+    } catch {
       this.showToast(this.t('toasts.copy_failed') || 'Copy failed', 'error');
     }
   },
@@ -199,7 +214,7 @@ export default {
       if (j && j.ok) {
         this.recordTestSuccess('telegram');
       }
-    } catch (_) {
+    } catch {
       this.telegramTestResult = {pending: false, ok: false, detail: this.t('toasts.network_error')};
     }
   },
@@ -213,7 +228,7 @@ export default {
       // Write-only secret — non-empty form value flags "pending"
       // so a typed-but-unsaved token re-locks Save (operator must
       // re-test before committing the new token).
-      token_pending: (s.telegram_bot_token || '').trim() ? '<pending>' : '',
+      token_pending: (s.telegram_bot_token || '').trim() ? 'pending' : '',
     });
   },
   canSaveTelegram() {

@@ -1276,7 +1276,13 @@ def audit_consumed_keys() -> set[str]:
     enum_members = {m.name: m.value for m in Tunable}
     consumed: set[str] = audit_dynamic_keys()
     root = Path(__file__).resolve().parent.parent
-    targets: list[Path] = [root / "main.py"]
+    # `main.py` is split across twelve files via a star-import chain
+    # under `main_pkg/`. Each child file is named for the route family
+    # it owns (`hosts_routes`, `auth_routes`, `apps_routes`, ...).
+    # Glob `main*.py` at root for the entry file AND every
+    # `main_pkg/*.py` to cover the continuation chain.
+    targets: list[Path] = sorted(root.glob("main*.py"))
+    targets.extend(sorted((root / "main_pkg").glob("*.py")))
     targets.extend((root / "logic").glob("*.py"))
     for path in targets:
         try:
