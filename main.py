@@ -667,6 +667,29 @@ async def _config_error_guard(request: Request, call_next):
     )
 
 
+# Explicit unhandled-exception logging. FastAPI's default ServerErrorMiddleware
+# logs via the `uvicorn.error` Python logger — under some deployment configs
+# (custom log_config, docker-log-driver filtering) those tracebacks don't
+# reach the operator's stdout / Admin → Logs view. This handler tees the
+# full traceback through `print()` which the `logic.logs` stdout tee
+# captures into BOTH the in-memory ring (Admin → Logs UI) AND the
+# persistent daily log file. Returns a generic 500 to the client; the
+# detail stays internal so we don't leak stack traces over the wire.
+@app.exception_handler(Exception)
+async def _log_unhandled_exception(request: Request, exc: Exception):
+    import traceback as _tb
+    tb = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+    method = request.method
+    path = request.url.path
+    print(f"[http] UNHANDLED EXCEPTION {method} {path} "
+          f"exc={type(exc).__name__}: {exc}\n{tb}")
+    return JSONResponse(
+        {"error": "internal_server_error",
+         "detail": f"{type(exc).__name__}: {exc}"},
+        status_code=500,
+    )
+
+
 # Prometheus metric definitions moved to logic/metrics.py. The cache-age
 # collector is wired below (once _cache exists), and every remaining
 # metric call site in this file references them via `metrics.NAME`.
