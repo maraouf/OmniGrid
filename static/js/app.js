@@ -250,7 +250,7 @@ function app() {
     appsDiscoverForm: {host_id: ''},
     appsDiscoverLoading: false,
     appsDiscoverError: '',
-    appsDiscoverResult: null,
+    appsDiscoverResult: {detected_ports: [], proposals: [], scanned_at: 0},
     appsDiscoverSelected: new Set(),
     appsDiscoverApplying: false,
     appsDiscoverApplyError: '',

@@ -575,7 +575,7 @@ export default {
   openAppsDiscoverWizard() {
     this.appsDiscoverOpen = true;
     this.appsDiscoverForm = {host_id: ''};
-    this.appsDiscoverResult = null;
+    this.appsDiscoverResult = {detected_ports: [], proposals: [], scanned_at: 0};
     this.appsDiscoverError = '';
     this.appsDiscoverApplyError = '';
     this.appsDiscoverSelected = new Set();
@@ -591,7 +591,7 @@ export default {
   closeAppsDiscoverWizard() {
     this.appsDiscoverOpen = false;
     this.appsDiscoverForm = {host_id: ''};
-    this.appsDiscoverResult = null;
+    this.appsDiscoverResult = {detected_ports: [], proposals: [], scanned_at: 0};
     this.appsDiscoverError = '';
     this.appsDiscoverApplyError = '';
     this.appsDiscoverSelected = new Set();
@@ -600,12 +600,12 @@ export default {
   async runAppsDiscovery() {
     const hostId = (this.appsDiscoverForm && this.appsDiscoverForm.host_id) || '';
     if (!hostId) {
-      this.appsDiscoverResult = null;
+      this.appsDiscoverResult = {detected_ports: [], proposals: [], scanned_at: 0};
       return;
     }
     this.appsDiscoverLoading = true;
     this.appsDiscoverError = '';
-    this.appsDiscoverResult = null;
+    this.appsDiscoverResult = {detected_ports: [], proposals: [], scanned_at: 0};
     this.appsDiscoverSelected = new Set();
     try {
       const r = await fetch(`/api/services/discover/${encodeURIComponent(hostId)}`, {
