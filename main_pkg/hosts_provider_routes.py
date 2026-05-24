@@ -2014,5 +2014,6 @@ def __getattr__(name):
     lives in one place. See main_pkg._resolver for the full rationale.
     The 5-line delegator IS duplicated across 12 files — PEP 562 requires
     one __getattr__ per module; suppress the duplicated-code hint."""
+    # noinspection PyProtectedMember
     from main_pkg._resolver import resolve
     return resolve(__name__, name)
