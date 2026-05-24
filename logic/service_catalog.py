@@ -691,3 +691,116 @@ def iter_instances() -> Iterable[dict[str, Any]]:
 # member access on the import line.
 coerce_ports = _coerce_ports
 coerce_int = _coerce_int
+
+
+# --------------------------------------------------------------------------
+# Discovery wizard — match a host's known ports against catalog templates
+# and propose bindings the operator can one-click adopt.
+# --------------------------------------------------------------------------
+def propose_bindings(host_id: str, *,
+                     detected_ports: Optional[list[int]] = None,
+                     host_label: str = "",
+                     existing_catalog_ids: Optional[set[int]] = None,
+                     min_confidence: float = 0.5) -> list[dict[str, Any]]:
+    """Match a host's detected ports against catalog templates.
+
+    Returns a list of proposal dicts ordered by confidence DESC:
+
+        {
+            "catalog":     { ...full template dict... },
+            "matched_ports": [80, 443],     # ports in template that the host has open
+            "unmatched_ports": [22],         # template ports not seen on the host
+            "confidence":  0.85,             # 0.0-1.0
+            "match_reasons": ["all template ports detected",
+                              "host label 'plex-server' contains 'plex'"]
+        }
+
+    ``detected_ports`` — list of TCP/UDP port numbers known to be open on
+    the host (typically from the latest ``host_port_scans`` entry). When
+    None, the function returns an empty list (no signal to match against).
+    ``host_label`` — display label or host id for name-match boosting.
+    ``existing_catalog_ids`` — catalog_ids already bound to this host's
+    chips; the corresponding templates are SKIPPED so the wizard only
+    suggests new bindings.
+    ``min_confidence`` — proposals below this threshold are dropped from
+    the output (default 0.5 = "at least one matched port and either name
+    match or 50% port coverage").
+
+    Scoring (max 1.0):
+      - port-overlap base: matched_ports / total_template_ports
+      - name-match bonus: +0.3 if host_label contains template.slug OR
+        any whole word of template.name (lowercased)
+      - single-port templates (Plex etc.) need EXACT match to score
+      - hard floor at 1.0
+    """
+    if not host_id:
+        return []
+    if not detected_ports:
+        return []
+    detected_set = {int(p) for p in detected_ports if p}
+    if not detected_set:
+        return []
+    existing = existing_catalog_ids or set()
+    host_haystack = (host_label or host_id or "").lower()
+    templates = list_catalog()
+    proposals: list[dict[str, Any]] = []
+    for tpl in templates:
+        if tpl["id"] in existing:
+            continue
+        tpl_ports = [int(p["port"]) for p in (tpl.get("default_ports") or [])
+                     if isinstance(p, dict) and p.get("port")]
+        if not tpl_ports:
+            continue
+        matched = sorted(p for p in tpl_ports if p in detected_set)
+        unmatched = sorted(p for p in tpl_ports if p not in detected_set)
+        if not matched:
+            continue
+        # Port-overlap base score.
+        coverage = len(matched) / len(tpl_ports)
+        # Name-match bonus — slug match, name word match, or description
+        # word match. Word-boundary check so "plex" doesn't match "duplex".
+        slug = (tpl.get("slug") or "").lower()
+        name_words = {w for w in re.split(r"[\s\-_]+", (tpl.get("name") or "").lower()) if w}
+        name_match = False
+        match_reasons: list[str] = []
+        if slug and re.search(rf"\b{re.escape(slug)}\b", host_haystack):
+            name_match = True
+            match_reasons.append(f"host label contains '{slug}'")
+        else:
+            for w in name_words:
+                if len(w) < 3:
+                    continue
+                if re.search(rf"\b{re.escape(w)}\b", host_haystack):
+                    name_match = True
+                    match_reasons.append(f"host label contains '{w}'")
+                    break
+        # Coverage reason.
+        if coverage >= 1.0:
+            match_reasons.insert(0, "all template ports detected")
+        elif coverage >= 0.5:
+            match_reasons.insert(0, f"{len(matched)} of {len(tpl_ports)} template ports detected")
+        else:
+            match_reasons.insert(0, f"{len(matched)} of {len(tpl_ports)} ports detected (partial)")
+        # Confidence.
+        confidence = coverage
+        if name_match:
+            confidence = min(1.0, confidence + 0.3)
+        # Single-port templates need exact match to be plausible —
+        # generic ports like 80/443 are too common; without name match
+        # they're noise.
+        if len(tpl_ports) == 1 and not name_match:
+            common_generic_ports = {80, 443, 8080, 8000, 8443, 3000, 22, 25, 53, 8888}
+            if tpl_ports[0] in common_generic_ports:
+                confidence *= 0.4
+        if confidence < min_confidence:
+            continue
+        proposals.append({
+            "catalog": tpl,
+            "matched_ports": matched,
+            "unmatched_ports": unmatched,
+            "confidence": round(confidence, 3),
+            "match_reasons": match_reasons,
+            "name_match": name_match,
+        })
+    proposals.sort(key=lambda p: (-p["confidence"], p["catalog"]["name"].lower()))
+    return proposals
