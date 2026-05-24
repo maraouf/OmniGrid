@@ -63,7 +63,7 @@
             x-show="(hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
             @click="collapseAllHostGroupChildren()"
             class="host-group-chip host-group-chip--neutral"
-            :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group\'s sub-rows'">
+            :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group&#39;s sub-rows'">
       <svg width="10" height="10" stroke-width="2.4" aria-hidden="true">
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/>
       </svg>
@@ -73,7 +73,7 @@
             x-show="(hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
             @click="expandAllHostGroupChildren()"
             class="host-group-chip host-group-chip--neutral"
-            :title="t('admin_hosts.groups.expand_all_title') || 'Show every parent group\'s sub-rows'">
+            :title="t('admin_hosts.groups.expand_all_title') || 'Show every parent group&#39;s sub-rows'">
       <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" style="transform: rotate(90deg);">
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
       </svg>
@@ -459,7 +459,7 @@
     <button type="button" x-show="isAdmin() && (hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
             @click="collapseAllHostGroupChildren()"
             class="btn btn-soft fs-sm"
-            :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group\'s sub-rows'"
+            :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group&#39;s sub-rows'"
             x-text="t('admin_hosts.groups.collapse_all') || 'Collapse all'"></button>
     <button type="button" x-show="isAdmin()" @click="saveHostGroups()"
             class="btn btn-primary fs-sm"

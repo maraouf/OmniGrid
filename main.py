@@ -1781,25 +1781,29 @@ async def api_stats(force: bool = False):
         # Same single-flight contract as the cold path in /api/items
         # — route through `_kick_background_stats_gather()` so a
         # concurrent `force=true` caller doesn't spawn a parallel
-        # `gather_stats()` racing the cold caller on
-        # `_stats_cache` mutation. `_kick_background_stats_gather` +
-        # `_background_stats_task` live in main_pkg/apps_routes.py;
-        # they enter main's namespace via the tail star-import chain.
-        # noinspection PyUnresolvedReferences
-        _kick_background_stats_gather()
-        # noinspection PyUnresolvedReferences
-        if _background_stats_task is not None:
+        # `gather_stats()` racing the cold caller on `_stats_cache`
+        # mutation. `_kick_background_stats_gather` +
+        # `_background_stats_task` are underscore-prefixed module-
+        # level globals in main_pkg/apps_routes.py — `from X import
+        # *` skips them, and the mutable global must be read via
+        # attribute access on every check so we don't race the
+        # spawner.
+        # noinspection PyProtectedMember
+        from main_pkg import apps_routes as _apps_routes
+        _apps_routes._kick_background_stats_gather()
+        _stats_task = _apps_routes._background_stats_task
+        if _stats_task is not None:
             try:
-                # noinspection PyUnresolvedReferences
-                await _background_stats_task
+                await _stats_task
             except Exception as e:  # noqa: BLE001
                 print(f"[stats] cold-cache gather_stats failed: {e}")
     elif cache_stale or force:
         # Stale cache OR force-bypass — kick a refresh in the
         # background. Single-flight: no-op when one is already in
         # flight.
-        # noinspection PyUnresolvedReferences
-        _kick_background_stats_gather()
+        # noinspection PyProtectedMember
+        from main_pkg import apps_routes as _apps_routes
+        _apps_routes._kick_background_stats_gather()
     # `stats_refreshing` reflects whether a BACKGROUND gather is
     # actually in flight RIGHT NOW (regardless of why it was
     # kicked). Pre-fix the flag tracked the cache-stale predicate,
@@ -1810,8 +1814,10 @@ async def api_stats(force: bool = False):
     # only fires while there's a running task; once the task
     # completes the next poll's response carries
     # `stats_refreshing: false` and the spinner clears.
-    # noinspection PyUnresolvedReferences
-    if _background_stats_task is not None and not _background_stats_task.done():
+    # noinspection PyProtectedMember
+    from main_pkg import apps_routes as _apps_routes_stats
+    _bg_stats_task = _apps_routes_stats._background_stats_task
+    if _bg_stats_task is not None and not _bg_stats_task.done():
         stats_refreshing = True
     # Swarm agent unhealthy detection — surfaces every node where
     # the per-node `_agent_health` consecutive-failure counter has
@@ -1915,8 +1921,15 @@ async def api_items(force: bool = False):
         # `_background_gather_task` read). `_kick_background_gather` +
         # `_background_gather_task` live in main_pkg/apps_routes.py;
         # they enter main's namespace via the tail star-import chain.
-        # noinspection PyUnresolvedReferences
-        gather_task = _kick_background_gather()
+        # `_kick_background_gather` + the `_background_gather_task`
+        # global both live in main_pkg/apps_routes.py. Underscore-
+        # prefixed names AREN'T pulled in by `from X import *`, and
+        # `_background_gather_task` is a MUTABLE global (the
+        # spawner re-binds it on each kick) so we MUST read it via
+        # attribute access on the source module every time — caching
+        # the value here would race the spawner.
+        from main_pkg import apps_routes as _apps_routes
+        gather_task = _apps_routes._kick_background_gather()
         if gather_task is not None:
             try:
                 await gather_task
@@ -1931,8 +1944,8 @@ async def api_items(force: bool = False):
         # Stale cache OR force-bypass — kick a refresh in the
         # background. Single-flight: no-op when one is already in
         # flight.
-        # noinspection PyUnresolvedReferences
-        _kick_background_gather()
+        from main_pkg import apps_routes as _apps_routes
+        _apps_routes._kick_background_gather()
     # `cache_refreshing` reflects whether a BACKGROUND gather is
     # actually in flight RIGHT NOW. Pre-fix the flag tracked the
     # cache-stale predicate, which evaluated True on every poll when
@@ -1941,8 +1954,9 @@ async def api_items(force: bool = False):
     # a running task; once the task completes the next poll's
     # response carries `cache_refreshing: false` and the spinner
     # clears.
-    # noinspection PyUnresolvedReferences
-    if _background_gather_task is not None and not _background_gather_task.done():
+    from main_pkg import apps_routes as _apps_routes
+    _bg_task = _apps_routes._background_gather_task
+    if _bg_task is not None and not _bg_task.done():
         cache_refreshing = True
 
     return {
