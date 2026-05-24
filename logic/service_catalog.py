@@ -182,6 +182,14 @@ _BUILTIN: list[dict[str, Any]] = [
              "probe_path": "/alive", "probe_status": 200},
         ],
     },
+    {
+        "name": "node-exporter", "slug": "node-exporter", "icon": "node-exporter",
+        "description": "Prometheus host-metrics exporter (Linux / FreeBSD)",
+        "default_ports": [
+            {"port": 9100, "protocol": "tcp", "label": "Metrics",
+             "probe_path": "/metrics", "probe_status": 200},
+        ],
+    },
 ]
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,63}$")
