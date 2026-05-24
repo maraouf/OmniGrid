@@ -377,15 +377,19 @@ async def _lifespan(_app: FastAPI):
         # Running on every deploy ensures a fresh DB without operator action.
         try:
             # `_load_hosts_config` + `_sweep_orphan_provider_state_rows`
-            # are defined in main_pkg/hosts_routes.py — added to main's
-            # namespace via the tail star-import chain. PyCharm can't
-            # trace that, but they ARE resolved by the time this
-            # lifespan code runs (siblings finished loading first).
-            # noinspection PyUnresolvedReferences
-            curated = _load_hosts_config()
+            # are defined in main_pkg modules — underscore-prefixed
+            # names are NOT pulled in by `from X import *` so we must
+            # import them explicitly here. By lifespan-startup time the
+            # chain has fully loaded; the import is a sys.modules cache
+            # hit (no chain side-effects).
+            # noinspection PyProtectedMember
+            from main_pkg.hosts_routes import (
+                _load_hosts_config as _load_curated,
+                _sweep_orphan_provider_state_rows as _sweep_orphans,
+            )
+            curated = _load_curated()
             live_ids = {h.get("id") for h in curated if h.get("id")}
-            # noinspection PyUnresolvedReferences
-            removed = _sweep_orphan_provider_state_rows(live_ids)
+            removed = _sweep_orphans(live_ids)
             if removed:
                 print(f"[boot] orphan sweep removed {removed} row(s) from "
                       f"host_failure_state / host_provider_last_ok")

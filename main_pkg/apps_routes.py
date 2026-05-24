@@ -101,7 +101,20 @@ from main import (  # noqa: E402,F401  — re-imports for IDE static-analysis
 from typing import TYPE_CHECKING as _TYPE_CHECKING  # noqa: E402
 
 if _TYPE_CHECKING:
-    from main_pkg.hosts_routes import _load_hosts_config  # noqa: F401
+    from main_pkg.hosts_routes import _load_hosts_config as _impl_load_hosts_config  # noqa: F401
+
+
+def _load_hosts_config():
+    """Lazy delegate to ``main_pkg.hosts_routes._load_hosts_config``.
+
+    Top-level import would trigger hosts_routes' tail chain (auth_routes
+    mounts the StaticFiles catch-all) BEFORE apps_routes finishes
+    registering its decorators — every apps_routes route would land
+    AFTER the catch-all and 404. Resolving inside the function lets
+    apps_routes' module body finish first; by call time main is fully
+    loaded so the import is a sys.modules cache hit (no chain trigger)."""
+    from main_pkg.hosts_routes import _load_hosts_config as _impl
+    return _impl()
 
 
 @app.post("/api/services/discover/{host_id}/apply")
