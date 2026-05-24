@@ -57,7 +57,7 @@ export const KNOWN_ICONS = new Set([
   'komodo', 'kubernetes', 'lenovo', 'linuxmint', 'lubelogger', 'mail',
   'mailcow', 'meta', 'microsoft', 'mikrotik', 'mongodb', 'motorola',
   'myspeed', 'n8n', 'nest', 'netboot-xyz', 'netdata', 'nginx', 'nixplay',
-  'nginx-proxy-manager', 'nintendo-switch', 'nzbget', 'oculus', 'openvpn', 'opnsense',
+  'nginx-proxy-manager', 'nintendo-switch', 'node-exporter', 'nzbget', 'oculus', 'openvpn', 'opnsense',
   'pfsense', 'pi-hole', 'pihole', 'pivpn', 'playstation', 'plex',
   'portainer', 'portainer-dark', 'postgresql', 'poweredge', 'proliant', 'prometheus',
   'prowlarr', 'proxmox', 'pulse', 'qbittorrent', 'rachio', 'radarr',
