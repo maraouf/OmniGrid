@@ -1098,10 +1098,8 @@
                  `aiJobsLoaded` flag the operator sees the empty-state
                  body during the in-flight window which mis-signals
                  "no data" before the fetch lands. -->
-            <div x-show="!aiJobsLoaded" class="loading-state py-8 text-center">
-              <svg width="20" height="20" class="spin-md text-[var(--text-faint)]" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-              </svg>
+            <div x-show="!aiJobsLoaded" class="loading-state">
+              <span class="spin-lg" aria-hidden="true"></span>
             </div>
             <div x-show="aiJobsLoaded && (!aiJobs || aiJobs.jobs.length === 0)"
                  class="py-8 text-center fs-sm text-[var(--text-faint)] italic"
@@ -1213,10 +1211,8 @@
             <!-- Loading-state spinner — same `*Loaded`-gate pattern
                  as the Jobs table above so the operator doesn't see
                  the empty-state during the in-flight window. -->
-            <div x-show="!aiDashboardLoaded" class="loading-state py-8 text-center">
-              <svg width="20" height="20" class="spin-md text-[var(--text-faint)]" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-              </svg>
+            <div x-show="!aiDashboardLoaded" class="loading-state">
+              <span class="spin-lg" aria-hidden="true"></span>
             </div>
             <div x-show="aiDashboardLoaded && (!aiDashboard || aiDashboard.trend.length === 0)"
                  class="py-8 text-center fs-sm text-[var(--text-faint)] italic"

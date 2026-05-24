@@ -2206,6 +2206,70 @@ async def _run_config_backup(_params: dict) -> tuple[str, Awaitable[tuple[int, s
     return op_id, task  # type: ignore[return-value]
 
 
+async def _run_prune_config_backups(_params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
+    """Prune older config-backup snapshots down to
+    ``tuning_config_backup_retention_count``. Mirrors the ``prune_logs``
+    runner pattern: no Operation; writes a history row directly when done.
+
+    Distinct from ``config_backup`` (which CREATES a new snapshot + runs
+    retention as a side-effect): this runner ONLY prunes, so the operator
+    can split "snapshot daily" from "retention sweep weekly" if they want
+    a tighter retention enforcement cadence than the snapshot cadence.
+    Idempotent — if nothing exceeds the retention count, removes 0 files.
+
+    Retention=0 disables (matches ``prune_logs`` semantics; running with
+    retention=0 logs a no-op history row so the operator can audit the
+    schedule fired without surprising them with mass deletion).
+    """
+    op_id = "sched-" + secrets.token_hex(4)
+
+    async def runner() -> tuple[int, str]:
+        """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
+        from logic import config_export as _cfg_export
+        from logic.tuning import Tunable, tuning_int as _tuning_int
+
+        started = time.time()
+        status = "success"
+        err: Optional[str] = None
+        removed_count = 0
+        keep = 0
+        try:
+            keep = _tuning_int(Tunable.CONFIG_BACKUP_RETENTION_COUNT)
+            if keep > 0:
+                pruned = await asyncio.to_thread(_cfg_export.prune_snapshots, keep)
+                removed_count = len(pruned) if pruned else 0
+        except (sqlite3.Error, OSError, RuntimeError, ValueError) as e:
+            status = "error"
+            err = str(e)
+            print(f"[scheduler] prune_config_backups failed: {e}")
+        duration = int(time.time() - started)
+        # History row target_name shape mirrors prune_logs:
+        # "<N> config backup(s) (keep=<retention>)"
+        target_name = f"{removed_count} config backup(s) (keep={keep})"
+        _ops.assert_op_type("prune_config_backups")
+        try:
+            with db_conn() as c:
+                c.execute(
+                    "INSERT INTO history "
+                    "(ts, op_type, target_kind, target_name, target_id, "
+                    " target_stack, status, duration, events, error, actor) "
+                    "VALUES (?, ?, 'schedule', ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        started, "prune_config_backups",
+                        target_name,
+                        op_id, None,
+                        status, duration,
+                        "[]", err, SCHEDULER_ACTOR,
+                    ),
+                )
+        except Exception as e:
+            print(f"[scheduler] prune_config_backups history write failed: {e}")
+        return duration, status
+
+    task = asyncio.create_task(runner())
+    return op_id, task  # type: ignore[return-value]
+
+
 SCHEDULE_KINDS: dict[str, KindRunner] = {
     "prune_node": _run_prune_node,
     "prune_all_nodes": _run_prune_all_nodes,
@@ -2215,6 +2279,7 @@ SCHEDULE_KINDS: dict[str, KindRunner] = {
     "asset_inventory_refresh": _run_asset_inventory_refresh,
     "prune_logs": _run_prune_logs,
     "prune_notifications": _run_prune_notifications,
+    "prune_config_backups": _run_prune_config_backups,
     "swarm_agent_health": _run_swarm_agent_health,
     "port_scan_refresh": _run_port_scan_refresh,
 }

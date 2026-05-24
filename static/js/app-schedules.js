@@ -57,7 +57,7 @@ export default {
   scheduleQueueSearch: '',
   _scheduleQueueSearchTimer: null,
   scheduleQueueTotalPages: 1,
-  scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh', 'backup', 'asset_inventory_refresh', 'prune_logs', 'prune_notifications', 'swarm_agent_health', 'port_scan_refresh'],
+  scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh', 'backup', 'config_backup', 'asset_inventory_refresh', 'prune_logs', 'prune_notifications', 'prune_config_backups', 'swarm_agent_health', 'port_scan_refresh'],
   scheduleMinInterval: 60,
   scheduleBusy: false,
   // Create form. `params_text` is a raw JSON textarea — we parse on submit

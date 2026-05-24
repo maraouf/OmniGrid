@@ -137,6 +137,11 @@ def _today_log_path() -> str:
 _RE_ERROR = re.compile(
     r"\berror\b|\bfail(?:ed|ure)?\b|\btraceback\b|\bcritical\b|\bfatal\b"
     r"|\w(?:Error|Exception)\b"
+    # Traceback frame lines + ExceptionGroup continuation markers — match
+    # case-insensitively because the surrounding flag is IGNORECASE
+    # anyway; the previous `[A-Z]` constraint on the Error/Exception
+    # alternation was moot under the flag (matched `someerror`,
+    # `whatevererror`), so the simpler `\w` is honest about intent.
     r"|^\s+(?:[|+]\s+)?File \"[^\"]+\", line \d+"
     r"|^\s+[|+][-+\s]*\d*[-+\s]*$"
     r"|^\s+\|\s+\S",

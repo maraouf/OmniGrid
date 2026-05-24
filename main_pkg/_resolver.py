@@ -1,18 +1,31 @@
-"""Cross-module dynamic name resolver for underscore-prefixed leaks.
+"""Cross-module dynamic name resolver for ATTRIBUTE-ACCESS lookups only.
 
-After the ``main.py`` → ``main_pkg/*`` split, ``from main import *`` at
-the top of every child module silently DROPS underscore-prefixed names
-per Python's star-import spec. The pre-split codebase referenced ~50
-such helpers freely across the chain (``_node_attr``,
-``_load_hosts_config``, ``_kick_background_gather``, etc.); post-split
-every consumer raised ``NameError`` at call time.
+Scope (narrow): handles failed ``module.X`` attribute lookups +
+``from module import X`` semantics across the ``main.py`` →
+``main_pkg/*`` split, per PEP 562's module-level ``__getattr__`` hook.
+When a caller does ``getattr(main_pkg.hosts_routes, "_some_helper")``
+and the name isn't in that module's ``__dict__``, the module's
+``__getattr__`` fires + delegates here; we walk ``main`` + every loaded
+``main_pkg.*`` sibling's ``__dict__`` looking for the name.
 
-This module exposes ``resolve(consumer_module_name, name)`` — the
-implementation behind every module-level ``__getattr__`` injected at
-the tail of ``main.py`` + each ``main_pkg/*.py``. PEP 562 (Python
-3.7+) routes failed module-attribute lookups through the module's
-``__getattr__``; we delegate here so the resolver lives in ONE place
-instead of being copy-pasted 12 times.
+**Out of scope:** bare ``LOAD_GLOBAL`` references inside function
+bodies — Python's bytecode interpreter does NOT route LOAD_GLOBAL
+through the module's ``__getattr__``. A function in module B that
+references ``_helper`` (defined in module A) raises ``NameError`` at
+call time even when B has a ``__getattr__`` that would resolve it.
+That gap is what the centralized ``_wire_cross_module_underscore_globals()``
+block at ``main.py``'s tail covers: it eagerly copies every
+cross-module underscore-prefixed symbol into the consumer's
+``__dict__`` so bare LOAD_GLOBAL resolves locally without bouncing
+through any dynamic-resolution layer. See CLAUDE.md "Cross-module
+underscore-name LOAD_GLOBAL leaks" for the full rule.
+
+This resolver remains load-bearing for the ATTRIBUTE-ACCESS path —
+e.g. the ``main_pkg/apps_routes.py:_load_hosts_config`` lazy
+delegate uses ``getattr(main, "_load_hosts_config")`` for runtime
+resolution; that PATH still benefits from the resolver. It is NOT
+the safety net for function-body LOAD_GLOBAL references; the
+wire-fixer at ``main.py``'s tail is.
 
 Resolution order: ``main`` first (most underscore helpers live
 there), then every loaded ``main_pkg.*`` sibling. Reads via the

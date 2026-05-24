@@ -1000,6 +1000,22 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     "prune_stopped",
     "clear_notifications",
     "notifications_clear_all",
+    # Apps feature — catalog template CRUD + pin + discover + manual
+    # probe. Operator phrases like "probe plex on host01", "pin sonarr
+    # to web02", "discover apps on web03", "re-seed app templates"
+    # parse to one of these IDs. Each requires action-specific
+    # ACTION_DATA / ACTION_HOSTS / ACTION_ITEM payloads (catalog_id,
+    # host_id, name, etc.) the SPA-side descriptor knows how to read.
+    # Naming matches the `OP_TYPES` registry entries for parity so the
+    # AI palette + History filter dropdown + i18n bundle stay in sync.
+    "services_catalog_create",
+    "services_catalog_update",
+    "services_catalog_delete",
+    "services_catalog_seed",
+    "services_pin",
+    "services_discover",
+    "services_discover_apply",
+    "services_probe_now",
 })
 
 PALETTE_SYSTEM_PROMPT: str = (

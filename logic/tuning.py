@@ -1286,7 +1286,10 @@ def audit_consumed_keys() -> set[str]:
     targets.extend((root / "logic").glob("*.py"))
     for path in targets:
         try:
-            txt = path.read_text()
+            # encoding="utf-8" required so Windows dev sessions don't trip
+            # the cp1252 default codec on em-dashes / smart quotes in
+            # docstrings. Linux deploys default to UTF-8 already.
+            txt = path.read_text(encoding="utf-8")
         except OSError:
             continue
         for m in _BARE_STR_RE.finditer(txt):

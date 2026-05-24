@@ -173,6 +173,7 @@ OP_TYPES: frozenset[str] = frozenset({
     "asset_inventory_refresh",
     "prune_logs",
     "prune_notifications",
+    "prune_config_backups",
     "swarm_agent_health",
     "port_scan_refresh",
     # AI surfaces — kind is dynamic in the call site (`f"ai_{kind}"`); the
@@ -221,6 +222,19 @@ OP_TYPES: frozenset[str] = frozenset({
     "settings_update",
     "ai_memory_create",
     "ai_memory_delete",
+    # Apps feature — catalog template CRUD + pin / discover-apply / probe.
+    # Every Apps write endpoint writes a `history` row through
+    # `_ops_mod.write_admin_audit` per the canonical audit-trail rule.
+    # Probe-now is included despite higher volume because operators
+    # explicitly trigger it (so each fire IS a tracked action, unlike
+    # the lifespan-sampler ticks which write nothing).
+    "services_catalog_create",
+    "services_catalog_update",
+    "services_catalog_delete",
+    "services_catalog_seeded",
+    "services_pin",
+    "services_discover_apply",
+    "services_probe_now",
     # Per-(table, host_id) sample-row prune. Drives the
     # Stats → Samples drill-down "Delete orphan rows" button so
     # operators can clean up rows left behind when a curated host
