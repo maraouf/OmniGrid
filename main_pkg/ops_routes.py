@@ -907,6 +907,11 @@ def _history_query(
         # Pairs with `LIKE ? ESCAPE '\\'`. Same security drift class
         # as the host-id sites earlier — any `LIKE` against operator-
         # influenced input goes through the helper.
+        # Lazy import — hosts_routes loads LATER in the main_pkg chain
+        # so a top-level import here would trigger its tail chain (the
+        # StaticFiles catch-all mounts there) BEFORE ops_routes finishes
+        # registering its decorators. By call time main is fully loaded.
+        from main_pkg.hosts_routes import _sqlite_like_escape
         like = "%" + _sqlite_like_escape(q) + "%"
         where.append(
             "(target_name LIKE ? ESCAPE '\\' "
