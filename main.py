@@ -4587,8 +4587,16 @@ async def _api_set_settings_inner(s, request, _portainer):
     # by key (last-write-wins), keep input order otherwise.
     if s.http_probe_enabled is not None:
         set_setting(Settings.HTTP_PROBE_ENABLED, "true" if s.http_probe_enabled else "false")
+        # Keep `host_stats_source` in sync with the master toggle so the
+        # merge gate (which requires BOTH the master flag AND the CSV
+        # membership) doesn't silently skip the provider when the
+        # operator flips only the master checkbox. Same shape applied
+        # to `service_probe` below — without this sync, the host drawer
+        # card sits empty even though the operator enabled the feature.
+        _sync_host_stats_source("http_probe", bool(s.http_probe_enabled))
     if s.service_probe_enabled is not None:
         set_setting(Settings.SERVICE_PROBE_ENABLED, "true" if s.service_probe_enabled else "false")
+        _sync_host_stats_source("service_probe", bool(s.service_probe_enabled))
     if s.http_probe_aliases is not None:
         raw = (s.http_probe_aliases or "").strip()
         if raw:
@@ -9481,6 +9489,241 @@ async def api_services_catalog_seed(_admin: AdminUser):
     return {"ok": True, "added": added}
 
 
+@app.post("/api/services/discover/{host_id}")
+async def api_services_discover(host_id: str, _admin: AdminUser):
+    """Admin-only: scan a host's known ports against every catalog
+    template and return ranked binding proposals.
+
+    Reads:
+      - latest ``host_port_scans`` entry for the host (open-port list)
+      - host's curated row from ``hosts_config`` (label + existing
+        chips' catalog_ids — already-bound templates are skipped)
+
+    Returns:
+        {
+            "host_id":         str,
+            "host_label":      str,
+            "detected_ports":  [int, ...],     # open ports from the latest scan
+            "scanned_at":      int | 0,        # epoch seconds, 0 = no scan yet
+            "existing_catalog_ids": [int, ...], # templates already bound
+            "proposals":       [{...}, ...]    # see propose_bindings
+        }
+    """
+    from logic.service_catalog import propose_bindings as _propose
+    # Verify host exists in curated list + read its label + existing chips.
+    hosts = _load_hosts_config()
+    target = None
+    for row in hosts:
+        if (row.get("id") or "").strip() == host_id:
+            target = row
+            break
+    if target is None:
+        raise HTTPException(404, f"host not found: {host_id}")
+    host_label = (target.get("label") or "").strip() or host_id
+    # Existing catalog_ids on this host's chips — skip templates already bound.
+    existing_catalog_ids: set[int] = set()
+    for chip in (target.get("services") or []):
+        if not isinstance(chip, dict):
+            continue
+        cid_int = _coerce_int_local(chip.get("catalog_id"))
+        if cid_int:
+            existing_catalog_ids.add(cid_int)
+    # Read the latest port-scan results — reuse the same helper the
+    # host drawer + API row use so we get the same data.
+    scan_blob: dict[str, Any] = {}
+    _populate_detected_ports(host_id, scan_blob)
+    detected = [int(p["port"]) for p in (scan_blob.get("detected_ports") or [])
+                if isinstance(p, dict) and p.get("port")]
+    scanned_at = int(scan_blob.get("last_port_scan_ts") or 0)
+    proposals = _propose(
+        host_id,
+        detected_ports=detected,
+        host_label=host_label,
+        existing_catalog_ids=existing_catalog_ids,
+    )
+    return {
+        "host_id": host_id,
+        "host_label": host_label,
+        "detected_ports": sorted(set(detected)),
+        "scanned_at": scanned_at,
+        "existing_catalog_ids": sorted(existing_catalog_ids),
+        "proposals": proposals,
+    }
+
+
+@app.post("/api/services/discover/{host_id}/apply")
+async def api_services_discover_apply(host_id: str, payload: dict[str, Any], _admin: AdminUser):
+    """Admin-only: bulk-bind a set of catalog templates to a host.
+
+    Body shape:
+        {
+            "catalog_ids":   [1, 5, 7],   # required; templates to pin
+            "probe_enabled": true         # optional; default true
+        }
+
+    Iterates the requested catalog_ids and creates one chip per
+    template by reusing the same pin logic. Returns a per-template
+    result list so the SPA can show "3 of 4 pinned" toasts:
+
+        {
+            "host_id": str,
+            "applied": [{catalog_id, name, service_idx}, ...],
+            "skipped": [{catalog_id, reason}, ...]
+        }
+
+    Idempotent on already-bound catalog_ids (skipped with
+    ``reason="already_bound"``). Validation goes through
+    ``_clean_host_services`` via ``set_setting`` so the contract stays
+    uniform with the Admin → Hosts editor save path.
+    """
+    raw_ids = payload.get("catalog_ids") or []
+    if not isinstance(raw_ids, list):
+        raise HTTPException(400, "catalog_ids must be a list")
+    probe_enabled = bool(payload.get("probe_enabled", True))
+    # Load host + existing chips ONCE; mutate locally + persist ONCE at the
+    # end so we don't write the settings row N times for an N-pin apply.
+    hosts = _load_hosts_config()
+    target_idx = -1
+    for i, row in enumerate(hosts):
+        if (row.get("id") or "").strip() == host_id:
+            target_idx = i
+            break
+    if target_idx < 0:
+        raise HTTPException(404, f"host not found: {host_id}")
+    from logic.service_catalog import get_catalog_by_id as _get_cat
+    existing_services = hosts[target_idx].get("services") or []
+    if not isinstance(existing_services, list):
+        existing_services = []
+    existing_catalog_ids = {_coerce_int_local(chip.get("catalog_id")) for chip in existing_services
+                            if isinstance(chip, dict)}
+    existing_catalog_ids.discard(None)
+    applied: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for raw_cid in raw_ids:
+        cid = _coerce_int_local(raw_cid)
+        if not cid:
+            skipped.append({"catalog_id": raw_cid, "reason": "invalid_id"})
+            continue
+        if cid in existing_catalog_ids:
+            skipped.append({"catalog_id": cid, "reason": "already_bound"})
+            continue
+        tpl = _get_cat(cid)
+        if not tpl:
+            skipped.append({"catalog_id": cid, "reason": "not_found"})
+            continue
+        new_chip: dict[str, Any] = {
+            "name": tpl.get("name") or "",
+            "catalog_id": cid,
+        }
+        icon_resolved = tpl.get("icon") or tpl.get("slug") or ""
+        if icon_resolved:
+            new_chip["icon"] = icon_resolved
+        default_ports = list(tpl.get("default_ports") or [])
+        probe: dict[str, Any] = {"enabled": probe_enabled, "type": "tcp"}
+        if default_ports:
+            probe["ports"] = default_ports
+        new_chip["probe"] = probe
+        new_idx = len(existing_services)
+        existing_services.append(new_chip)
+        existing_catalog_ids.add(cid)
+        applied.append({
+            "catalog_id": cid,
+            "name": tpl.get("name") or "",
+            "service_idx": new_idx,
+        })
+    hosts[target_idx]["services"] = existing_services
+    set_setting(Settings.HOSTS_CONFIG, json.dumps(hosts))
+    return {
+        "host_id": host_id,
+        "applied": applied,
+        "skipped": skipped,
+    }
+
+
+@app.post("/api/services/catalog/{cid}/pin")
+async def api_services_catalog_pin(cid: int, payload: dict[str, Any], _admin: AdminUser):
+    """Admin-only: pin a catalog template to a host.
+
+    Creates a new chip in the target host's ``services[]`` array
+    pre-filled from the template's defaults (name / icon / ports +
+    `catalog_id` linkage so future template edits propagate). Operator
+    overrides via `name` / `url` / `icon` / `probe_enabled` /
+    `probe_type` flow through `_clean_host_services` for validation.
+
+    Body shape:
+        {
+            "host_id":       str,           # required — target curated host
+            "name":          str | null,    # optional override; defaults to template name
+            "url":           str | null,    # optional clickable link
+            "icon":          str | null,    # optional override; defaults to template icon
+            "probe_enabled": bool,          # default true
+            "probe_type":    "tcp" | "http" # default tcp
+        }
+
+    Returns the new chip's `service_idx` so the SPA can highlight /
+    scroll-to / launch a manual probe immediately.
+    """
+    from logic import service_catalog as _sc
+    template = _sc.get_catalog_by_id(cid)
+    if template is None:
+        raise HTTPException(404, f"catalog template {cid} not found")
+    host_id = (payload.get("host_id") or "").strip()
+    if not host_id:
+        raise HTTPException(400, "host_id is required")
+    # Verify the host exists in the curated list.
+    hosts = _load_hosts_config()
+    target_idx = -1
+    for i, row in enumerate(hosts):
+        if (row.get("id") or "").strip() == host_id:
+            target_idx = i
+            break
+    if target_idx < 0:
+        raise HTTPException(404, f"host not found in hosts_config: {host_id}")
+    # Build the chip dict from template defaults + operator overrides.
+    override_name = (payload.get("name") or "").strip()
+    override_url = (payload.get("url") or "").strip()
+    override_icon = (payload.get("icon") or "").strip()
+    probe_enabled = bool(payload.get("probe_enabled", True))
+    probe_type_raw = (payload.get("probe_type") or "tcp").strip().lower()
+    probe_type = probe_type_raw if probe_type_raw in ("tcp", "http") else "tcp"
+    new_chip: dict[str, Any] = {
+        "name": override_name or template.get("name") or "",
+        "catalog_id": cid,
+    }
+    icon_resolved = override_icon or template.get("icon") or template.get("slug") or ""
+    if icon_resolved:
+        new_chip["icon"] = icon_resolved
+    if override_url:
+        new_chip["url"] = override_url
+    # Probe sub-dict — copy template's default_ports verbatim so the
+    # chip starts in multi-port mode when the template carries multiple
+    # entries. Operator can edit per-chip ports via Admin → Hosts.
+    default_ports = list(template.get("default_ports") or [])
+    probe: dict[str, Any] = {"enabled": probe_enabled, "type": probe_type}
+    if default_ports:
+        probe["ports"] = default_ports
+    new_chip["probe"] = probe
+    # Append to the target host's services[] (preserve every other
+    # chip already pinned).
+    existing_services = hosts[target_idx].get("services") or []
+    if not isinstance(existing_services, list):
+        existing_services = []
+    new_idx = len(existing_services)
+    existing_services.append(new_chip)
+    hosts[target_idx]["services"] = existing_services
+    # Persist via the SAME save path the Admin → Hosts editor uses —
+    # this runs every chip through `_clean_host_services` so the
+    # validation contract stays uniform.
+    set_setting(Settings.HOSTS_CONFIG, json.dumps(hosts))
+    return {
+        "ok": True,
+        "host_id": host_id,
+        "service_idx": new_idx,
+        "chip": new_chip,
+        "catalog": template,
+    }
+
+
 @app.get("/api/apps")
 async def api_apps_list(_admin: AdminUser):
     """Admin-only: cross-host aggregate view. Returns one row per
@@ -11547,6 +11790,43 @@ def _is_host_unconfigured(
         or ping_enabled
         or snmp_mapped
     )
+
+
+def _sync_host_stats_source(provider: str, enabled: bool) -> None:
+    """Add or remove `provider` from the `host_stats_source` CSV
+    setting so the merge gate (which requires both the per-provider
+    master flag AND the CSV membership) stays consistent with the
+    operator-visible toggle.
+
+    Without this sync the operator could flip `http_probe_enabled` or
+    `service_probe_enabled` ON in Admin → Providers, see the master
+    switch confirmed, but the merge gate would still skip the provider
+    because the CSV didn't include the token. The host drawer card
+    then renders empty + the chip strip never gets the provider — a
+    "looks right but doesn't work" failure mode.
+
+    Called from `api_set_settings` whenever an http_probe / service_probe
+    master toggle landed. Idempotent: re-adding an existing token is a
+    no-op; removing one that isn't there is a no-op.
+    """
+    token = provider.strip().lower()
+    if not token:
+        return
+    current_raw = (get_setting(Settings.HOST_STATS_SOURCE) or "").strip()
+    parts: list[str] = []
+    for t in current_raw.split(","):
+        t_clean = t.strip().lower()
+        if t_clean and t_clean != "none" and t_clean not in parts:
+            parts.append(t_clean)
+    if enabled:
+        if token not in parts:
+            parts.append(token)
+    else:
+        if token in parts:
+            parts = [p for p in parts if p != token]
+    normalized = ",".join(sorted(parts)) if parts else "none"
+    if normalized != current_raw:
+        set_setting(Settings.HOST_STATS_SOURCE, normalized)
 
 
 def _shape_host_apps(h: dict) -> list[dict]:

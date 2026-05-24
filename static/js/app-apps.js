@@ -218,6 +218,11 @@ export default {
     };
     this.appsCatalogEditError = '';
     this.appsCatalogEditOpen = true;
+    // Templates tab is the only place the editor lives. Force the
+    // tab strip back to Templates when opening so the editor is
+    // visible even if the operator is currently on Instances.
+    this.appsAdminTab = 'templates';
+    this._scrollAppsEditorIntoView();
   },
 
   openAppCatalogEdit(entry) {
@@ -236,6 +241,47 @@ export default {
     };
     this.appsCatalogEditError = '';
     this.appsCatalogEditOpen = true;
+    this.appsAdminTab = 'templates';
+    this._scrollAppsEditorIntoView();
+  },
+
+  // Smooth-scroll the editor anchor into view after Alpine renders the
+  // x-show'd block. Double `$nextTick` covers the case where the
+  // editor's parent (the Templates tab) was hidden when the click
+  // landed; first tick reveals the tab, second tick measures the
+  // newly-laid-out editor. Best-effort — silent no-op if the anchor
+  // isn't in the DOM (template not loaded, ancestor display:none, etc.).
+  _scrollAppsEditorIntoView() {
+    if (!this.$nextTick) {
+      return;
+    }
+    this.$nextTick(() => {
+      this.$nextTick(() => {
+        const anchor = document.querySelector('[data-apps-editor-anchor]');
+        if (anchor && anchor.scrollIntoView) {
+          anchor.scrollIntoView({behavior: 'smooth', block: 'start'});
+        }
+        // Move keyboard focus to the first text input inside the
+        // editor so the operator can start typing immediately.
+        const firstInput = anchor && anchor.querySelector('input[type="text"]');
+        if (firstInput && firstInput.focus) {
+          firstInput.focus({preventScroll: true});
+        }
+      });
+    });
+  },
+
+  // Tab strip click handler — close the editor when leaving Templates
+  // so the form doesn't linger on the Instances tab (where it would
+  // sit awkwardly below the instance table with no visible header).
+  setAppsAdminTab(tab) {
+    if (this.appsAdminTab === tab) {
+      return;
+    }
+    if (tab !== 'templates' && this.appsCatalogEditOpen) {
+      this.closeAppCatalogEditor();
+    }
+    this.appsAdminTab = tab;
   },
 
   closeAppCatalogEditor() {
@@ -435,6 +481,233 @@ export default {
       };
     } catch {
       // Silent — sparkline shows empty state.
+    }
+  },
+
+  // ----------------------------------------------------------------
+  // Pin-to-host modal — operator picks a curated host from the existing
+  // hostsConfig list + optional URL override + probe-enable flag; the
+  // POST to /api/services/catalog/{cid}/pin creates the chip server-
+  // side via the same _clean_host_services validator that Admin →
+  // Hosts uses. After save the Instances tab refresh picks up the new
+  // chip automatically.
+  // ----------------------------------------------------------------
+  openAppCatalogPin(entry) {
+    if (!entry || !entry.id) {
+      return;
+    }
+    this.appsPinForm = {
+      template: entry,
+      host_id: '',
+      url: '',
+      probe_enabled: true,
+    };
+    this.appsPinError = '';
+    this.appsPinModalOpen = true;
+    // The host picker reads from `hostsConfig`. The Admin → Apps tab
+    // loader doesn't fetch it (only the Hosts tab does), so the picker
+    // is empty if the operator hasn't visited Hosts in this session.
+    // Lazy-load on first open.
+    if (!Array.isArray(this.hostsConfig) || !this.hostsConfig.length) {
+      if (typeof this.loadHostsConfig === 'function') {
+        this.loadHostsConfig().catch(() => undefined);
+      }
+    }
+  },
+
+  closeAppCatalogPin() {
+    this.appsPinModalOpen = false;
+    this.appsPinForm = {template: null, host_id: '', url: '', probe_enabled: true};
+    this.appsPinError = '';
+  },
+
+  async submitAppCatalogPin() {
+    if (this.appsPinSaving) {
+      return;
+    }
+    const form = this.appsPinForm || {};
+    const tpl = form.template;
+    if (!tpl || !tpl.id) {
+      this.appsPinError = this.t('admin_apps.pin_no_template') || 'No template selected';
+      return;
+    }
+    if (!form.host_id) {
+      this.appsPinError = this.t('admin_apps.pin_pick_host') || 'Pick a host';
+      return;
+    }
+    this.appsPinSaving = true;
+    this.appsPinError = '';
+    try {
+      const r = await fetch(`/api/services/catalog/${tpl.id}/pin`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          host_id: form.host_id,
+          url: (form.url || '').trim(),
+          probe_enabled: !!form.probe_enabled,
+        }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || ('HTTP ' + r.status));
+      }
+      const j = await r.json();
+      // Refresh the instance list so the new chip appears.
+      await this.loadAppsInstances();
+      // Toast confirmation with a quick path back to the host editor.
+      if (typeof this.toast === 'function') {
+        this.toast(
+          (this.t('admin_apps.pin_success') || 'Pinned to host: ') + (j.host_id || ''),
+          'success'
+        );
+      }
+      this.closeAppCatalogPin();
+    } catch (err) {
+      this.appsPinError = err && err.message ? err.message : String(err);
+    } finally {
+      this.appsPinSaving = false;
+    }
+  },
+
+  // ----------------------------------------------------------------
+  // Discovery wizard — port-scan + catalog match → bulk-bind.
+  // ----------------------------------------------------------------
+  openAppsDiscoverWizard() {
+    this.appsDiscoverOpen = true;
+    this.appsDiscoverForm = {host_id: ''};
+    this.appsDiscoverResult = null;
+    this.appsDiscoverError = '';
+    this.appsDiscoverApplyError = '';
+    this.appsDiscoverSelected = new Set();
+    // Host picker reads from hostsConfig — lazy-load if the operator
+    // hasn't visited Admin → Hosts in this session.
+    if (!Array.isArray(this.hostsConfig) || !this.hostsConfig.length) {
+      if (typeof this.loadHostsConfig === 'function') {
+        this.loadHostsConfig().catch(() => undefined);
+      }
+    }
+  },
+
+  closeAppsDiscoverWizard() {
+    this.appsDiscoverOpen = false;
+    this.appsDiscoverForm = {host_id: ''};
+    this.appsDiscoverResult = null;
+    this.appsDiscoverError = '';
+    this.appsDiscoverApplyError = '';
+    this.appsDiscoverSelected = new Set();
+  },
+
+  async runAppsDiscovery() {
+    const hostId = (this.appsDiscoverForm && this.appsDiscoverForm.host_id) || '';
+    if (!hostId) {
+      this.appsDiscoverResult = null;
+      return;
+    }
+    this.appsDiscoverLoading = true;
+    this.appsDiscoverError = '';
+    this.appsDiscoverResult = null;
+    this.appsDiscoverSelected = new Set();
+    try {
+      const r = await fetch(`/api/services/discover/${encodeURIComponent(hostId)}`, {
+        method: 'POST',
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || ('HTTP ' + r.status));
+      }
+      const j = await r.json();
+      this.appsDiscoverResult = j;
+      // Pre-select proposals with confidence >= 0.9 — high-confidence
+      // matches (all template ports detected + name match OR multi-port
+      // exact match) are the safe bulk-bind candidates.
+      const preSelected = new Set();
+      for (const prop of (j.proposals || [])) {
+        if (prop && prop.confidence >= 0.9 && prop.catalog && prop.catalog.id) {
+          preSelected.add(prop.catalog.id);
+        }
+      }
+      this.appsDiscoverSelected = preSelected;
+    } catch (err) {
+      this.appsDiscoverError = err && err.message ? err.message : String(err);
+    } finally {
+      this.appsDiscoverLoading = false;
+    }
+  },
+
+  toggleAppsDiscoverSelection(catalogId) {
+    if (!catalogId) {
+      return;
+    }
+    // Alpine 3 reacts to Set assignment, not mutation. Clone, mutate,
+    // reassign so :checked bindings re-evaluate on toggle.
+    const next = new Set(this.appsDiscoverSelected || []);
+    if (next.has(catalogId)) {
+      next.delete(catalogId);
+    } else {
+      next.add(catalogId);
+    }
+    this.appsDiscoverSelected = next;
+  },
+
+  toggleAllAppsDiscoverSelections(checked) {
+    if (!this.appsDiscoverResult) {
+      return;
+    }
+    if (checked) {
+      const next = new Set();
+      for (const prop of (this.appsDiscoverResult.proposals || [])) {
+        if (prop && prop.catalog && prop.catalog.id) {
+          next.add(prop.catalog.id);
+        }
+      }
+      this.appsDiscoverSelected = next;
+    } else {
+      this.appsDiscoverSelected = new Set();
+    }
+  },
+
+  async submitAppsDiscoverApply() {
+    if (this.appsDiscoverApplying) {
+      return;
+    }
+    const hostId = (this.appsDiscoverForm && this.appsDiscoverForm.host_id) || '';
+    if (!hostId) {
+      this.appsDiscoverApplyError = this.t('admin_apps.pin_pick_host') || 'Pick a host';
+      return;
+    }
+    const ids = Array.from(this.appsDiscoverSelected || []);
+    if (!ids.length) {
+      this.appsDiscoverApplyError = this.t('admin_apps.discover_select_at_least_one') || 'Select at least one proposal';
+      return;
+    }
+    this.appsDiscoverApplying = true;
+    this.appsDiscoverApplyError = '';
+    try {
+      const r = await fetch(`/api/services/discover/${encodeURIComponent(hostId)}/apply`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({catalog_ids: ids, probe_enabled: true}),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || ('HTTP ' + r.status));
+      }
+      const j = await r.json();
+      await this.loadAppsInstances();
+      if (typeof this.toast === 'function') {
+        const nApplied = (j.applied || []).length;
+        const nSkipped = (j.skipped || []).length;
+        let msg = (this.t('admin_apps.discover_applied') || 'Pinned ') + nApplied;
+        if (nSkipped) {
+          msg += ' · ' + nSkipped + ' ' + (this.t('admin_apps.discover_skipped') || 'skipped');
+        }
+        this.toast(msg, 'success');
+      }
+      this.closeAppsDiscoverWizard();
+    } catch (err) {
+      this.appsDiscoverApplyError = err && err.message ? err.message : String(err);
+    } finally {
+      this.appsDiscoverApplying = false;
     }
   },
 

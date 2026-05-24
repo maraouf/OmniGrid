@@ -227,6 +227,26 @@ function app() {
     appsCatalogEdit: {},
     appsCatalogSaving: false,
     appsCatalogEditError: '',
+    // Pin-to-host modal — operator selects a curated host + optional
+    // overrides, then POSTs to /api/services/catalog/{cid}/pin which
+    // appends a new chip to the host's services[] array pre-filled
+    // from the template's default_ports + icon + name.
+    appsPinModalOpen: false,
+    appsPinForm: {template: null, host_id: '', url: '', probe_enabled: true},
+    appsPinSaving: false,
+    appsPinError: '',
+    // Discovery wizard — host picker + proposal list. `appsDiscoverResult`
+    // is the most-recent /api/services/discover/{host_id} response;
+    // `appsDiscoverSelected` is a Set of catalog_ids the operator checked
+    // for bulk-apply via /api/services/discover/{host_id}/apply.
+    appsDiscoverOpen: false,
+    appsDiscoverForm: {host_id: ''},
+    appsDiscoverLoading: false,
+    appsDiscoverError: '',
+    appsDiscoverResult: null,
+    appsDiscoverSelected: new Set(),
+    appsDiscoverApplying: false,
+    appsDiscoverApplyError: '',
     appsSearchQuery: '',
     appsStatusFilter: '',  // '' | 'up' | 'down' | 'degraded' | 'unknown'
     // Per-chip "Probe now" in-flight tracker. Keyed by
