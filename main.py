@@ -24176,7 +24176,10 @@ async def spa_shell():
 # `_applyRouteFromPath()` picks the view based on `location.pathname`
 # once the page boots. Settings / Admin accept a sub-path segment
 # (`/settings/oidc`, `/admin/users`) so those deep links work too.
-_SPA_ROUTES = ("stacks", "services", "nodes", "hosts", "history")
+# Strict rule: every entry in `navItems()` (static/js/app.js) must
+# have a matching entry here, otherwise a refresh / direct-URL visit
+# returns the StaticFiles 404 `{"detail":"Not Found"}`.
+_SPA_ROUTES = ("stacks", "services", "nodes", "hosts", "apps", "history")
 
 for _view in _SPA_ROUTES:
     app.add_api_route(f"/{_view}", spa_shell, methods=["GET"])
