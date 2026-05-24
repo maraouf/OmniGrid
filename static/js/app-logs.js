@@ -503,11 +503,35 @@ export default {
     if (!l) {
       return 'info';
     }
-    const text = (l.text || '').toLowerCase();
+    const raw = l.text || '';
+    const text = raw.toLowerCase();
     // stderr AND a tell-tale tag beats "happy-looking" body — but
     // a stderr line with no negative keywords stays at 'info' (our
     // own noisy prints go to stderr all the time).
+    // PascalCase exception names (NameError / ValueError / HTTPException
+    // / etc.) and traceback frame lines (`  File "...", line N`) also
+    // classify as error so the operator's ERROR-filtered view shows
+    // the full traceback body instead of just the header — mirrors
+    // the backend's `_severity_for` regex in `logic/logs.py`.
     if (/\berror\b|\bfail(?:ed|ure)?\b|\btraceback\b|\bcritical\b|\bfatal\b/.test(text)) {
+      return 'error';
+    }
+    // PascalCase exception names (NameError / HTTPException / etc.).
+    if (/[A-Za-z]\w*(?:Error|Exception)\b/.test(raw)) {
+      return 'error';
+    }
+    // Traceback frame lines + Python 3.11+ ExceptionGroup continuation
+    // markers (`  | ...`, `  + ----- N -----`). Matches the backend's
+    // `_severity_for` regex in `logic/logs.py`. Without these, the
+    // operator's ERROR-filtered log viewer showed only the
+    // `Traceback (most recent call last):` header.
+    if (/^\s+(?:[|+]\s+)?File "[^"]+", line \d+/.test(raw)) {
+      return 'error';
+    }
+    if (/^\s+[|+][-+\s]*\d*[-+\s]*$/.test(raw)) {
+      return 'error';
+    }
+    if (/^\s+\|\s+\S/.test(raw)) {
       return 'error';
     }
     if (/\bwarn(?:ing)?\b|deprecat/.test(text)) {
@@ -515,7 +539,7 @@ export default {
     }
     // Explicit success/OK lines get their own class so
     // "[xxx] probe SUCCESS" / "OK —" read as green.
-    if (/\bsuccess\b|\bok —|→ ok\b/i.test(l.text || '')) {
+    if (/\bsuccess\b|\bok —|→ ok\b/i.test(raw)) {
       return 'ok';
     }
     return 'info';
