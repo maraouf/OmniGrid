@@ -66,10 +66,7 @@
     </div>
 
     <div x-show="!appsCatalogLoaded" class="loading-state">
-      <svg width="16" height="16" class="spin-md inline-block" aria-hidden="true">
-        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-      </svg>
-      <span class="fs-sm text-[var(--text-dim)] ms-2" x-text="t('common.loading') || 'Loading…'"></span>
+      <span class="spin-lg" aria-hidden="true"></span>
     </div>
 
     <table x-show="appsCatalogLoaded" class="w-full fs-sm">
@@ -151,10 +148,7 @@
   <div x-show="appsAdminTab === 'instances'">
     <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin_apps.instances_intro') || 'Read-only summary of every chip pinned to a host via Admin → Hosts. Catalog-linked instances inherit defaults; click a row to jump to the host editor.'"></p>
     <div x-show="!appsInstancesLoaded" class="loading-state">
-      <svg width="16" height="16" class="spin-md inline-block" aria-hidden="true">
-        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-      </svg>
-      <span class="fs-sm text-[var(--text-dim)] ms-2" x-text="t('common.loading') || 'Loading…'"></span>
+      <span class="spin-lg" aria-hidden="true"></span>
     </div>
     <table x-show="appsInstancesLoaded" class="w-full fs-sm">
       <thead>
@@ -193,7 +187,22 @@
         </tr>
       </template>
       <tr x-show="appsInstancesLoaded && !appsInstances.length">
-        <td colspan="6" class="py-6 text-center text-[var(--text-faint)] fs-sm" x-text="t('admin_apps.empty_instances') || 'No app instances yet. Pin services to hosts via Admin → Hosts to populate.'"></td>
+        <td colspan="6" class="py-6 text-center text-[var(--text-faint)] fs-sm">
+          <div class="mb-2" x-text="t('admin_apps.empty_instances') || 'No app instances yet.'"></div>
+          <div class="flex items-center justify-center gap-2 flex-wrap">
+            <button type="button" class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
+                    @click="setAppsAdminTab('templates')">
+              <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-link"/></svg>
+              <span x-text="t('admin_apps.empty_instances_pin_cta') || 'Pin from Templates'"></span>
+            </button>
+            <button type="button" class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
+                    @click="setAppsAdminTab('templates'); openAppsDiscoverWizard()">
+              <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/></svg>
+              <span x-text="t('admin_apps.empty_instances_discover_cta') || 'Run Discovery wizard'"></span>
+            </button>
+          </div>
+          <p class="fs-2xs text-[var(--text-faint)] mt-3" x-text="t('admin_apps.empty_instances_hint') || 'Tip: on the Templates tab, click the link icon on any catalog row to pin it to a host.'"></p>
+        </td>
       </tr>
       </tbody>
     </table>
@@ -411,12 +420,10 @@
         </select>
       </div>
 
-      <!-- Loading state -->
-      <div x-show="appsDiscoverLoading" class="loading-state py-4 text-center">
-        <svg width="18" height="18" class="spin-md inline-block" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-        </svg>
-        <span class="fs-sm text-[var(--text-dim)] ms-2"
+      <!-- Loading state — matches the canonical admin-table spinner. -->
+      <div x-show="appsDiscoverLoading" class="loading-state">
+        <span class="spin-lg" aria-hidden="true"></span>
+        <span class="fs-sm text-[var(--text-faint)]"
               x-text="t('admin_apps.discover_loading') || 'Matching template ports…'"></span>
       </div>
 

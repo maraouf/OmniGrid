@@ -394,6 +394,40 @@
         </div>
       </button>
 
+      <!-- Apps (cross-host instance roll-up). Tile reads the
+           statsOverview.apps block populated by api_admin_stats_overview
+           → service_catalog.list_apps(). `value` shows up/total
+           instances; sub-text shows breakdown across apps + templates
+           + degraded/down counts. Card click navigates to the
+           top-level Apps view so the operator can drill in.  -->
+      <button type="button"
+              @click="view='apps'"
+              class="stats-card"
+              :aria-label="t('stats.cards.apps.aria_label', {
+                              up: (statsOverview.apps && statsOverview.apps.up) || 0,
+                              total: (statsOverview.apps && statsOverview.apps.instances) || 0,
+                              apps: (statsOverview.apps && statsOverview.apps.apps) || 0,
+                              templates: (statsOverview.apps && statsOverview.apps.templates) || 0
+                            }) || ((statsOverview.apps && statsOverview.apps.up) || 0) + ' of ' + ((statsOverview.apps && statsOverview.apps.instances) || 0) + ' app instances up')">
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-grid"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.apps.label') || 'Apps'"></div>
+          <div class="stats-card-value"
+               x-text="((statsOverview.apps && statsOverview.apps.up) || 0) + ' / ' + ((statsOverview.apps && statsOverview.apps.instances) || 0)"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+               x-text="t('stats.cards.apps.sub', {
+                         apps: (statsOverview.apps && statsOverview.apps.apps) || 0,
+                         templates: (statsOverview.apps && statsOverview.apps.templates) || 0,
+                         degraded: (statsOverview.apps && statsOverview.apps.degraded) || 0,
+                         down: (statsOverview.apps && statsOverview.apps.down) || 0
+                       }) || ('apps: ' + ((statsOverview.apps && statsOverview.apps.apps) || 0) + ' · templates: ' + ((statsOverview.apps && statsOverview.apps.templates) || 0))"></div>
+        </div>
+      </button>
+
       <!-- Tunables -->
       <button type="button"
               @click="view='admin'; openAdminTab('config')"

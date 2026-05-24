@@ -74,13 +74,16 @@ from typing import Any, Iterable, Optional
 from main import (  # noqa: E402,F401  — re-imports for IDE static-analysis
     AdminUser,
     HTTPException,
+    Request,
     Settings,
     Tunable,
+    _actor_from,
     _cache,
     _coerce_int_local,
     _events,
     _gather,
     _gather_stats,
+    _ops_mod,
     active_host_stats_providers,
     app,
     db_conn,
@@ -88,6 +91,13 @@ from main import (  # noqa: E402,F401  — re-imports for IDE static-analysis
     set_setting,
     tuning,
 )
+# `_clean_host_services` lives in main_pkg.hosts_routes — same chain-
+# order problem as `_load_hosts_config` below: top-level import would
+# trigger hosts_routes' tail chain and 404 every apps_routes decorator
+# below this point. Resolves at runtime via the centralized wire-fixer
+# at main.py's tail (`_wire_cross_module_underscore_globals`). The
+# TYPE_CHECKING import below silences the IDE without triggering the
+# cycle at runtime.
 # `_load_hosts_config` is defined in main_pkg.hosts_routes. We CAN'T
 # import it at the top level — hosts_routes loads AFTER apps_routes in
 # main.py's chain (main.py:2134 → admin_ai_routes → apps_routes →
@@ -101,7 +111,10 @@ from main import (  # noqa: E402,F401  — re-imports for IDE static-analysis
 from typing import TYPE_CHECKING as _TYPE_CHECKING  # noqa: E402
 
 if _TYPE_CHECKING:
-    from main_pkg.hosts_routes import _load_hosts_config as _impl_load_hosts_config  # noqa: F401
+    from main_pkg.hosts_routes import (  # noqa: F401
+        _load_hosts_config as _impl_load_hosts_config,
+        _clean_host_services,
+    )
 
 
 def _load_hosts_config():
@@ -118,7 +131,7 @@ def _load_hosts_config():
 
 
 @app.post("/api/services/discover/{host_id}/apply")
-async def api_services_discover_apply(host_id: str, payload: dict[str, Any], _admin: AdminUser):
+async def api_services_discover_apply(host_id: str, payload: dict[str, Any], request: Request, _admin: AdminUser):
     """Admin-only: bulk-bind a set of catalog templates to a host.
 
     Body shape:
@@ -197,8 +210,24 @@ async def api_services_discover_apply(host_id: str, payload: dict[str, Any], _ad
             "name": tpl.get("name") or "",
             "service_idx": new_idx,
         })
-    hosts[target_idx]["services"] = existing_services
+    # Route through `_clean_host_services` BEFORE persisting so an
+    # operator-controlled payload (custom name / url / icon overrides)
+    # can't land a malformed chip shape in the DB. Same validator the
+    # Admin → Hosts editor save path uses — keeps the on-disk contract
+    # uniform across every code path that mutates hosts_config.
+    hosts[target_idx]["services"] = _clean_host_services(existing_services)
     set_setting(Settings.HOSTS_CONFIG, json.dumps(hosts))
+    with db_conn() as _c:
+        _ops_mod.write_admin_audit(
+            _c, "services_discover_apply",
+            target_kind="host",
+            target_name=host_id,
+            target_id=host_id,
+            actor=_actor_from(request),
+            message=(f"Bulk-pinned {len(applied)} app(s) to {host_id}"
+                     + (f" — skipped {len(skipped)}" if skipped else "")),
+            events_dict={"applied": applied, "skipped": skipped},
+        )
     return {
         "host_id": host_id,
         "applied": applied,
@@ -207,7 +236,7 @@ async def api_services_discover_apply(host_id: str, payload: dict[str, Any], _ad
 
 
 @app.post("/api/services/catalog/{cid}/pin")
-async def api_services_catalog_pin(cid: int, payload: dict[str, Any], _admin: AdminUser):
+async def api_services_catalog_pin(cid: int, payload: dict[str, Any], request: Request, _admin: AdminUser):
     """Admin-only: pin a catalog template to a host.
 
     Creates a new chip in the target host's ``services[]`` array
@@ -276,11 +305,24 @@ async def api_services_catalog_pin(cid: int, payload: dict[str, Any], _admin: Ad
         existing_services = []
     new_idx = len(existing_services)
     existing_services.append(new_chip)
-    hosts[target_idx]["services"] = existing_services
-    # Persist via the SAME save path the Admin → Hosts editor uses —
-    # this runs every chip through `_clean_host_services` so the
-    # validation contract stays uniform.
+    # Route through `_clean_host_services` BEFORE persisting so an
+    # operator-controlled override payload (custom name / url / icon)
+    # can't land a malformed chip shape in the DB. Same validator
+    # the Admin → Hosts editor save path uses — keeps the on-disk
+    # contract uniform across every code path that mutates
+    # hosts_config.
+    hosts[target_idx]["services"] = _clean_host_services(existing_services)
     set_setting(Settings.HOSTS_CONFIG, json.dumps(hosts))
+    with db_conn() as _c:
+        _ops_mod.write_admin_audit(
+            _c, "services_pin",
+            target_kind="host",
+            target_name=host_id,
+            target_id=host_id,
+            actor=_actor_from(request),
+            message=(f"Pinned app '{template.get('name')}' (catalog_id={cid}) "
+                     f"to {host_id} as service_idx={new_idx}"),
+        )
     return {
         "ok": True,
         "host_id": host_id,
@@ -309,7 +351,7 @@ async def api_apps_instances(_admin: AdminUser):
 
 # noinspection PyProtectedMember
 @app.post("/api/services/{host_id}/{service_idx}/probe")
-async def api_service_probe_now(host_id: str, service_idx: int, _admin: AdminUser):
+async def api_service_probe_now(host_id: str, service_idx: int, request: Request, _admin: AdminUser):
     """Admin-only: run a one-shot probe against a specific chip and
     persist the result to ``service_samples`` so the SPA picks it up
     on the next refresh. Returns the probe outcome inline so the SPA
@@ -451,6 +493,24 @@ async def api_service_probe_now(host_id: str, service_idx: int, _admin: AdminUse
         ts,
         port=0,
     )
+    # Audit row — manual probe-now is a tracked operator action even
+    # though sampler-driven probes write nothing. Per the CLAUDE.md
+    # audit-trail rule each operator-initiated write needs a history
+    # entry; the lifespan sampler's higher-volume background probes
+    # remain intentionally unaudited.
+    with db_conn() as _c:
+        _ops_mod.write_admin_audit(
+            _c, "services_probe_now",
+            target_kind="host",
+            target_name=host_id,
+            target_id=host_id,
+            actor=_actor_from(request),
+            status="success" if result.get("alive") else "error",
+            message=(f"Manual probe service_idx={service_idx} on {host_id}: "
+                     + ("alive" if result.get("alive") else "down")
+                     + (f" ({result_rtt}ms)" if result_rtt is not None else "")),
+            error=result_error,
+        )
     return {
         "ok": True,
         "host_id": host_id,
@@ -465,9 +525,10 @@ async def api_service_probe_now(host_id: str, service_idx: int, _admin: AdminUse
 
 
 @app.get("/api/services/{host_id}/{service_idx}/history")
-async def api_service_history(host_id: str, service_idx: int, hours: int = 24,
+async def api_service_history(host_id: str, service_idx: int, *,
+                              hours: int = 24,
                               port: Optional[int] = None,
-                              _admin: AdminUser = None):  # type: ignore[assignment]
+                              _admin: AdminUser):
     """Admin-only: per-(host, service_idx) probe history for the host
     drawer's Apps sub-tab. Returns up to N hours of samples ordered
     oldest-first so a sparkline can render directly.

@@ -254,6 +254,17 @@ async def api_admin_stats_overview(
         "config_backups": {"total": 0},
         "schedules": {"total": 0, "enabled": 0},
         "tunables": {"total": 0, "overridden": 0},
+        # Apps feature — cross-host instance roll-up. Mirrors the
+        # `list_apps()` aggregator shape: instances are per-(host, chip)
+        # rows; apps are the catalog/name groups they cluster into.
+        # Status counts let the operator see at a glance how many
+        # services are live across the fleet.
+        "apps": {
+            "templates": 0,
+            "instances": 0,
+            "apps": 0,
+            "up": 0, "down": 0, "degraded": 0, "unknown": 0,
+        },
     }
     try:
         with db_conn() as c:
@@ -401,6 +412,31 @@ async def api_admin_stats_overview(
         }
     except Exception as e:
         out["schedules_error"] = str(e)
+    # Apps feature — catalog template count + cross-host instance roll-up
+    # via `list_apps()` (same source the top-level Apps view consumes).
+    try:
+        from logic import service_catalog as _sc
+        catalog_rows = _sc.list_catalog()
+        apps_list = _sc.list_apps()
+        instance_total = sum(int(a.get("instance_count") or 0) for a in apps_list)
+        up = sum(int(a.get("up_count") or 0) for a in apps_list)
+        down = sum(int(a.get("down_count") or 0) for a in apps_list)
+        unknown_total = sum(int(a.get("unknown_count") or 0) for a in apps_list)
+        # Degraded = instances that are part of a degraded app group
+        # (some-up, some-down) — not exposed per-instance by list_apps,
+        # so derive by subtracting up+down+unknown from total.
+        degraded = max(0, instance_total - up - down - unknown_total)
+        out["apps"] = {
+            "templates": len(catalog_rows),
+            "instances": instance_total,
+            "apps": len(apps_list),
+            "up": up,
+            "down": down,
+            "degraded": degraded,
+            "unknown": unknown_total,
+        }
+    except Exception as e:
+        out["apps_error"] = str(e)
     # Tunables — process-level knobs declared in logic/tuning.py:TUNABLES.
     # `total` is the canonical count (every knob the app exposes via the
     # three-tier resolver); `overridden` is how many currently have a

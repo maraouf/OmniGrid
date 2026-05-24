@@ -68,12 +68,14 @@ if TYPE_CHECKING:
     from logic.settings_keys import last_test_success_key  # noqa: F401
     from main import (  # noqa: F401  — IDE-only, runtime via the * above
         _NOTIFY_EVENT_NAMES,
+        _actor_from,
         _cache,
         _coerce_int_local,
         _gather,
         _logs,
         _ops_mod,
         AdminUser,
+        Request,
         Settings,
         Tunable,
         ai_provider_api_key_key,
@@ -2756,7 +2758,7 @@ async def api_services_catalog_list(_admin: AdminUser):
 
 
 @app.post("/api/services/catalog")
-async def api_services_catalog_create(payload: dict[str, Any], _admin: AdminUser):
+async def api_services_catalog_create(payload: dict[str, Any], request: Request, _admin: AdminUser):
     """Admin-only: create a new operator-authored catalog template.
 
     Body shape:
@@ -2790,11 +2792,19 @@ async def api_services_catalog_create(payload: dict[str, Any], _admin: AdminUser
         raise HTTPException(400, str(ve))
     except sqlite3.IntegrityError as ie:
         raise HTTPException(409, f"slug already exists: {ie}")
+    with db_conn() as _c:
+        _ops_mod.write_admin_audit(
+            _c, "services_catalog_create",
+            target_kind="apps_catalog",
+            target_name=entry.get("name") or "",
+            target_id=str(entry.get("id") or ""),
+            actor=_actor_from(request),
+        )
     return {"ok": True, "entry": entry}
 
 
 @app.patch("/api/services/catalog/{cid}")
-async def api_services_catalog_update(cid: int, payload: dict[str, Any], _admin: AdminUser):
+async def api_services_catalog_update(cid: int, payload: dict[str, Any], request: Request, _admin: AdminUser):
     """Admin-only: update a catalog template. Partial — only non-None
     fields are written."""
     from logic import service_catalog as _sc
@@ -2813,11 +2823,19 @@ async def api_services_catalog_update(cid: int, payload: dict[str, Any], _admin:
         raise HTTPException(409, f"slug conflict: {ie}")
     if entry is None:
         raise HTTPException(404, "catalog entry not found")
+    with db_conn() as _c:
+        _ops_mod.write_admin_audit(
+            _c, "services_catalog_update",
+            target_kind="apps_catalog",
+            target_name=entry.get("name") or "",
+            target_id=str(cid),
+            actor=_actor_from(request),
+        )
     return {"ok": True, "entry": entry}
 
 
 @app.delete("/api/services/catalog/{cid}")
-async def api_services_catalog_delete(cid: int, _admin: AdminUser):
+async def api_services_catalog_delete(cid: int, request: Request, _admin: AdminUser):
     """Admin-only: delete a catalog template (builtin or operator-authored).
 
     Per-host chips linked via `catalog_id` are NOT cascade-removed — they
@@ -2826,19 +2844,39 @@ async def api_services_catalog_delete(cid: int, _admin: AdminUser):
     template later via Admin → Hosts.
     """
     from logic import service_catalog as _sc
+    # Snapshot the template name BEFORE delete so the audit row carries
+    # a human-readable label (template lookup is None after the row is
+    # gone). Cheap — one DB hit upstream of the actual delete.
+    pre_template = _sc.get_catalog_by_id(cid) or {}
     ok = _sc.delete_catalog_entry(cid)
     if not ok:
         raise HTTPException(404, "catalog entry not found")
+    with db_conn() as _c:
+        _ops_mod.write_admin_audit(
+            _c, "services_catalog_delete",
+            target_kind="apps_catalog",
+            target_name=pre_template.get("name") or "",
+            target_id=str(cid),
+            actor=_actor_from(request),
+        )
     return {"ok": True}
 
 
 @app.post("/api/services/catalog/seed")
-async def api_services_catalog_seed(_admin: AdminUser):
+async def api_services_catalog_seed(request: Request, _admin: AdminUser):
     """Admin-only: re-seed missing built-in templates (operator deleted
     one and wants it back). Builtin slugs already present in the DB are
     NOT touched — operator edits survive."""
     from logic import service_catalog as _sc
     added = _sc.seed_builtins(force=True)
+    with db_conn() as _c:
+        _ops_mod.write_admin_audit(
+            _c, "services_catalog_seeded",
+            target_kind="apps_catalog",
+            target_name="builtins",
+            actor=_actor_from(request),
+            message=f"Re-seeded {added} built-in templates",
+        )
     return {"ok": True, "added": added}
 
 

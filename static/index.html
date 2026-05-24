@@ -3201,12 +3201,12 @@
         </div>
       </div>
 
-      <!-- Loading skeleton -->
-      <div x-show="!appsListLoaded && appsListLoading" class="loading-state text-center py-12">
-        <svg width="20" height="20" class="spin-md inline-block" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-        </svg>
-        <span class="fs-sm text-[var(--text-dim)] ms-2" x-text="t('common.loading') || 'Loading…'"></span>
+      <!-- Loading skeleton — matches the canonical admin-table loading
+           spinner (`.loading-state` flex container + `.spin-lg`
+           border-spinner) so every async-loaded view in the SPA reads
+           the same way. -->
+      <div x-show="!appsListLoaded && appsListLoading" class="loading-state">
+        <span class="spin-lg" aria-hidden="true"></span>
       </div>
 
       <!-- Error banner -->

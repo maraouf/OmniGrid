@@ -588,6 +588,11 @@
       "tunables": {
         "label": "Tunables",
         "sub": "{overridden} overridden from defaults"
+      },
+      "apps": {
+        "label": "Apps",
+        "sub": "apps: {apps} · templates: {templates} · degraded: {degraded} · down: {down}",
+        "aria_label": "Apps — {up} of {total} instances up across {apps} apps, {templates} templates"
       }
     },
     "range": {
@@ -3204,7 +3209,15 @@
     "settings_update": "Update settings",
     "ai_memory_create": "Create AI memory",
     "ai_memory_delete": "Delete AI memory",
-    "samples_prune_orphan": "Prune sample rows"
+    "samples_prune_orphan": "Prune sample rows",
+    "services_catalog_create": "Create app catalog template",
+    "services_catalog_update": "Update app catalog template",
+    "services_catalog_delete": "Delete app catalog template",
+    "services_catalog_seeded": "Re-seed app catalog built-ins",
+    "services_pin": "Pin app to host",
+    "services_discover_apply": "Bulk-pin discovered apps",
+    "services_probe_now": "Manual app probe",
+    "prune_config_backups": "prune config backups"
   },
   "op_status": {
     "running": "running",
@@ -4579,7 +4592,7 @@
     "instances_intro": "Read-only summary of every chip pinned to a host via Admin → Hosts. Catalog-linked instances inherit defaults; click a row to jump to the host editor.",
     "unlinked": "— unlinked —",
     "empty_templates": "No templates yet — click Add or Re-seed built-ins.",
-    "empty_instances": "No app instances yet. Pin services to hosts via Admin → Hosts to populate.",
+    "empty_instances": "No app instances yet.",
     "field_name": "Name",
     "field_slug": "Slug",
     "field_slug_placeholder": "auto from name",
@@ -4635,7 +4648,10 @@
     "discover_applying": "Pinning…",
     "discover_applied": "Pinned ",
     "discover_skipped": "skipped",
-    "discover_select_at_least_one": "Select at least one proposal"
+    "discover_select_at_least_one": "Select at least one proposal",
+    "empty_instances_pin_cta": "Pin from Templates",
+    "empty_instances_discover_cta": "Run Discovery wizard",
+    "empty_instances_hint": "Tip: on the Templates tab, click the link icon on any catalog row to pin it to a host."
   },
   "apps": {
     "title": "Apps",
@@ -4654,5 +4670,10 @@
     "empty_filtered": "No apps match the current filters.",
     "empty_html": "No app instances yet. Pin services to hosts via <strong>Admin → Hosts</strong> to populate this view; reusable templates live under <strong>Admin → Apps</strong>.",
     "error_loading": "Failed to load apps: "
+  },
+  "admin_schedules": {
+    "kinds": {
+      "prune_config_backups": "Prune config backups"
+    }
   }
 }
