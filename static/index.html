@@ -5667,7 +5667,7 @@
                   </button>
                   <span class="fs-3xs text-[var(--text-faint)]"
                         x-show="h.provider_pause_state && h.provider_pause_state.http_probe"
-                        x-text="t('host_drawer.http_probe.paused_hint', { failures: (h.provider_pause_state.http_probe.consecutive_failures || 0) })"></span>
+                        x-text="t('host_drawer.http_probe.paused_hint', { failures: ((h.provider_pause_state && h.provider_pause_state.http_probe && h.provider_pause_state.http_probe.consecutive_failures) || 0) })"></span>
                 </div>
               </section>
             </template>

@@ -2225,6 +2225,23 @@ from main_pkg.hosts_routes import *  # noqa: E402,F401,F403
 # Re-run after refactors that move underscore helpers between modules.
 def _wire_cross_module_underscore_globals() -> None:
     import sys as _sys
+    # Rebind map — names from sibling modules that the consumer references
+    # under a DIFFERENT alias than the source-side name. Map shape:
+    # `{consumer_module: [(src_module, src_name, dst_name), ...]}`. Used
+    # primarily for `logic/*` underscore-aliased helpers (`merge_best` →
+    # `_merge_best`, `is_meaningful` → `_meaningful`) that consumer
+    # functions reference via bare LOAD_GLOBAL. Same drift class as
+    # the same-name fixups below; the rename support is the only delta.
+    rebinds: dict[str, list[tuple[str, str, str]]] = {
+        "main_pkg.apps_routes": [
+            ("logic.merge", "merge_best", "_merge_best"),
+            ("logic.merge", "is_meaningful", "_meaningful"),
+        ],
+        "main_pkg.hosts_ssh_routes": [
+            ("logic.merge", "merge_best", "_merge_best"),
+            ("logic.merge", "is_meaningful", "_meaningful"),
+        ],
+    }
     fixups: dict[str, list[tuple[str, list[str]]]] = {
         "main_pkg.admin_ai_routes": [
             ("main", ["_cache", "_gather"]),
@@ -2291,6 +2308,31 @@ def _wire_cross_module_underscore_globals() -> None:
                     missing.append(f"{src_name}.{n} not found (consumer: {consumer_name})")
                     continue
                 cdict[n] = sdict[n]
+    # Apply renames (logic.merge → _merge_best / _meaningful aliases).
+    for consumer_name, entries in rebinds.items():
+        cmod = _sys.modules.get(consumer_name)
+        if cmod is None:
+            missing.append(f"consumer module not loaded: {consumer_name}")
+            continue
+        for src_name, src_attr, dst_attr in entries:
+            smod = _sys.modules.get(src_name)
+            if smod is None:
+                # Logic modules sometimes aren't directly imported by the
+                # main chain; import-on-demand here so the rebind always
+                # has a source dict to read from.
+                try:
+                    __import__(src_name)
+                    smod = _sys.modules.get(src_name)
+                except ImportError:
+                    smod = None
+            if smod is None:
+                missing.append(f"source module not loaded: {src_name}")
+                continue
+            sdict = smod.__dict__
+            if src_attr not in sdict:
+                missing.append(f"{src_name}.{src_attr} not found (consumer: {consumer_name})")
+                continue
+            cmod.__dict__[dst_attr] = sdict[src_attr]
     if missing:
         import sys as _sys2
         for m in missing:
