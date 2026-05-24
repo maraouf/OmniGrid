@@ -2857,7 +2857,8 @@
       "oidc": "Admin → Authentik OIDC",
       "portainer": "Admin → Portainer",
       "debug": "Admin → Debug",
-      "public_ip": "Admin → Public IP"
+      "public_ip": "Admin → Public IP",
+      "apps": "Apps"
     },
     "view": {
       "stacks": "Stacks view",
@@ -4464,7 +4465,16 @@
     "test_button": "Test connection",
     "testing": "Testing…",
     "test_ok_prefix": "✓ ",
-    "test_fail_prefix": "✗ "
+    "test_fail_prefix": "✗ ",
+    "default_actions": {
+      "restart_beszel": "Restart Beszel agent",
+      "show_beszel_env": "Show Beszel agent env",
+      "set_beszel_nics": "Set Beszel NICS (edit eth0 first)",
+      "verify_beszel_nics": "Verify Beszel NICS setup",
+      "journal_beszel": "Tail Beszel agent journal",
+      "ip_link": "List network interfaces (ip link)",
+      "uptime": "Show uptime"
+    }
   },
   "admin_public_ip": {
     "title": "Public IP",

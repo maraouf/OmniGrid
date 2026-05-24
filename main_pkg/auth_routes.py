@@ -77,6 +77,7 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     _NOTIFY_EVENT_NAMES,
     _actor_from,
     _err,
+    _host_baseline,
     _ops_mod,
     _resolve_totp_policy,
     _totp_required_for,
@@ -90,6 +91,14 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     webauthn_h,
     DB_PATH,
 )
+# `_ai_supported_providers` is defined in `main_pkg.admin_stats_routes`
+# and used by /api/me's client_config block below to surface the
+# canonical provider name set to the SPA. Underscore-prefixed names
+# don't propagate through `from X import *` AND module-level
+# __getattr__ doesn't fire for bare LOAD_GLOBAL inside function
+# bodies — the explicit import is the only path that lands the name
+# in this module's __dict__.
+from main_pkg.admin_stats_routes import _ai_supported_providers  # noqa: E402,F401
 
 # Sibling-module names — defined in other main_pkg/* files
 # that end up in main's namespace via the chain.

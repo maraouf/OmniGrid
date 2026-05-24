@@ -1866,9 +1866,19 @@ async def api_stats_history(item_id: str, hours: int = 24):
     ids = [s.strip() for s in item_id.split(",") if s.strip()]
     since = time.time() - hours * 3600
     raw_series = _stats_history(ids, since)
-    # `_bucket_drawer_series` lives in main_pkg/hosts_ssh_routes.py;
-    # main's namespace gains it via the tail star-import chain.
-    # noinspection PyUnresolvedReferences
+    # Late import — `_bucket_drawer_series` is an underscore-prefixed
+    # helper in main_pkg.hosts_ssh_routes. Per Python's import-* rules
+    # underscore names don't propagate through the star-import chain
+    # AND module-level __getattr__ doesn't fire for bare LOAD_GLOBAL
+    # inside function bodies, so the only path that lands the symbol
+    # in this function's lookup chain is an explicit import. Late-bound
+    # to avoid the main → main_pkg cycle. The protected-member warning
+    # is intentional — the underscore prefix marks the helper as
+    # internal to main_pkg, but cross-module reuse is sanctioned for
+    # the late-import pattern; suppress here so the IDE chrome stays
+    # clean.
+    # noinspection PyProtectedMember
+    from main_pkg.hosts_ssh_routes import _bucket_drawer_series
     bucketed = {iid: _bucket_drawer_series(series, hours) for iid, series in raw_series.items()}
     return {
         "since": since,
