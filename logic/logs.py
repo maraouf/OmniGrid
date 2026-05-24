@@ -126,14 +126,20 @@ def _today_log_path() -> str:
 #     there's no word boundary before the second `e`).
 #   - traceback frame lines starting with `  File "..."` so every frame
 #     of a multi-line traceback carries the same severity as the header.
-#     Without this, the operator's ERROR-filtered log viewer showed
-#     only the `Traceback (most recent call last):` header + the
-#     bare exception body, with the per-frame `File "..."` lines
-#     buried under INFO.
+#     Also matches the Python 3.11+ ExceptionGroup-wrapped variant
+#     `  | File "..."` (the leading pipe + space is the sub-traceback
+#     continuation marker). And the bare `  | ` / `  + ` / `  | NameError`
+#     continuation lines so the entire ExceptionGroup body lands as
+#     ERROR uniformly. Without this, the operator's ERROR-filtered
+#     log viewer showed only the `Traceback (most recent call last):`
+#     header + the bare exception body, with the per-frame `File "..."`
+#     lines buried under INFO.
 _RE_ERROR = re.compile(
     r"\berror\b|\bfail(?:ed|ure)?\b|\btraceback\b|\bcritical\b|\bfatal\b"
-    r"|\b[A-Z]\w*(?:Error|Exception)\b"
-    r"|^\s+File \"[^\"]+\", line \d+",
+    r"|\w(?:Error|Exception)\b"
+    r"|^\s+(?:[|+]\s+)?File \"[^\"]+\", line \d+"
+    r"|^\s+[|+][-+\s]*\d*[-+\s]*$"
+    r"|^\s+\|\s+\S",
     re.IGNORECASE | re.MULTILINE,
 )
 _RE_WARN = re.compile(r"\bwarn(?:ing)?\b|deprecat", re.IGNORECASE)

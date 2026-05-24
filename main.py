@@ -2201,6 +2201,105 @@ from main_pkg.admin_ai_routes import *  # noqa: E402,F401,F403
 from main_pkg.hosts_routes import *  # noqa: E402,F401,F403
 
 
+# ----------------------------------------------------------------------------
+# Cross-module underscore-name eager-wiring.
+#
+# Python's module-level __getattr__ (PEP 562) handles attribute access
+# (`mod.X`) and `from X import Y` lookups, but it does NOT fall through
+# for bare LOAD_GLOBAL instructions inside function bodies. The
+# `main.py` → `main_pkg/*` split made every function-body reference to
+# a sibling-module underscore helper a latent NameError waiting to fire
+# the first time the route runs.
+#
+# Rather than chasing 500s one at a time, this block runs AFTER every
+# `main_pkg/*` module has finished loading via the star-import chain
+# above + eagerly copies the cross-module underscore-prefixed symbols
+# into each consumer's __dict__ so bare LOAD_GLOBAL resolves correctly.
+# Map shape: `{consumer_module: [(source_module, [names...]),...]}`.
+# Adding a new cross-module bare reference: add the entry here OR add
+# an explicit late-import at the call site (same effect).
+#
+# Audit script: `tmp/audit_underscore_leaks.py` walks every function in
+# main + main_pkg/* via AST + cross-references the resulting LOAD_GLOBAL
+# refs against each module's runtime __dict__ to surface every leak.
+# Re-run after refactors that move underscore helpers between modules.
+def _wire_cross_module_underscore_globals() -> None:
+    import sys as _sys
+    fixups: dict[str, list[tuple[str, list[str]]]] = {
+        "main_pkg.admin_ai_routes": [
+            ("main", ["_cache", "_gather"]),
+            ("main_pkg.admin_stats_routes", ["_SAMPLES_TABLE_HOST_COL", "_resolve_ai_fallback_chain", "_ai_supported_providers"]),
+            ("main_pkg.apps_routes", ["_load_hosts_config", "_populate_detected_ports"]),
+            ("main_pkg.hosts_routes", ["_clean_vendors_input"]),
+        ],
+        "main_pkg.admin_stats_routes": [
+            ("main", ["_cache"]),
+            ("main_pkg.admin_ai_routes", ["_is_asset_inventory_enabled"]),
+            ("main_pkg.apps_routes", ["_load_hosts_config"]),
+        ],
+        "main_pkg.apps_routes": [
+            ("main_pkg.hosts_routes", ["_clean_vendors_input", "_failure_state_for_host",
+                                       "_is_provider_paused", "_provider_pause_state_for_host"]),
+        ],
+        "main_pkg.auth_routes": [
+            ("main_pkg.hosts_routes", ["_snmp_vendor_keys_sorted"]),
+        ],
+        "main_pkg.hosts_provider_routes": [
+            ("main_pkg.hosts_routes", ["_clean_vendors_input"]),
+        ],
+        "main_pkg.hosts_routes": [
+            ("main_pkg.apps_routes", ["_get_host_provider_state", "_http_probe_host_cache",
+                                      "_merge_one_host", "_shape_host_api_row",
+                                      "_snmp_host_cache", "_snmp_host_fail_cache",
+                                      "_webmin_host_cache", "_webmin_host_fail_cache",
+                                      "_host_provider_lock", "_peek_cached_host_provider_state",
+                                      "_populate_detected_ports"]),
+        ],
+        "main_pkg.hosts_ssh_routes": [
+            ("main", ["_cache", "_stats_cache"]),
+            ("main_pkg.apps_routes", ["_shape_host_api_row"]),
+            ("main_pkg.auth_routes", ["_request_origin"]),
+            ("main_pkg.hosts_routes", ["_clean_vendors_input", "_failure_state_for_host",
+                                       "_item_samples_in_window", "_provider_pause_state_for_host",
+                                       "_sqlite_like_escape"]),
+        ],
+        "main_pkg.settings_routes": [
+            ("main_pkg.admin_stats_routes", ["_settings_version_for_payload", "_ai_supported_providers"]),
+            ("main_pkg.apps_routes", ["_sync_host_stats_source"]),
+            ("main_pkg.hosts_routes", ["_slugify_action"]),
+        ],
+        "main_pkg.users_routes": [
+            ("main_pkg.auth_routes", ["_AVATAR_DIR", "_request_origin", "_request_rp_id"]),
+        ],
+    }
+    missing: list[str] = []
+    for consumer_name, sources in fixups.items():
+        cmod = _sys.modules.get(consumer_name)
+        if cmod is None:
+            missing.append(f"consumer module not loaded: {consumer_name}")
+            continue
+        for src_name, names in sources:
+            smod = _sys.modules.get(src_name)
+            if smod is None:
+                missing.append(f"source module not loaded: {src_name}")
+                continue
+            sdict = smod.__dict__
+            cdict = cmod.__dict__
+            for n in names:
+                if n not in sdict:
+                    # Don't crash boot — just log to stderr.
+                    missing.append(f"{src_name}.{n} not found (consumer: {consumer_name})")
+                    continue
+                cdict[n] = sdict[n]
+    if missing:
+        import sys as _sys2
+        for m in missing:
+            print(f"[wire_cross_module] {m}", file=_sys2.stderr)
+
+
+_wire_cross_module_underscore_globals()
+
+
 # noinspection DuplicatedCode
 def __getattr__(name):
     """Module-level resolver for cross-module underscore-prefixed leaks.
