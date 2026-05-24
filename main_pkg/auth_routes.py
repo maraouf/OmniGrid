@@ -2110,11 +2110,14 @@ class WebauthnRegisterFinishIn(BaseModel):
 
 # ----------------------------------------------------------------------------
 # Split continuation: users_routes registers its routes BEFORE
-# the StaticFiles catch-all below.
+# the StaticFiles catch-all below. The chain-import MUST execute
+# before the mount or every /api/* route registered by users_routes
+# falls behind the catch-all in router order and 404s as
+# `{"detail":"Not Found"}` (Starlette serves the StaticFiles 404
+# because its `/` mount matches the path prefix first).
 # ----------------------------------------------------------------------------
+from main_pkg.users_routes import *  # noqa: E402,F401,F403
 
 
 # Keep this line LAST — StaticFiles at "/" is a catch-all.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
-
-from main_pkg.users_routes import *  # noqa: E402,F401,F403
