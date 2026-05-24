@@ -123,6 +123,11 @@ async def api_get_settings(request: Request):
     """Return the full settings snapshot for the Admin / Settings forms."""
     from logic import portainer as _portainer
     from logic.db import get_settings_version
+    # Late import — admin_stats_routes is loaded AFTER settings_routes
+    # in main.py's chain; a module-top import would cycle. The
+    # function-body import resolves at call time when both modules
+    # are loaded. Same pattern as the other late imports above.
+    from main_pkg.admin_stats_routes import _ai_supported_providers
     with db_conn() as c:
         a = auth.get_auth_settings(c)
     p = _portainer.get_portainer_settings()
@@ -665,6 +670,13 @@ def _clean_alias_dict(d, value_transform=None) -> dict:
 
 
 async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer) -> dict:
+    # Late import — `_ai_supported_providers` lives in
+    # `main_pkg.admin_stats_routes` which is loaded AFTER this module
+    # in the main.py chain; a module-top import would cycle. Function-
+    # body late-binding resolves at call time when both modules are
+    # imported. Same pattern used elsewhere in this module for
+    # `_ai_supported_providers` (api_get_settings above).
+    from main_pkg.admin_stats_routes import _ai_supported_providers
     # Per-service master switches. Persisted as "true" / "false"
     # strings to match every other boolean toggle in the settings table.
     if s.apprise_enabled is not None:

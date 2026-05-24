@@ -379,6 +379,20 @@ async def api_hosts_list(force: bool = False):
         load_host_snapshots as _load_snaps,
         apply_host_snapshot_fallback as _fallback,
     )
+    # Late imports — these helpers live in main_pkg.apps_routes which
+    # is loaded BY this module's transitive import chain (cycle), so
+    # the module-top explicit import lives behind TYPE_CHECKING above.
+    # Runtime LOAD_GLOBAL doesn't fall through to module __getattr__,
+    # so the explicit late-import is the only path that lands the
+    # symbols in this function's lookup chain. Bulk-import inside
+    # the function body — by call time apps_routes is fully loaded.
+    from main_pkg.apps_routes import (
+        _get_host_provider_state,
+        _host_provider_lock,
+        _peek_cached_host_provider_state,
+        _populate_detected_ports,
+        _shape_host_api_row,
+    )
     curated = _load_hosts_config()
 
     # Try the cheap peek first. Warm cache → use it (instant, includes

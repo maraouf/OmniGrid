@@ -341,6 +341,13 @@ async def api_admin_ai_dashboard(
         hours = max(1, min(int(hours or 24), 24 * 30))
     except (TypeError, ValueError):
         hours = 24
+    # Late import — `_ai_supported_providers` lives in
+    # `main_pkg.admin_stats_routes`, which is imported AFTER this
+    # module in main.py's chain. Module-level import would be a cycle;
+    # function-body late-import resolves at call time when both
+    # modules are loaded. Same pattern other consumers in this module
+    # use for `_load_hosts_config` / `_populate_detected_ports`.
+    from main_pkg.admin_stats_routes import _ai_supported_providers
     _provider_names = _ai_supported_providers()
     cutoff = int(time.time()) - hours * 3600
 

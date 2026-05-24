@@ -117,7 +117,25 @@ def _today_log_path() -> str:
 # on which lines are which level. Stream alone is too coarse (backend
 # error prints go to stdout too via plain print()), so we scan the body
 # for tell-tale tokens. Falls back to INFO.
-_RE_ERROR = re.compile(r"\berror\b|\bfail(?:ed|ure)?\b|\btraceback\b|\bcritical\b|\bfatal\b", re.IGNORECASE)
+# ERROR-classifier regex. Matches:
+#   - bare keywords ("error" / "failed" / "traceback" / "critical" / "fatal")
+#   - PascalCase exception names ending in `Error` or `Exception`
+#     (NameError, ValueError, TypeError, RuntimeError, HTTPException, ...)
+#     so the actual exception line of a traceback lands as ERROR instead
+#     of INFO (the bare `error` word-boundary missed `NameError` because
+#     there's no word boundary before the second `e`).
+#   - traceback frame lines starting with `  File "..."` so every frame
+#     of a multi-line traceback carries the same severity as the header.
+#     Without this, the operator's ERROR-filtered log viewer showed
+#     only the `Traceback (most recent call last):` header + the
+#     bare exception body, with the per-frame `File "..."` lines
+#     buried under INFO.
+_RE_ERROR = re.compile(
+    r"\berror\b|\bfail(?:ed|ure)?\b|\btraceback\b|\bcritical\b|\bfatal\b"
+    r"|\b[A-Z]\w*(?:Error|Exception)\b"
+    r"|^\s+File \"[^\"]+\", line \d+",
+    re.IGNORECASE | re.MULTILINE,
+)
 _RE_WARN = re.compile(r"\bwarn(?:ing)?\b|deprecat", re.IGNORECASE)
 _RE_OK = re.compile(r"\bsuccess\b|\bok —|→ ok\b", re.IGNORECASE)
 
