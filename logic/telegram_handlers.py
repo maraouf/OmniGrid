@@ -1,0 +1,2167 @@
+"""Telegram command handlers — split out of `logic.telegram_listener`
+to keep both modules under the "uncomfortable to navigate" line-count
+threshold.
+
+Loading contract (mirrors `telegram_ai.py`):
+  * This module is imported by `logic.telegram_listener` AT TOP LEVEL
+    so the listener's `_COMMANDS` dispatch dict can reference each
+    `_cmd_*` handler by name.
+  * Listener helpers (`_listener()._send_reply`, `_listener()._resolve_target`, etc.) are
+    accessed via the `_listener()` lazy shim — a one-attribute-access
+    indirection per call site. The shim defers the actual import to
+    call time so this module can finish loading BEFORE the listener
+    is fully initialised (top-level cross-import would deadlock).
+"""
+from __future__ import annotations
+
+import asyncio
+import sqlite3
+import time
+from typing import Any, Optional, cast
+
+import httpx
+
+
+def _listener() -> Any:
+    """Return the loaded logic.telegram_listener module.
+
+    Resolved lazily so cross-module imports don't deadlock at startup.
+    Use as ``_listener()._helper_name(...)`` from every handler that
+    needs a listener helper. Return annotation is ``Any`` deliberately
+    so PyCharm/Pyright don't try to statically resolve attribute access
+    through the shim — the names are stable per the cross-module
+    contract but the IDE can't trace them (every `_listener()._foo` is
+    a runtime lookup against the loaded module). Without `Any` the
+    file would flood with ~140 false-positive "Access to a protected
+    member" warnings.
+    """
+    from logic import telegram_listener as _tl
+    return _tl
+
+
+# ----------------------------------------------------------------------------
+# Shared handler primitives — extracted to dedupe boilerplate that
+# multiple `_cmd_*` handlers would otherwise repeat verbatim.
+# ----------------------------------------------------------------------------
+# noinspection PyProtectedMember
+async def _resolve_telegram_sender_id_int(client: httpx.AsyncClient, msg: dict) -> Optional[int]:
+    """Pull `msg.from.id` out of an incoming Telegram update + coerce
+    to int. Returns the int on success. On failure, sends the matching
+    operator-facing reply + returns None — caller should return early.
+
+    Used by `_cmd_link` + `_cmd_unlink` (both need the sender's
+    numeric Telegram user_id before doing anything else). Extracted
+    because the 11-line `(msg.get("from") or {}).get("id")` + None-check
+    + `int(...)` + TypeError-handle pattern was duplicated."""
+    sender_id = (msg.get("from") or {}).get("id")
+    if sender_id is None:
+        await _listener()._send_reply(client, "Can't read your Telegram user_id from the message.")
+        return None
+    try:
+        # `sender_id` is `Any` after the None-check above; int() handles
+        # str / int / float inputs uniformly and raises on the rest.
+        return int(sender_id)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        await _listener()._send_reply(client, "Telegram user_id is not numeric — refusing.")
+        return None
+
+
+# noinspection PyProtectedMember
+async def _require_user_weather_pref(
+    client: httpx.AsyncClient, msg: dict,
+) -> Optional[tuple[str, dict]]:
+    """Resolve the linked OmniGrid user + their saved weather pref in
+    one round-trip. Returns ``(username, loc)`` on success, or ``None``
+    on every failure path (sender not linked, no saved location).
+
+    The helper sends the matching operator-facing reply itself on every
+    failure path, so the caller's only job is to early-return when the
+    return value is None. Used by `_cmd_time` + `_cmd_weather` — both
+    need the same lookup + the same error wording, and the 18-line
+    boilerplate was previously duplicated verbatim across the two
+    handlers. Return shape is ``Optional[tuple[str, dict]]`` (not a
+    pair of Optionals) so the caller's narrowing `if result is None`
+    propagates to BOTH unpacked names — without that PyCharm can't
+    prove `username is not None` after the check."""
+    sender_id = (msg.get("from") or {}).get("id")
+    username = _listener()._lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    if not username:
+        await _listener()._send_reply(
+            client,
+            "Link your account first. Generate a code in OmniGrid → "
+            "Profile → Telegram, then reply with <code>/link &lt;code&gt;</code>."
+        )
+        return None
+    loc = _listener()._load_user_weather_pref(username)
+    if loc is None:
+        await _listener()._send_reply(
+            client,
+            f"OmniGrid user <b>{_listener()._escape(username)}</b> has no weather "
+            f"location saved. Open the topbar weather widget in "
+            f"OmniGrid → click a city → Save."
+        )
+        return None
+    # `_lookup_omnigrid_user` + `_load_user_weather_pref` return Any —
+    # cast to the documented types so the caller's narrowing propagates
+    # cleanly through the unpacked tuple.
+    return cast(str, username), cast(dict, loc)
+
+
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """Auto-generated help — iterates `_COMMANDS` so adding a new
+    handler shows up in `/help` with no extra wiring.
+
+    Commands are grouped by ``category`` (each entry in `_COMMANDS`
+    carries one) and each category renders as a bold section header
+    with a category-specific emoji prefix so the menu scans at a
+    glance. Within a category, commands sharing a handler are GROUPED
+    — the primary command's usage stays as-is, and any alias names
+    are appended in a comma-separated suffix on the same line
+    (``/whoami, /myid``).
+    """
+    # Category metadata — ordered list so the rendered menu stays
+    # stable + a single source of truth for the emoji + heading copy.
+    # Adding a new category: append a tuple here AND tag every command
+    # in `_COMMANDS` with the matching key. The validation block below
+    # WARN-logs any `_COMMANDS` entry whose `category` key is missing
+    # from this list so the silent-fallthrough-to-"Other" failure mode
+    # becomes operator-visible.
+    categories: list[tuple[str, str]] = [
+        ("getting_started", "📖 Getting started"),
+        ("fleet", "🖥️ Fleet"),
+        ("ops", "⚙️ Operations"),
+        ("account", "🔗 Account"),
+        ("info", "ℹ️ Info & weather"),
+        ("misc", "🧩 Other"),
+    ]
+    cat_order = {key: idx for idx, (key, _) in enumerate(categories)}
+    cat_headings = dict(categories)
+
+    # Derive the in-use category set from `_COMMANDS` and surface a
+    # one-shot WARN when a key has no heading metadata. Without this,
+    # adding a new category to `_COMMANDS` without extending the
+    # `categories` list above silently buckets the affected commands
+    # under "🧩 Other" (line below uses `cat_headings.get(..., "🧩 Other")`
+    # as the fallback). Visible failure mode > invisible drift.
+    _tl = _listener()
+    _used_cats = {
+        (meta.get("category") or "misc")
+        for meta in _tl._COMMANDS.values()
+        if meta.get("handler") is not None
+    }
+    _missing_cats = _used_cats - set(cat_headings)
+    new_warns = _missing_cats - _tl._WARNED_MISSING_CATS
+    if new_warns:
+        print(
+            f"[telegram_listener] /help: category key(s) "
+            f"{sorted(new_warns)!r} used in _COMMANDS have no entry in "
+            f"the `categories` list — those commands will render under "
+            f"'🧩 Other'. Add `(<key>, '<emoji> <heading>')` to the "
+            f"`categories` list in `_cmd_help`."
+        )
+        _tl._WARNED_MISSING_CATS.update(new_warns)
+
+    # First pass: group commands by handler (dedup aliases). Records
+    # the FIRST occurrence as the primary for that handler — subsequent
+    # entries become aliases regardless of `hidden`.
+    groups: list[dict] = []
+    handler_to_group: dict[Any, dict[str, Any]] = {}
+    for name, meta in _tl._COMMANDS.items():
+        handler = meta.get("handler")
+        if handler is None:
+            continue
+        existing = handler_to_group.get(handler)
+        if existing is None:
+            # WARN-log when a _COMMANDS entry is missing the `category`
+            # key OR carries a falsy value. The dispatcher buckets the
+            # command under "misc" (rendered as "🧩 Other") regardless
+            # so the command still works — but the silent-default
+            # behaviour masks "I forgot to tag the new command" during
+            # authoring. Dedupe per (command-name) so each instance
+            # WARNs exactly once per process.
+            raw_cat = meta.get("category")
+            if not raw_cat and name not in _tl._WARNED_MISSING_CMD_CAT:
+                print(
+                    f"[telegram_listener] /help: command {name!r} has "
+                    f"no `category` key (or empty) in `_COMMANDS` — "
+                    f"will render under '🧩 Other'. Add a category tag "
+                    f"to the `_COMMANDS` entry."
+                )
+                _tl._WARNED_MISSING_CMD_CAT.add(name)
+            group = {
+                "primary_name": name,
+                "primary": meta,
+                "aliases": [],
+                "category": raw_cat or "misc",
+            }
+            groups.append(group)
+            handler_to_group[handler] = group
+        else:
+            existing["aliases"].append(name)
+
+    # Bucket by category preserving original insertion order within each.
+    by_cat: dict[str, list[dict]] = {}
+    for g in groups:
+        by_cat.setdefault(g["category"], []).append(g)
+
+    lines = ["<b>🤖 OmniGrid Telegram commands</b>", ""]
+
+    # Render categories in declared order; an unknown category (typo
+    # or new tag without a heading) renders last under "Other" so it
+    # surfaces visually instead of silently dropping. Groups
+    # containing ONLY `_OPEN_COMMANDS` entries render FIRST so
+    # unmapped first-time users see what they can
+    # actually run before scrolling past the gated commands. Stable
+    # secondary sort by the declared `cat_order` so the within-tier
+    # ordering still respects the operator-curated category order.
+    # noinspection PyProtectedMember
+    def _category_open_count(cat_key: str) -> int:
+        return sum(
+            1 for grp in by_cat.get(cat_key, [])
+            if grp.get("primary_name") in _tl._OPEN_COMMANDS
+        )
+
+    rendered_cats = sorted(
+        by_cat.keys(),
+        key=lambda c: (
+            # First key: NEGATIVE open-command ratio so categories
+            # with more open commands surface first.
+            -(_category_open_count(c) / max(1, len(by_cat.get(c, [])))),
+            # Second key: original declared order.
+            cat_order.get(c, len(cat_order)),
+        ),
+    )
+    for cat in rendered_cats:
+        heading = cat_headings.get(cat, "🧩 Other")
+        # Annotate the heading with how many commands in this category
+        # need a link, so an unmapped first-timer can skip gated
+        # categories at a glance.
+        cat_groups = by_cat[cat]
+        open_count = sum(
+            1 for g in cat_groups if g.get("primary_name") in _tl._OPEN_COMMANDS
+        )
+        if open_count == len(cat_groups):
+            heading_suffix = " <i>(no link required)</i>"
+        elif open_count == 0:
+            heading_suffix = " <i>(/link required)</i>"
+        else:
+            heading_suffix = f" <i>({open_count} of {len(cat_groups)} open)</i>"
+        lines.append(f"<b>{_listener()._escape(heading)}</b>{heading_suffix}")
+        for g in cat_groups:
+            primary_meta = g["primary"]
+            primary_name = g["primary_name"]
+            usage = _listener()._escape(primary_meta.get("usage") or primary_name)
+            aliases = g["aliases"]
+            # 🔓 marker on commands that bypass the omnigrid-user-mapping
+            # gate so unmapped senders can see at a glance which ones
+            # actually work pre-link. Read from `_OPEN_COMMANDS` (the
+            # same set `_process_update` consults at dispatch time), so
+            # adding / removing an open command is a one-line edit
+            # that propagates to both the gate AND the help menu.
+            open_marker = "🔓 " if primary_name in _tl._OPEN_COMMANDS else ""
+            if aliases:
+                alias_text = ", ".join(_listener()._escape(a) for a in aliases)
+                head = f"  {open_marker}<b>{usage}</b> <i>(aliases: {alias_text})</i>"
+            else:
+                head = f"  {open_marker}<b>{usage}</b>"
+            # Double-escape guard: some legacy `_COMMANDS` descriptions
+            # carry `&amp;` literally (e.g. `/whoami` / `/myid` stored
+            # "level &amp; ID" pre-fix). Re-escaping them via `_listener()._escape`
+            # produced `&amp;amp;` → visible as literal `&amp;` in
+            # chat. Un-escape FIRST, then re-escape so the round-trip
+            # collapses to a single `&amp;` regardless of source state.
+            _raw_desc = (primary_meta.get("description") or "").replace("&amp;", "&")
+            description = _listener()._escape(_raw_desc)
+            if description:
+                lines.append(f"{head} — {description}")
+            else:
+                lines.append(head)
+        lines.append("")  # blank line between categories
+
+    lines.append(
+        "<i>🔓 = available without /link (everything else needs your "
+        "Telegram account mapped to an OmniGrid user). 🎯 Targets "
+        "resolve by IP, host id, label, or asset short-name. "
+        "⚠️ Destructive commands (e.g. /restart) require a typed "
+        "confirm step unless 'Allow destructive Telegram commands' "
+        "is enabled in Admin. 💬 Any non-slash text is routed through "
+        "the AI palette for a conversational reply — also gated on "
+        "/link.</i>"
+    )
+    await _listener()._send_reply(client, "\n".join(lines))
+
+
+def _load_host_paused_set() -> set[str]:
+    """Read every host_id that has at least one row in
+    `host_failure_state` (whole-host pauses OR per-provider pauses).
+    Returns a set of bare host_ids — per-provider rows store the key
+    as `<provider>:<host_id>` so we split on ':' and take the suffix.
+    """
+    from logic.db import db_conn
+    paused: set[str] = set()
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT host_id FROM host_failure_state"
+            ).fetchall()
+    except (sqlite3.DatabaseError, sqlite3.OperationalError):
+        return paused
+    for row in rows:
+        try:
+            key = row["host_id"] if hasattr(row, "keys") else row[0]
+        except (KeyError, IndexError):
+            continue
+        if not key:
+            continue
+        # Per-provider rows look like `snmp:web01` — strip the prefix
+        # so the result is the bare host_id.
+        if ":" in key:
+            key = key.split(":", 1)[1]
+        paused.add(key)
+    return paused
+
+
+# noinspection PyUnusedLocal
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/hosts`` — split the curated fleet into two grouped lists:
+    Active (enabled + no failure-state markers) and Down (disabled OR
+    has at least one failure-state row, whole-host or per-provider).
+    Each group caps at 50 rows with a `…and N more` overflow line so
+    a large fleet still fits inside Telegram's 4096-char message cap.
+    """
+    hosts = _listener()._load_hosts_config()
+    if not hosts:
+        await _listener()._send_reply(client, "No curated hosts configured.")
+        return
+    paused_set = _load_host_paused_set()
+    active: list[dict] = []
+    down: list[dict] = []
+    for h in hosts:
+        enabled = h.get("enabled", True)
+        hid = h.get("id") or ""
+        if not enabled or hid in paused_set:
+            down.append(h)
+        else:
+            active.append(h)
+
+    # noinspection PyProtectedMember
+    def _render_row(host_row: dict, status_emoji: str) -> str:
+        row_id = host_row.get("id") or "(no-id)"
+        label = host_row.get("label") or row_id
+        addr = host_row.get("address") or ""
+        return (f"{status_emoji} <code>{_listener()._escape(row_id)}</code> — {_listener()._escape(label)}"
+                + (f" ({_listener()._escape(addr)})" if addr else ""))
+
+    out_lines: list[str] = [
+        f"<b>Curated hosts</b> — {len(active)} active, {len(down)} down/disabled",
+    ]
+
+    # Active group — only render the heading + list when non-empty.
+    if active:
+        out_lines.append("")
+        out_lines.append(f"🟢 <b>Active</b> ({len(active)})")
+        for h in active[:50]:
+            out_lines.append(_render_row(h, "🟢"))
+        if len(active) > 50:
+            out_lines.append(f"<i>…and {len(active) - 50} more.</i>")
+
+    # Down / disabled group.
+    if down:
+        out_lines.append("")
+        out_lines.append(f"🔴 <b>Down / disabled</b> ({len(down)})")
+        for h in down[:50]:
+            # Per-host emoji disambiguation: ⚪ for disabled-by-config,
+            # 🔴 for actually-failing. Matches the original
+            # `_listener()._host_status_emoji` semantics so operators reading the
+            # reply can distinguish "we turned this off" vs "this is
+            # broken".
+            emoji = "⚪" if not h.get("enabled", True) else "🔴"
+            out_lines.append(_render_row(h, emoji))
+        if len(down) > 50:
+            out_lines.append(f"<i>…and {len(down) - 50} more.</i>")
+
+    # Footer — disclose the cap dimension so operators understand
+    # WHY 50. Telegram caps a single message at 4096 chars and the
+    # bot's `_listener()._send_reply` would HTTP-400 above that. Surfacing the
+    # SPA's Hosts view as the alternative gives operators a clear
+    # path to the full list. Only fires when at least one group was
+    # truncated; otherwise the reply already fits.
+    if len(active) > 50 or len(down) > 50:
+        out_lines.append("")
+        out_lines.append(
+            "<i>Cap is 50 per group to fit Telegram's 4096-char message "
+            "limit — use the SPA's Hosts view for the full list.</i>"
+        )
+
+    await _listener()._send_reply(client, "\n".join(out_lines))
+
+
+def _fmt_uptime(seconds: float | int | None) -> str:
+    """Render an uptime span as ``Xd Yh`` / ``Xh Ym`` / ``Xm Ys``."""
+    # Explicit None check so the type-checker narrows the Optional
+    # before the `< 0` comparison.
+    if seconds is None or not seconds or seconds < 0:
+        return ""
+    s = int(seconds)
+    if s >= 86400:
+        d = s // 86400
+        h = (s % 86400) // 3600
+        return f"{d}d {h}h"
+    if s >= 3600:
+        h = s // 3600
+        m = (s % 3600) // 60
+        return f"{h}h {m}m"
+    if s >= 60:
+        m = s // 60
+        sec = s % 60
+        return f"{m}m {sec}s"
+    return f"{s}s"
+
+
+def _fmt_bytes(n: float | int | None) -> str:
+    """Render a byte count as the largest sensible unit (GB / MB / KB / B)."""
+    # Explicit None check before the `< 0` comparison so the type-checker
+    # narrows the Optional (PyCharm flagged 4× "Member 'None' of
+    # 'float | int | None' does not have attribute '__ge__' / __truediv__'"
+    # because `if not n` doesn't narrow `int | None` → `int` for it).
+    if n is None or not n or n < 0:
+        return ""
+    # Re-bind to a non-Optional local — `n = float(n)` would re-use the
+    # Optional-typed name and pyright wouldn't propagate the narrowing
+    # past the try/except boundary.
+    try:
+        nf: float = float(n)
+    except (TypeError, ValueError):
+        return ""
+    if nf >= 1024 ** 4:
+        return f"{nf / 1024 ** 4:.1f} TB"
+    if nf >= 1024 ** 3:
+        return f"{nf / 1024 ** 3:.1f} GB"
+    if nf >= 1024 ** 2:
+        return f"{nf / 1024 ** 2:.1f} MB"
+    if nf >= 1024:
+        return f"{nf / 1024:.0f} KB"
+    return f"{int(nf)} B"
+
+
+def _fmt_age(ts: float | int | None) -> str:
+    """Render "Updated Xs/m/h ago" relative to now."""
+    if not ts:
+        return ""
+    import time as _t
+    age = max(0, int(_t.time() - float(ts)))
+    if age < 60:
+        return f"{age} seconds ago"
+    if age < 3600:
+        return f"{age // 60} minutes ago"
+    if age < 86400:
+        return f"{age // 3600} hours ago"
+    return f"{age // 86400} days ago"
+
+
+# noinspection PyUnusedLocal
+# noinspection SpellCheckingInspection
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/host <target>`` — probe live, then show fresh stats for one
+    curated host (CPU / memory / disk / uptime + extended provider
+    stats when present). Strategy: send a "🔄 Probing live data…"
+    placeholder immediately, run the same per-host live-merge path the
+    SPA's `/api/hosts/one/{id}` uses (lazy-imported from main to side-
+    step the circular import — the listener is started by main's
+    lifespan, so `main` is already loaded by the time this fires), then
+    EDIT the placeholder with the final data. Falls back to the cached
+    `host_snapshots` row when the live probe raises (so a hub outage or
+    auth failure still yields a useful reply).
+
+    Target resolution reuses the same fuzzy-match resolver `/restart`
+    uses (id / label / address / per-provider aliases).
+    """
+    if not args:
+        await _listener()._send_reply(client, "Usage: <code>/host &lt;target&gt;</code>")
+        return
+    target = " ".join(args)
+    matched, candidates = _listener()._resolve_target(target)
+    if await _listener()._reply_no_match_or_candidates(client, target, matched, candidates):
+        return
+    assert matched is not None  # narrowed by the helper's False branch
+
+    host_id = matched.get("id") or ""
+    label = matched.get("label") or host_id
+
+    # Placeholder reply — operator sees acknowledgement immediately
+    # while the live merge fans out across every configured provider
+    # for this host (NE + Webmin + SNMP inline; Beszel + Pulse from
+    # the cached batch maps). Capture the message_id so we can edit
+    # in place when the final data is ready; if the send fails (rate
+    # limit, transient HTTP), we fall through and the final body
+    # arrives as a new message.
+    placeholder_id = await _listener()._send_reply(
+        client,
+        f"🔄 Probing live providers for <b>{_listener()._escape(label)}</b>…",
+    )
+
+    # Cycle the placeholder emoji every ~3s so the operator gets a
+    # visible "still working" signal during the 5-30s probe window.
+    # Telegram's edit-rate limit accommodates ~1 edit/sec; 3s is well
+    # under that. The task is cancelled below as soon as the live
+    # merge resolves (success path edits the placeholder anyway).
+    # noinspection PyProtectedMember
+    async def _cycle_placeholder() -> None:
+        if placeholder_id is None:
+            return
+        glyphs = ("⏳", "🔀", "🔄")
+        idx = 0
+        try:
+            while True:
+                await asyncio.sleep(3)
+                idx = (idx + 1) % len(glyphs)
+                # noinspection PyBroadException
+                try:
+                    await _listener()._edit_message(
+                        client, placeholder_id,
+                        f"{glyphs[idx]} Probing live providers for "
+                        f"<b>{_listener()._escape(label)}</b>…",
+                    )
+                except Exception:  # noqa: BLE001
+                    # Edit-rate hits / transient HTTP — silently stop
+                    # cycling, the next handler-final edit will catch up.
+                    return
+        except asyncio.CancelledError:
+            # Normal: the await-task path cancels us when probing
+            # completes. Don't propagate — there's nothing meaningful
+            # to do other than exit cleanly.
+            return
+
+    _placeholder_cycle_task = asyncio.create_task(_cycle_placeholder())
+
+    async def _stop_cycle() -> None:
+        """Cancel + await the placeholder-cycle task so it doesn't
+        keep editing the final reply bubble after the handler exits.
+        Safe to call multiple times; the task's `_done` flag short-
+        circuits the second cancel."""
+        if _placeholder_cycle_task.done():
+            return
+        _placeholder_cycle_task.cancel()
+        try:
+            await _placeholder_cycle_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            return
+
+    # Live per-host merge — same code path /api/hosts/one/{id} runs.
+    # Lazy-import dodges the circular dependency (main → listener via
+    # lifespan; listener → main only at call-time). On any exception
+    # (settings missing, hub outage, timeout) we fall back to the
+    # cached snapshot below so the operator still gets a reply.
+    data: dict | None = None
+    snap_ts: float | None = None
+    live_ok = False
+    import_failed = False
+    try:
+        from main import _merge_one_host, _get_host_provider_state  # lazy
+    except ImportError as imp_err:
+        # Race with lifespan startup — main isn't fully loaded yet.
+        # Tell the operator instead of silently falling through to the
+        # snapshot path (which may also be empty on a fresh deploy).
+        import_failed = True
+        err = (f"⚠️ Backend still warming up. Try <code>/host {_listener()._escape(target)}</code> "
+               f"again in a moment.\n<i>Internal: {_listener()._escape(str(imp_err))}</i>")
+        await _stop_cycle()
+        await _listener()._replace_placeholder(client, placeholder_id, err)
+        return
+    if not import_failed:
+        try:
+            state = await _get_host_provider_state(force=True)
+            merged, _hits = await _merge_one_host(matched, state, force=True)
+            if isinstance(merged, dict) and merged:
+                data = merged
+                snap_ts = float(time.time())
+                live_ok = True
+        # noinspection PyBroadException
+        except Exception as e:  # noqa: BLE001
+            print(f"[telegram_listener] /host live merge failed for {host_id!r}: {e}")
+
+    # Snapshot fallback — same shape as the pre-live-merge implementation.
+    # Triggers when the live probe raised OR returned empty.
+    if not live_ok:
+        try:
+            from logic.gather import load_host_snapshots
+            snap_map = load_host_snapshots()
+        # noinspection PyBroadException
+        except Exception as e:
+            err = f"❌ Snapshot read failed: <code>{_listener()._escape(str(e))}</code>"
+            await _stop_cycle()
+            await _listener()._replace_placeholder(client, placeholder_id, err)
+            return
+        entry = snap_map.get(host_id) or {}
+        if isinstance(entry, dict):
+            _ts = entry.get("ts")
+            snap_ts = float(_ts) if isinstance(_ts, (int, float)) else None
+            data = entry.get("data")
+    if not isinstance(data, dict) or not data:
+        # Surface the list of providers CONFIGURED on this host so
+        # the operator can self-diagnose "wait, why no readings?".
+        # Common cases: a `<provider>_name` typo (alias doesn't
+        # resolve), the provider's master toggle is off in Admin →
+        # Host stats, or `enabled: false` on the per-host sub-dict.
+        # Without this hint the operator has to open the SPA's
+        # host drawer to see which providers are mapped.
+        # Provider name fields → human-readable labels for the hint.
+        # Tuple-on-one-line form (vs the multi-line literal) to keep
+        # PyCharm's "Incorrect whitespace" inspector happy on the
+        # continuation indent.
+        _provider_fields = (("snmp_name", "SNMP"), ("beszel_name", "Beszel"),
+                            ("pulse_name", "Pulse"), ("webmin_name", "Webmin"),
+                            ("ne_url", "node-exporter"))
+        provider_hints: list[str] = []
+        for field, label_human in _provider_fields:
+            field_val = matched.get(field)
+            if isinstance(field_val, str) and field_val.strip():
+                provider_hints.append(label_human)
+        ssh_raw = matched.get("ssh")
+        if isinstance(ssh_raw, dict) and ssh_raw.get("enabled"):
+            provider_hints.append("SSH")
+        ping_raw = matched.get("ping")
+        if isinstance(ping_raw, dict) and ping_raw.get("enabled"):
+            provider_hints.append("Ping")
+        if provider_hints:
+            providers_line = (
+                f"\n<i>Providers configured for this host: "
+                f"{', '.join(_listener()._escape(p) for p in provider_hints)}. "
+                f"Check Admin → Host stats master toggles + the per-"
+                f"host name fields if this persists.</i>"
+            )
+        else:
+            providers_line = (
+                f"\n<i>No host-stats providers are mapped on this row. "
+                f"Open Admin → Hosts and set at least one of "
+                f"<code>snmp_name</code> / <code>beszel_name</code> / "
+                f"<code>pulse_name</code> / <code>webmin_name</code> / "
+                f"<code>ne_url</code>.</i>"
+            )
+        warn = (
+            f"⚠️ No readings for <b>{_listener()._escape(label)}</b> yet. "
+            f"Wait for the next probe cycle and try again."
+            + providers_line
+        )
+        await _stop_cycle()
+        await _listener()._replace_placeholder(client, placeholder_id, warn)
+        return
+
+    out: list[str] = [f"📊 <b>{_listener()._escape(label)}</b> "
+                      f"(<code>{_listener()._escape(host_id)}</code>)"]
+
+    # Optional system identity sub-line.
+    plat = data.get("host_platform") or ""
+    kern = data.get("host_kernel") or ""
+    if plat or kern:
+        bits = [b for b in (plat, kern) if b]
+        out.append(f"<i>{_listener()._escape(' · '.join(bits))}</i>")
+    out.append("")
+
+    # ---- Core stats: CPU / memory / disk / uptime ------------------
+    def _fmt_pct(v):
+        if v is None:
+            return None
+        try:
+            return f"{float(v):.1f}%"
+        except (TypeError, ValueError):
+            return None
+
+    cpu_p = _fmt_pct(data.get("host_cpu_percent"))
+    if cpu_p:
+        out.append(f"🖥 <b>CPU:</b>   {cpu_p}")
+    mem_p = _fmt_pct(data.get("host_mem_percent"))
+    mem_used = data.get("host_mem_used")
+    mem_total = data.get("host_mem_total")
+    if mem_p or mem_used:
+        mu = _fmt_bytes(mem_used)
+        mt = _fmt_bytes(mem_total)
+        if mu and mt:
+            out.append(f"💾 <b>Memory:</b> {mu} / {mt}" + (f"  ({mem_p})" if mem_p else ""))
+        elif mem_p:
+            out.append(f"💾 <b>Memory:</b> {mem_p}")
+    disk_p = _fmt_pct(data.get("host_disk_percent"))
+    disk_used = data.get("host_disk_used")
+    disk_total = data.get("host_disk_total")
+    if disk_p or disk_used:
+        du = _fmt_bytes(disk_used)
+        dt = _fmt_bytes(disk_total)
+        if du and dt:
+            out.append(f"💿 <b>Disk:</b>   {du} / {dt}" + (f"  ({disk_p})" if disk_p else ""))
+        elif disk_p:
+            out.append(f"💿 <b>Disk:</b>   {disk_p}")
+    # Canonical key is `host_uptime_s` (set by every provider's extractor).
+    # `host_uptime_seconds` was a typo in the original implementation —
+    # check both so legacy snapshots that happen to carry the older name
+    # don't render as "no uptime".
+    uptime_str = _fmt_uptime(
+        data.get("host_uptime_s") or data.get("host_uptime_seconds")
+    )
+    if uptime_str:
+        out.append(f"⏱ <b>Uptime:</b> {uptime_str}")
+    # Ping reachability — RTT in ms when alive, loss% when not.
+    ping_alive = data.get("host_ping_alive")
+    ping_rtt = data.get("host_ping_rtt_ms")
+    ping_loss = data.get("host_ping_loss_pct")
+    if ping_alive is True and isinstance(ping_rtt, (int, float)):
+        loss_seg = (f", {float(ping_loss):.0f}% loss"
+                    if isinstance(ping_loss, (int, float)) and ping_loss > 0 else "")
+        out.append(f"📡 <b>Ping:</b>   {float(ping_rtt):.1f} ms{loss_seg}")
+    elif ping_alive is False:
+        out.append(f"📡 <b>Ping:</b>   unreachable")
+
+    # ---- Extended stats — only emit sections with meaningful data --
+    extended: list[str] = []
+    l1 = data.get("host_load_1m")
+    l5 = data.get("host_load_5m")
+    l15 = data.get("host_load_15m")
+    if any(isinstance(v, (int, float)) and v > 0 for v in (l1, l5, l15)):
+        load_bits = [f"{float(v):.2f}" for v in (l1, l5, l15) if isinstance(v, (int, float))]
+        extended.append(f"📈 <b>Load:</b>   {', '.join(load_bits)}")
+    swap_p = _fmt_pct(data.get("host_swap_percent"))
+    swap_used = data.get("host_swap_used")
+    if swap_p and (data.get("host_swap_percent") or 0) > 0:
+        # Swap_used in Beszel is GB; render directly.
+        if isinstance(swap_used, (int, float)) and swap_used > 0:
+            extended.append(f"🔄 <b>Swap:</b>   {swap_p}  ({swap_used:.1f} GB used)")
+        else:
+            extended.append(f"🔄 <b>Swap:</b>   {swap_p}")
+    bw = data.get("host_bandwidth")
+    if isinstance(bw, (int, float)) and bw > 0:
+        extended.append(f"🌐 <b>Bandwidth:</b> {_fmt_bytes(bw)}/s")
+    # Cumulative network counters (total throughput since boot / counter reset).
+    rx_total = data.get("host_net_rx_total") or data.get("host_net_rx_total_bytes")
+    tx_total = data.get("host_net_tx_total") or data.get("host_net_tx_total_bytes")
+    if (
+        isinstance(rx_total, (int, float))
+        and isinstance(tx_total, (int, float))
+        and (rx_total > 0 or tx_total > 0)
+    ):
+        extended.append(
+            f"📊 <b>Net total:</b> ↓ {_fmt_bytes(rx_total)} / ↑ {_fmt_bytes(tx_total)}"
+        )
+    # Temperatures — Beszel emits a list of {name, temp_c} after _flatten.
+    temps = data.get("host_temperatures")
+    if isinstance(temps, list) and temps:
+        # Cap at 5 sensors so the message stays readable.
+        bits = []
+        for t in temps[:5]:
+            if not isinstance(t, dict):
+                continue
+            tn = t.get("name") or t.get("sensor") or ""
+            tc = t.get("temp_c") or t.get("c") or t.get("value")
+            if tn and isinstance(tc, (int, float)):
+                bits.append(f"{_listener()._escape(str(tn))} {tc:.0f}°C")
+        if bits:
+            extra = f" + {len(temps) - 5} more" if len(temps) > 5 else ""
+            extended.append(f"🌡 <b>Temp:</b>   " + ", ".join(bits) + extra)
+    # GPUs
+    gpus = data.get("host_gpus")
+    if isinstance(gpus, list) and gpus:
+        bits = []
+        for g in gpus[:3]:
+            if not isinstance(g, dict):
+                continue
+            name = g.get("name") or g.get("n") or "GPU"
+            util = g.get("usage_pct") or g.get("u")
+            seg = _listener()._escape(str(name))
+            if isinstance(util, (int, float)):
+                seg += f" {float(util):.0f}%"
+            bits.append(seg)
+        if bits:
+            extended.append(f"🎮 <b>GPU:</b>    " + ", ".join(bits))
+    # Containers
+    ct = data.get("host_containers")
+    if isinstance(ct, int) and ct > 0:
+        extended.append(f"🐳 <b>Containers:</b> {ct}")
+    # Services summary (Beszel systemd_services rollup)
+    svcs = data.get("host_services")
+    if isinstance(svcs, dict) and (svcs.get("total") or 0) > 0:
+        total = int(svcs.get("total") or 0)
+        failed = int(svcs.get("failed") or 0)
+        if failed > 0:
+            extended.append(f"⚙️ <b>Services:</b> {failed} failed / {total} total")
+        else:
+            extended.append(f"⚙️ <b>Services:</b> {total} healthy")
+    # Pending package updates (Webmin)
+    pkg_count = data.get("package_updates_count")
+    if isinstance(pkg_count, int) and pkg_count > 0:
+        extended.append(f"📦 <b>Updates:</b> {pkg_count} pending")
+    # UPS (SNMP / PowerNet) — full card: output status, battery %, output
+    # load, runtime remaining, battery temperature, battery state.
+    # Field names match `logic/snmp.py`'s APC extractor: host_ups_status,
+    # host_battery_percent, host_battery_temp_c, host_battery_runtime_s,
+    # host_battery_status, host_load_percent.
+    ups_status = data.get("host_ups_status")
+    bat_pct = data.get("host_battery_percent")
+    load_pct = data.get("host_load_percent")
+    runtime_s = data.get("host_battery_runtime_s")
+    bat_temp = data.get("host_battery_temp_c")
+    bat_state = data.get("host_battery_status")
+    if ups_status or isinstance(bat_pct, (int, float)) or isinstance(load_pct, (int, float)):
+        if ups_status:
+            extended.append(f"🔋 <b>UPS:</b>    {_listener()._escape(str(ups_status))}")
+        if isinstance(bat_pct, (int, float)):
+            extended.append(f"   <b>Battery:</b>   {float(bat_pct):.0f}%")
+        if isinstance(load_pct, (int, float)):
+            extended.append(f"   <b>Output load:</b> {float(load_pct):.0f}%")
+        runtime_str = _fmt_uptime(runtime_s) if isinstance(runtime_s, (int, float)) else ""
+        if runtime_str:
+            extended.append(f"   <b>Runtime:</b>   {runtime_str}")
+        if isinstance(bat_temp, (int, float)):
+            extended.append(f"   <b>Battery temp:</b> {float(bat_temp):.0f}°C")
+        if bat_state:
+            extended.append(f"   <b>Battery state:</b> {_listener()._escape(str(bat_state))}")
+
+    if extended:
+        out.append("")
+        out.extend(extended)
+
+    # ---- Footer: last-updated marker ------------------------------
+    # Two states: LIVE (we just probed every provider — age is seconds)
+    # vs SNAPSHOT (live probe failed, we fell back to host_snapshots —
+    # age is whatever the snapshot row says). The marker copy makes the
+    # source obvious so the operator can tell at a glance whether they
+    # need to investigate a stale snapshot or trust the values.
+    out.append("")
+    if live_ok:
+        out.append("<i>Live probe — just now</i>")
+    else:
+        age = _fmt_age(snap_ts)
+        if age:
+            out.append(f"<i>Updated {age} (cached snapshot — live probe failed)</i>")
+        else:
+            out.append("<i>Cached snapshot — live probe failed</i>")
+
+    body = "\n".join(out)
+    # Edit the placeholder in place when we have its message_id; falls
+    # back to a fresh reply on edit failure (rate limit, message too
+    # old, etc.). Same pattern as the AI reply path's "🤖 Thinking…"
+    # placeholder handling. Cancel the emoji-cycle task first so it
+    # doesn't race a final-edit and re-stamp the bubble with the
+    # spinner emoji AFTER the actual reply lands.
+    await _stop_cycle()
+    await _listener()._replace_placeholder(client, placeholder_id, body)
+
+
+# noinspection PyUnusedLocal
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/restart <target>`` — reboot a host via SSH.
+
+    Two-step destructive-gate flow:
+      - ``/restart <target>`` resolves the target, then either:
+        (a) immediately executes if ``telegram_allow_destructive=true``;
+        (b) replies with a confirm prompt (no token state — the
+            operator must re-send ``/restart confirm <target>``).
+      - ``/restart confirm <target>`` skips the prompt and executes.
+    """
+    if not args:
+        await _listener()._send_reply(client, "Usage: <code>/restart &lt;target&gt;</code>")
+        return
+    is_confirm = (args[0].lower() == "confirm")
+    if is_confirm:
+        if len(args) < 2:
+            await _listener()._send_reply(client, "Usage: <code>/restart confirm &lt;target&gt;</code>")
+            return
+        target = " ".join(args[1:])
+    else:
+        target = " ".join(args)
+    matched, candidates = _listener()._resolve_target(target)
+    if await _listener()._reply_no_match_or_candidates(client, target, matched, candidates):
+        return
+    assert matched is not None  # narrowed by the helper's False branch
+
+    # Destructive gate
+    if not is_confirm and not _listener()._allow_destructive():
+        host_id = matched.get("id") or ""
+        await _listener()._send_reply(client, _listener()._destructive_confirm_text(
+            f"/restart confirm {_listener()._escape(host_id)}",
+            f"reboot <b>{_listener()._escape(matched.get('label') or host_id)}</b>",
+        ))
+        return
+
+    # Per-(sender, command) cooldown so a confirmed restart can't be
+    # replayed indefinitely. 30s default — see `_listener()._destructive_cooldown_check`.
+    sender_id_cd = (msg.get("from") or {}).get("id")
+    allowed, wait_s = _listener()._destructive_cooldown_check(sender_id_cd, "/restart")
+    if not allowed:
+        await _listener()._send_reply(
+            client,
+            f"⏳ <code>/restart</code> is on cooldown — wait "
+            f"{int(wait_s) + 1}s before re-running."
+        )
+        return
+    # Execute via the standard SSH runner
+    host_id = matched.get("id") or ""
+    label = matched.get("label") or host_id
+    await _listener()._send_reply(client, f"🔄 Restarting <b>{_listener()._escape(label)}</b>…")
+
+    from logic import ssh as _ssh
+    hosts = _listener()._load_hosts_config()
+    # `sudo reboot` is the canonical restart verb; sudoers typically
+    # grants this without a password to the SSH user. The standalone
+    # `reboot` works on machines where the SSH user IS root.
+    cmd = "sudo reboot"
+    result = await _ssh.run_command(host_id, cmd, hosts, timeout=15.0)
+    # A successful reboot kills the SSH session before run_command can
+    # collect the exit code — `ok` is often False with `error` mentioning
+    # connection closed. Treat closed-connection-after-command-issued as
+    # success (the reboot fired).
+    err = (result.get("error") or "").lower()
+    looks_like_reboot_success = (
+                                    "connection" in err and ("closed" in err or "reset" in err or "broken" in err)
+                                ) or result.get("exit_code") == 255
+    if result.get("ok") or looks_like_reboot_success:
+        await _listener()._send_reply(client, f"✅ Reboot command sent to <b>{_listener()._escape(label)}</b>.")
+    else:
+        await _listener()._send_reply(
+            client,
+            f"❌ Restart failed for <b>{_listener()._escape(label)}</b>: "
+            f"<code>{_listener()._escape(result.get('error') or 'unknown error')}</code>"
+        )
+
+
+"""Telegram inbound command listener (Phase 2: send + receive).
+
+Architecture
+------------
+Lifespan-managed background task that long-polls the Telegram Bot API's
+``getUpdates`` endpoint. Incoming text messages are parsed for slash
+commands and dispatched to handler functions; results are sent back to
+the same chat via the Phase 1 ``send()`` plumbing.
+
+Long-poll vs webhook
+--------------------
+Telegram offers two delivery models: outbound webhooks (Telegram POSTs
+updates to a public HTTPS endpoint operators expose) and long-poll
+(OmniGrid calls ``getUpdates`` with ``timeout=N`` and Telegram holds
+the connection open until a new update arrives OR the timeout
+expires). Long-poll wins for self-hosted homelab deploys:
+
+  - No need to expose a public HTTPS endpoint through the reverse
+    proxy — OmniGrid stays behind NPM / Tailscale / VPN.
+  - No webhook URL to register / rotate.
+  - State is OmniGrid-owned (the ``offset`` we send is the next
+    update_id to fetch). Restart-safe — we persist the last seen
+    update_id in ``settings`` and resume on next boot.
+
+Tradeoff: one open HTTP connection at all times when the listener is
+on. The default ``timeout=25`` parameter (Telegram caps at 50) keeps
+the connection efficient.
+
+Authorization model
+-------------------
+The destination ``telegram_chat_id`` setting (where Phase 1
+notifications go) is also the SOLE chat allowed to issue commands.
+Two layers of defence:
+
+  1. **Chat-id gate**: ``update.message.chat.id`` must equal
+     ``telegram_chat_id`` (configured destination). Commands sent
+     in any other chat are silently ignored (the bot might be in
+     multiple chats; only ONE is authorized).
+  2. **User-id allow-list** (optional): when
+     ``telegram_authorized_user_ids`` (CSV of int IDs) is non-empty,
+     the message sender's id must be in the list. Empty list means
+     "any sender in the authorized chat is allowed" (use this for
+     personal DMs or single-operator supergroups where chat
+     membership IS the authorization).
+
+For supergroups with multiple members, populate the user-id list
+explicitly. For DMs, leave it empty — the chat-id gate is sufficient.
+
+Destructive-command gate
+------------------------
+``/restart`` and any other destructive verb requires either:
+
+  - ``telegram_allow_destructive=true`` (operator pre-approves
+    destructive commands without per-command confirm), OR
+  - A typed-confirm two-step: ``/restart <target>`` returns a
+    "Reply with `/restart confirm <target>` to proceed" prompt and
+    arms a single-use confirmation token (persisted in ``settings``
+    under ``telegram_pending_confirm_<token>`` with a TTL).
+
+Mirrors the SSH terminal's typed-hostname confirm pattern used
+elsewhere in the app.
+
+Host resolver
+-------------
+Commands accept a target that's matched against (in priority order):
+
+  1. IP address (exact match against curated host's ``address`` field
+     OR per-provider names like ``snmp_name`` / ``beszel_name``)
+  2. ``host_id`` (curated row primary key)
+  3. ``label`` (operator-friendly display name)
+  4. Asset ``short_name`` (from asset inventory by ``custom_number``)
+  5. Asset ``serial`` / ``model`` substring
+
+Multiple matches → reply with the list and abort.
+
+Audit trail
+-----------
+Every command write goes through ``logic.ssh.run_command`` which
+ALREADY persists to the ``history`` table via the standard SSH
+audit path. Read-only commands (``/status``, ``/hosts``) write their
+own audit row via ``write_admin_audit`` so the trail stays complete.
+
+Phase 2 scope (this module)
+---------------------------
+Three commands ship in Phase 2.1:
+  - ``/help`` — list available commands
+  - ``/hosts`` — list curated hosts (sanitised: id + label + status)
+  - ``/restart <target>`` — SSH-execute ``sudo reboot`` on the host
+
+Phase 2.2 (deferred): ``/status``, ``/exec <target> <command>`` (gated
+behind an even stricter allow-list), per-event ack from Telegram.
+"""
+
+
+# (Imports for the handlers below live in the top-of-file block —
+# the splitter previously duplicated them mid-file; that block is
+# now consolidated upstream.)
+
+
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/version`` (aliased as ``/ver``) — show the running OmniGrid
+    version. Reads the version baked into the image at build time
+    (`/app/VERSION.txt` populated by the deploy pipeline's
+    ``--build-arg VERSION=<X.Y.Z>``). Non-sensitive — works pre-link
+    so unmapped operators can confirm which build they're talking to.
+
+    Augmented with the baked image's build time + a
+    short git SHA when available — operator scrolling Telegram for
+    "is my deploy live yet?" gets the answer in one message without
+    needing to also hit `/api/version`. Both fields are best-effort:
+    build time comes from the `/app/VERSION.txt` file mtime (set by
+    the Dockerfile's `RUN echo ... > /app/VERSION.txt`), git SHA
+    from an optional `/app/GIT_SHA` file the deploy pipeline writes.
+    Missing either → that field's line is omitted, never errors.
+    """
+    try:
+        from logic.version import read_version
+        version = read_version()
+    # noinspection PyBroadException
+    except Exception as e:
+        await _listener()._send_reply(client, f"❌ Version lookup failed: <code>{_listener()._escape(str(e))}</code>")
+        return
+    # Build-time hint from VERSION.txt mtime. The Dockerfile writes
+    # the file at build time so its mtime IS the build timestamp.
+    # Defensive: if the file doesn't exist (running outside the
+    # container) we skip the line entirely.
+    #
+    # Render the timestamp in the SENDER's preferred datetime format
+    # (Profile → Formats `ui_prefs.datetime_format`) and in the
+    # deployment's configured timezone (`scheduler_timezone` setting,
+    # the canonical "what day is it for OmniGrid?" knob per CLAUDE.md).
+    # Falls back to UTC when neither side is available so unmapped
+    # senders still see a coherent timestamp. The TZ abbreviation
+    # (`CET` / `EEST` / `UTC` / etc.) is appended so operators across
+    # time zones don't have to mentally translate.
+    build_time_line = ""
+    try:
+        import os as _os
+        from datetime import datetime as _dt, timezone as _tz
+        version_file = "/app/VERSION.txt"
+        if _os.path.exists(version_file):
+            mtime = _os.path.getmtime(version_file)
+            build_dt_utc = _dt.fromtimestamp(mtime, tz=_tz.utc)
+            # Resolve TZ via the canonical scheduler_timezone setting;
+            # fall back to UTC when unset or invalid.
+            from logic.schedules import _scheduler_tz as _sched_tz_fn
+            sched_tz = _sched_tz_fn()
+            build_dt_local = build_dt_utc.astimezone(sched_tz) if sched_tz else build_dt_utc
+            # Per-user format pref (falls back to the deployment-wide
+            # default inside `get_user_datetime_format` when the sender
+            # isn't mapped or hasn't set a pref).
+            sender_id_v = (msg.get("from") or {}).get("id")
+            username_v = _listener()._lookup_omnigrid_user(sender_id_v) if sender_id_v is not None else None
+            from logic.datetime_fmt import (
+                apply_datetime_format as _apply_fmt,
+                get_user_datetime_format as _get_user_fmt,
+            )
+            user_fmt = _get_user_fmt(username_v or "")
+            formatted = _apply_fmt(build_dt_local, user_fmt)
+            tz_abbrev = build_dt_local.strftime("%Z") or "UTC"
+            build_time_line = (
+                f"\n🕓 Built: <i>{_listener()._escape(formatted)}</i> "
+                f"<code>{_listener()._escape(tz_abbrev)}</code>"
+            )
+    except (OSError, ValueError, ImportError):
+        build_time_line = ""
+    # Optional git SHA — the deploy pipeline may write a `/app/GIT_SHA`
+    # file (one line, short SHA). When absent, skip cleanly.
+    sha_line = ""
+    try:
+        from pathlib import Path as _Path
+        sha_path = _Path("/app/GIT_SHA")
+        if sha_path.exists():
+            sha_raw = sha_path.read_text(encoding="utf-8").strip()
+            # Defensive: only accept hex SHA up to 40 chars so a
+            # corrupted file doesn't render arbitrary text.
+            if sha_raw and len(sha_raw) <= 40 and all(c in "0123456789abcdefABCDEF" for c in sha_raw):
+                sha_line = f"\n🔖 SHA: <code>{_listener()._escape(sha_raw[:12])}</code>"
+    except (OSError, ValueError):
+        sha_line = ""
+
+    if not version or version == "0.0.0-dev":
+        # Dev build (no --build-arg VERSION passed) — call it out so
+        # the operator knows they're not on a tagged release.
+        await _listener()._send_reply(
+            client,
+            f"📦 OmniGrid <b><code>{_listener()._escape(version or '0.0.0-dev')}</code></b>\n"
+            f"<i>Unversioned build — built locally without "
+            f"<code>--build-arg VERSION</code>.</i>"
+            + build_time_line + sha_line
+        )
+        return
+    await _listener()._send_reply(
+        client,
+        f"📦 OmniGrid <b><code>{_listener()._escape(version)}</code></b>"
+        + build_time_line + sha_line
+    )
+
+
+# noinspection PyUnusedLocal
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_ip(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/ip`` — show the deployment's public IP + ISP / ASN / country
+    via the same lookup the AI palette uses (ifconfig.co JSON). Gated
+    on the `tuning_public_ip_enabled` tunable (default OFF for
+    privacy); refuses cleanly with a link to Admin → Public IP when
+    off. Non-sensitive command — works pre-link so unmapped operators
+    can confirm the deploy's external network identity for support
+    purposes."""
+    from logic import public_ip as _public_ip
+    if not _public_ip.is_enabled():
+        await _listener()._send_reply(
+            client,
+            "🔒 Public-IP lookup is disabled. Enable "
+            "<code>tuning_public_ip_enabled</code> in OmniGrid → "
+            "Admin → Public IP first (it gates the outbound "
+            "ifconfig.co call)."
+        )
+        return
+    data = await _public_ip.fetch()
+    if data is None:
+        await _listener()._send_reply(
+            client,
+            "❌ Public-IP lookup failed (network blip or ifconfig.co "
+            "outage). Check Admin → Logs for the [public_ip] line."
+        )
+        return
+    bits: list[str] = []
+    if data.get("ip"):
+        bits.append(f"🌐 <b>IP:</b>      <code>{_listener()._escape(data['ip'])}</code>")
+    if data.get("isp"):
+        bits.append(f"🏢 <b>ISP:</b>     {_listener()._escape(data['isp'])}")
+    if data.get("asn"):
+        bits.append(f"🔢 <b>ASN:</b>     {_listener()._escape(data['asn'])}")
+    if data.get("city") or data.get("country"):
+        loc_parts: list[str] = []
+        for field in ("city", "country"):
+            v = data.get(field)
+            if isinstance(v, str) and v.strip():
+                loc_parts.append(v)
+        if loc_parts:
+            bits.append(f"📍 <b>Location:</b> {_listener()._escape(', '.join(loc_parts))}")
+    if not bits:
+        await _listener()._send_reply(
+            client,
+            "⚠️ Public-IP lookup returned empty — ifconfig.co may have "
+            "rate-limited or changed its schema."
+        )
+        return
+    await _listener()._send_reply(client, "\n".join(bits))
+
+
+# noinspection PyUnusedLocal
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """Debug aid — tells the user their Telegram user_id + the
+    OmniGrid username they're linked to (or that they aren't) + their
+    access level (role). Aliased as /myid."""
+    sender = (msg.get("from") or {})
+    sender_id = sender.get("id")
+    sender_name = (sender.get("username") or sender.get("first_name") or "").strip()
+    mapped = _listener()._lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    if mapped:
+        role = _listener()._lookup_user_role(mapped) or "unknown"
+        # Map the role to a friendly access-level label + emoji so the
+        # operator's permissions are immediately legible.
+        role_emoji = {"admin": "🛡", "readonly": "👁"}.get(role, "❓")
+        role_label = {
+            "admin": "Admin (full access)",
+            "readonly": "Read-only (no write actions)",
+        }.get(role, role)
+        await _listener()._send_reply(
+            client,
+            f"You are linked to OmniGrid user <b>{_listener()._escape(mapped)}</b>.\n"
+            f"{role_emoji} Access level: <b>{_listener()._escape(role_label)}</b>\n"
+            f"<i>Telegram user_id: <code>{sender_id}</code></i>"
+        )
+    else:
+        await _listener()._send_reply(
+            client,
+            f"You aren't linked to any OmniGrid user yet.\n\n"
+            f"<i>Telegram user_id: <code>{sender_id}</code></i>\n"
+            f"<i>Telegram username: @{_listener()._escape(sender_name) or 'unknown'}</i>\n"
+            f"❓ Access level: <b>none</b> — unlinked\n\n"
+            f"Generate a link code in OmniGrid → Profile → Telegram, then "
+            f"reply with <code>/link &lt;code&gt;</code>."
+        )
+
+
+# noinspection PyUnusedLocal
+# noinspection SpellCheckingInspection
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/time`` — show the current local time at the linked user's
+    saved weather location. Uses Open-Meteo's resolved IANA timezone
+    (returned alongside the weather response) so daylight-saving + tz
+    boundaries stay accurate without a separate geocoder lookup."""
+    result = await _require_user_weather_pref(client, msg)
+    if result is None:
+        return
+    username, loc = result
+    from main import api_weather as _api_weather
+    label = (loc.get("label") or "").strip() or "your location"
+    try:
+        data = await _api_weather(
+            lat=float(loc["lat"]),
+            lon=float(loc["lon"]),
+            label=label,
+        )
+    # noinspection PyBroadException
+    except Exception as e:
+        await _listener()._send_reply(client, f"❌ Time lookup failed: <code>{_listener()._escape(str(e))}</code>")
+        return
+    if not isinstance(data, dict) or data.get("error"):
+        err = (data or {}).get("error") if isinstance(data, dict) else "no response"
+        await _listener()._send_reply(
+            client,
+            f"❌ Time lookup upstream error: <code>{_listener()._escape(str(err))}</code>"
+        )
+        return
+    # api_weather's untyped return-shape lets dict values widen to
+    # `str | bool | None` in pyright's view; coerce to str at the
+    # boundary so .strip() / index access below stay well-typed.
+    tz_name = str(data.get("timezone") or "").strip()
+    tz_abbrev = str(data.get("timezone_abbrev") or "").strip()
+    if not tz_name:
+        await _listener()._send_reply(
+            client,
+            f"<b>{_listener()._escape(label)}</b>: no timezone returned by the "
+            f"weather upstream. Try again later."
+        )
+        return
+    # Render local time using zoneinfo for accurate DST handling. If
+    # the IANA tz isn't installed in the container (rare — Python 3.9+
+    # ships with zoneinfo + the OS-provided tzdata), fall back to the
+    # UTC offset Open-Meteo returned. Format follows the user's
+    # `ui_prefs.datetime_format` preference so the Telegram render
+    # matches what they see in the SPA — same token grammar via the
+    # shared `logic.datetime_fmt` module.
+    from logic.datetime_fmt import (
+        apply_datetime_format as _apply_fmt,
+        get_user_datetime_format as _get_user_fmt,
+    )
+    user_fmt = _get_user_fmt(username)
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now_local = datetime.now(ZoneInfo(tz_name))
+        offset_note = ""
+    except (ImportError, KeyError, ValueError):
+        # Fallback: utc_offset_seconds-based math, ignoring DST.
+        from datetime import datetime, timezone, timedelta
+        try:
+            offset = int(data.get("utc_offset_seconds") or 0)
+            now_local = datetime.now(timezone.utc) + timedelta(seconds=offset)
+            offset_note = " (UTC offset — IANA tz unavailable)"
+        # noinspection PyBroadException
+        except Exception as e2:
+            await _listener()._send_reply(client, f"❌ Time format failed: <code>{_listener()._escape(str(e2))}</code>")
+            return
+    formatted = _apply_fmt(now_local, user_fmt)
+    tz_suffix = f" ({_listener()._escape(tz_abbrev)})" if tz_abbrev else f" ({_listener()._escape(tz_name)})"
+    await _listener()._send_reply(
+        client,
+        f"🕒 <b>{_listener()._escape(label)}</b>\n"
+        f"<code>{_listener()._escape(formatted)}</code>{tz_suffix}{_listener()._escape(offset_note)}"
+    )
+
+
+# noinspection PyUnusedLocal
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/cleanup`` (dry-run) — list every stopped / failed / orphan
+    container the dashboard's cleanup button would remove. ``/cleanup
+    confirm`` actually fires the removals as background Operations,
+    same path the SPA's topbar "Cleanup N" button uses. Every removal
+    publishes ``op:created`` / ``op:updated`` / ``op:completed`` SSE
+    events + invalidates the gather cache, so every open SPA tab
+    auto-refreshes within seconds of a Telegram-driven cleanup.
+
+    Gating:
+      - mapping gate (already enforced at the dispatcher level — only
+        mapped senders reach this handler)
+      - destructive gate: ``telegram_allow_destructive=true`` OR the
+        operator re-sends ``/cleanup confirm`` to skip the prompt
+    """
+    is_confirm = bool(args) and args[0].lower() == "confirm"
+
+    # Read the live gather cache for the removable set. `_cache["items"]`
+    # is populated by the regular gather loop; if it's empty (cold start)
+    # we trigger a refresh inline so the operator gets data on first
+    # call rather than an unhelpful "nothing to clean up".
+    try:
+        from logic import gather as _gather
+    # noinspection PyBroadException
+    except Exception as e:
+        await _listener()._send_reply(client, f"❌ gather import failed: <code>{_listener()._escape(str(e))}</code>")
+        return
+    # noinspection PyProtectedMember
+    items = list(_gather._cache.get("items") or [])
+    removables = [i for i in items if i.get("removable")]
+
+    if not removables:
+        await _listener()._send_reply(
+            client,
+            "✅ Nothing to clean up — no stopped / failed / orphan "
+            "containers in the current snapshot."
+        )
+        return
+
+    # Destructive gate
+    if not is_confirm and not _listener()._allow_destructive():
+        # Render preview list, prompt for /cleanup confirm.
+        lines = [
+            f"🧹 <b>{len(removables)} container(s) eligible for cleanup</b>",
+            "",
+        ]
+        # Group by stack for readability — matches the SPA's grouping.
+        by_stack: dict[str, list[dict]] = {}
+        for i in removables:
+            stack = i.get("stack") or "(no stack)"
+            by_stack.setdefault(stack, []).append(i)
+        # Cap visible items so the message stays under Telegram's 4096
+        # char wire limit. 40 is comfortable headroom. Sort stacks by
+        # DESCENDING per-stack count so an operator scanning a long
+        # list sees concentration first — pairs with the `(N)` count
+        # suffix added to each heading below.
+        shown = 0
+        max_shown = 40
+        for stack in sorted(by_stack.keys(), key=lambda s: (-len(by_stack[s]), s)):
+            group = by_stack[stack]
+            lines.append(f"<b>{_listener()._escape(stack)}</b> <i>({len(group)})</i>")
+            for i in group:
+                if shown >= max_shown:
+                    break
+                name = i.get("name") or i.get("raw_id") or "(unknown)"
+                kind = i.get("type") or "container"
+                tag = "orphan" if kind == "orphan" else "stopped"
+                lines.append(f"  • <code>{_listener()._escape(name)}</code> "
+                             f"<i>[{tag}]</i>")
+                shown += 1
+            if shown >= max_shown:
+                break
+        if len(removables) > shown:
+            lines.append(f"<i>…and {len(removables) - shown} more.</i>")
+        lines.append("")
+        lines.append(_listener()._destructive_confirm_text(
+            "/cleanup confirm",
+            f"remove all {len(removables)} container(s)",
+        ))
+        await _listener()._send_reply(client, "\n".join(lines))
+        return
+
+    # Execute path — same in-process Operations pipeline the SPA uses.
+    # Resolve the actor (linked OmniGrid username) so the history rows
+    # the Ops persist carry the right attribution.
+    sender_id = (msg.get("from") or {}).get("id")
+    # Per-(sender, command) cooldown so a confirmed destructive
+    # command can't be replayed indefinitely. 30s default — long
+    # enough to stop accidental rapid-fire, short enough that an
+    # operator intentionally re-running after a real interval isn't
+    # blocked.
+    allowed, wait_s = _listener()._destructive_cooldown_check(sender_id, "/cleanup")
+    if not allowed:
+        await _listener()._send_reply(
+            client,
+            f"⏳ <code>/cleanup</code> is on cooldown — wait "
+            f"{int(wait_s) + 1}s before re-running."
+        )
+        return
+    actor = _listener()._lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    actor = actor or "telegram"
+
+    try:
+        from logic import ops as _ops_mod
+    # noinspection PyBroadException
+    except Exception as e:
+        await _listener()._send_reply(client, f"❌ ops import failed: <code>{_listener()._escape(str(e))}</code>")
+        return
+
+    await _listener()._send_reply(
+        client,
+        f"🧹 Removing {len(removables)} container(s)… "
+        f"<i>(SPA tabs will refresh as each one completes)</i>"
+    )
+
+    spawned = 0
+    for i in removables:
+        raw_id = i.get("raw_id") or ""
+        if not raw_id:
+            continue
+        name = i.get("name") or raw_id[:12]
+        stack = i.get("stack")
+        try:
+            op = _ops_mod.new_op(
+                "remove_container", raw_id, name,
+                target_stack=stack, actor=actor,
+            )
+            # Fire-and-forget — each op publishes its own SSE events as
+            # it progresses (op:created / op:updated / op:completed)
+            # and invalidates the gather cache on completion, which is
+            # exactly what the SPA listens for. Lazy main import +
+            # `spawn_background_task` honours the strong-ref + done-
+            # callback contract (see CLAUDE.md "Background-task
+            # lifecycle") so the spawn survives asyncio GC.
+            import main as _main
+            _main.spawn_background_task(
+                _ops_mod.do_remove_container(op, raw_id),
+                label=f"telegram-cleanup-{raw_id[:12]}",
+            )
+            spawned += 1
+        # noinspection PyBroadException
+        except Exception as e:
+            print(f"[telegram_listener] spawn remove for {raw_id[:12]} failed: {e}")
+
+    # Per-container `remove_container` ops already write their own
+    # history rows via the do_remove_container path; the dispatcher-
+    # level `telegram_command` row covers the batch entry-point.
+    await _listener()._send_reply(
+        client,
+        f"✅ Spawned {spawned} cleanup Operation(s). Watch the SPA's "
+        f"Live panel or History tab to follow progress."
+    )
+
+
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/update`` — pull-and-recreate stacks / containers whose remote
+    image digest differs from what's running locally.
+
+    Usage:
+      - ``/update`` (no args) — preview list of every item flagged
+        with ``update_available=true`` in the current gather snapshot.
+      - ``/update all`` — spawn an update Operation for EVERY updatable
+        item (stack → ``update_stack``, container → ``update_container``).
+        Same destructive-gate as ``/cleanup`` / ``/restart``: requires
+        ``telegram_allow_destructive=true`` OR a typed
+        ``/update all confirm`` follow-up.
+      - ``/update <name>`` — single-item update. Resolves by exact
+        item name (stack name OR container name) — multiple matches
+        return the candidate list and abort. Destructive-gate also
+        applies; supply ``/update <name> confirm`` to skip when the
+        global toggle is off.
+
+    Background:
+      Spawns Operations the same way the SPA's per-row "Update" button
+      does. Each Operation publishes ``op:created`` / ``op:updated`` /
+      ``op:completed`` SSE events so every open SPA tab sees the
+      progress + the gather cache invalidates on completion.
+    """
+    try:
+        from logic import gather as _gather
+    except (ImportError, AttributeError) as e:
+        await _listener()._send_reply(client, f"❌ gather import failed: <code>{_listener()._escape(str(e))}</code>")
+        return
+
+    # Pull the live snapshot. Cold-cache path: tell the user to wait
+    # rather than triggering a refresh inline (the cleanup command
+    # has the same convention).
+    # noinspection PyProtectedMember
+    items = list(_gather._cache.get("items") or [])
+    # Canonical "needs an update" signal is `status == "update"` —
+    # gather.py:enrich() sets the status when the remote-digest
+    # comparison shows drift. There's no separate `update_available`
+    # field on items; the Telegram filter must read `status`. Orphan-
+    # type containers (Swarm task containers left over from the
+    # PREVIOUS image — already replaced by Swarm via /cleanup target)
+    # are EXCLUDED — they're scheduled for removal, not for re-update,
+    # and the operator-reported regression was them appearing here.
+    updatable = [
+        i for i in items
+        if (
+            (i.get("status") or "") == "update"
+            and (i.get("type") or "") != "orphan"
+        )
+    ]
+    if not items:
+        await _listener()._send_reply(
+            client,
+            "⏳ Cache is empty — open the SPA once or wait for the next "
+            "gather tick (~15 min), then re-run <code>/update</code>."
+        )
+        return
+
+    # No args: render preview list, return.
+    if not args:
+        if not updatable:
+            await _listener()._send_reply(
+                client,
+                "✅ Nothing to update — every stack and container is on its "
+                "latest remote digest."
+            )
+            return
+        lines = [
+            f"🔄 <b>{len(updatable)} item(s) with updates available</b>",
+            "",
+            "Send <code>/update all</code> to update every item, OR "
+            "<code>/update &lt;name&gt;</code> for a single item.",
+            "",
+        ]
+        # Group by stack for readability, mirror /cleanup's pattern.
+        by_stack: dict[str, list[dict]] = {}
+        for i in updatable:
+            stack = i.get("stack") or "(no stack)"
+            by_stack.setdefault(stack, []).append(i)
+        shown = 0
+        max_shown = 40
+        for stack in sorted(by_stack.keys()):
+            group = by_stack[stack]
+            lines.append(f"<b>{_listener()._escape(stack)}</b>")
+            for i in group:
+                if shown >= max_shown:
+                    break
+                kind = i.get("type") or "item"
+                name = i.get("name") or "?"
+                lines.append(f"  • <code>{_listener()._escape(str(name))}</code> <i>({_listener()._escape(str(kind))})</i>")
+                shown += 1
+            lines.append("")
+            if shown >= max_shown:
+                break
+        if len(updatable) > max_shown:
+            lines.append(f"<i>…and {len(updatable) - max_shown} more</i>")
+        await _listener()._send_reply(client, "\n".join(lines))
+        return
+
+    # Args present — `all` or `<name>`. Look at the LAST arg for the
+    # "confirm" hint so both `/update <name> confirm` and `/update all
+    # confirm` work.
+    is_confirm = bool(args) and args[-1].lower() == "confirm"
+    body_args = args[:-1] if is_confirm else list(args)
+    target = " ".join(body_args).strip().lower()
+
+    # Resolve the target set.
+    if target == "all":
+        if not updatable:
+            await _listener()._send_reply(
+                client,
+                "✅ Nothing to update — every stack and container is on its "
+                "latest remote digest."
+            )
+            return
+        targets = updatable
+    else:
+        # Exact-name match against updatable items first; fall through
+        # to substring across ALL items if no exact hit.
+        exact = [i for i in updatable if (i.get("name") or "").lower() == target]
+        if exact:
+            targets = exact
+        else:
+            partial = [
+                i for i in items
+                if (
+                    (i.get("status") or "") == "update"
+                    and (i.get("type") or "") != "orphan"
+                    and target in (i.get("name") or "").lower()
+                )
+            ]
+            if not partial:
+                # Last-resort: tell the operator nothing matched.
+                await _listener()._send_reply(
+                    client,
+                    f"🤷 No updatable item matches <code>{_listener()._escape(target)}</code>. "
+                    f"Send <code>/update</code> with no args to see the list."
+                )
+                return
+            if len(partial) > 1:
+                names = ", ".join(
+                    f"<code>{_listener()._escape(str(i.get('name')))}</code>"
+                    for i in partial[:8]
+                )
+                more = f" (and {len(partial) - 8} more)" if len(partial) > 8 else ""
+                await _listener()._send_reply(
+                    client,
+                    f"❓ Multiple matches for <code>{_listener()._escape(target)}</code>: "
+                    f"{names}{more}. Re-send with the EXACT item name."
+                )
+                return
+            targets = partial
+
+    # Destructive gate.
+    if not is_confirm and not _listener()._allow_destructive():
+        n = len(targets)
+        lines = [
+            f"⚠️ <b>{n} item(s) will be updated</b> — pull-and-recreate, "
+            "brief downtime for each.",
+            "",
+        ]
+        for i in targets[:10]:
+            stack = i.get("stack") or "(no stack)"
+            lines.append(
+                f"  • <code>{_listener()._escape(str(i.get('name')))}</code> "
+                f"<i>({_listener()._escape(stack)})</i>"
+            )
+        if n > 10:
+            lines.append(f"  <i>…and {n - 10} more</i>")
+        lines.append("")
+        confirm_command = (
+            "/update all confirm" if target == "all"
+            else f"/update {_listener()._escape(target)} confirm"
+        )
+        lines.append(_listener()._destructive_confirm_text(confirm_command, "proceed"))
+        await _listener()._send_reply(client, "\n".join(lines))
+        return
+
+    # Per-(sender, command) cooldown so a confirmed update can't be
+    # replayed indefinitely. 30s default — see `_listener()._destructive_cooldown_check`.
+    sender_id = (msg.get("from") or {}).get("id")
+    allowed_cd, wait_cd = _listener()._destructive_cooldown_check(sender_id, "/update")
+    if not allowed_cd:
+        await _listener()._send_reply(
+            client,
+            f"⏳ <code>/update</code> is on cooldown — wait "
+            f"{int(wait_cd) + 1}s before re-running."
+        )
+        return
+    # Fire the updates. Each item gets its own Operation. Mirrors
+    # the SPA's per-row "Update" button.
+    try:
+        from logic.ops import new_op, do_update_stack, do_update_container
+    except (ImportError, AttributeError) as e:
+        await _listener()._send_reply(client, f"❌ ops import failed: <code>{_listener()._escape(str(e))}</code>")
+        return
+
+    spawned = 0
+    skipped = 0
+    actor_username = _listener()._lookup_omnigrid_user(sender_id) or "telegram"
+    # Dedupe stacks across targets — multiple items can share a parent
+    # stack (e.g. a service item + its orphan task containers + the
+    # stack item itself), and triple-firing the same do_update_stack
+    # races against itself. Track every stack we've already spawned.
+    spawned_stacks: set[int] = set()
+    # Bound /update all fan-out via a semaphore. Pre-bound this was
+    # unbounded — N=50 pending updates fanned out 50 parallel
+    # Portainer PUTs, overwhelming the daemon and starving operator-
+    # triggered updates. Each spawned op now goes through
+    # `_bounded_op_coro(coro)` which acquires the semaphore before
+    # firing the actual Portainer write. Cap is operator-tunable via
+    # `tuning_telegram_bulk_update_concurrency` (default 4, range
+    # 1..16). Per-call read so Admin → Config edits take effect on
+    # the next /update invocation without a listener restart.
+    from logic.tuning import Tunable, tuning_int
+    bulk_cap = max(1, tuning_int(Tunable.TELEGRAM_BULK_UPDATE_CONCURRENCY))
+    _bulk_sem = asyncio.Semaphore(bulk_cap)
+
+    async def _bounded_op_coro(coro):
+        """Acquire the bulk-update semaphore before awaiting the op
+        coroutine. Spawn sites wrap their `do_update_*(op, target)`
+        coro in this so the actual Portainer fan-out stays bounded
+        at the operator's chosen concurrency cap.
+        """
+        async with _bulk_sem:
+            await coro
+
+    for i in targets:
+        kind = i.get("type") or ""
+        name = i.get("name") or ""
+        raw_id = i.get("raw_id") or i.get("id") or ""
+        stack_name = i.get("stack") or ""
+        stack_id = i.get("stack_id")
+        if not name or not raw_id:
+            skipped += 1
+            continue
+        try:
+            if kind == "stack":
+                # Stack id is numeric; coerce defensively.
+                try:
+                    sid = int(raw_id)
+                except (TypeError, ValueError):
+                    skipped += 1
+                    continue
+                if sid in spawned_stacks:
+                    continue
+                spawned_stacks.add(sid)
+                op = new_op(
+                    "update_stack", str(sid), name,
+                    target_stack=name, actor=f"telegram:{actor_username}",
+                )
+                # Lazy main import + `spawn_background_task` (see CLAUDE.md
+                # "Background-task lifecycle") — strong-ref + done-callback
+                # so the spawn survives asyncio GC mid-execution. The
+                # coro is wrapped in `_bounded_op_coro` so the
+                # actual Portainer fan-out stays under the operator-
+                # tunable cap.
+                import main as _main
+                _main.spawn_background_task(
+                    _bounded_op_coro(do_update_stack(op, sid)),
+                    label=f"telegram-update-stack-{sid}",
+                )
+                spawned += 1
+            elif kind == "container":
+                # Standalone (non-Swarm) container — direct recreate
+                # works because there's no overlay network with
+                # attachable=false to fight.
+                op = new_op(
+                    "update_container", str(raw_id), name,
+                    target_stack=stack_name or None,
+                    actor=f"telegram:{actor_username}",
+                )
+                import main as _main
+                _main.spawn_background_task(
+                    _bounded_op_coro(do_update_container(op, str(raw_id))),
+                    label=f"telegram-update-container-{str(raw_id)[:12]}",
+                )
+                spawned += 1
+            elif kind in ("service", "orphan"):
+                # Swarm services + orphan Swarm task containers can't
+                # be updated via the container-recreate endpoint —
+                # Docker rejects attach to overlay networks that
+                # aren't manually attachable. The canonical path is
+                # to re-deploy the PARENT STACK. Dedupe by stack_id
+                # so /update all on a stack with 3 services + 2 orphans
+                # fires ONE stack update, not five racing operations.
+                try:
+                    sid = int(stack_id) if stack_id is not None else 0
+                except (TypeError, ValueError):
+                    sid = 0
+                if not sid:
+                    # No stack association — nothing we can route to.
+                    # Skip gracefully so a mixed batch still fires
+                    # the others.
+                    skipped += 1
+                    continue
+                if sid in spawned_stacks:
+                    continue
+                spawned_stacks.add(sid)
+                target_label = stack_name or name
+                op = new_op(
+                    "update_stack", str(sid), target_label,
+                    target_stack=target_label,
+                    actor=f"telegram:{actor_username}",
+                )
+                import main as _main
+                _main.spawn_background_task(
+                    _bounded_op_coro(do_update_stack(op, sid)),
+                    label=f"telegram-update-stack-from-service-{sid}",
+                )
+                spawned += 1
+            else:
+                # Unknown item type — skip rather than guess.
+                skipped += 1
+        except (RuntimeError, ValueError, KeyError) as e:
+            print(f"[telegram_listener] update spawn failed for {name!r}: {e}")
+            skipped += 1
+
+    skipped_note = f" ({skipped} skipped)" if skipped else ""
+    await _listener()._send_reply(
+        client,
+        f"✅ Spawned {spawned} update Operation(s){skipped_note}. Watch "
+        f"the SPA's Live panel or History tab to follow progress."
+    )
+
+
+# noinspection PyUnusedLocal
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/link <code>`` — bind the sender's Telegram user_id to an
+    OmniGrid user. Code is minted by the SPA's Profile section and
+    valid for 15 minutes, single-use."""
+    sender_id_int = await _resolve_telegram_sender_id_int(client, msg)
+    if sender_id_int is None:
+        return
+    # If the sender is already linked, refuse and point them at
+    # /unlink — re-linking without unlinking first would silently
+    # overwrite the existing mapping, which is confusing if the
+    # operator forgot they were already linked or if multiple users
+    # share the same Telegram account (rare but observed). Same
+    # short-circuit whether they typed `/link` bare OR `/link <code>`.
+    existing_username = _listener()._lookup_omnigrid_user(sender_id_int)
+    if existing_username:
+        await _listener()._send_reply(
+            client,
+            f"ℹ️ You're already linked to OmniGrid user "
+            f"<b>{_listener()._escape(existing_username)}</b>. Run "
+            f"<code>/unlink</code> first if you want to re-link "
+            f"with a fresh code."
+        )
+        return
+    if not args:
+        await _listener()._send_reply(client, "Usage: <code>/link &lt;code&gt;</code>")
+        return
+    code = args[0].strip()
+    username = _listener()._consume_link_code(code)
+    if not username:
+        await _listener()._send_reply(
+            client,
+            "❌ Invalid or expired link code. Generate a fresh one in "
+            "OmniGrid → Profile → Telegram and try again."
+        )
+        return
+    import time as _time
+    linked_at_ms = int(_time.time() * 1000)
+    mappings = _listener()._load_mappings()
+    mappings[str(sender_id_int)] = {
+        "username": username,
+        "linked_at_ms": linked_at_ms,
+    }
+    _listener()._save_mappings(mappings)
+    # SSE event so the SPA's Profile → Telegram card flips from
+    # "Generate code" to the linked-state banner without a manual
+    # page reload. Payload carries `username` so the SPA can scope
+    # the refresh to the matching tab.
+    try:
+        from logic import events as _events
+        _events.publish("telegram:linked", {
+            "username": username,
+            "telegram_user_id": sender_id_int,
+            "linked_at_ms": linked_at_ms,
+        })
+    # noinspection PyBroadException
+    except Exception as _e:
+        print(f"[telegram_listener] publish telegram:linked failed: {_e}")
+    await _listener()._send_reply(
+        client,
+        f"✅ Linked to OmniGrid user <b>{_listener()._escape(username)}</b>. "
+        f"You can now run authenticated commands."
+    )
+
+
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_unlink(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/unlink`` — drop the sender's Telegram → OmniGrid mapping."""
+    sender_id_int = await _resolve_telegram_sender_id_int(client, msg)
+    if sender_id_int is None:
+        return
+    mappings = _listener()._load_mappings()
+    key = str(sender_id_int)
+    if key not in mappings:
+        await _listener()._send_reply(client, "You weren't linked. Nothing to unlink.")
+        return
+    removed = mappings.pop(key)
+    _listener()._save_mappings(mappings)
+    # Mapping schema is `{username, linked_at_ms}` post-migration;
+    # legacy entries may still be a bare username string.
+    removed_username: str = str(
+        removed.get("username") if isinstance(removed, dict) else removed
+    )
+    # SSE event so any OmniGrid tab the operator has open re-renders
+    # the Profile → Telegram card without a manual reload.
+    try:
+        from logic import events as _events
+        _events.publish("telegram:unlinked", {
+            "username": removed_username,
+            "telegram_user_id": sender_id_int,
+        })
+    # noinspection PyBroadException
+    except Exception as _e:
+        print(f"[telegram_listener] publish telegram:unlinked failed: {_e}")
+    await _listener()._send_reply(
+        client,
+        f"✅ Unlinked from OmniGrid user <b>{_listener()._escape(removed_username)}</b>. "
+        f"Re-link via Profile → Telegram in OmniGrid."
+    )
+
+
+# noinspection PyUnusedLocal
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature
+# set by the dispatcher; not every handler uses all three. Every
+# `_listener()._X` access is the documented cross-module shim — see
+# the `_listener()` docstring at the top of this file.
+async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/weather`` — fetch the linked OmniGrid user's saved weather
+    location and return current conditions + a 3-day forecast snippet.
+    """
+    result = await _require_user_weather_pref(client, msg)
+    if result is None:
+        return
+    username, loc = result
+    # Re-use the existing /api/weather upstream by calling the
+    # in-process handler. We could call the API endpoint over HTTP,
+    # but that adds an unnecessary round-trip when both run in the
+    # same process.
+    from main import api_weather as _api_weather  # local import to avoid circular at module load
+    label = (loc.get("label") or "").strip() or "weather"
+    unit = loc.get("unit") or "c"
+    try:
+        data = await _api_weather(
+            lat=loc["lat"],
+            lon=loc["lon"],
+            label=label,
+        )
+    # noinspection PyBroadException
+    except Exception as e:
+        await _listener()._send_reply(client, f"❌ Weather lookup failed: <code>{_listener()._escape(str(e))}</code>")
+        return
+    if not isinstance(data, dict) or data.get("error"):
+        err = (data or {}).get("error") if isinstance(data, dict) else "no response"
+        await _listener()._send_reply(
+            client,
+            f"❌ Weather upstream error: <code>{_listener()._escape(str(err))}</code>"
+        )
+        return
+
+    def _fmt_temp(c_val):
+        """Render a Celsius temperature in the user's preferred unit.
+        `api_weather` always returns Celsius; convert at render time."""
+        if c_val is None:
+            return None
+        try:
+            celsius = float(c_val)
+        except (TypeError, ValueError):
+            return None
+        if unit == "f":
+            return f"{round(celsius * 9 / 5 + 32, 1)}°F"
+        return f"{round(celsius, 1)}°C"
+
+    # Coerce each dict-extracted field to a known shape — api_weather's
+    # untyped return-shape lets pyright widen dict values to
+    # `Any | bool | None`, which then breaks `_listener()._escape(cond)` /
+    # `f"..."` interpolation downstream.
+    temp = _fmt_temp(data.get("temp_c"))
+    humid = data.get("humidity")
+    wind = data.get("wind_kmh")
+    cond = str(data.get("condition") or "")
+
+    # Operator-flagged: the prior render was a single em-dash chain
+    # ("🌡 24°C — Clear — 💧 52% — 💨 3 km/h") which read as a data
+    # dump. Rebuild as an EXPLANATORY narrative — same shape the AI
+    # palette emits for weather questions — with per-metric comfort
+    # / feel / strength verdicts so the operator gets context, not
+    # just numbers.
+    def _to_float(v) -> Optional[float]:
+        """Coerce a possibly-None / possibly-untyped value to float, or
+        None on failure. Centralised so the pyright-narrowing burden
+        sits in one place."""
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    temp_c_num = _to_float(data.get("temp_c"))
+    humid_num = _to_float(humid)
+    wind_num = _to_float(wind)
+
+    def _temp_verdict(temp_c: Optional[float]) -> str:
+        if temp_c is None:
+            return ""
+        if temp_c <= 0:
+            return " — freezing, bundle up"
+        if temp_c < 10:
+            return " — cold, layer up"
+        if temp_c < 18:
+            return " — cool"
+        if temp_c < 25:
+            return " — mild and comfortable"
+        if temp_c < 32:
+            return " — warm"
+        if temp_c < 38:
+            return " — hot, hydrate often"
+        return " — extreme heat, limit outdoor time"
+
+    def _humid_feel(h: Optional[float]) -> str:
+        if h is None:
+            return ""
+        if h < 25:
+            return " — dry, watch for static"
+        if h < 50:
+            return " — feels balanced"
+        if h < 70:
+            return " — comfortable to slightly humid"
+        if h < 85:
+            return " — humid"
+        return " — sticky and muggy"
+
+    def _wind_strength(k: Optional[float]) -> str:
+        if k is None:
+            return ""
+        if k < 5:
+            return " — barely a breeze"
+        if k < 12:
+            return " — light breeze"
+        if k < 20:
+            return " — noticeable wind"
+        if k < 30:
+            return " — flags snapping"
+        if k < 50:
+            return " — gusty"
+        return " — strong wind, secure loose objects"
+
+    def _cond_emoji(c_str: str) -> str:
+        lc = (c_str or "").lower()
+        if "thunder" in lc:
+            return "⛈️"
+        if "snow" in lc:
+            return "❄️"
+        if "rain" in lc or "drizzle" in lc or "shower" in lc:
+            return "🌧️"
+        if "fog" in lc or "mist" in lc:
+            return "🌫️"
+        if "overcast" in lc:
+            return "☁️"
+        if "cloud" in lc:
+            return "⛅"
+        if "clear" in lc or "sunny" in lc:
+            return "☀️"
+        return ""
+
+    def _takeaway(c_str: str, c_temp: Optional[float], k_wind: Optional[float]) -> str:
+        lc = (c_str or "").lower()
+        if "rain" in lc or "shower" in lc or "drizzle" in lc or "thunder" in lc:
+            return "Bring an umbrella."
+        if "snow" in lc:
+            return "Watch for slippery surfaces."
+        if c_temp is not None and c_temp >= 35:
+            return "AC will earn its keep today."
+        if c_temp is not None and c_temp <= 5:
+            return "Dress in layers and warm up the engine before driving."
+        if k_wind is not None and k_wind >= 40:
+            return "Skip the open-flame BBQ — embers travel."
+        return "Good time to be outside."
+
+    head = f"<b>{_listener()._escape(label)}</b>"
+    body_lines: list[str] = []
+    emoji = _cond_emoji(cond)
+    if cond:
+        prefix = f"{emoji} " if emoji else ""
+        body_lines.append(f"{prefix}<b>{_listener()._escape(cond)}</b> overhead.")
+    if temp is not None:
+        body_lines.append(f"🌡 <b>{temp}</b>{_temp_verdict(temp_c_num)}.")
+    if humid is not None:
+        body_lines.append(f"💧 Humidity <b>{humid}%</b>{_humid_feel(humid_num)}.")
+    if wind is not None:
+        body_lines.append(f"💨 Wind <b>{wind} km/h</b>{_wind_strength(wind_num)}.")
+    if not body_lines:
+        body_lines.append("(no current data)")
+    else:
+        body_lines.append(_takeaway(cond, temp_c_num, wind_num))
+    line1 = "\n".join(body_lines)
+    # Forecast dates render using the user's `ui_prefs.datetime_format`
+    # preference, stripped of time tokens (Open-Meteo returns ISO
+    # dates so there's no time component). Falls back to a sensible
+    # default if the user hasn't set a custom format.
+    from logic.datetime_fmt import (
+        apply_datetime_format as _apply_fmt,
+        get_user_datetime_format as _get_user_fmt,
+        strip_time_tokens as _strip_time,
+    )
+    from datetime import datetime as _dt
+    date_only_fmt = _strip_time(_get_user_fmt(username))
+    _fc_raw = data.get("forecast")
+    forecast: list = _fc_raw if isinstance(_fc_raw, list) else []
+    forecast_lines: list[str] = []
+    for day in forecast[:3]:
+        if not isinstance(day, dict):
+            continue
+        raw_date = day.get("date") or ""
+        try:
+            day_dt = _dt.strptime(raw_date, "%Y-%m-%d")
+            date_str = _apply_fmt(day_dt, date_only_fmt)
+        except (TypeError, ValueError):
+            date_str = raw_date or "?"
+        hi = _fmt_temp(day.get("temp_max_c"))
+        lo = _fmt_temp(day.get("temp_min_c"))
+        c = day.get("condition") or ""
+        forecast_lines.append(
+            f"  • {_listener()._escape(date_str)}: {hi or '?'} / {lo or '?'}  {_listener()._escape(c)}"
+        )
+    # Sunrise / sunset — pull TODAY'S daylight window from the
+    # forecast block so the operator gets a "is it light out / when
+    # does it get dark" hint without a separate /time query.
+    # Open-Meteo returns ISO timestamps in the resolved IANA
+    # timezone; we surface just HH:MM since the date is implicit
+    # ("today's" daylight window). First forecast entry is always
+    # the current calendar day per `timezone=auto`.
+    sunrise_str = ""
+    sunset_str = ""
+    if forecast and isinstance(forecast[0], dict):
+        for src_key, target in (("sunrise", "sunrise_str"), ("sunset", "sunset_str")):
+            raw = forecast[0].get(src_key)
+            if not isinstance(raw, str) or "T" not in raw:
+                continue
+            # "2026-05-17T05:47" → "05:47"
+            hhmm = raw.split("T", 1)[1][:5]
+            if target == "sunrise_str":
+                sunrise_str = hhmm
+            else:
+                sunset_str = hhmm
+    daylight_line = ""
+    if sunrise_str and sunset_str:
+        daylight_line = f"\n☀️ Sunrise <b>{sunrise_str}</b> · 🌙 Sunset <b>{sunset_str}</b>"
+    elif sunrise_str:
+        daylight_line = f"\n☀️ Sunrise <b>{sunrise_str}</b>"
+    elif sunset_str:
+        daylight_line = f"\n🌙 Sunset <b>{sunset_str}</b>"
+
+    text = head + "\n" + line1 + daylight_line
+    if forecast_lines:
+        text += "\n\n<b>Next 3 days:</b>\n" + "\n".join(forecast_lines)
+    await _listener()._send_reply(client, text)
