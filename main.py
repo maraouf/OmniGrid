@@ -2168,6 +2168,16 @@ from main_pkg.ops_routes import *  # noqa: E402,F401,F403
 # ----------------------------------------------------------------------------
 from main_pkg.settings_routes import *  # noqa: E402,F401,F403
 # ----------------------------------------------------------------------------
+# main_pkg.admin_stats_routes ships helper functions (`_ai_supported_providers`,
+# `_resolve_ai_fallback_chain`, etc.) that admin_ai_routes + auth_routes +
+# settings_routes consume via the module-level __getattr__ resolver. It HAS
+# no tail-chain back to a sibling that gets loaded otherwise — both pre-split
+# references were inside TYPE_CHECKING-only blocks (False at runtime). Load
+# explicitly here so its symbols land in sys.modules before any consumer
+# fires; the __getattr__ resolver finds them via dict lookup on this module.
+# ----------------------------------------------------------------------------
+from main_pkg.admin_stats_routes import *  # noqa: E402,F401,F403
+# ----------------------------------------------------------------------------
 # Continuation chain: main_pkg.admin_ai_routes (more helpers + routes) →
 # main_pkg.hosts_routes (host + admin route handlers) → main_pkg.hosts_provider_routes
 # → main_pkg.auth_routes. Each star-import re-exports every symbol.
@@ -2188,5 +2198,6 @@ def __getattr__(name):
     lives in one place. See main_pkg._resolver for the full rationale.
     The 5-line delegator IS duplicated across 12 files — PEP 562 requires
     one __getattr__ per module; suppress the duplicated-code hint."""
+    # noinspection PyProtectedMember
     from main_pkg._resolver import resolve
     return resolve(__name__, name)

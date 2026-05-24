@@ -63,7 +63,20 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Names defined in main.py itself.
-    from main import _cache  # noqa: F401  — IDE-only, runtime via the * above
+    from main import (  # noqa: F401  — IDE-only, runtime via the * above
+        AdminUser,
+        DB_PATH,
+        Settings,
+        Tunable,
+        _cache,
+        active_host_stats_providers,
+        app,
+        auth,
+        db_conn,
+        get_setting,
+        get_setting_bool,
+        tuning,
+    )
     # Names defined in sibling main_pkg/* modules that end up in main's
     # namespace at runtime via the tail star-import chain.
     from main_pkg.admin_ai_routes import _is_asset_inventory_enabled  # noqa: F401
@@ -1444,5 +1457,6 @@ def __getattr__(name):
     lives in one place. See main_pkg._resolver for the full rationale.
     The 5-line delegator IS duplicated across 12 files — PEP 562 requires
     one __getattr__ per module; suppress the duplicated-code hint."""
+    # noinspection PyProtectedMember
     from main_pkg._resolver import resolve
     return resolve(__name__, name)
