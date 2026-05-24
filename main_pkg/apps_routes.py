@@ -2992,3 +2992,14 @@ def _shape_host_api_row(
         # probe`) keys off it. Empty list = host has no chips pinned.
         "apps": _shape_host_apps(h),
     }
+
+
+# noinspection DuplicatedCode
+def __getattr__(name):
+    """Module-level resolver for cross-module underscore-prefixed leaks.
+    Delegates to the shared helper so the 33-line PEP 562 implementation
+    lives in one place. See main_pkg._resolver for the full rationale.
+    The 5-line delegator IS duplicated across 12 files — PEP 562 requires
+    one __getattr__ per module; suppress the duplicated-code hint."""
+    from main_pkg._resolver import resolve
+    return resolve(__name__, name)

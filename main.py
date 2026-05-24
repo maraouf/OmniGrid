@@ -1750,6 +1750,7 @@ async def _log_pruner_loop() -> None:
 # ============================================================================
 # API endpoints
 # ============================================================================
+# noinspection PyProtectedMember
 @app.get("/api/stats")
 async def api_stats(force: bool = False):
     """Serve cached / seeded stats instantly; refresh in background.
@@ -1787,8 +1788,8 @@ async def api_stats(force: bool = False):
         # level globals in main_pkg/apps_routes.py — `from X import
         # *` skips them, and the mutable global must be read via
         # attribute access on every check so we don't race the
-        # spawner.
-        # noinspection PyProtectedMember
+        # spawner. (Function-level PyProtectedMember suppression on
+        # the def line covers every access in this body.)
         from main_pkg import apps_routes as _apps_routes
         _apps_routes._kick_background_stats_gather()
         _stats_task = _apps_routes._background_stats_task
@@ -1801,7 +1802,6 @@ async def api_stats(force: bool = False):
         # Stale cache OR force-bypass — kick a refresh in the
         # background. Single-flight: no-op when one is already in
         # flight.
-        # noinspection PyProtectedMember
         from main_pkg import apps_routes as _apps_routes
         _apps_routes._kick_background_stats_gather()
     # `stats_refreshing` reflects whether a BACKGROUND gather is
@@ -1814,7 +1814,6 @@ async def api_stats(force: bool = False):
     # only fires while there's a running task; once the task
     # completes the next poll's response carries
     # `stats_refreshing: false` and the spinner clears.
-    # noinspection PyProtectedMember
     from main_pkg import apps_routes as _apps_routes_stats
     _bg_stats_task = _apps_routes_stats._background_stats_task
     if _bg_stats_task is not None and not _bg_stats_task.done():
@@ -1878,6 +1877,7 @@ async def api_stats_history(item_id: str, hours: int = 24):
     }
 
 
+# noinspection PyProtectedMember
 @app.get("/api/items")
 async def api_items(force: bool = False):
     """Return the items / stacks / nodes cache — instant when present.
@@ -2179,3 +2179,14 @@ from main_pkg.admin_ai_routes import *  # noqa: E402,F401,F403
 # (including the FastAPI routes registered there).
 # ----------------------------------------------------------------------------
 from main_pkg.hosts_routes import *  # noqa: E402,F401,F403
+
+
+# noinspection DuplicatedCode
+def __getattr__(name):
+    """Module-level resolver for cross-module underscore-prefixed leaks.
+    Delegates to the shared helper so the 33-line PEP 562 implementation
+    lives in one place. See main_pkg._resolver for the full rationale.
+    The 5-line delegator IS duplicated across 12 files — PEP 562 requires
+    one __getattr__ per module; suppress the duplicated-code hint."""
+    from main_pkg._resolver import resolve
+    return resolve(__name__, name)

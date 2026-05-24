@@ -97,6 +97,7 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     _resolve_totp_policy,
     app,
     auth,
+    backups,
     config_export,
     db_conn,
     metrics,
@@ -1822,3 +1823,14 @@ async def serve_app_js_module(name: str = FastApiPath(...)):
 
 
 app.add_api_route("/js/{name}", serve_app_js_module, methods=["GET"])
+
+
+# noinspection DuplicatedCode
+def __getattr__(name):
+    """Module-level resolver for cross-module underscore-prefixed leaks.
+    Delegates to the shared helper so the 33-line PEP 562 implementation
+    lives in one place. See main_pkg._resolver for the full rationale.
+    The 5-line delegator IS duplicated across 12 files — PEP 562 requires
+    one __getattr__ per module; suppress the duplicated-code hint."""
+    from main_pkg._resolver import resolve
+    return resolve(__name__, name)
