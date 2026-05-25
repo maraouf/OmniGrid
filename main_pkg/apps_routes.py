@@ -131,6 +131,26 @@ def _load_hosts_config():
     return _impl()
 
 
+def _persist_host_services(hosts: list, target_idx: int, services: list) -> None:
+    """Validate ONE host's services[] via the canonical
+    ``_clean_host_services`` validator, then persist the whole
+    hosts_config.
+
+    Single choke point for every apps-route that mutates a host's
+    chips, so a future write path can't drift into a validator bypass
+    (the operator-controlled name / url / icon overrides MUST be cleaned
+    before they land on disk). Deliberately scoped to the mutated host —
+    it does NOT re-clean the other hosts' services, since
+    ``_clean_host_services`` drops un-whitelisted keys and re-cleaning an
+    untouched host could strip a field written by a different code path.
+    Kept local to apps_routes (rather than a cross-module
+    ``hosts_routes.persist_hosts_config``) to avoid the star-import
+    chain-order wiring; both callers live here.
+    """
+    hosts[target_idx]["services"] = _clean_host_services(services)
+    set_setting(Settings.HOSTS_CONFIG, json.dumps(hosts))
+
+
 @app.post("/api/services/discover/{host_id}/apply")
 async def api_services_discover_apply(host_id: str, payload: dict[str, Any], request: Request, _admin: AdminUser):
     """Admin-only: bulk-bind a set of catalog templates to a host.
@@ -191,13 +211,12 @@ async def api_services_discover_apply(host_id: str, payload: dict[str, Any], req
         if not tpl:
             skipped.append({"catalog_id": cid, "reason": "not_found"})
             continue
-        new_chip: dict[str, Any] = {
-            "name": tpl.get("name") or "",
-            "catalog_id": cid,
-        }
-        icon_resolved = tpl.get("icon") or tpl.get("slug") or ""
-        if icon_resolved:
-            new_chip["icon"] = icon_resolved
+        # Leave name / icon BLANK so the chip inherits from its catalog
+        # template at render time — a later template edit then propagates
+        # to this discovery-pinned chip (see the per-template pin route
+        # for the full rationale). Only ports are snapshotted (the
+        # sampler needs them on the chip to probe).
+        new_chip: dict[str, Any] = {"catalog_id": cid}
         default_ports = list(tpl.get("default_ports") or [])
         probe: dict[str, Any] = {"enabled": probe_enabled, "type": "tcp"}
         if default_ports:
@@ -211,13 +230,12 @@ async def api_services_discover_apply(host_id: str, payload: dict[str, Any], req
             "name": tpl.get("name") or "",
             "service_idx": new_idx,
         })
-    # Route through `_clean_host_services` BEFORE persisting so an
+    # Validate + persist through the shared choke point so the
     # operator-controlled payload (custom name / url / icon overrides)
     # can't land a malformed chip shape in the DB. Same validator the
     # Admin → Hosts editor save path uses — keeps the on-disk contract
     # uniform across every code path that mutates hosts_config.
-    hosts[target_idx]["services"] = _clean_host_services(existing_services)
-    set_setting(Settings.HOSTS_CONFIG, json.dumps(hosts))
+    _persist_host_services(hosts, target_idx, existing_services)
     with db_conn() as _c:
         _ops_mod.write_admin_audit(
             _c, "services_discover_apply",
@@ -305,13 +323,17 @@ async def api_services_catalog_pin(cid: int, payload: dict[str, Any], request: R
     probe_enabled = bool(payload.get("probe_enabled", True))
     probe_type_raw = (payload.get("probe_type") or "tcp").strip().lower()
     probe_type = probe_type_raw if probe_type_raw in ("tcp", "http") else "tcp"
-    new_chip: dict[str, Any] = {
-        "name": override_name or template.get("name") or "",
-        "catalog_id": cid,
-    }
-    icon_resolved = override_icon or template.get("icon") or template.get("slug") or ""
-    if icon_resolved:
-        new_chip["icon"] = icon_resolved
+    # Only persist name / icon when the operator OVERRIDES them — leaving
+    # them blank lets the chip INHERIT from the catalog template at render
+    # time (iter_instances / _shape_host_apps / list_apps resolve
+    # name + icon from catalog_id), so editing the template later
+    # propagates to every un-overridden chip. Snapshotting them here was
+    # why a template rename never reached already-pinned instances.
+    new_chip: dict[str, Any] = {"catalog_id": cid}
+    if override_name:
+        new_chip["name"] = override_name
+    if override_icon:
+        new_chip["icon"] = override_icon
     if override_url:
         new_chip["url"] = override_url
     # Probe sub-dict — copy template's default_ports verbatim so the
@@ -329,14 +351,11 @@ async def api_services_catalog_pin(cid: int, payload: dict[str, Any], request: R
         existing_services = []
     new_idx = len(existing_services)
     existing_services.append(new_chip)
-    # Route through `_clean_host_services` BEFORE persisting so an
-    # operator-controlled override payload (custom name / url / icon)
-    # can't land a malformed chip shape in the DB. Same validator
-    # the Admin → Hosts editor save path uses — keeps the on-disk
-    # contract uniform across every code path that mutates
-    # hosts_config.
-    hosts[target_idx]["services"] = _clean_host_services(existing_services)
-    set_setting(Settings.HOSTS_CONFIG, json.dumps(hosts))
+    # Validate + persist through the shared choke point — same validator
+    # the Admin → Hosts editor save path uses, so an operator-controlled
+    # override payload (custom name / url / icon) can't land a malformed
+    # chip shape in the DB.
+    _persist_host_services(hosts, target_idx, existing_services)
     with db_conn() as _c:
         _ops_mod.write_admin_audit(
             _c, "services_pin",
@@ -354,6 +373,106 @@ async def api_services_catalog_pin(cid: int, payload: dict[str, Any], request: R
         "chip": new_chip,
         "catalog": template,
     }
+
+
+def _find_host_idx(hosts: list, host_id: str) -> int:
+    """Index of the curated host row with this id, or -1."""
+    for i, row in enumerate(hosts):
+        if isinstance(row, dict) and (row.get("id") or "").strip() == host_id:
+            return i
+    return -1
+
+
+@app.patch("/api/services/{host_id}/{service_idx}")
+async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, Any],
+                           request: Request, _admin: AdminUser):
+    """Admin-only: edit one pinned chip's operator-facing fields.
+
+    Accepts any subset of ``name`` / ``url`` / ``icon`` / ``probe_enabled``
+    / ``probe_type``; only the keys present in the payload are applied.
+    For ``name`` / ``icon`` an EMPTY string CLEARS the override so the
+    chip re-inherits from its catalog template; for ``url`` it removes
+    the link. Persists through the shared validated choke point and
+    writes a ``services_edit`` audit row."""
+    hosts = _load_hosts_config()
+    target_idx = _find_host_idx(hosts, host_id)
+    if target_idx < 0:
+        raise HTTPException(404, f"host not found: {host_id}")
+    chips = hosts[target_idx].get("services") or []
+    if not isinstance(chips, list) or service_idx < 0 or service_idx >= len(chips):
+        raise HTTPException(404, f"service_idx {service_idx} out of range for host {host_id}")
+    chip = chips[service_idx]
+    if not isinstance(chip, dict):
+        raise HTTPException(400, "service entry malformed")
+    if "name" in payload:
+        v = (payload.get("name") or "").strip()
+        chip["name"] = v[:64] if v else ""
+        if not v:
+            chip.pop("name", None)  # blank → re-inherit from template
+    if "url" in payload:
+        v = (payload.get("url") or "").strip()
+        if v:
+            chip["url"] = v[:256]
+        else:
+            chip.pop("url", None)
+    if "icon" in payload:
+        v = (payload.get("icon") or "").strip()
+        if v:
+            chip["icon"] = v[:64]
+        else:
+            chip.pop("icon", None)  # blank → re-inherit from template
+    probe = chip.get("probe") if isinstance(chip.get("probe"), dict) else {}
+    if "probe_enabled" in payload:
+        probe["enabled"] = bool(payload.get("probe_enabled"))
+    if "probe_type" in payload:
+        pt = (payload.get("probe_type") or "tcp").strip().lower()
+        probe["type"] = pt if pt in ("tcp", "http") else "tcp"
+    chip["probe"] = probe
+    chips[service_idx] = chip
+    _persist_host_services(hosts, target_idx, chips)
+    with db_conn() as _c:
+        _ops_mod.write_admin_audit(
+            _c, "services_edit",
+            target_kind="host", target_name=host_id, target_id=host_id,
+            actor=_actor_from(request),
+            message=f"Edited app chip service_idx={service_idx} on {host_id}",
+        )
+    # Return the post-validation chip so the SPA can patch its row.
+    fresh = _load_hosts_config()
+    fi = _find_host_idx(fresh, host_id)
+    out_chip: dict = {}
+    if fi >= 0:
+        svcs = fresh[fi].get("services") or []
+        if 0 <= service_idx < len(svcs) and isinstance(svcs[service_idx], dict):
+            out_chip = svcs[service_idx]
+    return {"ok": True, "host_id": host_id, "service_idx": service_idx, "chip": out_chip}
+
+
+@app.delete("/api/services/{host_id}/{service_idx}")
+async def api_service_unpin(host_id: str, service_idx: int, request: Request, _admin: AdminUser):
+    """Admin-only: remove (unpin) one chip from a host's services[].
+
+    Note this re-indexes the host's remaining chips (service_idx is a
+    positional index), so the SPA must re-fetch the instance list after
+    a delete. Persists through the shared validated choke point."""
+    hosts = _load_hosts_config()
+    target_idx = _find_host_idx(hosts, host_id)
+    if target_idx < 0:
+        raise HTTPException(404, f"host not found: {host_id}")
+    chips = hosts[target_idx].get("services") or []
+    if not isinstance(chips, list) or service_idx < 0 or service_idx >= len(chips):
+        raise HTTPException(404, f"service_idx {service_idx} out of range for host {host_id}")
+    removed = chips.pop(service_idx)
+    removed_name = (removed.get("name") if isinstance(removed, dict) else None) or f"service_idx={service_idx}"
+    _persist_host_services(hosts, target_idx, chips)
+    with db_conn() as _c:
+        _ops_mod.write_admin_audit(
+            _c, "services_unpin",
+            target_kind="host", target_name=host_id, target_id=host_id,
+            actor=_actor_from(request),
+            message=f"Unpinned app chip '{removed_name}' from {host_id}",
+        )
+    return {"ok": True, "host_id": host_id, "service_idx": service_idx}
 
 
 @app.get("/api/apps")

@@ -32,6 +32,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - App detail drawer: clicking an app card opens a slide-out panel showing its catalog binding and every host instance, with a per-instance debug panel that reveals the exact probe target(s), per-port outcomes, and — when an app can't be probed — a plain-language reason (e.g. "chip has no URL and the host has no Address set", "probe is disabled"). Includes a per-instance "Probe now" action.
 - Built-in Apps catalog templates added in a release now appear automatically on the next deploy (a seeded-slug ledger picks up new built-ins while leaving ones you deleted on purpose gone) — AdGuard Home is included.
 - The empty Apps view now offers admins a "Run discovery on a host" shortcut into the discovery wizard, and the app status pill announces status changes to screen readers.
+- Admin → Apps → Instances is now editable: edit a pinned app's name / URL / icon / probe inline, or remove it, via a per-row editor (chips were previously create-only).
 
 ### Changed
 
@@ -45,6 +46,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - Apps pinned from a catalog template (no explicit URL) are now actually probed against the host's configured Address instead of being silently skipped — this was why catalog-pinned apps showed "degraded" while only URL-based ones reported. The manual "Probe now" action works on them too.
 - The Apps view now loads automatically on page load / refresh instead of requiring a manual Reload click.
 - HTTP service probes now fall back to a GET request when a service rejects HEAD (many, including NetData's `/api/v1/info`, reply 400/403/501 to HEAD), so those apps no longer show a false "unexpected status" failure.
+- Renaming or re-iconing a catalog template now propagates to pinned app instances that haven't set their own override — instances no longer snapshot the template's name/icon at pin time. The instance URL is also visible at narrower window widths.
 
 ## [1.5.0] — 2026-05-23
 
