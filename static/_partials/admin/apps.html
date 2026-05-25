@@ -146,7 +146,7 @@
 
   <!-- INSTANCES TAB -->
   <div x-show="appsAdminTab === 'instances'">
-    <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin_apps.instances_intro') || 'Read-only summary of every chip pinned to a host via Admin → Hosts. Catalog-linked instances inherit defaults; click a row to jump to the host editor.'"></p>
+    <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin_apps.instances_intro') || 'Every app chip pinned to a host. Catalog-linked instances inherit their name + icon from the template; click a row (or the edit icon) to change name / URL / icon / probe, or remove the chip.'"></p>
     <div x-show="!appsInstancesLoaded" class="loading-state">
       <span class="spin-lg" aria-hidden="true"></span>
     </div>
@@ -158,13 +158,14 @@
         <th class="text-start py-2" x-text="t('admin_apps.col_host') || 'Host'"></th>
         <th class="text-start py-2 hidden md:table-cell" x-text="t('admin_apps.col_catalog') || 'Catalog'"></th>
         <th class="text-start py-2" x-text="t('admin_apps.col_status') || 'Status'"></th>
-        <th class="text-start py-2 hidden lg:table-cell" x-text="t('admin_apps.col_url') || 'URL'"></th>
+        <th class="text-start py-2 hidden md:table-cell" x-text="t('admin_apps.col_url') || 'URL'"></th>
+        <th class="text-end py-2 pe-2" x-text="t('admin_apps.col_actions') || 'Actions'"></th>
       </tr>
       </thead>
       <tbody>
       <template x-for="inst in appsInstances" :key="inst.host_id + ':' + inst.service_idx">
         <tr class="border-b border-[var(--border)] hover:bg-[var(--row-hover)] cursor-pointer"
-            @click="goToAdminHostsForInstance(inst)">
+            @click="openInstanceEdit(inst)">
           <td class="py-2 ps-2">
             <img :src="iconUrlFor(inst.icon || inst.catalog_slug || inst.name)" alt="" width="22" height="22" class="rounded"
                  @error="$event.target.style.visibility='hidden'">
@@ -186,14 +187,26 @@
                           :class="inst.status === 'up' ? 'pill-ok' : (inst.status === 'down' ? 'pill-error' : 'pill-muted')"
                           x-text="t('admin_apps.status_' + inst.status) || inst.status"></span>
           </td>
-          <td class="py-2 hidden lg:table-cell">
+          <td class="py-2 hidden md:table-cell">
             <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener" class="fs-xs text-[var(--primary)] underline" @click.stop x-text="inst.url"></a>
             <span x-show="!inst.url" class="fs-2xs text-[var(--text-faint)] italic">—</span>
+          </td>
+          <td class="py-2 pe-2 text-end whitespace-nowrap">
+            <button type="button" class="user-action-btn" @click.stop="openInstanceEdit(inst)"
+                    :aria-label="t('admin_apps.action_edit') || 'Edit instance'"
+                    :title="t('admin_apps.action_edit') || 'Edit instance'">
+              <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/></svg>
+            </button>
+            <button type="button" class="user-action-btn user-action-btn--danger" @click.stop="deleteInstance(inst)"
+                    :aria-label="t('admin_apps.action_delete') || 'Remove instance'"
+                    :title="t('admin_apps.action_delete') || 'Remove instance'">
+              <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/></svg>
+            </button>
           </td>
         </tr>
       </template>
       <tr x-show="appsInstancesLoaded && !appsInstances.length">
-        <td colspan="6" class="py-6 text-center text-[var(--text-faint)] fs-sm">
+        <td colspan="7" class="py-6 text-center text-[var(--text-faint)] fs-sm">
           <div class="mb-2" x-text="t('admin_apps.empty_instances') || 'No app instances yet.'"></div>
           <div class="flex items-center justify-center gap-2 flex-wrap">
             <button type="button" class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
@@ -553,6 +566,59 @@
                 :disabled="appsDiscoverApplying"
                 x-text="t('actions.close') || 'Close'"></button>
         <span x-show="appsDiscoverApplyError" class="fs-xs text-[var(--danger)] ms-2" x-text="appsDiscoverApplyError"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Instance edit modal — edit a pinned chip's name / URL / icon /
+       probe. For a catalog-linked chip, clearing name / icon re-inherits
+       from the template. Writes through PATCH /api/services/{host}/{idx}. -->
+  <div x-show="appsInstanceEditOpen" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center"
+       role="dialog" aria-modal="true"
+       :aria-label="t('admin_apps.instance_edit_title') || 'Edit app instance'"
+       @keydown.escape.window="closeInstanceEdit()">
+    <div class="absolute inset-0 bg-[var(--backdrop-strong)]" @click="closeInstanceEdit()"></div>
+    <div class="relative bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 shadow-lg max-w-[480px] w-full mx-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold fs-md truncate" x-text="t('admin_apps.instance_edit_title') || 'Edit app instance'"></h3>
+        <button type="button" class="user-action-btn" :aria-label="t('actions.close') || 'Close'"
+                :title="t('actions.close') || 'Close'" @click="closeInstanceEdit()">
+          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/></svg>
+        </button>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mb-3"
+         x-text="(t('admin_apps.instance_edit_host') || 'On host:') + ' ' + appsInstanceEditForm.host_label"></p>
+      <div class="space-y-3">
+        <div>
+          <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.col_name') || 'Name'"></label>
+          <input type="text" class="w-full" maxlength="64" x-model="appsInstanceEditForm.name"
+                 :placeholder="appsInstanceEditForm.catalog_name || ''">
+          <p x-show="appsInstanceEditForm.catalog_name" class="fs-2xs text-[var(--text-faint)] mt-1"
+             x-text="(t('admin_apps.instance_inherit_hint') || 'Leave blank to inherit from template:') + ' ' + appsInstanceEditForm.catalog_name"></p>
+        </div>
+        <div>
+          <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.col_url') || 'URL'"></label>
+          <input type="text" class="w-full" maxlength="256" x-model="appsInstanceEditForm.url" placeholder="https://…">
+        </div>
+        <div>
+          <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.instance_edit_icon') || 'Icon slug (optional)'"></label>
+          <input type="text" class="w-full" maxlength="64" x-model="appsInstanceEditForm.icon"
+                 :placeholder="appsInstanceEditForm.catalog_name || ''">
+        </div>
+        <label class="inline-flex items-center gap-2 fs-sm">
+          <input type="checkbox" x-model="appsInstanceEditForm.probe_enabled">
+          <span x-text="t('admin_apps.instance_edit_probe_enabled') || 'Probe this app for reachability'"></span>
+        </label>
+      </div>
+      <div class="flex items-center gap-2 mt-4">
+        <button type="button" class="btn btn-primary fs-sm" :disabled="appsInstanceEditSaving" @click="saveInstanceEdit()">
+          <span x-show="!appsInstanceEditSaving" x-text="t('actions.save') || 'Save'"></span>
+          <span x-show="appsInstanceEditSaving" x-text="t('actions.saving') || 'Saving…'"></span>
+        </button>
+        <button type="button" class="btn btn-soft fs-sm" :disabled="appsInstanceEditSaving"
+                @click="closeInstanceEdit()" x-text="t('actions.cancel') || 'Cancel'"></button>
+        <span x-show="appsInstanceEditError" class="fs-xs text-[var(--danger)] ms-2" x-text="appsInstanceEditError"></span>
       </div>
     </div>
   </div>

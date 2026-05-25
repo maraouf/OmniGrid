@@ -233,6 +233,8 @@ OP_TYPES: frozenset[str] = frozenset({
     "services_catalog_delete",
     "services_catalog_seeded",
     "services_pin",
+    "services_unpin",
+    "services_edit",
     "services_discover_apply",
     "services_probe_now",
     # Per-(table, host_id) sample-row prune. Drives the

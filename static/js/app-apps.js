@@ -577,6 +577,117 @@ export default {
   },
 
   // ----------------------------------------------------------------
+  // Apps → Instances tab — edit / delete a pinned chip in place. Chips
+  // are otherwise create-only (pin / discovery); this is the per-app
+  // editor the Hosts tab deferred to Apps. Routes through the per-chip
+  // PATCH / DELETE endpoints (validated persist + audit). For a
+  // catalog-linked chip, clearing name / icon re-inherits from the
+  // template.
+  // ----------------------------------------------------------------
+  appsInstanceEditOpen: false,
+  appsInstanceEditSaving: false,
+  appsInstanceEditError: '',
+  appsInstanceEditForm: {
+    host_id: '', service_idx: -1, host_label: '', catalog_name: '',
+    name: '', url: '', icon: '', probe_enabled: true, probe_type: 'tcp',
+  },
+
+  openInstanceEdit(inst) {
+    if (!inst) {
+      return;
+    }
+    this.appsInstanceEditForm = {
+      host_id: inst.host_id,
+      service_idx: inst.service_idx,
+      host_label: inst.host_address || inst.host_id,
+      catalog_name: inst.catalog_name || '',
+      name: inst.name || '',
+      url: inst.url || '',
+      icon: inst.icon || '',
+      probe_enabled: inst.probe_enabled !== false,
+      probe_type: inst.probe_type || 'tcp',
+    };
+    this.appsInstanceEditError = '';
+    this.appsInstanceEditOpen = true;
+  },
+
+  closeInstanceEdit() {
+    this.appsInstanceEditOpen = false;
+  },
+
+  async saveInstanceEdit() {
+    const f = this.appsInstanceEditForm;
+    if (!f.host_id || f.service_idx < 0) {
+      return;
+    }
+    this.appsInstanceEditSaving = true;
+    this.appsInstanceEditError = '';
+    try {
+      const r = await fetch('/api/services/' + encodeURIComponent(f.host_id)
+        + '/' + encodeURIComponent(f.service_idx), {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          name: f.name, url: f.url, icon: f.icon,
+          probe_enabled: f.probe_enabled, probe_type: f.probe_type,
+        }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || ('HTTP ' + r.status));
+      }
+      this.appsInstanceEditOpen = false;
+      await this.loadAppsInstances();
+      if (typeof this.loadAppsList === 'function') {
+        this.loadAppsList(true);
+      }
+    } catch (err) {
+      this.appsInstanceEditError = (err && err.message) ? err.message : String(err);
+    } finally {
+      this.appsInstanceEditSaving = false;
+    }
+  },
+
+  async deleteInstance(inst) {
+    if (!inst || !inst.host_id) {
+      return;
+    }
+    const label = inst.name || inst.catalog_name || ('service ' + inst.service_idx);
+    const confirmed = typeof this.confirmDialog === 'function'
+      ? await this.confirmDialog({
+        title: this.t('admin_apps.instance_delete_confirm_title') || 'Remove app instance?',
+        text: (this.t('admin_apps.instance_delete_confirm_text')
+            || 'This unpins the chip from the host. The catalog template is unaffected.')
+          + ' (' + label + ')',
+        icon: 'warning',
+        confirmButtonText: this.t('actions.delete') || 'Delete',
+      })
+      : window.confirm('Remove "' + label + '"?');
+    if (!confirmed) {
+      return;
+    }
+    try {
+      const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
+        + '/' + encodeURIComponent(inst.service_idx), {method: 'DELETE'});
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || ('HTTP ' + r.status));
+      }
+      await this.loadAppsInstances();
+      if (typeof this.loadAppsList === 'function') {
+        this.loadAppsList(true);
+      }
+      if (typeof this.toast === 'function') {
+        this.toast(this.t('admin_apps.instance_deleted') || 'App instance removed', 'success');
+      }
+    } catch (err) {
+      if (typeof this.toast === 'function') {
+        this.toast((this.t('admin_apps.instance_delete_failed') || 'Remove failed: ') + err.message, 'error');
+      }
+    }
+  },
+
+  // ----------------------------------------------------------------
   // Host-drawer Apps surface — manual probe-now + per-port history.
   // The chip rendering itself lives in static/index.html; this section
   // owns the network calls + per-button in-flight state.
