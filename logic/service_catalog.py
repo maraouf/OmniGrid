@@ -681,6 +681,19 @@ def list_apps() -> list[dict[str, Any]]:
                 groups[gid] = grp
             probe_cfg = svc.get("probe") or {}
             inst_status = _instance_status(svc)
+            # Per-port latest outcomes come from probe-sample HISTORY,
+            # which lingers after a port is removed from the chip config.
+            # Filter to ports STILL in the chip's probe.ports so a removed
+            # port doesn't show as a stale pill in the Apps view. A chip
+            # with no probe.ports (single-port / rollup) shows none.
+            config_ports = set()
+            for _p in (probe_cfg.get("ports") or []):
+                if isinstance(_p, dict):
+                    _pv = _coerce_int(_p.get("port"))
+                    if _pv:
+                        config_ports.add(_pv)
+            port_results = [pr for pr in (per_port.get(idx) or [])
+                            if _coerce_int(pr.get("port")) in config_ports]
             grp["instances"].append({
                 "host_id": hid,
                 "host_label": host_label,
@@ -698,8 +711,9 @@ def list_apps() -> list[dict[str, Any]]:
                 "docker_container": (svc.get("docker_container") or "").strip(),
                 # Per-port latest outcomes (multi-port chips only) so the
                 # Apps card can show WHICH port failed + its error reason,
-                # not just the rolled-up chip status.
-                "port_results": per_port.get(idx) or [],
+                # not just the rolled-up chip status. Filtered to current
+                # config ports above.
+                "port_results": port_results,
             })
     # Tally + roll-up status
     out: list[dict] = []

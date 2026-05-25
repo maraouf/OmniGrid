@@ -269,6 +269,21 @@ export default {
     this.appDebugOpen = {};
   },
 
+  // Re-point an open App drawer to the matching refreshed group (by
+  // group_id) after an apps reload, so edits made elsewhere (the
+  // instance editor) reflect in the open drawer. No-op when the drawer
+  // is closed or the group is gone (e.g. the chip was deleted).
+  _resyncDrawerApp() {
+    if (!this.drawerApp) {
+      return;
+    }
+    const gid = this.drawerApp.group_id;
+    const match = (this.appsList || []).find((g) => g && g.group_id === gid);
+    if (match) {
+      this.drawerApp = match;
+    }
+  },
+
   // True when the app drawer should treat itself as open (used by the
   // scroll-lock effect + ESC handler).
   isAppDrawerOpen() {
@@ -856,8 +871,12 @@ export default {
       }
       this.appsInstanceEditOpen = false;
       await this.loadAppsInstances();
+      // Await the Apps-view refresh + re-sync an open drawer so the edit
+      // (URL / ports / icon / link) reflects in the top-level Apps view
+      // and the App drawer, not just the admin instances table.
       if (typeof this.loadAppsList === 'function') {
-        this.loadAppsList(true);
+        await this.loadAppsList(true);
+        this._resyncDrawerApp();
       }
     } catch (err) {
       this.appsInstanceEditError = (err && err.message) ? err.message : String(err);
@@ -893,7 +912,8 @@ export default {
       }
       await this.loadAppsInstances();
       if (typeof this.loadAppsList === 'function') {
-        this.loadAppsList(true);
+        await this.loadAppsList(true);
+        this._resyncDrawerApp();
       }
       if (typeof this.toast === 'function') {
         this.toast(this.t('admin_apps.instance_deleted') || 'App instance removed', 'success');

@@ -50,6 +50,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - The Apps view now loads automatically on page load / refresh instead of requiring a manual Reload click.
 - HTTP service probes now fall back to a GET request when a service rejects HEAD (many, including NetData's `/api/v1/info`, reply 400/403/501 to HEAD), so those apps no longer show a false "unexpected status" failure.
 - Renaming or re-iconing a catalog template now propagates to pinned app instances that haven't set their own override — instances no longer snapshot the template's name/icon at pin time. The instance URL is also visible at narrower window widths.
+- Editing an app instance (URL/link, ports, icon) now reflects immediately in the Apps view and detail drawer, and removing a port no longer leaves a stale per-port indicator.
 
 ## [1.5.0] — 2026-05-23
 
