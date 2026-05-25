@@ -101,9 +101,14 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
 # EARLIER in the chain than scan_routes — at runtime it reaches us
 # via the wildcard, but PyCharm doesn't trace that.
 from main_pkg.admin_ai_routes import _stamp_test_success  # noqa: E402,F401
-# `PingTestIn` lives in main_pkg.hosts_provider_routes — also EARLIER
-# in the chain so a real import resolves cleanly.
-from main_pkg.hosts_provider_routes import PingTestIn  # noqa: E402,F401
+# `PingTestIn` + `PortScanIn` live in main_pkg.hosts_provider_routes —
+# also EARLIER in the chain (defined before its tail `from
+# main_pkg.scan_routes import *`) so a real import resolves cleanly.
+# PortScanIn was previously relied on via `from main import *`, but the
+# split load-order meant main hadn't re-exported it yet when scan_routes
+# snapshotted main's namespace, so the port-scan route hit a runtime
+# NameError on `PortScanIn()` — explicit import fixes it order-independently.
+from main_pkg.hosts_provider_routes import PingTestIn, PortScanIn  # noqa: E402,F401
 
 # Sibling-module names — defined in other main_pkg/* files
 # that end up in main's namespace via the chain.
