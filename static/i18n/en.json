@@ -3652,6 +3652,8 @@
       "chip_unknown_title": "Port {port} is open but isn't in the curated services list. Add it via Admin → Hosts if it's an expected listener.",
       "chip_asset_mismatch_title": "Heads up: this port is not in the Asset Inventory's port list for this host. Either undocumented (add it to the asset record) or unexpected (investigate the listener).",
       "mapped_app_title": "Mapped to app: {name}",
+      "probe_up": "Probe: reachable",
+      "probe_down": "Probe: unreachable",
       "no_target_toast": "No host selected — open a host drawer or ask the AI to name one before scanning.",
       "scan_failed_title": "Port scan failed",
       "scan_failed_body": "The port scan could not be completed for {host}. {error}",
