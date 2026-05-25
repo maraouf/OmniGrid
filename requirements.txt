@@ -6,7 +6,7 @@
 # at module level. Hard-pinned because FastAPI minor versions
 # occasionally tighten Pydantic v2 deprecations that surface in our
 # own request/response models without warning.
-fastapi>=0.136.1
+fastapi>=0.136.3
 # Pydantic is FastAPI's request/response validation engine — pulled in
 # transitively by fastapi but listed explicitly so import-time references
 # (`from pydantic import BaseModel`) don't trip the IDE's
