@@ -2503,6 +2503,16 @@
                         <!-- INCLUDE: _components/chip-strip-legend.html -->
                       </template>
                     </div>
+                    <!-- App chips — pinned apps on this host, one line below
+                         the provider chips. Brand icon + status dot per app;
+                         click opens the URL (new tab) or the host drawer. -->
+                    <div class="apps-chip-strip flex items-center gap-1.5 flex-wrap mt-1.5"
+                         x-show="Array.isArray(h.apps) && h.apps.length"
+                         role="group" :aria-label="t('hosts_extra.app_chips_label') || 'Apps on this host'">
+                      <template x-for="app in sortedHostApps(h)" :key="'happ:' + app.service_idx">
+                        <!-- INCLUDE: _components/host-app-chip.html -->
+                      </template>
+                    </div>
                   </div>
                   <!-- Metric strip — only rendered for hosts that are
                  actually online AND have a telemetry provider that
@@ -2867,6 +2877,15 @@
                                click behaviour as the mobile-card variant
                                via the shared `chipLegendOpen` Alpine state. -->
                           <!-- INCLUDE: _components/chip-strip-legend.html -->
+                        </div>
+                        <!-- App chips — pinned apps on this host, one line
+                             below the provider chips (desktop row). -->
+                        <div class="apps-chip-strip host-row-apps-line flex items-center gap-1.5 flex-wrap"
+                             x-show="Array.isArray(h.apps) && h.apps.length"
+                             role="group" :aria-label="t('hosts_extra.app_chips_label') || 'Apps on this host'">
+                          <template x-for="app in sortedHostApps(h)" :key="'happ:' + app.service_idx">
+                            <!-- INCLUDE: _components/host-app-chip.html -->
+                          </template>
                         </div>
                       </div>
                     </div>

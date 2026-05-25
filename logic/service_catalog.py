@@ -293,6 +293,16 @@ _BUILTIN: list[dict[str, Any]] = [
              "probe_path": "", "probe_status": 0},
         ],
     },
+    {
+        # Squid forward proxy — the 3128 listener speaks HTTP-proxy, not
+        # a browsable UI, so it's a bare TCP-connect liveness check.
+        "name": "Squid Proxy", "slug": "squid", "icon": "squid",
+        "description": "Squid caching forward proxy",
+        "default_ports": [
+            {"port": 3128, "protocol": "tcp", "label": "Proxy",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
 ]
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,63}$")

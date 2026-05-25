@@ -2081,8 +2081,14 @@ async def api_registry_release_notes(
     try:
         result = await registry.get_release_notes(image)
     except Exception as e:  # noqa: BLE001
+        # Log the full exception server-side (operator reads it in
+        # Admin → Logs), but return a GENERIC error to the client —
+        # the raw exception text can carry stack-trace / internal-path
+        # detail (CodeQL py/stack-trace-exposure). The SPA only gates on
+        # `ok` / `body` / `source_url` and never renders `error`, so a
+        # constant message is sufficient.
         print(f"[release-notes] api lookup failed for {image!r}: {e}")
-        result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        result = {"ok": False, "error": "release-notes lookup failed"}
     return result
 
 
