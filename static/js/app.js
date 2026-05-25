@@ -254,6 +254,14 @@ function app() {
     appsDiscoverSelected: new Set(),
     appsDiscoverApplying: false,
     appsDiscoverApplyError: '',
+    // Searchable host picker for the discovery wizard. `appsDiscoverHostSearch`
+    // is the live filter text; `appsDiscoverHostDropdownOpen` gates the match
+    // list; `appsDiscoverHostActiveIdx` is the keyboard-highlight index into
+    // appsDiscoverFilteredHosts() (−1 = none). The selected host id still
+    // lives on appsDiscoverForm.host_id — these three are display-only state.
+    appsDiscoverHostSearch: '',
+    appsDiscoverHostDropdownOpen: false,
+    appsDiscoverHostActiveIdx: -1,
     appsSearchQuery: '',
     appsStatusFilter: '',  // '' | 'up' | 'down' | 'degraded' | 'unknown'
     // Per-chip "Probe now" in-flight tracker. Keyed by

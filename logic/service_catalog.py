@@ -585,7 +585,11 @@ def list_apps() -> list[dict[str, Any]]:
     catalog_rows = list_catalog()
     catalog_by_id: dict[int, dict[str, Any]] = {int(r["id"]): r for r in catalog_rows}
     # Cache latest probe per (host, idx) so we hit the DB once not N times.
-    from logic.service_sampler import latest_for_host
+    # `latest_per_port_all_for_host` is the batched per-port reader — one
+    # query per host (same profile as latest_for_host) so multi-port chips
+    # can surface which specific port failed in the Apps card's diagnosis
+    # row without an extra DB hit per instance.
+    from logic.service_sampler import latest_for_host, latest_per_port_all_for_host
     groups: dict[str, dict[str, Any]] = {}
     for host_row in iter_curated_hosts():
         hid = (host_row.get("id") or "").strip()
@@ -601,6 +605,7 @@ def list_apps() -> list[dict[str, Any]]:
         if not isinstance(services, list) or not services:
             continue
         latest = latest_for_host(hid)
+        per_port = latest_per_port_all_for_host(hid)
         for idx, svc in enumerate(services):
             if not isinstance(svc, dict):
                 continue
@@ -647,6 +652,10 @@ def list_apps() -> list[dict[str, Any]]:
                 "last_probe": sample,
                 "probe_enabled": bool(probe_cfg.get("enabled")),
                 "ports": probe_cfg.get("ports") or [],
+                # Per-port latest outcomes (multi-port chips only) so the
+                # Apps card can show WHICH port failed + its error reason,
+                # not just the rolled-up chip status.
+                "port_results": per_port.get(idx) or [],
             })
     # Tally + roll-up status
     out: list[dict] = []

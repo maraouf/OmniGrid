@@ -654,6 +654,49 @@ def latest_per_port_for_host(host_id: str, service_idx: int) -> list[dict]:
     ]
 
 
+def latest_per_port_all_for_host(host_id: str) -> dict:
+    """Latest per-PORT probe outcomes for EVERY chip on one host, in a
+    SINGLE query — keyed by ``service_idx``.
+
+    Returns ``{service_idx: [{port, alive, rtt_ms, ts, error}, ...], ...}``
+    (port>0 rows only, rollup port=0 excluded, ports ASC within each
+    chip). Batched companion to :func:`latest_per_port_for_host` so a
+    cross-host aggregator like ``service_catalog.list_apps`` pays ONE
+    query per host instead of one per chip — same query-count profile
+    as :func:`latest_for_host`. Empty dict when the host has no
+    multi-port sample history.
+    """
+    if not host_id:
+        return {}
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT service_idx, port, ts, alive, rtt_ms, error "
+                "FROM service_samples s1 "
+                "WHERE host_id = ? AND port > 0 "
+                "AND ts = (SELECT MAX(ts) FROM service_samples s2 "
+                "          WHERE s2.host_id = s1.host_id "
+                "          AND s2.service_idx = s1.service_idx "
+                "          AND s2.port = s1.port) "
+                "ORDER BY service_idx ASC, port ASC",
+                (host_id,),
+            ).fetchall()
+    except (sqlite3.Error, OSError) as e:
+        print(f"[service_sampler] latest_per_port_all_for_host({host_id!r}) skipped: {e}")
+        return {}
+    out: dict = {}
+    for r in rows:
+        idx = int(r[0])
+        out.setdefault(idx, []).append({
+            "port": int(r[1]),
+            "ts": int(r[2]),
+            "alive": bool(r[3]),
+            "rtt_ms": r[4],
+            "error": r[5],
+        })
+    return out
+
+
 def populate_host_service_merge(host_id: str, merged: dict) -> None:
     """Stamp per-service ``last_probe`` fields onto each
     ``merged["services"][i]`` entry.

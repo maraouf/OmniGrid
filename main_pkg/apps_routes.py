@@ -84,6 +84,7 @@ from main import (  # noqa: E402,F401  — re-imports for IDE static-analysis
     _gather,
     _gather_stats,
     _ops_mod,
+    _request_client_id,
     active_host_stats_providers,
     app,
     db_conn,
@@ -2542,9 +2543,11 @@ def _get_shape_host_apps_catalog_map() -> dict:
     for r in rows:
         if not isinstance(r, dict):
             continue
-        try:
-            cid = int(r.get("id"))
-        except (TypeError, ValueError):
+        # Narrow Any|None → Optional[int] via the canonical coercion helper
+        # (same as every other JSON/dict-cell int boundary in the Apps code)
+        # so the type checker sees a concrete int before the dict key write.
+        cid = _coerce_int_local(r.get("id"))
+        if cid is None:
             continue
         by_id[cid] = r
     _shape_host_apps_catalog_cache["ts"] = now

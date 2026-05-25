@@ -26,6 +26,18 @@ Items shipped to the live deploy via the daily PATCH cadence that are
 not yet rolled into a tagged `MINOR` release. The next MINOR cut renames
 this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
+### Added
+
+- Apps view now explains why an instance is degraded or down: each non-healthy instance shows the probe failure reason (timeout, connection refused, unexpected status, …) inline, and multi-port services render a per-port status pill so you can see exactly which port is failing without leaving the view.
+
+### Changed
+
+- The Apps discovery wizard's host picker is now a searchable, type-to-filter input instead of a long scrolling dropdown — find a host by typing part of its name, ID, or address, with arrow-key and Enter selection.
+
+### Fixed
+
+- Saving, editing, deleting, and re-seeding Apps service-catalog templates no longer fail with an internal error. The discovery bulk-apply and provider-resume cross-tab live refreshes now propagate over the event stream as intended.
+
 ## [1.5.0] — 2026-05-23
 
 Fifth MINOR cut on top of `1.4.0` — rolls up **162 closed issues** under the 1.5.0 milestone (115 enhancements, 47 bug fixes). Every entry shipped to the live deploy as a PATCH bump on the daily CI cadence; this MINOR bundles them under a single tag for rollback / changelog purposes.

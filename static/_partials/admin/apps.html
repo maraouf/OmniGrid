@@ -413,17 +413,40 @@
       <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug"
          x-text="t('admin_apps.discover_intro') || 'Match a host’s last port-scan results against catalog default ports. Templates already bound to the host are filtered out. Operator can multi-select proposals before pinning.'"></p>
 
-      <!-- Step 1: host picker -->
+      <!-- Step 1: host picker — searchable input + live-filtered dropdown.
+           Type to narrow a long fleet by label / id / address before picking;
+           arrow keys move the highlight, Enter selects, Escape closes. -->
       <div class="mb-3">
-        <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.discover_host') || 'Host to scan'"></label>
-        <select class="w-full"
-                x-model="appsDiscoverForm.host_id"
-                @change="runAppsDiscovery()">
-          <option value="" x-text="t('admin_apps.pin_host_placeholder') || '— pick a host —'"></option>
-          <template x-for="h in (hostsConfig || [])" :key="h.id">
-            <option :value="h.id" x-text="(h.address || h.id) + (h.label && h.label !== (h.address || h.id) ? ' — ' + h.label : '')"></option>
-          </template>
-        </select>
+        <label class="block fs-xs font-medium mb-1" for="apps-discover-host-search"
+               x-text="t('admin_apps.discover_host') || 'Host to scan'"></label>
+        <div class="relative" @click.outside="appsDiscoverHostDropdownOpen = false">
+          <input id="apps-discover-host-search" type="text" class="w-full"
+                 autocomplete="off" role="combobox" aria-controls="apps-discover-host-list"
+                 :aria-expanded="appsDiscoverHostDropdownOpen ? 'true' : 'false'"
+                 :placeholder="t('admin_apps.discover_host_search') || 'Type to filter hosts…'"
+                 x-model="appsDiscoverHostSearch"
+                 @focus="appsDiscoverHostDropdownOpen = true; appsDiscoverHostActiveIdx = -1"
+                 @input="appsDiscoverHostDropdownOpen = true; appsDiscoverHostActiveIdx = -1"
+                 @keydown.arrow-down.prevent="appsDiscoverHostMove(1)"
+                 @keydown.arrow-up.prevent="appsDiscoverHostMove(-1)"
+                 @keydown.enter.prevent="appsDiscoverHostEnter()"
+                 @keydown.escape.prevent.stop="appsDiscoverHostDropdownOpen = false">
+          <ul x-show="appsDiscoverHostDropdownOpen" x-cloak id="apps-discover-host-list" role="listbox"
+              class="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto scrollbar rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-lg">
+            <template x-for="(h, idx) in appsDiscoverFilteredHosts()" :key="h.id">
+              <li role="option"
+                  :aria-selected="appsDiscoverForm.host_id === h.id ? 'true' : 'false'"
+                  :class="idx === appsDiscoverHostActiveIdx ? 'bg-[var(--row-hover)]' : ''"
+                  class="px-3 py-1.5 fs-sm cursor-pointer hover:bg-[var(--row-hover)]"
+                  @mouseenter="appsDiscoverHostActiveIdx = idx"
+                  @click="selectAppsDiscoverHost(h)"
+                  x-text="appsHostLabel(h)"></li>
+            </template>
+            <li x-show="!appsDiscoverFilteredHosts().length"
+                class="px-3 py-1.5 fs-sm text-[var(--text-faint)]"
+                x-text="t('admin_apps.discover_host_no_match') || 'No matching hosts'"></li>
+          </ul>
+        </div>
       </div>
 
       <!-- Loading state — matches the canonical admin-table spinner. -->
