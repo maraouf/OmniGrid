@@ -23,9 +23,13 @@ multi-port chips override / extend the catalog's ports via
 
 This module is the single source of truth for catalog CRUD + the
 cross-host aggregate view consumed by ``GET /api/apps``. Built-in
-templates are seeded once on first boot (table empty) and never
-overwritten by `seed_builtins`; an operator who renames a builtin
-template gets to keep their changes through restarts.
+templates seed on boot via ``seed_builtins``: each builtin slug is
+seeded at most once (tracked in a ledger setting) so a builtin newly
+added to ``_BUILTIN`` in a release appears automatically on the next
+deploy, while a builtin the operator deleted on purpose is NOT
+re-added. Operator edits to a builtin already in the table are never
+overwritten; the Admin → Apps "Re-seed built-ins" button (``force=True``)
+restores any builtin missing from the table regardless of the ledger.
 """
 from __future__ import annotations
 
@@ -452,27 +456,60 @@ def _auto_slug(name: str) -> str:
 
 
 def seed_builtins(force: bool = False) -> int:
-    """Insert built-in templates when the table is empty.
+    """Insert built-in templates, picking up genuinely-new builtins on
+    every boot while respecting operator deletions.
 
-    Idempotent. With ``force=True``, every builtin slug missing from the
-    DB is inserted (operator-removed builtins are NOT re-added unless
-    force=True; this protects their curated state across restarts).
+    Two paths:
+
+    * Boot path (``force=False``, called from lifespan): inserts any
+      builtin slug that is NOT already in the table AND has never been
+      auto-seeded before (tracked in the
+      ``Settings.SERVICE_CATALOG_SEEDED_SLUGS`` ledger). A builtin newly
+      ADDED to ``_BUILTIN`` in a release therefore appears automatically
+      on the next deploy — no manual re-seed — while a builtin the
+      operator DELETED on purpose stays gone (its slug is in the ledger).
+    * Force path (``force=True``, the Admin → Apps "Re-seed built-ins"
+      button): inserts every builtin slug missing from the table,
+      ignoring the ledger, so the operator can restore a deleted builtin.
+
+    Either way the ledger is reconciled to cover every current builtin
+    slug, so the next boot only acts on slugs added to ``_BUILTIN`` after
+    this point. An existing pre-ledger deploy adopts its whole builtin
+    set into the ledger on the first boot with this code — and in the
+    same pass picks up any builtin that landed in ``_BUILTIN`` since it
+    was first seeded (e.g. AdGuard Home).
+
     Returns the number of rows inserted.
     """
     try:
+        from logic.settings_keys import Settings as _S
+        ledger_key = _S.SERVICE_CATALOG_SEEDED_SLUGS.value
         with db_conn() as c:
-            count = c.execute("SELECT COUNT(*) FROM service_catalog").fetchone()[0]
-            if count > 0 and not force:
-                return 0
-            existing_slugs: set[str] = set()
-            if force:
-                rows = c.execute("SELECT slug FROM service_catalog").fetchall()
-                existing_slugs = {r[0] for r in rows}
+            # Read the ever-seeded ledger via THIS connection — never via
+            # set_setting() (it opens a second connection and would lock
+            # against our still-open transaction).
+            seeded_ledger: set[str] = set()
+            row = c.execute(
+                "SELECT value FROM settings WHERE key=?", (ledger_key,)
+            ).fetchone()
+            if row and row[0]:
+                try:
+                    parsed = json.loads(row[0])
+                    if isinstance(parsed, list):
+                        seeded_ledger = {str(s) for s in parsed}
+                except (ValueError, TypeError):
+                    seeded_ledger = set()
+            existing_slugs = {
+                r[0] for r in c.execute("SELECT slug FROM service_catalog").fetchall()
+            }
             now = int(time.time())
             inserted = 0
             for tpl in _BUILTIN:
-                if tpl["slug"] in existing_slugs:
-                    continue
+                slug = tpl["slug"]
+                if slug in existing_slugs:
+                    continue  # already present — never duplicate
+                if not force and slug in seeded_ledger:
+                    continue  # boot path: operator deleted it on purpose
                 try:
                     c.execute(
                         "INSERT INTO service_catalog "
@@ -493,14 +530,24 @@ def seed_builtins(force: bool = False) -> int:
                 except sqlite3.IntegrityError:
                     # Race / duplicate slug — skip silently.
                     pass
-            # Bump `_settings_version` when we wrote anything so the SSE
-            # `settings:updated` event fires + open Admin → Apps tabs
-            # auto-refresh their template list without a manual reload.
-            # Direct service_catalog writes bypass `set_setting` (which
-            # is the canonical bump trigger), so the bump has to fire
-            # explicitly here. Same connection so the bump rides the
-            # outer commit transaction.
-            if inserted > 0:
+            # Reconcile the ledger to cover every current builtin so the
+            # next boot only considers slugs added to _BUILTIN later. The
+            # write rides THIS connection's transaction (same reason as
+            # the read above).
+            new_ledger = seeded_ledger | {tpl["slug"] for tpl in _BUILTIN}
+            ledger_changed = new_ledger != seeded_ledger
+            if ledger_changed:
+                c.execute(
+                    "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
+                    (ledger_key, json.dumps(sorted(new_ledger))),
+                )
+            # Bump `_settings_version` when we wrote anything (inserts OR a
+            # ledger change) so the SSE `settings:updated` event fires +
+            # open Admin → Apps tabs auto-refresh without a manual reload.
+            # Direct service_catalog writes bypass `set_setting` (the
+            # canonical bump trigger), so the bump fires explicitly here on
+            # the same connection that rides the outer commit transaction.
+            if inserted > 0 or ledger_changed:
                 try:
                     from logic.db import _bump_settings_version_in
                     _bump_settings_version_in(c)

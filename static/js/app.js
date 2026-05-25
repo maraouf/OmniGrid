@@ -1902,6 +1902,27 @@ function app() {
         // 15s timer that takes over once the operator switches views.
         this.loadHosts();
       }
+      // If the SPA restored to the Apps view (saved in localStorage or a
+      // deep-link), trigger the same load+poll the view-watcher does on a
+      // manual switch. The `$watch('view')` only fires on CHANGE, so a
+      // page load that's already on 'apps' would otherwise stay blank
+      // until the operator clicked Reload — mirror the watcher's apps
+      // branch here so initial render populates automatically.
+      if (this.view === 'apps') {
+        if (typeof this.loadAppsList === 'function') {
+          this.loadAppsList();
+        }
+        if (this.statsInterval > 0) {
+          this._appsTimer = setInterval(() => {
+            if (this._sseConnected) {
+              return;
+            }
+            if (typeof this.loadAppsList === 'function') {
+              this.loadAppsList();
+            }
+          }, Math.max(30, this.statsInterval) * 1000);
+        }
+      }
       // `updateCacheLabel` was retired (the "fresh / cached
       // Xs ago" topbar text was removed as confusing alongside the
       // unified picker). The 1s timer that drove it is gone too — no
