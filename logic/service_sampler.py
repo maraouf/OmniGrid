@@ -50,25 +50,12 @@ from logic.db import (
     iter_curated_hosts,
 )
 from logic.settings_keys import Settings
-
-
-# Coercion helpers — same shape as host_metrics_sampler / host_pulse_sampler.
-def _safe_int(v, default: int = 0) -> int:
-    if v is None:
-        return default
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return default
-
-
-def _int_or_none(v) -> Optional[int]:
-    if v is None:
-        return None
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return None
+# Coercion helpers — shared logic.coerce leaf module, aliased to the
+# legacy underscore names so call sites are unchanged.
+from logic.coerce import (
+    safe_int as _safe_int,
+    int_or_none as _int_or_none,
+)
 
 
 def _resolve_service_probe_interval() -> int:
@@ -80,25 +67,135 @@ def _resolve_service_probe_interval() -> int:
     return tuning.resolve_provider_interval(_Tunable.SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS)
 
 
-def _curated_service_probe_targets() -> list[dict]:
-    """Walk every curated host's services[] for probe-enabled entries.
+def resolve_chip_probe_target(host_row: dict, service_idx: int, svc: dict) -> Optional[dict]:
+    """Resolve ONE service chip into a probe target — or ``None`` when it
+    can't be probed.
 
-    Returns one target per opted-in service chip:
+    Single source of truth for "given a curated host row + one services[]
+    chip, what do we probe?" — shared by ``_curated_service_probe_targets``
+    (the lifespan sampler's fan-out), the manual probe-now endpoint, and
+    the Apps debug endpoint, so all three resolve IDENTICALLY:
+
+      * probe host: the chip's own ``url`` wins; when it carries none
+        (e.g. a catalog-pinned chip that only has ``probe.ports[]``),
+        fall back to the host's curated ``address`` — the canonical
+        per-host probe target. Before this fallback, a no-URL chip was
+        silently dropped, never probed, and surfaced as an "unknown"
+        instance (which rolls up to a "degraded" app group).
+      * port: operator ``probe.port`` overrides the URL-derived port;
+        single-port TCP chips with no port fall back to the scheme
+        default (80 / 443). Multi-port chips (``probe.ports[]``) carry
+        their ports as sub-targets and don't need a top-level port.
+
+    Returns the target dict shape documented below, or ``None`` when the
+    chip is probe-disabled / has no resolvable host / has no resolvable
+    port:
 
         {
-            "host_id": str,
-            "service_idx": int,
-            "service_name": str,
-            "probe_type": "tcp" | "http",
-            "url": str,                # raw URL from the chip
-            "host": str,               # parsed hostname
-            "port": int | None,
-            "path": str,               # http-only
-            "expected_status": int,    # http-only
+            "host_id": str, "service_idx": int, "service_name": str,
+            "probe_type": "tcp" | "http", "url": str, "host": str,
+            "port": int | None, "path": str, "expected_status": int,
+            "sub_ports": [ {port, protocol, label, probe_path,
+                            probe_status, probe_type}, ... ],
         }
+    """
+    if not isinstance(svc, dict):
+        return None
+    probe_cfg = svc.get("probe")
+    if not isinstance(probe_cfg, dict) or not probe_cfg.get("enabled"):
+        return None
+    probe_type = (probe_cfg.get("type") or "tcp").strip().lower()
+    if probe_type not in ("tcp", "http"):
+        probe_type = "tcp"
+    url = (svc.get("url") or "").strip()
+    # Parse URL to extract host / port / path. Operator-set `probe.port`
+    # overrides URL-derived port; same for path.
+    parsed_host = ""
+    parsed_port = None
+    parsed_path = "/"
+    if url:
+        try:
+            pu = urlparse(url if "://" in url else "tcp://" + url)
+            parsed_host = (pu.hostname or "").strip()
+            parsed_port = pu.port
+            parsed_path = (pu.path or "/").strip() or "/"
+        except (ValueError, AttributeError):
+            pass
+    override_port = _int_or_none(probe_cfg.get("port"))
+    override_path = (probe_cfg.get("path") or "").strip()
+    port = override_port if override_port and override_port > 0 else parsed_port
+    path = override_path or parsed_path
+    if not parsed_host:
+        parsed_host = (host_row.get("address") or "").strip()
+    if not parsed_host:
+        return None
+    ports_raw = probe_cfg.get("ports")
+    has_sub_ports = isinstance(ports_raw, list) and any(
+        isinstance(p, dict) and _int_or_none(p.get("port")) for p in ports_raw
+    )
+    if probe_type == "tcp" and not port and not has_sub_ports:
+        # Fall back to default web ports based on URL scheme.
+        lc = url.lower()
+        if lc.startswith("https://"):
+            port = 443
+        elif lc.startswith("http://"):
+            port = 80
+        else:
+            return None
+    expected_status = _safe_int(probe_cfg.get("expected_status"))
+    svc_name = (svc.get("name") or svc.get("label") or url or f"service-{service_idx}").strip()
+    # Multi-port shape (Apps feature). When `probe.ports[]` is populated,
+    # each port becomes a sub-target probed independently; the chip's
+    # final status is rolled up ("any port up = chip alive, all down =
+    # chip dead") at row-persist time so historical schema stays at one
+    # row per (host_id, service_idx).
+    sub_ports: list[dict] = []
+    if isinstance(ports_raw, list):
+        for p in ports_raw:
+            if not isinstance(p, dict):
+                continue
+            pi = _int_or_none(p.get("port"))
+            if not pi or not (1 <= pi <= 65535):
+                continue
+            proto = (p.get("protocol") or "tcp")
+            proto = proto.strip().lower() if isinstance(proto, str) else "tcp"
+            sub_path = (p.get("probe_path") or "").strip() or "/"
+            sub_status = _safe_int(p.get("probe_status"))
+            sub_label = (p.get("label") or "").strip()
+            # Per-port probe type = http when protocol is http/https OR a
+            # probe_path was supplied (operator opted into an HTTP-level
+            # check); TCP otherwise.
+            sub_type = ("http" if proto in ("http", "https") or sub_path != "/"
+                        else "tcp")
+            sub_ports.append({
+                "port": pi,
+                "protocol": proto,
+                "label": sub_label,
+                "probe_path": sub_path,
+                "probe_status": sub_status,
+                "probe_type": sub_type,
+            })
+    return {
+        "host_id": (host_row.get("id") or "").strip(),
+        "service_idx": service_idx,
+        "service_name": svc_name,
+        "probe_type": probe_type,
+        "url": url,
+        "host": parsed_host,
+        "port": port,
+        "path": path,
+        "expected_status": expected_status,
+        "sub_ports": sub_ports,
+    }
 
-    Targets with neither `url` nor resolvable host/port are dropped
-    (cannot probe an empty target).
+
+def _curated_service_probe_targets() -> list[dict]:
+    """Walk every curated host's services[] for probe-enabled entries,
+    returning one target per opted-in chip.
+
+    Thin fan-out over :func:`resolve_chip_probe_target` (the shared
+    chip → target resolver) — targets that can't be probed (disabled,
+    no resolvable host, no resolvable port) are dropped.
     """
     out: list[dict] = []
     for row in iter_curated_hosts():
@@ -109,112 +206,9 @@ def _curated_service_probe_targets() -> list[dict]:
         if not isinstance(services, list):
             continue
         for idx, svc in enumerate(services):
-            if not isinstance(svc, dict):
-                continue
-            probe_cfg = svc.get("probe")
-            if not isinstance(probe_cfg, dict):
-                continue
-            if not probe_cfg.get("enabled"):
-                continue
-            probe_type = (probe_cfg.get("type") or "tcp").strip().lower()
-            if probe_type not in ("tcp", "http"):
-                probe_type = "tcp"
-            url = (svc.get("url") or "").strip()
-            # Parse URL to extract host / port / path. Operator-set
-            # `probe.port` overrides URL-derived port; same for path.
-            parsed_host = ""
-            parsed_port = None
-            parsed_path = "/"
-            if url:
-                try:
-                    pu = urlparse(url if "://" in url else "tcp://" + url)
-                    parsed_host = (pu.hostname or "").strip()
-                    parsed_port = pu.port
-                    parsed_path = (pu.path or "/").strip() or "/"
-                except (ValueError, AttributeError):
-                    pass
-            override_port = _int_or_none(probe_cfg.get("port"))
-            override_path = (probe_cfg.get("path") or "").strip()
-            port = override_port if override_port and override_port > 0 else parsed_port
-            path = override_path or parsed_path
-            # Resolve the probe host. The chip's own URL wins; when it
-            # carries none (e.g. a catalog-pinned chip that only has
-            # probe.ports[]), fall back to the host's curated `address`
-            # — the canonical per-host probe target — so catalog pins are
-            # probed without the operator also having to set a URL. Before
-            # this fallback, a no-URL chip was silently dropped here, never
-            # probed, and surfaced as an "unknown" instance (which rolls up
-            # to a "degraded" app group).
-            if not parsed_host:
-                parsed_host = (row.get("address") or "").strip()
-            if not parsed_host:
-                continue
-            # Multi-port chips (probe.ports[]) carry their ports as
-            # sub-targets, so they don't need a resolvable top-level port.
-            # Only single-port chips fall back to a scheme-derived default
-            # / get skipped when no port can be determined.
-            _ports_raw_probe = probe_cfg.get("ports")
-            _has_sub_ports = isinstance(_ports_raw_probe, list) and any(
-                isinstance(p, dict) and _int_or_none(p.get("port")) for p in _ports_raw_probe
-            )
-            if probe_type == "tcp" and not port and not _has_sub_ports:
-                # Fall back to default web ports based on URL scheme.
-                lc = url.lower()
-                if lc.startswith("https://"):
-                    port = 443
-                elif lc.startswith("http://"):
-                    port = 80
-                else:
-                    continue
-            expected_status = _safe_int(probe_cfg.get("expected_status"))
-            svc_name = (svc.get("name") or svc.get("label") or url or f"service-{idx}").strip()
-            # Multi-port shape (Apps feature). When `probe.ports[]` is
-            # populated, each port becomes a sub-target probed
-            # independently; the chip's final status is rolled up
-            # ("any port up = chip alive, all down = chip dead") at
-            # row-persist time so historical schema stays at one row
-            # per (host_id, service_idx). Per-port HISTORICAL detail
-            # is a follow-up — current view is the live per-tick
-            # snapshot.
-            ports_raw = probe_cfg.get("ports")
-            sub_ports: list[dict] = []
-            if isinstance(ports_raw, list):
-                for p in ports_raw:
-                    if not isinstance(p, dict):
-                        continue
-                    pi = _int_or_none(p.get("port"))
-                    if not pi or not (1 <= pi <= 65535):
-                        continue
-                    proto = (p.get("protocol") or "tcp")
-                    proto = proto.strip().lower() if isinstance(proto, str) else "tcp"
-                    sub_path = (p.get("probe_path") or "").strip() or "/"
-                    sub_status = _safe_int(p.get("probe_status"))
-                    sub_label = (p.get("label") or "").strip()
-                    # Per-port probe type = http when protocol is http/https
-                    # OR a probe_path was supplied (operator opted into
-                    # HTTP-level check); TCP otherwise.
-                    sub_type = ("http" if proto in ("http", "https") or sub_path != "/"
-                                else "tcp")
-                    sub_ports.append({
-                        "port": pi,
-                        "protocol": proto,
-                        "label": sub_label,
-                        "probe_path": sub_path,
-                        "probe_status": sub_status,
-                        "probe_type": sub_type,
-                    })
-            out.append({
-                "host_id": hid,
-                "service_idx": idx,
-                "service_name": svc_name,
-                "probe_type": probe_type,
-                "url": url,
-                "host": parsed_host,
-                "port": port,
-                "path": path,
-                "expected_status": expected_status,
-                "sub_ports": sub_ports,
-            })
+            tgt = resolve_chip_probe_target(row, idx, svc)
+            if tgt is not None:
+                out.append(tgt)
     return out
 
 
@@ -253,10 +247,15 @@ async def _probe_http(url: str, expected_status: int, timeout: float) -> dict:
             timeout=timeout,
             verify=False,  # operator opted into a probe; cert validity isn't the question
         ) as client:
-            # Try HEAD first; fall back to GET on 405. Lots of services
-            # don't implement HEAD.
+            # Try HEAD first; fall back to GET whenever the service
+            # doesn't honour HEAD. Many endpoints reply 400 / 403 / 405 /
+            # 501 to a HEAD instead of the spec-correct 405 — NetData's
+            # /api/v1/info returns 400 — so retry with GET whenever the
+            # HEAD status isn't the success/expected one. A HEAD-hostile
+            # endpoint that serves GET fine must not read as down.
             r = await client.head(url)
-            if r.status_code == 405:
+            head_ok = (r.status_code == expected_status) if expected_status else (200 <= r.status_code < 400)
+            if not head_ok:
                 r = await client.get(url)
         rtt_ms = int((time.monotonic() - started) * 1000)
         if expected_status:

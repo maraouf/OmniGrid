@@ -36,12 +36,15 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 ### Changed
 
 - The Apps discovery wizard's host picker is now a searchable, type-to-filter input instead of a long scrolling dropdown — find a host by typing part of its name, ID, or address, with arrow-key and Enter selection.
+- Apps latency now displays with a thousands separator and a space before the unit (e.g. "1,234 ms"), and the App detail drawer's Probe-now / Show-debug buttons now have icons matching the host drawer.
+- Removed Vaultwarden from the built-in app-catalog templates; added the missing Nextcloud brand icon.
 
 ### Fixed
 
 - Saving, editing, deleting, and re-seeding Apps service-catalog templates no longer fail with an internal error. The discovery bulk-apply and provider-resume cross-tab live refreshes now propagate over the event stream as intended.
 - Apps pinned from a catalog template (no explicit URL) are now actually probed against the host's configured Address instead of being silently skipped — this was why catalog-pinned apps showed "degraded" while only URL-based ones reported. The manual "Probe now" action works on them too.
 - The Apps view now loads automatically on page load / refresh instead of requiring a manual Reload click.
+- HTTP service probes now fall back to a GET request when a service rejects HEAD (many, including NetData's `/api/v1/info`, reply 400/403/501 to HEAD), so those apps no longer show a false "unexpected status" failure.
 
 ## [1.5.0] — 2026-05-23
 

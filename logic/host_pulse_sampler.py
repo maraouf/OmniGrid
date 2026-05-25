@@ -41,49 +41,13 @@ from logic.db import (
     iter_curated_hosts,
 )
 from logic.settings_keys import Settings
-
-
-def _safe_int(v, default: int = 0) -> int:
-    """Coerce to int with explicit narrowing — see same-named helper in
-    host_metrics_sampler.py for the rationale."""
-    if v is None:
-        return default
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return default
-
-
-def _safe_float(v, default: float = 0.0) -> float:
-    """Coerce to float with explicit narrowing."""
-    if v is None:
-        return default
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return default
-
-
-def _int_or_none(v) -> Optional[int]:
-    """Like _safe_int but returns None for missing values rather than 0
-    — INSERT columns where NULL carries the semantic 'field genuinely
-    absent' (vs an explicit zero)."""
-    if v is None:
-        return None
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return None
-
-
-def _float_or_none(v) -> Optional[float]:
-    """Companion to _int_or_none for float fields."""
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
+# Numeric-coercion helpers — shared logic.coerce leaf module, aliased to
+# the legacy underscore names so call sites are unchanged.
+from logic.coerce import (
+    safe_float as _safe_float,
+    int_or_none as _int_or_none,
+    float_or_none as _float_or_none,
+)
 
 
 # Same sanity bounds + rationale as host_metrics_sampler — see that

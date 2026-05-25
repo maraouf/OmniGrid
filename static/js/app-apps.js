@@ -181,10 +181,14 @@ export default {
   // Keeps the unit out of template-literal concatenation so RTL / non-Latin
   // locales can place / translate it (ms vs мс vs ミリ秒).
   appsLatencyMs(n) {
-    return this.t('common.latency_ms', {n}) || (n + 'ms');
+    // Group thousands per the browser locale ("1,234" / "1.234") and let
+    // the i18n format own the space + unit ("{n} ms").
+    const num = (typeof n === 'number') ? n.toLocaleString() : n;
+    return this.t('common.latency_ms', {n: num}) || (num + ' ms');
   },
   appsLatencyParen(n) {
-    return this.t('common.latency_paren', {n}) || ('(' + n + 'ms)');
+    const num = (typeof n === 'number') ? n.toLocaleString() : n;
+    return this.t('common.latency_paren', {n: num}) || ('(' + num + ' ms)');
   },
 
   // Host-drawer chip-strip tooltip: "<name> — <status> (<rtt>ms)". The

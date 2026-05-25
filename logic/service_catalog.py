@@ -179,14 +179,6 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
-        "name": "Vaultwarden", "slug": "vaultwarden", "icon": "vaultwarden",
-        "description": "Self-hosted Bitwarden-compatible password manager",
-        "default_ports": [
-            {"port": 80, "protocol": "tcp", "label": "Web Vault",
-             "probe_path": "/alive", "probe_status": 200},
-        ],
-    },
-    {
         "name": "node-exporter", "slug": "node-exporter", "icon": "node-exporter",
         "description": "Prometheus host-metrics exporter (Linux / FreeBSD)",
         "default_ports": [

@@ -56,7 +56,7 @@ export const KNOWN_ICONS = new Set([
   'influxdb', 'jellyfin', 'jellyseerr', 'seerr', 'jtech', 'kali', 'kaonmedia', 'kavita', 'keycloak',
   'komodo', 'kubernetes', 'lenovo', 'linuxmint', 'lubelogger', 'mail',
   'mailcow', 'meta', 'microsoft', 'mikrotik', 'mongodb', 'motorola',
-  'myspeed', 'n8n', 'nest', 'netboot-xyz', 'netdata', 'nginx', 'nixplay',
+  'myspeed', 'n8n', 'nest', 'netboot-xyz', 'netdata', 'nextcloud', 'nginx', 'nixplay',
   'nginx-proxy-manager', 'nintendo-switch', 'node-exporter', 'nzbget', 'oculus', 'openvpn', 'opnsense',
   'pfsense', 'pi-hole', 'pihole', 'pivpn', 'playstation', 'plex',
   'portainer', 'portainer-dark', 'postgresql', 'poweredge', 'proliant', 'prometheus',
