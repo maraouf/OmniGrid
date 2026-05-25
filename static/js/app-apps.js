@@ -224,14 +224,40 @@ export default {
     return base;
   },
 
+  // Tri-state for a per-port pill: 'up' (alive===true), 'down'
+  // (alive===false), 'unknown' (alive null/undefined = PENDING — the
+  // port is configured on the chip but the sampler hasn't probed it
+  // yet). Drives the pill + status-dot colour class.
+  appsPortState(pr) {
+    if (!pr) {
+      return 'unknown';
+    }
+    if (pr.alive === true) {
+      return 'up';
+    }
+    if (pr.alive === false) {
+      return 'down';
+    }
+    return 'unknown';
+  },
+
   // Per-port pill tooltip: "<status> (<rtt>ms) — <error>" (rtt + error both
   // optional). status + the error separator route through i18n; the error
   // text itself is the un-translated probe diagnostic from the sampler.
+  // A pending (configured-but-unprobed) port reads "pending".
   appsPortTitle(pr) {
     if (!pr) {
       return '';
     }
-    let s = pr.alive ? (this.t('apps.status_up') || 'up') : (this.t('apps.status_down') || 'down');
+    const state = this.appsPortState(pr);
+    let s;
+    if (state === 'up') {
+      s = this.t('apps.status_up') || 'up';
+    } else if (state === 'down') {
+      s = this.t('apps.status_down') || 'down';
+    } else {
+      s = this.t('apps.port_pending') || 'pending';
+    }
     if (pr.rtt_ms != null) {
       s += ' ' + this.appsLatencyParen(pr.rtt_ms);
     }
@@ -351,10 +377,32 @@ export default {
           host_address: inst.host_address || hid,
           last_probe: inst.last_probe,
           port_results: inst.port_results,
+          ports: inst.ports || [],
         });
       }
     }
     const rank = {up: 0, unknown: 1, degraded: 2, down: 3};
+    // Primary (lowest) port for an app entry — from the chip's configured
+    // probe.ports, else its probed port_results. Drives the port-ascending
+    // sort within each host group (apps with no resolvable port sink last).
+    const appPort = (a) => {
+      const nums = [];
+      for (const p of (a.ports || [])) {
+        const n = Number(p && p.port);
+        if (n > 0) {
+          nums.push(n);
+        }
+      }
+      if (!nums.length) {
+        for (const pr of (a.port_results || [])) {
+          const n = Number(pr && pr.port);
+          if (n > 0) {
+            nums.push(n);
+          }
+        }
+      }
+      return nums.length ? Math.min(...nums) : Number.MAX_SAFE_INTEGER;
+    };
     const groups = order.map((hid) => {
       const g = byHost[hid];
       let worst = 'up';
@@ -370,8 +418,14 @@ export default {
       g.status = g.apps.length ? worst : 'unknown';
       g.up_count = up;
       g.app_count = g.apps.length;
-      g.apps.sort((a, b) => (a.name || '').toLowerCase()
-        .localeCompare((b.name || '').toLowerCase()));
+      g.apps.sort((a, b) => {
+        const pa = appPort(a);
+        const pb = appPort(b);
+        if (pa !== pb) {
+          return pa - pb;
+        }
+        return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+      });
       return g;
     });
     groups.sort((a, b) => (a.host_label || a.host_address || '').toLowerCase()

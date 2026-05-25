@@ -9455,3 +9455,9 @@ select.field-invalid {
 .apps-port-pill--down {
   border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
 }
+/* Pending — port is configured on the chip but not probed yet (just
+   added, awaiting the next sampler tick). Neutral border so it reads
+   as "no verdict" rather than down. */
+.apps-port-pill--unknown {
+  border-color: var(--border);
+}

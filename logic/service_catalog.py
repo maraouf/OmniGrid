@@ -303,6 +303,24 @@ _BUILTIN: list[dict[str, Any]] = [
              "probe_path": "", "probe_status": 0},
         ],
     },
+    {
+        "name": "Whisparr", "slug": "whisparr", "icon": "whisparr",
+        "description": "Adult media collection manager (*arr stack)",
+        "default_ports": [
+            {"port": 6969, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/ping", "probe_status": 200},
+        ],
+    },
+    {
+        "name": "Tdarr", "slug": "tdarr", "icon": "tdarr",
+        "description": "Distributed media transcode automation",
+        "default_ports": [
+            {"port": 8265, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+            {"port": 8266, "protocol": "tcp", "label": "Server",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
 ]
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,63}$")
@@ -685,6 +703,50 @@ def _instance_status(svc: dict) -> str:
     return "down"
 
 
+def merge_port_results(probe_ports: Any, sample_rows: Any) -> list[dict]:
+    """Per-port display list = the chip's CONFIGURED ports merged with
+    probe-sample HISTORY.
+
+    Every port in ``probe_ports`` (the chip's ``probe.ports[]``) appears
+    in config order. A port that has a sample row carries its
+    ``alive`` / ``rtt_ms`` / ``error``; a port not yet probed (e.g. the
+    operator just added it) is emitted as PENDING (``alive=None``,
+    ``pending=True``) so it shows immediately instead of waiting for the
+    next sampler tick. Sample rows for ports no longer in the config are
+    dropped (stale) — same end as the prior filter, but now the reverse
+    case (configured-but-unprobed) is also covered. The frontend maps
+    ``alive`` true/false/None onto up/down/unknown pill states.
+    """
+    by_port: dict[int, dict] = {}
+    for pr in (sample_rows or []):
+        if isinstance(pr, dict):
+            pv = _coerce_int(pr.get("port"))
+            if pv:
+                by_port[pv] = pr
+    out: list[dict] = []
+    seen: set[int] = set()
+    for cp in (probe_ports or []):
+        if not isinstance(cp, dict):
+            continue
+        pv = _coerce_int(cp.get("port"))
+        if not pv or pv in seen:
+            continue
+        seen.add(pv)
+        sample = by_port.get(pv)
+        if sample is not None:
+            out.append(sample)
+        else:
+            out.append({
+                "port": pv,
+                "protocol": (cp.get("protocol") or "tcp"),
+                "alive": None,
+                "rtt_ms": None,
+                "error": None,
+                "pending": True,
+            })
+    return out
+
+
 # noinspection DuplicatedCode
 def list_apps() -> list[dict[str, Any]]:
     """Cross-host aggregate. Each returned row is one APP (group) with
@@ -777,19 +839,11 @@ def list_apps() -> list[dict[str, Any]]:
                 groups[gid] = grp
             probe_cfg = svc.get("probe") or {}
             inst_status = _instance_status(svc)
-            # Per-port latest outcomes come from probe-sample HISTORY,
-            # which lingers after a port is removed from the chip config.
-            # Filter to ports STILL in the chip's probe.ports so a removed
-            # port doesn't show as a stale pill in the Apps view. A chip
-            # with no probe.ports (single-port / rollup) shows none.
-            config_ports = set()
-            for _p in (probe_cfg.get("ports") or []):
-                if isinstance(_p, dict):
-                    _pv = _coerce_int(_p.get("port"))
-                    if _pv:
-                        config_ports.add(_pv)
-            port_results = [pr for pr in (per_port.get(idx) or [])
-                            if _coerce_int(pr.get("port")) in config_ports]
+            # Per-port display = the chip's CONFIGURED ports merged with
+            # probe-sample HISTORY: every configured port shows (a just-
+            # added one as PENDING until the sampler probes it), and a
+            # sample for a port no longer in config is dropped (stale).
+            port_results = merge_port_results(probe_cfg.get("ports"), per_port.get(idx))
             grp["instances"].append({
                 "host_id": hid,
                 "host_label": host_label,

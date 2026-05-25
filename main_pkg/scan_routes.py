@@ -704,6 +704,35 @@ async def api_hosts_port_scan(
         or (get_setting(Settings.PORT_SCAN_DEFAULT_PORTS) or "").strip()
     )
     ports_list = _ps.parse_port_csv(ports_csv) if ports_csv else list(_ps.DEFAULT_PORTS)
+    # Always ALSO scan the ports of every app/service configured on THIS
+    # host (services[].probe.ports[] + the legacy top-level services[].port),
+    # unioned onto the base list. Operator-flagged: a pinned app's port
+    # (e.g. Beszel Agent 45876) was missed when the operator ran a custom
+    # port list that didn't include it — but if the operator cared enough
+    # to pin the app, its port should always be scanned. Union + dedupe,
+    # preserving the base order then appending any extras.
+    _app_ports: list[int] = []
+    for _svc in (h.get("services") or []):
+        if not isinstance(_svc, dict):
+            continue
+        for _cand in [_svc.get("port"), *(
+            (_pp.get("port") for _pp in ((_svc.get("probe") or {}).get("ports") or [])
+             if isinstance(_pp, dict))
+        )]:
+            if not isinstance(_cand, (int, str)):
+                continue
+            try:
+                _pn = int(_cand)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= _pn <= 65535:
+                _app_ports.append(_pn)
+    if _app_ports:
+        _seen = set(ports_list)
+        for _pn in _app_ports:
+            if _pn not in _seen:
+                ports_list.append(_pn)
+                _seen.add(_pn)
     _timeout_raw = (
         body.timeout_s
         if body.timeout_s is not None else
@@ -1914,7 +1943,6 @@ async def api_admin_logs_file_view(
         return Response(
             content=f"(unable to read log file: {type(e).__name__}: {e})",
             media_type="text/plain; charset=utf-8",
-            status_code=200,
         )
     if body is None:
         return JSONResponse(status_code=404, content={"detail": "log file not found"})
