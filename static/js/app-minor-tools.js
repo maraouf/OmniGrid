@@ -703,10 +703,24 @@ export default {
         if (!name) {
           continue;
         }
+        // Per-port probe verdict for THIS port: prefer the per-port
+        // sample row (multi-port chips), else fall back to the chip's
+        // overall status for a single-port enabled probe. null = no
+        // probe configured / no result yet — the port-status dot is
+        // hidden in that case (only the app-status dot shows).
+        let portStatus = null;
+        const prMatch = (app.port_results || []).find((pr) => Number(pr && pr.port) === pnum);
+        if (prMatch) {
+          portStatus = prMatch.alive ? 'up' : 'down';
+        } else if ((app.probe || {}).enabled && (app.status === 'up' || app.status === 'down')) {
+          portStatus = app.status;
+        }
         return {
           name,
           icon: app.icon || (app.catalog && app.catalog.slug) || name,
           service_idx: app.service_idx,
+          status: app.status || 'unknown',
+          port_status: portStatus,
         };
       }
     }
