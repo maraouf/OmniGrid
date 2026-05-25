@@ -1,7 +1,13 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,NestedFunctionCallJS,AnonymousFunctionJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+// noinspection NegatedIfStatementJS,OverlyComplexBooleanExpressionJS,ContinueStatementJS,BreakStatementJS,ExceptionCaughtLocallyJS,PointlessBitwiseExpressionJS
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,XHTMLIncompatabilitiesJS,JSAccessInconsistentInXHTML,JSAsyncFunctionMissingAwait
+// noinspection JSMissingAwait,JSUnfilteredForInLoop,IfStatementWithoutBlockJS,NegatedConditionalExpressionJS,JSNegatedConditionalExpression
+// noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
+// noinspection JSValidateTypes,JSPotentiallyInvalidUsageOfThis,JSIgnoredPromiseFromCall,AssignmentToFunctionParameterJS,InnerHTMLJS
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA minor tools — port scan trigger, retag popover, task-error
@@ -149,7 +155,7 @@ export default {
     //       orphan-vxlan case where Docker no longer owns the
     //       interface. Only path that handles a truly orphaned
     //       vxlan (vs a network-tracked one).
-    if (/(network sandbox join failed|subnet sandbox join failed|error creating vxlan interface|file exists)/i.test(err)
+    if (/network sandbox join failed|subnet sandbox join failed|error creating vxlan interface|file exists/i.test(err)
       && item.type === 'service' && item.raw_id) {
       out.push({
         id: 'force-restart-service',
@@ -163,8 +169,8 @@ export default {
       // Parse the failing subnet from the error so the cleanup
       // action can target the right overlay network. Match
       // `for "10.90.24.0/24"` (with quotes) OR the bare CIDR.
-      const subnetMatch = err.match(/(\d+\.\d+\.\d+\.\d+\/\d+)/);
-      const failingSubnet = subnetMatch ? subnetMatch[1] : '';
+      const subnetMatch = err.match(/\d+\.\d+\.\d+\.\d+\/\d+/);
+      const failingSubnet = subnetMatch ? subnetMatch[0] : '';
       if (failingSubnet) {
         out.push({
           id: 'cleanup-overlay-network',
@@ -201,7 +207,7 @@ export default {
       // Image-pull failures — force-restart can sometimes pick up a
       // transient registry hiccup; for sticky failures the user has
     // to fix credentials / tag, which is out of scope for an auto.
-    else if (/(no such image|manifest unknown|pull access denied|requested access to the resource is denied|toomanyrequests)/i.test(err)
+    else if (/no such image|manifest unknown|pull access denied|requested access to the resource is denied|toomanyrequests/i.test(err)
       && item.type === 'service' && item.raw_id) {
       out.push({
         id: 'force-restart-service',
@@ -332,21 +338,21 @@ export default {
       // vx-NNNNNN-XXXX interface from a previous task and the new
       // task can't recreate it. Fix: rm + recreate the network on
       // the affected node, or restart Docker on that node.
-      [/(network sandbox join failed|subnet sandbox join failed|error creating vxlan interface|file exists)/i,
+      [/network sandbox join failed|subnet sandbox join failed|error creating vxlan interface|file exists/i,
         'task_error_known_issue_vxlan'],
       // Image pull failure — registry auth, network, missing tag.
-      [/(no such image|manifest unknown|pull access denied|requested access to the resource is denied|toomanyrequests)/i,
+      [/no such image|manifest unknown|pull access denied|requested access to the resource is denied|toomanyrequests/i,
         'task_error_known_issue_image_pull'],
       // Mount errors — bind path missing on the node, NFS down,
       // permission denied on the mount target.
-      [/(invalid mount config|mount path .* does not exist|failed to create new os mount|permission denied .* mount)/i,
+      [/invalid mount config|mount path .* does not exist|failed to create new os mount|permission denied .* mount/i,
         'task_error_known_issue_mount'],
       // Placement constraint mismatch — service constraints can't
       // be satisfied (no eligible node).
-      [/(no suitable node|no nodes available that match all .* constraints)/i,
+      [/no suitable node|no nodes available that match all .* constraints/i,
         'task_error_known_issue_placement'],
       // Resource limits — node out of memory / CPU / disk.
-      [/(insufficient resources|no resources available|no node has enough memory)/i,
+      [/insufficient resources|no resources available|no node has enough memory/i,
         'task_error_known_issue_resources'],
     ];
     for (const [rx, key] of matchers) {
@@ -654,6 +660,57 @@ export default {
       return head + '\n' + tail;
     }
     return head;
+  },
+
+  // Resolve a scanned open port to the configured app (chip) on this
+  // host whose port list contains it, so the port-scan section can
+  // annotate the chip with the app it belongs to (icon + name). Port
+  // sources, in order of authority: the chip's multi-port probe list
+  // (`probe.ports[]`), the bound catalog template's `default_ports[]`,
+  // and the chip's single top-level `port` (raw services entry, matched
+  // by service_idx). Match is by port NUMBER only — tcp/udp dual-stack
+  // on the same number is treated as the same app (matches the loose
+  // match in portScanChipClass / portScanShouldFlag). Returns
+  // {name, icon, service_idx} or null when nothing maps.
+  portScanMappedApp(host, port) {
+    if (!host || !port) {
+      return null;
+    }
+    const pnum = Number(port.port);
+    if (!Number.isFinite(pnum) || pnum <= 0) {
+      return null;
+    }
+    const apps = Array.isArray(host.apps) ? host.apps : [];
+    const services = Array.isArray(host.services) ? host.services : [];
+    for (const app of apps) {
+      const ports = new Set();
+      const pb = (app.probe && Array.isArray(app.probe.ports)) ? app.probe.ports : [];
+      for (const pp of pb) {
+        ports.add(Number(pp && pp.port));
+      }
+      if (app.catalog && Array.isArray(app.catalog.default_ports)) {
+        for (const pp of app.catalog.default_ports) {
+          ports.add(Number(pp && pp.port));
+        }
+      }
+      const svc = services[app.service_idx];
+      if (svc && Number(svc.port) > 0) {
+        ports.add(Number(svc.port));
+      }
+      if (ports.has(pnum)) {
+        const name = app.name || (app.catalog && app.catalog.name)
+          || (svc && (svc.name || svc.label)) || '';
+        if (!name) {
+          continue;
+        }
+        return {
+          name,
+          icon: app.icon || (app.catalog && app.catalog.slug) || name,
+          service_idx: app.service_idx,
+        };
+      }
+    }
+    return null;
   },
   // Inline-popover state for the drawer's "Switch to tag…" affordance.
   // Single open-popover at a time across the app — `_retagPopoverItemId`

@@ -102,6 +102,30 @@ def _default_accepted_codes_range() -> tuple[int, int]:
         return _DEFAULT_ACCEPTED_CODES_FALLBACK_LO, _DEFAULT_ACCEPTED_CODES_FALLBACK_HI
 
 
+def _clarify_http_connect_error(raw: str) -> str:
+    """Rewrite cryptic TLS-handshake connect errors into actionable text.
+
+    The raw OpenSSL message that bubbles up through httpx.ConnectError
+    (e.g. ``[SSL: TLSV1_UNRECOGNIZED_NAME] tlsv1 unrecognized name
+    (_ssl.c:1081)``) is opaque to an operator. The most common cause in
+    a home-lab is an SNI / vhost mismatch: the probe URL's hostname (or
+    a bare IP) doesn't match any virtual-host / certificate the HTTPS
+    server is configured for, so the server aborts the handshake with a
+    fatal ``unrecognized_name`` alert. There is NO client-side fix —
+    retrying without SNI would silently probe the server's DEFAULT
+    vhost (a possibly-different service) and report a misleading "up",
+    so we surface a clear, honest diagnosis instead and let the operator
+    point the probe at the correct hostname. Unknown errors pass through
+    truncated, unchanged.
+    """
+    low = (raw or "").lower()
+    if "unrecognized_name" in low or "unrecognized name" in low:
+        return ("https TLS: server rejected the SNI (unrecognized name) — "
+                "the probe URL host doesn't match a vhost/cert on this "
+                "server; probe by the configured hostname, not an IP")
+    return f"http connect: {raw[:80]}"
+
+
 def _hostname_of(url: str) -> str:
     """Best-effort hostname extraction from a URL.
 
@@ -445,7 +469,7 @@ async def probe_http_health(
     except httpx.TimeoutException:
         http_error = "http timeout"
     except httpx.ConnectError as e:
-        http_error = f"http connect: {str(e)[:80]}"
+        http_error = _clarify_http_connect_error(str(e))
     except httpx.HTTPError as e:
         http_error = f"http: {type(e).__name__}: {str(e)[:60]}"
     except (asyncio.CancelledError, KeyboardInterrupt):

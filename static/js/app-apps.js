@@ -290,6 +290,147 @@ export default {
     return !!this.drawerApp;
   },
 
+  // ----------------------------------------------------------------
+  // Apps view group-by mode — 'app' (default: one card per app, with
+  // its per-host instances inside) or 'host' (one card per host, with
+  // its app icons beneath). Persisted to localStorage.
+  // ----------------------------------------------------------------
+  appsViewGroupBy: (() => {
+    try {
+      const v = localStorage.getItem('appsViewGroupBy');
+      return ['app', 'host'].includes(v) ? v : 'app';
+    } catch (_) {
+      return 'app';
+    }
+  })(),
+
+  setAppsViewGroupBy(mode) {
+    if (!['app', 'host'].includes(mode)) {
+      return;
+    }
+    this.appsViewGroupBy = mode;
+    try {
+      localStorage.setItem('appsViewGroupBy', mode);
+    } catch (_) { /* private mode — in-memory only */ }
+  },
+
+  // Host-grouped view of the filtered apps. Walks every app's per-host
+  // instances and buckets them by host, so each host becomes a card
+  // carrying the apps that run on it. Status rolls up to the worst
+  // instance status on that host (down > degraded > unknown > up).
+  // Each app entry carries the parent app's identity (group_id / name
+  // / icon) merged with the per-host instance fields so the card can
+  // render an icon tile + status dot and the drawer can show per-port
+  // detail. Sorted by host label / address.
+  appsHostGroups() {
+    const apps = this.filteredApps();
+    const byHost = {};
+    const order = [];
+    for (const app of apps) {
+      for (const inst of (app.instances || [])) {
+        const hid = inst.host_id || '';
+        if (!byHost[hid]) {
+          byHost[hid] = {
+            host_id: hid,
+            host_label: inst.host_label || '',
+            host_address: inst.host_address || hid,
+            apps: [],
+          };
+          order.push(hid);
+        }
+        byHost[hid].apps.push({
+          group_id: app.group_id,
+          name: app.name,
+          icon: app.icon,
+          catalog_name: (app.catalog && app.catalog.name) || '',
+          status: inst.status,
+          url: inst.url,
+          service_idx: inst.service_idx,
+          host_id: hid,
+          host_label: inst.host_label || '',
+          host_address: inst.host_address || hid,
+          last_probe: inst.last_probe,
+          port_results: inst.port_results,
+        });
+      }
+    }
+    const rank = {up: 0, unknown: 1, degraded: 2, down: 3};
+    const groups = order.map((hid) => {
+      const g = byHost[hid];
+      let worst = 'up';
+      let up = 0;
+      for (const a of g.apps) {
+        if ((rank[a.status] || 0) > (rank[worst] || 0)) {
+          worst = a.status;
+        }
+        if (a.status === 'up') {
+          up++;
+        }
+      }
+      g.status = g.apps.length ? worst : 'unknown';
+      g.up_count = up;
+      g.app_count = g.apps.length;
+      g.apps.sort((a, b) => (a.name || '').toLowerCase()
+        .localeCompare((b.name || '').toLowerCase()));
+      return g;
+    });
+    groups.sort((a, b) => (a.host_label || a.host_address || '').toLowerCase()
+      .localeCompare((b.host_label || b.host_address || '').toLowerCase()));
+    return groups;
+  },
+
+  // ----------------------------------------------------------------
+  // Apps-by-host drawer — opened from a host card in the host-grouped
+  // Apps view. Shows the host header + the list of apps running on it
+  // (icon / status / url / per-port detail). Clicking an app row hands
+  // off to the per-app drawer (openAppFromHostDrawer).
+  // ----------------------------------------------------------------
+  drawerAppHost: null,
+
+  openAppHostDrawer(group) {
+    if (!group) {
+      return;
+    }
+    this.drawerAppHost = group;
+  },
+
+  closeAppHostDrawer() {
+    this.drawerAppHost = null;
+  },
+
+  isAppHostDrawerOpen() {
+    return !!this.drawerAppHost;
+  },
+
+  // Re-point an open host-app drawer to the matching refreshed host
+  // group after an apps reload (by host_id). No-op when closed or the
+  // host no longer has any apps.
+  _resyncDrawerAppHost() {
+    if (!this.drawerAppHost) {
+      return;
+    }
+    const hid = this.drawerAppHost.host_id;
+    const match = this.appsHostGroups().find((g) => g && g.host_id === hid);
+    if (match) {
+      this.drawerAppHost = match;
+    }
+  },
+
+  // From the host-app drawer, open the per-app drawer for one of the
+  // host's apps. Closes the host drawer first so only one drawer is
+  // open at a time, then resolves the full app group by group_id.
+  openAppFromHostDrawer(appEntry) {
+    if (!appEntry) {
+      return;
+    }
+    const gid = appEntry.group_id;
+    const app = (this.appsList || []).find((g) => g && g.group_id === gid);
+    this.closeAppHostDrawer();
+    if (app) {
+      this.openAppDrawer(app);
+    }
+  },
+
   // Toggle the per-instance debug panel; lazy-fetch on first open.
   toggleAppInstanceDebug(inst) {
     const key = this.appInstanceKey(inst);
@@ -427,6 +568,26 @@ export default {
   toggleAppsInstanceGroup(key) {
     this.appsInstancesCollapsed = Object.assign({}, this.appsInstancesCollapsed,
       {[key]: !this.appsInstancesCollapsed[key]});
+  },
+
+  // Collapse / expand every instance group at once. Operate over the
+  // currently-rendered groups (respects the active group-by mode) so
+  // the buttons only ever touch real header keys; the '__all__'
+  // single-group ('none' mode) has no collapsible header so it's
+  // skipped. Replace the whole map (Alpine proxy reactivity) rather
+  // than mutating in place.
+  collapseAllAppsInstanceGroups() {
+    const next = {};
+    for (const grp of this.appsInstancesGroups()) {
+      if (grp.key !== '__all__') {
+        next[grp.key] = true;
+      }
+    }
+    this.appsInstancesCollapsed = next;
+  },
+
+  expandAllAppsInstanceGroups() {
+    this.appsInstancesCollapsed = {};
   },
 
   // Grouped render structure for the instances table — one entry per
@@ -877,6 +1038,7 @@ export default {
       if (typeof this.loadAppsList === 'function') {
         await this.loadAppsList(true);
         this._resyncDrawerApp();
+        this._resyncDrawerAppHost();
       }
     } catch (err) {
       this.appsInstanceEditError = (err && err.message) ? err.message : String(err);
@@ -914,6 +1076,7 @@ export default {
       if (typeof this.loadAppsList === 'function') {
         await this.loadAppsList(true);
         this._resyncDrawerApp();
+        this._resyncDrawerAppHost();
       }
       if (typeof this.toast === 'function') {
         this.toast(this.t('admin_apps.instance_deleted') || 'App instance removed', 'success');

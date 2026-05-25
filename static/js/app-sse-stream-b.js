@@ -920,7 +920,7 @@ export default {
   // passed in so Alpine's effect tracker registers reads of all
   // three; without that an IIFE wrapping the same logic might
   // miss the dependency tracking.
-  _applyDrawerScrollLock(host, item, node, sidebar, sidebarPinned, app) {
+  _applyDrawerScrollLock(host, item, node, sidebar, sidebarPinned, app, appHost) {
     // `sidebar` is `aiSidebarOpen` — added so opening the AI Assistant
     // drawer ALSO locks the body scroll. Pre-fix the AI sidebar slid
     // in over a still-scrollable page beneath; the cascade was scoped
@@ -938,7 +938,9 @@ export default {
     // (host / item / node) plus an UNPINNED open sidebar count.
     // `app` is `drawerApp` (the Apps detail drawer) — a modal overlay
     // like the classic three drawers, so it locks the body scroll too.
-    const lock = !!(host || item || node || app || (sidebar && !sidebarPinned));
+    // `appHost` is `drawerAppHost` (the Apps-by-host drawer) — same
+    // modal-overlay treatment.
+    const lock = !!(host || item || node || app || appHost || (sidebar && !sidebarPinned));
     const html = document.documentElement;
     const body = document.body;
     if (lock) {
@@ -2314,6 +2316,52 @@ export default {
       const ta = (a && a.protocol) === 'udp' ? 1 : 0;
       const tb = (b && b.protocol) === 'udp' ? 1 : 0;
       return ta - tb;
+    });
+  },
+
+  // Host-drawer apps sorted by their primary (lowest) configured port,
+  // ascending — operator-requested so the Apps card + chip strip read
+  // as a port-ordered list instead of services[] array order. Primary
+  // port resolves from the chip's probe.ports[], then the bound catalog
+  // template's default_ports[], then the chip's single top-level port.
+  // Apps with no resolvable port sink to the bottom (tie-break by name).
+  // Does NOT mutate host.apps — returns a sorted copy.
+  sortedHostApps(host) {
+    const apps = (host && Array.isArray(host.apps)) ? host.apps : [];
+    if (apps.length < 2) {
+      return apps;
+    }
+    const services = (host && Array.isArray(host.services)) ? host.services : [];
+    const portOf = (app) => {
+      const ports = [];
+      const pb = (app.probe && Array.isArray(app.probe.ports)) ? app.probe.ports : [];
+      for (const pp of pb) {
+        const n = Number(pp && pp.port);
+        if (n > 0) {
+          ports.push(n);
+        }
+      }
+      if (!ports.length && app.catalog && Array.isArray(app.catalog.default_ports)) {
+        for (const pp of app.catalog.default_ports) {
+          const n = Number(pp && pp.port);
+          if (n > 0) {
+            ports.push(n);
+          }
+        }
+      }
+      const svc = services[app.service_idx];
+      if (!ports.length && svc && Number(svc.port) > 0) {
+        ports.push(Number(svc.port));
+      }
+      return ports.length ? Math.min(...ports) : Number.MAX_SAFE_INTEGER;
+    };
+    return [...apps].sort((a, b) => {
+      const pa = portOf(a);
+      const pb = portOf(b);
+      if (pa !== pb) {
+        return pa - pb;
+      }
+      return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
     });
   },
   // Convenience: clear the provider filter ("All" pill click).

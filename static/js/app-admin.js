@@ -1030,6 +1030,17 @@ export default {
       this._fetchLogFileBody();
     }, 5000);
   },
+  // Change the tail window (lines shown) + immediately re-fetch. "All"
+  // (0) reads the whole file, which makes a 5s live-tail re-read of the
+  // entire file pointless + heavy — so switching to All turns auto-tail
+  // off. The operator can re-enable it after narrowing back to a window.
+  setLogFileTail(n) {
+    this.logFileTailLines = Number(n) || 0;
+    if (this.logFileTailLines === 0) {
+      this.logFileAutoTail = false;
+    }
+    this._fetchLogFileBody();
+  },
   async _fetchLogFileBody() {
     if (!this.logSelectedFile) {
       this.logFileBody = '';

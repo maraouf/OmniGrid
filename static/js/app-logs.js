@@ -55,6 +55,12 @@ export default {
   logFileBody: '',
   logFileAutoTail: true,
   logFileTailLines: 500,
+  // Tail-window options for the file viewer. 0 == "All lines" — the
+  // backend reads the whole file when tail <= 0. Larger windows (or
+  // All) let the operator investigate errors beyond the last 500
+  // lines; the viewer was previously hard-capped at 500 with no way
+  // to see more.
+  logFileTailOptions: [500, 2000, 10000, 0],
   _logFileTimer: null,
   logFilesLoaded: false,
 

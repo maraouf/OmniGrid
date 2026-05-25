@@ -85,7 +85,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Prowlarr", "slug": "prowlarr", "icon": "prowlarr",
         "description": "Indexer manager (*arr stack)",
         "default_ports": [
-            {"port": 9696, "protocol": "tcp", "label": "Web UI",
+            {"port": 7886, "protocol": "tcp", "label": "Web UI",
              "probe_path": "/ping", "probe_status": 200},
         ],
     },
@@ -204,6 +204,80 @@ _BUILTIN: list[dict[str, Any]] = [
             {"port": 80, "protocol": "tcp", "label": "Admin UI (post-setup)",
              "probe_path": "/", "probe_status": 0},
             {"port": 53, "protocol": "tcp", "label": "DNS (TCP)",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        # Monitoring / backup agents — bare TCP listeners (no HTTP UI), so
+        # every port uses an empty probe_path + probe_status 0, which the
+        # sampler treats as a plain TCP-connect liveness check.
+        "name": "Zabbix Agent", "slug": "zabbix", "icon": "zabbix",
+        "description": "Zabbix monitoring agent (passive checks listener)",
+        "default_ports": [
+            {"port": 10050, "protocol": "tcp", "label": "Agent (passive)",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Veeam Agent", "slug": "veeam", "icon": "veeam",
+        "description": "Veeam backup management + transport agent",
+        "default_ports": [
+            {"port": 6160, "protocol": "tcp", "label": "Management Agent",
+             "probe_path": "", "probe_status": 0},
+            {"port": 6162, "protocol": "tcp", "label": "Transport",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Pulse Agent", "slug": "pulse", "icon": "pulse",
+        "description": "Pulse monitoring agent (Proxmox / host metrics)",
+        "default_ports": [
+            {"port": 9191, "protocol": "tcp", "label": "Agent",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Beszel Agent", "slug": "beszel", "icon": "beszel",
+        "description": "Beszel monitoring agent (reports to the Beszel hub)",
+        "default_ports": [
+            {"port": 45876, "protocol": "tcp", "label": "Agent",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Lidarr", "slug": "lidarr", "icon": "lidarr",
+        "description": "Music collection manager (*arr stack)",
+        "default_ports": [
+            {"port": 7882, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/ping", "probe_status": 200},
+        ],
+    },
+    {
+        "name": "Readarr", "slug": "readarr", "icon": "readarr",
+        "description": "Book / audiobook collection manager (*arr stack)",
+        "default_ports": [
+            {"port": 7888, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/ping", "probe_status": 200},
+        ],
+    },
+    {
+        # VPN tunnels — bare connectivity, no HTTP UI, so empty
+        # probe_path + probe_status 0 (TCP-connect liveness for
+        # Tailscale; UDP for OpenVPN, which the TCP-connect probe
+        # can't verify — the port metadata is still useful for
+        # port-scan mapping + inventory).
+        "name": "Tailscale", "slug": "tailscale", "icon": "tailscale",
+        "description": "Mesh VPN (WireGuard-based)",
+        "default_ports": [
+            {"port": 57221, "protocol": "tcp", "label": "Tailscale",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "OpenVPN", "slug": "openvpn", "icon": "openvpn",
+        "description": "OpenVPN tunnel server",
+        "default_ports": [
+            {"port": 1194, "protocol": "udp", "label": "OpenVPN",
              "probe_path": "", "probe_status": 0},
         ],
     },
