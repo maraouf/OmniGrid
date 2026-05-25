@@ -4759,7 +4759,8 @@
       "down": "{n} down",
       "degraded": "{n} degraded",
       "unknown": "{n} unknown",
-      "instances_up": "{up}/{total} instances up"
+      "instances_up": "{up}/{total} instances up",
+      "apps_up": "{up}/{total} apps up"
     }
   }
 }
