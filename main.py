@@ -1536,9 +1536,12 @@ def init_db():
                 # doesn't block init_db.
                 pass
 
-        # Apps feature — service_catalog built-in templates. Seeded only
-        # when the table is empty so operator edits / deletes survive
-        # restarts. Idempotent via the empty-table check in seed_builtins.
+        # Apps feature — service_catalog built-in templates. The boot
+        # seed adds any builtin that's NEW to _BUILTIN (tracked via a
+        # seeded-slug ledger) so a builtin shipped in a later release
+        # appears automatically on the next deploy, while builtins the
+        # operator deleted on purpose stay gone. Operator edits to a
+        # builtin already in the table are never overwritten.
         try:
             from logic.service_catalog import seed_builtins as _seed_catalog
             # noinspection PyArgumentEqualDefault

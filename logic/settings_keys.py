@@ -178,6 +178,7 @@ class Settings(str, Enum):
     PULSE_URL = "pulse_url"
     PULSE_VERIFY_TLS = "pulse_verify_tls"
     SCHEDULER_TIMEZONE = "scheduler_timezone"
+    SERVICE_CATALOG_SEEDED_SLUGS = "service_catalog_seeded_slugs"
     SERVICE_PROBE_ENABLED = "service_probe_enabled"
     SNMP_ALIASES = "snmp_aliases"
     SNMP_DEFAULT_COMMUNITY = "snmp_default_community"
