@@ -165,7 +165,7 @@ function app() {
     // a belt-and-braces safety check on top of EventSource's onerror
     // (which doesn't always fire on silent half-open sockets).
     _sseFreshnessTimer: null,
-    view: (['stacks', 'services', 'nodes', 'hosts', 'history', 'settings', 'admin', 'stats'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
+    view: (['stacks', 'services', 'nodes', 'hosts', 'apps', 'history', 'settings', 'admin', 'stats'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
     search: '', statusFilter: '', healthFilter: '',
     sortField: 'name', sortDir: 'asc',
     selected: [],

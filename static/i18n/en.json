@@ -2345,7 +2345,8 @@
         "prune_notifications": "Prune notifications",
         "swarm_agent_health": "Swarm agent health check",
         "port_scan_refresh": "Refresh open ports (port scan)",
-        "config_backup": "Config backup snapshot"
+        "config_backup": "Config backup snapshot",
+        "prune_config_backups": "Prune config backups"
       },
       "run_at_label": "Run at (optional)",
       "run_at_placeholder": "HH:MM — leave empty to use interval",
@@ -3751,7 +3752,8 @@
       "row_test_running": "Testing…",
       "row_test_result_ok": "OK {status} · {latency_ms}ms",
       "row_test_result_fail": "FAIL: {error}",
-      "row_test_no_urls": "No HTTP probe URLs configured on this row."
+      "row_test_no_urls": "No HTTP probe URLs configured on this row.",
+      "latency_legend": "HTTP latency (ms)"
     },
     "server_health": {
       "heading": "Server health",
@@ -4669,11 +4671,13 @@
     "open_link": "Open service URL",
     "empty_filtered": "No apps match the current filters.",
     "empty_html": "No app instances yet. Pin services to hosts via <strong>Admin → Hosts</strong> to populate this view; reusable templates live under <strong>Admin → Apps</strong>.",
-    "error_loading": "Failed to load apps: "
-  },
-  "admin_schedules": {
-    "kinds": {
-      "prune_config_backups": "Prune config backups"
+    "error_loading": "Failed to load apps: ",
+    "counts": {
+      "up": "{n} up",
+      "down": "{n} down",
+      "degraded": "{n} degraded",
+      "unknown": "{n} unknown",
+      "instances_up": "{up}/{total} instances up"
     }
   }
 }

@@ -190,6 +190,27 @@ _BUILTIN: list[dict[str, Any]] = [
              "probe_path": "/metrics", "probe_status": 200},
         ],
     },
+    {
+        "name": "Nginx Proxy Manager", "slug": "nginx-proxy-manager",
+        "icon": "nginx-proxy-manager",
+        "description": "Reverse-proxy admin UI (NPM) with LetsEncrypt + SQLite",
+        "default_ports": [
+            {"port": 81, "protocol": "tcp", "label": "Admin UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "AdGuard Home", "slug": "adguard-home", "icon": "adguard-home",
+        "description": "Network-wide DNS-level ad / tracker blocker + DHCP",
+        "default_ports": [
+            {"port": 3000, "protocol": "tcp", "label": "Admin UI",
+             "probe_path": "/", "probe_status": 0},
+            {"port": 80, "protocol": "tcp", "label": "Admin UI (post-setup)",
+             "probe_path": "/", "probe_status": 0},
+            {"port": 53, "protocol": "tcp", "label": "DNS (TCP)",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
 ]
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,63}$")
@@ -472,6 +493,22 @@ def seed_builtins(force: bool = False) -> int:
                 except sqlite3.IntegrityError:
                     # Race / duplicate slug — skip silently.
                     pass
+            # Bump `_settings_version` when we wrote anything so the SSE
+            # `settings:updated` event fires + open Admin → Apps tabs
+            # auto-refresh their template list without a manual reload.
+            # Direct service_catalog writes bypass `set_setting` (which
+            # is the canonical bump trigger), so the bump has to fire
+            # explicitly here. Same connection so the bump rides the
+            # outer commit transaction.
+            if inserted > 0:
+                try:
+                    from logic.db import _bump_settings_version_in
+                    _bump_settings_version_in(c)
+                except (sqlite3.Error, ImportError):
+                    # Defence-in-depth: a bump failure must NOT roll
+                    # back the seed inserts. SPA misses one cross-tab
+                    # notification — recoverable on next poll.
+                    pass
             return inserted
     except (sqlite3.Error, OSError) as e:
         print(f"[service_catalog] seed_builtins skipped: {e}")
@@ -555,6 +592,11 @@ def list_apps() -> list[dict[str, Any]]:
         if not hid:
             continue
         host_label = (host_row.get("label") or hid).strip()
+        # `address` is the curated "Hostname or IP" probe target from
+        # Admin → Hosts — surface it on every Apps instance so the
+        # SPA can display a stable canonical hostname regardless of
+        # what the row's `label` is. Falls back to the id when blank.
+        host_address = (host_row.get("address") or hid).strip()
         services = host_row.get("services")
         if not isinstance(services, list) or not services:
             continue
@@ -598,6 +640,7 @@ def list_apps() -> list[dict[str, Any]]:
             grp["instances"].append({
                 "host_id": hid,
                 "host_label": host_label,
+                "host_address": host_address,
                 "service_idx": idx,
                 "url": (svc.get("url") or "").strip(),
                 "status": inst_status,
@@ -654,6 +697,10 @@ def iter_instances() -> Iterable[dict[str, Any]]:
         if not hid:
             continue
         host_label = (host_row.get("label") or hid).strip()
+        # `address` (curated "Hostname or IP" from Admin → Hosts) is
+        # surfaced so SPA consumers can display the canonical reachable
+        # hostname regardless of operator label. Falls back to hid.
+        host_address = (host_row.get("address") or hid).strip()
         services = host_row.get("services")
         if not isinstance(services, list) or not services:
             continue
@@ -674,6 +721,7 @@ def iter_instances() -> Iterable[dict[str, Any]]:
             yield {
                 "host_id": hid,
                 "host_label": host_label,
+                "host_address": host_address,
                 "service_idx": idx,
                 "catalog_id": cid_int,
                 "catalog_name": tpl_name or None,

@@ -72,14 +72,12 @@ def _int_or_none(v) -> Optional[int]:
 
 
 def _resolve_service_probe_interval() -> int:
-    """Sampler tick cadence. 0 = inherit global stats interval; >0
-    overrides per-service-probe. Mirrors the http_probe sampler shape.
+    """Sampler tick cadence — thin wrapper for binary-compat. The
+    canonical implementation lives at `tuning.resolve_provider_interval`
+    (shared across http_probe / service_probe samplers per CLAUDE.md
+    priority L duplicate-code rule).
     """
-    iv = tuning.tuning_int(_Tunable.SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS)
-    if iv > 0:
-        return max(30, iv)
-    global_iv = tuning.tuning_int(_Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
-    return max(30, global_iv or 300)
+    return tuning.resolve_provider_interval(_Tunable.SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS)
 
 
 def _curated_service_probe_targets() -> list[dict]:
@@ -306,6 +304,16 @@ async def service_sampler_loop() -> None:
     or no service is opted-in. Re-evaluates both conditions each tick
     so flipping settings at runtime takes effect without restart.
     """
+    # Two distinct interval reads:
+    # (1) Startup read below — one-time, sets the initial first-tick
+    #     delay (`min(45, interval)`) so a fresh container doesn't fire
+    #     a sampler tick at exactly t=0 before DB migrations land.
+    # (2) Per-tick read at the bottom of the loop body — runs ONCE per
+    #     tick (NOT twice; line (1) above is startup-only) so an
+    #     Admin → Config edit takes effect on the next tick without
+    #     restart. This is the "per-tick" cost the operator might
+    #     worry about; clarifying the distinction here so the
+    #     reader doesn't conclude the loop reads it twice per tick.
     interval = _resolve_service_probe_interval()
     # First-tick delay — let DB migrations land + give the rest of
     # the lifespan a chance to come up.

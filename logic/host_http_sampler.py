@@ -113,16 +113,13 @@ def _curated_http_probe_hosts() -> list[dict]:
 
 
 def _resolve_http_probe_interval() -> int:
-    """Sampler tick cadence. 0 = inherit global stats interval; >0
-    overrides per-HTTP-probe. Same shape as the other per-provider
-    sample-interval knobs. Floors at 30s to prevent accidentally
-    busy-looping; ceiling clamp is via TUNABLES.
+    """Sampler tick cadence — thin wrapper for binary-compat. The
+    canonical implementation lives at `tuning.resolve_provider_interval`
+    (shared across http_probe / service_probe samplers per CLAUDE.md
+    priority L duplicate-code rule). Floors at 30s; falls back to
+    `STATS_SAMPLE_INTERVAL_SECONDS` when the per-provider knob is 0.
     """
-    iv = tuning.tuning_int(_Tunable.HTTP_PROBE_SAMPLE_INTERVAL_SECONDS)
-    if iv > 0:
-        return max(30, iv)
-    global_iv = tuning.tuning_int(_Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
-    return max(30, global_iv or 300)
+    return tuning.resolve_provider_interval(_Tunable.HTTP_PROBE_SAMPLE_INTERVAL_SECONDS)
 
 
 async def _probe_one_host(host: dict, sem: asyncio.Semaphore) -> dict:

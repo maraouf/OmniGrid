@@ -1215,6 +1215,38 @@ def stats_range_seconds(range_key: str) -> int | None:
     return STATS_RANGE_SECONDS.get((range_key or "").strip().lower())
 
 
+def resolve_provider_interval(provider_tunable_key: "Tunable",
+                               *,
+                               min_floor: int = 30,
+                               global_default: int = 300) -> int:
+    """Canonical "sampler tick cadence" resolver shared across per-provider
+    samplers (http_probe / service_probe / future siblings).
+
+    Contract: read `provider_tunable_key` via `tuning_int`. If > 0, use
+    that value (operator opted in to a per-provider override). If 0,
+    fall through to `STATS_SAMPLE_INTERVAL_SECONDS` (the global tick
+    cadence every other sampler defers to). In both branches floor at
+    `min_floor` seconds (default 30s) to prevent operator-corrupt DB
+    state from busy-looping the sampler.
+
+    Argument is typed as :class:`Tunable` (NOT bare ``str``) so a typo
+    is caught at the call site — sampler authors discover the
+    available knobs through the enum's autocomplete instead of
+    grepping. Dynamic-key paths don't use this helper.
+
+    Replaces the twin `_resolve_<provider>_probe_interval()` helpers
+    in `logic/host_http_sampler.py` and `logic/service_sampler.py`
+    (per CLAUDE.md priority L duplicate-code rule). Future per-
+    provider samplers add their `tuning_<provider>_sample_interval_seconds`
+    knob to `TUNABLES` + consume this helper.
+    """
+    iv = tuning_int(provider_tunable_key)
+    if iv > 0:
+        return max(min_floor, iv)
+    global_iv = tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
+    return max(min_floor, global_iv or global_default)
+
+
 def stats_bucket_seconds_for_range(range_key: str) -> int:
     """Bucket size in seconds for the chart serving `range_key`. Falls
     back to day buckets (86400s) for unknown ranges so the consumer
