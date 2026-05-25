@@ -211,7 +211,7 @@
         <th class="text-start py-2" x-text="t('admin_apps.col_host') || 'Host'"></th>
         <th class="text-start py-2 hidden md:table-cell" x-text="t('admin_apps.col_catalog') || 'Catalog'"></th>
         <th class="text-start py-2" x-text="t('admin_apps.col_status') || 'Status'"></th>
-        <th class="text-start py-2 hidden md:table-cell" x-text="t('admin_apps.col_url') || 'URL'"></th>
+        <th class="text-start py-2 hidden md:table-cell" x-text="t('admin_apps.col_ports_instance') || 'Ports'"></th>
         <th class="text-end py-2 pe-2" x-text="t('admin_apps.col_actions') || 'Actions'"></th>
       </tr>
       </thead>
@@ -255,8 +255,15 @@
                       x-text="t('admin_apps.status_' + inst.status) || inst.status"></span>
               </td>
               <td class="py-2 hidden md:table-cell">
-                <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener" class="fs-xs text-[var(--primary)] underline" @click.stop x-text="inst.url"></a>
-                <span x-show="!inst.url" class="fs-2xs text-[var(--text-faint)] italic">—</span>
+                <div class="flex flex-wrap gap-1">
+                  <template x-for="p in (inst.ports || [])" :key="p.port + ':' + (p.protocol || 'tcp')">
+                    <span class="chip pill-muted fs-2xs"
+                          :title="(p.label || '') + ' (' + (p.protocol || 'tcp') + ')'"
+                          x-text="p.port + ((p.protocol && p.protocol !== 'tcp') ? '/' + p.protocol : '')"></span>
+                  </template>
+                  <span x-show="!(inst.ports || []).length" class="fs-2xs text-[var(--text-faint)] italic"
+                        x-text="t('admin_apps.no_ports') || 'no ports'"></span>
+                </div>
               </td>
               <td class="py-2 pe-2 text-end whitespace-nowrap">
                 <button type="button" class="user-action-btn" @click.stop="openInstanceEdit(inst)"

@@ -2005,6 +2005,31 @@ async def _run_port_scan_refresh(
                     _ps.parse_port_csv(ports_csv) if ports_csv
                     else list(_ps.DEFAULT_PORTS)
                 )
+                # Union the host's configured app/service ports onto the
+                # scan list (same as the on-demand /port-scan route) so a
+                # pinned-app port is never missed by the scheduled scan.
+                _app_ports: list[int] = []
+                for _svc in (scan_host.get("services") or []):
+                    if not isinstance(_svc, dict):
+                        continue
+                    for _cand in [_svc.get("port"), *(
+                        (_pp.get("port") for _pp in ((_svc.get("probe") or {}).get("ports") or [])
+                         if isinstance(_pp, dict))
+                    )]:
+                        if not isinstance(_cand, (int, str)):
+                            continue
+                        try:
+                            _pn = int(_cand)
+                        except (TypeError, ValueError):
+                            continue
+                        if 1 <= _pn <= 65535:
+                            _app_ports.append(_pn)
+                if _app_ports:
+                    _seen = set(ports_list)
+                    for _pn in _app_ports:
+                        if _pn not in _seen:
+                            ports_list.append(_pn)
+                            _seen.add(_pn)
                 timeout_s = (
                     scan_ps_cfg.get("timeout_s")
                     if scan_ps_cfg.get("timeout_s") is not None

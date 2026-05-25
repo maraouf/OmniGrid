@@ -3317,9 +3317,9 @@
                   <div x-show="(inst.port_results || []).length > 1" class="apps-port-grid ps-4">
                     <template x-for="pr in (inst.port_results || [])" :key="pr.port">
                       <span class="apps-port-pill"
-                            :class="pr.alive ? 'apps-port-pill--up' : 'apps-port-pill--down'"
+                            :class="'apps-port-pill--' + appsPortState(pr)"
                             :title="appsPortTitle(pr)">
-                        <span class="apps-card-dot" :class="pr.alive ? 'apps-card-dot--up' : 'apps-card-dot--down'" aria-hidden="true"></span>
+                        <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
                         <span x-text="pr.port" class="mono"></span>
                       </span>
                     </template>
@@ -5242,8 +5242,8 @@
                      Status is up / down / unknown derived from the most-recent
                      service_samples row stamped onto each chip. -->
             <template x-if="Array.isArray(h.apps) && h.apps.length">
-              <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-12 mb-4">
-                <header class="flex items-center gap-2 mb-3">
+              <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-3 md:col-span-12 mb-3">
+                <header class="flex items-center gap-2 mb-2">
                   <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
                     <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-grid"/>
                   </svg>
@@ -5252,12 +5252,12 @@
                   <span class="chip pill-info fs-3xs ms-2"
                         x-text="(h.apps || []).filter(a => a.status === 'up').length + ' / ' + (h.apps || []).length + ' up'"></span>
                 </header>
-                <ul class="space-y-1 fs-xs">
+                <ul class="space-y-0.5 fs-xs">
                   <template x-for="app in sortedHostApps(h)" :key="app.service_idx">
-                    <li class="apps-drawer-row py-1.5 border-b border-[var(--border)] last:border-b-0">
-                      <div class="flex items-center gap-2">
+                    <li class="apps-drawer-row py-1 border-b border-[var(--border)] last:border-b-0">
+                      <div class="flex items-center gap-1.5">
                         <img :src="iconUrlFor(app.icon || (app.catalog && app.catalog.slug) || app.name)"
-                             alt="" width="20" height="20" class="rounded flex-shrink-0"
+                             alt="" width="16" height="16" class="rounded flex-shrink-0"
                              @error="$event.target.style.visibility='hidden'">
                         <span class="apps-card-dot" :class="'apps-card-dot--' + app.status" aria-hidden="true"></span>
                         <span class="flex-1 min-w-0 truncate"
@@ -5293,12 +5293,12 @@
                            + last-seen rtt. Gates on port_results.length so single-
                            port chips don't render an empty section. -->
                       <div x-show="Array.isArray(app.port_results) && app.port_results.length"
-                           class="apps-port-grid mt-1 ms-7 fs-3xs">
+                           class="apps-port-grid mt-0.5 ms-6 fs-3xs">
                         <template x-for="pr in (app.port_results || [])" :key="pr.port">
                           <span class="apps-port-pill"
-                                :class="pr.alive ? 'apps-port-pill--up' : 'apps-port-pill--down'"
+                                :class="'apps-port-pill--' + appsPortState(pr)"
                                 :title="appsPortTitle(pr)">
-                            <span class="apps-card-dot" :class="pr.alive ? 'apps-card-dot--up' : 'apps-card-dot--down'" aria-hidden="true"></span>
+                            <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
                             <span x-text="pr.port" class="mono"></span>
                             <span x-show="pr.rtt_ms != null" class="text-[var(--text-faint)] mono" x-text="' · ' + appsLatencyMs(pr.rtt_ms)"></span>
                           </span>
@@ -9339,9 +9339,9 @@
                          x-text="appsInstanceReason(inst)"></div>
                     <div x-show="(inst.port_results || []).length" class="apps-port-grid mt-1">
                       <template x-for="pr in (inst.port_results || [])" :key="pr.port">
-                        <span class="apps-port-pill" :class="pr.alive ? 'apps-port-pill--up' : 'apps-port-pill--down'"
+                        <span class="apps-port-pill" :class="'apps-port-pill--' + appsPortState(pr)"
                               :title="appsPortTitle(pr)">
-                          <span class="apps-card-dot" :class="pr.alive ? 'apps-card-dot--up' : 'apps-card-dot--down'" aria-hidden="true"></span>
+                          <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
                           <span x-text="pr.port" class="mono"></span>
                         </span>
                       </template>
@@ -9505,9 +9505,9 @@
                          x-text="appsInstanceReason(a)"></div>
                     <div x-show="(a.port_results || []).length" class="apps-port-grid mt-1">
                       <template x-for="pr in (a.port_results || [])" :key="pr.port">
-                        <span class="apps-port-pill" :class="pr.alive ? 'apps-port-pill--up' : 'apps-port-pill--down'"
+                        <span class="apps-port-pill" :class="'apps-port-pill--' + appsPortState(pr)"
                               :title="appsPortTitle(pr)">
-                          <span class="apps-card-dot" :class="pr.alive ? 'apps-card-dot--up' : 'apps-card-dot--down'" aria-hidden="true"></span>
+                          <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
                           <span x-text="pr.port" class="mono"></span>
                         </span>
                       </template>

@@ -63,10 +63,10 @@ export const KNOWN_ICONS = new Set([
   'prowlarr', 'proxmox', 'pulse', 'qbittorrent', 'rachio', 'radarr',
   'readarr', 'reolink', 'roku', 'roundcube', 'rundeck', 'rustdesk', 'sabnzbd',
   'samsung', 'samsung-electronics', 'sandisk', 'seeedstudio', 'sensibo', 'smtp', 'somfy', 'sonarr',
-  'speedtest-tracker', 'squid', 'stalwart', 'synology', 'synology-dark', 'tailscale', 'tautulli',
+  'speedtest-tracker', 'squid', 'stalwart', 'synology', 'synology-dark', 'tailscale', 'tautulli', 'tdarr',
   'tracearr', 'traefik', 'transmission', 'truenas', 'truenas-core', 'truenas-scale',
   'ubiquiti', 'ubuntu', 'ui', 'unifi', 'ups', 'uptime-kuma',
   'vcenter', 'vdsl', 'veeam', 'vmware', 'vsphere', 'wd',
-  'webmin', 'windows', 'windows-10', 'windows-server', 'wireguard', 'xiaomi',
+  'webmin', 'whisparr', 'windows', 'windows-10', 'windows-server', 'wireguard', 'xiaomi',
   'zabbix',
 ]);
