@@ -900,6 +900,20 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     # in `_commandActions()`; the AI emitting `ACTION: scan_ports` is
     # honoured only when the SPA-side gate would otherwise pass.
     "scan_ports",
+    # Open the Apps discovery wizard (admin) — the entry point for
+    # binding catalog templates to a host by matching its open ports.
+    # SPA-side gate (admin role + apps feature) lives in
+    # `_commandActions()`; `run` navigates to Admin → Apps and opens
+    # the wizard. This is the ONLY Apps write-flow exposed to the
+    # palette ON PURPOSE: the remaining Apps write ops (per-instance
+    # edit / unpin, per-template pin, catalog create / update / delete /
+    # re-seed, manual probe-now) need precise instance-index / template
+    # targeting that a one-shot NL palette can't reliably resolve, and
+    # their canonical surface is the Admin → Apps editor (instance
+    # Edit / Remove modal + Templates tab) with its own confirm flows.
+    # Discovery is the natural "AI, help me set up apps on this host"
+    # entry; the actual pin happens in the wizard with operator review.
+    "discover_apps",
     # Re-test connection actions for each integration. SPA-callable
     # via `_commandActions()` (one entry per provider when the SPA
     # has the matching test handler). The AI can fire them when the
@@ -1394,6 +1408,7 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - update_all_updatable — pull updates for every stack and standalone container that currently has an available update. Operator synonyms: 'update stacks', 'update all', 'update everything', 'pull updates', 'upgrade', 'upgrade everything', 'deploy updates', 'apply updates'. The SPA dedupes by stack id (one POST per stack, not per service), shows a confirm popup listing each affected stack/container, then issues the batch. (Destructive — the SPA confirms before issuing the update batch, so picking this is safe.)\n"
     " - sign_out — log out of OmniGrid\n"
     " - scan_ports — run an on-demand TCP-connect port scan. Synonyms: 'scan ports', 'port scan', 'tcp scan', 'discover open ports', 'nmap'. When the operator names a host to scan, emit BOTH `ACTION: scan_ports` AND a SEPARATE `ACTION_HOSTS: <host_id>` line (NOT a `HOSTS:` line — that one is reserved for disk-projection charts and would render an unrelated chart on the response). The SPA resolves the scan target via: (1) ACTION_HOSTS first id, (2) host drawer if open, (3) operator toast. The host drawer does NOT need to be open. Example reply: 'Scanning ports on opnsense.\\nACTION: scan_ports\\nACTION_HOSTS: opnsense'.\n"
+    " - discover_apps — open the Apps discovery wizard (admin) to bind catalog templates to a host by matching its open ports. Synonyms: 'discover apps', 'find apps', 'set up apps on this host', 'what apps run here'. Navigates to Admin → Apps and opens the wizard for operator review (it proposes bindings; the operator confirms the pin there). Emit just `ACTION: discover_apps`. Do NOT invent ACTION ids for pinning / unpinning / editing individual app instances or for catalog-template create/update/delete — those are done in the Admin → Apps editor, not via the palette.\n"
     " - test_portainer — re-test the Portainer connection. Navigates to Admin → Portainer and kicks the probe. Synonyms: 'test portainer', 'portainer test', 'check portainer'.\n"
     " - test_oidc — re-test the Authentik OIDC connection. Navigates to Admin → Authentik OIDC and kicks the probe. Synonyms: 'test oidc', 'test authentik', 'test sso'.\n"
     " - test_beszel — re-test the Beszel hub connection. Navigates to Admin → Providers → Beszel and kicks the probe. Synonyms: 'test beszel', 'check beszel'.\n"

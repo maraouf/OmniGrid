@@ -32,7 +32,10 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - App detail drawer: clicking an app card opens a slide-out panel showing its catalog binding and every host instance, with a per-instance debug panel that reveals the exact probe target(s), per-port outcomes, and — when an app can't be probed — a plain-language reason (e.g. "chip has no URL and the host has no Address set", "probe is disabled"). Includes a per-instance "Probe now" action.
 - Built-in Apps catalog templates added in a release now appear automatically on the next deploy (a seeded-slug ledger picks up new built-ins while leaving ones you deleted on purpose gone) — AdGuard Home is included.
 - The empty Apps view now offers admins a "Run discovery on a host" shortcut into the discovery wizard, and the app status pill announces status changes to screen readers.
-- Admin → Apps → Instances is now editable: edit a pinned app's name / URL / icon / probe inline, or remove it, via a per-row editor (chips were previously create-only).
+- Admin → Apps → Instances is now editable: edit a pinned app's name / URL / icon / ports / probe inline (with a per-port editor), or remove it, via a per-row editor and an Edit button in the app detail drawer (chips were previously create-only).
+- The AI command palette can now open the Apps discovery wizard for a host (e.g. "discover apps on web01").
+- Admin → Apps → Instances can now be grouped by host or by service (with collapsible groups) to tame a long list of pinned apps.
+- App instances can be linked to a Portainer container or stack (in the instance editor), adding inline Restart and Update actions in the app detail drawer.
 
 ### Changed
 

@@ -289,6 +289,25 @@ export default {
         }
       }] : []),
 
+      // Apps discovery wizard — the one Apps write-flow surfaced to the
+      // palette. Admin-only (the discovery endpoint + wizard are). `run`
+      // navigates to Admin → Apps and opens the wizard for operator
+      // review; the actual pin happens there. Per-instance edit / unpin,
+      // per-template pin, and catalog CRUD are deliberately NOT palette
+      // actions — they need precise instance/template targeting the
+      // one-shot palette can't resolve and live in the Admin → Apps
+      // editor with their own confirm flows.
+      ...((typeof this.isAdmin === 'function' && this.isAdmin()
+        && typeof this.openDiscoveryFromAppsView === 'function') ? [{
+        id: 'discover-apps',
+        label: t('command_palette.action.discover_apps', 'Discover apps on a host'),
+        sub: t('command_palette.action.discover_apps_sub', 'Open the Apps discovery wizard to match a host’s open ports against catalog templates'),
+        verbs: ['discover', 'apps', 'find', 'services', 'catalog'],
+        run: () => {
+          this.openDiscoveryFromAppsView();
+        }
+      }] : []),
+
       // Switch image tag — AI-dispatchable wrapper around the same
       // `submitRetagPopover` flow the drawer's inline popover uses.
       // `defer_confirm_to_run: true` means the runner itself decides
@@ -1169,6 +1188,7 @@ export default {
       // (`logic/ai.py`); the SPA's catalog uses kebab ids so the
       // alias map translates the snake-case the AI emits.
       scan_ports: 'scan-ports',
+      discover_apps: 'discover-apps',
       test_portainer: 'test-portainer',
       test_oidc: 'test-oidc',
       test_beszel: 'test-beszel',
