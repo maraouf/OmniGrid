@@ -1,0 +1,31 @@
+<!--
+  Shared per-app chip for the Hosts-view rows (desktop table + mobile
+  cards) — one brand-icon + status-dot chip per app pinned to the host,
+  rendered in a strip below the provider chips. Mirrors the host-drawer
+  apps-chip-strip look (apps-chip-strip-chip + per-status modifier).
+
+  Surrounding scope MUST provide:
+    - `app` : one entry from `sortedHostApps(h)` (name / icon / catalog /
+              status / url / service_idx)
+    - `h`   : the host row (used to open its drawer when the chip has no
+              external URL)
+
+  Click contract: a chip WITH a URL opens it in a new tab and stops the
+  click bubbling so the row's own open-drawer handler doesn't also fire;
+  a chip WITHOUT a URL opens the host drawer (where the full Apps card +
+  per-port detail live).
+-->
+<!--suppress HtmlUnknownAttribute -->
+<a class="apps-chip-strip-chip"
+   :class="'apps-chip-strip-chip--' + app.status"
+   :href="app.url || '#'"
+   :target="app.url ? '_blank' : null"
+   :rel="app.url ? 'noopener' : null"
+   @click="$event.stopPropagation(); if (!app.url) { $event.preventDefault(); openHostDrawer(h); }"
+   :title="appsChipTitle(app)"
+   :aria-label="appsChipAriaLabel(app)">
+  <img :src="iconUrlFor(app.icon || (app.catalog && app.catalog.slug) || app.name)"
+       alt="" width="14" height="14" class="rounded flex-shrink-0"
+       @error="$event.target.style.visibility='hidden'">
+  <span class="apps-card-dot" :class="'apps-card-dot--' + app.status" aria-hidden="true"></span>
+</a>

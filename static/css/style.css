@@ -48,7 +48,7 @@
   padding: 0 !important;
   margin: -1px !important;
   overflow: hidden !important;
-  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
   white-space: nowrap !important;
   border: 0 !important;
 }
@@ -138,30 +138,30 @@
   /* Accents */
   --primary: #3b82f6;
   --primary-hov: #2563eb;
-  --primary-soft: rgba(59, 130, 246, .12);
+  --primary-soft: rgb(59, 130, 246, .12);
   --success: #22c55e;
   --warning: #f59e0b;
   --danger: #ef4444;
   --info: #6366f1;
 
   /* Status pills */
-  --pill-update-bg: rgba(245, 158, 11, .12);
-  --pill-update-br: rgba(245, 158, 11, .25);
+  --pill-update-bg: rgb(245, 158, 11, .12);
+  --pill-update-br: rgb(245, 158, 11, .25);
   --pill-update-fg: #fbbf24;
-  --pill-ok-bg: rgba(34, 197, 94, .10);
-  --pill-ok-br: rgba(34, 197, 94, .22);
+  --pill-ok-bg: rgb(34, 197, 94, .10);
+  --pill-ok-br: rgb(34, 197, 94, .22);
   --pill-ok-fg: #4ade80;
-  --pill-error-bg: rgba(239, 68, 68, .12);
-  --pill-error-br: rgba(239, 68, 68, .25);
+  --pill-error-bg: rgb(239, 68, 68, .12);
+  --pill-error-br: rgb(239, 68, 68, .25);
   --pill-error-fg: #f87171;
-  --pill-unknown-bg: rgba(148, 163, 184, .10);
-  --pill-unknown-br: rgba(148, 163, 184, .20);
+  --pill-unknown-bg: rgb(148, 163, 184, .10);
+  --pill-unknown-br: rgb(148, 163, 184, .20);
   --pill-unknown-fg: #94a3b8;
-  --pill-ignored-bg: rgba(100, 116, 139, .10);
-  --pill-ignored-br: rgba(100, 116, 139, .20);
+  --pill-ignored-bg: rgb(100, 116, 139, .10);
+  --pill-ignored-br: rgb(100, 116, 139, .20);
   --pill-ignored-fg: #64748b;
-  --pill-offline-bg: rgba(100, 116, 139, .12);
-  --pill-offline-br: rgba(100, 116, 139, .25);
+  --pill-offline-bg: rgb(100, 116, 139, .12);
+  --pill-offline-br: rgb(100, 116, 139, .25);
   --pill-offline-fg: #94a3b8;
   /* Warning pill — amber. Used by `.ai-resp-chart-stale` +
        `.ai-resp-chart-confidence--medium` + a few drawer hint
@@ -170,14 +170,14 @@
        canonical amber text colour, `.br` is `.fg` at ~25%
        opacity, `.bg` matches the existing `--pill-update-bg`
        weight. */
-  --pill-warning-bg: rgba(245, 158, 11, .12);
-  --pill-warning-br: rgba(245, 158, 11, .25);
+  --pill-warning-bg: rgb(245, 158, 11, .12);
+  --pill-warning-br: rgb(245, 158, 11, .25);
   --pill-warning-fg: #fbbf24;
   /* Pill-info — used by the drift-from-baseline chip's ▼ (below
        baseline) tone. Mirrors the `--info` accent at the same
        weights as the rest of the pill family. */
-  --pill-info-bg: rgba(99, 102, 241, .12);
-  --pill-info-br: rgba(99, 102, 241, .25);
+  --pill-info-bg: rgb(99, 102, 241, .12);
+  --pill-info-br: rgb(99, 102, 241, .25);
   --pill-info-fg: #818cf8;
   /* AI sidebar drawer width — runtime-tunable via the
        `tuning_ai_sidebar_width_px` TUNABLE; consumed inside the
@@ -194,8 +194,8 @@
        inline; tokenising matches the rest of the stylesheet's
        no-raw-rgba-outside-:root rule and lets the dark / light
        theme blocks set theme-appropriate weights independently. */
-  --ai-shadow-launcher: 0 4px 12px rgba(0, 0, 0, .35);
-  --ai-shadow-drawer: 0 0 24px rgba(0, 0, 0, .25);
+  --ai-shadow-launcher: 0 4px 12px rgb(0, 0, 0, .35);
+  --ai-shadow-drawer: 0 0 24px rgb(0, 0, 0, .25);
   /* Metric chart swatches — matched to Beszel's palette so the
        Hosts view reads familiar. */
   /* Matches Beszel's default palette so the two dashboards feel
@@ -244,30 +244,30 @@
   /* Interactive SSH terminal modal */
   --terminal-bg: #0b1220;
   --terminal-fg: #e2e8f0;
-  --terminal-status-ok-bg: rgba(34, 197, 94, .12);
+  --terminal-status-ok-bg: rgb(34, 197, 94, .12);
   --terminal-status-ok-fg: #4ade80;
-  --terminal-status-warn-bg: rgba(245, 158, 11, .14);
+  --terminal-status-warn-bg: rgb(245, 158, 11, .14);
   --terminal-status-warn-fg: #fbbf24;
-  --terminal-status-err-bg: rgba(239, 68, 68, .14);
+  --terminal-status-err-bg: rgb(239, 68, 68, .14);
   --terminal-status-err-fg: #f87171;
   /* Neutral cancel-button background for SweetAlert dialogs.
        Distinct from --surface-3 (panel chrome) and --border-bright
        (separator lines) so the cancel pill reads as a button rather
        than chrome. Used by confirmDialog() in app.js. */
   --btn-cancel-bg: #374151;
-  --pill-degraded-bg: rgba(245, 158, 11, .12);
-  --pill-degraded-br: rgba(245, 158, 11, .25);
+  --pill-degraded-bg: rgb(245, 158, 11, .12);
+  --pill-degraded-br: rgb(245, 158, 11, .25);
   --pill-degraded-fg: #fbbf24;
-  --pill-healthy-bg: rgba(34, 197, 94, .10);
-  --pill-healthy-br: rgba(34, 197, 94, .22);
+  --pill-healthy-bg: rgb(34, 197, 94, .10);
+  --pill-healthy-br: rgb(34, 197, 94, .22);
   --pill-healthy-fg: #4ade80;
 
   /* Overlays */
-  --backdrop: rgba(0, 0, 0, .55);
-  --backdrop-strong: rgba(0, 0, 0, .75);
-  --row-hover: rgba(255, 255, 255, .03);
-  --label-shadow: rgba(0, 0, 0, .4);
-  --kbd-shadow: rgba(0, 0, 0, .35);
+  --backdrop: rgb(0, 0, 0, .55);
+  --backdrop-strong: rgb(0, 0, 0, .75);
+  --row-hover: rgb(255, 255, 255, .03);
+  --label-shadow: rgb(0, 0, 0, .4);
+  --kbd-shadow: rgb(0, 0, 0, .35);
 
   /* Admin → Logs accent palette — one hue per [tag] prefix so the
        log viewer's chip colours are visually distinguishable. Tokens
@@ -316,7 +316,7 @@
   --ipv6-fg: #a78bfa;
 
   /* Drop-shadow tint for the dark-mode `.app-icon` hover glow. */
-  --icon-glow: rgba(255, 255, 255, .15);
+  --icon-glow: rgb(255, 255, 255, .15);
 
   /* Spacing scale */
   --s-1: 2px;
@@ -391,7 +391,7 @@
   /* MED-CSS — log-severity active-pill count badge background.
      * Pre-fix `static/css/style.css:.log-sev-pill.is-active .log-sev-count`
      * inlined `rgba(0, 0, 0, 0.18)` — direct CLAUDE.md violation. */
-  --log-sev-active-count-bg: rgba(0, 0, 0, 0.18);
+  --log-sev-active-count-bg: rgb(0, 0, 0, 0.18);
 
   /* Touch-target minimum — tappable elements on mobile need this
        much area to be comfortable. Used by the mobile-first Hosts
@@ -479,8 +479,8 @@
   /* host-row-spark stroke + drop-shadow.
      * White at 0.85 alpha reads cleanly on every fill colour AND the dark
      * surface; the 1px shadow lifts the line off saturated bars. */
-  --spark-stroke: rgba(255, 255, 255, 0.85);
-  --spark-shadow: rgba(0, 0, 0, 0.5);
+  --spark-stroke: rgb(255, 255, 255, 0.85);
+  --spark-shadow: rgb(0, 0, 0, 0.5);
 
   /* Apps view — per-card status-accent border thickness. Declared
      here so the .apps-card border-inline-start rule reads a real
@@ -514,55 +514,55 @@
   --text-on-warning: #1a0e00;
   --primary: #2563eb;
   --primary-hov: #1d4ed8;
-  --primary-soft: rgba(37, 99, 235, .08);
+  --primary-soft: rgb(37, 99, 235, .08);
   --success: #16a34a;
   --warning: #d97706;
   --danger: #dc2626;
   --info: #4f46e5;
-  --pill-update-bg: rgba(217, 119, 6, .10);
-  --pill-update-br: rgba(217, 119, 6, .30);
+  --pill-update-bg: rgb(217, 119, 6, .10);
+  --pill-update-br: rgb(217, 119, 6, .30);
   --pill-update-fg: #b45309;
-  --pill-ok-bg: rgba(22, 163, 74, .08);
-  --pill-ok-br: rgba(22, 163, 74, .30);
+  --pill-ok-bg: rgb(22, 163, 74, .08);
+  --pill-ok-br: rgb(22, 163, 74, .30);
   --pill-ok-fg: #15803d;
-  --pill-error-bg: rgba(220, 38, 38, .08);
-  --pill-error-br: rgba(220, 38, 38, .30);
+  --pill-error-bg: rgb(220, 38, 38, .08);
+  --pill-error-br: rgb(220, 38, 38, .30);
   --pill-error-fg: #b91c1c;
-  --pill-unknown-bg: rgba(100, 116, 139, .08);
-  --pill-unknown-br: rgba(100, 116, 139, .25);
+  --pill-unknown-bg: rgb(100, 116, 139, .08);
+  --pill-unknown-br: rgb(100, 116, 139, .25);
   --pill-unknown-fg: #94a3b8;
-  --pill-ignored-bg: rgba(100, 116, 139, .06);
-  --pill-ignored-br: rgba(100, 116, 139, .20);
+  --pill-ignored-bg: rgb(100, 116, 139, .06);
+  --pill-ignored-br: rgb(100, 116, 139, .20);
   --pill-ignored-fg: #64748b;
-  --pill-offline-bg: rgba(100, 116, 139, .08);
-  --pill-offline-br: rgba(100, 116, 139, .25);
+  --pill-offline-bg: rgb(100, 116, 139, .08);
+  --pill-offline-br: rgb(100, 116, 139, .25);
   --pill-offline-fg: #94a3b8;
   /* Warning pill — amber, light-theme tuned darker for contrast. */
-  --pill-warning-bg: rgba(217, 119, 6, .10);
-  --pill-warning-br: rgba(217, 119, 6, .30);
+  --pill-warning-bg: rgb(217, 119, 6, .10);
+  --pill-warning-br: rgb(217, 119, 6, .30);
   --pill-warning-fg: #b45309;
   /* Pill-info, light-theme tuned for contrast. Drift-chip ▼ tone. */
-  --pill-info-bg: rgba(79, 70, 229, .08);
-  --pill-info-br: rgba(79, 70, 229, .30);
+  --pill-info-bg: rgb(79, 70, 229, .08);
+  --pill-info-br: rgb(79, 70, 229, .30);
   --pill-info-fg: #4338ca;
   /* AI sidebar drawer width + shadows — see :root[dark] for rationale.
        MUST match the TUNABLES default in `logic/tuning.py` and the SPA
        fallback in `static/index.html` so the CSS / SPA / backend
        triplet agrees on the initial-paint width. */
   --ai-sidebar-width: 480px;
-  --ai-shadow-launcher: 0 4px 12px rgba(0, 0, 0, .15);
-  --ai-shadow-drawer: 0 0 24px rgba(0, 0, 0, .10);
-  --pill-degraded-bg: rgba(217, 119, 6, .10);
-  --pill-degraded-br: rgba(217, 119, 6, .30);
+  --ai-shadow-launcher: 0 4px 12px rgb(0, 0, 0, .15);
+  --ai-shadow-drawer: 0 0 24px rgb(0, 0, 0, .10);
+  --pill-degraded-bg: rgb(217, 119, 6, .10);
+  --pill-degraded-br: rgb(217, 119, 6, .30);
   --pill-degraded-fg: #b45309;
-  --pill-healthy-bg: rgba(22, 163, 74, .08);
-  --pill-healthy-br: rgba(22, 163, 74, .30);
+  --pill-healthy-bg: rgb(22, 163, 74, .08);
+  --pill-healthy-br: rgb(22, 163, 74, .30);
   --pill-healthy-fg: #15803d;
-  --backdrop: rgba(15, 23, 42, .40);
-  --backdrop-strong: rgba(15, 23, 42, .60);
-  --row-hover: rgba(15, 23, 42, .03);
-  --label-shadow: rgba(255, 255, 255, .6);
-  --kbd-shadow: rgba(15, 23, 42, .12);
+  --backdrop: rgb(15, 23, 42, .40);
+  --backdrop-strong: rgb(15, 23, 42, .60);
+  --row-hover: rgb(15, 23, 42, .03);
+  --label-shadow: rgb(255, 255, 255, .6);
+  --kbd-shadow: rgb(15, 23, 42, .12);
   --metric-cpu: #7c3aed;
   --metric-mem: #d97706;
   --metric-disk: #16a34a;
@@ -598,11 +598,11 @@
        on the contrast they expect (most palettes assume a dark bg). */
   --terminal-bg: #0b1220;
   --terminal-fg: #e2e8f0;
-  --terminal-status-ok-bg: rgba(22, 163, 74, .14);
+  --terminal-status-ok-bg: rgb(22, 163, 74, .14);
   --terminal-status-ok-fg: #15803d;
-  --terminal-status-warn-bg: rgba(217, 119, 6, .14);
+  --terminal-status-warn-bg: rgb(217, 119, 6, .14);
   --terminal-status-warn-fg: #b45309;
-  --terminal-status-err-bg: rgba(220, 38, 38, .14);
+  --terminal-status-err-bg: rgb(220, 38, 38, .14);
   --terminal-status-err-fg: #b91c1c;
   /* Neutral cancel-button background for SweetAlert dialogs —
        light-mode value (lighter slate than the dark-mode).
@@ -652,19 +652,19 @@
 
   /* Drop-shadow tint for `.app-icon` — light theme uses a soft
        dark tint to lift icons against the bright surface. */
-  --icon-glow: rgba(15, 23, 42, .12);
+  --icon-glow: rgb(15, 23, 42, .12);
 
   /* MED-CSS — log-severity active-pill count badge background.
      * Light-theme variant uses a higher-opacity black tint so the
      * badge visibly recedes into the surrounding chip on a bright
      * surface (the dark-theme value is calibrated for surface-2). */
-  --log-sev-active-count-bg: rgba(15, 23, 42, 0.10);
+  --log-sev-active-count-bg: rgb(15, 23, 42, 0.10);
 
   /* host-row-spark — same contrast contract reversed for the
      * bright surface: dark stroke at 0.7 alpha + same 1px shadow
      * value (a darker-on-light shadow reads as a subtle halo). */
-  --spark-stroke: rgba(0, 0, 0, 0.7);
-  --spark-shadow: rgba(0, 0, 0, 0.5);
+  --spark-stroke: rgb(0, 0, 0, 0.7);
+  --spark-shadow: rgb(0, 0, 0, 0.5);
 
   /* Apps view — see dark theme for rationale; same value works in
      both themes because the status colour (not the thickness)
@@ -2342,7 +2342,7 @@ details summary::-webkit-details-marker {
   border-radius: var(--r-md);
   padding: var(--s-3) var(--s-4);
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: break-word;
   line-height: 1.5;
 }
 
@@ -2350,7 +2350,7 @@ details summary::-webkit-details-marker {
   color: var(--text);
   line-height: 1.55;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: break-word;
   background: color-mix(in srgb, var(--success) 6%, transparent);
   border: 1px solid color-mix(in srgb, var(--success) 25%, transparent);
   border-inline-start: 3px solid var(--success);
@@ -4828,7 +4828,6 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   font-size: var(--fs-sm) !important;
   line-height: 1.35;
   white-space: pre-wrap;
-  word-wrap: break-word;
   overflow-wrap: anywhere;
   text-align: start;
 }
@@ -5768,6 +5767,13 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   margin-top: var(--s-1);
 }
 
+/* App-chip strip on the desktop Hosts row — sits one line BELOW the
+   provider-chip strip. Same flex-wrap shape; a slightly tighter top
+   margin so the two strips read as a grouped pair under the host. */
+.host-row-apps-line {
+  margin-top: var(--s-1);
+}
+
 /* Chip-strip vocabulary legend — `?` button at the right edge of
    every host provider-chip strip. Sized to match the surrounding
    chips visually (same height, similar padding) but rendered as a
@@ -5930,7 +5936,7 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 
 .swal-ev-msg {
   color: var(--text-dim);
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .swal-ev-ok .swal-ev-msg {
@@ -6437,7 +6443,7 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   line-height: 1.5;
   color: var(--text);
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .swal2-confirm,
@@ -7756,7 +7762,7 @@ body.login {
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text);
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .passkey-item__meta {
