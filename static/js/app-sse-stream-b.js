@@ -920,7 +920,7 @@ export default {
   // passed in so Alpine's effect tracker registers reads of all
   // three; without that an IIFE wrapping the same logic might
   // miss the dependency tracking.
-  _applyDrawerScrollLock(host, item, node, sidebar, sidebarPinned) {
+  _applyDrawerScrollLock(host, item, node, sidebar, sidebarPinned, app) {
     // `sidebar` is `aiSidebarOpen` — added so opening the AI Assistant
     // drawer ALSO locks the body scroll. Pre-fix the AI sidebar slid
     // in over a still-scrollable page beneath; the cascade was scoped
@@ -936,7 +936,9 @@ export default {
     // docked. So `sidebar=true && sidebarPinned=true` does NOT
     // contribute to the lock — only the modal classic-drawer state
     // (host / item / node) plus an UNPINNED open sidebar count.
-    const lock = !!(host || item || node || (sidebar && !sidebarPinned));
+    // `app` is `drawerApp` (the Apps detail drawer) — a modal overlay
+    // like the classic three drawers, so it locks the body scroll too.
+    const lock = !!(host || item || node || app || (sidebar && !sidebarPinned));
     const html = document.documentElement;
     const body = document.body;
     if (lock) {

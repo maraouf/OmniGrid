@@ -29,6 +29,9 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 ### Added
 
 - Apps view now explains why an instance is degraded or down: each non-healthy instance shows the probe failure reason (timeout, connection refused, unexpected status, …) inline, and multi-port services render a per-port status pill so you can see exactly which port is failing without leaving the view.
+- App detail drawer: clicking an app card opens a slide-out panel showing its catalog binding and every host instance, with a per-instance debug panel that reveals the exact probe target(s), per-port outcomes, and — when an app can't be probed — a plain-language reason (e.g. "chip has no URL and the host has no Address set", "probe is disabled"). Includes a per-instance "Probe now" action.
+- Built-in Apps catalog templates added in a release now appear automatically on the next deploy (a seeded-slug ledger picks up new built-ins while leaving ones you deleted on purpose gone) — AdGuard Home is included.
+- The empty Apps view now offers admins a "Run discovery on a host" shortcut into the discovery wizard, and the app status pill announces status changes to screen readers.
 
 ### Changed
 
@@ -37,6 +40,8 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 ### Fixed
 
 - Saving, editing, deleting, and re-seeding Apps service-catalog templates no longer fail with an internal error. The discovery bulk-apply and provider-resume cross-tab live refreshes now propagate over the event stream as intended.
+- Apps pinned from a catalog template (no explicit URL) are now actually probed against the host's configured Address instead of being silently skipped — this was why catalog-pinned apps showed "degraded" while only URL-based ones reported. The manual "Probe now" action works on them too.
+- The Apps view now loads automatically on page load / refresh instead of requiring a manual Reload click.
 
 ## [1.5.0] — 2026-05-23
 
