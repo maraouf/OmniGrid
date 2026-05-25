@@ -2841,10 +2841,25 @@ def _shape_host_apps(h: dict) -> list[dict]:
         is_multi_port = isinstance(probe_block.get("ports"), list) and bool(probe_block.get("ports"))
         if is_multi_port and _latest_per_port is not None:
             try:
-                port_results = _latest_per_port(host_id, idx)
+                raw_port_results = _latest_per_port(host_id, idx)
             except Exception as e:  # noqa: BLE001
                 print(f"[apps] latest_per_port({host_id!r}/{idx}) skipped: {e}")
-                port_results = []
+                raw_port_results = []
+            # Per-port latest outcomes come from probe-sample HISTORY, which
+            # lingers after a port is removed from the chip config (and can
+            # carry template/default ports the sampler probed that aren't in
+            # THIS host's chip config). Filter to ports STILL in the chip's
+            # probe.ports so the drawer never shows a stale / template-only
+            # port pill. Mirrors the same filter in
+            # logic.service_catalog.list_apps (the top-level Apps view).
+            config_ports = set()
+            for _p in (probe_block.get("ports") or []):
+                if isinstance(_p, dict):
+                    _pv = _coerce_int_local(_p.get("port"))
+                    if _pv:
+                        config_ports.add(_pv)
+            port_results = [pr for pr in raw_port_results
+                            if _coerce_int_local(pr.get("port")) in config_ports]
         out.append({
             "service_idx": idx,
             "name": (chip.get("name") or "").strip(),
