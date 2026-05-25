@@ -387,7 +387,6 @@ async def api_service_probe_now(host_id: str, service_idx: int, request: Request
     one history pipeline.
     """
     import time as _time
-    from urllib.parse import urlparse as _urlparse
     from logic import service_sampler as _ss
     # Resolve the chip from hosts_config.
     hosts = _load_hosts_config()
@@ -405,72 +404,30 @@ async def api_service_probe_now(host_id: str, service_idx: int, request: Request
     if not isinstance(chip, dict):
         raise HTTPException(400, "service entry malformed")
     probe_cfg = chip.get("probe") or {}
-    if not probe_cfg.get("enabled"):
-        raise HTTPException(400, "probe is not enabled for this chip")
-    probe_type = (probe_cfg.get("type") or "tcp").strip().lower()
-    if probe_type not in ("tcp", "http"):
-        probe_type = "tcp"
-    url = (chip.get("url") or "").strip()
-    parsed_host = ""
-    parsed_port = None
-    if url:
-        try:
-            pu = _urlparse(url if "://" in url else "tcp://" + url)
-            parsed_host = (pu.hostname or "").strip()
-            parsed_port = pu.port
-        except (ValueError, AttributeError):
-            pass
-    # `_coerce_int_local` (imported at module top from service_catalog)
-    # narrows the Any-typed `probe.port` cell before the min/max
-    # comparison so static analysis doesn't flag Any|None → int.
-    override_port_int = _coerce_int_local(probe_cfg.get("port"))
-    port = override_port_int if (override_port_int and override_port_int > 0) else parsed_port
-    # Fall back to the host's curated `address` when the chip has no URL
-    # (e.g. a catalog-pinned chip carrying only probe.ports[]) — same
-    # resolution the lifespan sampler uses, so a manual probe-now works
-    # on catalog chips instead of 400-ing.
-    if not parsed_host:
-        parsed_host = (target_host.get("address") or "").strip()
-    if not parsed_host:
-        raise HTTPException(400, "unable to resolve probe target host — set the chip URL or the host Address")
-    # Multi-port chips carry their ports as sub-targets, so they don't
-    # need a resolvable top-level port; only single-port chips fall back
-    # to a scheme default / get rejected.
-    _ports_raw_chk = probe_cfg.get("ports")
-    _has_sub_ports = isinstance(_ports_raw_chk, list) and any(
-        isinstance(p, dict) and _coerce_int_local(p.get("port")) for p in _ports_raw_chk)
-    if probe_type == "tcp" and not port and not _has_sub_ports:
-        lc = url.lower()
-        if lc.startswith("https://"):
-            port = 443
-        elif lc.startswith("http://"):
-            port = 80
-        else:
-            raise HTTPException(400, "no probe port resolvable; set chip url or probe.port")
-    expected_status = _coerce_int_local(probe_cfg.get("expected_status")) or 0
+    # Resolve the probe target via the SAME shared helper the lifespan
+    # sampler + Apps debug endpoint use, so the manual probe-now path
+    # can't drift from them (the address fallback + multi-port handling
+    # all live in one place now). None = unprobeable; re-derive a
+    # specific 400 reason since the resolver collapses every skip case
+    # to None.
+    tgt = _ss.resolve_chip_probe_target(target_host, service_idx, chip)
+    if tgt is None:
+        if not probe_cfg.get("enabled"):
+            raise HTTPException(400, "probe is not enabled for this chip")
+        if not ((chip.get("url") or "").strip() or (target_host.get("address") or "").strip()):
+            raise HTTPException(400, "unable to resolve probe target host — set the chip URL or the host Address")
+        raise HTTPException(400, "no probe port resolvable; set chip url or probe.port")
+    probe_type = tgt["probe_type"]
+    url = tgt["url"]
+    parsed_host = tgt["host"]
+    port = tgt["port"]
+    expected_status = tgt["expected_status"]
+    # `probe.ports[]` (multi-port) is resolved into sub_ports by the
+    # shared helper; when set, the legacy single-port `probe.port` is
+    # ignored — same shape as the sampler so manual + scheduled paths
+    # persist identically.
+    sub_ports = tgt["sub_ports"]
     timeout_s = float(tuning.tuning_int(Tunable.SERVICE_PROBE_TIMEOUT_SECONDS))
-    # Multi-port chip — fan out per-port probe + roll up. Same shape as
-    # the sampler's _probe_target so the manual + scheduled paths
-    # converge on identical persistence output. When `probe.ports[]`
-    # is set, the legacy single-port `probe.port` is ignored.
-    ports_raw = probe_cfg.get("ports")
-    sub_ports: list[dict] = []
-    if isinstance(ports_raw, list):
-        for p in ports_raw:
-            if not isinstance(p, dict):
-                continue
-            pi = _coerce_int_local(p.get("port"))
-            if pi is None or not (1 <= pi <= 65535):
-                continue
-            sub_proto = (p.get("protocol") or "tcp")
-            sub_proto = sub_proto.strip().lower() if isinstance(sub_proto, str) else "tcp"
-            sub_path = (p.get("probe_path") or "").strip() or "/"
-            sub_label = (p.get("label") or "").strip()
-            sub_status = _coerce_int_local(p.get("probe_status")) or 0
-            sub_type = ("http" if sub_proto in ("http", "https") or sub_path != "/" else "tcp")
-            sub_ports.append({"port": pi, "protocol": sub_proto, "label": sub_label,
-                              "probe_path": sub_path, "probe_status": sub_status,
-                              "probe_type": sub_type})
     ts = int(_time.time())
     port_results: list[dict] = []
     if sub_ports:

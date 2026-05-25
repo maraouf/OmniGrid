@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
-from typing import Any, Optional
+from typing import Optional
 
 from logic.db import db_conn
 from logic.tuning import Tunable, tuning_int
@@ -53,26 +53,13 @@ def _window_days() -> int:
     return tuning_int(Tunable.HOST_BASELINE_WINDOW_DAYS)
 
 
-def _safe_float(v: Any, default: float = 0.0) -> float:
-    """Coerce ``v`` to float or return ``default`` — pyright doesn't
-    narrow ``r[N]`` past `Any | None` even after `is not None` checks
-    in the dict-comprehension context."""
-    if v is None:
-        return default
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return default
-
-
-def _safe_int(v: Any, default: int = 0) -> int:
-    """Companion to :func:`_safe_float` for int fields."""
-    if v is None:
-        return default
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return default
+# Numeric-coercion helpers live in the dependency-free logic.coerce leaf
+# module now; aliased to the legacy underscore names so call sites are
+# unchanged. (Consolidated from the previously per-sampler duplicates.)
+from logic.coerce import (  # noqa: E402
+    safe_float as _safe_float,
+    safe_int as _safe_int,
+)
 
 
 def _percentile(values: list[float], p: float) -> Optional[float]:

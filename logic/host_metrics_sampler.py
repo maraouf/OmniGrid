@@ -37,53 +37,15 @@ from typing import Any, Optional
 import httpx
 
 
-def _safe_int(v: Any, default: int = 0) -> int:
-    """Coerce ``v`` to ``int`` or return ``default``.
-
-    Pyright doesn't narrow ``stats.get('x') or 0`` to a concrete int when
-    the dict's value type is ``Any`` — the ``or`` expression's static
-    type stays ``Any | int`` and the ``int(...)`` call complains about
-    ``Any | None``. This helper centralises the coercion with explicit
-    narrowing so call sites stay one-liners + lint-clean.
-    """
-    if v is None:
-        return default
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return default
-
-
-def _safe_float(v: Any, default: float = 0.0) -> float:
-    """Companion to :func:`_safe_int` for float fields."""
-    if v is None:
-        return default
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return default
-
-
-def _int_or_none(v: Any) -> Optional[int]:
-    """Like :func:`_safe_int` but returns None for missing values rather
-    than 0. Convenient for INSERT-row columns where NULL carries the
-    semantic "field genuinely absent" (vs an explicit zero)."""
-    if v is None:
-        return None
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return None
-
-
-def _float_or_none(v: Any) -> Optional[float]:
-    """Companion to :func:`_int_or_none` for float fields."""
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
+# Numeric-coercion helpers live in the dependency-free logic.coerce leaf
+# module now; aliased to the legacy underscore names so call sites are
+# unchanged. (Consolidated from the previously per-sampler duplicates.)
+from logic.coerce import (  # noqa: E402
+    safe_int as _safe_int,
+    safe_float as _safe_float,
+    int_or_none as _int_or_none,
+    float_or_none as _float_or_none,
+)
 
 
 def _coerce_counter_pair(a_raw: Any, b_raw: Any) -> Optional[tuple[int, int]]:
