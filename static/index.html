@@ -5417,31 +5417,32 @@
                               </svg>
                             </template>
                             <span x-text="p.port + '/' + (p.protocol || 'tcp')"></span>
-                            <!-- Probe-status dot — green/red when this open
-                                 port maps to an app probe (http / tls / tcp)
-                                 that has a verdict. Hidden when the port has
-                                 no probe / no result yet. -->
-                            <span x-show="mapped && mapped.port_status"
+                            <!-- Single status dot — green/red/amber/grey for the
+                                 mapped target. Prefers this port's per-port probe
+                                 verdict (port_status); falls back to the app's
+                                 overall status when there's no per-port result.
+                                 ONE dot per chip (the app annotation no longer
+                                 carries a second, redundant dot). -->
+                            <span x-show="mapped"
                                   class="apps-card-dot ms-1"
-                                  :class="(mapped && mapped.port_status) ? 'apps-card-dot--' + mapped.port_status : ''"
-                                  :title="(mapped && mapped.port_status === 'up') ? (t('host_drawer.port_scan.probe_up') || 'Probe: reachable') : (t('host_drawer.port_scan.probe_down') || 'Probe: unreachable')"
+                                  :class="mapped ? 'apps-card-dot--' + (mapped.port_status || mapped.status) : ''"
+                                  :title="mapped ? ((mapped.port_status || mapped.status) === 'up' ? (t('host_drawer.port_scan.probe_up') || 'Probe: reachable') : ((mapped.port_status || mapped.status) === 'down' ? (t('host_drawer.port_scan.probe_down') || 'Probe: unreachable') : '')) : ''"
                                   aria-hidden="true"></span>
                             <span x-show="p.service_hint" class="ms-1 opacity-70"
                                   x-text="'· ' + p.service_hint"></span>
-                            <!-- Mapped-app annotation — when a scanned open
-                                 port matches a configured app (chip) on this
-                                 host, show the app's icon + name + a status
-                                 dot (green / red / amber by app status) so the
-                                 operator sees which app owns the port and
-                                 whether it's healthy. `mapped` is computed once
-                                 per chip via the chip-level x-data above. -->
+                            <!-- Mapped-target annotation — when a scanned open
+                                 port matches a configured app chip OR an
+                                 http_probe URL on this host, show its icon +
+                                 name so the operator sees what owns the port.
+                                 The status is carried by the single dot above
+                                 (not duplicated here). `mapped` is computed once
+                                 per chip via the chip-level x-data. -->
                             <template x-if="mapped">
                               <span class="ms-1.5 ps-1.5 inline-flex items-center gap-1 border-s border-[color:var(--border-bright)]"
-                                    :title="t('host_drawer.port_scan.mapped_app_title', { name: mapped.name }) || ('App: ' + mapped.name)">
+                                    :title="mapped.is_http_probe ? ((t('host_drawer.port_scan.mapped_probe_title', { url: mapped.url }) || ('Probe: ' + mapped.url))) : (t('host_drawer.port_scan.mapped_app_title', { name: mapped.name }) || ('App: ' + mapped.name))">
                                 <img :src="iconUrlFor(mapped.icon)" alt="" width="12" height="12"
                                      class="rounded flex-shrink-0"
                                      @error="$event.target.style.visibility='hidden'">
-                                <span class="apps-card-dot" :class="'apps-card-dot--' + mapped.status" aria-hidden="true"></span>
                                 <span x-text="mapped.name"></span>
                               </span>
                             </template>

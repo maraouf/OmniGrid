@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Dev-only tooling. Manages the front-end dependencies (alpinejs, sweetalert2, @tailwindcss/browser). The server never runs npm — it just serves node_modules/ directly via FastAPI's StaticFiles mount at /node_modules/. ESLint is a devDependency for static JS lint feedback (npm run lint). `type: module` lets eslint.config.js use ESM `import` syntax without Node's deprecation warning; the browser-served static JS files don't go through Node so this setting doesn't affect them.",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "lint": "eslint static/",
@@ -26,7 +26,7 @@
     "@eslint/js": "^9.0.0",
     "eslint": "^9.0.0",
     "globals": "^15.0.0",
-    "stylelint": "^16.0.0",
-    "stylelint-config-standard": "^36.0.0"
+    "stylelint": "^17.12.0",
+    "stylelint-config-standard": "^40.0.0"
   }
 }
