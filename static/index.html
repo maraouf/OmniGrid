@@ -3365,7 +3365,7 @@
                 <p class="fs-3xs text-[var(--text-faint)] truncate">
                   <span x-show="grp.host_label && grp.host_label !== (grp.host_address || grp.host_id)"
                         x-text="grp.host_label + ' · '"></span>
-                  <span x-text="t('apps.counts.instances_up', { up: grp.up_count, total: grp.app_count })"></span>
+                  <span x-text="t('apps.counts.apps_up', { up: grp.up_count, total: grp.app_count })"></span>
                 </p>
               </div>
             </div>
@@ -5254,7 +5254,7 @@
                 </header>
                 <ul class="space-y-0.5 fs-xs">
                   <template x-for="app in sortedHostApps(h)" :key="app.service_idx">
-                    <li class="apps-drawer-row py-1 border-b border-[var(--border)] last:border-b-0">
+                    <li class="apps-drawer-row py-0.5 border-b border-[var(--border)] last:border-b-0">
                       <div class="flex items-center gap-1.5">
                         <img :src="iconUrlFor(app.icon || (app.catalog && app.catalog.slug) || app.name)"
                              alt="" width="16" height="16" class="rounded flex-shrink-0"
@@ -5292,7 +5292,7 @@
                            with sampler history. Each row carries port + status dot
                            + last-seen rtt. Gates on port_results.length so single-
                            port chips don't render an empty section. -->
-                      <div x-show="Array.isArray(app.port_results) && app.port_results.length"
+                      <div x-show="Array.isArray(app.port_results) && app.port_results.length > 1"
                            class="apps-port-grid mt-0.5 ms-6 fs-3xs">
                         <template x-for="pr in (app.port_results || [])" :key="pr.port">
                           <span class="apps-port-pill"
@@ -9467,7 +9467,7 @@
                     <span class="chip fs-3xs" :class="appStatusPillClass(drawerAppHost.status)"
                           x-text="t('apps.status_' + drawerAppHost.status) || drawerAppHost.status"></span>
                     <span class="fs-3xs text-[var(--text-faint)]"
-                          x-text="t('apps.counts.instances_up', { up: drawerAppHost.up_count, total: drawerAppHost.app_count })"></span>
+                          x-text="t('apps.counts.apps_up', { up: drawerAppHost.up_count, total: drawerAppHost.app_count })"></span>
                     <span x-show="drawerAppHost.host_label && drawerAppHost.host_label !== (drawerAppHost.host_address || drawerAppHost.host_id)"
                           class="fs-3xs text-[var(--text-faint)]" x-text="drawerAppHost.host_label"></span>
                   </div>

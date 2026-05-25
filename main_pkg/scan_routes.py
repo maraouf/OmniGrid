@@ -709,27 +709,36 @@ async def api_hosts_port_scan(
     # unioned onto the base list. Operator-flagged: a pinned app's port
     # (e.g. Beszel Agent 45876) was missed when the operator ran a custom
     # port list that didn't include it — but if the operator cared enough
-    # to pin the app, its port should always be scanned. Union + dedupe,
-    # preserving the base order then appending any extras.
-    _app_ports: list[int] = []
+    # to pin the app, its port should always be scanned. PROTOCOL-AWARE:
+    # a chip port declared `udp` feeds the UDP scan list (below), not the
+    # TCP one — so e.g. a Tailscale/WireGuard UDP port is UDP-probed
+    # rather than TCP-probed (a TCP connect to a UDP-only port always
+    # fails). The legacy top-level `services[].port` has no protocol so
+    # it's treated as TCP. Union + dedupe, preserving base order.
+    _app_ports_tcp: list[int] = []
+    _app_ports_udp: list[int] = []
     for _svc in (h.get("services") or []):
         if not isinstance(_svc, dict):
             continue
-        for _cand in [_svc.get("port"), *(
-            (_pp.get("port") for _pp in ((_svc.get("probe") or {}).get("ports") or [])
-             if isinstance(_pp, dict))
-        )]:
+        _cands: list[tuple] = [(_svc.get("port"), "tcp")]
+        for _pp in ((_svc.get("probe") or {}).get("ports") or []):
+            if isinstance(_pp, dict):
+                _proto = _pp.get("protocol") or "tcp"
+                _proto = _proto.strip().lower() if isinstance(_proto, str) else "tcp"
+                _cands.append((_pp.get("port"), _proto))
+        for _cand, _proto in _cands:
             if not isinstance(_cand, (int, str)):
                 continue
             try:
                 _pn = int(_cand)
             except (TypeError, ValueError):
                 continue
-            if 1 <= _pn <= 65535:
-                _app_ports.append(_pn)
-    if _app_ports:
+            if not (1 <= _pn <= 65535):
+                continue
+            (_app_ports_udp if _proto == "udp" else _app_ports_tcp).append(_pn)
+    if _app_ports_tcp:
         _seen = set(ports_list)
-        for _pn in _app_ports:
+        for _pn in _app_ports_tcp:
             if _pn not in _seen:
                 ports_list.append(_pn)
                 _seen.add(_pn)
@@ -773,6 +782,15 @@ async def api_hosts_port_scan(
             _ps.parse_port_csv(udp_ports_csv) if udp_ports_csv
             else list(_ps_udp.DEFAULT_UDP_PORTS)
         )
+        # Union the host's udp-declared app/service ports (collected above)
+        # onto the UDP scan list so a UDP app port (e.g. a WireGuard /
+        # Tailscale listener) is actually UDP-probed.
+        if _app_ports_udp:
+            _useen = set(udp_ports_list)
+            for _pn in _app_ports_udp:
+                if _pn not in _useen:
+                    udp_ports_list.append(_pn)
+                    _useen.add(_pn)
         _udp_timeout_raw = (
             body.udp_timeout_s
             if body.udp_timeout_s is not None else
