@@ -3156,10 +3156,10 @@
             <span x-text="t('apps.subtitle') || 'Services running across your fleet.'"></span>
             <template x-if="appsListLoaded">
               <span class="ms-2">
-                <span class="chip pill-ok fs-2xs" x-text="appsCounts().up + ' up'"></span>
-                <span class="chip pill-warning fs-2xs" x-show="appsCounts().degraded" x-text="appsCounts().degraded + ' degraded'"></span>
-                <span class="chip pill-error fs-2xs" x-show="appsCounts().down" x-text="appsCounts().down + ' down'"></span>
-                <span class="chip pill-muted fs-2xs" x-show="appsCounts().unknown" x-text="appsCounts().unknown + ' unknown'"></span>
+                <span class="chip pill-ok fs-2xs" x-text="t('apps.counts.up', { n: appsCounts().up })"></span>
+                <span class="chip pill-warning fs-2xs" x-show="appsCounts().degraded" x-text="t('apps.counts.degraded', { n: appsCounts().degraded })"></span>
+                <span class="chip pill-error fs-2xs" x-show="appsCounts().down" x-text="t('apps.counts.down', { n: appsCounts().down })"></span>
+                <span class="chip pill-muted fs-2xs" x-show="appsCounts().unknown" x-text="t('apps.counts.unknown', { n: appsCounts().unknown })"></span>
               </span>
             </template>
           </div>
@@ -3236,7 +3236,7 @@
                         x-text="(t('apps.status_' + app.status) || app.status)"></span>
                 </div>
                 <p class="fs-3xs text-[var(--text-faint)] truncate"
-                   x-text="(app.catalog && app.catalog.description) || (app.up_count + '/' + app.instance_count + ' instances up')"></p>
+                   x-text="(app.catalog && app.catalog.description) || t('apps.counts.instances_up', { up: app.up_count, total: app.instance_count })"></p>
               </div>
             </header>
             <!-- Per-host instance list -->
@@ -3247,7 +3247,9 @@
                         :class="'apps-card-dot--' + inst.status"
                         :title="inst.status"
                         aria-hidden="true"></span>
-                  <span class="truncate flex-1" x-text="inst.host_label"></span>
+                  <span class="truncate flex-1"
+                        :title="(inst.host_address || inst.host_id) + (inst.host_label && inst.host_label !== (inst.host_address || inst.host_id) ? ' — ' + inst.host_label : '')"
+                        x-text="inst.host_address || inst.host_id"></span>
                   <span x-show="inst.last_probe && inst.last_probe.rtt_ms" class="fs-3xs text-[var(--text-faint)]"
                         x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? (inst.last_probe.rtt_ms + 'ms') : ''"></span>
                   <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener"

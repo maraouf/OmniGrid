@@ -2800,6 +2800,14 @@ async def api_services_catalog_create(payload: dict[str, Any], request: Request,
             target_id=str(entry.get("id") or ""),
             actor=_actor_from(request),
         )
+    # Invalidate the `_shape_host_apps` catalog cache so the next
+    # /api/hosts/list / one fan-out sees the new template instead of
+    # waiting up to 5s for the TTL.
+    try:
+        from main_pkg.apps_routes import _invalidate_shape_host_apps_catalog_cache
+        _invalidate_shape_host_apps_catalog_cache()
+    except ImportError:
+        pass
     return {"ok": True, "entry": entry}
 
 
@@ -2831,6 +2839,11 @@ async def api_services_catalog_update(cid: int, payload: dict[str, Any], request
             target_id=str(cid),
             actor=_actor_from(request),
         )
+    try:
+        from main_pkg.apps_routes import _invalidate_shape_host_apps_catalog_cache
+        _invalidate_shape_host_apps_catalog_cache()
+    except ImportError:
+        pass
     return {"ok": True, "entry": entry}
 
 
@@ -2859,6 +2872,11 @@ async def api_services_catalog_delete(cid: int, request: Request, _admin: AdminU
             target_id=str(cid),
             actor=_actor_from(request),
         )
+    try:
+        from main_pkg.apps_routes import _invalidate_shape_host_apps_catalog_cache
+        _invalidate_shape_host_apps_catalog_cache()
+    except ImportError:
+        pass
     return {"ok": True}
 
 
@@ -2877,6 +2895,11 @@ async def api_services_catalog_seed(request: Request, _admin: AdminUser):
             actor=_actor_from(request),
             message=f"Re-seeded {added} built-in templates",
         )
+    try:
+        from main_pkg.apps_routes import _invalidate_shape_host_apps_catalog_cache
+        _invalidate_shape_host_apps_catalog_cache()
+    except ImportError:
+        pass
     return {"ok": True, "added": added}
 
 

@@ -228,6 +228,29 @@ async def api_services_discover_apply(host_id: str, payload: dict[str, Any], req
                      + (f" — skipped {len(skipped)}" if skipped else "")),
             events_dict={"applied": applied, "skipped": skipped},
         )
+    # SSE: emit a single `apps:bulk_pinned` frame so other tabs refresh
+    # their `appsInstances` immediately without waiting on the 30s poll.
+    # Same single-frame shape as `host:bulk_action_applied` (per the
+    # CLAUDE.md "Bulk-action endpoints emit ONE SSE event" rule):
+    # one wire frame carrying the full applied + skipped lists, the
+    # SPA's handler iterates server-side and patches state in place.
+    # `client_id` ensures the originating tab self-filters and doesn't
+    # re-fetch what it just wrote.
+    try:
+        _events.publish(
+            "apps:bulk_pinned",
+            {
+                "host_id": host_id,
+                "applied": applied,
+                "skipped": skipped,
+            },
+            client_id=_request_client_id(request),
+        )
+    except Exception as e:  # noqa: BLE001
+        # Best-effort — a missing SSE frame leaves the cross-tab refresh
+        # to the 30s poll fallback; never let it roll back the operator's
+        # actual write.
+        print(f"[apps] bulk_pinned SSE publish failed: {e}")
     return {
         "host_id": host_id,
         "applied": applied,
@@ -585,6 +608,13 @@ async def api_service_history(host_id: str, service_idx: int, *,
                 "rtt_ms": r[2],
                 "error": r[3],
                 "port": r[4],
+                # Self-describing grouping marker so the SPA renderer
+                # doesn't have to inspect each row's `port` field to
+                # tell rollup (chip-level) from per-port detail when
+                # `port_filter=-1` (every row) returns both shapes
+                # interleaved. `chip` ↔ port=0 ↔ rollup row;
+                # `port` ↔ port>0 ↔ per-port detail.
+                "grouping": "chip" if (r[4] or 0) == 0 else "port",
             }
             for r in rows
         ],
@@ -1004,7 +1034,14 @@ def _kick_background_gather() -> "asyncio.Task | None":
         if _background_gather_task is not None and not _background_gather_task.done():
             return _background_gather_task
         loop = asyncio.get_running_loop()
-        _background_gather_task = loop.create_task(_gather())
+        # `name=` surfaces this task in asyncio debug output / repl
+        # debugging so the operator can tell it apart from the dozens
+        # of other anonymous create_task sites. Strong-ref pattern
+        # (module-level `_background_gather_task`) covers the GC-collection
+        # risk per the CLAUDE.md "Background-task lifecycle" rule — the
+        # name kwarg adds diagnostic parity without dragging in the full
+        # `spawn_background_task` wrapper.
+        _background_gather_task = loop.create_task(_gather(), name="apps-kick-background-gather")
         return _background_gather_task
     except RuntimeError:
         # No running event loop (called from a sync context that isn't
@@ -1032,7 +1069,9 @@ def _kick_background_stats_gather() -> bool:
         if _background_stats_task is not None and not _background_stats_task.done():
             return True
         loop = asyncio.get_running_loop()
-        _background_stats_task = loop.create_task(_gather_stats())
+        # Same diagnostic-parity rationale as `_kick_background_gather`
+        # above — surface the task name in asyncio debug output.
+        _background_stats_task = loop.create_task(_gather_stats(), name="apps-kick-background-stats-gather")
         return True
     except RuntimeError:
         return False
@@ -2456,6 +2495,63 @@ def _sync_host_stats_source(provider: str, enabled: bool) -> None:
         set_setting(Settings.HOST_STATS_SOURCE, normalized)
 
 
+# Module-level TTL'd cache for `_shape_host_apps`'s catalog lookups.
+# Without this, the per-call `catalog_cache` in `_shape_host_apps` paid
+# one DB hit per unique catalog_id for EVERY host's call — a fleet
+# where 8 hosts all run Plex (catalog_id=N) would do the same
+# get_catalog_by_id(N) call 8 times per `/api/hosts/list` fan-out.
+# The TTL is intentionally short (5s — well under any reasonable poll
+# cadence) so a catalog edit propagates within one poll cycle, but
+# the SSE `settings:updated` event from `seed_builtins` invalidates
+# explicitly so re-seed shows up immediately.
+_SHAPE_HOST_APPS_CATALOG_TTL_SECONDS: float = 5.0
+_shape_host_apps_catalog_cache: dict = {"ts": 0.0, "by_id": {}}
+
+
+def _invalidate_shape_host_apps_catalog_cache() -> None:
+    """Wipe the catalog cache. Called from catalog write paths
+    (catalog CRUD + seed_builtins) so the next `_shape_host_apps` call
+    rebuilds from fresh DB state. SSE consumers also bump on
+    `settings:updated` so a cross-tab edit invalidates here too."""
+    _shape_host_apps_catalog_cache["ts"] = 0.0
+    _shape_host_apps_catalog_cache["by_id"] = {}
+
+
+def _get_shape_host_apps_catalog_map() -> dict:
+    """Return a `{catalog_id: catalog_dict|None}` map for use inside
+    `_shape_host_apps`. Cached for ``_SHAPE_HOST_APPS_CATALOG_TTL_SECONDS``;
+    refilled on TTL miss by walking `list_catalog()` once + materialising
+    a dict so subsequent per-chip lookups are O(1) without DB hits.
+    Negative entries (catalog_id pointing at a deleted template) are
+    cached as ``None`` to avoid re-querying dead FKs every tick.
+    """
+    import time as _time
+    now = _time.time()
+    cache_ts = float(_shape_host_apps_catalog_cache.get("ts") or 0.0)
+    if (now - cache_ts) < _SHAPE_HOST_APPS_CATALOG_TTL_SECONDS:
+        by_id_cached = _shape_host_apps_catalog_cache.get("by_id")
+        if isinstance(by_id_cached, dict):
+            return by_id_cached
+    try:
+        from logic.service_catalog import list_catalog as _list_catalog
+        rows = _list_catalog() or []
+    except Exception as e:  # noqa: BLE001
+        print(f"[apps] list_catalog refresh skipped: {e}")
+        return _shape_host_apps_catalog_cache.get("by_id") or {}
+    by_id: dict = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        try:
+            cid = int(r.get("id"))
+        except (TypeError, ValueError):
+            continue
+        by_id[cid] = r
+    _shape_host_apps_catalog_cache["ts"] = now
+    _shape_host_apps_catalog_cache["by_id"] = by_id
+    return by_id
+
+
 def _shape_host_apps(h: dict) -> list[dict]:
     """Return the Apps feature's per-chip array for the API row.
 
@@ -2493,15 +2589,13 @@ def _shape_host_apps(h: dict) -> list[dict]:
         print(f"[apps] latest_for_host({host_id!r}) skipped: {e}")
         latest = {}
         _latest_per_port = None  # type: ignore[assignment]
-    # Catalog lookup cache for the call. Resolves catalog_id -> dict.
-    # Optional[dict] value type so a catalog lookup that resolves to
-    # None (the FK pointed at a deleted template) can still be cached
-    # — avoids re-querying the DB for the same dead id on every chip.
-    catalog_cache: dict[int, Optional[dict]] = {}
-    try:
-        from logic.service_catalog import get_catalog_by_id as _get_catalog
-    except ImportError:
-        _get_catalog = None  # type: ignore[assignment]
+    # Catalog lookup map — preloaded once for the WHOLE request (not
+    # per-host call) via the module-level TTL cache. Pre-fix every call
+    # to `_shape_host_apps` ran `get_catalog_by_id(cid)` per unique chip
+    # catalog_id; the fan-out's N-hosts × M-chips paid M DB hits per host
+    # even when every host shared the same Plex/Sonarr templates. The
+    # TTL cache amortises to ONE list_catalog() call per 5s window.
+    catalog_by_id = _get_shape_host_apps_catalog_map()
     out: list[dict] = []
     for idx, chip in enumerate(chips_raw):
         if not isinstance(chip, dict):
@@ -2510,22 +2604,15 @@ def _shape_host_apps(h: dict) -> list[dict]:
         status = "unknown"
         if isinstance(sample, dict):
             status = "up" if sample.get("alive") else "down"
-        catalog_block: Optional[dict] = None
         # `_coerce_int_local` (imported at module top from
         # service_catalog) narrows the Any-typed `catalog_id` cell to
         # Optional[int] without the legacy try/except + `in (None, "")`
         # ladder that type checkers couldn't see through.
         cid_int = _coerce_int_local(chip.get("catalog_id"))
-        if cid_int and _get_catalog is not None:
-            if cid_int in catalog_cache:
-                catalog_block = catalog_cache[cid_int]
-            else:
-                try:
-                    catalog_block = _get_catalog(cid_int)
-                except Exception as e:  # noqa: BLE001
-                    print(f"[apps] catalog lookup {cid_int} skipped: {e}")
-                    catalog_block = None
-                catalog_cache[cid_int] = catalog_block
+        # O(1) lookup in the preloaded map. Negative-cached None is
+        # returned for FKs pointing at a deleted template — same
+        # downstream rendering as a chip without catalog_id.
+        catalog_block: Optional[dict] = catalog_by_id.get(cid_int) if cid_int else None
         # Per-port latest results — populated only when this chip is
         # multi-port AND the sampler has run at least once for it. Empty
         # list for single-port chips OR multi-port chips with no history.

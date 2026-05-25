@@ -170,7 +170,13 @@
                  @error="$event.target.style.visibility='hidden'">
           </td>
           <td class="py-2 font-medium" x-text="inst.name || '—'"></td>
-          <td class="py-2"><code class="fs-xs text-[var(--text-dim)]" x-text="inst.host_label || inst.host_id"></code></td>
+          <td class="py-2">
+            <code class="fs-xs text-[var(--text-dim)]"
+                  x-text="inst.host_address || inst.host_id"></code>
+            <div x-show="inst.host_label && inst.host_label !== (inst.host_address || inst.host_id)"
+                 class="fs-3xs text-[var(--text-faint)] italic"
+                 x-text="inst.host_label"></div>
+          </td>
           <td class="py-2 hidden md:table-cell">
             <span x-show="inst.catalog_name" class="chip pill-info fs-2xs" x-text="inst.catalog_name"></span>
             <span x-show="!inst.catalog_name" class="fs-2xs text-[var(--text-faint)] italic" x-text="t('admin_apps.unlinked') || '— unlinked —'"></span>
@@ -345,7 +351,7 @@
           <select class="w-full" x-model="appsPinForm.host_id">
             <option value="" x-text="t('admin_apps.pin_host_placeholder') || '— pick a host —'"></option>
             <template x-for="h in (hostsConfig || [])" :key="h.id">
-              <option :value="h.id" x-text="(h.label || h.id) + (h.label ? ' (' + h.id + ')' : '')"></option>
+              <option :value="h.id" x-text="(h.address || h.id) + (h.label && h.label !== (h.address || h.id) ? ' — ' + h.label : '')"></option>
             </template>
           </select>
           <p x-show="!(hostsConfig || []).length" class="fs-2xs text-[var(--text-faint)] mt-1"
@@ -415,7 +421,7 @@
                 @change="runAppsDiscovery()">
           <option value="" x-text="t('admin_apps.pin_host_placeholder') || '— pick a host —'"></option>
           <template x-for="h in (hostsConfig || [])" :key="h.id">
-            <option :value="h.id" x-text="(h.label || h.id) + (h.label ? ' (' + h.id + ')' : '')"></option>
+            <option :value="h.id" x-text="(h.address || h.id) + (h.label && h.label !== (h.address || h.id) ? ' — ' + h.label : '')"></option>
           </template>
         </select>
       </div>

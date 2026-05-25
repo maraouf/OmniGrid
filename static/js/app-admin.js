@@ -192,7 +192,7 @@ export default {
   // Unknown paths are left alone (the static file server already
   // handles login / assets; this only intervenes for known views).
   _routeViews() {
-    return new Set(['stacks', 'services', 'nodes', 'hosts', 'history', 'settings', 'admin', 'stats']);
+    return new Set(['stacks', 'services', 'nodes', 'hosts', 'apps', 'history', 'settings', 'admin', 'stats']);
   },
   _applyRouteFromPath() {
     const parts = (location.pathname || '/').split('/').filter(Boolean);
