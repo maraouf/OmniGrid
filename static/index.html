@@ -158,7 +158,7 @@
 <div x-data="app()" x-init="init()" x-cloak
      class="flex flex-col min-h-screen og-app-shell"
      :class="aiSidebarPinned ? 'og-app-shell--ai-pinned' : ''"
-     x-effect="_applyDrawerScrollLock(drawerHost, drawerItem, drawerNode, aiSidebarOpen, aiSidebarPinned, drawerApp)">
+     x-effect="_applyDrawerScrollLock(drawerHost, drawerItem, drawerNode, aiSidebarOpen, aiSidebarPinned, drawerApp, drawerAppHost)">
 
   <!-- ================== TOPBAR ================== -->
   <!-- On mobile (<sm), the <header> itself becomes a flex-wrap container
@@ -3191,6 +3191,21 @@
                     @click="appsStatusFilter = appsStatusFilter === 'down' ? '' : 'down'"
                     x-text="t('apps.filter_down') || 'Down'"></button>
           </div>
+          <!-- Group-by toggle — App (card per app, instances inside) vs
+               Host (card per host, app icons beneath). Persisted to
+               localStorage via setAppsViewGroupBy. -->
+          <div role="group" :aria-label="t('apps.group_by_label') || 'Group apps by'" class="flex gap-1">
+            <button type="button" class="chip fs-2xs"
+                    :class="appsViewGroupBy === 'app' ? 'pill-info' : 'pill-muted'"
+                    :aria-pressed="appsViewGroupBy === 'app'"
+                    @click="setAppsViewGroupBy('app')"
+                    x-text="t('apps.group_by_app') || 'By app'"></button>
+            <button type="button" class="chip fs-2xs"
+                    :class="appsViewGroupBy === 'host' ? 'pill-info' : 'pill-muted'"
+                    :aria-pressed="appsViewGroupBy === 'host'"
+                    @click="setAppsViewGroupBy('host')"
+                    x-text="t('apps.group_by_host') || 'By host'"></button>
+          </div>
           <button type="button" class="btn btn-soft fs-sm" @click="loadAppsList(true)"
                   :disabled="appsListLoading"
                   :aria-label="t('actions.refresh') || 'Refresh'">
@@ -3219,7 +3234,7 @@
       <!-- Card grid. Tailwind: 1 col mobile, 2 col sm, 3 col lg, 4 col xl.
            Per-card status accent border on left, per-port chips beneath
            the instance list. -->
-      <div x-show="appsListLoaded && filteredApps().length"
+      <div x-show="appsListLoaded && appsViewGroupBy === 'app' && filteredApps().length"
            class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         <template x-for="app in filteredApps()" :key="app.group_id">
           <article class="apps-card border border-[var(--border)] bg-[var(--surface)] rounded-md p-3 cursor-pointer"
@@ -3293,6 +3308,64 @@
                 </li>
               </template>
             </ul>
+          </article>
+        </template>
+      </div>
+
+      <!-- Host-grouped card grid. One card per host carrying the apps
+           that run on it; each app renders as an icon tile (brand icon
+           + status dot) beneath the host header. Clicking the header
+           opens the host-app drawer; clicking a tile jumps straight to
+           that app's drawer. -->
+      <div x-show="appsListLoaded && appsViewGroupBy === 'host' && appsHostGroups().length"
+           class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        <template x-for="grp in appsHostGroups()" :key="grp.host_id">
+          <article class="apps-card border border-[var(--border)] bg-[var(--surface)] rounded-md p-3"
+                   :class="'apps-card--' + grp.status">
+            <!-- Host header — clickable, opens the host-app drawer.
+                 role=button div (not a <button>) so the <h3> heading
+                 stays valid markup inside the clickable region. -->
+            <div class="flex items-start gap-2 mb-2 w-full cursor-pointer"
+                 role="button" tabindex="0"
+                 @click="openAppHostDrawer(grp)"
+                 @keydown.enter="openAppHostDrawer(grp)"
+                 @keydown.space.prevent="openAppHostDrawer(grp)"
+                 :aria-label="(t('apps.host_drawer.open') || 'View host apps') + ': ' + (grp.host_label || grp.host_address)">
+              <span class="apps-host-avatar" aria-hidden="true">
+                <svg width="18" height="18" class="text-[var(--text-dim)]">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/>
+                </svg>
+              </span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-1">
+                  <h3 class="font-semibold fs-sm truncate mono" x-text="grp.host_address || grp.host_id"></h3>
+                  <span class="chip fs-3xs whitespace-nowrap"
+                        :class="appStatusPillClass(grp.status)"
+                        x-text="t('apps.status_' + grp.status) || grp.status"></span>
+                </div>
+                <p class="fs-3xs text-[var(--text-faint)] truncate">
+                  <span x-show="grp.host_label && grp.host_label !== (grp.host_address || grp.host_id)"
+                        x-text="grp.host_label + ' · '"></span>
+                  <span x-text="t('apps.counts.instances_up', { up: grp.up_count, total: grp.app_count })"></span>
+                </p>
+              </div>
+            </div>
+            <!-- App icon tiles -->
+            <div class="apps-host-tiles">
+              <template x-for="a in grp.apps" :key="a.group_id + ':' + a.service_idx">
+                <button type="button" class="apps-host-tile"
+                        @click="openAppFromHostDrawer(a)"
+                        :title="appsChipTitle(a)"
+                        :aria-label="a.name + ': ' + (t('apps.status_' + a.status) || a.status)">
+                  <span class="apps-host-tile-icon">
+                    <img :src="iconUrlFor(a.icon || a.name)" alt="" width="34" height="34" class="rounded"
+                         @error="$event.target.style.visibility='hidden'">
+                    <span class="apps-card-dot apps-host-tile-dot" :class="'apps-card-dot--' + a.status" aria-hidden="true"></span>
+                  </span>
+                  <span class="apps-host-tile-name truncate" x-text="a.name"></span>
+                </button>
+              </template>
+            </div>
           </article>
         </template>
       </div>
@@ -3887,7 +3960,7 @@
             <div class="apps-chip-strip flex items-center gap-1.5 flex-wrap mb-3 px-1"
                  role="group"
                  :aria-label="t('host_drawer.apps.chip_strip_label') || 'Apps on this host'">
-              <template x-for="app in h.apps" :key="'strip:' + app.service_idx">
+              <template x-for="app in sortedHostApps(h)" :key="'strip:' + app.service_idx">
                 <a class="apps-chip-strip-chip"
                    :class="'apps-chip-strip-chip--' + app.status"
                    :href="app.url || ('#apps-' + app.service_idx)"
@@ -5193,7 +5266,7 @@
                         x-text="(h.apps || []).filter(a => a.status === 'up').length + ' / ' + (h.apps || []).length + ' up'"></span>
                 </header>
                 <ul class="space-y-1 fs-xs">
-                  <template x-for="app in (h.apps || [])" :key="app.service_idx">
+                  <template x-for="app in sortedHostApps(h)" :key="app.service_idx">
                     <li class="apps-drawer-row py-1.5 border-b border-[var(--border)] last:border-b-0">
                       <div class="flex items-center gap-2">
                         <img :src="iconUrlFor(app.icon || (app.catalog && app.catalog.slug) || app.name)"
@@ -5345,6 +5418,23 @@
                             <span x-text="p.port + '/' + (p.protocol || 'tcp')"></span>
                             <span x-show="p.service_hint" class="ms-1 opacity-70"
                                   x-text="'· ' + p.service_hint"></span>
+                            <!-- Mapped-app annotation — when a scanned open
+                                 port matches a configured app (chip) on this
+                                 host, show the app's icon + name so the
+                                 operator sees which app owns the port. The
+                                 per-chip x-data computes the mapping once per
+                                 render instead of calling the resolver from
+                                 every binding below. -->
+                            <template x-if="portScanMappedApp(h, p)">
+                              <span x-data="{ mapped: portScanMappedApp(h, p) }"
+                                    class="ms-1.5 ps-1.5 inline-flex items-center gap-1 border-s border-[color:var(--border-bright)]"
+                                    :title="t('host_drawer.port_scan.mapped_app_title', { name: mapped.name }) || ('App: ' + mapped.name)">
+                                <img :src="iconUrlFor(mapped.icon)" alt="" width="12" height="12"
+                                     class="rounded flex-shrink-0"
+                                     @error="$event.target.style.visibility='hidden'">
+                                <span x-text="mapped.name"></span>
+                              </span>
+                            </template>
                           </span>
                       </template>
                     </div>
@@ -9338,6 +9428,90 @@
                                  x-text="JSON.stringify(appDebug[appInstanceKey(inst)].data, null, 2)"></pre>
                           </details>
                         </div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </template>
+      </aside>
+    </div>
+  </template>
+
+  <!-- ================== APPS-BY-HOST DRAWER ==================
+       Opened from a host card in the host-grouped Apps view. Shows the
+       host header + every app running on it; clicking a row drills into
+       that app's own drawer (openAppFromHostDrawer closes this one
+       first so only one drawer is ever open). -->
+  <template x-if="drawerAppHost">
+    <div class="fixed inset-0 z-40 fade-in">
+      <div @click="closeAppHostDrawer()" class="absolute inset-0 backdrop"></div>
+      <aside role="dialog" aria-modal="true"
+             :aria-label="drawerAppHost ? (drawerAppHost.host_label || drawerAppHost.host_address) : (t('apps.host_drawer.title') || 'Host apps')"
+             @keydown="_focusTrapKeydown($event, $el)"
+             class="absolute inset-y-0 end-0 w-full md:w-[560px] bg-[var(--surface)] border-s border-[var(--border)] overflow-y-auto scrollbar slide-in">
+        <template x-if="drawerAppHost">
+          <div class="p-5">
+            <!-- Header -->
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0 flex-1 flex items-start gap-2">
+                <span class="apps-host-avatar" aria-hidden="true">
+                  <svg width="18" height="18" class="text-[var(--text-dim)]">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/>
+                  </svg>
+                </span>
+                <div class="min-w-0">
+                  <h2 class="fs-display-sm font-semibold break-all mono"
+                      x-text="drawerAppHost.host_address || drawerAppHost.host_id"></h2>
+                  <div class="flex items-center gap-1.5 flex-wrap mt-1">
+                    <span class="chip fs-3xs" :class="appStatusPillClass(drawerAppHost.status)"
+                          x-text="t('apps.status_' + drawerAppHost.status) || drawerAppHost.status"></span>
+                    <span class="fs-3xs text-[var(--text-faint)]"
+                          x-text="t('apps.counts.instances_up', { up: drawerAppHost.up_count, total: drawerAppHost.app_count })"></span>
+                    <span x-show="drawerAppHost.host_label && drawerAppHost.host_label !== (drawerAppHost.host_address || drawerAppHost.host_id)"
+                          class="fs-3xs text-[var(--text-faint)]" x-text="drawerAppHost.host_label"></span>
+                  </div>
+                </div>
+              </div>
+              <button type="button" @click="closeAppHostDrawer()" class="btn btn-ghost text-base leading-none"
+                      :aria-label="t('actions.close')" :title="t('actions.close')">✕
+              </button>
+            </div>
+
+            <!-- Apps on this host -->
+            <div class="mt-4">
+              <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-2"
+                   x-text="t('apps.host_drawer.apps') || 'Apps on this host'"></div>
+              <div class="space-y-2">
+                <template x-for="a in (drawerAppHost.apps || [])" :key="a.group_id + ':' + a.service_idx">
+                  <div class="apps-host-drawer-row" role="button" tabindex="0"
+                       @click="openAppFromHostDrawer(a)"
+                       @keydown.enter="openAppFromHostDrawer(a)"
+                       @keydown.space.prevent="openAppFromHostDrawer(a)"
+                       :aria-label="(t('apps.drawer.open') || 'View app details') + ': ' + a.name">
+                    <div class="flex items-center gap-2">
+                      <img :src="iconUrlFor(a.icon || a.name)" alt="" width="26" height="26" class="rounded"
+                           @error="$event.target.style.visibility='hidden'">
+                      <span class="apps-card-dot" :class="'apps-card-dot--' + a.status" aria-hidden="true"></span>
+                      <span class="flex-1 truncate fs-sm font-medium" x-text="a.name"></span>
+                      <span x-show="a.last_probe && a.last_probe.rtt_ms" class="fs-3xs text-[var(--text-faint)]"
+                            x-text="(a.last_probe && a.last_probe.rtt_ms) ? appsLatencyMs(a.last_probe.rtt_ms) : ''"></span>
+                      <svg width="14" height="14" class="text-[var(--text-faint)] flip-rtl" aria-hidden="true">
+                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+                      </svg>
+                    </div>
+                    <div x-show="appsInstanceReason(a)" class="fs-xs mt-1"
+                         :class="a.status === 'down' ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]'"
+                         x-text="appsInstanceReason(a)"></div>
+                    <div x-show="(a.port_results || []).length" class="apps-port-grid mt-1">
+                      <template x-for="pr in (a.port_results || [])" :key="pr.port">
+                        <span class="apps-port-pill" :class="pr.alive ? 'apps-port-pill--up' : 'apps-port-pill--down'"
+                              :title="appsPortTitle(pr)">
+                          <span class="apps-card-dot" :class="pr.alive ? 'apps-card-dot--up' : 'apps-card-dot--down'" aria-hidden="true"></span>
+                          <span x-text="pr.port" class="mono"></span>
+                        </span>
                       </template>
                     </div>
                   </div>

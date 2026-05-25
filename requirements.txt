@@ -6,7 +6,7 @@
 # at module level. Hard-pinned because FastAPI minor versions
 # occasionally tighten Pydantic v2 deprecations that surface in our
 # own request/response models without warning.
-fastapi>=0.136.1
+fastapi>=0.136.3
 # Pydantic is FastAPI's request/response validation engine — pulled in
 # transitively by fastapi but listed explicitly so import-time references
 # (`from pydantic import BaseModel`) don't trip the IDE's
@@ -20,7 +20,7 @@ pydantic>=2.13.4
 # over a FastAPI WebSocket). Local dev runs `uvicorn main:app --reload`;
 # prod runs the same single-replica process behind NPM's reverse proxy.
 
-uvicorn[standard]>=0.47.0
+uvicorn[standard]>=0.48.0
 # Async HTTP client used for EVERY outbound call: Portainer REST API
 # (services / containers / stacks / registries proxy), Beszel Hub
 # (Pocketbase auth + paginated fetches), Pulse, Webmin (with cookie
@@ -63,7 +63,7 @@ python-dotenv>=1.2.2
 # surface, and we already own the discovery + token-exchange httpx calls.
 # The [crypto] extra pulls in the cryptography package needed for RS256 /
 # ES256 verification of id_tokens. See logic/oidc.py.
-PyJWT[crypto]>=2.12.1
+PyJWT[crypto]>=2.13.0
 # Admin SSH console — async-native SSH client used by logic/ssh.py for
 # the host-drawer "Run command" feature. asyncssh handles known-hosts,
 # key parsing, and fingerprint exposure natively so we don't shell out

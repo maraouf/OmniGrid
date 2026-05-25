@@ -2290,7 +2290,10 @@
       "download": "Download",
       "download_title": "Download this log file",
       "live_tail": "Live tail",
-      "tail_lines": "Last {n} lines"
+      "tail_lines": "Last {n} lines",
+      "show_lines": "Show",
+      "tail_all": "All lines",
+      "tail_all_note": "Showing the entire file — large files may render slowly."
     },
     "schedules": {
       "create_title": "Create schedule",
@@ -3648,6 +3651,7 @@
       "chip_curated_title": "{name} on port {port} — listed in curated services AND detected open.",
       "chip_unknown_title": "Port {port} is open but isn't in the curated services list. Add it via Admin → Hosts if it's an expected listener.",
       "chip_asset_mismatch_title": "Heads up: this port is not in the Asset Inventory's port list for this host. Either undocumented (add it to the asset record) or unexpected (investigate the listener).",
+      "mapped_app_title": "Mapped to app: {name}",
       "no_target_toast": "No host selected — open a host drawer or ask the AI to name one before scanning.",
       "scan_failed_title": "Port scan failed",
       "scan_failed_body": "The port scan could not be completed for {host}. {error}",
@@ -4576,6 +4580,7 @@
     "templates_pill": "templates",
     "tab_templates": "Templates",
     "tab_instances": "Instances",
+    "tablist_label": "Apps sub-tabs",
     "add_template": "Add template",
     "reseed_button": "Re-seed built-ins",
     "reseed_title": "Re-add any built-in templates you previously deleted",
@@ -4593,6 +4598,10 @@
     "group_by_host": "Host",
     "group_by_service": "Service",
     "group_by_none": "None",
+    "expand_all": "Expand all",
+    "expand_all_title": "Expand every group",
+    "collapse_all": "Collapse all",
+    "collapse_all_title": "Collapse every group",
     "action_edit": "Edit instance",
     "action_delete": "Remove instance",
     "instance_edit_title": "Edit app instance",
@@ -4697,6 +4706,9 @@
     "filter_up": "Up",
     "filter_degraded": "Degraded",
     "filter_down": "Down",
+    "group_by_label": "Group apps by",
+    "group_by_app": "By app",
+    "group_by_host": "By host",
     "status_up": "up",
     "status_down": "down",
     "status_degraded": "degraded",
@@ -4726,6 +4738,11 @@
       "probe_enabled": "Probe enabled",
       "raw_json": "Raw debug JSON",
       "probe_failed": "Probe failed: "
+    },
+    "host_drawer": {
+      "title": "Host apps",
+      "open": "View host apps",
+      "apps": "Apps on this host"
     },
     "empty_filtered": "No apps match the current filters.",
     "empty_html": "No app instances yet. Pin services to hosts via <strong>Admin → Hosts</strong> to populate this view; reusable templates live under <strong>Admin → Apps</strong>.",

@@ -18,25 +18,38 @@
   <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
      x-text="t('admin_apps.intro') || 'Reusable service templates. Each row carries default ports + probe paths + brand-icon slug so a chip in Admin → Hosts can inherit recipe defaults via catalog_id instead of redefining per host. Built-in seed covers ~15 essentials; add operator-authored templates for in-house services.'"></p>
 
-  <!-- Tab strip — Templates / Instances. Templates is CRUD; Instances
-       is read-only (operator edits chips via Admin → Hosts). -->
-  <div role="tablist" aria-orientation="horizontal" class="flex gap-1 mb-3 border-b border-[var(--border)]">
-    <button type="button" role="tab"
-            :aria-selected="appsAdminTab === 'templates'"
-            :class="appsAdminTab === 'templates' ? 'border-b-2 border-[var(--primary)] text-[var(--text)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-            class="px-3 py-1.5 fs-sm"
-            @click="setAppsAdminTab('templates')"
-            x-text="t('admin_apps.tab_templates') || 'Templates'"></button>
-    <button type="button" role="tab"
-            :aria-selected="appsAdminTab === 'instances'"
-            :class="appsAdminTab === 'instances' ? 'border-b-2 border-[var(--primary)] text-[var(--text)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-            class="px-3 py-1.5 fs-sm"
-            @click="setAppsAdminTab('instances')"
-            x-text="t('admin_apps.tab_instances') || 'Instances'"></button>
+  <!-- Tab strip — Templates / Instances. Delegated to the shared
+       og-tab-strip partial for the blue-pill active state + leading
+       sprite icons, matching the Providers tab strip for cross-admin
+       consistency. The two panels below mirror the component's
+       `apps-admin-tabpanel-<value>` / `apps-admin-tab-<value>`
+       id naming so the WAI-ARIA Tabs wiring stays intact. -->
+  <div x-data="{
+                 get tsOptions() {
+                   return [
+                     {value: 'templates', label: t('admin_apps.tab_templates') || 'Templates', iconKind: 'sprite', iconId: 'icon-grid'},
+                     {value: 'instances', label: t('admin_apps.tab_instances') || 'Instances', iconKind: 'sprite', iconId: 'icon-server'},
+                   ];
+                 },
+                 get tsCurrent() { return appsAdminTab; },
+                 tsOnChange(v) { setAppsAdminTab(v); },
+                 tsCycle(dir) {
+                   const order = ['templates', 'instances'];
+                   const i = order.indexOf(appsAdminTab);
+                   const n = order.length;
+                   setAppsAdminTab(order[(((i < 0 ? 0 : i) + dir) % n + n) % n]);
+                 },
+                 tsHome() { setAppsAdminTab('templates'); },
+                 tsEnd() { setAppsAdminTab('instances'); },
+                 get tsAriaLabel() { return t('admin_apps.tablist_label') || 'Apps sub-tabs'; },
+                 tsIdPrefix: 'apps-admin'
+               }">
+    <!-- INCLUDE: _components/og-tab-strip.html -->
   </div>
 
   <!-- TEMPLATES TAB -->
-  <div x-show="appsAdminTab === 'templates'">
+  <div x-show="appsAdminTab === 'templates'" role="tabpanel"
+       id="apps-admin-tabpanel-templates" aria-labelledby="apps-admin-tab-templates" tabindex="0">
     <div class="flex items-center gap-2 mb-3 flex-wrap">
       <button type="button" x-show="isAdmin()" @click="openAppCatalogNew()"
               class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
@@ -145,23 +158,47 @@
   </div>
 
   <!-- INSTANCES TAB -->
-  <div x-show="appsAdminTab === 'instances'">
+  <div x-show="appsAdminTab === 'instances'" role="tabpanel"
+       id="apps-admin-tabpanel-instances" aria-labelledby="apps-admin-tab-instances" tabindex="0">
     <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin_apps.instances_intro') || 'Every app chip pinned to a host. Catalog-linked instances inherit their name + icon from the template; click a row (or the edit icon) to change name / URL / icon / probe, or remove the chip.'"></p>
-    <div x-show="appsInstancesLoaded && appsInstances.length" class="flex items-center gap-1.5 mb-3"
-         role="group" :aria-label="t('admin_apps.group_by_label') || 'Group instances by'">
-      <span class="fs-2xs text-[var(--text-faint)] me-1" x-text="(t('admin_apps.group_by_label') || 'Group by') + ':'"></span>
-      <button type="button" class="btn fs-2xs"
-              :class="appsInstancesGroupBy === 'host' ? 'btn-primary' : 'btn-soft'"
-              :aria-pressed="appsInstancesGroupBy === 'host'"
-              @click="setAppsInstancesGroupBy('host')" x-text="t('admin_apps.group_by_host') || 'Host'"></button>
-      <button type="button" class="btn fs-2xs"
-              :class="appsInstancesGroupBy === 'service' ? 'btn-primary' : 'btn-soft'"
-              :aria-pressed="appsInstancesGroupBy === 'service'"
-              @click="setAppsInstancesGroupBy('service')" x-text="t('admin_apps.group_by_service') || 'Service'"></button>
-      <button type="button" class="btn fs-2xs"
-              :class="appsInstancesGroupBy === 'none' ? 'btn-primary' : 'btn-soft'"
-              :aria-pressed="appsInstancesGroupBy === 'none'"
-              @click="setAppsInstancesGroupBy('none')" x-text="t('admin_apps.group_by_none') || 'None'"></button>
+    <div x-show="appsInstancesLoaded && appsInstances.length" class="flex items-center gap-1.5 mb-3 flex-wrap">
+      <div class="flex items-center gap-1.5"
+           role="group" :aria-label="t('admin_apps.group_by_label') || 'Group instances by'">
+        <span class="fs-2xs text-[var(--text-faint)] me-1" x-text="(t('admin_apps.group_by_label') || 'Group by') + ':'"></span>
+        <button type="button" class="btn fs-2xs"
+                :class="appsInstancesGroupBy === 'host' ? 'btn-primary' : 'btn-soft'"
+                :aria-pressed="appsInstancesGroupBy === 'host'"
+                @click="setAppsInstancesGroupBy('host')" x-text="t('admin_apps.group_by_host') || 'Host'"></button>
+        <button type="button" class="btn fs-2xs"
+                :class="appsInstancesGroupBy === 'service' ? 'btn-primary' : 'btn-soft'"
+                :aria-pressed="appsInstancesGroupBy === 'service'"
+                @click="setAppsInstancesGroupBy('service')" x-text="t('admin_apps.group_by_service') || 'Service'"></button>
+        <button type="button" class="btn fs-2xs"
+                :class="appsInstancesGroupBy === 'none' ? 'btn-primary' : 'btn-soft'"
+                :aria-pressed="appsInstancesGroupBy === 'none'"
+                @click="setAppsInstancesGroupBy('none')" x-text="t('admin_apps.group_by_none') || 'None'"></button>
+      </div>
+      <!-- Collapse / expand every group at once — only meaningful when
+           the table is actually grouped (the 'none' mode has no
+           collapsible headers). -->
+      <div x-show="appsInstancesGroupBy !== 'none'" class="flex items-center gap-1.5 ms-auto">
+        <button type="button" class="btn btn-soft fs-2xs inline-flex items-center gap-1"
+                @click="expandAllAppsInstanceGroups()"
+                :title="t('admin_apps.expand_all_title') || 'Expand every group'">
+          <svg width="11" height="11" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/>
+          </svg>
+          <span x-text="t('admin_apps.expand_all') || 'Expand all'"></span>
+        </button>
+        <button type="button" class="btn btn-soft fs-2xs inline-flex items-center gap-1"
+                @click="collapseAllAppsInstanceGroups()"
+                :title="t('admin_apps.collapse_all_title') || 'Collapse every group'">
+          <svg width="11" height="11" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/>
+          </svg>
+          <span x-text="t('admin_apps.collapse_all') || 'Collapse all'"></span>
+        </button>
+      </div>
     </div>
     <div x-show="!appsInstancesLoaded" class="loading-state">
       <span class="spin-lg" aria-hidden="true"></span>

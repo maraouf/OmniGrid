@@ -9284,6 +9284,94 @@ select.field-invalid {
 }
 
 /* ==========================================================================
+   APPS — host-grouped view (group-by=host). Each host card carries a
+   server-icon avatar header + a wrap of app-icon tiles beneath. The
+   host-app drawer reuses the tile dot + a clickable row variant.
+   ========================================================================== */
+.apps-host-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.apps-host-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.apps-host-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-1);
+  width: 64px;
+  padding: var(--s-1);
+  border-radius: var(--r-md);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background .12s ease, transform .1s ease;
+}
+
+.apps-host-tile:hover {
+  background: var(--row-hover);
+  transform: translateY(-1px);
+}
+
+.apps-host-tile:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.apps-host-tile-icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.apps-host-tile-dot {
+  position: absolute;
+  bottom: -1px;
+  inset-inline-end: -1px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.apps-host-tile-name {
+  font-size: var(--fs-3xs);
+  text-align: center;
+  width: 100%;
+  color: var(--text-dim);
+}
+
+.apps-host-drawer-row {
+  display: block;
+  width: 100%;
+  text-align: start;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  padding: var(--s-3);
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+
+.apps-host-drawer-row:hover {
+  background: var(--row-hover);
+  border-color: var(--border-bright);
+}
+
+.apps-host-drawer-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
    APPS — host-drawer chip strip + Apps card list.
    Chip strip is a compact horizontal row of brand-icon + status-dot
    pairs that sits under the drawer header so a glance answers "what

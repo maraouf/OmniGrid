@@ -323,8 +323,21 @@
           <input type="checkbox" x-model="logFileAutoTail">
           <span x-text="t('admin.logs.live_tail')"></span>
         </label>
-        <span class="fs-2xs text-[var(--text-faint)]"
-              x-text="t('admin.logs.tail_lines', { n: logFileTailLines })"></span>
+        <!-- Tail-window selector — operator can widen the view past the
+             default 500 lines (up to All) to investigate errors deeper
+             in the file. "All" reads the whole file (backend tail<=0). -->
+        <label class="inline-flex items-center gap-1.5 fs-xs text-[var(--text-dim)]">
+          <span x-text="t('admin.logs.show_lines') || 'Show'"></span>
+          <select class="fs-xs" x-model.number="logFileTailLines"
+                  @change="setLogFileTail(logFileTailLines)">
+            <template x-for="opt in logFileTailOptions" :key="opt">
+              <option :value="opt"
+                      x-text="opt === 0 ? (t('admin.logs.tail_all') || 'All lines') : t('admin.logs.tail_lines', { n: opt })"></option>
+            </template>
+          </select>
+        </label>
+        <span x-show="logFileTailLines === 0" class="fs-2xs text-[var(--warning)]"
+              x-text="t('admin.logs.tail_all_note') || 'Showing the entire file — large files may render slowly.'"></span>
         <span class="flex-1"></span>
         <button type="button" @click="logSelectedFile=''" class="btn btn-ghost fs-xs"
                 x-text="t('actions.close')"></button>
