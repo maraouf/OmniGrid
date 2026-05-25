@@ -281,6 +281,18 @@ _BUILTIN: list[dict[str, Any]] = [
              "probe_path": "", "probe_status": 0},
         ],
     },
+    {
+        # Portainer EDGE agent — the agent endpoint on 9001 is a gRPC/
+        # TLS tunnel, not a browsable HTTP UI, so it's a bare TCP-connect
+        # liveness check (distinct from the Portainer template's 9000/9443
+        # admin UI). Reuses the portainer brand icon.
+        "name": "Portainer Agent", "slug": "portainer-agent", "icon": "portainer",
+        "description": "Portainer Edge agent endpoint",
+        "default_ports": [
+            {"port": 9001, "protocol": "tcp", "label": "Agent",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
 ]
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,63}$")

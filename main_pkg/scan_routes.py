@@ -1895,7 +1895,22 @@ async def api_admin_logs_file_view(
     _admin: AdminUser,
 ):
     """Read one persistent-log file by name (path-traversal guarded)."""
-    body = _logs.read_persistent_log(name, tail_lines=tail if tail > 0 else None)
+    # Defence-in-depth: a read exception (permissions, transient FS
+    # error, a huge file that trips an OS limit) would otherwise surface
+    # as a bare HTTP 500 in the viewer with no actionable detail. Catch
+    # it and return the message as the body so the operator sees WHAT
+    # failed instead of a blank 500.
+    try:
+        body = _logs.read_persistent_log(name, tail_lines=tail if tail > 0 else None)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"[logs] read_persistent_log({name!r}, tail={tail}) failed: {e}")
+        return Response(
+            content=f"(unable to read log file: {type(e).__name__}: {e})",
+            media_type="text/plain; charset=utf-8",
+            status_code=200,
+        )
     if body is None:
         return JSONResponse(status_code=404, content={"detail": "log file not found"})
     return Response(content=body, media_type="text/plain; charset=utf-8")

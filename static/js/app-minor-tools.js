@@ -706,8 +706,8 @@ export default {
         // Per-port probe verdict for THIS port: prefer the per-port
         // sample row (multi-port chips), else fall back to the chip's
         // overall status for a single-port enabled probe. null = no
-        // probe configured / no result yet — the port-status dot is
-        // hidden in that case (only the app-status dot shows).
+        // probe configured / no result yet — the chip falls back to
+        // the app's overall status for the single status dot.
         let portStatus = null;
         const prMatch = (app.port_results || []).find((pr) => Number(pr && pr.port) === pnum);
         if (prMatch) {
@@ -723,6 +723,48 @@ export default {
           port_status: portStatus,
         };
       }
+    }
+    // No app chip owns this port — fall back to the standalone
+    // http_probe provider's URL list. An http:// URL implies port 80
+    // (or its explicit :port), https:// implies 443; when a scanned
+    // port matches a probed URL's port, surface that URL + its probe
+    // verdict (HTTP status_ok + content_match_ok => up). Lets a host
+    // with no app chips but configured http_probe URLs (e.g. an
+    // OPNsense box probed at http:// + https://) still annotate its
+    // 80 / 443 chips.
+    const httpUrls = Array.isArray(host.host_http_urls) ? host.host_http_urls : [];
+    for (const u of httpUrls) {
+      const urlStr = u && u.url;
+      if (!urlStr) {
+        continue;
+      }
+      let parsed;
+      try {
+        parsed = new URL(urlStr);
+      } catch (_) {
+        continue;
+      }
+      const scheme = (parsed.protocol || '').replace(':', '').toLowerCase();
+      let uport = parsed.port ? Number(parsed.port) : 0;
+      if (!uport) {
+        uport = scheme === 'https' ? 443 : (scheme === 'http' ? 80 : 0);
+      }
+      if (uport !== pnum) {
+        continue;
+      }
+      const ok = !!(u.status_ok && u.content_match_ok);
+      const st = ok ? 'up' : 'down';
+      return {
+        name: parsed.hostname || urlStr,
+        // iconUrlFor keyword-scans the hostname (e.g. "opnsense" ->
+        // opnsense.svg); falls back to a hidden img on no match.
+        icon: parsed.hostname || urlStr,
+        service_idx: null,
+        status: st,
+        port_status: st,
+        is_http_probe: true,
+        url: urlStr,
+      };
     }
     return null;
   },
