@@ -54,6 +54,7 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     Tunable,
     _cache,
     _coerce_int_local,
+    _events,
     _ops_mod,
     _request_client_id,
     app,

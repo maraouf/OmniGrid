@@ -2244,7 +2244,8 @@ def _wire_cross_module_underscore_globals() -> None:
     }
     fixups: dict[str, list[tuple[str, list[str]]]] = {
         "main_pkg.admin_ai_routes": [
-            ("main", ["_cache", "_gather", "_actor_from"]),
+            ("main", ["_cache", "_gather", "_actor_from", "_ops_mod", "_logs",
+                      "_NOTIFY_EVENT_NAMES", "_coerce_int_local"]),
             ("main_pkg.admin_stats_routes", ["_SAMPLES_TABLE_HOST_COL", "_resolve_ai_fallback_chain", "_ai_supported_providers"]),
             ("main_pkg.apps_routes", ["_load_hosts_config", "_populate_detected_ports"]),
             ("main_pkg.hosts_routes", ["_clean_vendors_input"]),

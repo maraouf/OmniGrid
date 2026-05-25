@@ -150,6 +150,32 @@ export default {
     return 'pill-muted';
   },
 
+  // Diagnosis reason for a non-up Apps instance — answers "why is this
+  // degraded / down?" at a glance. Prefers a specific failing port's
+  // error (multi-port chips), then the chip-level rollup error, then a
+  // generic fallback. Probe error strings come straight from the
+  // sampler (timeout / ConnectionRefusedError / unexpected status 404 /
+  // …) and stay un-translated — they're diagnostic, not UI chrome.
+  // Returns '' for up instances so the template can gate on it.
+  appsInstanceReason(inst) {
+    if (!inst || inst.status === 'up') {
+      return '';
+    }
+    if (inst.status === 'unknown') {
+      return this.t('apps.reason_no_probe') || 'No probe result yet';
+    }
+    const pr = (inst.port_results || []).find((p) => p && !p.alive && p.error);
+    if (pr) {
+      return this.t('apps.reason_port', {port: pr.port, error: pr.error})
+        || ('Port ' + pr.port + ': ' + pr.error);
+    }
+    const lp = inst.last_probe;
+    if (lp && lp.error) {
+      return lp.error;
+    }
+    return this.t('apps.reason_unreachable') || 'Probe failed (no detail)';
+  },
+
   // Open a specific instance row in the host drawer / Admin → Hosts editor.
   goToAdminHostsForInstance(inst) {
     if (!inst || !inst.host_id) {
@@ -579,6 +605,9 @@ export default {
     this.appsDiscoverError = '';
     this.appsDiscoverApplyError = '';
     this.appsDiscoverSelected = new Set();
+    this.appsDiscoverHostSearch = '';
+    this.appsDiscoverHostDropdownOpen = false;
+    this.appsDiscoverHostActiveIdx = -1;
     // Host picker reads from hostsConfig — lazy-load if the operator
     // hasn't visited Admin → Hosts in this session.
     if (!Array.isArray(this.hostsConfig) || !this.hostsConfig.length) {
@@ -595,6 +624,85 @@ export default {
     this.appsDiscoverError = '';
     this.appsDiscoverApplyError = '';
     this.appsDiscoverSelected = new Set();
+    this.appsDiscoverHostSearch = '';
+    this.appsDiscoverHostDropdownOpen = false;
+    this.appsDiscoverHostActiveIdx = -1;
+  },
+
+  // Display label for a curated host row in the discovery host picker —
+  // canonical hostname/IP first, then the operator label when it differs.
+  // Mirrors the old <option> text so the searchable input reads identically.
+  appsHostLabel(h) {
+    if (!h) {
+      return '';
+    }
+    const base = (h.address || h.id || '').trim();
+    const label = (h.label || '').trim();
+    return base + (label && label !== base ? ' — ' + label : '');
+  },
+
+  // Filtered + capped host list for the searchable picker. Matches the
+  // query (case-insensitive substring) against label + id + address so
+  // the operator can type any identifier they remember. Empty query
+  // returns the whole list (capped) so focusing the field shows options.
+  appsDiscoverFilteredHosts() {
+    const all = Array.isArray(this.hostsConfig) ? this.hostsConfig : [];
+    const q = (this.appsDiscoverHostSearch || '').trim().toLowerCase();
+    let out = all;
+    if (q) {
+      out = all.filter((h) => {
+        if (!h) {
+          return false;
+        }
+        const hay = ((h.label || '') + ' ' + (h.id || '') + ' ' + (h.address || '')).toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    // Cap the rendered list so a huge fleet doesn't paint hundreds of
+    // <li> nodes; the operator narrows with the query rather than scroll.
+    return out.slice(0, 50);
+  },
+
+  // Commit a host selection from the dropdown (click or keyboard Enter).
+  selectAppsDiscoverHost(h) {
+    if (!h || !h.id) {
+      return;
+    }
+    this.appsDiscoverForm.host_id = h.id;
+    this.appsDiscoverHostSearch = this.appsHostLabel(h);
+    this.appsDiscoverHostDropdownOpen = false;
+    this.appsDiscoverHostActiveIdx = -1;
+    this.runAppsDiscovery();
+  },
+
+  // Arrow-key navigation through the filtered match list. Opens the
+  // dropdown on first keypress and clamps the highlight index in range.
+  appsDiscoverHostMove(delta) {
+    this.appsDiscoverHostDropdownOpen = true;
+    const n = this.appsDiscoverFilteredHosts().length;
+    if (!n) {
+      this.appsDiscoverHostActiveIdx = -1;
+      return;
+    }
+    let idx = this.appsDiscoverHostActiveIdx + delta;
+    if (idx < 0) {
+      idx = n - 1;
+    }
+    if (idx >= n) {
+      idx = 0;
+    }
+    this.appsDiscoverHostActiveIdx = idx;
+  },
+
+  // Enter key: select the highlighted match, or — when nothing is
+  // highlighted but the filter narrows to exactly one host — that host.
+  appsDiscoverHostEnter() {
+    const list = this.appsDiscoverFilteredHosts();
+    if (this.appsDiscoverHostActiveIdx >= 0 && this.appsDiscoverHostActiveIdx < list.length) {
+      this.selectAppsDiscoverHost(list[this.appsDiscoverHostActiveIdx]);
+    } else if (list.length === 1) {
+      this.selectAppsDiscoverHost(list[0]);
+    }
   },
 
   async runAppsDiscovery() {

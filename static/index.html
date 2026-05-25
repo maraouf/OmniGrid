@@ -3242,23 +3242,47 @@
             <!-- Per-host instance list -->
             <ul class="space-y-1 fs-xs">
               <template x-for="inst in app.instances" :key="inst.host_id + ':' + inst.service_idx">
-                <li class="flex items-center gap-2">
-                  <span class="apps-card-dot"
-                        :class="'apps-card-dot--' + inst.status"
-                        :title="inst.status"
-                        aria-hidden="true"></span>
-                  <span class="truncate flex-1"
-                        :title="(inst.host_address || inst.host_id) + (inst.host_label && inst.host_label !== (inst.host_address || inst.host_id) ? ' — ' + inst.host_label : '')"
-                        x-text="inst.host_address || inst.host_id"></span>
-                  <span x-show="inst.last_probe && inst.last_probe.rtt_ms" class="fs-3xs text-[var(--text-faint)]"
-                        x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? (inst.last_probe.rtt_ms + 'ms') : ''"></span>
-                  <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener"
-                     class="text-[var(--primary)] hover:underline" :aria-label="t('apps.open_link') || 'Open service URL'"
-                     @click.stop>
-                    <svg width="11" height="11" aria-hidden="true">
-                      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
-                    </svg>
-                  </a>
+                <li class="flex flex-col gap-0.5">
+                  <div class="flex items-center gap-2">
+                    <span class="apps-card-dot"
+                          :class="'apps-card-dot--' + inst.status"
+                          :title="inst.status"
+                          aria-hidden="true"></span>
+                    <span class="truncate flex-1"
+                          :title="(inst.host_address || inst.host_id) + (inst.host_label && inst.host_label !== (inst.host_address || inst.host_id) ? ' — ' + inst.host_label : '')"
+                          x-text="inst.host_address || inst.host_id"></span>
+                    <span x-show="inst.last_probe && inst.last_probe.rtt_ms" class="fs-3xs text-[var(--text-faint)]"
+                          x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? (inst.last_probe.rtt_ms + 'ms') : ''"></span>
+                    <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener"
+                       class="text-[var(--primary)] hover:underline" :aria-label="t('apps.open_link') || 'Open service URL'"
+                       @click.stop>
+                      <svg width="11" height="11" aria-hidden="true">
+                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+                      </svg>
+                    </a>
+                  </div>
+                  <!-- Diagnosis: WHY this instance is degraded / down. Shows the
+                       failing port's error (multi-port) or the chip-level probe
+                       error so operators don't have to guess. Hidden for up. -->
+                  <div x-show="appsInstanceReason(inst)"
+                       class="ps-4 fs-3xs truncate"
+                       :class="inst.status === 'down' ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]'"
+                       :title="appsInstanceReason(inst)"
+                       x-text="appsInstanceReason(inst)"></div>
+                  <!-- Per-port pills for multi-port chips — which port is up /
+                       down + its rtt + error tooltip. Mirrors the host-drawer
+                       Apps card. Single-port chips skip this (reason line above
+                       already carries their one error). -->
+                  <div x-show="(inst.port_results || []).length > 1" class="apps-port-grid ps-4">
+                    <template x-for="pr in (inst.port_results || [])" :key="pr.port">
+                      <span class="apps-port-pill"
+                            :class="pr.alive ? 'apps-port-pill--up' : 'apps-port-pill--down'"
+                            :title="(pr.alive ? (t('apps.status_up') || 'up') : (t('apps.status_down') || 'down')) + (pr.rtt_ms != null ? ' (' + pr.rtt_ms + 'ms)' : '') + (pr.error ? ' — ' + pr.error : '')">
+                        <span class="apps-card-dot" :class="pr.alive ? 'apps-card-dot--up' : 'apps-card-dot--down'" aria-hidden="true"></span>
+                        <span x-text="pr.port" class="mono"></span>
+                      </span>
+                    </template>
+                  </div>
                 </li>
               </template>
             </ul>
