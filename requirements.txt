@@ -63,7 +63,7 @@ python-dotenv>=1.2.2
 # surface, and we already own the discovery + token-exchange httpx calls.
 # The [crypto] extra pulls in the cryptography package needed for RS256 /
 # ES256 verification of id_tokens. See logic/oidc.py.
-PyJWT[crypto]>=2.12.1
+PyJWT[crypto]>=2.13.0
 # Admin SSH console — async-native SSH client used by logic/ssh.py for
 # the host-drawer "Run command" feature. asyncssh handles known-hosts,
 # key parsing, and fingerprint exposure natively so we don't shell out
