@@ -425,9 +425,21 @@ async def api_service_probe_now(host_id: str, service_idx: int, request: Request
     # comparison so static analysis doesn't flag Any|None → int.
     override_port_int = _coerce_int_local(probe_cfg.get("port"))
     port = override_port_int if (override_port_int and override_port_int > 0) else parsed_port
+    # Fall back to the host's curated `address` when the chip has no URL
+    # (e.g. a catalog-pinned chip carrying only probe.ports[]) — same
+    # resolution the lifespan sampler uses, so a manual probe-now works
+    # on catalog chips instead of 400-ing.
     if not parsed_host:
-        raise HTTPException(400, "unable to resolve probe target host from chip url")
-    if probe_type == "tcp" and not port:
+        parsed_host = (target_host.get("address") or "").strip()
+    if not parsed_host:
+        raise HTTPException(400, "unable to resolve probe target host — set the chip URL or the host Address")
+    # Multi-port chips carry their ports as sub-targets, so they don't
+    # need a resolvable top-level port; only single-port chips fall back
+    # to a scheme default / get rejected.
+    _ports_raw_chk = probe_cfg.get("ports")
+    _has_sub_ports = isinstance(_ports_raw_chk, list) and any(
+        isinstance(p, dict) and _coerce_int_local(p.get("port")) for p in _ports_raw_chk)
+    if probe_type == "tcp" and not port and not _has_sub_ports:
         lc = url.lower()
         if lc.startswith("https://"):
             port = 443
@@ -545,6 +557,115 @@ async def api_service_probe_now(host_id: str, service_idx: int, request: Request
         "error": result.get("error"),
         # Per-port detail — empty list for single-port chips.
         "port_results": port_results,
+    }
+
+
+@app.get("/api/services/{host_id}/{service_idx}/debug")
+async def api_service_debug(host_id: str, service_idx: int, _admin: AdminUser):
+    """Admin-only: full diagnostic for ONE app instance.
+
+    Surfaces exactly what the lifespan sampler would resolve as the
+    probe target(s) for this host+chip, the chip + catalog config, and
+    the latest per-port outcomes — so an operator can see WHY a given
+    app on a given host isn't reporting (probe disabled, no resolvable
+    target, wrong port, connection refused, unexpected status, …)
+    without reading the sampler source. Powers the Apps detail drawer's
+    debug panel (mirrors the host drawer's debug panel)."""
+    from logic import service_sampler as _ss
+    from logic import service_catalog as _sc
+    hosts = _load_hosts_config()
+    target_host = None
+    for row in hosts:
+        if (row.get("id") or "").strip() == host_id:
+            target_host = row
+            break
+    if target_host is None:
+        raise HTTPException(404, f"host not found: {host_id}")
+    chips = target_host.get("services") or []
+    if not isinstance(chips, list) or service_idx < 0 or service_idx >= len(chips):
+        raise HTTPException(404, f"service_idx {service_idx} out of range for host {host_id}")
+    chip = chips[service_idx] if isinstance(chips[service_idx], dict) else {}
+    probe_cfg = chip.get("probe") or {}
+    host_address = (target_host.get("address") or "").strip()
+
+    # Resolved targets — exactly what the sampler's target builder
+    # produces for THIS host+idx, so the operator sees the true probe
+    # host:port / URL + path rather than guessing.
+    resolved: list[dict[str, Any]] = []
+    probe_reason = ""
+    try:
+        for tgt in _ss._curated_service_probe_targets():
+            if (tgt.get("host_id") == host_id
+                    and int(tgt.get("service_idx", -1)) == service_idx):
+                subs = tgt.get("sub_ports") or []
+                if subs:
+                    for sp in subs:
+                        is_http = sp.get("probe_type") == "http"
+                        scheme = "https" if sp.get("protocol") == "https" else "http"
+                        resolved.append({
+                            "port": sp.get("port"),
+                            "protocol": sp.get("protocol"),
+                            "probe_type": sp.get("probe_type"),
+                            "probe_path": sp.get("probe_path") if is_http else "",
+                            "expected_status": sp.get("probe_status") or 0,
+                            "target": (f"{scheme}://{tgt['host']}:{sp['port']}{sp.get('probe_path') or '/'}"
+                                       if is_http else f"{tgt['host']}:{sp['port']}"),
+                        })
+                else:
+                    is_http = tgt.get("probe_type") == "http"
+                    resolved.append({
+                        "port": tgt.get("port"),
+                        "protocol": "http" if is_http else "tcp",
+                        "probe_type": tgt.get("probe_type"),
+                        "probe_path": tgt.get("path") if is_http else "",
+                        "expected_status": tgt.get("expected_status") or 0,
+                        "target": (tgt.get("url") or f"{tgt['host']}:{tgt.get('port')}"),
+                    })
+                break
+    except Exception as e:  # noqa: BLE001
+        probe_reason = f"target resolution error: {e}"
+
+    # No resolved target → explain why (the common operator confusion:
+    # a catalog-pinned chip with neither a URL nor a host Address, or a
+    # disabled probe).
+    if not resolved and not probe_reason:
+        if not probe_cfg.get("enabled"):
+            probe_reason = "probe is disabled for this chip"
+        elif not ((chip.get("url") or "").strip() or host_address):
+            probe_reason = ("no probe target — chip has no URL and the host has no "
+                            "Address set (Admin → Hosts)")
+        else:
+            probe_reason = ("no probe port resolvable — set probe.ports[] or a chip "
+                            "URL that includes a port")
+
+    catalog = None
+    cid = _coerce_int_local(chip.get("catalog_id"))
+    if cid is not None:
+        catalog = _sc.get_catalog_by_id(cid)
+
+    return {
+        "host_id": host_id,
+        "host_label": (target_host.get("label") or host_id).strip(),
+        "host_address": host_address,
+        "service_idx": service_idx,
+        "chip": {
+            "name": (chip.get("name") or "").strip(),
+            "catalog_id": cid,
+            "url": (chip.get("url") or "").strip(),
+            "icon": (chip.get("icon") or "").strip(),
+            "probe": {
+                "enabled": bool(probe_cfg.get("enabled")),
+                "type": (probe_cfg.get("type") or "tcp"),
+                "port": probe_cfg.get("port"),
+                "path": probe_cfg.get("path") or "",
+                "ports": probe_cfg.get("ports") or [],
+            },
+        },
+        "catalog": catalog,
+        "resolved_targets": resolved,
+        "probe_reason": probe_reason,
+        "rollup": _ss.latest_for_host(host_id).get(service_idx),
+        "port_results": _ss.latest_per_port_for_host(host_id, service_idx),
     }
 
 

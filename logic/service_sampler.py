@@ -137,11 +137,27 @@ def _curated_service_probe_targets() -> list[dict]:
             override_path = (probe_cfg.get("path") or "").strip()
             port = override_port if override_port and override_port > 0 else parsed_port
             path = override_path or parsed_path
-            # No host AND no resolvable target → skip; row carries no
-            # probeable data.
+            # Resolve the probe host. The chip's own URL wins; when it
+            # carries none (e.g. a catalog-pinned chip that only has
+            # probe.ports[]), fall back to the host's curated `address`
+            # — the canonical per-host probe target — so catalog pins are
+            # probed without the operator also having to set a URL. Before
+            # this fallback, a no-URL chip was silently dropped here, never
+            # probed, and surfaced as an "unknown" instance (which rolls up
+            # to a "degraded" app group).
+            if not parsed_host:
+                parsed_host = (row.get("address") or "").strip()
             if not parsed_host:
                 continue
-            if probe_type == "tcp" and not port:
+            # Multi-port chips (probe.ports[]) carry their ports as
+            # sub-targets, so they don't need a resolvable top-level port.
+            # Only single-port chips fall back to a scheme-derived default
+            # / get skipped when no port can be determined.
+            _ports_raw_probe = probe_cfg.get("ports")
+            _has_sub_ports = isinstance(_ports_raw_probe, list) and any(
+                isinstance(p, dict) and _int_or_none(p.get("port")) for p in _ports_raw_probe
+            )
+            if probe_type == "tcp" and not port and not _has_sub_ports:
                 # Fall back to default web ports based on URL scheme.
                 lc = url.lower()
                 if lc.startswith("https://"):

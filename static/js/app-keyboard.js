@@ -228,6 +228,11 @@ export default {
         e.preventDefault();
         return;
       }
+      if (this.drawerApp) {
+        this.closeAppDrawer();
+        e.preventDefault();
+        return;
+      }
       if (this.drawerHost) {
         this.closeHostDrawer();
         e.preventDefault();

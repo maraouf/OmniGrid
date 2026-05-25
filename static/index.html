@@ -158,7 +158,7 @@
 <div x-data="app()" x-init="init()" x-cloak
      class="flex flex-col min-h-screen og-app-shell"
      :class="aiSidebarPinned ? 'og-app-shell--ai-pinned' : ''"
-     x-effect="_applyDrawerScrollLock(drawerHost, drawerItem, drawerNode, aiSidebarOpen, aiSidebarPinned)">
+     x-effect="_applyDrawerScrollLock(drawerHost, drawerItem, drawerNode, aiSidebarOpen, aiSidebarPinned, drawerApp)">
 
   <!-- ================== TOPBAR ================== -->
   <!-- On mobile (<sm), the <header> itself becomes a flex-wrap container
@@ -3222,8 +3222,13 @@
       <div x-show="appsListLoaded && filteredApps().length"
            class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         <template x-for="app in filteredApps()" :key="app.group_id">
-          <article class="apps-card border border-[var(--border)] bg-[var(--surface)] rounded-md p-3"
-                   :class="'apps-card--' + app.status">
+          <article class="apps-card border border-[var(--border)] bg-[var(--surface)] rounded-md p-3 cursor-pointer"
+                   :class="'apps-card--' + app.status"
+                   role="button" tabindex="0"
+                   :aria-label="(t('apps.drawer.open') || 'View app details') + ': ' + app.name"
+                   @click="openAppDrawer(app)"
+                   @keydown.enter="openAppDrawer(app)"
+                   @keydown.space.prevent="openAppDrawer(app)">
             <header class="flex items-start gap-2 mb-2">
               <img :src="iconUrlFor(app.icon || app.name)" alt=""
                    width="32" height="32" class="rounded"
@@ -3232,6 +3237,8 @@
                 <div class="flex items-center justify-between gap-1">
                   <h3 class="font-semibold fs-sm truncate" x-text="app.name"></h3>
                   <span class="chip fs-3xs whitespace-nowrap"
+                        role="status" aria-live="polite"
+                        :aria-label="app.name + ': ' + (t('apps.status_' + app.status) || app.status)"
                         :class="appStatusPillClass(app.status)"
                         x-text="(t('apps.status_' + app.status) || app.status)"></span>
                 </div>
@@ -3249,10 +3256,10 @@
                           :title="inst.status"
                           aria-hidden="true"></span>
                     <span class="truncate flex-1"
-                          :title="(inst.host_address || inst.host_id) + (inst.host_label && inst.host_label !== (inst.host_address || inst.host_id) ? ' — ' + inst.host_label : '')"
+                          :title="appsInstanceHostTitle(inst)"
                           x-text="inst.host_address || inst.host_id"></span>
                     <span x-show="inst.last_probe && inst.last_probe.rtt_ms" class="fs-3xs text-[var(--text-faint)]"
-                          x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? (inst.last_probe.rtt_ms + 'ms') : ''"></span>
+                          x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? appsLatencyMs(inst.last_probe.rtt_ms) : ''"></span>
                     <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener"
                        class="text-[var(--primary)] hover:underline" :aria-label="t('apps.open_link') || 'Open service URL'"
                        @click.stop>
@@ -3277,7 +3284,7 @@
                     <template x-for="pr in (inst.port_results || [])" :key="pr.port">
                       <span class="apps-port-pill"
                             :class="pr.alive ? 'apps-port-pill--up' : 'apps-port-pill--down'"
-                            :title="(pr.alive ? (t('apps.status_up') || 'up') : (t('apps.status_down') || 'down')) + (pr.rtt_ms != null ? ' (' + pr.rtt_ms + 'ms)' : '') + (pr.error ? ' — ' + pr.error : '')">
+                            :title="appsPortTitle(pr)">
                         <span class="apps-card-dot" :class="pr.alive ? 'apps-card-dot--up' : 'apps-card-dot--down'" aria-hidden="true"></span>
                         <span x-text="pr.port" class="mono"></span>
                       </span>
@@ -3297,6 +3304,15 @@
       <div x-show="appsListLoaded && !appsListLoading && !appsList.length"
            class="text-center py-16 text-[var(--text-faint)] fs-sm">
         <span x-html="t('apps.empty_html') || 'No app instances yet. Pin services to hosts via <strong>Admin → Hosts</strong> to populate this view; reusable templates live under <strong>Admin → Apps</strong>.'"></span>
+        <div x-show="isAdmin()" class="mt-4">
+          <button type="button" @click="openDiscoveryFromAppsView()"
+                  class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
+            <svg width="14" height="14" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
+            </svg>
+            <span x-text="t('apps.empty_cta_discover') || 'Run discovery on a host'"></span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -3877,8 +3893,8 @@
                    :href="app.url || ('#apps-' + app.service_idx)"
                    :target="app.url ? '_blank' : '_self'"
                    :rel="app.url ? 'noopener' : null"
-                   :title="(app.name || (app.catalog && app.catalog.name) || '') + ' — ' + (t('apps.status_' + app.status) || app.status) + (app.last_probe && app.last_probe.rtt_ms != null ? ' (' + app.last_probe.rtt_ms + 'ms)' : '')"
-                   :aria-label="(app.name || (app.catalog && app.catalog.name) || '') + ' — ' + (t('apps.status_' + app.status) || app.status)">
+                   :title="appsChipTitle(app)"
+                   :aria-label="appsChipAriaLabel(app)">
                   <img :src="iconUrlFor(app.icon || (app.catalog && app.catalog.slug) || app.name)"
                        alt="" width="14" height="14" class="rounded flex-shrink-0"
                        @error="$event.target.style.visibility='hidden'">
@@ -5190,7 +5206,7 @@
                         <span x-show="app.last_probe && app.last_probe.rtt_ms != null"
                               class="fs-3xs text-[var(--text-faint)] mono whitespace-nowrap"
                               :title="app.last_probe ? (t('host_drawer.apps.last_seen', { ago: relativeAge(Date.now()/1000 - app.last_probe.ts) }) || ('seen ' + relativeAge(Date.now()/1000 - app.last_probe.ts) + ' ago')) : ''"
-                              x-text="app.last_probe && app.last_probe.rtt_ms != null ? (app.last_probe.rtt_ms + 'ms') : ''"></span>
+                              x-text="app.last_probe && app.last_probe.rtt_ms != null ? appsLatencyMs(app.last_probe.rtt_ms) : ''"></span>
                         <a x-show="app.url" :href="app.url" target="_blank" rel="noopener"
                            class="btn-ghost p-1"
                            :aria-label="t('host_drawer.apps.open') || 'Open'"
@@ -5221,10 +5237,10 @@
                         <template x-for="pr in (app.port_results || [])" :key="pr.port">
                           <span class="apps-port-pill"
                                 :class="pr.alive ? 'apps-port-pill--up' : 'apps-port-pill--down'"
-                                :title="(pr.alive ? (t('apps.status_up') || 'up') : (t('apps.status_down') || 'down')) + (pr.rtt_ms != null ? ' (' + pr.rtt_ms + 'ms)' : '') + (pr.error ? ' — ' + pr.error : '')">
+                                :title="appsPortTitle(pr)">
                             <span class="apps-card-dot" :class="pr.alive ? 'apps-card-dot--up' : 'apps-card-dot--down'" aria-hidden="true"></span>
                             <span x-text="pr.port" class="mono"></span>
-                            <span x-show="pr.rtt_ms != null" class="text-[var(--text-faint)] mono" x-text="' · ' + pr.rtt_ms + 'ms'"></span>
+                            <span x-show="pr.rtt_ms != null" class="text-[var(--text-faint)] mono" x-text="' · ' + appsLatencyMs(pr.rtt_ms)"></span>
                           </span>
                         </template>
                       </div>
@@ -9154,6 +9170,139 @@
                   </div>
                 </section>
               </template>
+            </div>
+          </div>
+        </template>
+      </aside>
+    </div>
+  </template>
+
+  <!-- ================== APP DETAIL / DEBUG DRAWER ==================
+       Opened by clicking an app card in the Apps view. Shows the app's
+       catalog binding + every host instance with its per-port status,
+       a "Probe now" action, and a per-instance "Show debug" panel that
+       fetches the resolved probe target(s) + chip/catalog config +
+       latest outcomes so the operator can see WHY a given app on a
+       given host isn't reporting. Mirrors the host drawer's debug
+       panel; lives top-level (x-if) like the other drawers. -->
+  <template x-if="drawerApp">
+    <div class="fixed inset-0 z-40 fade-in">
+      <div @click="closeAppDrawer()" class="absolute inset-0 backdrop"></div>
+      <aside role="dialog" aria-modal="true"
+             :aria-label="drawerApp && drawerApp.name ? drawerApp.name : (t('apps.drawer.title') || 'App detail')"
+             @keydown="_focusTrapKeydown($event, $el)"
+             class="absolute inset-y-0 end-0 w-full md:w-[560px] bg-[var(--surface)] border-s border-[var(--border)] overflow-y-auto scrollbar slide-in">
+        <template x-if="drawerApp">
+          <div class="p-5">
+            <!-- Header -->
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0 flex-1 flex items-start gap-2">
+                <img :src="iconUrlFor(drawerApp.icon || drawerApp.name)" alt="" width="32" height="32"
+                     class="rounded mt-0.5" @error="$event.target.style.visibility='hidden'">
+                <div class="min-w-0">
+                  <h2 class="fs-display-sm font-semibold break-all" x-text="drawerApp.name"></h2>
+                  <div class="flex items-center gap-1.5 flex-wrap mt-1">
+                    <span class="chip fs-3xs" :class="appStatusPillClass(drawerApp.status)"
+                          x-text="t('apps.status_' + drawerApp.status) || drawerApp.status"></span>
+                    <span class="fs-3xs text-[var(--text-faint)]"
+                          x-text="t('apps.counts.instances_up', { up: drawerApp.up_count, total: drawerApp.instance_count })"></span>
+                  </div>
+                </div>
+              </div>
+              <button type="button" @click="closeAppDrawer()" class="btn btn-ghost text-base leading-none"
+                      :aria-label="t('actions.close')" :title="t('actions.close')">✕
+              </button>
+            </div>
+
+            <!-- Catalog binding -->
+            <template x-if="drawerApp.catalog">
+              <div class="mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-1"
+                     x-text="t('apps.drawer.catalog') || 'Catalog template'"></div>
+                <div class="fs-sm font-medium" x-text="drawerApp.catalog.name"></div>
+                <div class="fs-xs text-[var(--text-dim)]" x-show="drawerApp.catalog.description"
+                     x-text="drawerApp.catalog.description"></div>
+                <div class="fs-2xs text-[var(--text-faint)] mt-1 mono"
+                     x-show="(drawerApp.catalog.default_ports || []).length"
+                     x-text="(t('apps.drawer.default_ports') || 'Default ports') + ': ' + (drawerApp.catalog.default_ports || []).map(p => p.port + '/' + p.protocol).join(', ')"></div>
+              </div>
+            </template>
+
+            <!-- Instances -->
+            <div class="mt-4">
+              <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-2"
+                   x-text="t('apps.drawer.instances') || 'Instances'"></div>
+              <div class="space-y-2">
+                <template x-for="inst in (drawerApp.instances || [])" :key="inst.host_id + ':' + inst.service_idx">
+                  <div class="rounded-md border border-[var(--border)] p-3">
+                    <div class="flex items-center gap-2">
+                      <span class="apps-card-dot" :class="'apps-card-dot--' + inst.status" aria-hidden="true"></span>
+                      <span class="flex-1 truncate fs-sm mono" :title="appsInstanceHostTitle(inst)"
+                            x-text="inst.host_address || inst.host_id"></span>
+                      <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener"
+                         class="text-[var(--primary)]" :aria-label="t('apps.open_link') || 'Open service URL'" @click.stop>
+                        <svg width="12" height="12" aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+                        </svg>
+                      </a>
+                    </div>
+                    <div x-show="appsInstanceReason(inst)" class="fs-xs mt-1"
+                         :class="inst.status === 'down' ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]'"
+                         x-text="appsInstanceReason(inst)"></div>
+                    <div x-show="(inst.port_results || []).length" class="apps-port-grid mt-1">
+                      <template x-for="pr in (inst.port_results || [])" :key="pr.port">
+                        <span class="apps-port-pill" :class="pr.alive ? 'apps-port-pill--up' : 'apps-port-pill--down'"
+                              :title="appsPortTitle(pr)">
+                          <span class="apps-card-dot" :class="pr.alive ? 'apps-card-dot--up' : 'apps-card-dot--down'" aria-hidden="true"></span>
+                          <span x-text="pr.port" class="mono"></span>
+                        </span>
+                      </template>
+                    </div>
+                    <div class="flex items-center gap-2 mt-2">
+                      <button type="button" x-show="isAdmin()" @click.stop="appDrawerProbeNow(inst)"
+                              class="btn btn-soft fs-xs" x-text="t('apps.drawer.probe_now') || 'Probe now'"></button>
+                      <button type="button" @click.stop="toggleAppInstanceDebug(inst)" class="btn btn-ghost fs-xs"
+                              x-text="appDebugOpen[appInstanceKey(inst)] ? (t('apps.drawer.hide_debug') || 'Hide debug') : (t('apps.drawer.show_debug') || 'Show debug')"></button>
+                    </div>
+                    <div x-show="appDebugOpen[appInstanceKey(inst)]"
+                         class="mt-2 rounded-md bg-[var(--surface-2)] border border-[var(--border)] p-2">
+                      <template x-if="appDebug[appInstanceKey(inst)] && appDebug[appInstanceKey(inst)].loading">
+                        <div class="fs-xs text-[var(--text-faint)] flex items-center gap-2">
+                          <span class="spin"></span><span x-text="t('apps.drawer.debug_loading') || 'Loading diagnostics…'"></span>
+                        </div>
+                      </template>
+                      <template x-if="appDebug[appInstanceKey(inst)] && appDebug[appInstanceKey(inst)].error">
+                        <div class="fs-xs text-[var(--danger)]" x-text="appDebug[appInstanceKey(inst)].error"></div>
+                      </template>
+                      <template x-if="appDebug[appInstanceKey(inst)] && appDebug[appInstanceKey(inst)].data">
+                        <div class="fs-xs space-y-2">
+                          <div x-show="appDebug[appInstanceKey(inst)].data.probe_reason" class="text-[var(--warning)]"
+                               x-text="appDebug[appInstanceKey(inst)].data.probe_reason"></div>
+                          <div x-show="(appDebug[appInstanceKey(inst)].data.resolved_targets || []).length">
+                            <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-1"
+                                 x-text="t('apps.drawer.resolved_targets') || 'Resolved probe targets'"></div>
+                            <template x-for="rt in appDebug[appInstanceKey(inst)].data.resolved_targets" :key="rt.target">
+                              <div class="mono fs-2xs break-all">
+                                <span x-text="rt.target"></span>
+                                <span class="text-[var(--text-faint)]"
+                                      x-text="' [' + rt.probe_type + (rt.expected_status ? ' → ' + rt.expected_status : '') + ']'"></span>
+                              </div>
+                            </template>
+                          </div>
+                          <div class="mono fs-2xs text-[var(--text-dim)]"
+                               x-text="(t('apps.drawer.probe_enabled') || 'Probe enabled') + ': ' + (appDebug[appInstanceKey(inst)].data.chip.probe.enabled ? '✓' : '✕') + ' · ' + appDebug[appInstanceKey(inst)].data.chip.probe.type"></div>
+                          <details>
+                            <summary class="fs-2xs text-[var(--text-faint)] cursor-pointer"
+                                     x-text="t('apps.drawer.raw_json') || 'Raw debug JSON'"></summary>
+                            <pre class="fs-2xs mono whitespace-pre-wrap break-all mt-1"
+                                 x-text="JSON.stringify(appDebug[appInstanceKey(inst)].data, null, 2)"></pre>
+                          </details>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
             </div>
           </div>
         </template>

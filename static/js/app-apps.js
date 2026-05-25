@@ -176,6 +176,161 @@ export default {
     return this.t('apps.reason_unreachable') || 'Probe failed (no detail)';
   },
 
+  // Latency unit — single i18n point for the "Nms" suffix used across every
+  // Apps surface (bare form). Parenthesised form via appsLatencyParen().
+  // Keeps the unit out of template-literal concatenation so RTL / non-Latin
+  // locales can place / translate it (ms vs мс vs ミリ秒).
+  appsLatencyMs(n) {
+    return this.t('common.latency_ms', {n}) || (n + 'ms');
+  },
+  appsLatencyParen(n) {
+    return this.t('common.latency_paren', {n}) || ('(' + n + 'ms)');
+  },
+
+  // Host-drawer chip-strip tooltip: "<name> — <status> (<rtt>ms)". The
+  // name+status base (incl. its separator) lives in the i18n format string
+  // so locales control the separator; rtt is appended via the latency key.
+  appsChipTitle(app) {
+    const name = (app && (app.name || (app.catalog && app.catalog.name))) || '';
+    const status = this.t('apps.status_' + (app && app.status)) || (app && app.status) || '';
+    let s = this.t('apps.chip_tooltip', {name, status}) || (name + ' — ' + status);
+    const rtt = app && app.last_probe && app.last_probe.rtt_ms;
+    if (rtt != null) {
+      s += ' ' + this.appsLatencyParen(rtt);
+    }
+    return s;
+  },
+
+  // Chip-strip accessible name — name + status only (the latency is noise in
+  // a screen-reader announcement).
+  appsChipAriaLabel(app) {
+    const name = (app && (app.name || (app.catalog && app.catalog.name))) || '';
+    const status = this.t('apps.status_' + (app && app.status)) || (app && app.status) || '';
+    return this.t('apps.chip_tooltip', {name, status}) || (name + ' — ' + status);
+  },
+
+  // Apps instance host-row tooltip: canonical address, plus the operator
+  // label when it differs. Separator lives in the i18n format string.
+  appsInstanceHostTitle(inst) {
+    const base = (inst && (inst.host_address || inst.host_id)) || '';
+    const label = (inst && inst.host_label) || '';
+    if (label && label !== base) {
+      return this.t('apps.host_tooltip', {host: base, label}) || (base + ' — ' + label);
+    }
+    return base;
+  },
+
+  // Per-port pill tooltip: "<status> (<rtt>ms) — <error>" (rtt + error both
+  // optional). status + the error separator route through i18n; the error
+  // text itself is the un-translated probe diagnostic from the sampler.
+  appsPortTitle(pr) {
+    if (!pr) {
+      return '';
+    }
+    let s = pr.alive ? (this.t('apps.status_up') || 'up') : (this.t('apps.status_down') || 'down');
+    if (pr.rtt_ms != null) {
+      s += ' ' + this.appsLatencyParen(pr.rtt_ms);
+    }
+    if (pr.error) {
+      s += this.t('apps.error_suffix', {error: pr.error}) || (' — ' + pr.error);
+    }
+    return s;
+  },
+
+  // ----------------------------------------------------------------
+  // Apps detail / debug drawer — mirrors the host drawer. Clicking an
+  // app card opens drawerApp; each instance has a "Show debug" panel
+  // that lazy-fetches /api/services/{host}/{idx}/debug (the resolved
+  // probe target, chip + catalog config, latest per-port outcomes) so
+  // the operator can see WHY an instance on a host isn't reporting.
+  // ----------------------------------------------------------------
+  drawerApp: null,
+  appDebug: {},      // { "<host_id>:<idx>": { loading, error, data } }
+  appDebugOpen: {},  // { "<host_id>:<idx>": bool }
+
+  appInstanceKey(inst) {
+    return (inst && (inst.host_id + ':' + inst.service_idx)) || '';
+  },
+
+  openAppDrawer(app) {
+    if (!app) {
+      return;
+    }
+    this.drawerApp = app;
+    this.appDebugOpen = {};
+  },
+
+  closeAppDrawer() {
+    this.drawerApp = null;
+    this.appDebugOpen = {};
+  },
+
+  // True when the app drawer should treat itself as open (used by the
+  // scroll-lock effect + ESC handler).
+  isAppDrawerOpen() {
+    return !!this.drawerApp;
+  },
+
+  // Toggle the per-instance debug panel; lazy-fetch on first open.
+  toggleAppInstanceDebug(inst) {
+    const key = this.appInstanceKey(inst);
+    if (!key) {
+      return;
+    }
+    const open = !this.appDebugOpen[key];
+    this.appDebugOpen = Object.assign({}, this.appDebugOpen, {[key]: open});
+    if (open && !this.appDebug[key]) {
+      this.loadAppInstanceDebug(inst);
+    }
+  },
+
+  async loadAppInstanceDebug(inst) {
+    const key = this.appInstanceKey(inst);
+    if (!key || !inst) {
+      return;
+    }
+    this.appDebug = Object.assign({}, this.appDebug, {[key]: {loading: true, error: '', data: null}});
+    try {
+      const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
+        + '/' + encodeURIComponent(inst.service_idx) + '/debug');
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || ('HTTP ' + r.status));
+      }
+      const data = await r.json();
+      this.appDebug = Object.assign({}, this.appDebug, {[key]: {loading: false, error: '', data}});
+    } catch (err) {
+      this.appDebug = Object.assign({}, this.appDebug, {
+        [key]: {loading: false, error: (err && err.message) ? err.message : String(err), data: null},
+      });
+    }
+  },
+
+  // Re-probe one instance from the drawer (reuses the per-chip
+  // probe-now endpoint), then refresh its debug data + the apps list.
+  async appDrawerProbeNow(inst) {
+    const key = this.appInstanceKey(inst);
+    if (!key || !inst) {
+      return;
+    }
+    try {
+      const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
+        + '/' + encodeURIComponent(inst.service_idx) + '/probe', {method: 'POST'});
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        this.showToast((this.t('apps.drawer.probe_failed') || 'Probe failed: ') + (j.detail || ('HTTP ' + r.status)), 'error');
+      }
+    } catch (err) {
+      this.showToast((this.t('apps.drawer.probe_failed') || 'Probe failed: ') + ((err && err.message) || err), 'error');
+    }
+    if (this.appDebugOpen[key]) {
+      this.loadAppInstanceDebug(inst);
+    }
+    if (typeof this.loadAppsList === 'function') {
+      this.loadAppsList(true);
+    }
+  },
+
   // Open a specific instance row in the host drawer / Admin → Hosts editor.
   goToAdminHostsForInstance(inst) {
     if (!inst || !inst.host_id) {
@@ -598,6 +753,20 @@ export default {
   // ----------------------------------------------------------------
   // Discovery wizard — port-scan + catalog match → bulk-bind.
   // ----------------------------------------------------------------
+  // Jump from the top-level Apps view's empty-state CTA into the
+  // discovery wizard. The wizard markup lives in the Admin → Apps
+  // partial (hidden via x-show on the admin page-content), so we have
+  // to navigate to that view + tab first, then open the modal on the
+  // next tick once the partial is visible.
+  openDiscoveryFromAppsView() {
+    this.view = 'admin';
+    this.adminTab = 'apps';
+    if (typeof this.setAppsAdminTab === 'function') {
+      this.setAppsAdminTab('templates');
+    }
+    this.$nextTick(() => this.openAppsDiscoverWizard());
+  },
+
   openAppsDiscoverWizard() {
     this.appsDiscoverOpen = true;
     this.appsDiscoverForm = {host_id: ''};
