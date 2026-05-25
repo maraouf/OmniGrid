@@ -3963,38 +3963,6 @@
               </button>
             </div>
           </div>
-          <!-- Apps chip strip — compact at-a-glance summary of every
-                   service pinned to this host. Renders directly under the
-                   sticky drawer header so an operator opening the drawer
-                   answers "what runs here + is it all up?" without
-                   scrolling. Hidden when the host has no chips (gate on
-                   apps.length so it doesn't take vertical real estate on
-                   bare-VM-no-services rows). Each chip is a button →
-                   scrolls the matching row in the full Apps card into
-                   view AND opens the chip's external URL on shift-click
-                   (deferred — for MVP each chip is just a static
-                   visualisation, click anchors to the full Apps card
-                   below). -->
-          <template x-if="Array.isArray(h.apps) && h.apps.length">
-            <div class="apps-chip-strip flex items-center gap-1.5 flex-wrap mb-3 px-1"
-                 role="group"
-                 :aria-label="t('host_drawer.apps.chip_strip_label') || 'Apps on this host'">
-              <template x-for="app in sortedHostApps(h)" :key="'strip:' + app.service_idx">
-                <a class="apps-chip-strip-chip"
-                   :class="'apps-chip-strip-chip--' + app.status"
-                   :href="app.url || ('#apps-' + app.service_idx)"
-                   :target="app.url ? '_blank' : '_self'"
-                   :rel="app.url ? 'noopener' : null"
-                   :title="appsChipTitle(app)"
-                   :aria-label="appsChipAriaLabel(app)">
-                  <img :src="iconUrlFor(app.icon || (app.catalog && app.catalog.slug) || app.name)"
-                       alt="" width="14" height="14" class="rounded flex-shrink-0"
-                       @error="$event.target.style.visibility='hidden'">
-                  <span class="apps-card-dot" :class="'apps-card-dot--' + app.status" aria-hidden="true"></span>
-                </a>
-              </template>
-            </div>
-          </template>
           <!-- Permanent-fail banner — fires when the
                    host_metrics_sampler has auto-paused this host after
                    the configured failure window. Shows last error +
