@@ -335,6 +335,34 @@ export default {
     }
   },
 
+  // Admin Edit affordance from the App detail drawer — redirect to the
+  // Apps instance editor (Admin → Apps → Instances) and open the edit
+  // modal for THIS chip. The drawer's per-instance object (from
+  // list_apps) lacks the per-chip name/icon/catalog fields the editor
+  // needs, so we navigate, (re)load the richer appsInstances list, find
+  // the matching row by (host_id, service_idx), and open its editor.
+  async editAppInstanceFromDrawer(inst) {
+    if (!inst || !inst.host_id) {
+      return;
+    }
+    const hostId = inst.host_id;
+    const idx = inst.service_idx;
+    this.closeAppDrawer();
+    this.view = 'admin';
+    this.adminTab = 'apps';
+    if (typeof this.setAppsAdminTab === 'function') {
+      this.setAppsAdminTab('instances');
+    }
+    if (typeof this.loadAppsInstances === 'function') {
+      await this.loadAppsInstances();
+    }
+    const match = (this.appsInstances || []).find(
+      (x) => x && x.host_id === hostId && x.service_idx === idx);
+    if (match) {
+      this.$nextTick(() => this.openInstanceEdit(match));
+    }
+  },
+
   // Open a specific instance row in the host drawer / Admin → Hosts editor.
   goToAdminHostsForInstance(inst) {
     if (!inst || !inst.host_id) {
@@ -352,6 +380,74 @@ export default {
         }
       });
     }
+  },
+
+  // ----------------------------------------------------------------
+  // Apps → Instances grouping. With many pinned chips the flat table
+  // gets noisy, so the operator can group by host or by service
+  // (catalog / name). Rendered as a flattened row list (group-header
+  // rows + item rows) so the <table> stays one tbody; headers are
+  // collapsible. Mode persists to localStorage.
+  // ----------------------------------------------------------------
+  appsInstancesGroupBy: (() => {
+    try {
+      const v = localStorage.getItem('appsInstancesGroupBy');
+      return ['none', 'host', 'service'].includes(v) ? v : 'host';
+    } catch (_) {
+      return 'host';
+    }
+  })(),
+  appsInstancesCollapsed: {},
+
+  setAppsInstancesGroupBy(mode) {
+    if (!['none', 'host', 'service'].includes(mode)) {
+      return;
+    }
+    this.appsInstancesGroupBy = mode;
+    try {
+      localStorage.setItem('appsInstancesGroupBy', mode);
+    } catch (_) { /* private mode — in-memory only */ }
+  },
+
+  toggleAppsInstanceGroup(key) {
+    this.appsInstancesCollapsed = Object.assign({}, this.appsInstancesCollapsed,
+      {[key]: !this.appsInstancesCollapsed[key]});
+  },
+
+  // Grouped render structure for the instances table — one entry per
+  // group: {key, label, count, items}. Rendered as one <tbody> per
+  // group (valid HTML, keeps column alignment with the shared thead)
+  // with a collapsible header row. 'none' returns a single group with
+  // an empty key/label so the markup suppresses its header row.
+  appsInstancesGroups() {
+    const list = Array.isArray(this.appsInstances) ? this.appsInstances : [];
+    const mode = this.appsInstancesGroupBy || 'host';
+    if (mode === 'none') {
+      return [{key: '__all__', label: '', count: list.length, items: list}];
+    }
+    const groups = {};
+    const order = [];
+    for (const inst of list) {
+      let key;
+      let label;
+      if (mode === 'service') {
+        label = inst.catalog_name || inst.name || (this.t('admin_apps.unlinked') || '— unlinked —');
+        key = 'svc:' + label.toLowerCase();
+      } else {
+        key = 'host:' + (inst.host_id || '');
+        label = (typeof this.appsInstanceHostTitle === 'function' ? this.appsInstanceHostTitle(inst) : '')
+          || inst.host_address || inst.host_id;
+      }
+      if (!groups[key]) {
+        groups[key] = {key, label, items: []};
+        order.push(key);
+      }
+      groups[key].items.push(inst);
+    }
+    order.sort((a, b) => (groups[a].label || '').toLowerCase().localeCompare((groups[b].label || '').toLowerCase()));
+    return order.map((key) => ({
+      key, label: groups[key].label, count: groups[key].items.length, items: groups[key].items,
+    }));
   },
 
   // ----------------------------------------------------------------
@@ -590,12 +686,23 @@ export default {
   appsInstanceEditForm: {
     host_id: '', service_idx: -1, host_label: '', catalog_name: '',
     name: '', url: '', icon: '', probe_enabled: true, probe_type: 'tcp',
+    ports: [], docker_stack: '', docker_container: '',
   },
 
   openInstanceEdit(inst) {
     if (!inst) {
       return;
     }
+    // Seed the per-port rows from the chip's probe.ports[] (inherited
+    // from the catalog template at pin time, e.g. AdGuard's 3 ports),
+    // normalising each entry so the inputs bind cleanly.
+    const ports = (Array.isArray(inst.ports) ? inst.ports : []).map((p) => ({
+      port: (p && p.port != null) ? p.port : '',
+      protocol: (p && p.protocol) || 'tcp',
+      label: (p && p.label) || '',
+      probe_path: (p && p.probe_path) || '',
+      probe_status: (p && p.probe_status != null) ? p.probe_status : 0,
+    }));
     this.appsInstanceEditForm = {
       host_id: inst.host_id,
       service_idx: inst.service_idx,
@@ -606,9 +713,118 @@ export default {
       icon: inst.icon || '',
       probe_enabled: inst.probe_enabled !== false,
       probe_type: inst.probe_type || 'tcp',
+      ports: ports,
+      docker_stack: inst.docker_stack || '',
+      docker_container: inst.docker_container || '',
     };
     this.appsInstanceEditError = '';
     this.appsInstanceEditOpen = true;
+  },
+
+  // Datalist candidates for the "Link to Docker" picker, sourced from
+  // the already-loaded /api/items snapshot (this.items). Stacks =
+  // service names + stack namespaces; containers = standalone /orphan
+  // container names. Free-text inputs back these so the operator can
+  // also type an id the snapshot doesn't list.
+  appsDockerStackOptions() {
+    const out = new Set();
+    for (const it of (this.items || [])) {
+      if (!it) {
+        continue;
+      }
+      if (it.type === 'service' && it.name) {
+        out.add(it.name);
+      }
+      if (it.stack) {
+        out.add(it.stack);
+      }
+    }
+    return Array.from(out).sort();
+  },
+  appsDockerContainerOptions() {
+    const out = new Set();
+    for (const it of (this.items || [])) {
+      if (it && (it.type === 'container' || it.type === 'orphan') && it.name) {
+        out.add(it.name);
+      }
+    }
+    return Array.from(out).sort();
+  },
+
+  // Resolve a Docker-linked chip to its item in the current /api/items
+  // snapshot. docker_container wins (standalone container, matched by
+  // name / raw_id / id); else docker_stack matches a service by name /
+  // stack namespace. Returns null when nothing matches.
+  _appDrawerResolveItem(inst) {
+    if (!inst) {
+      return null;
+    }
+    const items = Array.isArray(this.items) ? this.items : [];
+    if (inst.docker_container) {
+      const c = items.find((it) => it && (it.type === 'container' || it.type === 'orphan')
+        && (it.name === inst.docker_container || it.raw_id === inst.docker_container || it.id === inst.docker_container));
+      if (c) {
+        return c;
+      }
+    }
+    if (inst.docker_stack) {
+      return items.find((it) => it && it.type === 'service'
+        && (it.name === inst.docker_stack || it.stack === inst.docker_stack)) || null;
+    }
+    return null;
+  },
+
+  // App-drawer inline Restart for a Docker-linked chip — hands off to
+  // the existing restartItem op (its own confirm + audit + agent-target
+  // routing).
+  appDrawerRestart(inst) {
+    const target = this._appDrawerResolveItem(inst);
+    if (!target) {
+      if (typeof this.showToast === 'function') {
+        this.showToast(this.t('apps.drawer.restart_no_match') || 'Linked Docker target not found in the current items list', 'error');
+      }
+      return;
+    }
+    if (typeof this.restartItem === 'function') {
+      this.restartItem(target);
+    }
+  },
+
+  // App-drawer inline Update for a Docker-linked chip — hands off to the
+  // existing itemAction op (recreate-with-pull for containers / stack
+  // update + pull for services). Its own confirm gate applies.
+  appDrawerUpdate(inst) {
+    const target = this._appDrawerResolveItem(inst);
+    if (!target) {
+      if (typeof this.showToast === 'function') {
+        this.showToast(this.t('apps.drawer.restart_no_match') || 'Linked Docker target not found in the current items list', 'error');
+      }
+      return;
+    }
+    if (typeof this.itemAction === 'function') {
+      this.itemAction(target);
+    }
+  },
+
+  // True when a Docker-linked chip's target currently has an update —
+  // gates the App drawer's Update button so it only shows when there's
+  // something to update.
+  appDrawerHasUpdate(inst) {
+    const target = this._appDrawerResolveItem(inst);
+    return !!(target && target.status === 'update');
+  },
+
+  addInstancePort() {
+    if (!Array.isArray(this.appsInstanceEditForm.ports)) {
+      this.appsInstanceEditForm.ports = [];
+    }
+    this.appsInstanceEditForm.ports.push({port: '', protocol: 'tcp', label: '', probe_path: '', probe_status: 0});
+  },
+
+  removeInstancePort(i) {
+    if (Array.isArray(this.appsInstanceEditForm.ports)) {
+      this.appsInstanceEditForm.ports.splice(i, 1);
+    }
   },
 
   closeInstanceEdit() {
@@ -630,6 +846,8 @@ export default {
         body: JSON.stringify({
           name: f.name, url: f.url, icon: f.icon,
           probe_enabled: f.probe_enabled, probe_type: f.probe_type,
+          ports: Array.isArray(f.ports) ? f.ports : [],
+          docker_stack: f.docker_stack || '', docker_container: f.docker_container || '',
         }),
       });
       if (!r.ok) {

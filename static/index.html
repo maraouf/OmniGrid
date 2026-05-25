@@ -9266,6 +9266,36 @@
                         </svg>
                         <span x-text="t('apps.drawer.probe_now') || 'Probe now'"></span>
                       </button>
+                      <button type="button" x-show="isAdmin()" @click.stop="editAppInstanceFromDrawer(inst)"
+                              class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
+                        <svg width="13" height="13" aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/>
+                        </svg>
+                        <span x-text="t('apps.drawer.edit') || 'Edit'"></span>
+                      </button>
+                      <!-- Inline Restart — only when the chip is linked to a
+                           Docker container / stack. Resolves the target from
+                           the items list + hands off to restartItem (confirm +
+                           audit + agent-target routing). -->
+                      <button type="button" x-show="isAdmin() && (inst.docker_container || inst.docker_stack)"
+                              @click.stop="appDrawerRestart(inst)"
+                              class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
+                        <svg width="13" height="13" aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-ccw"/>
+                        </svg>
+                        <span x-text="t('apps.drawer.restart') || 'Restart'"></span>
+                      </button>
+                      <!-- Inline Update — only when the linked Docker target
+                           currently has an update available. -->
+                      <button type="button"
+                              x-show="isAdmin() && (inst.docker_container || inst.docker_stack) && appDrawerHasUpdate(inst)"
+                              @click.stop="appDrawerUpdate(inst)"
+                              class="btn btn-warning fs-xs inline-flex items-center gap-1.5">
+                        <svg width="13" height="13" aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
+                        </svg>
+                        <span x-text="t('apps.drawer.update') || 'Update'"></span>
+                      </button>
                       <button type="button" @click.stop="toggleAppInstanceDebug(inst)"
                               class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
                         <svg width="13" height="13" aria-hidden="true">

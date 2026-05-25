@@ -691,6 +691,11 @@ def list_apps() -> list[dict[str, Any]]:
                 "last_probe": sample,
                 "probe_enabled": bool(probe_cfg.get("enabled")),
                 "ports": probe_cfg.get("ports") or [],
+                # Optional Docker linkage — drives the App drawer's inline
+                # Restart action when the operator linked this chip to a
+                # Portainer container / stack.
+                "docker_stack": (svc.get("docker_stack") or "").strip(),
+                "docker_container": (svc.get("docker_container") or "").strip(),
                 # Per-port latest outcomes (multi-port chips only) so the
                 # Apps card can show WHICH port failed + its error reason,
                 # not just the rolled-up chip status.
@@ -780,6 +785,8 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 "ports": probe_cfg.get("ports") or [],
                 "probe_enabled": bool(probe_cfg.get("enabled")),
                 "probe_type": (probe_cfg.get("type") or "tcp").strip().lower(),
+                "docker_stack": (svc.get("docker_stack") or "").strip(),
+                "docker_container": (svc.get("docker_container") or "").strip(),
                 "last_probe": sample,
                 "status": "up" if sample_alive else ("down" if sample else "unknown"),
             }

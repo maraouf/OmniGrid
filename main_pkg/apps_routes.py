@@ -421,12 +421,32 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["icon"] = v[:64]
         else:
             chip.pop("icon", None)  # blank → re-inherit from template
+    # Docker linkage — empty string CLEARS the link (no inline actions);
+    # a non-empty value links the chip to a Portainer container / stack.
+    if "docker_stack" in payload:
+        v = (payload.get("docker_stack") or "").strip()
+        if v:
+            chip["docker_stack"] = v[:128]
+        else:
+            chip.pop("docker_stack", None)
+    if "docker_container" in payload:
+        v = (payload.get("docker_container") or "").strip()
+        if v:
+            chip["docker_container"] = v[:256]
+        else:
+            chip.pop("docker_container", None)
     probe = chip.get("probe") if isinstance(chip.get("probe"), dict) else {}
     if "probe_enabled" in payload:
         probe["enabled"] = bool(payload.get("probe_enabled"))
     if "probe_type" in payload:
         pt = (payload.get("probe_type") or "tcp").strip().lower()
         probe["type"] = pt if pt in ("tcp", "http") else "tcp"
+    if "ports" in payload and isinstance(payload.get("ports"), list):
+        # Raw per-port list straight from the editor — _clean_host_services
+        # (run by _persist_host_services) validates each entry's port /
+        # protocol / label / probe_path / probe_status, so malformed rows
+        # are dropped here without a second validator.
+        probe["ports"] = payload["ports"]
     chip["probe"] = probe
     chips[service_idx] = chip
     _persist_host_services(hosts, target_idx, chips)

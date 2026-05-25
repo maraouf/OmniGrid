@@ -1138,6 +1138,17 @@ def _clean_host_services(raw: Any) -> list[dict]:
         for k in ("status", "locked_fields", "asset_id", "label"):
             if k in entry:
                 cleaned[k] = entry[k]
+        # Optional Docker linkage (Apps Phase-3 "Link to Docker"). When
+        # set, the App drawer / host-drawer Apps card surface inline
+        # Restart / Logs / Update actions routed at the linked Portainer
+        # service / container. Validated as bounded strings; blank /
+        # non-string drops the field so an un-linked chip stays clean.
+        ds = entry.get("docker_stack")
+        if isinstance(ds, str) and ds.strip():
+            cleaned["docker_stack"] = ds.strip()[:128]
+        dc = entry.get("docker_container")
+        if isinstance(dc, str) and dc.strip():
+            cleaned["docker_container"] = dc.strip()[:256]
         # Per-chip probe sub-dict.
         probe = entry.get("probe")
         if isinstance(probe, dict):

@@ -147,6 +147,22 @@
   <!-- INSTANCES TAB -->
   <div x-show="appsAdminTab === 'instances'">
     <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin_apps.instances_intro') || 'Every app chip pinned to a host. Catalog-linked instances inherit their name + icon from the template; click a row (or the edit icon) to change name / URL / icon / probe, or remove the chip.'"></p>
+    <div x-show="appsInstancesLoaded && appsInstances.length" class="flex items-center gap-1.5 mb-3"
+         role="group" :aria-label="t('admin_apps.group_by_label') || 'Group instances by'">
+      <span class="fs-2xs text-[var(--text-faint)] me-1" x-text="(t('admin_apps.group_by_label') || 'Group by') + ':'"></span>
+      <button type="button" class="btn fs-2xs"
+              :class="appsInstancesGroupBy === 'host' ? 'btn-primary' : 'btn-soft'"
+              :aria-pressed="appsInstancesGroupBy === 'host'"
+              @click="setAppsInstancesGroupBy('host')" x-text="t('admin_apps.group_by_host') || 'Host'"></button>
+      <button type="button" class="btn fs-2xs"
+              :class="appsInstancesGroupBy === 'service' ? 'btn-primary' : 'btn-soft'"
+              :aria-pressed="appsInstancesGroupBy === 'service'"
+              @click="setAppsInstancesGroupBy('service')" x-text="t('admin_apps.group_by_service') || 'Service'"></button>
+      <button type="button" class="btn fs-2xs"
+              :class="appsInstancesGroupBy === 'none' ? 'btn-primary' : 'btn-soft'"
+              :aria-pressed="appsInstancesGroupBy === 'none'"
+              @click="setAppsInstancesGroupBy('none')" x-text="t('admin_apps.group_by_none') || 'None'"></button>
+    </div>
     <div x-show="!appsInstancesLoaded" class="loading-state">
       <span class="spin-lg" aria-hidden="true"></span>
     </div>
@@ -162,50 +178,67 @@
         <th class="text-end py-2 pe-2" x-text="t('admin_apps.col_actions') || 'Actions'"></th>
       </tr>
       </thead>
-      <tbody>
-      <template x-for="inst in appsInstances" :key="inst.host_id + ':' + inst.service_idx">
-        <tr class="border-b border-[var(--border)] hover:bg-[var(--row-hover)] cursor-pointer"
-            @click="openInstanceEdit(inst)">
-          <td class="py-2 ps-2">
-            <img :src="iconUrlFor(inst.icon || inst.catalog_slug || inst.name)" alt="" width="22" height="22" class="rounded"
-                 @error="$event.target.style.visibility='hidden'">
-          </td>
-          <td class="py-2 font-medium" x-text="inst.name || '—'"></td>
-          <td class="py-2">
-            <code class="fs-xs text-[var(--text-dim)]"
-                  x-text="inst.host_address || inst.host_id"></code>
-            <div x-show="inst.host_label && inst.host_label !== (inst.host_address || inst.host_id)"
-                 class="fs-3xs text-[var(--text-faint)] italic"
-                 x-text="inst.host_label"></div>
-          </td>
-          <td class="py-2 hidden md:table-cell">
-            <span x-show="inst.catalog_name" class="chip pill-info fs-2xs" x-text="inst.catalog_name"></span>
-            <span x-show="!inst.catalog_name" class="fs-2xs text-[var(--text-faint)] italic" x-text="t('admin_apps.unlinked') || '— unlinked —'"></span>
-          </td>
-          <td class="py-2">
-                    <span class="chip fs-2xs"
-                          :class="inst.status === 'up' ? 'pill-ok' : (inst.status === 'down' ? 'pill-error' : 'pill-muted')"
-                          x-text="t('admin_apps.status_' + inst.status) || inst.status"></span>
-          </td>
-          <td class="py-2 hidden md:table-cell">
-            <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener" class="fs-xs text-[var(--primary)] underline" @click.stop x-text="inst.url"></a>
-            <span x-show="!inst.url" class="fs-2xs text-[var(--text-faint)] italic">—</span>
-          </td>
-          <td class="py-2 pe-2 text-end whitespace-nowrap">
-            <button type="button" class="user-action-btn" @click.stop="openInstanceEdit(inst)"
-                    :aria-label="t('admin_apps.action_edit') || 'Edit instance'"
-                    :title="t('admin_apps.action_edit') || 'Edit instance'">
-              <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/></svg>
-            </button>
-            <button type="button" class="user-action-btn user-action-btn--danger" @click.stop="deleteInstance(inst)"
-                    :aria-label="t('admin_apps.action_delete') || 'Remove instance'"
-                    :title="t('admin_apps.action_delete') || 'Remove instance'">
-              <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/></svg>
-            </button>
-          </td>
-        </tr>
+      <template x-for="grp in appsInstancesGroups()" :key="grp.key">
+        <tbody>
+          <tr x-show="grp.key !== '__all__'" class="cursor-pointer select-none bg-[var(--surface-2)]"
+              @click="toggleAppsInstanceGroup(grp.key)">
+            <td colspan="7" class="py-1.5 px-2 border-y border-[var(--border)]">
+              <span class="inline-flex items-center gap-1.5 fs-xs font-semibold">
+                <svg width="11" height="11" class="flip-rtl" aria-hidden="true"
+                     :style="appsInstancesCollapsed[grp.key] ? '' : 'transform: rotate(90deg)'">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+                </svg>
+                <span x-text="grp.label"></span>
+                <span class="chip pill-muted fs-3xs" x-text="grp.count"></span>
+              </span>
+            </td>
+          </tr>
+          <template x-for="inst in (appsInstancesCollapsed[grp.key] ? [] : grp.items)" :key="inst.host_id + ':' + inst.service_idx">
+            <tr class="border-b border-[var(--border)] hover:bg-[var(--row-hover)] cursor-pointer"
+                @click="openInstanceEdit(inst)">
+              <td class="py-2 ps-2">
+                <img :src="iconUrlFor(inst.icon || inst.catalog_slug || inst.name)" alt="" width="22" height="22" class="rounded"
+                     @error="$event.target.style.visibility='hidden'">
+              </td>
+              <td class="py-2 font-medium" x-text="inst.name || '—'"></td>
+              <td class="py-2">
+                <code class="fs-xs text-[var(--text-dim)]"
+                      x-text="inst.host_address || inst.host_id"></code>
+                <div x-show="inst.host_label && inst.host_label !== (inst.host_address || inst.host_id)"
+                     class="fs-3xs text-[var(--text-faint)] italic"
+                     x-text="inst.host_label"></div>
+              </td>
+              <td class="py-2 hidden md:table-cell">
+                <span x-show="inst.catalog_name" class="chip pill-info fs-2xs" x-text="inst.catalog_name"></span>
+                <span x-show="!inst.catalog_name" class="fs-2xs text-[var(--text-faint)] italic" x-text="t('admin_apps.unlinked') || '— unlinked —'"></span>
+              </td>
+              <td class="py-2">
+                <span class="chip fs-2xs"
+                      :class="inst.status === 'up' ? 'pill-ok' : (inst.status === 'down' ? 'pill-error' : 'pill-muted')"
+                      x-text="t('admin_apps.status_' + inst.status) || inst.status"></span>
+              </td>
+              <td class="py-2 hidden md:table-cell">
+                <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener" class="fs-xs text-[var(--primary)] underline" @click.stop x-text="inst.url"></a>
+                <span x-show="!inst.url" class="fs-2xs text-[var(--text-faint)] italic">—</span>
+              </td>
+              <td class="py-2 pe-2 text-end whitespace-nowrap">
+                <button type="button" class="user-action-btn" @click.stop="openInstanceEdit(inst)"
+                        :aria-label="t('admin_apps.action_edit') || 'Edit instance'"
+                        :title="t('admin_apps.action_edit') || 'Edit instance'">
+                  <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/></svg>
+                </button>
+                <button type="button" class="user-action-btn user-action-btn--danger" @click.stop="deleteInstance(inst)"
+                        :aria-label="t('admin_apps.action_delete') || 'Remove instance'"
+                        :title="t('admin_apps.action_delete') || 'Remove instance'">
+                  <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/></svg>
+                </button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
       </template>
-      <tr x-show="appsInstancesLoaded && !appsInstances.length">
+      <tbody x-show="appsInstancesLoaded && !appsInstances.length">
+      <tr>
         <td colspan="7" class="py-6 text-center text-[var(--text-faint)] fs-sm">
           <div class="mb-2" x-text="t('admin_apps.empty_instances') || 'No app instances yet.'"></div>
           <div class="flex items-center justify-center gap-2 flex-wrap">
@@ -610,6 +643,67 @@
           <input type="checkbox" x-model="appsInstanceEditForm.probe_enabled">
           <span x-text="t('admin_apps.instance_edit_probe_enabled') || 'Probe this app for reachability'"></span>
         </label>
+        <!-- Per-port editor — seeded from the chip's probe.ports[]
+             (inherited from the catalog template at pin time, e.g.
+             AdGuard's 3 ports). Each row: port + protocol + optional
+             HTTP probe path + expected status. -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block fs-xs font-medium" x-text="t('admin_apps.instance_edit_ports') || 'Ports'"></label>
+            <button type="button" class="btn btn-soft fs-2xs inline-flex items-center gap-1"
+                    @click="addInstancePort()">
+              <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plus"/></svg>
+              <span x-text="t('admin_apps.instance_edit_add_port') || 'Add port'"></span>
+            </button>
+          </div>
+          <p x-show="!(appsInstanceEditForm.ports || []).length" class="fs-2xs text-[var(--text-faint)] italic mb-1"
+             x-text="t('admin_apps.instance_edit_no_ports') || 'No ports — this chip has no reachability ports configured.'"></p>
+          <div class="space-y-1.5">
+            <template x-for="(p, pi) in appsInstanceEditForm.ports" :key="pi">
+              <div class="flex items-center gap-1.5">
+                <input type="number" min="1" max="65535" class="w-[78px] fs-xs" x-model.number="p.port"
+                       :placeholder="t('admin_apps.instance_edit_port') || 'Port'">
+                <select class="fs-xs" x-model="p.protocol">
+                  <option value="tcp">tcp</option>
+                  <option value="udp">udp</option>
+                  <option value="http">http</option>
+                  <option value="https">https</option>
+                </select>
+                <input type="text" maxlength="256" class="flex-1 fs-xs" x-model="p.probe_path"
+                       :placeholder="t('admin_apps.instance_edit_path') || 'HTTP path (e.g. /health)'">
+                <input type="number" min="0" max="599" class="w-[64px] fs-xs" x-model.number="p.probe_status"
+                       :title="t('admin_apps.instance_edit_status') || 'Expected HTTP status (0 = any 2xx/3xx)'"
+                       :placeholder="t('admin_apps.instance_edit_status_ph') || 'Status'">
+                <button type="button" class="user-action-btn user-action-btn--danger" @click="removeInstancePort(pi)"
+                        :aria-label="t('actions.remove') || 'Remove'" :title="t('actions.remove') || 'Remove'">
+                  <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/></svg>
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+        <!-- Link to Docker (optional) — links the chip to a Portainer
+             container / stack so the App drawer can offer an inline
+             Restart. Free-text inputs backed by datalists sourced from
+             the current /api/items snapshot. -->
+        <div>
+          <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.instance_edit_docker_label') || 'Link to Docker (optional)'"></label>
+          <p class="fs-2xs text-[var(--text-faint)] mb-1" x-text="t('admin_apps.instance_edit_docker_hint') || 'Link to a Portainer container or stack/service to enable an inline Restart in the app drawer.'"></p>
+          <div class="grid grid-cols-2 gap-2">
+            <input type="text" maxlength="128" class="fs-xs" x-model="appsInstanceEditForm.docker_stack"
+                   list="apps-docker-stack-opts"
+                   :placeholder="t('admin_apps.instance_edit_docker_stack') || 'Service / stack name'">
+            <input type="text" maxlength="256" class="fs-xs" x-model="appsInstanceEditForm.docker_container"
+                   list="apps-docker-container-opts"
+                   :placeholder="t('admin_apps.instance_edit_docker_container') || 'Container name'">
+          </div>
+          <datalist id="apps-docker-stack-opts">
+            <template x-for="o in appsDockerStackOptions()" :key="o"><option :value="o"></option></template>
+          </datalist>
+          <datalist id="apps-docker-container-opts">
+            <template x-for="o in appsDockerContainerOptions()" :key="o"><option :value="o"></option></template>
+          </datalist>
+        </div>
       </div>
       <div class="flex items-center gap-2 mt-4">
         <button type="button" class="btn btn-primary fs-sm" :disabled="appsInstanceEditSaving" @click="saveInstanceEdit()">
