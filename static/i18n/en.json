@@ -3758,7 +3758,7 @@
       "no_data_hint_waiting": "Probe configured — waiting for the next sampler tick to write the first sample.",
       "show_all": "Show {n} more",
       "show_less": "Show fewer",
-      "row_test_button": "Test row",
+      "row_test_button": "Test now",
       "row_test_title": "Probe this host's configured URLs and surface the per-URL outcome inline.",
       "row_test_aria": "Test HTTP probe URLs for this host",
       "row_test_running": "Testing…",
