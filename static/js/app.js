@@ -282,6 +282,8 @@ function app() {
     // on different chips don't share state; the matching button binds
     // :disabled + spinner class to this map.
     probeNowInFlight: {},
+    // Per-host "Probe all" batch in-flight flag (host_drawer Apps card header).
+    _hostAppsProbingAll: {},
     // Per-(host, service_idx) probe history cache, populated lazily by
     // `loadAppHistory` when the App Drawer opens. Keyed by
     // `host_id + ':' + service_idx`; value is `{samples, hours, loadedAt}`.

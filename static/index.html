@@ -5475,6 +5475,20 @@
                       x-text="t('host_drawer.apps.title') || 'Apps'"></h3>
                   <span class="chip pill-info fs-3xs ms-2"
                         x-text="t('host_drawer.apps.up_count', { up: (h.apps || []).filter(a => a.status === 'up').length, total: (h.apps || []).length })"></span>
+                  <!-- Probe all — always-visible, clearly-labelled control to
+                       probe every app on this host in one click (the per-tile
+                       refresh icons are compact + easy to miss). Admin-only;
+                       spins + disables only while its own batch runs. -->
+                  <button type="button" x-show="isAdmin()"
+                          class="btn btn-soft fs-2xs inline-flex items-center gap-1 ms-auto"
+                          :disabled="hostAppsProbingAll(h)"
+                          @click.stop="probeAllHostApps(h)"
+                          :title="t('host_drawer.apps.probe_all_title') || 'Probe every app on this host now'">
+                    <svg width="12" height="12" :class="hostAppsProbingAll(h) ? 'spin-md' : ''" aria-hidden="true">
+                      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                    </svg>
+                    <span x-text="t('host_drawer.apps.probe_all', { n: (h.apps || []).length }) || ('Probe all (' + (h.apps || []).length + ')')"></span>
+                  </button>
                 </header>
                 <!-- Compact wrapping tiles — each app is one inline tile that
                      flows + wraps (multiple per row) instead of taking a full
