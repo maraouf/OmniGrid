@@ -274,6 +274,19 @@ _BUILTIN: list[dict[str, Any]] = [
              "probe_path": "", "probe_status": 0},
             {"port": 8191, "protocol": "tcp", "label": "Embedded Mongo (KV store)",
              "probe_path": "", "probe_status": 0},
+            {"port": 9997, "protocol": "tcp", "label": "Forwarder receiver",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        # Bare TCP-connect — the connector's wire protocol is unknown, so
+        # a plain listening check is the safe default (the operator can
+        # switch the chip to an HTTP probe if it serves a web UI on /).
+        "name": "GitSync Connector", "slug": "gitsync", "icon": "gitsync",
+        "description": "Git repository sync connector",
+        "default_ports": [
+            {"port": 8020, "protocol": "tcp", "label": "Connector",
+             "probe_path": "", "probe_status": 0},
         ],
     },
     {
