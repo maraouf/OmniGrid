@@ -544,6 +544,8 @@ _BUILTIN: list[dict[str, Any]] = [
              "probe_path": "/", "probe_status": 0},
             {"port": 53, "protocol": "tcp", "label": "DNS (TCP)",
              "probe_path": "", "probe_status": 0},
+            {"port": 853, "protocol": "tcp", "label": "DNS-over-TLS",
+             "probe_path": "", "probe_status": 0},
         ],
     },
     {
