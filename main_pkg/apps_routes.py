@@ -352,6 +352,26 @@ async def api_services_catalog_pin(cid: int, payload: dict[str, Any], request: R
     existing_services = hosts[target_idx].get("services") or []
     if not isinstance(existing_services, list):
         existing_services = []
+    # Reject a duplicate pin — the same catalog app can't be pinned to the
+    # same host twice (it would render as two identical chips). 409 so the
+    # SPA surfaces "already pinned" instead of silently creating a dupe.
+    # (The _clean_host_services dedup is the backend safety net; this is
+    # the up-front, clearly-messaged guard.)
+    for _ex in existing_services:
+        if not isinstance(_ex, dict):
+            continue
+        _excid = _ex.get("catalog_id")
+        # isinstance (not `is not None`) so the type checker narrows
+        # dict.get()'s Any|None → int|str for the int() coercion.
+        try:
+            _is_dup = isinstance(_excid, (int, str)) and int(_excid) == cid
+        except (TypeError, ValueError):
+            _is_dup = False
+        if _is_dup:
+            raise HTTPException(
+                409,
+                f"'{template.get('name')}' is already pinned to {host_id}",
+            )
     new_idx = len(existing_services)
     existing_services.append(new_chip)
     # Validate + persist through the shared choke point — same validator
