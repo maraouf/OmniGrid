@@ -368,7 +368,7 @@ export default {
     }
     swal.fire({
       title: this.t('command_palette.ai.thinking_title') || 'Thinking…',
-      html: '<div class="text-[12px] text-[var(--text-faint)] mono" style="text-align:left;">'
+      html: '<div class="fs-sm text-[var(--text-faint)] mono" style="text-align:left;">'
         + this._logEscape(query) + '</div>'
         + '<div class="mt-3"><span class="spin-lg" aria-hidden="true"></span></div>',
       showConfirmButton: false,
@@ -391,7 +391,7 @@ export default {
           // announce the failure body verbatim. Belt-and-braces; the
           // SweetAlert role="dialog" + icon image alone don't always
           // trigger an announcement on every reader.
-          html: '<div class="text-[12px] mono" role="alert" aria-live="assertive" '
+          html: '<div class="fs-sm mono" role="alert" aria-live="assertive" '
             + 'style="text-align:left;white-space:pre-wrap;">'
             + this._logEscape(detail) + '</div>',
         });
@@ -553,7 +553,7 @@ export default {
       swal.fire({
         icon: 'error',
         title: this.t('command_palette.ai.error_title') || 'AI request failed',
-        html: '<div class="text-[12px] mono" style="text-align:left;">' + this._logEscape(e.message || String(e)) + '</div>',
+        html: '<div class="fs-sm mono" style="text-align:left;">' + this._logEscape(e.message || String(e)) + '</div>',
       });
     }
   },

@@ -78,7 +78,7 @@ async def gather_port_probes(
 # etc.) so a fresh scan of a homelab box surfaces useful chips out of
 # the box. Operator can override via the global setting or per-host.
 DEFAULT_PORTS: tuple[int, ...] = (
-    20, 21, 22, 23, 25, 53, 67, 68, 69, 80, 110, 111, 123, 135, 137, 138, 139,
+    20, 21, 22, 23, 25, 53, 67, 68, 69, 80, 81, 110, 111, 123, 135, 137, 138, 139,
     143, 161, 162, 179, 199, 389, 443, 445, 465, 514, 554, 587, 631, 636, 873,
     989, 990, 993, 995, 1025, 1049, 1080, 1194, 1433, 1434, 1521, 1701, 1723,
     1883, 1900, 1935, 2049, 2082, 2083, 2086, 2087, 2095, 2096, 2375, 2376, 3000, 3001,
@@ -89,7 +89,7 @@ DEFAULT_PORTS: tuple[int, ...] = (
     7575, 7655, 7878, 7880, 7882, 7886, 7888, 8000, 8005, 8008, 8010, 8020,
     8027, 8080, 8081, 8085, 8086, 8088, 8089, 8090, 8091, 8095, 8096, 8123,
     8125, 8181, 8191, 8200, 8265, 8266, 8332, 8333, 8384, 8388, 8443, 8500,
-    8530, 8554, 8581, 8631, 8746, 8765, 8888, 8989, 9000, 9001, 9080, 9090,
+    8530, 8554, 8581, 8631, 8746, 8765, 8888, 8920, 8989, 9000, 9001, 9080, 9090,
     9091, 9100, 9117, 9120, 9191, 9200, 9300, 9392, 9393, 9401, 9418, 9419,
     9443, 9500, 9696, 9981, 10000, 10001, 10050, 11211, 19999, 25565, 27017,
     27018, 32400, 32469, 32500, 32769, 41080, 44444, 45876, 49669, 50000,
@@ -103,7 +103,7 @@ DEFAULT_PORTS: tuple[int, ...] = (
 # operator override via `hosts_config[].services[]`.
 _PORT_HINTS: dict[int, str] = {
     20: "ftp-data", 21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp",
-    53: "dns", 67: "dhcp", 68: "dhcp", 69: "tftp", 80: "http",
+    53: "dns", 67: "dhcp", 68: "dhcp", 69: "tftp", 80: "http", 81: "npm-admin",
     110: "pop3", 111: "rpcbind", 123: "ntp", 135: "msrpc",
     137: "netbios-ns", 139: "smb",
     143: "imap", 161: "snmp", 162: "snmp-trap", 179: "bgp",
@@ -149,6 +149,7 @@ _PORT_HINTS: dict[int, str] = {
     8388: "shadowsocks", 8443: "https-alt", 8500: "consul", 8530: "wsus",
     8554: "diun", 8581: "homebridge",
     8631: "ipp-alt", 8746: "manageengine", 8765: "http-alt", 8888: "http-alt",
+    8920: "jellyfin-https",
     8989: "sonarr",
     9000: "portainer", 9001: "portainer-edge", 9080: "http-alt",
     9090: "prometheus", 9091: "qbittorrent", 9100: "node-exporter",

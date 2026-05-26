@@ -864,6 +864,7 @@
     "beszel": {
       "drawer_kicker": "Node",
       "alias_section_title": "Beszel host",
+      "alias_section_aria": "{title} — {name}",
       "alias_section_desc": "Matches on the Beszel record's <code class=\"mono\">host</code> field (the hostname the agent reports), not the user-editable <code class=\"mono\">name</code> label. Set this when the Docker hostname differs from the Beszel host — e.g. Docker sees <code class=\"mono\">host01</code> but Beszel reports <code class=\"mono\">host01.example.com</code>. Leave blank to match on the Docker name as-is.",
       "alias_input_label": "Beszel host"
     }
@@ -4731,6 +4732,7 @@
     "drawer": {
       "title": "App detail",
       "open": "View app details",
+      "open_aria": "View app details: {name}",
       "catalog": "Catalog template",
       "default_ports": "Default ports",
       "instances": "Instances",
@@ -4750,6 +4752,7 @@
     "host_drawer": {
       "title": "Host apps",
       "open": "View host apps",
+      "open_aria": "View host apps: {name}",
       "apps": "Apps on this host"
     },
     "empty_filtered": "No apps match the current filters.",

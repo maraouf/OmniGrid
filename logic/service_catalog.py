@@ -103,6 +103,190 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "Email (SMTP)", "slug": "smtp", "icon": "smtp",
+        "description": "Mail transfer agent (SMTP / SMTPS / Submission)",
+        "default_ports": [
+            {"port": 25, "protocol": "tcp", "label": "SMTP",
+             "probe_path": "", "probe_status": 0},
+            {"port": 465, "protocol": "tcp", "label": "SMTPS",
+             "probe_path": "", "probe_status": 0},
+            {"port": 587, "protocol": "tcp", "label": "Submission",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Forgejo", "slug": "forgejo", "icon": "forgejo",
+        "description": "Self-hosted Git service",
+        "default_ports": [
+            {"port": 3000, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Uptime Kuma", "slug": "uptime-kuma", "icon": "uptime-kuma",
+        "description": "Self-hosted uptime monitoring",
+        "default_ports": [
+            {"port": 3001, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Tracearr", "slug": "tracearr", "icon": "tracearr",
+        "description": "Media-request tracing dashboard",
+        "default_ports": [
+            {"port": 3003, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "netboot.xyz", "slug": "netboot-xyz", "icon": "netboot-xyz",
+        "description": "Network boot menu + assets",
+        "default_ports": [
+            {"port": 3050, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+            {"port": 3060, "protocol": "tcp", "label": "Assets",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Kavita", "slug": "kavita", "icon": "kavita",
+        "description": "Self-hosted digital library / reader",
+        "default_ports": [
+            {"port": 5002, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Speedtest Tracker", "slug": "speedtest-tracker", "icon": "speedtest-tracker",
+        "description": "Scheduled internet-speed tracking dashboard",
+        "default_ports": [
+            {"port": 5050, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+            {"port": 5051, "protocol": "tcp", "label": "Web UI (alt)",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Seerr", "slug": "seerr", "icon": "seerr",
+        "description": "Media-request management",
+        "default_ports": [
+            {"port": 5055, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Bazarr", "slug": "bazarr", "icon": "bazarr",
+        "description": "Subtitle management for Sonarr / Radarr",
+        "default_ports": [
+            {"port": 6767, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Homarr", "slug": "homarr", "icon": "homarr",
+        "description": "Self-hosted dashboard / homepage",
+        "default_ports": [
+            {"port": 7575, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Pulse Server", "slug": "pulse-server", "icon": "pulse",
+        "description": "Proxmox Pulse monitoring server (distinct from the agent)",
+        "default_ports": [
+            {"port": 7655, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Apprise", "slug": "apprise", "icon": "apprise",
+        "description": "Notification fan-out API",
+        "default_ports": [
+            {"port": 8005, "protocol": "tcp", "label": "API",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "ddns-updater", "slug": "ddns-updater", "icon": "ddns-updater",
+        "description": "Dynamic-DNS record updater",
+        "default_ports": [
+            {"port": 8010, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Dozzle", "slug": "dozzle", "icon": "dozzle",
+        "description": "Real-time Docker container log viewer",
+        "default_ports": [
+            {"port": 8080, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "AdGuardHome Sync", "slug": "adguardhome-sync", "icon": "adguard-home",
+        "description": "Syncs config between AdGuard Home instances",
+        "default_ports": [
+            {"port": 8091, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "LubeLogger", "slug": "lubelogger", "icon": "lubelogger",
+        "description": "Vehicle maintenance + fuel tracking",
+        "default_ports": [
+            {"port": 8095, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Tautulli", "slug": "tautulli", "icon": "tautulli",
+        "description": "Plex monitoring + statistics",
+        "default_ports": [
+            {"port": 8181, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "FlareSolverr", "slug": "flaresolverr", "icon": "flaresolverr",
+        "description": "Cloudflare-challenge solver proxy",
+        "default_ports": [
+            {"port": 8191, "protocol": "tcp", "label": "API",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Homebridge", "slug": "homebridge", "icon": "homebridge",
+        "description": "HomeKit bridge for non-native accessories",
+        "default_ports": [
+            {"port": 8581, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Komodo", "slug": "komodo", "icon": "komodo",
+        "description": "Build + deployment / container orchestration UI",
+        "default_ports": [
+            {"port": 9120, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "OmniGrid", "slug": "omnigrid", "icon": "omnigrid",
+        "description": "OmniGrid update + management dashboard",
+        "default_ports": [
+            {"port": 9500, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/api/healthz", "probe_status": 200},
+        ],
+    },
+    {
+        "name": "Fing Agent", "slug": "fing-agent", "icon": "fing-agent",
+        "description": "Network device discovery agent",
+        "default_ports": [
+            {"port": 44444, "protocol": "tcp", "label": "Agent",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
         "name": "Jellyfin", "slug": "jellyfin", "icon": "jellyfin",
         "description": "Open-source media streaming server",
         "default_ports": [
@@ -148,6 +332,10 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Portainer", "slug": "portainer", "icon": "portainer",
         "description": "Docker container management UI",
         "default_ports": [
+            {"port": 8000, "protocol": "tcp", "label": "Edge tunnel",
+             "probe_path": "", "probe_status": 0},
+            {"port": 8443, "protocol": "tcp", "label": "HTTPS (alt)",
+             "probe_path": "/api/system/status", "probe_status": 200},
             {"port": 9000, "protocol": "tcp", "label": "HTTP",
              "probe_path": "/api/system/status", "probe_status": 200},
             {"port": 9443, "protocol": "tcp", "label": "HTTPS",
@@ -606,6 +794,23 @@ def _auto_slug(name: str) -> str:
     runs of non-alphanumeric chars."""
     s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return s[:64] or "service"
+
+
+def catalog_builtin_ports() -> set[int]:
+    """Set of every port declared across the built-in catalog templates
+    (``_BUILTIN``). Backs the port-scan coverage audit
+    (``scripts/audit_catalog_ports.py``): every shipped app template's
+    ports MUST be in ``port_scanner.DEFAULT_PORTS`` so a default scan
+    always covers an app OmniGrid ships a template for — adding a
+    template then means adding its port(s) to DEFAULT_PORTS too, and the
+    audit catches any miss."""
+    ports: set[int] = set()
+    for tpl in _BUILTIN:
+        for p in (tpl.get("default_ports") or []):
+            pi = _coerce_int(p.get("port")) if isinstance(p, dict) else None
+            if pi:
+                ports.add(pi)
+    return ports
 
 
 def seed_builtins(force: bool = False) -> int:
