@@ -37,6 +37,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - Admin → Apps → Instances can now be grouped by host or by service (with collapsible groups) to tame a long list of pinned apps.
 - App instances can be linked to a Portainer container or stack (in the instance editor), adding inline Restart and Update actions in the app detail drawer.
 - Added Syncthing (8384/tcp Web UI) and a Plex DLNA port (32469/tcp) to the built-in Apps catalog templates.
+- Added MariaDB (3306), PostgreSQL (5432), MongoDB (27017), and InfluxDB (8086 HTTP API + 8088 RPC) to the built-in Apps catalog templates, with a bundled MariaDB brand icon. All four ports are already covered by the default port-scan list, so an open database port is matched to its app in the discovery wizard.
 
 ### Changed
 
@@ -54,6 +55,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - Renaming or re-iconing a catalog template now propagates to pinned app instances that haven't set their own override — instances no longer snapshot the template's name/icon at pin time. The instance URL is also visible at narrower window widths.
 - Editing an app instance (URL/link, ports, icon) now reflects immediately in the Apps view and detail drawer, and removing a port no longer leaves a stale per-port indicator.
 - The per-app "Probe now" refresh in the host drawer's Apps card now works for apps that have ports configured even when continuous probing is turned off — an explicit click probes the configured ports regardless of the continuous-sampler toggle, and the refresh button now appears whenever there are port pills to refresh.
+- In the host drawer's Port Scan section, a configured-but-not-yet-probed port now shows a grey "unknown" dot (matching the Apps card) instead of a red "down" dot — the two surfaces no longer disagree on a pending port's status.
 
 ## [1.5.0] — 2026-05-23
 
